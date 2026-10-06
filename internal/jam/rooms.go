@@ -62,27 +62,6 @@ func (m *memState) rosterChannels(project ident.ID) []RosterChannel {
 	return out
 }
 
-// prepareAddRoom plans AddChannel: the project's room named rc.Name, created
-// or rebound to rc.Ref on the connection of kind rc.Service (default linear;
-// created when the store has none). Caller holds mu.
-func (m *memState) prepareAddRoom(project string, rc RosterChannel) (humanPlan, error) {
-	var plan humanPlan
-	if rc.Name == "" {
-		return plan, fmt.Errorf("channel name required")
-	}
-	p, created, err := m.requireProject(project)
-	if err != nil {
-		return plan, err
-	}
-	if rc.Ref == "" {
-		return plan, fmt.Errorf("channel %q: ref required", rc.Name)
-	}
-	if created {
-		plan.projects = append(plan.projects, p)
-	}
-	return plan, m.planRoom(&plan, p, rc, false)
-}
-
 // planRoom plans roster channel rc of project p as a room (an upsert by
 // name, against the store and the rooms the plan already holds). A binding
 // another channel already holds is ErrBindingTaken — unless the room already
@@ -153,22 +132,6 @@ func (m *memState) planConnectionOfKind(plan *humanPlan, k string) Connection {
 	c := Connection{ID: ident.New(ident.Connection), Kind: k, Name: name, Status: StatusLive}
 	plan.connections = append(plan.connections, c)
 	return c
-}
-
-// prepareRemoveRoom resolves RemoveChannel to the room it archives (none when
-// the project has no such room: a no-op, as before). Caller holds mu.
-func (m *memState) prepareRemoveRoom(project, name string) (Channel, bool, error) {
-	p, ok := m.projects[project]
-	if !ok {
-		return Channel{}, false, fmt.Errorf("project %q not found", project)
-	}
-	ch, ok := m.liveChannelByKey(p.ID, SourceRoom, name)
-	if !ok {
-		return Channel{}, false, nil
-	}
-	ch = copyChannel(ch)
-	ch.Status = StatusArchived
-	return ch, true, nil
 }
 
 // planRooms is registry migration step 5: every project doc's roster

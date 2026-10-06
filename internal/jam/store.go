@@ -45,15 +45,6 @@ type Store interface {
 	RemoveInstance(actorID string) error
 	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) // monotonic forward on upToSeq; no-op if upToSeq <= current CommitSeq; error if actor absent
 
-	// CommitUnread advances the intercom-UI unread cursor for (participant,
-	// channel) to seq. Monotonic forward-only: a backward/equal seq is a no-op
-	// success. participant and channel are free-form (no backing entity); both
-	// must be non-empty. UnreadCursor reads one pair; UnreadCursors reads all of
-	// a participant's channel cursors (the map ProjectChannels consumes).
-	CommitUnread(participant, channel string, seq int64) error
-	UnreadCursor(participant, channel string) (int64, bool)
-	UnreadCursors(participant string) map[string]int64
-
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
@@ -79,9 +70,7 @@ type Store interface {
 	ImportConfig(s ConfigSnapshot) error
 
 	AddHuman(project string, h Human) error // upsert by name
-	AddChannel(project string, c RosterChannel) error
 	RemoveHuman(project, name string) error
-	RemoveChannel(project, name string) error
 	GetProject(name string) (Project, bool)
 	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error

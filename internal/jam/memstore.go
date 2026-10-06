@@ -198,19 +198,6 @@ func (fs *MemStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (
 	return i, nil
 }
 
-func (fs *MemStore) CommitUnread(participant, channel string, seq int64) error {
-	if participant == "" || channel == "" {
-		return fmt.Errorf("participant and channel are required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	if _, changed := fs.applyCommitUnread(participant, channel, seq); !changed {
-		// No-op advance (backward/equal seq): nothing changed.
-		return nil
-	}
-	return nil
-}
-
 func (fs *MemStore) AddDestination(d Destination) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -262,20 +249,6 @@ func (fs *MemStore) AddHuman(project string, h Human) error {
 	return nil
 }
 
-func (fs *MemStore) AddChannel(project string, c RosterChannel) error {
-	if c.Name == "" {
-		return fmt.Errorf("channel name required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	plan, err := fs.prepareAddRoom(project, c)
-	if err != nil {
-		return err
-	}
-	fs.applyHumanPlan(plan)
-	return nil
-}
-
 func (fs *MemStore) RemoveHuman(project, name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -284,17 +257,6 @@ func (fs *MemStore) RemoveHuman(project, name string) error {
 		return err
 	}
 	fs.applyRemoveMember(ms.ProjectID, ms.UserID)
-	return nil
-}
-
-func (fs *MemStore) RemoveChannel(project, name string) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	ch, ok, err := fs.prepareRemoveRoom(project, name)
-	if err != nil || !ok {
-		return err
-	}
-	fs.applyPutChannel(ch)
 	return nil
 }
 

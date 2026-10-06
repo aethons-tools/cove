@@ -95,22 +95,6 @@ var (
 	ErrSendUnresolved = errors.New("comms: send target not found")
 )
 
-// parseTarget splits a send target. People are "user:<name|usr_id>";
-// "human:<name>" is accepted as an alias (one release) and read as "user:".
-func parseTarget(target string) (kind, ref string, ok bool) {
-	k, n, found := strings.Cut(target, ":")
-	if !found || n == "" {
-		return "", "", false
-	}
-	switch k {
-	case "user", "human":
-		return "user", n, true
-	case "channel":
-		return k, n, true
-	}
-	return "", "", false
-}
-
 // normalizeGlob reads a pre-registry "human:" addressing glob as "user:".
 func normalizeGlob(g string) string {
 	if rest, ok := strings.CutPrefix(g, "human:"); ok {
@@ -158,68 +142,6 @@ func humanForms(h Human) []string {
 		forms = append(forms, "user:"+string(h.UserID))
 	}
 	return forms
-}
-
-func resolveInRoster(kind, ref string, r Roster) (SendTarget, []string, bool) {
-	switch kind {
-	case "user":
-		for _, h := range r.Humans {
-			if h.Name == ref || (h.UserID != "" && string(h.UserID) == ref) {
-				return SendTarget{Kind: "human", Name: h.Name, UserID: h.UserID, Handle: h.Handle}, humanForms(h), true
-			}
-		}
-	case "channel":
-		for _, c := range r.Channels {
-			if c.Name == ref {
-				return SendTarget{Kind: "channel", Name: ref, Ref: c.Ref}, []string{"channel:" + ref}, true
-			}
-		}
-	}
-	return SendTarget{}, nil, false
-}
-
-// DecideSend authorizes actor a to send to target and resolves delivery. Live,
-// additive across grants, per-grant existential, fail-closed. See ErrSendDenied
-// / ErrSendUnresolved for the 403/404 split (authz checked before existence).
-// A grant authorizes a target when one of its addressing globs matches the
-// target as written, or (once resolved in its project) any form of whom it
-// names — so an id-form glob covers the name and vice versa, and an id never
-// widens what a name glob grants.
-func DecideSend(a Actor, getRole func(project, role string) (Role, bool), getRoster func(project string) (Roster, bool), target string, now time.Time) (SendTarget, error) {
-	if !a.Expiry.IsZero() && now.After(a.Expiry) {
-		return SendTarget{}, fmt.Errorf("actor %q expired", a.ID)
-	}
-	kind, ref, ok := parseTarget(target)
-	if !ok {
-		return SendTarget{}, ErrSendDenied
-	}
-	written := kind + ":" + ref
-	authorized := false
-	for _, g := range a.Grants {
-		role, ok := getRole(g.Project, g.Role)
-		if !ok {
-			continue
-		}
-		globs := EffectiveScope(g, role).Addressing
-		roster, hasRoster := getRoster(g.Project)
-		var st SendTarget
-		var forms []string
-		found := false
-		if hasRoster {
-			st, forms, found = resolveInRoster(kind, ref, roster)
-		}
-		if found && anyAllowed(forms, globs) {
-			st.Project = g.Project
-			return st, nil
-		}
-		if anyAllowed([]string{written}, globs) {
-			authorized = true
-		}
-	}
-	if authorized {
-		return SendTarget{}, ErrSendUnresolved
-	}
-	return SendTarget{}, ErrSendDenied
 }
 
 // ListTargets returns the actor's authorized-and-resolvable targets (dedup by

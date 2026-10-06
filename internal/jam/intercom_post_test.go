@@ -456,3 +456,22 @@ func TestIntercomProjectMembershipGatesUsers(t *testing.T) {
 		}
 	}
 }
+
+// A name glob never matches a person's id: an id is matched only by that
+// exact id, user:* or * — so ids never widen what a name glob grants.
+func TestIntercomNameGlobsNeverMatchIDs(t *testing.T) {
+	for _, globs := range [][]string{{"user:u*"}, {"user:*_*", "user:*0*"}} {
+		f := newICFixture(t, globs...)
+		for _, addr := range []string{"user:alice", "user:" + string(f.alice.ID)} {
+			if _, err := f.plan(f.standing, addr); !errors.Is(err, ErrSendDenied) {
+				t.Errorf("%v → %s: %v, want denied", globs, addr, err)
+			}
+		}
+	}
+	for _, glob := range []string{"user:*", "*"} {
+		f := newICFixture(t, glob)
+		if _, err := f.plan(f.standing, "user:"+string(f.alice.ID)); err != nil {
+			t.Errorf("%s → alice's id: %v, want allowed", glob, err)
+		}
+	}
+}

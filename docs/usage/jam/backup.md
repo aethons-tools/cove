@@ -44,8 +44,8 @@ check `identity_in`/`apply`, so a backup may hold a value this Jam doesn't
 know: the error names the destination and field — fix it in the file
 (a preset, or `custom` plus a spec) and re-import.
 
-They deliberately **exclude** runtime/studio state (raised instances), intercom
-unread cursors, the intercom squawk log, and allocator events. A backup restores
+They deliberately **exclude** runtime/studio state (raised instances), the
+intercom's log, read cursors and channel memberships, and allocator events. A backup restores
 *who can reach what*, not *what is currently running*.
 
 ## Export

@@ -25,7 +25,7 @@ const ConfigSnapshotVersion = 3
 // actors (with their token hashes and grants), roles, kits (all versions + the
 // pin), destinations, model-specs, projects (roster, escalation, chat service, session context) and the
 // Jam-wide session context. It never
-// carries runtime/studio state (instances) or intercom unread cursors — those
+// carries runtime/studio state (instances) or the intercom's read cursors and channel memberships — those
 // aggregates simply have no field here.
 type ConfigSnapshot struct {
 	Version      int                        `json:"version"`
@@ -70,7 +70,7 @@ var ErrConfigNotEmpty = errors.New("import refused: target config is not empty")
 var ErrUnsupportedConfigVersion = errors.New("unsupported config snapshot version")
 
 // ExportConfig returns a deep copy of the config aggregates, sorted for a
-// stable/diffable backup. Runtime state (instances, unread cursors) is never
+// stable/diffable backup. Runtime state (instances, read cursors) is never
 // read. Safe under the read lock; the returned snapshot shares nothing with the
 // live store.
 func (m *memState) ExportConfig() ConfigSnapshot {
@@ -307,7 +307,7 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 
 // applyImport overwrites the config maps from a (deep-copied) snapshot. Caller
 // holds the write lock and has already validated with checkImport. State maps
-// (instances, unread) are untouched.
+// (instances, read cursors, channel members) are untouched.
 func applyImport(m *memState, s ConfigSnapshot) {
 	s = withReferencedProjects(deepCopySnapshot(s))
 	m.actors = map[string]Actor{}
