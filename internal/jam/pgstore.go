@@ -241,6 +241,9 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	if err := s.loadRegistry(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureProjectIDs(ctx); err != nil {
+		return err
+	}
 	var jc []byte
 	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'context'`).Scan(&jc); {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -319,11 +322,7 @@ func (s *PostgresStore) execWithProjects(op string, projects []Project, sql stri
 	ctx := context.Background()
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		for _, p := range projects {
-			doc, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+			if err := insertProjectTx(ctx, tx, p); err != nil {
 				return err
 			}
 		}
@@ -359,11 +358,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
-			doc, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+			if err := insertProjectTx(ctx, tx, p); err != nil {
 				return err
 			}
 		}
@@ -577,11 +572,9 @@ func (s *PostgresStore) CreateProject(name string) error {
 		return err
 	}
 	p := newProject(name)
-	doc, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	if err := s.exec("CreateProject", `INSERT INTO projects (name, doc) VALUES ($1,$2)`, name, doc); err != nil {
+	if err := s.registryTx("CreateProject", func(ctx context.Context, tx pgx.Tx) error {
+		return insertProjectTx(ctx, tx, p)
+	}); err != nil {
 		return err
 	}
 	s.applyPutProject(p)
@@ -943,14 +936,9 @@ func (s *PostgresStore) SetChatService(project, service string) error {
 
 // putProject upserts a project's row and, on success, updates the cache.
 func (s *PostgresStore) putProject(p Project) error {
-	doc, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	if err := s.exec("putProject",
-		`INSERT INTO projects (name, doc) VALUES ($1,$2)
-		 ON CONFLICT (name) DO UPDATE SET doc = EXCLUDED.doc, version = projects.version + 1, updated_at = now()`,
-		p.Name, doc); err != nil {
+	if err := s.registryTx("putProject", func(ctx context.Context, tx pgx.Tx) error {
+		return upsertProjectTx(ctx, tx, p)
+	}); err != nil {
 		return err
 	}
 	s.applyPutProject(p)

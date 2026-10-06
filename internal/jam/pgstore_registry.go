@@ -47,6 +47,9 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 		return err
 	}
 	if err := s.registryTx("RemoveUser", func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM memberships WHERE user_id = $1`, id); err != nil {
+			return err
+		}
 		return putUserTx(ctx, tx, u, unlinked)
 	}); err != nil {
 		return err
@@ -55,6 +58,7 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 	for _, a := range unlinked {
 		s.applyPutAccount(a)
 	}
+	s.applyDropMemberships(id)
 	return nil
 }
 
@@ -274,5 +278,107 @@ func (s *PostgresStore) loadRegistry(ctx context.Context) error {
 	})
 }
 
-func (s *PostgresStore) AddMember(ident.ID, ident.ID) error    { panic("pgstore: memberships: task 4") }
-func (s *PostgresStore) RemoveMember(ident.ID, ident.ID) error { panic("pgstore: memberships: task 4") }
+// ---- projects and memberships ----
+
+func (s *PostgresStore) AddMember(project, user ident.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	added, err := s.prepareAddMember(project, user)
+	if err != nil || !added {
+		return err
+	}
+	if err := s.registryTx("AddMember", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO memberships (project_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, project, user)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyAddMember(project, user)
+	return nil
+}
+
+func (s *PostgresStore) RemoveMember(project, user ident.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareRemoveMember(project, user); err != nil {
+		return err
+	}
+	if err := s.registryTx("RemoveMember", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM memberships WHERE project_id = $1 AND user_id = $2`, project, user)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveMember(project, user)
+	return nil
+}
+
+// insertProjectTx inserts a new project row with its id (and the id's
+// participants row).
+func insertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
+	if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO projects (name, id, doc) VALUES ($1,$2,$3)`, p.Name, p.ID, doc)
+	return err
+}
+
+// upsertProjectTx writes a project row by name, keeping its id column in step
+// with the doc.
+func upsertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
+	if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO projects (name, id, doc) VALUES ($1,$2,$3)
+		 ON CONFLICT (name) DO UPDATE SET id = EXCLUDED.id, doc = EXCLUDED.doc, version = projects.version + 1, updated_at = now()`,
+		p.Name, p.ID, doc)
+	return err
+}
+
+// ensureProjectIDs gives every loaded project written before projects had ids
+// a fresh one and persists it, so later loads see the same id. It then loads
+// the memberships, which reference those ids. load's project part; no lock.
+func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
+	for name, p := range s.projects {
+		if p.ID != "" {
+			continue
+		}
+		p.ID = newProject(name).ID
+		doc, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		if err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+			if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3`, p.ID, doc, name)
+			return err
+		}); err != nil {
+			return fmt.Errorf("pgstore: backfill project id for %q: %w", name, err)
+		}
+		s.projects[name] = p
+	}
+	rows, err := s.pool.Query(ctx, `SELECT project_id, user_id FROM memberships`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load memberships: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project, user string
+		if err := rows.Scan(&project, &user); err != nil {
+			return err
+		}
+		s.applyAddMember(ident.ID(project), ident.ID(user))
+	}
+	return rows.Err()
+}

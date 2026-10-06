@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/storetest"
 )
@@ -41,5 +42,42 @@ func TestPostgresStoreFailsClosedOnBadDSN(t *testing.T) {
 	if _, err := jam.NewPostgresStore(context.Background(),
 		"host=127.0.0.1 port=1 dbname=nope user=nope password=x sslmode=disable connect_timeout=1", nil); err == nil {
 		t.Fatal("NewPostgresStore must fail closed on an unreachable DSN")
+	}
+}
+
+// TestPostgresProjectIDBackfill: a project row written before projects had ids
+// gets one minted and persisted at load, and later loads keep that same id.
+func TestPostgresProjectIDBackfill(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	if _, err := s.Pool().Exec(ctx, `INSERT INTO projects (name, doc) VALUES ('legacy', '{"name":"legacy","roster":{}}')`); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+	p, ok := open().GetProject("legacy")
+	if !ok || p.ID.Kind() != ident.Project {
+		t.Fatalf("backfilled project = %+v, %v", p, ok)
+	}
+	again := open()
+	if q, _ := again.GetProject("legacy"); q.ID != p.ID {
+		t.Fatalf("id changed across loads: %q → %q", p.ID, q.ID)
+	}
+	if e, ok := again.Resolve(p.ID); !ok || e.Name != "legacy" {
+		t.Fatalf("Resolve = %+v, %v", e, ok)
 	}
 }
