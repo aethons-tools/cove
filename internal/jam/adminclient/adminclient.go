@@ -449,6 +449,22 @@ func (c *Client) ResetStanding(project, role, name string) (jam.StandingResetRes
 	return out, err
 }
 
+// UpgradeStanding re-raises a declared standing session on the image a raise
+// would run now, keeping its conversation and workspace. Upgraded=false and
+// Pending=false means it already ran the current image and was left alone;
+// Pending means the re-raise didn't complete within the call (Jam raises it on
+// a later pass). A mid-episode session is ErrConflict unless force, which also
+// restarts an already-current one. An undeclared name is ErrNotFound.
+func (c *Client) UpgradeStanding(project, role, name string, force bool) (jam.StandingUpgradeResult, error) {
+	var out jam.StandingUpgradeResult
+	path := standingPath(project, role) + "/" + url.PathEscape(name) + "/upgrade"
+	if force {
+		path += "?force=true"
+	}
+	err := c.do("POST", path, nil, &out)
+	return out, err
+}
+
 func egressPath(project, role string) string {
 	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/egress"
 }

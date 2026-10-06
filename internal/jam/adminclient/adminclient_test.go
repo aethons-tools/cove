@@ -640,6 +640,48 @@ func TestClientResetStanding(t *testing.T) {
 	}
 }
 
+// upgraderFunc adapts a func to jam.StandingUpgrader.
+type upgraderFunc func() error
+
+func (f upgraderFunc) UpgradeStanding(context.Context, string, string, string) error { return f() }
+
+// TestClientUpgradeStanding: a busy session is ErrConflict unless forced (the
+// force query reaches the server); a re-raise the reconciler is still
+// finishing is Pending with its reason; an undeclared name is ErrNotFound.
+func TestClientUpgradeStanding(t *testing.T) {
+	store := jam.NewMemStore()
+	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "bot", Prompt: "p"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	var upErr error
+	calls := 0
+	sup.SetStandingUpgrader(upgraderFunc(func() error { calls++; return upErr }))
+	id := jam.StandingActorID(jam.DefaultProject, "guest", "bot")
+	if err := store.PutInstance(jam.Instance{ActorID: id, Project: jam.DefaultProject, Role: "guest", Name: "bot",
+		SessionKind: jam.SessionKindStanding, Phase: jam.PhaseLive, Activity: jam.ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	t.Cleanup(ts.Close)
+	c := New(ts.URL, "")
+
+	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", false); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("busy UpgradeStanding = %v, want ErrConflict naming running", err)
+	}
+	if res, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", true); err != nil || !res.Upgraded || calls != 1 {
+		t.Fatalf("forced UpgradeStanding = %+v, %v (calls %d)", res, err, calls)
+	}
+	upErr = errors.New("grant denied")
+	if res, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", true); err != nil || !res.Pending || !strings.Contains(res.Reason, "grant denied") {
+		t.Fatalf("pending UpgradeStanding = %+v, %v", res, err)
+	}
+	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "nobody", false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("undeclared UpgradeStanding = %v, want ErrNotFound", err)
+	}
+}
+
 // TestClientEgressRoundTrip sets, shows and clears a role's egress policy
 // through the client; ListRoles carries it; a bad domain surfaces the 400.
 func TestClientEgressRoundTrip(t *testing.T) {

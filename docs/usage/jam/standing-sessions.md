@@ -1,8 +1,8 @@
 ---
-summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset` verbs and admin routes, keep-alive with backoff, persisted state, reset, dismissal, admission, and messaging.
-read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing or resetting one, or you need to know what survives its restart, or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), a standing session's persisted state (its volumes, conversation resume) and reset, standing admission (declared-name cap, file-store behavior), and how a standing session messages people
-prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
+summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
+read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after an at-jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
+owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (its idle-only guard), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-10-06
 ---
@@ -23,6 +23,7 @@ at-jam standing add  --project acme --role reviewer --name alice-bot --prompt-fi
 at-jam standing list --project acme --role reviewer
 at-jam standing rm    --project acme --role reviewer alice-bot
 at-jam standing reset --project acme --role reviewer alice-bot
+at-jam standing upgrade --project acme --role reviewer alice-bot
 ```
 
 Like every admin verb they take `--app`/`--admin-url`/`--token`
@@ -38,6 +39,8 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
   (see [Dismissal](#dismissal)).
 - **reset** keeps the name but deletes its studio and state, so Jam raises it
   fresh (see [Reset](#reset)).
+- **upgrade** restarts the studio on the current image, keeping its state (see
+  [Upgrading a standing session](#upgrading-a-standing-session)).
 
 The declarations live on the role (`allocation.standing`, a list of
 `{name, prompt}`). Each write reads the role, changes only that list, and writes it
@@ -59,10 +62,11 @@ declaration on any role or project (for example, `a b` and `a/b` both become
 | `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared, or its actor id is already in use. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included. **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
+| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **200** upgraded or already current; **202** pending; **409** mid-episode (unless forced) or the actor id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
 | `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
-The role page in the admin UI has a **Reset** button (with a confirm) beside
-**Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
+The role page in the admin UI has **Upgrade** and **Reset** buttons (with a
+confirm) beside **Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
 
 ## What "kept alive" means
 
@@ -104,39 +108,11 @@ reclaimed, because it has no owner. That ladder is for
 
 ## State across restarts
 
-A standing studio mounts two named Docker volumes, named after its container
-(`atcove-cove-<actor id>`) like an `at-cove create` sandbox's:
-`<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
-conversations, settings, logs) and `<container>-workspace` at the agent's working
-directory (`/home/agent/workspace` by default), plus, for a `docker: true`
-launcher, its `<container>-docker` cache at `/var/lib/docker`. Jam creates them
-before the container, labeled `harbor.cove.state=<actor id>` and
-`harbor.cove.jam=<this Jam's runtime address>`; a Jam only ever sweeps volumes
-carrying its own address, so two Jams sharing a docker host can't purge each
-other's (changing the runtime address orphans the old volumes rather than
-deleting them). The container runs with `--rm`,
-which removes only anonymous volumes, so these outlive it and re-attach when the
-name is raised again under the same actor id. The image's entrypoint seeds
-`/agent-data` only once (its `.seeded` guard) and refreshes what the image's
-`.refresh` lists; a fresh workspace volume comes up agent-owned (Docker copies
-the image's agent-owned directory into an empty volume). The agent's stream log
-there (`agent-stream.jsonl`) is rotated to `.1` at start once over 16 MiB.
-
-Once the agent first replies, cove-master writes `/agent-data/.cove-conversation`.
-When a restarted standing session finds that marker, its first episode runs
-`claude --continue` and, instead of the declared prompt (which the conversation
-already holds), gets a restart notice: it was restarted, its conversation and
-workspace are intact, `read` the intercom for what arrived meanwhile, then
-continue. If that resumed episode fails quickly without the agent replying (no
-conversation to continue), cove-master drops the marker and retries once, fresh,
-with the declared prompt. Without the marker it starts fresh.
-
-No teardown deletes the state — a dead or Lost studio, a Jam restart or upgrade,
-an idle reap, a hand `studio teardown` all keep it. Only the reconciler does, by
-the declarations: every pass it removes the labeled volumes of any actor id no
-longer declared on a role (see [Dismissal](#dismissal)), and [Reset](#reset)
-removes a declared one's. Ephemeral and [personal](personal-sessions.md)
-sessions mount no volumes and always start fresh.
+A standing studio keeps its conversation and workspace in named Docker volumes
+that outlive its container and re-attach when the name is raised again; a
+restarted session resumes with `claude --continue`. No teardown deletes them —
+only [Reset](#reset) and [Dismissal](#dismissal) do. The volumes, their labels
+and the resume rules are in [standing-state.md](standing-state.md).
 
 ## Reset
 
@@ -150,6 +126,31 @@ use), the reset is **pending**: the name is held back from raising — it would
 re-attach the old state — and every pass retries until it completes. The pending
 mark is in memory: a Jam restart forgets it, and the name is raised on whatever
 state remains.
+
+## Upgrading a standing session
+
+A standing studio keeps the image it was raised on. When `standing list` or the
+role page shows [`image=stale`](coves.md#the-studio-verbs) — after a new at-jam
+build, a build-changing kit edit, or a [model-spec](model-specs.md) change —
+run `standing upgrade` (or the role page's **Upgrade** button, highlighted when
+stale). Jam tears the studio down with a plain teardown, **keeping its
+volumes**, and raises it again under the same actor id on whatever image a raise
+picks now; it **resumes its conversation and workspace** like any restart. It
+runs inside the reconciler (one pass at a time) and clears the name's backoff.
+
+- **Idle only.** The session must be between episodes: `idled`, or live and
+  `waiting`. Otherwise it is refused (**409**, naming the state) — including
+  [`holding`](turn-end.md#holding), whose background tasks a teardown would
+  kill. `--force` (`?force=true`) restarts it anyway; the UI never forces.
+- **Already current.** An `ok` image is left running (**200**
+  `{"upgraded":false,"reason":"already current"}`) unless forced; `unknown` is upgraded.
+- **Not running.** A name with no studio is raised now.
+- **Result.** **200** `{"upgraded":true,"image":…}` when the re-raise finished
+  within the call; **202** `{"pending":true,"reason":…}` when it didn't (a
+  failed grant or raise) — the reconciler raises it on a later pass.
+
+Jam does **not** upgrade standing sessions on its own: a restart interrupts a
+long-lived teammate, so the operator chooses when.
 
 ## Dismissal
 

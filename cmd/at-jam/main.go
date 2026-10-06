@@ -89,7 +89,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
-			{Name: "standing", Brief: "declare, list, dismiss or reset a role's named standing sessions (add|list|rm|reset) via the admin API", Run: cmdStanding},
+			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
@@ -1220,10 +1220,11 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // cmdStanding manages a role's standing-session declarations: Jam keeps one
 // cove running per declared name, restarts it (state kept) if it dies, and
 // tears it down with its state once the name is removed. reset deletes a
-// declared name's cove and state so Jam raises it afresh.
+// declared name's cove and state so Jam raises it afresh; upgrade re-raises it
+// on the current image, keeping its state.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam standing: expected add|list|rm|reset")
+		fmt.Fprintln(stderr, "at-jam standing: expected add|list|rm|reset|upgrade")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -1235,6 +1236,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role the standing session belongs to")
 	name := fs.String("name", "", "standing session name, unique within the role (add only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
+	force := fs.Bool("force", false, "upgrade only: restart even a mid-episode or already-current session")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1243,7 +1245,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam standing:", err)
 		return 2
 	}
-	if *role == "" && (sub == "add" || sub == "list" || sub == "rm" || sub == "reset") {
+	if *role == "" && (sub == "add" || sub == "list" || sub == "rm" || sub == "reset" || sub == "upgrade") {
 		fmt.Fprintf(stderr, "at-jam standing %s: --role is required\n", sub)
 		return 2
 	}
@@ -1315,6 +1317,24 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			break
 		}
 		fmt.Fprintf(stdout, "reset standing session %s (cove and state deleted; Jam raises it fresh)\n", pos[0])
+	case "upgrade":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam standing upgrade: expected one standing session name")
+			return 2
+		}
+		res, err := c.UpgradeStanding(proj, *role, pos[0], *force)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		switch {
+		case res.Pending:
+			fmt.Fprintf(stdout, "upgrade of standing session %s pending: %s\n", pos[0], res.Reason)
+		case !res.Upgraded:
+			fmt.Fprintf(stdout, "standing session %s already runs the current image (%s); nothing restarted (--force restarts it anyway)\n", pos[0], imageOrUnknown(res.Image))
+		default:
+			fmt.Fprintf(stdout, "upgraded standing session %s: re-raised on image %s, conversation and workspace kept\n", pos[0], imageOrUnknown(res.Image))
+		}
 	default:
 		fmt.Fprintln(stderr, "at-jam standing: unknown subcommand", sub)
 		return 2
@@ -1854,6 +1874,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
 	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
 	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
+	sup.SetStandingUpgrader(stdg) // so does `standing upgrade`
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 

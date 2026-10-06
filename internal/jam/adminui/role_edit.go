@@ -207,4 +207,11 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/reset", edit("standing reset", func(r *http.Request, project, name string) error {
 		return jam.ResetStanding(r.Context(), store, sup, project, name, r.PathValue("session"))
 	}))
+	// Upgrade: the session's studio is re-raised on the current image, its
+	// conversation and workspace kept; a mid-episode session is refused (409)
+	// and an already-current one left running (the CLI's --force overrides).
+	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/upgrade", edit("standing upgrade", func(r *http.Request, project, name string) error {
+		_, err := jam.UpgradeStanding(r.Context(), store, sup, project, name, r.PathValue("session"), false)
+		return err
+	}))
 }

@@ -129,6 +129,15 @@ type StandingResetter interface {
 	ResetStanding(ctx context.Context, project, role, name string) error
 }
 
+// StandingUpgrader re-raises a declared standing session on the current image,
+// keeping its state — a plain teardown, then a raise under the same id —
+// serialized with the standing reconciler's passes and clearing its backoff.
+// An error means the re-raise did not complete within the call: the
+// reconciler raises the name on a later pass.
+type StandingUpgrader interface {
+	UpgradeStanding(ctx context.Context, project, role, name string) error
+}
+
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
 // nil when no stream server runs (slice-1 behavior).
@@ -183,6 +192,9 @@ type Supervisor struct {
 	// resetter is the standing reconciler (SetStandingResetter); nil → a
 	// standing reset is unavailable (503).
 	resetter StandingResetter
+	// upgrader is the standing reconciler (SetStandingUpgrader); nil → a
+	// standing upgrade is unavailable (503).
+	upgrader StandingUpgrader
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -1138,6 +1150,10 @@ func (s *Supervisor) StateOwners(ctx context.Context) ([]string, error) {
 // SetStandingResetter wires the standing reconciler in as the reset path for
 // the admin API and UI (jam.ResetStanding). Call before serving.
 func (s *Supervisor) SetStandingResetter(r StandingResetter) { s.resetter = r }
+
+// SetStandingUpgrader wires the standing reconciler in as the upgrade path for
+// the admin API and UI (jam.UpgradeStanding). Call before serving.
+func (s *Supervisor) SetStandingUpgrader(u StandingUpgrader) { s.upgrader = u }
 
 // Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
 // Instance: renew our own unexpired lease; for an expired lease, Probe the cove —

@@ -23,6 +23,7 @@ type fakeWorld struct {
 	failPurge map[string]bool // PurgeState of these ids fails
 	failTear  map[string]bool // Teardown of these ids fails
 	failRaise map[string]bool
+	tag       string // the image tag Raise records (the "current" image)
 }
 
 func newWorld() *fakeWorld {
@@ -54,7 +55,7 @@ func (w *fakeWorld) Raise(_ context.Context, spec jam.RaiseSpec) (jam.Instance, 
 	if w.failRaise[spec.ActorID] {
 		return jam.Instance{}, "", "", errors.New("launch failed")
 	}
-	inst := jam.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive}
+	inst := jam.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive, ImageTag: w.tag}
 	w.insts[spec.ActorID] = inst
 	if spec.SessionKind == jam.SessionKindStanding {
 		w.state[spec.ActorID] = true
@@ -492,5 +493,99 @@ func TestTick_LiveCoveActorKept(t *testing.T) {
 	r.Tick(context.Background())
 	if len(actors.removed) != 0 {
 		t.Fatalf("removed a live cove's actor: %v", actors.removed)
+	}
+}
+
+// Upgrade (COV-251) tears the live cove down — keeping its state, no purge —
+// and raises it again in the same call, on whatever image a raise picks now.
+func TestUpgrade_TeardownThenRaiseKeepsState(t *testing.T) {
+	r, w, g, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	w.tag = "img:old"
+	r.Tick(ctx)
+	w.tag = "img:new"
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.torn, []string{botID}) {
+		t.Fatalf("torn = %v, want [%s]", w.torn, botID)
+	}
+	if len(w.purged) != 0 || !w.state[botID] {
+		t.Fatalf("upgrade must keep the state; purged %v", w.purged)
+	}
+	if len(w.raised) != 2 || w.raised[1].ActorID != botID || w.raised[1].Prompt != bot.Prompt || len(g.grants) != 2 {
+		t.Fatalf("want a second raise under %s within the call; raised=%+v grants=%d", botID, w.raised, len(g.grants))
+	}
+	if got := w.insts[botID].ImageTag; got != "img:new" {
+		t.Fatalf("re-raised on %q, want img:new", got)
+	}
+}
+
+// Upgrading a name with no cove raises it now, clearing its backoff.
+func TestUpgrade_NoInstanceRaisesNowClearingBackoff(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	w.failRaise[botID] = true
+	r.Tick(ctx) // fails → backing off
+	w.failRaise[botID] = false
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.insts[botID]; !ok {
+		t.Fatal("upgrade of a down name must raise it now, despite its backoff")
+	}
+}
+
+// A re-raise that fails is reported (pending); the name backs off and a later
+// pass raises it as usual. A failed teardown leaves the cove alone.
+func TestUpgrade_FailuresArePending(t *testing.T) {
+	r, w, g, advance := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+
+	w.failTear[botID] = true
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
+		t.Fatal("a failed teardown must be reported")
+	}
+	if len(w.raised) != 1 {
+		t.Fatalf("a failed teardown must not re-raise; raised=%d", len(w.raised))
+	}
+	w.failTear[botID] = false
+
+	w.failRaise[botID] = true
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
+		t.Fatal("a failed re-raise must be reported")
+	}
+	if len(g.releases) == 0 || len(w.purged) != 0 {
+		t.Fatalf("a failed re-raise releases its grant and keeps state; releases=%v purged=%v", g.releases, w.purged)
+	}
+	w.failRaise[botID] = false
+	advance(BackoffInitial)
+	r.Tick(ctx)
+	if _, ok := w.insts[botID]; !ok {
+		t.Fatal("a later pass must raise the name")
+	}
+}
+
+// An undeclared name is refused, and a name whose reset is pending is not
+// raised on its old state.
+func TestUpgrade_RefusesUndeclaredAndPendingReset(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "nobody"); err == nil {
+		t.Fatal("upgrade of an undeclared name must fail")
+	}
+	r.Tick(ctx)
+	w.failPurge[botID] = true
+	_ = r.ResetStanding(ctx, "acme", "reviewer", "alice-bot") // pending
+	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
+		t.Fatal("upgrade during a pending reset must fail")
+	}
+	if _, ok := w.insts[botID]; ok || len(w.raised) != 1 {
+		t.Fatalf("a pending reset's name must not be raised; raised=%d", len(w.raised))
 	}
 }

@@ -91,7 +91,7 @@ at-jam role rm   [--project acme] guest
   does: [personal-sessions.md](personal-sessions.md#the-idle-ladder). (Not to be confused with `--idle-timeout D` / `--on-idle wake|teardown` / `--time-zone Z`, API `idle_timeout_seconds`/`on_idle`/`time_zone`: the role's [turn-end policy](turn-end.md#idle-timeout).)
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
-  `at-jam standing add|list|rm|reset`, not with `role add` flags. Re-running
+  `at-jam standing add|list|rm|reset|upgrade`, not with `role add` flags. Re-running
   `role add` keeps them. See [standing-sessions.md](standing-sessions.md).
 - A role's **egress policy** is managed with its own verb,
   `at-jam egress set|show|clear`, not `role add` flags. Re-running `role add`
