@@ -22,7 +22,7 @@ at-jam colima check-docker
 ```
 
 - **`setup-docker`** edits the colima config in place, then **prints** the next steps (`colima restart`, then `at-jam colima check-docker`). It does **not** restart the VM — a restart bounces every running cove in that VM, so the operator chooses when.
-- **`--dry-run`** prints a unified diff of the would-be change and writes nothing.
+- **`--dry-run`** prints the would-be change as a hunked diff (changed lines plus 3 lines of context, hunks separated by `@@`) and writes nothing.
 - **`--sysbox-version`** (default `0.7.1`, the proven floor) sets the version the hook installs. Values below 0.7.1 are rejected (0.6.x lacks time-namespace support). Format: `MAJOR.MINOR.PATCH`.
 - **`check-docker`** runs the same runtime probe as the at-cove preflight and exits 0 when `sysbox-runc` is registered, non-zero with an actionable message (pointing at `setup-docker`) when it isn't or the daemon is unreachable.
 
@@ -30,7 +30,7 @@ Both are plain host-side utilities: no admin API, no Jam connection, no login. O
 
 ## Which file
 
-`$COLIMA_HOME/default/colima.yaml`, falling back to `~/.colima/default/colima.yaml` when `COLIMA_HOME` is unset. **No `--profile`**: at-cove pins every docker call to the `colima` docker context, which is the *default* profile, so a non-default profile would never be used by a cove (YAGNI).
+Resolved as colima does: `$COLIMA_HOME/default/colima.yaml`; else `~/.colima/default/colima.yaml` when `~/.colima` exists; else `${XDG_CONFIG_HOME:-~/.config}/colima/default/colima.yaml` (the dir-exists check is injected so tests stay hermetic). **No `--profile`**: at-cove pins every docker call to the `colima` docker context, which is the *default* profile, so a non-default profile would never be used by a cove (YAGNI).
 
 A missing file is an error: `colima config not found at <path> — run 'colima start' once to create it`. An empty file is treated as an empty mapping.
 
@@ -45,7 +45,7 @@ func Apply(in []byte, o Options) (out []byte, changes []Change, err error)
 Pure bytes-in/bytes-out (no I/O), so every case is a fixture test. It decodes into a `yaml.Node`, mutates, and re-encodes (2-space indent).
 
 1. **Runtime.** Ensure top-level `docker` is a mapping (create it if absent or `{}`/null), ensure `docker.runtimes` is a mapping, and set `docker.runtimes.sysbox-runc.path` to `/usr/bin/sysbox-runc`. Other `docker:` keys and other runtimes are untouched. If `sysbox-runc` already exists with a different `path`, it is overwritten and reported as a change. A `docker` / `runtimes` value that exists but is not a mapping is an error (don't guess).
-2. **Provision hook.** Ensure top-level `provision` is a sequence (create if absent/null). Our entry is identified by a marker line inside its script: `# managed by at-jam colima setup-docker — re-run it to change; edits here are overwritten`. If an entry whose `script` contains the marker exists, replace its `mode`/`script` with the rendered one; otherwise append. Other hooks are untouched and keep their order. If more than one marked entry exists, replace the first and drop the rest (reported).
+2. **Provision hook.** Ensure top-level `provision` is a sequence (create if absent/null). Our entry is identified by a marker line inside its script: `# managed by at-jam colima setup-docker — re-run it to change; edits here are overwritten`. If an entry whose `script` contains the marker exists, replace its `mode`/`script` with the rendered one; otherwise append. Other hooks are untouched and keep their order. A hand-written *legacy* hook — an entry whose `script` contains `nestybox/sysbox` (the release URL every manual recipe uses) — counts as managed too: the first managed-or-legacy entry is replaced in place (a legacy one is reported as `replaced a hand-written Sysbox provision hook with the managed one`), any further ones are dropped (reported). Unrelated hooks that merely mention `sysbox` are left alone.
 3. **Idempotence.** When the rendered result is semantically equal to the input (no changes collected), `Apply` returns the **input bytes unchanged** and no changes — so a no-op run never reformats the file.
 
 The hook script is the doc's script, templated on the version, with the marker line after the shebang:
@@ -69,7 +69,7 @@ apt-get install -y /tmp/sysbox.deb
 
 ## Writing
 
-Non-dry-run with changes: copy the original to `colima.yaml.bak` (overwriting a previous backup), then write the new content atomically (temp file in the same dir + rename) preserving the original file mode. No changes → write nothing, print `colima config already set up for docker:true` and still print the `check-docker` hint.
+Non-dry-run with changes: copy the original to `colima.yaml.bak` (overwriting a previous backup), then write the new content atomically (temp file in the same dir + rename) preserving the original file mode. If the config path is a symlink (dotfile-managed), it is resolved first so the real target is backed up and replaced and the link stays a link. No changes → write nothing, print `colima config already set up for docker:true` and still print the `check-docker` hint.
 
 ## Check — reuse, don't duplicate
 
@@ -83,7 +83,7 @@ at-cove's missing-runtime preflight error additionally names the shortcut: "…o
 
 - `colimacfg.Apply` fixtures: colima's fresh default config (`docker: {}`, `provision: []`); already-applied (input bytes returned unchanged, no changes); marked hook at an older version (replaced, other fields kept); user hooks + a custom `docker:` block with other keys/runtimes (preserved, order kept); comments preserved; empty file; `sysbox-runc` with a different path (overwritten, reported); non-mapping `docker` (error); duplicate marked hooks (deduped).
 - Version validation: rejects `0.6.9`, `latest`, `1.2`; accepts `0.7.1`, `0.8.0`.
-- Command tests against a temp `COLIMA_HOME`: missing file error; dry-run writes nothing and prints a diff; real run writes `.bak` + new file with original mode; second run is a no-op.
+- Command tests against a temp `COLIMA_HOME`: missing file error; dry-run writes nothing and prints a hunked diff; real run writes `.bak` + new file with original mode; second run is a no-op.
 - `check-docker` + `HasSysboxRuntime` via `runner.Fake`: present → 0; absent → non-zero naming `setup-docker`; unreachable/garbage → error.
 
 No real colima, VM, or network in any test.
