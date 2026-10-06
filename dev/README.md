@@ -78,10 +78,11 @@ listener and reloads the page after each restart.
   prompts on the terminal again if its cached login expires.
 - **Failed builds** leave the last good binary serving, so Jam stays up.
 - **Skip login entirely with `dev-identity`** (recommended for UI work). Set
-  `dev-identity: {project: <p>, human: <name>}` in `jam.dev.yml`, and loopback
-  requests to `/ui` and `/me` act as that roster human, with no IdP and no
-  callbacks. The human needs `--login` (for `/ui` actions like Request) and
-  `--oidc` (for `/me`). See `dev-identity` in
+  `dev-identity: {user: <name>}` in `jam.dev.yml`, and loopback requests to
+  `/ui` and `/me` act as that user, with no IdP and no callbacks. The user
+  needs a login (`at-jam user login`, for `/ui` actions like Request), an OIDC
+  identity (`at-jam user oidc`, for `/me`) and a project membership. See
+  `dev-identity` in
   [serve.md](../docs/usage/jam/serve.md).
 - **Real `/me` login through the proxy** also works, but the OIDC redirect URI
   is built from the proxied Host. The callback lands on

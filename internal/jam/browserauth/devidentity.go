@@ -3,54 +3,73 @@ package browserauth
 import (
 	"net/http"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// DevIdentity makes LOOPBACK browser requests act as one roster human with no
-// login — for UI development only (serve's `dev-identity`). It never applies
+// DevIdentity makes LOOPBACK browser requests act as one user with no login —
+// for UI development only (serve's `dev-identity`). It never applies
 // off-loopback, and it composes inside Gate, so the loopback Host check still
-// runs first. The human is resolved per request, so roster edits apply live.
+// runs first. The user is resolved per request, so registry edits apply live.
 type DevIdentity struct {
-	Store   jam.ParticipantStore
-	Project string
-	Human   string
+	Store DevIdentityStore
+	User  string // the user's name or id
+	// LegacyProject/LegacyHuman are the pre-registry {project, human} form:
+	// the user that roster human became (legacy_human_aliases), exactly —
+	// never whoever now holds the name.
+	LegacyProject, LegacyHuman string
 }
 
-func (d DevIdentity) human() (jam.Human, bool) {
-	rr, ok := d.Store.GetRoster(d.Project)
-	if !ok {
-		return jam.Human{}, false
+// DevIdentityStore is what DevIdentity reads: participant resolution plus the
+// user registry.
+type DevIdentityStore interface {
+	jam.ParticipantStore
+	GetUser(id ident.ID) (jam.User, bool)
+	LegacyHumanAlias(project, name string) (ident.ID, bool)
+}
+
+func (d DevIdentity) user() (jam.User, bool) {
+	if d.LegacyHuman != "" {
+		id, ok := d.Store.LegacyHumanAlias(d.LegacyProject, d.LegacyHuman)
+		if !ok {
+			return jam.User{}, false
+		}
+		u, ok := d.Store.GetUser(id)
+		return u, ok && u.Status == jam.StatusLive
 	}
-	for _, h := range rr.Humans {
-		if h.Name == d.Human {
-			return h, true
+	id := ident.ID(d.User)
+	if _, err := ident.Parse(d.User); err != nil {
+		var ok bool
+		if id, ok = d.Store.LookupName(ident.User, d.User); !ok {
+			return jam.User{}, false
 		}
 	}
-	return jam.Human{}, false
+	u, ok := d.Store.GetUser(id)
+	return u, ok && u.Status == jam.StatusLive
 }
 
 // OperatorLoopbackTrust is the /ui LoopbackTrust hook under a dev identity: a
-// loopback request is the operator with the human's linked login, or plain
-// "local" when the human is unknown or unlinked.
+// loopback request is the operator with the user's first login, or plain
+// "local" when the user is unknown or has none.
 func (d DevIdentity) OperatorLoopbackTrust() func(*http.Request) *http.Request {
 	return func(r *http.Request) *http.Request {
 		id := "local"
-		if h, ok := d.human(); ok && h.Login != "" {
-			id = h.Login
+		if u, ok := d.user(); ok && len(u.Logins) > 0 {
+			id = u.Logins[0]
 		}
 		return jam.WithOperator(r, jam.Operator{ID: id})
 	}
 }
 
 // ParticipantSession wraps the /me Session hook next (nil = none): a loopback
-// request is the human's participant, resolved through their first roster OIDC
-// identity (as a real login would be). Off-loopback, or for a human without an
+// request is the user's participant, resolved through their first OIDC
+// identity (as a real login would be). Off-loopback, or for a user without an
 // OIDC identity, it defers to next.
 func (d DevIdentity) ParticipantSession(next func(*http.Request) (*http.Request, SessionOutcome)) func(*http.Request) (*http.Request, SessionOutcome) {
 	return func(r *http.Request) (*http.Request, SessionOutcome) {
 		if jam.IsLoopbackRequest(r) {
-			if h, ok := d.human(); ok && len(h.Identity) > 0 {
-				id := h.Identity[0]
+			if u, ok := d.user(); ok && len(u.OIDC) > 0 {
+				id := u.OIDC[0]
 				if p, ok := jam.ParticipantByIdentity(d.Store, id.Issuer, id.Subject); ok {
 					return jam.WithParticipant(r, p), SessionOK
 				}

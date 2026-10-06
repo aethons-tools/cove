@@ -459,17 +459,26 @@ func TestUIOriginsParsedAndValidated(t *testing.T) {
 }
 
 func TestDevIdentityParsedAndLoopbackOnly(t *testing.T) {
-	cfg, err := parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n  human: you\n"))
+	cfg, err := parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  user: you\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DevIdentity == nil || cfg.DevIdentity.Project != "test" || cfg.DevIdentity.Human != "you" {
-		t.Fatalf("DevIdentity = %+v, want test/you", cfg.DevIdentity)
+	if cfg.DevIdentity == nil || cfg.DevIdentity.User != "you" {
+		t.Fatalf("DevIdentity = %+v, want user you", cfg.DevIdentity)
+	}
+	// The pre-registry form {project, human} still parses, as the user named human.
+	cfg, err = parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n  human: you\n"))
+	if err != nil || cfg.DevIdentity.DeprecatedHuman != "you" || len(cfg.deprecated) == 0 {
+		t.Fatalf("deprecated form = %+v (deprecated %v), %v", cfg.DevIdentity, cfg.deprecated, err)
+	}
+	if cfg.DevIdentity.DeprecatedProject != "test" {
+		t.Fatalf("the deprecated form must keep its project for the legacy alias: %+v", cfg.DevIdentity)
 	}
 	for name, bad := range map[string]string{
-		"off-loopback admin": "admin-listen: 0.0.0.0:8081\ndev-identity:\n  project: test\n  human: you\n",
-		"missing human":      "admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n",
-		"missing project":    "admin-listen: 127.0.0.1:8081\ndev-identity:\n  human: you\n",
+		"off-loopback admin": "admin-listen: 0.0.0.0:8081\ndev-identity:\n  user: you\n",
+		"missing user":       "admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n",
+		"both forms":         "admin-listen: 127.0.0.1:8081\ndev-identity:\n  user: you\n  human: you\n",
+		"human, no project":  "admin-listen: 127.0.0.1:8081\ndev-identity:\n  human: you\n",
 	} {
 		if _, err := parseServeConfig([]byte(bad)); err == nil {
 			t.Errorf("%s: accepted, want an error", name)

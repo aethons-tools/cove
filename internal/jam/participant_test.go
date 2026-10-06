@@ -4,46 +4,44 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
-// fakeRoster is a participantReader over an in-memory set of project rosters.
-type fakeRoster struct{ projects map[string]Roster }
-
-func (f fakeRoster) ListProjects() []string {
-	// Deterministic order (ParticipantByIdentity records Projects in this order).
-	names := make([]string, 0, len(f.projects))
-	for name := range f.projects {
-		names = append(names, name)
-	}
-	// small insertion sort to avoid importing sort in a test helper is overkill;
-	// use the stdlib.
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j-1] > names[j]; j-- {
-			names[j-1], names[j] = names[j], names[j-1]
+// participantStore is a MemStore holding projects alpha and beta and the
+// users the participant tests resolve: alice (member of both — a global
+// person), bob (alpha), carol (beta; the same subject string as alice at a
+// different issuer) and dave (bound, but a member of no project).
+func participantStore(t *testing.T, idp string) Store {
+	t.Helper()
+	s := NewMemStore()
+	mustCreateProject(t, s, "alpha", "beta")
+	for _, u := range []struct {
+		name, issuer, sub string
+		projects          []string
+	}{
+		{"alice", idp, "sub-alice", []string{"alpha", "beta"}},
+		{"bob", idp, "sub-bob", []string{"alpha"}},
+		{"carol", "https://other", "sub-alice", []string{"beta"}},
+		{"dave", idp, "sub-dave", nil},
+	} {
+		created, err := s.CreateUser(User{Name: u.name, OIDC: []OIDCIdentity{{Issuer: u.issuer, Subject: u.sub}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range u.projects {
+			p, _ := s.GetProject(name)
+			if err := s.AddMember(p.ID, created.ID); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	return names
-}
-
-func (f fakeRoster) GetRoster(project string) (Roster, bool) {
-	r, ok := f.projects[project]
-	return r, ok
+	return s
 }
 
 func TestParticipantByIdentity(t *testing.T) {
 	const idp = "https://idp.example"
-	store := fakeRoster{projects: map[string]Roster{
-		"alpha": {Humans: []Human{
-			{Name: "alice", Handle: "alice", Identity: []OIDCIdentity{{Issuer: idp, Subject: "sub-alice"}}},
-			{Name: "bob", Identity: []OIDCIdentity{{Issuer: idp, Subject: "sub-bob"}}},
-		}},
-		"beta": {Humans: []Human{
-			// same person as alpha/alice — global person, bound in a second project.
-			{Name: "alice-b", Handle: "aliceb", Identity: []OIDCIdentity{{Issuer: idp, Subject: "sub-alice"}}},
-			// same subject string but a DIFFERENT issuer → a different person.
-			{Name: "carol", Identity: []OIDCIdentity{{Issuer: "https://other", Subject: "sub-alice"}}},
-		}},
-	}}
+	store := participantStore(t, idp)
 
 	tests := []struct {
 		name         string
@@ -58,6 +56,7 @@ func TestParticipantByIdentity(t *testing.T) {
 		{"global person spans projects", idp, "sub-alice", true, []string{"alpha", "beta"}, "alice"},
 		{"single project", idp, "sub-bob", true, []string{"alpha"}, "bob"},
 		{"issuer must match, not just subject", "https://other", "sub-alice", true, []string{"beta"}, "carol"},
+		{"a user in no project is no participant", idp, "sub-dave", false, nil, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,6 +75,9 @@ func TestParticipantByIdentity(t *testing.T) {
 			}
 			if p.Name != tc.wantName {
 				t.Errorf("Name = %q, want %q", p.Name, tc.wantName)
+			}
+			if id, _ := store.LookupName(ident.User, tc.wantName); p.UserID != id {
+				t.Errorf("UserID = %q, want %q", p.UserID, id)
 			}
 		})
 	}

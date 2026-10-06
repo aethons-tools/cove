@@ -2148,13 +2148,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Log:           log,
 		}
 		// dev-identity (DEV ONLY; parse refuses it off-loopback): loopback
-		// requests act as one roster human with no login, on /ui and /me.
+		// requests act as one user with no login, on /ui and /me.
 		var dev *browserauth.DevIdentity
 		if d := cfg.DevIdentity; d != nil {
-			dev = &browserauth.DevIdentity{Store: st, Project: d.Project, Human: d.Human}
+			dev = &browserauth.DevIdentity{Store: st, User: d.User, LegacyProject: d.DeprecatedProject, LegacyHuman: d.DeprecatedHuman}
 			gate.LoopbackTrust = dev.OperatorLoopbackTrust()
-			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a roster human with no login; never use in production",
-				"project", d.Project, "human", d.Human)
+			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
+				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
 		}
 
 		// Participant intercom plane (/me): mapped to a roster human (no operator
