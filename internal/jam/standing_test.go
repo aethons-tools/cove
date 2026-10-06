@@ -97,7 +97,7 @@ func TestAdminStandingValidation(t *testing.T) {
 		{"/admin/roles/acme/reviewer/standing", StandingSession{Prompt: "p"}, http.StatusBadRequest},              // no name
 		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "x"}, http.StatusBadRequest},                // no prompt
 		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "a b", Prompt: "p"}, http.StatusBadRequest}, // duplicate
-		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "a/b", Prompt: "p"}, http.StatusBadRequest}, // same actor id as "a b"
+		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "a/b", Prompt: "p"}, http.StatusBadRequest}, // "/" can't name a route segment
 		{"/admin/roles/acme/nobody/standing", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},       // unknown role
 		{"/admin/roles/nowhere/reviewer/standing", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},  // unknown project
 	}
@@ -128,24 +128,6 @@ func TestAdminRolePutKeepsStanding(t *testing.T) {
 	got, _ := store.GetRole("acme", "reviewer")
 	if got.Allocation.MaxEphemeral != 5 || len(got.Allocation.Standing) != 1 || got.Allocation.Standing[0].Name != "alice-bot" {
 		t.Fatalf("role after re-put = %+v, want max-ephemeral 5 and alice-bot kept", got.Allocation)
-	}
-}
-
-// Actor ids are unique across every role and project, not just within one: a
-// name whose StandingActorID another role's declaration already holds is 400.
-func TestAdminStandingRejectsCrossRoleIDCollision(t *testing.T) {
-	h, store := newTestAdmin(t)
-	mustCreateProject(t, store, "acme")
-	for _, r := range []string{"a-b", "a"} {
-		if err := store.PutRole("acme", Role{Name: r}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a-b/standing", StandingSession{Name: "c", Prompt: "p"}); rec.Code != http.StatusCreated {
-		t.Fatalf("seed = %d", rec.Code)
-	}
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a/standing", StandingSession{Name: "b-c", Prompt: "p"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("colliding id standing-acme-a-b-c = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -198,24 +180,11 @@ func TestAdminStandingReset(t *testing.T) {
 		}
 	}
 
-	// The actor id held by a non-standing cove: refused.
-	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: StandingActorID("acme", "reviewer", "alice-bot"), Project: "acme", Role: "reviewer"}); err != nil {
+	// The session id held by a non-standing cove: refused.
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: SeedStandingSession(store, "acme", "reviewer", "alice-bot"), Project: "acme", Role: "reviewer"}); err != nil {
 		t.Fatal(err)
 	}
 	if rec := doReq(t, h, "POST", path, nil); rec.Code != http.StatusConflict {
 		t.Fatalf("held id = %d, want 409", rec.Code)
-	}
-}
-
-// A declaration whose actor id collides with another on the same role is
-// refused too (names that differ only outside [A-Za-z0-9._-]).
-func TestAdminStandingRejectsSameRoleIDCollision(t *testing.T) {
-	h, store := newTestAdmin(t)
-	putStandingRole(t, store)
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "a b", Prompt: "p"}); rec.Code != http.StatusCreated {
-		t.Fatalf("seed = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "a/b", Prompt: "p"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("colliding id = %d, want 400", rec.Code)
 	}
 }

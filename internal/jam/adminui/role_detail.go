@@ -102,7 +102,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 		}
 	}
 	for _, s := range a.Standing {
-		id := jam.StandingActorID(project, name, s.Name)
+		id := jam.StandingSessionOf(store, project, name, s.Name)
 		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image}
 		if u, ok := img.(interface {
 			StandingUpgradeState(project, role, name string) string

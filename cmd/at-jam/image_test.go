@@ -40,7 +40,7 @@ func TestListsShowImageStatus(t *testing.T) {
 	}
 	asm := "a1"
 	sup := jam.NewSupervisor(store, taggingLauncher{asm: &asm}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	bot := jam.StandingActorID("acme", "reviewer", "bot")
+	bot := jam.SeedStandingSession(store, "acme", "reviewer", "bot")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: bot, Project: "acme", Role: "reviewer", Name: "bot", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestListsShowImageStatus(t *testing.T) {
 	}
 	standing := list("standing", "list", "--project", "acme", "--role", "reviewer")
 	want := "bot\tid=" + bot + "\tphase=live\timage=ok\n" +
-		"idle\tid=" + jam.StandingActorID("acme", "reviewer", "idle") + "\tphase=-\timage=-\n"
+		"idle\tid=-\tphase=-\timage=-\n" // never raised: no session yet
 	if standing != want {
 		t.Fatalf("standing list = %q, want %q", standing, want)
 	}
@@ -86,7 +86,7 @@ func TestListsImageFallbacks(t *testing.T) {
 		Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "bot", Prompt: "p"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	bot := jam.StandingActorID("acme", "reviewer", "bot")
+	bot := jam.SeedStandingSession(store, "acme", "reviewer", "bot")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	covesReply := "" // "" = fail GET /admin/coves
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

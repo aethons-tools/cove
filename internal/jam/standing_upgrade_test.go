@@ -48,7 +48,7 @@ func upgradeKit(t *testing.T) (http.Handler, Store, *Supervisor, *fakeLauncher, 
 	if err := AddStanding(store, "default", "dev", StandingSession{Name: "bot", Prompt: "p"}); err != nil {
 		t.Fatal(err)
 	}
-	id := StandingActorID("default", "dev", "bot")
+	id := SeedStandingSession(store, "default", "dev", "bot")
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: id, Project: "default", Role: "dev", Name: "bot", SessionKind: SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}

@@ -42,7 +42,7 @@ func TestImageStaleIsFlagged(t *testing.T) {
 	asm := "a1"
 	sup := jam.NewSupervisor(store, taggingLauncher{asm: &asm}, "test-holder", time.Minute, 30*time.Second, time.Now,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
-	id := jam.StandingActorID("acme", "review", "nightly")
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review",
 		Name: "nightly", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestEditStandingUpgrade(t *testing.T) {
 	asm := "a1"
 	sup := jam.NewSupervisor(store, taggingLauncher{asm: &asm}, "test-holder", time.Minute, 30*time.Second, time.Now,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
-	id := jam.StandingActorID("acme", "review", "nightly")
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}

@@ -1234,7 +1234,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, jam.StandingActorID(proj, *role, *name))
+		fmt.Fprintf(stdout, "declared standing session %s/%s/%s\n", proj, *role, *name)
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
@@ -1252,8 +1252,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			running[cv.ID] = cv
 		}
 		for _, s := range list {
-			id := jam.StandingActorID(proj, *role, s.Name)
+			id := s.SessionID
 			phase, image := "-", "-" // no studio running for this name
+			if id == "" {
+				id = "-" // never raised: no session yet
+			}
 			if cv, ok := running[id]; ok {
 				phase, image = cv.Phase, imageOrUnknown(cv.Image)
 			}
@@ -1354,7 +1357,14 @@ func waitStandingUpgrade(c *adminclient.Client, proj, role, name string, timeout
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	id := jam.StandingActorID(proj, role, name)
+	var id string
+	if list, err := c.ListStanding(proj, role); err == nil {
+		for _, s := range list {
+			if s.Name == name {
+				id = s.SessionID
+			}
+		}
+	}
 	phase, image := "-", "-"
 	for _, cv := range coves {
 		if cv.ID == id {
