@@ -892,4 +892,54 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			}
 		}
 	})
+
+	t.Run("import_v2_over_startup_connections", func(t *testing.T) {
+		src := newStore(t)
+		mustProject(t, src, "acme")
+		if err := src.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		c := mustConn(t, src, "linear", "linear")
+		// A label-only account (a handle displaced by the uid-wins rule).
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, Handle: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u1"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := src.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u1", Handle: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+		snap := src.ExportConfig()
+
+		// The target already has the connection a starting serve creates.
+		dst := newStore(t)
+		boot := mustConn(t, dst, "discord", "discord")
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatalf("v2 import over a startup connection: %v", err)
+		}
+		id, ok := dst.LookupName(ident.Connection, "discord")
+		srcID, _ := src.LookupName(ident.Connection, "discord")
+		if !ok || id != srcID || id == boot.ID {
+			t.Fatalf("live discord connection = %q, want the snapshot's %q", id, srcID)
+		}
+		if p, _ := dst.GetProject("acme"); jam.ChatKind(dst, p) != "discord" {
+			t.Fatalf("chat service = %q", p.ChatService)
+		}
+		if n := len(dst.ListAccounts(c.ID)); n != 2 {
+			t.Fatalf("accounts = %d, want both (one label-only)", n)
+		}
+
+		// A v1 snapshot reuses the startup connection instead of a second one.
+		dst2 := newStore(t)
+		boot2 := mustConn(t, dst2, "discord", "discord")
+		v1 := jam.ConfigSnapshot{Version: 1, Projects: []jam.Project{{Name: "acme", ChatService: "discord", Roster: jam.Roster{Humans: []jam.Human{
+			{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox", UserID: "111"}}}}}}}}
+		if err := dst2.ImportConfig(v1); err != nil {
+			t.Fatalf("v1 import over a startup connection: %v", err)
+		}
+		if conns := dst2.ListConnections(); len(conns) != 1 || conns[0].ID != boot2.ID {
+			t.Fatalf("connections = %+v, want only the startup one", conns)
+		}
+	})
 }

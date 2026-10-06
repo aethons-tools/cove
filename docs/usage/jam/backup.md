@@ -26,8 +26,10 @@ control-plane aggregates:
   ([comms-addressing.md](comms-addressing.md#the-project-roster))
 - the **Jam-wide session context**
 
-Import requires an empty target, registry included, and checks the registry is
-consistent (unique live names and identities, references that resolve). It
+Import requires an empty target, registry included — except connections, which
+a starting serve creates: a backup's connection of the same name takes over —
+and checks the registry is consistent (unique live names and identities,
+references that resolve). It
 applies the admin API's authoring rules to session context (layer budgets,
 leaf names, resources), destination notes and
 [header specs](header-specs.md), and model-spec structure (credential

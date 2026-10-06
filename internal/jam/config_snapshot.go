@@ -251,7 +251,9 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	if len(m.projects) > 0 {
 		names = append(names, "projects")
 	}
-	if len(m.users) > 0 || len(m.connections) > 0 || len(m.accounts) > 0 {
+	// Connections alone don't count: a starting serve creates the one its
+	// (deprecated) serve config names; import reconciles them.
+	if len(m.users) > 0 || len(m.accounts) > 0 {
 		names = append(names, "registry")
 	}
 	if !m.jamContext.Empty() {
@@ -383,12 +385,14 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 		return ConfigSnapshot{}, humanPlan{}, err
 	}
 	s = withReferencedProjects(deepCopySnapshot(s))
-	reg, err := planSnapshotRegistry(s)
+	var existing []Connection
+	for _, c := range m.connections {
+		existing = append(existing, c)
+	}
+	reg, scratch, err := planSnapshotRegistry(s, existing)
 	if err != nil {
 		return ConfigSnapshot{}, humanPlan{}, err
 	}
-	scratch := newMemState()
-	scratch.applyHumanPlan(reg)
 	applyImport(scratch, s)
 	mig := scratch.planRegistryMigration(0)
 	reg.connections = append(reg.connections, mig.connections...)
@@ -406,17 +410,28 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 // planSnapshotRegistry replays a snapshot's registry into a scratch state
 // through the store's own rules — unique live names, logins and OIDC
 // bindings, unique service identities, references that resolve — and returns
-// it as registry writes. Removed (tombstoned) users and connections are kept
-// as they are. Any inconsistency is ErrInvalidConfig.
-func planSnapshotRegistry(s ConfigSnapshot) (humanPlan, error) {
-	bad := func(format string, args ...any) (humanPlan, error) {
-		return humanPlan{}, fmt.Errorf("%w: registry: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
+// it as registry writes, plus the scratch state (the snapshot's projects and
+// registry over the target's connections). Removed (tombstoned) users and
+// connections are kept as they are. existing are the (otherwise empty)
+// target's connections — those a starting serve created: one the snapshot
+// also names is tombstoned so the snapshot's takes over its name; the rest
+// stay. Any inconsistency is ErrInvalidConfig.
+func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *memState, error) {
+	bad := func(format string, args ...any) (humanPlan, *memState, error) {
+		return humanPlan{}, nil, fmt.Errorf("%w: registry: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
 	}
 	m := newMemState()
 	for _, p := range s.Projects {
 		m.projects[p.Name] = p
 	}
 	var plan humanPlan
+	for _, c := range existing {
+		if c.Status == StatusLive && slices.ContainsFunc(s.Connections, func(sc Connection) bool { return sc.Status == StatusLive && sc.Name == c.Name }) {
+			c.Status = StatusRemoved
+			plan.connections = append(plan.connections, c)
+		}
+		m.applyPutConnection(c)
+	}
 	checkID := func(id ident.ID, k ident.Kind) error {
 		if _, err := ident.Parse(string(id)); err != nil || id.Kind() != k {
 			return fmt.Errorf("%q is not a %s id", id, k)
@@ -462,8 +477,8 @@ func planSnapshotRegistry(s ConfigSnapshot) (humanPlan, error) {
 		if _, ok := m.connections[a.ConnectionID]; !ok {
 			return bad("account %s: no connection %s", a.ID, a.ConnectionID)
 		}
-		if a.ServiceUID == "" && a.Handle == "" {
-			return bad("account %s has neither a service uid nor a handle", a.ID)
+		if a.ServiceUID == "" && a.Handle == "" && a.Label == "" {
+			return bad("account %s has no service uid, handle or label", a.ID)
 		}
 		if a.UserID != "" {
 			if _, err := m.liveUser(a.UserID); err != nil {
@@ -493,5 +508,5 @@ func planSnapshotRegistry(s ConfigSnapshot) (humanPlan, error) {
 		}
 		plan.aliases = append(plan.aliases, al)
 	}
-	return plan, nil
+	return plan, m, nil
 }
