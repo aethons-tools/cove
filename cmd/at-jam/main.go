@@ -1801,9 +1801,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
-	if err := ic.Reconcile(); err != nil {
-		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
-	}
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
@@ -1944,6 +1941,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam: relay markers:", err)
 			return 1
 		}
+		// The relays render only the channel log: a mark still in the legacy
+		// log moves to the cutover (see intercom.md, the cutover).
+		for _, service := range []string{"linear", "discord"} {
+			skipped, err := relayMarkers.settleCutover(service, chlog.CutoverSeq(), chlog.SeqOf)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: relay markers:", err)
+				return 1
+			}
+			if skipped > 0 {
+				log.Warn("relay: legacy squawks not yet delivered at the cutover are skipped", "service", service, "seqs", skipped)
+			}
+		}
 	}
 	var discordReceipts *fileReceipts
 	if runDiscord {
@@ -2047,6 +2056,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
 	}
+	// Every live ticket session gets its ticket channel, bound to the issue on
+	// the tracker connection resolved above (sessions from before ticket
+	// channels existed), so replies on its ticket have somewhere to land.
+	if err := ic.Reconcile(); err != nil {
+		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
+	}
+
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for

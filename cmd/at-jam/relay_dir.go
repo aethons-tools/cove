@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -109,7 +111,6 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			return nil
 		}
 		roster, _ := d.store.GetRoster(p.Name)
-		chatConn := ident.ID(p.ChatService)
 		discordChat := jam.ChatKind(d.store, p) == "discord"
 		var ticket string
 		var mentions []string
@@ -128,7 +129,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 				continue // no longer a member of the project: nothing to deliver to
 			}
 			if inbox, ok := h.DeliveryFor("discord"); ok && discordChat && inbox.Address != "" {
-				if service == "discord" && !cameFrom(chatConn, inbox.Address) {
+				if service == "discord" && !cameFrom(d.discord, inbox.Address) {
 					out = append(out, relay.Delivery{Service: "discord", Address: inbox.Address, BodyPrefix: prefix("discord")})
 				}
 				continue
@@ -137,7 +138,10 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 				mentions = append(mentions, "@"+strings.TrimPrefix(h.Handle, "@"))
 			}
 		}
-		if tracker, ok := d.tracker(); service == "linear" && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
+		// The Linear fallback carries a session's message to a person (the
+		// pre-channel "user:x from a ticket session"); a person's chat
+		// message is never made a public comment.
+		if tracker, ok := d.tracker(); service == "linear" && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
 			out = append(out, relay.Delivery{Service: "linear", Address: ticket, BodyPrefix: strings.Join(mentions, " ") + " " + prefix("linear")})
 		}
 	}
@@ -220,8 +224,8 @@ func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 			r.ReplyTo = "in:discord:" + e.ReplyToForeign
 		}
 		if rc.Channel != "" {
-			if ch, ok = d.store.GetChannel(ident.ID(rc.Channel)); !ok {
-				return relay.Routed{}, false
+			if ch, ok = d.store.GetChannel(ident.ID(rc.Channel)); !ok || ch.Status != jam.StatusLive {
+				return relay.Routed{}, false // its conversation is gone (archived, or its project removed)
 			}
 		} else {
 			inst, live := d.store.GetInstance(rc.Actor)
@@ -303,8 +307,13 @@ func (d *directory) author(kind string, ch jam.Channel, surface, uid, label stri
 func (d *directory) Post(r relay.Routed, m intercom.Squawk) error {
 	ch, ok := d.store.GetChannel(r.Channel)
 	if !ok {
-		return jam.ErrChannelNotFound
+		return fmt.Errorf("%w: %w", relay.ErrPermanent, jam.ErrChannelNotFound)
 	}
 	_, err := d.ic.PostTrusted(ch, m)
+	for _, permanent := range []error{jam.ErrRemoved, intercom.ErrDuplicateID, intercom.ErrInvalid} {
+		if errors.Is(err, permanent) {
+			return fmt.Errorf("%w: %w", relay.ErrPermanent, err)
+		}
+	}
 	return err
 }

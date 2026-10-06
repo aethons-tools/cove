@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 )
@@ -29,7 +30,13 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			}
 			m := intercom.Squawk{ID: id, From: r.From, Body: ev.Body, At: ev.At, ReplyTo: r.ReplyTo, ContentType: ev.ContentType,
 				Origin: r.Origin, OriginRef: r.OriginRef}
-			if err := e.dir.Post(r, m); err != nil {
+			if err := e.dir.Post(r, m); errors.Is(err, ErrPermanent) {
+				// Skipped for good (never retried, never holding the cursor): the
+				// same event would fail the same way on every poll.
+				e.log.Warn("relay: ingress event dropped", "service", service, "foreign", ev.ForeignID, "error", err.Error())
+				e.seen[id] = true
+				continue
+			} else if err != nil {
 				e.log.Warn("relay: ingress append failed", "service", service, "foreign", ev.ForeignID, "error", err.Error())
 				failed = true
 				continue

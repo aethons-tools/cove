@@ -1,6 +1,7 @@
 package intercomtest
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -148,8 +149,11 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		if _, err := s.Append(in, nil); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Append(in, nil); err == nil {
-			t.Fatal("an id is appended once")
+		if _, err := s.Append(in, nil); !errors.Is(err, intercom.ErrDuplicateID) {
+			t.Fatalf("an id is appended once: %v, want ErrDuplicateID", err)
+		}
+		if _, err := s.Append(intercom.Squawk{Channel: chA, From: alice}, nil); !errors.Is(err, intercom.ErrInvalid) {
+			t.Fatalf("an empty body: %v, want ErrInvalid", err)
 		}
 		if got := s.SeenIDs("in:linear:"); !slices.Equal(got, []string{"in:linear:abc"}) {
 			t.Fatalf("SeenIDs = %q", got)
@@ -175,6 +179,9 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		m := post(t, f.Store, chA, ses, "first", alice)
 		if m.Seq < f.Store.CutoverSeq() {
 			t.Fatalf("first seq %d, cutover %d", m.Seq, f.Store.CutoverSeq())
+		}
+		if _, err := f.Store.Append(intercom.Squawk{ID: last.ID, Channel: chA, From: alice, Body: "x"}, nil); !errors.Is(err, intercom.ErrDuplicateID) {
+			t.Fatalf("a legacy id appended again: %v, want ErrDuplicateID", err)
 		}
 		if seq, ok := f.Store.SeqOf(last.ID); !ok || seq != last.Seq {
 			t.Fatalf("SeqOf(legacy id) = %d, %v", seq, ok)

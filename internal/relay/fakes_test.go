@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -72,12 +73,13 @@ func (f *fakeCursors) SetIngress(service, project, cursor string) error {
 // fakeDirectory: scripted mapping. surfaces keyed by channel; route keyed by
 // Event.ForeignID; posts go to lg with audience (a fixed reader), or fail.
 type fakeDirectory struct {
-	projects []string
-	surfaces map[ident.ID][]Delivery // channel → its surfaces (origin-filtered like the real one)
-	route    map[string]Routed
-	lg       intercom.Store
-	audience []ident.ID
-	postErr  bool
+	projects  []string
+	surfaces  map[ident.ID][]Delivery // channel → its surfaces (origin-filtered like the real one)
+	route     map[string]Routed
+	lg        intercom.Store
+	audience  []ident.ID
+	postErr   bool
+	permanent bool
 }
 
 func (f *fakeDirectory) Projects(service string) []string { return f.projects }
@@ -98,6 +100,9 @@ func (f *fakeDirectory) Route(service, project string, e Event) (Routed, bool) {
 func (f *fakeDirectory) Post(r Routed, m intercom.Squawk) error {
 	if f.postErr {
 		return errors.New("store down")
+	}
+	if f.permanent {
+		return fmt.Errorf("%w: channel archived", ErrPermanent)
 	}
 	m.Channel = r.Channel
 	_, err := f.lg.Append(m, f.audience)

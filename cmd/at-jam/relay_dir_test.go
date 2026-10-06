@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -304,5 +305,44 @@ func TestReclaimNoticeDeliversAfterTeardown(t *testing.T) {
 	}
 	if s := k.dir.Surfaces("discord", m); len(s) != 1 || s[0].Address != "inbox-A" {
 		t.Fatalf("surfaces = %+v", s)
+	}
+}
+
+// A person's private chat message is never made a public Linear comment: the
+// mention fallback carries sessions' messages only.
+func TestSurfacesChatFallbackOnlyForSessions(t *testing.T) {
+	k := newRelayKit(t)
+	m := k.send(k.ticket, "chat:user:alice,user:carol", "hi both")
+	wantSurfaces(t, "the session's message", k.dir.Surfaces("linear", m), map[string]string{"linear:ACME-7": "@carol.h "})
+	ch, _ := k.st.GetChannel(m.Channel)
+	byAlice, err := k.ic.PostTrusted(ch, intercom.Squawk{From: k.alice.ID, Body: "just between us"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSurfaces(t, "alice's message", k.dir.Surfaces("linear", byAlice), nil)
+}
+
+// A reply to a post in a room that has since been archived goes nowhere, and
+// a post into an archived channel is a permanent failure (never retried).
+func TestRouteDiscordArchivedRoom(t *testing.T) {
+	k := newRelayKit(t)
+	if err := k.st.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "discord", Ref: "chan-C"}); err != nil {
+		t.Fatal(err)
+	}
+	m := k.send(k.std, "channel:eng", "x")
+	fc := &fakeDiscordClient{postID: "DR"}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: k.dir.receipts}
+	if _, err := s.Deliver(context.Background(), k.dir.Surfaces("discord", m)[0], m); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.st.RemoveChannel("acme", "eng"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := k.dir.Route("discord", "acme", relay.Event{ForeignID: "x", Surface: "chan-C", AuthorID: "111", ReplyToForeign: "DR"}); ok {
+		t.Fatal("a reply into an archived room must be unroutable")
+	}
+	err := k.dir.Post(relay.Routed{Channel: m.Channel, From: k.alice.ID}, intercom.Squawk{ID: "in:discord:y", From: k.alice.ID, Body: "late"})
+	if !errors.Is(err, relay.ErrPermanent) {
+		t.Fatalf("post into an archived channel: %v, want ErrPermanent", err)
 	}
 }

@@ -338,3 +338,35 @@ type fakePoster struct {
 	idByID              map[string]string // identifier -> internal id
 	postErr, resolveErr error
 }
+
+// At the cutover a relay's mark moves onto the channel log: undelivered
+// legacy squawks are skipped, legacy in-flight entries dropped, and a settled
+// mark is left alone.
+func TestFileMarkersSettleCutover(t *testing.T) {
+	fm, err := newFileMarkers(filepath.Join(t.TempDir(), "m.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fm.SetEgress("linear", relay.EgressMark{LastSeq: 7, Pending: map[string]map[string]bool{"old": {"ACME-1": true}}}); err != nil {
+		t.Fatal(err)
+	}
+	seqOf := func(id string) (int64, bool) {
+		return map[string]int64{"old": 9, "new": 12}[id], id == "old" || id == "new"
+	}
+	skipped, err := fm.settleCutover("linear", 11, seqOf)
+	if err != nil || skipped != 3 {
+		t.Fatalf("settle = %d, %v; want 3 legacy seqs skipped", skipped, err)
+	}
+	if mk := fm.Egress("linear"); mk.LastSeq != 10 || len(mk.Pending) != 0 {
+		t.Fatalf("mark = %+v", mk)
+	}
+	if err := fm.SetEgress("linear", relay.EgressMark{LastSeq: 12, Pending: map[string]map[string]bool{"new": {"x": true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if skipped, _ := fm.settleCutover("linear", 11, seqOf); skipped != 0 || len(fm.Egress("linear").Pending) != 1 {
+		t.Fatalf("a settled mark must be left alone: %+v", fm.Egress("linear"))
+	}
+	if skipped, _ := fm.settleCutover("discord", 11, seqOf); skipped != 0 || fm.has("discord") {
+		t.Fatal("an unseeded mark stays unseeded")
+	}
+}

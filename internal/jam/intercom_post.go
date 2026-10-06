@@ -159,6 +159,13 @@ func (ic *Intercom) Ended(inst Instance) error {
 	return ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail())
 }
 
+// TicketChannelOf is the existing channel of a session's ticket, without
+// creating one (for read-only views).
+func (ic *Intercom) TicketChannelOf(inst Instance) (Channel, bool) {
+	ch, ok, err := ic.ticketChannel(inst, false)
+	return ch, ok && err == nil
+}
+
 // ticketChannel finds (or, with create, creates) the channel of inst's
 // ticket: keyed "<tracker connection>/<issue key>" in its project, bound to
 // the issue for ingress — unless a room already holds that binding, which
@@ -387,12 +394,20 @@ func (ic *Intercom) DefaultChannel(inst Instance) (Channel, error) {
 			return Channel{}, err
 		}
 		return ch, nil
-	case inst.OwnerID != "":
+	case inst.OwnerID != "" || inst.Owner != "":
+		owner := inst.OwnerID
+		if owner == "" { // an instance from before owners were recorded by id
+			id, ok := ic.store.LookupName(ident.User, inst.Owner)
+			if !ok {
+				return Channel{}, ErrSendUnresolved
+			}
+			owner = id
+		}
 		p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
-		if !ok || !ic.projectUser(p.ID, inst.OwnerID) {
+		if !ok || !ic.projectUser(p.ID, owner) {
 			return Channel{}, ErrSendUnresolved
 		}
-		return ic.chat(p, []ident.ID{ident.ID(inst.ActorID), inst.OwnerID})
+		return ic.chat(p, []ident.ID{ident.ID(inst.ActorID), owner})
 	}
 	return Channel{}, ErrNoDefaultChannel
 }

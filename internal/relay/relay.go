@@ -12,6 +12,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -101,9 +102,15 @@ type Directory interface {
 	// belongs nowhere (logged, never silently appended).
 	Route(service, project string, e Event) (Routed, bool)
 	// Post appends a routed foreign event (m carries id, author, body, …) to
-	// its channel, with the channel's audience.
+	// its channel, with the channel's audience. An error wrapping ErrPermanent
+	// will fail the same way every time (the channel was archived, the event is
+	// empty or already in the log): the engine skips the event instead of
+	// retrying it.
 	Post(r Routed, m intercom.Squawk) error
 }
+
+// ErrPermanent marks a Post failure retrying can't fix.
+var ErrPermanent = errors.New("relay: permanent")
 
 // Config tunes the Engine's two poll loops; zero values pick defaults (e.g.
 // 2s / 15s).

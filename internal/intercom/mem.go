@@ -47,7 +47,7 @@ func (l *Log) Append(m Squawk, audience []ident.ID) (Squawk, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if _, ok := l.seqOf(m.ID); ok {
-		return Squawk{}, fmt.Errorf("intercom: duplicate id %q", m.ID)
+		return Squawk{}, fmt.Errorf("%w: %q", ErrDuplicateID, m.ID)
 	}
 	m.Seq = l.nextSeq
 	l.nextSeq++
@@ -58,23 +58,33 @@ func (l *Log) Append(m Squawk, audience []ident.ID) (Squawk, error) {
 	return m, nil
 }
 
-// filter returns the squawks keep selects, ascending; before/after bound the
-// seq (0 = unbounded) and limit keeps the first (after) or last (before) n.
-func (l *Log) filter(keep func(Squawk) bool, afterSeq, beforeSeq int64, limit int) []Squawk {
+// since returns the squawks keep selects after a seq, ascending, the first
+// limit (<= 0: all).
+func (l *Log) since(keep func(Squawk) bool, afterSeq int64, limit int) []Squawk {
+	out := l.matching(keep, func(seq int64) bool { return seq > afterSeq })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// before returns the limit squawks keep selects nearest below a seq (<= 0:
+// the end), ascending.
+func (l *Log) before(keep func(Squawk) bool, beforeSeq int64, limit int) []Squawk {
+	out := l.matching(keep, func(seq int64) bool { return beforeSeq <= 0 || seq < beforeSeq })
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+func (l *Log) matching(keep func(Squawk) bool, inRange func(int64) bool) []Squawk {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out []Squawk
 	for _, m := range l.msgs {
-		if m.Seq <= afterSeq || (beforeSeq > 0 && m.Seq >= beforeSeq) || !keep(m) {
-			continue
-		}
-		out = append(out, m)
-	}
-	if limit > 0 && len(out) > limit {
-		if beforeSeq != 0 || afterSeq < 0 {
-			out = out[len(out)-limit:]
-		} else {
-			out = out[:limit]
+		if inRange(m.Seq) && keep(m) {
+			out = append(out, m)
 		}
 	}
 	return out
@@ -89,32 +99,32 @@ func (l *Log) inChannel(ch ident.ID) func(Squawk) bool {
 }
 
 func (l *Log) InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk {
-	return l.filter(l.delivered(p), afterSeq, 0, limit)
+	return l.since(l.delivered(p), afterSeq, limit)
 }
 
 func (l *Log) InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk {
-	return l.filter(l.delivered(p), -1, beforeSeq, limit)
+	return l.before(l.delivered(p), beforeSeq, limit)
 }
 
 func (l *Log) ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk {
-	return l.filter(l.inChannel(ch), afterSeq, 0, limit)
+	return l.since(l.inChannel(ch), afterSeq, limit)
 }
 
 func (l *Log) ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []Squawk {
-	return l.filter(l.inChannel(ch), -1, beforeSeq, limit)
+	return l.before(l.inChannel(ch), beforeSeq, limit)
 }
 
 func (l *Log) ListSince(afterSeq int64, limit int) []Squawk {
-	return l.filter(func(Squawk) bool { return true }, afterSeq, 0, limit)
+	return l.since(func(Squawk) bool { return true }, afterSeq, limit)
 }
 
 func (l *Log) ReadThread(rootID string) []Squawk {
-	return l.filter(func(m Squawk) bool { return m.ID == rootID || m.ReplyTo == rootID }, 0, 0, 0)
+	return l.since(func(m Squawk) bool { return m.ID == rootID || m.ReplyTo == rootID }, 0, 0)
 }
 
 func (l *Log) InboxChannels(p ident.ID) []ChannelStat {
 	last := map[ident.ID]int64{}
-	for _, m := range l.filter(l.delivered(p), 0, 0, 0) {
+	for _, m := range l.since(l.delivered(p), 0, 0) {
 		last[m.Channel] = m.Seq
 	}
 	var out []ChannelStat

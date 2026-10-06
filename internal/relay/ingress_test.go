@@ -93,3 +93,15 @@ func TestIngressCarriesContentType(t *testing.T) {
 		t.Fatalf("content types = %+v", inbox)
 	}
 }
+
+// A permanent failure (the channel is gone, the event empty) skips the event
+// and lets the cursor move on, rather than retrying it forever.
+func TestIngressPermanentPostErrorSkips(t *testing.T) {
+	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "dead", Body: "r", At: time.Unix(5, 0)}}, next: "cur4"}
+	e, dir, cur := newIngressEngine(t, surf, map[string]Routed{"dead": routeTo(chOps)})
+	dir.permanent = true
+	e.ingressTick(context.Background())
+	if cur.c["linear/acme"] != "cur4" || !e.seen["in:linear:dead"] {
+		t.Fatalf("cursor %v, seen %v: a permanent failure must not hold ingress", cur.c, e.seen)
+	}
+}

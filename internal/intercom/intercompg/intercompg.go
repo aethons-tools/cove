@@ -114,31 +114,36 @@ func (s *Legacy) List(f intercom.LegacyFilter) []intercom.LegacySquawk {
 }
 
 func (s *Legacy) SeenIDs(prefix string) []string {
+	out, err := s.seenIDs(prefix)
+	if err != nil {
+		s.log.Error("intercompg: SeenIDs", "error", err.Error())
+		return nil
+	}
+	return out
+}
+
+// seenIDs lists ids with prefix, or an error — never a partial list: pgx v5
+// can end Next() early on a mid-stream failure, surfacing only via
+// rows.Err(), and a truncated dedupe set would cause duplicate re-ingestion.
+func (s *Legacy) seenIDs(prefix string) ([]string, error) {
 	rows, err := s.pool.Query(context.Background(),
 		`SELECT id FROM legacy_squawks WHERE id LIKE $1 ORDER BY id`, likePrefix(prefix))
 	if err != nil {
-		s.log.Error("intercompg: SeenIDs query", "error", err.Error())
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			s.log.Error("intercompg: SeenIDs scan", "error", err.Error())
-			return nil
+			return nil, err
 		}
 		out = append(out, id)
 	}
-	// pgx v5 can end Next() early on a mid-stream failure without a Scan error;
-	// the error only surfaces via rows.Err(). A truncated dedupe set must never
-	// be treated as authoritative (it would cause duplicate message
-	// re-ingestion), so return nil rather than the partial slice.
 	if err := rows.Err(); err != nil {
-		s.log.Error("intercompg: SeenIDs rows", "error", err.Error())
-		return nil
+		return nil, err
 	}
-	return out
+	return out, nil
 }
 
 func (s *Legacy) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {

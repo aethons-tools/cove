@@ -147,3 +147,14 @@ func TestIntercomPlanPersonChat(t *testing.T) {
 		}
 	}
 }
+
+// A personal session recorded with only its owner's name still has its chat.
+func TestIntercomDefaultChannelOwnerByName(t *testing.T) {
+	f := newICFixture(t)
+	old := f.personal
+	old.OwnerID, old.Owner = "", "alice"
+	ch, err := f.ic.DefaultChannel(old)
+	if err != nil || !isMember(f.store, ch.ID, f.alice.ID) {
+		t.Fatalf("owner by name: %+v, %v", ch, err)
+	}
+}

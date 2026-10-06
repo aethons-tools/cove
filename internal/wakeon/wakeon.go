@@ -577,10 +577,11 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 	}
 	var out []intercom.Squawk
 	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
-		// Every delivery is someone else's post to the session — a person, an
-		// account, or another session in a shared channel — so each wakes it.
-		// A legacy squawk from another session never did, and still doesn't.
-		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
+		// A person's or an account's post wakes the session. Another
+		// session's doesn't (two sessions in one channel would otherwise wake
+		// each other turn after turn) — it waits in the inbox for the next
+		// read; nor does a legacy squawk from another session.
+		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") || isSession(m.From) {
 			continue
 		}
 		out = append(out, m)
@@ -691,3 +692,14 @@ func commandWord(body string) string {
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// isSession reports whether a participant is a session: a ses_ id, or a
+// grandfathered one (the only participant ids that aren't registry ids). A
+// legacy squawk's "kind:ref" author is not one.
+func isSession(id ident.ID) bool {
+	if strings.Contains(string(id), ":") {
+		return false
+	}
+	_, err := ident.Parse(string(id))
+	return err != nil || id.Kind() == ident.Session
+}

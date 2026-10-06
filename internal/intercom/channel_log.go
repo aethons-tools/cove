@@ -1,6 +1,7 @@
 package intercom
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,6 +33,14 @@ type Squawk struct {
 	Origin    ident.ID `json:"origin,omitempty"`
 	OriginRef string   `json:"origin_ref,omitempty"`
 }
+
+// ErrInvalid is a squawk Prepare refuses (no body, channel or author, or a
+// bad content type); ErrDuplicateID an id already in either log. Both are
+// permanent: appending the same squawk again fails the same way.
+var (
+	ErrInvalid     = errors.New("intercom: invalid squawk")
+	ErrDuplicateID = errors.New("intercom: duplicate squawk id")
+)
 
 // ChannelStat is one channel a participant has deliveries in, and the seq of
 // the latest.
@@ -72,13 +81,13 @@ type Store interface {
 func Prepare(m Squawk) (Squawk, error) {
 	switch {
 	case m.Body == "":
-		return Squawk{}, fmt.Errorf("intercom: empty body")
+		return Squawk{}, fmt.Errorf("%w: empty body", ErrInvalid)
 	case m.Channel == "":
-		return Squawk{}, fmt.Errorf("intercom: no channel")
+		return Squawk{}, fmt.Errorf("%w: no channel", ErrInvalid)
 	case m.From == "":
-		return Squawk{}, fmt.Errorf("intercom: no author")
+		return Squawk{}, fmt.Errorf("%w: no author", ErrInvalid)
 	case !ValidContentType(m.ContentType):
-		return Squawk{}, fmt.Errorf("intercom: unsupported content type %q", m.ContentType)
+		return Squawk{}, fmt.Errorf("%w: unsupported content type %q", ErrInvalid, m.ContentType)
 	}
 	if m.At.IsZero() {
 		m.At = time.Now()

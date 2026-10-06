@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -52,12 +53,19 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 	}
 	ctx := context.Background()
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		// One append at a time: a seq is taken inside the transaction, so
+		// without this a later seq could commit before an earlier one, and a
+		// reader advancing past it (egress, a commit cursor, wake-on) would
+		// skip the earlier one for good.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(appendAdvisoryLock)); err != nil {
+			return err
+		}
 		var dup bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM legacy_squawks WHERE id = $1)`, m.ID).Scan(&dup); err != nil {
 			return err
 		}
 		if dup {
-			return fmt.Errorf("duplicate id %q (legacy log)", m.ID)
+			return fmt.Errorf("%w: %q (legacy log)", intercom.ErrDuplicateID, m.ID)
 		}
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO squawks (id, channel_id, from_id, body, at, reply_to, content_type, origin_connection_id, origin_ref)
@@ -77,11 +85,17 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 			ids, m.Seq)
 		return err
 	})
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "squawks_id_key" {
+		err = fmt.Errorf("%w: %q", intercom.ErrDuplicateID, m.ID)
+	}
 	if err != nil {
 		return intercom.Squawk{}, fmt.Errorf("intercompg: append: %w", err)
 	}
 	return m, nil
 }
+
+// appendAdvisoryLock serializes appends (see Append).
+const appendAdvisoryLock = 0x696e746170706e64 // "intappnd"
 
 const squawkCols = `s.seq, s.id, s.channel_id, s.from_id, s.body, s.at, s.reply_to, s.content_type, s.origin_connection_id, s.origin_ref`
 
@@ -188,7 +202,11 @@ func (s *Store) SeqOf(id string) (int64, bool) {
 }
 
 func (s *Store) SeenIDs(prefix string) []string {
-	legacy := s.legacy.SeenIDs(prefix)
+	legacy, err := s.legacy.seenIDs(prefix)
+	if err != nil {
+		s.log.Error("intercompg: SeenIDs (legacy)", "error", err.Error())
+		return nil // a partial dedupe set must never be authoritative
+	}
 	rows, err := s.pool.Query(context.Background(), `SELECT id FROM squawks WHERE id LIKE $1 ORDER BY seq`, likePrefix(prefix))
 	if err != nil {
 		s.log.Error("intercompg: SeenIDs query", "error", err.Error())

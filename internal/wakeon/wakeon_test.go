@@ -1777,9 +1777,9 @@ func TestReplyToAct_OwnerByUserID(t *testing.T) {
 	}
 }
 
-// Any delivery wakes a waiting session — a person's, an account's, or
-// another session's post in a channel they share — but a legacy squawk from
-// another session never did and still doesn't.
+// A person's or an account's post wakes a waiting session; another
+// session's (in a channel they share) doesn't — it waits to be read — and
+// neither does a legacy squawk from another session.
 func TestTick_EveryDeliveryWakes(t *testing.T) {
 	for _, tc := range []struct {
 		from ident.ID
@@ -1787,7 +1787,8 @@ func TestTick_EveryDeliveryWakes(t *testing.T) {
 	}{
 		{"usr_01j9q3aaaaaaaaaaaaaaaaaaaa", true},
 		{"acc_01j9q3aaaaaaaaaaaaaaaaaaaa", true},
-		{"ses_01j9q3bbbbbbbbbbbbbbbbbbbb", true},
+		{"ses_01j9q3bbbbbbbbbbbbbbbbbbbb", false},
+		{"standing-acme-impl-x", false}, // a grandfathered session id
 		{"actor:a2", false},
 	} {
 		reg := &fakeReg{insts: []jam.Instance{

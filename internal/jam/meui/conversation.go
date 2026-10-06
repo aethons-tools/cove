@@ -151,7 +151,7 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			label := d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label
 			add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "session", Project: name, Waiting: waiting})
 			if inst.Unit != "" {
-				if ch, err := d.Intercom.DefaultChannel(inst); err == nil {
+				if ch, ok := d.Intercom.TicketChannelOf(inst); ok {
 					add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "ticket", Project: name, Waiting: waiting})
 				}
 			}

@@ -249,3 +249,30 @@ func (fm *fileMarkers) has(service string) bool {
 func (fm *fileMarkers) needsSeed(service string) bool {
 	return !fm.has(service) || fm.Egress(service).LastSeq == 0
 }
+
+// settleCutover moves service's egress mark onto the channel log: legacy
+// squawks it had not yet delivered at the cutover (above LastSeq, below
+// cutover) are not delivered — the relays render only the channel log — and
+// in-flight bookkeeping for legacy ids is dropped. It reports how many legacy
+// seqs it skipped (0: the mark was already settled).
+func (fm *fileMarkers) settleCutover(service string, cutover int64, seqOf func(id string) (int64, bool)) (int64, error) {
+	if !fm.has(service) {
+		return 0, nil // unseeded: seeded to the tail elsewhere
+	}
+	mk := fm.Egress(service)
+	var skipped int64
+	if mk.LastSeq < cutover-1 {
+		skipped, mk.LastSeq = cutover-1-mk.LastSeq, cutover-1
+	}
+	changed := skipped > 0
+	for id := range mk.Pending {
+		if seq, ok := seqOf(id); !ok || seq < cutover {
+			delete(mk.Pending, id)
+			changed = true
+		}
+	}
+	if !changed {
+		return 0, nil
+	}
+	return skipped, fm.SetEgress(service, mk)
+}

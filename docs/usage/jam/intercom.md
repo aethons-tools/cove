@@ -159,9 +159,10 @@ field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback 
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid Requisitioner value still falls back to the default.
 
-The wake trigger is **a squawk delivered to the studio** — anyone else's post in
-one of its channels: a person's, an account's, or another session's — after a
-`WaitSeq` baseline: when a run starts (at raise, and
+The wake trigger is **a squawk delivered to the studio from a person or an
+account** (another session's post in a shared channel is delivered but doesn't
+wake it, so two sessions can't wake each other in a loop) after a `WaitSeq`
+baseline: when a run starts (at raise, and
 whenever the studio enters `running`) the supervisor stamps `WaitSeq` to the Log's
 current tail sequence — the starting agent reads its inbox itself — and any later
 delivery (append `seq` > `WaitSeq`) counts as a reply. Waking a `running` studio advances `WaitSeq` past the replies it was woken for;
