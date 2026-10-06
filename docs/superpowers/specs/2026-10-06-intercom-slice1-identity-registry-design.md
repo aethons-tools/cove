@@ -7,7 +7,7 @@
 Slice 1 ships as two plans, in order:
 
 - **1a — registry:** `internal/ident`, projects / users / memberships / connections / accounts, rename and tombstones, admin API + CLI + UIs, config export/import v2, escalation tiers, the log's user/account refs.
-- **1b — sessions:** session ids distinct from incarnations, standing / ticket / personal / manual raises, container + volume naming, session and allocator events, relay state.
+- **1b — sessions:** session ids distinct from studios, standing / ticket / personal / manual session starts, container + volume naming, session and allocator events, relay state.
 
 ## 1. Ids — `internal/ident` (new, stdlib-only)
 
@@ -70,7 +70,7 @@ so there are no fixups.
 
 - project — refused while a live role, grant, membership or session references it;
 - user — removes their memberships and unlinks their accounts; refused while they
-  raised a live personal session;
+  started a live personal session;
 - connection — refused while an account, project chat service or serve-config
   block references it.
 
@@ -113,20 +113,21 @@ and Postgres stay conformant.
 
 ## 4. Sessions (plan 1b)
 
-A **session** is the logical identity; an **incarnation** is one raise of it
-(container, token, allocator reservation). Restarts and standing upgrades are new
-incarnations of the same session; dismissal, `end`, ticket teardown and **standing
-reset** end it.
+A **session** is the logical identity; a **studio** is one setup of it
+(container, token, allocator reservation) — see the overview's Vocabulary. Restarts
+and standing upgrades set the same session up in a new studio; dismissal, `end`,
+ticket completion and **standing reset** end it. Code keeps the `Raise`/`cove`
+names in this slice except where a touched identifier would otherwise mislead.
 
 | Kind | Session minted when | Ended by | Found by |
 |---|---|---|---|
 | standing | declared (`AddStanding`) or after a reset | reset, removal of the declaration | `standing_sessions(project_id, role, name) → session_id` |
-| ticket | the Requisitioner raises a ticket | teardown | live instance with `Unit = <identifier>` (dedup no longer recomputes `cove-<ISSUE>`) |
+| ticket | the Requisitioner dispatches a ticket | the session ends (studio torn down) | live instance with `Unit = <identifier>` (dedup no longer recomputes `cove-<ISSUE>`) |
 | personal | a personal-session request | release / end | the request's returned id |
-| manual (`studio raise`, admin UI) | the raise | teardown | the returned id; the operator's `--id` becomes `Instance.Name` (a label) |
+| manual (`studio raise`, admin UI) | the command | the session ends | the returned id; the operator's `--id` becomes `Instance.Name` (a label) |
 
 - `Actor.ID` and `Instance.ActorID` hold the session id; `Instance.Project` →
-  `ProjectID`, `Instance.Owner` → `RaisedBy` (a `usr_` id; comms meaning unchanged
+  `ProjectID`, `Instance.Owner` → `StartedBy` (a `usr_` id; comms meaning unchanged
   until slice 3).
 - **Container and volume names** derive from the session id
   (`naming.CoveContainer(sessionID)`), labelled `harbor.cove.state=<sessionID>`.
@@ -253,7 +254,7 @@ config export/import docs.
 
 ## Open for review
 
-1. **Session vs incarnation** (§4) — upgrade/restart keeps the session; reset ends it.
+1. **Session vs studio** (§4) — upgrade/restart sets the same session up in a new studio; reset ends it.
 2. **Merge heuristic** (§6) — group by strong identity, then by name; rename
    collisions `<name>-<project>`.
 3. **Connections admin-managed** (§7) rather than declared in serve YAML.

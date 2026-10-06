@@ -12,13 +12,28 @@ Today every intercom reference is a **name**: `human:<name>`, `channel:<name>`,
 remove-then-re-add silently merges two entities, and `human:alice` in two
 projects shares one inbox key (the recipient index has no project). Session ids
 are deterministic (`standing-<project>-<role>-<name>`, `cove-<ISSUE>`), so a
-re-raised session inherits its predecessor's inbox.
+session set up again under the same name inherits its predecessor's inbox.
 
 This design moves everything to **surrogate ids** owned by one **registry**, and
 re-centres the intercom on **channels** whose behaviour is supplied by pluggable
 **channel sources**. The intercom becomes *mechanism* (identity, append, storage,
 cursors, fan-out, enforcement); sources are *policy* (which channels exist, who
 may post/see, who is notified).
+
+## Vocabulary
+
+Agreed 2026-10-06; new docs and code use these terms, existing code moves toward
+them as it is touched.
+
+| Term | Meaning | Verbs |
+|---|---|---|
+| **Session** | the collaborator: identity (`ses_`), conversation, intercom participant, persisted state | **start** / **end** — never restarted; a new one is unrelated |
+| **Studio** | the sandbox a session currently runs in (container, volumes, token). A session has at most one studio at a time and may have several over its life (restart, upgrade). In `at-cove` and in existing code this is a *cove*. | **set up** / **tear down** (nouns: *setup*, *teardown*). Code still says *raise*; move toward *set up* opportunistically |
+| **Episode** | one execution of the harness (`claude -p`) in the studio; with streaming input an episode usually spans several turns | — |
+| **Turn** | one assistant turn; it may end while the episode waits on child processes | **wake**: unpause the studio (between episodes) or deliver a message (between turns) |
+
+*Actor* (a studio's credential, token → session) and *Instance* (a session's
+runtime record) are internal names, left as they are for now.
 
 ## Decisions (brainstorming record)
 
@@ -28,8 +43,8 @@ may post/see, who is notified).
 2. **A session is a session.** A session gets a fresh id when it is created
    (declared, dispatched or requested); ending it (dismissal, `end`, ticket
    teardown, standing reset) ends it forever; recreating with the same name is an
-   unrelated session. Restarts and standing upgrades are new *incarnations* of
-   the same session, not new sessions (see slice 1 §4).
+   unrelated session. Restarts and standing upgrades set the same session up in a new *studio*;
+   they are not new sessions (see [Vocabulary](#vocabulary) and slice 1 §4).
 3. **Unrostered external senders** are identified by their service id
    (an *account*), with the display name as a label.
 4. **Existing data:** config and live sessions migrate to ids; the pre-cutover
@@ -105,7 +120,7 @@ A **channel** (`chn_`) is a conversation. Its **kind** is what it is anchored to
 | Kind | Anchored to | Lives | Membership | Address |
 |---|---|---|---|---|
 | `session` | an agent at work | the session | the session always; others called in, may leave | `session:<label>` |
-| `ticket` | a work item | the ticket | sessions working it (join at raise, leave at teardown) + tracker participants | `ticket:<key>` / `ticket:<connection>/<key>` |
+| `ticket` | a work item | the ticket | sessions working it (join at set-up, leave at end) + tracker participants | `ticket:<key>` / `ticket:<connection>/<key>` |
 | `room` | a topic | until removed | configured | `channel:<name>` |
 | `chat` | just the people | while its members exist | fixed member set (sender included) | `chat:<member>[,<member>…]`; `user:<name>` ≡ `chat:user:<name>` |
 
@@ -164,7 +179,7 @@ type Source interface {
 
 - `Human` per project, `Handle`, `DeliveryProfile.UserID` (→ users, memberships, accounts).
 - Deterministic actor ids as identity (→ labels).
-- "Owner" as a comms concept (`Instance.Owner` remains as "raised by", for audit)
+- "Owner" as a comms concept (`Instance.Owner` remains as "started by", for audit)
   and "default recipient" special cases.
 - The relay's `Instance.Unit` matching for ticket replies (→ the ticket source).
 - Escalation `@`-mentions elsewhere (→ calling tiers into the session channel, slice 4).
@@ -182,7 +197,7 @@ Each is independently shippable, in dependency order, with its own spec/plan.
    log (legacy frozen at this cutover — the only log migration), new
    `send`/`read` wire shapes, binding-driven relays. Until slice 3, an omitted
    `to` keeps today's targets (a ticket session → its ticket channel; a personal
-   session → a chat with the user who raised it; standing → `400`).
+   session → a chat with the user who started it; standing → `400`).
 3. **Session channels** — the session source, call-in / self-join / invite, removal
    of owner and default-recipient semantics, agent↔agent collaboration.
 4. **Escalation as call-in** — tiers call users into the session channel.
