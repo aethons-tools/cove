@@ -25,8 +25,11 @@ may post/see, who is notified).
 1. **Surrogate ids everywhere a reference is stored** — the log, cursors,
    escalation, owners, allocator and relay state. Names are labels, resolved at
    the edges. Role `Scope.Addressing` globs stay **name-based policy**.
-2. **A session is a session.** Every raise mints a fresh id; teardown ends it
-   forever; recreating with the same name is an unrelated session.
+2. **A session is a session.** A session gets a fresh id when it is created
+   (declared, dispatched or requested); ending it (dismissal, `end`, ticket
+   teardown, standing reset) ends it forever; recreating with the same name is an
+   unrelated session. Restarts and standing upgrades are new *incarnations* of
+   the same session, not new sessions (see slice 1 §4).
 3. **Unrostered external senders** are identified by their service id
    (an *account*), with the display name as a label.
 4. **Existing data:** config and live sessions migrate to ids; the pre-cutover
