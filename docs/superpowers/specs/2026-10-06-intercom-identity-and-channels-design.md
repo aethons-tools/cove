@@ -192,7 +192,7 @@ Each is independently shippable, in dependency order, with its own spec/plan.
    rename), memberships, accounts, connections; tombstones + rename; ids in every
    non-log reference (instances, cursors, session/alloc events, relay state);
    config export/import v2. The current log keeps working through the resolver.
-2. **Channel-centric intercom** — channel registry, the source interface,
+2. **Channel-centric intercom** ([detailed spec](2026-10-06-intercom-slice2-channels-design.md)) — channel registry, the source interface,
    recorded audience + live visibility, `chat`/`ticket`/`room` sources, the new
    log (legacy frozen at this cutover — the only log migration), new
    `send`/`read` wire shapes, binding-driven relays. Until slice 3, an omitted
