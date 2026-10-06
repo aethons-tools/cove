@@ -137,6 +137,9 @@ func UpgradeStanding(store Store, sup *Supervisor, project, roleName, name strin
 	if err != nil {
 		return StandingUpgradeResult{}, err
 	}
+	if id == "" {
+		return StandingUpgradeResult{Reason: "not started yet; its first raise runs the current image"}, nil
+	}
 	if inst, ok := store.GetInstance(id); ok && !force &&
 		imageStatus(sup, map[[2]string]currentImage{}, inst) == "ok" {
 		return StandingUpgradeResult{Image: inst.ImageTag, Reason: "already current"}, nil

@@ -391,6 +391,11 @@ func (m *memState) projectReference(project string) (string, bool) {
 	if n := len(m.members[m.projects[project].ID]); n > 0 {
 		return fmt.Sprintf("%d member(s)", n), true
 	}
+	for k := range m.standing {
+		if k.project == m.projects[project].ID && k.project != "" {
+			return fmt.Sprintf("standing session %s/%s (its session is still being ended)", k.role, k.name), true
+		}
+	}
 	for name := range m.roles[project] {
 		return fmt.Sprintf("role %s/%s", project, name), true
 	}

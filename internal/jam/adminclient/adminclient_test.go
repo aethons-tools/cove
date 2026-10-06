@@ -703,6 +703,7 @@ func TestClientUpgradeStanding(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
+	jam.SeedStandingSession(store, jam.DefaultProject, "guest", "bot") // a session to upgrade (down)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")

@@ -246,10 +246,14 @@ func (r *Reconciler) Tick(ctx context.Context) {
 			}
 		}
 	}
-	// A dismissed declaration's entry goes; its session ends (its state is
-	// swept below once its cove is gone).
+	// A dismissed declaration's entry goes once its studio is gone; its
+	// session ends (its state is swept below). While a studio still holds it
+	// (a teardown failed), a re-declared name adopts that studio.
 	for _, e := range r.roster.ListStandingSessions() {
 		if declared[declKey{pids[e.ProjectID], e.Role, e.Name}] || r.resetting[e.SessionID] {
+			continue
+		}
+		if _, live := byID[e.SessionID]; live {
 			continue
 		}
 		if err := r.roster.RemoveStandingSession(e.ProjectID, e.Role, e.Name); err != nil {
@@ -257,9 +261,12 @@ func (r *Reconciler) Tick(ctx context.Context) {
 		}
 	}
 
-	for _, inst := range byID {
+	for id, inst := range byID {
 		if inst.SessionKind != jam.SessionKindStanding {
 			continue // ephemeral and personal coves are not ours
+		}
+		if !teardownable(declaredIDs, id) {
+			continue // the declaration's current session (re-declared while dismissed)
 		}
 		if declared[declKey{inst.Project, inst.Role, inst.Name}] {
 			continue
@@ -332,9 +339,12 @@ func (r *Reconciler) QueueUpgrade(project, role, name string, force bool) error 
 	if _, ok := r.declaration(project, role, name); !ok {
 		return fmt.Errorf("%w: %q on role %s/%s", jam.ErrStandingNotDeclared, name, project, role)
 	}
-	id, err := r.sessionID(project, role, name, true)
+	id, err := r.sessionID(project, role, name, false)
 	if err != nil {
 		return err
+	}
+	if id == "" {
+		return nil // never started: its first raise runs the current image
 	}
 	r.stMu.Lock()
 	if r.resetting[id] {
@@ -609,3 +619,7 @@ func (r *Reconciler) ensure(ctx context.Context, id, project, role string, s jam
 	r.log.Info("standing: session raised", "id", id, "project", project, "role", role, "name", s.Name)
 	return nil
 }
+
+// teardownable: a standing studio whose session is no declaration's current
+// one may be torn down.
+func teardownable(declaredIDs map[string]bool, id string) bool { return !declaredIDs[id] }

@@ -1056,6 +1056,7 @@ func TestStandingUpgradeCommand(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
+	jam.SeedStandingSession(store, "acme", "reviewer", "alice-bot") // a session to upgrade (down)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	defer ts.Close()
 	getenv := func(string) string { return "" }

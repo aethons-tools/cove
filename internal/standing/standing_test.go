@@ -826,3 +826,34 @@ func TestUpgrade_QueueRefusals(t *testing.T) {
 		t.Fatalf("during a pending reset = %v", err)
 	}
 }
+
+// Dismissing a name whose teardown fails keeps its entry while its studio
+// lives, so re-declaring the name adopts that studio instead of raising a
+// second one beside it.
+func TestRedeclareWhileDismissedStudioLives(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+	w.failTear[botID] = true
+	w.declareNew("acme", "reviewer") // dismissed; its teardown fails
+	r.Tick(ctx)
+	w.declareNew("acme", "reviewer", bot) // re-declared before the teardown succeeded
+	r.Tick(ctx)
+	if len(w.raised) != 1 {
+		t.Fatalf("raised = %+v; the live studio must be adopted, not doubled", w.raised)
+	}
+}
+
+// Queuing an upgrade never starts a session: a declaration not yet raised
+// has nothing to upgrade (its first raise uses the current image).
+func TestQueueUpgradeNeverMints(t *testing.T) {
+	r, w, _, _ := kit()
+	w.declareNew("acme", "reviewer", bot)
+	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.sessions) != 0 || r.UpgradeState("acme", "reviewer", "alice-bot") != "" {
+		t.Fatalf("sessions %v, upgrade %q; want nothing minted or queued", w.sessions, r.UpgradeState("acme", "reviewer", "alice-bot"))
+	}
+}

@@ -384,3 +384,15 @@ func TestPlanRegistryMigrationSeedsStandingSessions(t *testing.T) {
 		t.Fatalf("from 4 = %+v", again.standing)
 	}
 }
+
+// Two declarations whose pre-registry ids coincide (names differing only in
+// characters the old id mapped to "-") never share one: the second is left
+// for the reconciler to start with a minted id.
+func TestPlanStandingSessionsSkipsCollidingIDs(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "a b", Prompt: "p"}, {Name: "a-b", Prompt: "p"}}}}}
+	plan := m.planRegistryMigration(3)
+	if len(plan.standing) != 1 {
+		t.Fatalf("standing = %+v, want one seeded entry", plan.standing)
+	}
+}

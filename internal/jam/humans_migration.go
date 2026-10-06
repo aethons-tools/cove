@@ -618,6 +618,10 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 // state volumes, inbox and receipts carry over; from then on a new one mints
 // a session id.
 func (m *memState) planStandingSessions(plan *humanPlan) {
+	used := map[string]bool{}
+	for _, id := range m.standing {
+		used[id] = true
+	}
 	for _, project := range slices.Sorted(mapsKeys(m.roles)) {
 		p, ok := m.projects[project]
 		if !ok || p.ID == "" {
@@ -628,7 +632,12 @@ func (m *memState) planStandingSessions(plan *humanPlan) {
 				if _, ok := m.standing[standingKey{p.ID, role, s.Name}]; ok {
 					continue
 				}
-				plan.standing = append(plan.standing, StandingSessionRef{ProjectID: p.ID, Role: role, Name: s.Name, SessionID: StandingActorID(project, role, s.Name)})
+				id := StandingActorID(project, role, s.Name)
+				if used[id] {
+					continue // another declaration's (names differing only in mapped characters): the reconciler mints this one
+				}
+				used[id] = true
+				plan.standing = append(plan.standing, StandingSessionRef{ProjectID: p.ID, Role: role, Name: s.Name, SessionID: id})
 			}
 		}
 	}

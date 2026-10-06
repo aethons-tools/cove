@@ -62,7 +62,7 @@ it is already declared on the role or contains `/`.
 | `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared or contains `/`. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included, each with its pending `upgrade` state (omitted when none). **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
-| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current. **409** a reset is pending or the session id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
+| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current or not started yet. **409** a reset is pending or the session id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
 | `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the session id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
 The role page in the admin UI has **Upgrade** and **Reset** buttons (with a
