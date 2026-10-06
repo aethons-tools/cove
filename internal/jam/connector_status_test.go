@@ -27,7 +27,7 @@ func TestCoveSummariesConnectorStatus(t *testing.T) {
 		}
 	}
 	status := func() string {
-		for _, c := range CoveSummaries(store) {
+		for _, c := range CoveSummaries(store, nil) {
 			if c.ID == "w1" {
 				return c.Connector
 			}

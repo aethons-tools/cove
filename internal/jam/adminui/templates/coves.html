@@ -28,7 +28,7 @@
 {{define "coves-tbl"}}
 <table>
   <thead>
-    <tr><th>Studio</th><th>Phase</th><th>Activity</th><th>Connector</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
+    <tr><th>Studio</th><th>Phase</th><th>Activity</th><th>Connector</th><th>Image</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
   </thead>
   <tbody>
     {{range .Coves}}
@@ -37,6 +37,7 @@
       <td>{{template "phase" .Phase}}</td>
       <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if eq .Connector "stale"}}<span class="pill phase-raising">stale</span>{{else if eq .Connector "error"}}<span class="pill phase-lost">error</span>{{else if eq .Connector "unknown" ""}}<span class="none">{{or .Connector "—"}}</span>{{else}}{{.Connector}}{{end}}</td>
+      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
       <td><a href="{{projectURL .Project}}">{{.Project}}</a></td><td><a href="{{roleURL .Project .Role}}">{{.Role}}</a></td>
       <td>{{if .Unit}}<span class="mono">{{.Unit}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
@@ -46,7 +47,7 @@
           hx-confirm="Tear down {{.ID}}?">Teardown</button></td>{{end}}
     </tr>
     {{else}}
-    <tr><td colspan="{{if .CanEdit}}11{{else}}10{{end}}" class="empty">No studios.</td></tr>
+    <tr><td colspan="{{if .CanEdit}}12{{else}}11{{end}}" class="empty">No studios.</td></tr>
     {{end}}
   </tbody>
 </table>

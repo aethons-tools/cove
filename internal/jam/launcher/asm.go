@@ -7,6 +7,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/basedigest"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // tagHalf is how many hex chars of each digest the image tag keeps: docker caps
@@ -54,6 +55,12 @@ func trim(d string) string {
 
 // imageTag is the tag this launcher builds, inventories and runs a kit under.
 func (l *Launcher) imageTag(r KitRef) string { return tagFor(r.Digest, l.asm) }
+
+// ImageTag is imageTag for the supervisor (jam.ImageTagger): the tag a raise of
+// r runs, recorded on the instance and compared later for image staleness.
+func (l *Launcher) ImageTag(r KitRef) string { return l.imageTag(r) }
+
+var _ jam.ImageTagger = (*Launcher)(nil)
 
 // shortAsm is the fingerprint prefix logged when a kit is prepared, so an
 // operator can see that a rebuild came from a Jam-side change.

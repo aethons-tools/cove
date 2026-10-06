@@ -305,7 +305,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "coves", "coves-table", covesData(store, true))
+		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +322,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove torn down", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "coves", "coves-table", covesData(store, true))
+		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
 	})
 
 }

@@ -1,8 +1,11 @@
 package launcher
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 func TestTagForFormat(t *testing.T) {
@@ -55,5 +58,19 @@ func TestLauncherTagDependsOnJamHostAndKey(t *testing.T) {
 	}
 	if !strings.HasPrefix(a.imageTag(ref), "cove-kit:"+strings.Repeat("c", 32)+"-") {
 		t.Fatalf("tag %q lacks the kit digest prefix", a.imageTag(ref))
+	}
+}
+
+// ImageTag (jam.ImageTagger) names exactly the image a raise of ref runs, so the
+// supervisor can record it on the instance and compare it later for staleness.
+func TestImageTagIsTheRaisedImage(t *testing.T) {
+	var _ jam.ImageTagger = (*Launcher)(nil)
+	ops := &fakeOps{}
+	l := newLauncher(ops)
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef}, jam.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.ImageTag(testKitRef); got != ops.runImage || got != tagFor(testKitRef.Digest, l.asm) {
+		t.Fatalf("ImageTag = %q, raise ran %q", got, ops.runImage)
 	}
 }

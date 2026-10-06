@@ -78,8 +78,8 @@ func mustParse(names ...string) *template.Template {
 
 // covesData, rosterData and rolesData are the payloads of those pages and
 // their swapped tables.
-func covesData(store jam.Store, canEdit bool) map[string]any {
-	return map[string]any{"Coves": jam.CoveSummaries(store), "CanEdit": canEdit}
+func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]any {
+	return map[string]any{"Coves": jam.CoveSummaries(store, img), "CanEdit": canEdit}
 }
 
 func rosterData(store jam.Store) map[string]any {
@@ -156,14 +156,14 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, "dashboard", map[string]any{
 			"Title":      "Dashboard",
-			"Coves":      jam.CoveSummaries(store),
+			"Coves":      jam.CoveSummaries(store, sup),
 			"Stats":      dashboardStats(store),
 			"JamContext": jamPanel(store),
 		})
 	})
 
 	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := covesData(store, canEdit)
+		data := covesData(store, sup, canEdit)
 		data["Title"] = "Studios"
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, "coves", "coves-table", data)
@@ -183,7 +183,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		render(w, "roles", data)
 	})
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		handleRoleDetail(w, r, store, canEdit)
+		handleRoleDetail(w, r, store, sup, canEdit)
 	})
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
@@ -196,12 +196,12 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
-	registerProjects(mux, store, log, guardWrite)
-	registerProjectEdits(mux, store, log, guardWrite)
+	registerProjects(mux, store, sup, log, guardWrite)
+	registerProjectEdits(mux, store, sup, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
-	registerRoleEdits(mux, store, log, credExists, canEdit, guardWrite)
+	registerRoleEdits(mux, store, sup, log, credExists, canEdit, guardWrite)
 	registerJamContext(mux, store, log, guardWrite)
 
 	return mux

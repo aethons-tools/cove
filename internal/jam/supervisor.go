@@ -92,6 +92,15 @@ type Launcher interface {
 	PrepareKit(ctx context.Context, def KitDefinition) (KitStatus, error)
 }
 
+// ImageTagger is optionally implemented by a Launcher that can name the image a
+// raise of ref runs (a pure function of ref and the launcher's own build
+// inputs). The supervisor records it on each raised Instance and compares it with
+// CurrentImageTag to report image staleness; a launcher without it leaves every
+// cove's image status unknown.
+type ImageTagger interface {
+	ImageTag(ref KitRef) string
+}
+
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
 // nil when no stream server runs (slice-1 behavior).
@@ -289,6 +298,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 		Egress:    EgressFingerprint(spec.Egress),
 		Kit:       spec.Kit,
+		ImageTag:  s.imageTag(spec.Kit),
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -331,6 +341,49 @@ func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition,
 		return def, true, nil
 	}
 	return KitDefinition{}, false, nil
+}
+
+// imageTag is the tag the launcher runs ref under; "" for no kit or a launcher
+// that cannot name its images.
+func (s *Supervisor) imageTag(ref KitRef) string {
+	t, ok := s.launcher.(ImageTagger)
+	if !ok || ref.ID == "" {
+		return ""
+	}
+	return t.ImageTag(ref)
+}
+
+// CurrentImageTag is the image tag a raise for project/role would run NOW: the
+// role's kit resolved (as Raise does, via kitFor) under the harness of the
+// model-spec the role resolves to, named by the launcher. A cove whose recorded
+// Instance.ImageTag differs is running a stale image. Errors (no supervisor, a
+// launcher that cannot name images, a missing role, an unresolvable kit or
+// model-spec, a role with no kit) are reported, never guessed around.
+func (s *Supervisor) CurrentImageTag(project, role string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("no supervisor")
+	}
+	if _, ok := s.launcher.(ImageTagger); !ok {
+		return "", fmt.Errorf("launcher cannot name images")
+	}
+	r, ok := s.store.GetRole(project, role)
+	if !ok {
+		return "", fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
+	}
+	// The harness a raise uses is its actor's model-spec; a raised actor holds
+	// exactly this one grant (Enroll), so resolve for that grant.
+	ms, err := ModelSpecFor(s.store, Actor{Grants: []Grant{{Project: project, Role: role}}})
+	if err != nil {
+		return "", err
+	}
+	def, have, err := s.kitFor(r, harnessinstall.FromSpec(ms))
+	if err != nil {
+		return "", err
+	}
+	if !have {
+		return "", fmt.Errorf("role %s/%s raises no kit", orDefaultProject(project), role)
+	}
+	return s.imageTag(def.Ref), nil
 }
 
 // prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it takes the

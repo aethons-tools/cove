@@ -92,7 +92,7 @@ func badRequest(msg string) error { return &jam.WriteError{Status: http.StatusBa
 // registerRoleEdits mounts the role page's per-section writes. Each goes
 // through jam's role read-modify-write functions (one shared lock with the JSON
 // API) and answers with the re-rendered role body.
-func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	// edit wraps one section write: guard, parse the form, run apply, log, and
 	// render the role body (or the refusal, with its status).
 	edit := func(what string, apply func(r *http.Request, project, name string) error) http.HandlerFunc {
@@ -110,7 +110,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, cr
 				return
 			}
 			log.Info("ui role "+what, "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-			d, ok := buildRoleDetail(store, project, name)
+			d, ok := buildRoleDetail(store, img, project, name)
 			if !ok { // deleted between the write and the read
 				renderError(w, http.StatusNotFound, "role no longer exists")
 				return

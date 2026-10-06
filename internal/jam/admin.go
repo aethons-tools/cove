@@ -209,16 +209,28 @@ type CoveSummary struct {
 	LastSeen    time.Time `json:"last_seen"`
 	// Connector: ok | stale | unknown | error — the cove's reported connector vs its role's current one.
 	Connector string `json:"connector"`
+	// Image: ok | stale | unknown — the image tag the cove was raised on vs the
+	// one a raise for its role would run now (kit, harness, Jam build).
+	Image string `json:"image"`
+}
+
+// ImageResolver names the image tag a raise for a role would run now. A nil
+// resolver (or a nil *Supervisor) leaves every cove's image status unknown.
+type ImageResolver interface {
+	CurrentImageTag(project, role string) (string, error)
 }
 
 // CoveSummaries returns the managed-cove runtime registry as scrubbed
 // summaries — never a token, hash, or launch secret. The JSON coves handler
-// and the read-only UI both render from this, so the two cannot drift.
-func CoveSummaries(store Store) []CoveSummary {
+// and the read-only UI both render from this, so the two cannot drift. img
+// resolves each role's current image tag (once per role per call); nil reports
+// every image unknown.
+func CoveSummaries(store Store, img ImageResolver) []CoveSummary {
 	actors := map[string]Actor{}
 	for _, a := range store.ListActors() {
 		actors[a.ID] = a
 	}
+	current := map[[2]string]string{} // project/role → current tag ("" = unresolvable)
 	var out []CoveSummary
 	for _, i := range store.ListInstances() {
 		out = append(out, CoveSummary{
@@ -226,9 +238,33 @@ func CoveSummaries(store Store) []CoveSummary {
 			Phase: string(i.Phase), Activity: string(i.Activity),
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
 			Connector: connectorStatus(store, actors, i),
+			Image:     imageStatus(img, current, i),
 		})
 	}
 	return out
+}
+
+// imageStatus compares the image tag a cove was raised on with the one a raise
+// for its role would run now: ok, stale, or unknown (no recorded tag — an older
+// Jam — or the current tag can't be resolved). Never an error: a listing must
+// not fail on one role's bad kit. current memoizes resolution per role.
+func imageStatus(img ImageResolver, current map[[2]string]string, i Instance) string {
+	if i.ImageTag == "" || img == nil {
+		return "unknown"
+	}
+	key := [2]string{i.Project, i.Role}
+	want, seen := current[key]
+	if !seen {
+		want, _ = img.CurrentImageTag(i.Project, i.Role) // an error leaves "" → unknown
+		current[key] = want
+	}
+	switch want {
+	case "":
+		return "unknown"
+	case i.ImageTag:
+		return "ok"
+	}
+	return "stale"
 }
 
 // connectorStatus compares the connector a cove reported applying with the one
@@ -763,7 +799,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, CoveSummaries(store))
+		writeJSON(w, http.StatusOK, CoveSummaries(store, sup))
 	})
 	mux.HandleFunc("POST /admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {

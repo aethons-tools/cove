@@ -13,7 +13,7 @@ type stats struct {
 // dashboardStats counts the fleet by phase and the control-plane objects.
 func dashboardStats(store jam.Store) stats {
 	var s stats
-	for _, c := range jam.CoveSummaries(store) {
+	for _, c := range jam.CoveSummaries(store, nil) {
 		s.Studios++
 		switch jam.Phase(c.Phase) {
 		case jam.PhaseLive:

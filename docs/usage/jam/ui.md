@@ -4,7 +4,7 @@ read_when: You want to watch a running Jam in a browser — the live studio flee
 owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability + roster/kit/destination/model-spec-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -39,7 +39,7 @@ It renders:
   references. Each project's page is the "everything in this project" view —
   see [ui-pages.md](ui-pages.md#project-pages).
 - **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
-  activity, lease holder, raised-at, last-seen. The table **auto-refreshes every
+  activity, connector and image status ([coves.md](coves.md#the-studio-verbs)), lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
   studios — see [Runtime (studios)](#runtime-studios) below and

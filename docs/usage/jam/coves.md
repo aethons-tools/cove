@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Managed studios (the supervisor)
@@ -46,7 +46,7 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ```
 at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-jam studio list     # id  role  unit  phase  activity  lease-holder  connector
+at-jam studio list     # id  role  unit  phase  activity  lease-holder  connector  image
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```
@@ -58,6 +58,7 @@ at-jam studio teardown --id spider-42
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
 - `connector` (in `studio list` and the Studios table) is `ok` when the studio's latest agent episode (agent process) started with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next episode — a wake delivered into a live episode does not refresh it), `unknown` when it never reported (an image built before the per-spawn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later episode.
+- `image` (in `studio list`, [`standing list`](standing-sessions.md#declaring-one), the Studios table and the role page's standing rows) is `ok` when the studio runs the image a raise for its role would run now, `stale` when that image has changed since the raise — the role's kit changed a build-affecting field, its [model-spec](model-specs.md) harness changed (CLI version, plugins), or Jam's own build inputs did (a new at-jam binary, Jam host or launcher key — the launcher's assembly fingerprint) — and `unknown` when Jam cannot tell: the studio was raised before Jam recorded image tags, the launcher cannot name its images, or the role's current kit or model-spec does not resolve (the listing never fails on it). Each Instance records the tag it was raised on (`image_tag`); the current one is resolved exactly as a raise would. A stale studio keeps its old image until it is torn down and raised again.
 
 ### Raising a real managed studio
 

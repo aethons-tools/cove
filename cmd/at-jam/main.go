@@ -1109,8 +1109,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, cv := range coves {
-			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\n",
-				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector)
+			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
+				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, cv.Image)
 		}
 	case "status":
 		if *id == "" || *activity == "" {
@@ -1271,8 +1271,22 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		coves, err := c.ListCoves()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		running := map[string]jam.CoveSummary{}
+		for _, cv := range coves {
+			running[cv.ID] = cv
+		}
 		for _, s := range list {
-			fmt.Fprintf(stdout, "%s\tid=%s\n", s.Name, jam.StandingActorID(proj, *role, s.Name))
+			id := jam.StandingActorID(proj, *role, s.Name)
+			phase, image := "-", "-" // no studio running for this name
+			if cv, ok := running[id]; ok {
+				phase, image = cv.Phase, cv.Image
+			}
+			fmt.Fprintf(stdout, "%s\tid=%s\tphase=%s\timage=%s\n", s.Name, id, phase, image)
 		}
 	case "rm":
 		if len(pos) != 1 {

@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-06
 ---
 
 # Standing sessions
@@ -29,7 +29,8 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
 - **add** declares the name with its prompt. The prompt file is read on the host
   and sent in the request body. It never goes on argv. Both `--name` and
   `--prompt-file` are required.
-- **list** prints each declared name and the actor id its studio runs under.
+- **list** prints each declared name, the actor id its studio runs under, and that
+  studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs).
 - **rm** removes the name. Jam then tears its studio down (see
   [Dismissal](#dismissal)).
 

@@ -70,6 +70,7 @@ type Instance struct {
 	Connector          string        `json:"connector,omitempty"`           // snippet.Fingerprint of the connector the cove last reported applying to an agent spawn; "" = never reported (an older image, or no turn yet)
 	EgressFailures     int           `json:"egress_failures,omitempty"`     // consecutive failed egress re-applies; at egressMaxFailures the supervisor tears the cove down
 	Kit                KitRef        `json:"kit,omitzero"`                  // the kit image the cove was raised with; GET /context keeps its build-args and egress ceiling
+	ImageTag           string        `json:"image_tag,omitempty"`           // the image tag the launcher ran the cove under (ImageTagger); "" = unknown (raised before this was recorded, or a launcher that cannot name it)
 	TurnEndedAt        time.Time     `json:"turn_ended_at,omitempty"`       // when the cove last left Running for Holding/Waiting
 	IdleDeadline       time.Time     `json:"idle_deadline,omitempty"`       // armed at turn end from IdleOverride or the role's idle timeout; zero = none armed
 	IdleOverride       *IdleOverride `json:"idle_override,omitempty"`       // the cove's own idle-timeout override (PUT /idle)

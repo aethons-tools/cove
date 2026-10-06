@@ -4,7 +4,7 @@ read_when: You are viewing or editing a project, studio, role, destination, mode
 owns: the project, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Admin UI entity pages
@@ -106,8 +106,8 @@ only that section:
   Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
   the page says what applies when unset.
 - **Standing sessions** — declare (name + prompt) and dismiss; each shows its
-  studio's phase. Dismissing tears the studio down
-  ([standing-sessions.md](standing-sessions.md)).
+  studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs).
+  Dismissing tears the studio down ([standing-sessions.md](standing-sessions.md)).
 - **Holders** and **Studios** — the actors granted the role (marked where the
   grant overrides the scope; grants are managed on the Roster) and the role's
   running studios.

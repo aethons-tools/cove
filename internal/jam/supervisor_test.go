@@ -51,7 +51,12 @@ type fakeLauncher struct {
 	preparedDef  KitDefinition
 	prepareState KitState
 	prepareErr   error
+
+	asm string // ImageTag's assembly half, like the real launcher's fingerprint
 }
+
+// ImageTag names an image like the real launcher: kit digest + assembly fingerprint.
+func (f *fakeLauncher) ImageTag(ref KitRef) string { return "cove-kit:" + ref.Digest + "-" + f.asm }
 
 func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
 	f.gotSpec, f.gotCreds = spec, creds
