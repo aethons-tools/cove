@@ -352,34 +352,93 @@ func cmdAccount(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdConnection lists connections: `connection list` (adding them is 1a-4).
+// cmdConnection manages connections — configured instances of an external
+// service: `connection add|list|rename|cred|rm`.
 func cmdConnection(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if len(args) < 1 || args[0] != "list" {
-		fmt.Fprintln(stderr, "at-jam connection: expected list")
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "at-jam connection: expected add|list|rename|cred|rm")
 		return 2
 	}
-	fs := flag.NewFlagSet("connection list", flag.ContinueOnError)
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("connection "+sub, flag.ContinueOnError)
 	client := clientFlags(fs, stderr)
-	pos, code, ok := cli.ParseFlags(fs, args[1:], stdout, stderr)
+	kind := fs.String("kind", "", "the service: "+strings.Join(jam.ConnectionKinds, "|")+" (add)")
+	name := fs.String("name", "", "the connection's name (add)")
+	cred := fs.String("cred", "", "the demanded credential (serve config) Jam uses for it (add)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
-	}
-	if len(pos) != 0 {
-		fmt.Fprintln(stderr, "at-jam connection list: takes no arguments")
-		return 2
 	}
 	c, err := client()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam connection:", err)
 		return 2
 	}
-	conns, err := c.ListConnections()
-	if err != nil {
-		fmt.Fprintln(stderr, "at-jam:", err)
-		return 1
+	usage := func(want string) int {
+		fmt.Fprintf(stderr, "at-jam connection %s: expected %s\n", sub, want)
+		return 2
 	}
-	for _, cn := range conns {
-		fmt.Fprintf(stdout, "connection\t%s\t%s\tkind=%s\n", cn.Name, cn.ID, cn.Kind)
+	switch sub {
+	case "add":
+		if len(pos) != 0 || *kind == "" || *name == "" {
+			return usage("--kind and --name [--cred c]")
+		}
+		cn, err := c.CreateConnection(jam.ConnectionBody{Kind: *kind, Name: *name, Cred: *cred})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, connectionLine(cn))
+	case "list":
+		if len(pos) != 0 {
+			return usage("no arguments")
+		}
+		conns, err := c.ListConnections()
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		for _, cn := range conns {
+			fmt.Fprintln(stdout, connectionLine(cn))
+		}
+	case "rename":
+		if len(pos) != 2 {
+			return usage("<connection> <new-name>")
+		}
+		if err := c.RenameConnection(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "renamed connection", pos[0], "to", pos[1])
+	case "cred":
+		if len(pos) != 2 {
+			return usage("<connection> <credential>")
+		}
+		if err := c.SetConnectionCred(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "set credential of", pos[0])
+	case "rm":
+		if len(pos) != 1 {
+			return usage("<connection>")
+		}
+		if err := c.RemoveConnection(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed connection", pos[0])
+	default:
+		fmt.Fprintln(stderr, "at-jam connection: unknown subcommand", sub)
+		return 2
 	}
 	return 0
+}
+
+func connectionLine(c jam.Connection) string {
+	line := fmt.Sprintf("connection\t%s\t%s\tkind=%s", c.Name, c.ID, c.Kind)
+	if c.CredName != "" {
+		line += "\tcred=" + c.CredName
+	}
+	return line
 }
