@@ -268,6 +268,40 @@ func (ic *Intercom) PlanChannel(p Poster, chID ident.ID) (Planned, error) {
 	return ic.planIn(p, ch, false)
 }
 
+// PlanPersonChat decides a person's new conversation from /me: a chat with
+// another participant — a user, in a project both are live members of (the
+// first by name), or a live session, in its project, which the person must
+// be a member of. ErrSendUnresolved when there is none.
+func (ic *Intercom) PlanPersonChat(from, with ident.ID) (Planned, error) {
+	if from == with || from.Kind() != ident.User {
+		return Planned{}, ErrSendUnresolved
+	}
+	var project Project
+	found := false
+	if isSessionID(with) {
+		inst, ok := ic.store.GetInstance(string(with))
+		if ok && inst.Phase != PhaseGone {
+			project, found = ic.store.GetProject(orDefaultProject(inst.Project))
+			found = found && ic.projectUser(project.ID, from)
+		}
+	} else if with.Kind() == ident.User {
+		for _, name := range ic.store.ListProjects() {
+			if p, ok := ic.store.GetProject(name); ok && ic.projectUser(p.ID, from) && ic.projectUser(p.ID, with) {
+				project, found = p, true
+				break
+			}
+		}
+	}
+	if !found {
+		return Planned{}, ErrSendUnresolved
+	}
+	ch, err := ic.chat(project, []ident.ID{from, with})
+	if err != nil {
+		return Planned{}, err
+	}
+	return ic.planIn(Poster{ID: from}, ch, false)
+}
+
 // CanSee reports whether participant p may read ch (evaluated live, at read
 // time, so revocation is immediate).
 func (ic *Intercom) CanSee(p ident.ID, ch Channel) bool {

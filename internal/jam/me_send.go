@@ -5,51 +5,31 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// appender is the legacy log's write side, which /me/send still uses until
-// it moves to the channel log (2b task 6).
-type appender interface {
-	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
-}
-
-// participantSendStore is the narrow slice of Store the participant send path
-// reads: the per-project roster (to resolve the sender's roster identity and any
-// named-channel target) and the live instances (to resolve a studio/session
-// recipient to its session actor). jam.Store satisfies it.
-type participantSendStore interface {
-	GetRoster(project string) (Roster, bool)
-	ListInstances() []Instance
-}
-
-// ParticipantSendHandler is the participant intercom send endpoint (POST under
-// /me): the human analog of the agent `send` tool (COV-196 slice 1). It resolves
-// the sender from the gate-injected Participant (COV-199) — never the request
-// body — resolves the target recipient to a Log target via the channel model
-// (COV-198), and appends an external-origin message to the SAME squawk Log the
-// agent `send` tool and the relay ingress write. Because the append is
-// external-origin and addressed to the studio's session actor, wake-on resumes a
-// waiting/idled studio exactly as a relayed reply does (see internal/wakeon).
-//
-// Open addressing to start: any active recipient is allowed (no comms
-// access-graph check this slice). The UI is an in-process Log writer, not a
-// msgport egress engine — there is no EgressMark; a separate egress engine
-// renders and delivers any external target.
+// ParticipantSendHandler is a person's send from the /me inbox (POST
+// /me/send): into a conversation they're in ({"to": "<channel id>"}), or a
+// new one ({"to": "user:<id|name>"} or {"to": "session:<id>"}: a chat with
+// them). The sender is the gate's participant, never the body; the intercom
+// decides whether they may post there and who hears it. Implements
+// http.Handler.
 type ParticipantSendHandler struct {
-	store participantSendStore
-	lg    appender
+	store Store
+	ic    *Intercom
 	log   *slog.Logger
 }
 
-// NewParticipantSendHandler constructs a ParticipantSendHandler. lg may be nil:
-// a nil lg makes a send fail 503 (messaging unconfigured), mirroring /squawks.
-func NewParticipantSendHandler(store participantSendStore, lg appender, log *slog.Logger) *ParticipantSendHandler {
+// NewParticipantSendHandler constructs a ParticipantSendHandler. ic may be
+// nil: messaging unconfigured, a send fails 503.
+func NewParticipantSendHandler(store Store, ic *Intercom, log *slog.Logger) *ParticipantSendHandler {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
-	return &ParticipantSendHandler{store: store, lg: lg, log: log}
+	return &ParticipantSendHandler{store: store, ic: ic, log: log}
 }
 
 type discardWriter struct{}
@@ -98,68 +78,51 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Resolve the recipient (open addressing — no access-graph check). A
-	// participant is a global person; the recipient may live in any of their
-	// projects. Try each project in ListProjects order (the order recorded in
-	// Participant.Projects) and take the first that resolves — deterministic when
-	// a bare ref is ambiguous across projects. The outgoing `from` ref is the
-	// sender's roster name in the TARGET's project (names may differ per project).
-	var (
-		to      intercom.Target
-		from    intercom.Target
-		project string
-		found   bool
-	)
-	for _, proj := range p.Projects {
-		roster, ok := h.store.GetRoster(proj)
-		if !ok {
-			continue
-		}
-		sender, ok := roster.HumanByIdentity(p.Issuer, p.Subject)
-		if !ok || sender.Name == "" {
-			continue // not bound (or unnamed) in this project — cannot attribute
-		}
-		self := intercom.Target{Kind: "human", Ref: sender.Name}
-		t, ok := ResolveSendTarget(req.To, self, roster, h.instancesFor(proj))
-		if !ok {
-			continue
-		}
-		to, from, project, found = t, self, proj, true
-		break
-	}
-	if !found {
-		http.Error(w, "recipient not found", http.StatusNotFound)
-		return
-	}
-
-	// The Log is the authoritative delivery path (the same append the agent send
-	// tool uses). A send requires a configured Log; an append failure fails it.
-	if h.lg == nil {
+	if h.ic == nil {
 		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := h.lg.Append(intercom.LegacySquawk{
-		From:        from,
-		To:          []intercom.Target{to},
-		Body:        req.Body,
-		Project:     project,
-		ContentType: req.ContentType,
-	}); err != nil {
-		h.log.Error("participant send: append failed", "from", from.String(), "to", to.String(), "error", err.Error())
+	pl, err := h.plan(p, req.To)
+	switch {
+	case errors.Is(err, ErrSendDenied):
+		http.Error(w, "not allowed", http.StatusForbidden)
+		return
+	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
+		http.Error(w, "recipient not found", http.StatusNotFound)
+		return
+	case err != nil:
+		h.log.Error("participant send: plan failed", "user", string(p.UserID), "error", err.Error())
+		http.Error(w, "send failed", http.StatusInternalServerError)
+		return
+	}
+	if _, err := h.ic.Post(pl, intercom.Squawk{From: p.UserID, Body: req.Body, ContentType: req.ContentType}); err != nil {
+		h.log.Error("participant send: append failed", "user", string(p.UserID), "channel", string(pl.Channel.ID), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return
 	}
-	h.log.Info("participant send", "from", from.String(), "to", to.String(), "project", project, "bytes", len(req.Body))
+	h.log.Info("participant send", "user", string(p.UserID), "channel", string(pl.Channel.ID), "audience", len(pl.Audience), "bytes", len(req.Body))
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// instancesFor returns the live instances belonging to project.
-func (h *ParticipantSendHandler) instancesFor(project string) []Instance {
-	var out []Instance
-	for _, i := range h.store.ListInstances() {
-		if i.Project == project {
-			out = append(out, i)
+// plan resolves a /me send: a channel id, or a person or session to chat with.
+func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
+	kind, ref, ok := strings.Cut(to, ":")
+	switch {
+	case !ok:
+		if id, err := ident.Parse(to); err == nil && id.Kind() == ident.Channel {
+			return h.ic.PlanChannel(Poster{ID: p.UserID}, id)
 		}
+	case kind == "user" || kind == "human":
+		id, err := ident.Parse(ref)
+		if err != nil {
+			var found bool
+			if id, found = h.store.LookupName(ident.User, ref); !found {
+				return Planned{}, ErrSendUnresolved
+			}
+		}
+		return h.ic.PlanPersonChat(p.UserID, id)
+	case kind == "session":
+		return h.ic.PlanPersonChat(p.UserID, ident.ID(ref))
 	}
-	return out
+	return Planned{}, ErrSendUnresolved
 }

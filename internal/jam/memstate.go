@@ -50,6 +50,9 @@ type memState struct {
 	// chanMembers each channel's membership rows (channel_registry.go).
 	channels    map[ident.ID]Channel
 	chanMembers map[ident.ID][]ChannelMember
+	// reads is the /me unread cursor on the channel log: participant →
+	// channel → last-read seq (forward only).
+	reads map[ident.ID]map[ident.ID]int64
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -78,6 +81,7 @@ func newMemState() *memState {
 		standing:    map[standingKey]string{},
 		channels:    map[ident.ID]Channel{},
 		chanMembers: map[ident.ID][]ChannelMember{},
+		reads:       map[ident.ID]map[ident.ID]int64{},
 		unread:      map[string]map[string]int64{},
 	}
 }

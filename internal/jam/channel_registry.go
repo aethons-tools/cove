@@ -104,6 +104,11 @@ type ChannelStore interface {
 	ChannelMembers(ch ident.ID) []ChannelMember
 	// ChannelsOf returns the channels p is currently a member of, sorted.
 	ChannelsOf(p ident.ID) []ident.ID
+
+	// ChannelReads is how far p has read each channel (the /me unread
+	// cursor: a seq); CommitChannelRead moves one forward only.
+	ChannelReads(p ident.ID) map[ident.ID]int64
+	CommitChannelRead(p, ch ident.ID, seq int64) error
 }
 
 // ---- reads ----
@@ -168,6 +173,31 @@ func (m *memState) ChannelsOf(p ident.ID) []ident.ID {
 	}
 	slices.Sort(out)
 	return out
+}
+
+func (m *memState) ChannelReads(p ident.ID) map[ident.ID]int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := map[ident.ID]int64{}
+	for ch, seq := range m.reads[p] {
+		out[ch] = seq
+	}
+	return out
+}
+
+// applyChannelRead records a read cursor, forward only. Caller holds mu.
+func (m *memState) applyChannelRead(p, ch ident.ID, seq int64) {
+	if m.reads[p] == nil {
+		m.reads[p] = map[ident.ID]int64{}
+	}
+	m.reads[p][ch] = max(m.reads[p][ch], seq)
+}
+
+func (fs *MemStore) CommitChannelRead(p, ch ident.ID, seq int64) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applyChannelRead(p, ch, seq)
+	return nil
 }
 
 // liveChannelByKey finds the live channel (project, kind, key). Caller holds mu.

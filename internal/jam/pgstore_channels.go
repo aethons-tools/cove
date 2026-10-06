@@ -99,6 +99,19 @@ func (s *PostgresStore) LeaveChannel(ch, p ident.ID, seq int64) error {
 	return nil
 }
 
+func (s *PostgresStore) CommitChannelRead(p, ch ident.ID, seq int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.exec("CommitChannelRead",
+		`INSERT INTO channel_reads (participant_id, channel_id, seq) VALUES ($1,$2,$3)
+		 ON CONFLICT (participant_id, channel_id) DO UPDATE SET seq = GREATEST(channel_reads.seq, EXCLUDED.seq), updated_at = now()`,
+		p, ch, seq); err != nil {
+		return err
+	}
+	s.applyChannelRead(p, ch, seq)
+	return nil
+}
+
 // participantKind is the participants.kind of a channel member: its id's
 // kind, or a session for a grandfathered (pre-registry) session id — the only
 // participants whose ids are not surrogate ids.
@@ -167,6 +180,27 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 			ms.Left, ms.LeftSeq = true, *left
 		}
 		s.chanMembers[ident.ID(ch)] = append(s.chanMembers[ident.ID(ch)], ms)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return s.loadChannelReads(ctx)
+}
+
+// loadChannelReads fills the /me read cursors. load's part; no lock.
+func (s *PostgresStore) loadChannelReads(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT participant_id, channel_id, seq FROM channel_reads`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load channel_reads: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p, ch string
+		var seq int64
+		if err := rows.Scan(&p, &ch, &seq); err != nil {
+			return err
+		}
+		s.applyChannelRead(ident.ID(p), ident.ID(ch), seq)
 	}
 	return rows.Err()
 }

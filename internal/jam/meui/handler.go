@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -41,11 +43,11 @@ type inboxPage struct {
 // Handler serves the participant intercom inbox under /me. It reads identity per
 // request from jam.ParticipantFrom (the /me gate injects it) — never a
 // constructor argument — so one handler serves every participant. lg may be nil.
-func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) http.Handler {
+func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
 		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	h := &handler{store: store, log: log, lg: lg}
+	h := &handler{d: d, lg: lg}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -62,8 +64,7 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 }
 
 type handler struct {
-	store    Store
-	log      jam.LogReader
+	d        Deps
 	lg       *slog.Logger
 	changes  Changes  // nil = no `changed` push
 	presence Presence // nil = no `presence` push; live sessions read "working"
@@ -79,12 +80,12 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 	sel := r.URL.Query().Get("c")
 	page := inboxPage{
 		Me:         p.Name,
-		Groups:     Rail(p, h.store, h.log, sel),
-		Recipients: newMessageOptions(p, h.store),
+		Groups:     Rail(p, h.d, sel),
+		Recipients: newMessageOptions(p, h.d),
 	}
 	if sel != "" {
-		if conv, ok := conversation(p, h.store, h.log, sel); ok {
-			conv.Sessions = sessionRows(conv.SessionIDs, h.store.ListInstances(), h.presence)
+		if conv, ok := conversation(p, h.d, sel); ok {
+			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
 			page.Conv = &conv
 		}
 	}
@@ -145,8 +146,8 @@ func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "sessions", page)
 }
 
-// markRead advances the participant's unread cursor for a channel to seq, under
-// the self ref of that channel's project (matching how the rail queried it).
+// markRead advances the participant's read cursor on a channel to seq (a
+// History channel has none: it is all read).
 func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
@@ -159,11 +160,13 @@ func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty channel", http.StatusBadRequest)
 		return
 	}
-	if conv, ok := conversation(p, h.store, h.log, channel); ok {
-		if ref := selfRefForProject(p, h.store, conv.Project); ref != "" {
-			if err := h.store.CommitUnread(ref, channel, seq); err != nil {
-				h.lg.Warn("meui mark-read failed", "channel", channel, "error", err.Error())
-			}
+	if strings.HasPrefix(channel, legacyPrefix) || h.d.Log == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ident.ID(channel)); ok {
+		if err := h.d.Store.CommitChannelRead(p.UserID, ident.ID(channel), seq); err != nil {
+			h.lg.Warn("meui mark-read failed", "channel", channel, "error", err.Error())
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)

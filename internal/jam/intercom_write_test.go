@@ -125,3 +125,25 @@ func TestIntercomNotify(t *testing.T) {
 		t.Fatalf("Notify after the owner left: %v", err)
 	}
 }
+
+func TestIntercomPlanPersonChat(t *testing.T) {
+	f := newICFixture(t)
+	p, err := f.ic.PlanPersonChat(f.bob.ID, ident.ID(f.personal.ActorID))
+	if err != nil || p.Channel.Kind != SourceChat || len(p.Audience) != 1 || p.Audience[0] != ident.ID(f.personal.ActorID) {
+		t.Fatalf("bob with a session = %+v, %v", p, err)
+	}
+	if p, err := f.ic.PlanPersonChat(f.bob.ID, f.alice.ID); err != nil || len(p.Audience) != 1 || p.Audience[0] != f.alice.ID {
+		t.Fatalf("bob with alice = %+v, %v", p, err)
+	}
+	for name, c := range map[string][2]ident.ID{
+		"with a non-member": {f.bob.ID, f.carol.ID},
+		"from a non-member": {f.carol.ID, ident.ID(f.personal.ActorID)},
+		"with oneself":      {f.bob.ID, f.bob.ID},
+		"with no one":       {f.bob.ID, "usr_01j9q3zzzzzzzzzzzzzzzzzz"},
+		"from a session":    {ident.ID(f.ticket.ActorID), f.bob.ID},
+	} {
+		if _, err := f.ic.PlanPersonChat(c[0], c[1]); !errors.Is(err, ErrSendUnresolved) {
+			t.Errorf("%s: %v, want ErrSendUnresolved", name, err)
+		}
+	}
+}

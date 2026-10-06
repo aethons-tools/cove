@@ -1773,21 +1773,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
-	// Message Log: opened once (handle held for the serve lifetime) and shared
-	// between the /squawks writer (dual-write shadow, below) and the admin UI's
-	// read-only reader (further down). Postgres (the shared control-plane pool).
-	chlog, err := intercompg.New(context.Background(), pgPool, log)
+	// The intercom's channel log, opened once for the serve lifetime in the
+	// shared control-plane Postgres; it continues the frozen legacy log (ml),
+	// which inboxes and the UIs' History still read.
+	pglog, err := intercompg.New(context.Background(), pgPool, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
-	ml := chlog.Legacy()
+	ml := pglog.Legacy()
 	var intercomLog intercom.LegacyStore = ml // Close is a no-op; the store owns the pool
 	log.Info("Jam message log: postgres (shared control-plane database)")
-	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
-	// one handle, so wrapping it lets live views (/me/events) see each append.
-	logChanges := intercom.NewNotifier(intercomLog)
-	intercomLog = logChanges
+	// Every writer (agent send, relay ingress, /me/send, Jam's notices) shares
+	// this one handle, so wrapping it lets live views (/me/events) see each append.
+	logChanges := intercom.NewNotifier(pglog)
+	var chlog intercom.Store = logChanges
 	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
 	// channels key on the requisitioner's tracker connection, resolved below
@@ -2182,13 +2182,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// It writes to the same intercom Log the agent send + relay ingress
 			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
-			sendH := jam.NewParticipantSendHandler(st, intercomLog, log)
+			sendH := jam.NewParticipantSendHandler(st, ic, log)
 			meSurface.Handle("/me/send", sendH)
-			// The inbox reads the same intercom Log.
-			var meLog jam.LogReader = intercomLog
+			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
 			meMux.Handle("/me/", meGate.Wrap(meSurface))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")

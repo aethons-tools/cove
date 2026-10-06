@@ -12,9 +12,9 @@ import (
 // /me takes its tokens from the shared jam.css (one source with /ui), served
 // under its own static prefix, and carries no token block of its own.
 func TestMeUsesSharedStylesheet(t *testing.T) {
-	store, log, p := fixture()
-	h := Handler(store, log, nil)
-	req := jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil), p)
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	req := jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil), p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()

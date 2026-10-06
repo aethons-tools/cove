@@ -39,6 +39,7 @@
       {{template "messages" $}}
     </div>
     <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
+    {{if .SendTo}}
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
@@ -46,6 +47,9 @@
         <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div>
       </form>
     </div>
+    {{else}}
+    <div class="cv-readonly">From before the upgrade: read-only.</div>
+    {{end}}
   {{else}}
     <div class="cv-empty">Select a conversation, or start a New message.</div>
   {{end}}

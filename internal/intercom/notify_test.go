@@ -7,12 +7,11 @@ import (
 
 func newNotifier(t *testing.T) *Notifier {
 	t.Helper()
-	l := NewLegacyMemLog()
-	return NewNotifier(l)
+	return NewNotifier(NewMemLog(nil))
 }
 
-func hi() LegacySquawk {
-	return LegacySquawk{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "hi"}
+func hi() Squawk {
+	return Squawk{Channel: "chn_01j9q3aaaaaaaaaaaaaaaaaaaa", From: "usr_01j9q3aaaaaaaaaaaaaaaaaaaa", Body: "hi"}
 }
 
 // signalled reports whether ch fires within a short wait.
@@ -31,7 +30,7 @@ func TestNotifierSignalsSubscribersOnAppend(t *testing.T) {
 	defer cancelA()
 	b, cancelB := n.Subscribe()
 	defer cancelB()
-	if _, err := n.Append(hi()); err != nil {
+	if _, err := n.Append(hi(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if !signalled(a) || !signalled(b) {
@@ -50,7 +49,7 @@ func TestNotifierCoalescesAndNeverBlocks(t *testing.T) {
 	// A subscriber that isn't reading must not block appends; a burst
 	// collapses into one pending signal.
 	for i := 0; i < 5; i++ {
-		if _, err := n.Append(hi()); err != nil {
+		if _, err := n.Append(hi(), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,7 +64,7 @@ func TestNotifierCoalescesAndNeverBlocks(t *testing.T) {
 func TestNotifierSkipsFailedAppendAndCancelledSubscribers(t *testing.T) {
 	n := newNotifier(t)
 	ch, cancel := n.Subscribe()
-	if _, err := n.Append(LegacySquawk{From: Target{Kind: "actor", Ref: "a"}}); err == nil {
+	if _, err := n.Append(Squawk{From: "usr_01j9q3aaaaaaaaaaaaaaaaaaaa"}, nil); err == nil {
 		t.Fatal("invalid squawk should fail")
 	}
 	if signalled(ch) {
@@ -73,7 +72,7 @@ func TestNotifierSkipsFailedAppendAndCancelledSubscribers(t *testing.T) {
 	}
 	cancel()
 	cancel() // idempotent
-	if _, err := n.Append(hi()); err != nil {
+	if _, err := n.Append(hi(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if signalled(ch) {

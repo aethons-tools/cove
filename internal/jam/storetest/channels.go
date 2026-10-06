@@ -225,6 +225,28 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		}
 	})
 
+	t.Run("channel_reads_forward_only", func(t *testing.T) {
+		s, p, _ := setup(t)
+		ch := mustChannel(t, s, room(p, "eng"))
+		u, _ := s.CreateUser(jam.User{Name: "alice"})
+		if got := s.ChannelReads(u.ID); len(got) != 0 {
+			t.Fatalf("fresh reads = %v", got)
+		}
+		for _, seq := range []int64{5, 3, 9} {
+			if err := s.CommitChannelRead(u.ID, ch.ID, seq); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := s.ChannelReads(u.ID); got[ch.ID] != 9 || len(got) != 1 {
+			t.Fatalf("reads = %v, want %s at 9", got, ch.ID)
+		}
+		got := s.ChannelReads(u.ID)
+		got[ch.ID] = 0
+		if s.ChannelReads(u.ID)[ch.ID] != 9 {
+			t.Fatal("ChannelReads must return a copy")
+		}
+	})
+
 	t.Run("project_removal_removes_its_channels", func(t *testing.T) {
 		s, p, c := setup(t)
 		ch := mustChannel(t, s, room(p, "eng", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
