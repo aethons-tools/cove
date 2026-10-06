@@ -49,11 +49,9 @@ owns a **Roster** of addressable members:
 a user in the [identity registry](roster.md) plus a project membership: the
 same name in two projects is one person, and a login, OIDC binding, tracker
 handle or Discord user id belongs to one person Jam-wide (claiming another
-person's is **400**). `add-human` on an existing name *adds* the given login and
-OIDC bindings to that person and makes a given handle or Discord user id
-theirs, everywhere — it never removes one (until the user admin pages land,
-a person's identities can't be removed) — and sets this project's delivery
-addresses; `rm-human` ends only this project's membership. On upgrade, existing per-project
+person's is **400**). A person's logins, OIDC bindings and service accounts are
+managed on the **user**; their per-project delivery addresses on the
+**membership**. On upgrade, existing per-project
 humans were merged into users once: same login/OIDC/Discord id → one user, else
 same name → one user; two different people sharing a name keep it for the
 first and the other becomes `<name>-<project>` (logged at startup, with that
@@ -65,12 +63,25 @@ that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation
 Manage a roster with `at-jam project`:
 
 ```
-at-jam project roster add-human   <project> --name alice --handle alice.h [--login 'auth0|abc123'] [--delivery discord:<channel>[:<user-id>]] [--oidc <issuer>:<subject>]
+at-jam user add <name> [--login 'auth0|abc123']... [--oidc <issuer>:<subject>]...
+at-jam user list | show <user> | rename <user> <new> | rm <user>
+at-jam user login <user> [<login>...]        # replaces the set; none clears it
+at-jam user oidc  <user> [<issuer>:<subject>...]
+at-jam project member add  <project> <user> [--delivery discord:<inbox-channel>]...
+at-jam project member list <project> | rm <project> <user>
+at-jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
+at-jam account list [--connection c] | link <account> <user> | unlink <account>
+at-jam connection list
 at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-jam project roster list        <project>
-at-jam project roster rm-human    <project> <name>
 at-jam project roster rm-channel  <project> <name>
 ```
+
+A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
+(nothing refers to names). `user rm` tombstones the user (refused while they
+own a live personal session) and ends their memberships. The admin API behind
+these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts` and
+`/admin/connections` (the per-project `/humans` routes are gone).
 
 `--service` defaults to `linear`. `--delivery` and `--oidc` are both repeatable
 (one flag per binding). Because an OIDC issuer is commonly a URL that itself

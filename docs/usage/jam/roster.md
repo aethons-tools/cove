@@ -186,10 +186,10 @@ The snippet is the identity's [connector](connector.md) (also in `--json` as
 - Hardened studios usually **auto-enroll** themselves at session start rather than
   using a hand-run snippet — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 
-## The roster
+## The actors
 
 ```
-at-jam roster
+at-jam actors
 ```
 
 Lists every Actor with its grants and each grant's **effective** destinations

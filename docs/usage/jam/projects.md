@@ -4,7 +4,7 @@ read_when: You are starting a new project on a Jam, a role/grant/roster/escalati
 owns: the Project lifecycle — create/list/rm, existence enforcement, the default-project exception, the in-use refusal, and the upgrade backfill
 prereqs: roster.md for what Roles and Grants are; operators.md for the admin-client flags
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-06
 ---
 
 # Projects
@@ -31,7 +31,7 @@ sessions are set with `at-jam context --project` ([session-context-authoring.md]
 ## Existence is enforced
 
 Every project-scoped write names a project that must already exist:
-`role add`, `grant`, `enroll`, `project roster add-human|add-channel`,
+`role add`, `grant`, `enroll`, `project member add`, `project roster add-channel`,
 `project escalation set`, `project chat-service set`. Naming an unknown project
 fails (HTTP **404**, and the error says to run `at-jam project create`). Nothing
 is created as a side effect.

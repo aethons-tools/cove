@@ -33,9 +33,8 @@ with the re-rendered page:
   and, per human, **Edit** (pre-filled; every field comes from the form, so a
   removed line is removed) and **Remove**. Delivery is one
   `service:address[:user-id]` per line (a user id is discord-only) and identity
-  one `issuer:subject` per line — the CLI's `--delivery`/`--oidc` syntax. The
-  rules match `project roster add-human`: a login, and a Discord user id, link at
-  most one human per project.
+  one `issuer:subject` per line — the CLI's `--delivery`/`--oidc` syntax. A login,
+  OIDC binding or Discord id is one person's Jam-wide; the form never removes one.
 - **Channels** — **Add channel** (name, service, ref; an existing name is
   replaced) and **Remove**.
 - **Escalation** — edit the default chain or any category's chain as one

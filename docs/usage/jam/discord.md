@@ -27,13 +27,17 @@ A **Project** carries `ChatService string` — the service backing
 that project's human DMs (e.g. `"discord"`); empty means tracker `@`-mentions
 only, same as before this field existed.
 
-Set a human's delivery profiles with `--delivery service:address[:user-id]` on
-`add-human` (repeatable — one flag per service):
+Set a member's inbox with `--delivery service:address` on `project member add`
+(repeatable — one flag per service), and bind their Discord user id as an
+**account** on the `discord` connection:
 
 ```
-at-jam project roster add-human <project> --name alice --handle alice.h \
-  --delivery discord:<inbox-channel-id>:<alice's-discord-user-id>
+at-jam project member add <project> alice --delivery discord:<inbox-channel-id>
+at-jam account add --connection discord --uid <alice's-discord-user-id> --user alice
 ```
+
+(The roster view still shows the pair as one `service:address[:user-id]`
+delivery profile, the admin UI's syntax.)
 
 The service and address must be non-empty. The optional user id is
 **discord-only** and all digits (a Discord snowflake); any other shape, or a user
