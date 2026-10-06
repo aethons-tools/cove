@@ -55,7 +55,7 @@ func projectRef(store jam.Store, project string) string {
 
 func projectRows(store jam.Store) []projectRow {
 	studios := map[string]int{}
-	for _, c := range jam.CoveSummaries(store) {
+	for _, c := range jam.CoveSummaries(store, nil) {
 		studios[orDefaultProject(c.Project)]++
 	}
 	var out []projectRow
@@ -110,7 +110,7 @@ type projectDetail struct {
 	Context      contextPanel // the project's session-context card
 }
 
-func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
+func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (projectDetail, bool) {
 	p, ok := store.GetProject(name)
 	if !ok {
 		return projectDetail{}, false
@@ -122,7 +122,7 @@ func buildProjectDetail(store jam.Store, name string) (projectDetail, bool) {
 			d.Roles = append(d.Roles, r)
 		}
 	}
-	for _, c := range jam.CoveSummaries(store) {
+	for _, c := range jam.CoveSummaries(store, img) {
 		if orDefaultProject(c.Project) == name {
 			d.Coves = append(d.Coves, c)
 		}
@@ -152,7 +152,7 @@ func projectTableData(store jam.Store) map[string]any {
 	return map[string]any{"Projects": projectRows(store)}
 }
 
-func registerProjects(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("GET /ui/projects", func(w http.ResponseWriter, r *http.Request) {
 		data := projectTableData(store)
 		data["Title"] = "Projects"
@@ -160,7 +160,7 @@ func registerProjects(mux *http.ServeMux, store jam.Store, log *slog.Logger, gua
 	})
 
 	mux.HandleFunc("GET /ui/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildProjectDetail(store, r.PathValue("name"))
+		d, ok := buildProjectDetail(store, img, r.PathValue("name"))
 		if !ok {
 			renderStatus(w, http.StatusNotFound, "project", projectDetail{Title: "Projects", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return

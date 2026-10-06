@@ -24,6 +24,7 @@ type destRow struct {
 // standingRow is one declared standing session and its studio's phase, if any.
 type standingRow struct {
 	Name, Prompt, ActorID, Phase string
+	Image                        string // the running studio's image status (CoveSummary.Image)
 }
 
 // holderRow is one actor holding a grant on the role.
@@ -57,7 +58,7 @@ type roleDetail struct {
 }
 
 // buildRoleDetail gathers everything about one role; false when it doesn't exist.
-func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
+func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name string) (roleDetail, bool) {
 	role, ok := store.GetRole(project, name)
 	if !ok {
 		return roleDetail{}, false
@@ -92,16 +93,16 @@ func buildRoleDetail(store jam.Store, project, name string) (roleDetail, bool) {
 		{Label: "Alarm time zone", Value: role.TurnEnd.Location().String()},
 	}
 
-	phases := map[string]string{}
-	for _, c := range jam.CoveSummaries(store) {
-		phases[c.ID] = c.Phase
+	running := map[string]jam.CoveSummary{}
+	for _, c := range jam.CoveSummaries(store, img) {
+		running[c.ID] = c
 		if orDefaultProject(c.Project) == project && c.Role == name {
 			d.Coves = append(d.Coves, c)
 		}
 	}
 	for _, s := range a.Standing {
 		id := jam.StandingActorID(project, name, s.Name)
-		d.Standing = append(d.Standing, standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: phases[id]})
+		d.Standing = append(d.Standing, standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image})
 	}
 
 	for _, act := range store.ListActors() {
@@ -134,8 +135,8 @@ func roleURL(project, name string) string {
 	return "/ui/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
 }
 
-func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, canRequest bool) {
-	d, ok := buildRoleDetail(store, r.PathValue("project"), r.PathValue("name"))
+func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest bool) {
+	d, ok := buildRoleDetail(store, img, r.PathValue("project"), r.PathValue("name"))
 	if !ok {
 		renderStatus(w, http.StatusNotFound, "role", roleDetail{Title: "Roles", NotFound: true,
 			Project: r.PathValue("project"), Name: r.PathValue("name")})

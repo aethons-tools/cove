@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,6 +93,22 @@ type Launcher interface {
 	PrepareKit(ctx context.Context, def KitDefinition) (KitStatus, error)
 }
 
+// ImageTagger is optionally implemented by a Launcher that can name the image a
+// raise of ref runs (a pure function of ref and the launcher's own build
+// inputs). The supervisor records it on each raised Instance and compares it with
+// CurrentImageTag to report image staleness; a launcher without it leaves every
+// cove's image status unknown.
+type ImageTagger interface {
+	ImageTag(ref KitRef) string
+}
+
+// CurrentImage is what a raise for a role would run now (Supervisor.CurrentImage).
+type CurrentImage struct {
+	Kit    KitRef // the kit ref, keyed on the role's harness (meaningful when HasKit)
+	HasKit bool   // false: the role raises no kit
+	Tag    string // the launcher's image tag for Kit; "" when it cannot name images
+}
+
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
 // nil when no stream server runs (slice-1 behavior).
@@ -139,6 +156,10 @@ type Supervisor struct {
 	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
 	// definition is resolved from the registry only on an ErrKitNotReady miss.
 	defaultStudioKit *KitRef
+
+	kitRefs   kitRefCache          // CurrentImage's resolved kit refs
+	imgLogMu  sync.Mutex           // guards imgLogged
+	imgLogged map[string]time.Time // project/role → last CurrentImage error logged
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -238,12 +259,13 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// static-image path). Fail closed on a bad role.Kit, rolling back the identity.
 	//
 	// The image is keyed on the role's model-spec too (the harness layer: CLI
-	// version + plugins), resolved above with the connector, so the kit is
+	// version + plugins) — the one the connector above carries — so the kit is
 	// resolved — parsed and hashed once — for that harness; the one definition
-	// serves the image key, the session context and a PrepareKit.
+	// serves the image key, the session context and a PrepareKit. raiseKit is
+	// shared with CurrentImage, so a recorded tag and a current one can't drift.
 	var def *KitDefinition
 	if roleOK {
-		d, have, kerr := s.kitFor(role, harnessFor(spec))
+		d, have, kerr := s.raiseKit(spec.Project, role)
 		if kerr != nil {
 			if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
 				s.log.Warn("raise rollback: failed to revoke identity after kit resolve failure", "id", spec.ActorID, "error", rmErr)
@@ -289,6 +311,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 		Egress:    EgressFingerprint(spec.Egress),
 		Kit:       spec.Kit,
+		ImageTag:  s.imageTag(spec.Kit),
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -313,24 +336,189 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 // ok=false (no default set) leaves the raise with no kit, so un-wired setups
 // and hermetic tests are unaffected.
 func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition, bool, error) {
+	src, have, err := s.kitSourceFor(role)
+	if err != nil || !have {
+		return KitDefinition{}, false, err
+	}
+	def, err := src.definition(h)
+	return def, err == nil, err
+}
+
+// kitSource is the registry entry a raise's kit comes from: its ref (no digest
+// yet) and stored config. Turning it into a definition parses and hashes.
+type kitSource struct {
+	ref    KitRef
+	config string
+	named  bool // role.Kit names it (vs the wiring default) — error wording only
+}
+
+func (k kitSource) definition(h harnessinstall.Install) (KitDefinition, error) {
+	def, err := kitDefinitionFromConfig(k.ref, k.config, h)
+	if err != nil && k.named {
+		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", k.ref.ID, err)
+	}
+	return def, err
+}
+
+// kitSourceFor is kitFor's registry lookup: which kit version a raise for role
+// runs and its stored config, without parsing it.
+func (s *Supervisor) kitSourceFor(role Role) (kitSource, bool, error) {
 	if role.Kit != "" {
-		def, err := StudioKitDefinition(s.store, role.Kit, h)
+		ref, text, err := studioKitCurrent(s.store, role.Kit)
 		if err != nil {
-			return KitDefinition{}, false, err
+			return kitSource{}, false, err
 		}
-		return def, true, nil
+		return kitSource{ref: ref, config: text, named: true}, true, nil
 	}
 	if s.defaultStudioKit != nil {
-		def, ok, err := ResolveKitDefinition(s.store, *s.defaultStudioKit, h)
-		if err != nil {
-			return KitDefinition{}, false, err
-		}
+		text, ok := s.store.KitConfig(s.defaultStudioKit.ID, s.defaultStudioKit.Version)
 		if !ok {
-			return KitDefinition{}, false, fmt.Errorf("default studio kit %s not in registry", s.defaultStudioKit)
+			return kitSource{}, false, fmt.Errorf("default studio kit %s not in registry", s.defaultStudioKit)
 		}
-		return def, true, nil
+		return kitSource{ref: KitRef{ID: s.defaultStudioKit.ID, Version: s.defaultStudioKit.Version}, config: text}, true, nil
 	}
-	return KitDefinition{}, false, nil
+	return kitSource{}, false, nil
+}
+
+// raiseHarness is the harness a raise for project/role installs: the model-spec
+// its actor resolves to. A raised actor holds exactly this one grant (Enroll),
+// so this is the spec its connector carries.
+func (s *Supervisor) raiseHarness(project string, role Role) (harnessinstall.Install, error) {
+	ms, err := ModelSpecFor(s.store, Actor{Grants: []Grant{{Project: orDefaultProject(project), Role: role.Name}}})
+	if err != nil {
+		return harnessinstall.Install{}, err
+	}
+	return harnessinstall.FromSpec(ms), nil
+}
+
+// raiseKit is THE resolution of what a raise for project/role builds its image
+// from: the role's kit under the role's model-spec harness. Raise uses it, and
+// CurrentImage resolves through the same steps (cached), so a recorded tag and
+// a current one cannot drift. have=false: the role raises no kit.
+func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, error) {
+	h, err := s.raiseHarness(project, role)
+	if err != nil {
+		return KitDefinition{}, false, err
+	}
+	return s.kitFor(role, h)
+}
+
+// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, harness):
+// the UI polls the studios list every few seconds, and a kit parse + digest per
+// poll per role is waste. The launcher's assembly half of the tag is never
+// cached (ImageTag is cheap and live).
+func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, error) {
+	h, err := s.raiseHarness(project, role)
+	if err != nil {
+		return KitRef{}, false, err
+	}
+	src, have, err := s.kitSourceFor(role)
+	if err != nil || !have {
+		return KitRef{}, false, err
+	}
+	key := kitRefKey{ref: src.ref, config: src.config, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
+	if ref, ok := s.kitRefs.get(key); ok {
+		return ref, true, nil
+	}
+	def, err := src.definition(h)
+	if err != nil {
+		return KitRef{}, false, err
+	}
+	s.kitRefs.put(key, def.Ref)
+	return def.Ref, true, nil
+}
+
+type kitRefKey struct {
+	ref     KitRef
+	config  string // the stored config itself: a removed-and-re-pushed kit can reuse a version number
+	harness string
+}
+
+// kitRefCache memoizes currentKitRef. Bounded: past kitRefCacheMax entries it
+// starts over (entries only go stale, never wrong — the key is the full input).
+type kitRefCache struct {
+	mu     sync.Mutex
+	m      map[kitRefKey]KitRef
+	misses int // resolutions (parse + hash) performed; tests read it
+}
+
+const kitRefCacheMax = 256
+
+func (c *kitRefCache) get(k kitRefKey) (KitRef, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.m[k]
+	return r, ok
+}
+
+func (c *kitRefCache) put(k kitRefKey, r KitRef) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil || len(c.m) >= kitRefCacheMax {
+		c.m = map[kitRefKey]KitRef{}
+	}
+	c.m[k] = r
+	c.misses++
+}
+
+// imageTag is the tag the launcher runs ref under; "" for no kit or a launcher
+// that cannot name its images (the one ImageTagger guard).
+func (s *Supervisor) imageTag(ref KitRef) string {
+	t, ok := s.launcher.(ImageTagger)
+	if !ok || ref.ID == "" {
+		return ""
+	}
+	return t.ImageTag(ref)
+}
+
+// CurrentImage is what a raise for project/role would run NOW (via raiseKit's
+// resolution): the kit ref (HasKit=false: the role raises no kit) and the image
+// tag the launcher names it ("" when the launcher cannot name images). Errors
+// (no supervisor, a missing role, an unresolvable kit or model-spec) are
+// returned, never guessed around, and logged at debug level once per role per
+// minute so an "unknown" image status can be explained.
+func (s *Supervisor) CurrentImage(project, role string) (CurrentImage, error) {
+	if s == nil {
+		return CurrentImage{}, fmt.Errorf("no supervisor")
+	}
+	cur, err := s.currentImage(project, role)
+	if err != nil {
+		s.logImageErr(project, role, err)
+	}
+	return cur, err
+}
+
+func (s *Supervisor) currentImage(project, role string) (CurrentImage, error) {
+	r, ok := s.store.GetRole(project, role)
+	if !ok {
+		return CurrentImage{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
+	}
+	ref, have, err := s.currentKitRef(project, r)
+	if err != nil || !have {
+		return CurrentImage{}, err
+	}
+	return CurrentImage{Kit: ref, HasKit: true, Tag: s.imageTag(ref)}, nil
+}
+
+// logImageErr logs a CurrentImage error at debug level, at most once per role
+// per minute (the UI polls the list every few seconds).
+func (s *Supervisor) logImageErr(project, role string, err error) {
+	if s.log == nil {
+		return
+	}
+	key, now := orDefaultProject(project)+"/"+role, s.now()
+	s.imgLogMu.Lock()
+	last, seen := s.imgLogged[key]
+	if seen && now.Sub(last) < time.Minute {
+		s.imgLogMu.Unlock()
+		return
+	}
+	if s.imgLogged == nil {
+		s.imgLogged = map[string]time.Time{}
+	}
+	s.imgLogged[key] = now
+	s.imgLogMu.Unlock()
+	s.log.Debug("image status unresolvable", "project", orDefaultProject(project), "role", role, "error", err.Error())
 }
 
 // prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it takes the

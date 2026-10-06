@@ -367,6 +367,16 @@ func (c *Client) ListCoves() ([]jam.CoveSummary, error) {
 	return out, err
 }
 
+// ListRoleCoves lists one project/role's managed coves (GET /admin/coves?role=),
+// so Jam resolves only that role's image status. An older Jam ignores the
+// filter and returns every cove; callers match by id either way.
+func (c *Client) ListRoleCoves(project, role string) ([]jam.CoveSummary, error) {
+	var out []jam.CoveSummary
+	q := url.Values{"project": {project}, "role": {role}}
+	err := c.do("GET", "/admin/coves?"+q.Encode(), nil, &out)
+	return out, err
+}
+
 // ReportCoveStatus reports a cove's activity (running|holding|waiting|blocked|done).
 func (c *Client) ReportCoveStatus(id, activity string) error {
 	return c.do("POST", "/admin/coves/"+url.PathEscape(id)+"/status", jam.CoveStatusBody{Activity: activity}, nil)

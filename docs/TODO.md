@@ -17,8 +17,6 @@ updated: 2026-10-03
   so a moved tag rebuilds (spec 2026-10-02-kit-build-drift).
 * Studio kits: garbage-collect superseded `cove-kit:*` images on the substrate
   (every assembly-fingerprint change leaves the old tags).
-* Managed studios: flag a running studio whose *image* predates the current assembly fingerprint
-  (record the tag on the Instance), mirroring the connector `stale` column.
 * Session context: show the restated-fact lint warnings to the author when saving a role,
   project or Jam layer (API/CLI/UI). Today they only reach Jam's log at raise. Needs the
   Studio facts for a hypothetical session of that scope, and changes the PUT response

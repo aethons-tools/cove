@@ -106,7 +106,7 @@ func humanFromForm(r *http.Request) (jam.Human, error) {
 
 // registerProjectEdits mounts the project page's section writes. Each answers
 // with the re-rendered project body.
-func registerProjectEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	edit := func(what string, apply func(r *http.Request, project string) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !guardWrite(w, r) {
@@ -126,7 +126,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 				return
 			}
 			log.Info("ui project "+what, "operator", jam.OperatorID(r), "project", project)
-			d, ok := buildProjectDetail(store, project)
+			d, ok := buildProjectDetail(store, img, project)
 			if !ok {
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
