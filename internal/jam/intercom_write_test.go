@@ -102,3 +102,26 @@ func TestIntercomReconcile(t *testing.T) {
 		t.Fatal("an ended session gets no channel")
 	}
 }
+
+// Jam's notices go as the session into its default channel — for a personal
+// session the chat with its owner — and still arrive after teardown, from
+// the instance alone; they fail once the owner has left the project.
+func TestIntercomNotify(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.store.RemoveInstance(f.personal.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	m, err := f.ic.Notify(f.personal, "nag:x:1", "still there?")
+	if err != nil {
+		t.Fatalf("Notify after teardown: %v", err)
+	}
+	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].ID != "nag:x:1" || got[0].From != ident.ID(f.personal.ActorID) {
+		t.Fatalf("alice's inbox = %+v (notice %+v)", got, m)
+	}
+	if err := f.store.RemoveMember(f.project.ID, f.alice.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.Notify(f.personal, "", "anyone?"); !errors.Is(err, ErrSendUnresolved) {
+		t.Fatalf("Notify after the owner left: %v", err)
+	}
+}

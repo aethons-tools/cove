@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -32,11 +33,12 @@ type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }
 
-// Inbox is the read side of the message Log the engine uses to detect
-// replies. Satisfied by *intercom.Log; may be nil (squawk log unconfigured →
-// no reply-waking, teardown/pause still run).
+// Inbox is the read side of the intercom the engine uses to detect replies:
+// a session's inbox after a seq (jam.SessionInbox — its deliveries, and the
+// legacy squawks addressed to it before the cutover). May be nil (no log →
+// no reply-waking; teardown and pause still run).
 type Inbox interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk
+	Since(p ident.ID, afterSeq int64, limit int) []intercom.Squawk
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -569,15 +571,19 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 // from different, non-interleaved namespaces). A nil inbox (squawk log
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
-func (e *Engine) replies(inst jam.Instance) []intercom.LegacySquawk {
+func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 	if e.inbox == nil {
 		return nil
 	}
-	var out []intercom.LegacySquawk
-	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
-		if intercom.Classify(m.From) == intercom.External {
-			out = append(out, m)
+	var out []intercom.Squawk
+	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
+		// Every delivery is someone else's post to the session — a person, an
+		// account, or another session in a shared channel — so each wakes it.
+		// A legacy squawk from another session never did, and still doesn't.
+		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
+			continue
 		}
+		out = append(out, m)
 	}
 	return out
 }
@@ -607,11 +613,15 @@ const (
 // only "keep"s — the wait baseline moves past them and the idle ladder restarts
 // (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
 // session is not woken, and an Idled one stays paused.
-func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.LegacySquawk) bool {
-	if e.nags == nil || inst.Owner == "" {
+func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.Squawk) bool {
+	if e.nags == nil || (inst.OwnerID == "" && inst.Owner == "") {
 		return false // ladder off: there are no nags to answer
 	}
-	owner := intercom.Target{Kind: "human", Ref: inst.Owner}
+	// The owner: their user id, or — for a reply from before the cutover —
+	// the legacy log's human:<name>.
+	isOwner := func(from ident.ID) bool {
+		return (inst.OwnerID != "" && from == inst.OwnerID) || (inst.Owner != "" && from == ident.ID("human:"+inst.Owner))
+	}
 	var release, other bool
 	var lastKeep int64
 	for _, m := range rs {
@@ -620,7 +630,7 @@ func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.L
 			other = true
 			continue
 		}
-		if m.From != owner {
+		if !isOwner(m.From) {
 			e.log.Warn("wakeon: ignoring a nag command from someone other than the owner", "actor", inst.ActorID, "command", word)
 			other = true
 			continue

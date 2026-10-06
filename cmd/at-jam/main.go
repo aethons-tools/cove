@@ -1788,7 +1788,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// one handle, so wrapping it lets live views (/me/events) see each append.
 	logChanges := intercom.NewNotifier(intercomLog)
 	intercomLog = logChanges
-	sup.SetTailReader(intercomLog)
+	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
 	// channels key on the requisitioner's tracker connection, resolved below
 	// (until then, or with no requisitioner, the linear connection if any).
@@ -1899,11 +1899,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
 	// of the process. Settings: runtime.wake > runtime.requisitioner > defaults.
 	wcfg := cfg.wakeSettings()
-	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, intercomLog /*Inbox*/, wcfg, log)
+	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, jam.SessionInbox{Log: chlog, Legacy: ml} /*Inbox*/, wcfg, log)
 	// Personal-session idle ladder: nag the owner past the role's idle-after
 	// (squawks sent as the cove, delivered by the relay), optionally reclaim
 	// past reclaim-after.
-	nagger := intercomNagger{log: intercomLog, roster: st}
+	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.

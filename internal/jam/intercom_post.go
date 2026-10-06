@@ -106,6 +106,17 @@ func (ic *Intercom) PostTrusted(ch Channel, m intercom.Squawk) (intercom.Squawk,
 	return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
 }
 
+// Notify posts a notice from Jam as the session into its default channel
+// (for a personal session, the chat with its owner), trusted: it works from
+// the instance alone, after teardown too. id "" lets the log assign one.
+func (ic *Intercom) Notify(inst Instance, id, body string) (intercom.Squawk, error) {
+	ch, err := ic.DefaultChannel(inst)
+	if err != nil {
+		return intercom.Squawk{}, err
+	}
+	return ic.PostTrusted(ch, intercom.Squawk{ID: id, From: ident.ID(inst.ActorID), Body: body})
+}
+
 // Reconcile gives every live session on a ticket its ticket channel — at
 // startup, for sessions set up before ticket channels existed, so replies on
 // their tickets have somewhere to land before they send.

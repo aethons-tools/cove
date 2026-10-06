@@ -10,18 +10,17 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// squawkAppender is the write side of the intercom log the nagger needs.
-// Satisfied by intercom.Store (*intercom.Log, the Postgres store).
-type squawkAppender interface {
-	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
+// notifier posts a notice as a session into its default channel: for a
+// personal session, the chat with its owner. jam.Intercom.Notify.
+type notifier interface {
+	Notify(inst jam.Instance, id, body string) (intercom.Squawk, error)
 }
 
-// intercomNagger is wake-on's Nagger over the intercom log: each nag, and the
-// final reclaim notice, is a squawk sent AS the cove (actor:<id>) to its owner
-// (human:<owner>), stamped with the cove's project. The relay delivers it like
-// any cove message — so the owner's reply routes back to the cove and wakes it
-// — and resolves the owner from the squawk's project, so the reclaim notice is
-// still delivered after the cove has been torn down.
+// intercomNagger is wake-on's Nagger over the intercom: each nag, and the
+// final reclaim notice, is a squawk posted AS the session into its chat with
+// its owner. The relays deliver it like any squawk in that chat — so the
+// owner's reply comes back to the session and wakes it — and the chat
+// outlives the session, so the reclaim notice still arrives after teardown.
 //
 // Each nag carries the id jam.NagMessageID, so wake-on can tell an owner's
 // "keep"/"release" reply to a nag from any other reply. The nag advertises
@@ -30,7 +29,7 @@ type squawkAppender interface {
 // (jam.DiscordAuthor) — they are bound to their Discord user id, or, unbound,
 // their discord inbox is theirs alone.
 type intercomNagger struct {
-	log    squawkAppender
+	log    notifier
 	roster nagRoster
 	now    func() time.Time // nil = time.Now
 }
@@ -76,7 +75,7 @@ func (n intercomNagger) NotifyReleased(_ context.Context, inst jam.Instance) err
 // NotifyEnded tells a personal session's owner that it ended itself. A
 // session with no owner (standing, ticket) gets no notice: wake-on logs it.
 func (n intercomNagger) NotifyEnded(_ context.Context, inst jam.Instance, reason string) error {
-	if inst.Owner == "" {
+	if inst.OwnerID == "" && inst.Owner == "" {
 		return nil
 	}
 	return n.send(inst, "", fmt.Sprintf("Your personal session %s (%s) ended itself: %s", inst.ActorID, inst.Role, reason))
@@ -118,18 +117,12 @@ func (n intercomNagger) clock() time.Time {
 	return time.Now()
 }
 
-// send appends body as the cove to its owner; id "" lets the log assign one.
+// send posts body as the session to its owner; id "" lets the log assign one.
 func (n intercomNagger) send(inst jam.Instance, id, body string) error {
-	if inst.Owner == "" {
+	if inst.OwnerID == "" && inst.Owner == "" {
 		return fmt.Errorf("nag %s: no owner", inst.ActorID)
 	}
-	_, err := n.log.Append(intercom.LegacySquawk{
-		ID:      id,
-		From:    intercom.Target{Kind: "actor", Ref: inst.ActorID},
-		To:      []intercom.Target{{Kind: "human", Ref: inst.Owner}},
-		Body:    body,
-		Project: inst.Project,
-	})
+	_, err := n.log.Notify(inst, id, body)
 	return err
 }
 

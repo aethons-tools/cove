@@ -17,6 +17,17 @@ func openTestLog(t *testing.T) *intercom.LegacyLog {
 	return lg
 }
 
+// legacyNotifier posts the nagger's notices into the legacy log in its old
+// shape (as the cove, to human:<owner>), so the relay tests below keep
+// exercising the reply loop until the relays move to the channel log.
+type legacyNotifier struct{ *intercom.LegacyLog }
+
+func (l legacyNotifier) Notify(inst jam.Instance, id, body string) (intercom.Squawk, error) {
+	m, err := l.Append(intercom.LegacySquawk{ID: id, From: intercom.Target{Kind: "actor", Ref: inst.ActorID},
+		To: []intercom.Target{{Kind: "human", Ref: inst.Owner}}, Body: body, Project: inst.Project})
+	return intercom.Squawk{ID: m.ID, Seq: m.Seq, Body: m.Body}, err
+}
+
 var nagInst = jam.Instance{
 	ActorID: "pers-1", Project: "acme", Role: "pair", Owner: "alice",
 	SessionKind: jam.SessionKindPersonal, Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting,
@@ -27,7 +38,7 @@ var nagInst = jam.Instance{
 // assigned like any squawk).
 func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	n := intercomNagger{log: legacyNotifier{lg}, roster: &fakeStore{}}
 	ctx := context.Background()
 	if err := n.Nag(ctx, nagInst, 4*time.Hour+29*time.Second); err != nil {
 		t.Fatal(err)
@@ -63,7 +74,7 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 func TestNagCarriesNagID(t *testing.T) {
 	lg := openTestLog(t)
 	at := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	n := intercomNagger{log: lg, roster: &fakeStore{}, now: func() time.Time { return at }}
+	n := intercomNagger{log: legacyNotifier{lg}, roster: &fakeStore{}, now: func() time.Time { return at }}
 	if err := n.Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +120,7 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			lg := openTestLog(t)
-			if err := (intercomNagger{log: lg, roster: tc.store}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
+			if err := (intercomNagger{log: legacyNotifier{lg}, roster: tc.store}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 				t.Fatal(err)
 			}
 			if got := lg.List(intercom.LegacyFilter{})[0].Body; got != tc.want {
@@ -122,7 +133,7 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 // The keep/release confirmations are sent as the cove to its owner, like nags.
 func TestNaggerConfirmations(t *testing.T) {
 	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	n := intercomNagger{log: legacyNotifier{lg}, roster: &fakeStore{}}
 	ctx := context.Background()
 	if err := n.NotifyKept(ctx, nagInst, 4*time.Hour); err != nil {
 		t.Fatal(err)
@@ -212,7 +223,7 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 	client := &fakeDiscordClient{postID: "D-nag"}
 	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
 
-	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
+	if err := (intercomNagger{log: legacyNotifier{lg}, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	nag := lg.List(intercom.LegacyFilter{})[0]
@@ -267,7 +278,7 @@ func TestBoundOwnerReleaseFromSharedInbox(t *testing.T) {
 	client := &fakeDiscordClient{postID: "D-nag"}
 	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
 
-	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
+	if err := (intercomNagger{log: legacyNotifier{lg}, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	nag := lg.List(intercom.LegacyFilter{})[0]
@@ -303,7 +314,7 @@ func TestReclaimNoticeDeliversAfterInstanceRemoved(t *testing.T) {
 	client := &fakeDiscordClient{postID: "D-reclaim"}
 	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
 
-	if err := (intercomNagger{log: lg, roster: st}).NotifyReclaimed(context.Background(), nagInst, 72*time.Hour); err != nil {
+	if err := (intercomNagger{log: legacyNotifier{lg}, roster: st}).NotifyReclaimed(context.Background(), nagInst, 72*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.RemoveInstance("pers-1"); err != nil { // teardown deregisters it
@@ -326,7 +337,7 @@ func TestReclaimNoticeDeliversAfterInstanceRemoved(t *testing.T) {
 // session (standing, ticket) gets no notice.
 func TestIntercomNaggerNotifyEnded(t *testing.T) {
 	lg := openTestLog(t)
-	n := intercomNagger{log: lg, roster: &fakeStore{}}
+	n := intercomNagger{log: legacyNotifier{lg}, roster: &fakeStore{}}
 	if err := n.NotifyEnded(context.Background(), nagInst, "wrapped up"); err != nil {
 		t.Fatal(err)
 	}
