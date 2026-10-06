@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -32,25 +33,52 @@ var gcpCredentialTypes = []google.CredentialsType{
 	google.ImpersonatedServiceAccount,
 }
 
+// gcpRetryAfter is how long a failed exchange is answered from memory before
+// the supply is re-read and Google asked again, so a lapsed credential under
+// steady cove traffic doesn't hammer the token endpoint.
+const gcpRetryAfter = 10 * time.Second
+
 // GCPTokenResolver is a CredResolver that exchanges named credentials — each
 // supplied (by the base resolver) as a Google credentials JSON — for short-lived
 // GCP access tokens, and delegates every other name to the base. The JSON is
-// resolved once per name and stays in memory; tokens are cached and refreshed
-// on demand by the google token source (gcpEarlyExpiry before expiry), so the
-// broker always injects a current token and the JSON never leaves the host.
+// held in memory; tokens are cached and refreshed on demand by the google
+// token source (gcpEarlyExpiry before expiry), so the broker always injects a
+// current token and the JSON never leaves the host.
+//
+// When a refresh fails (a user ADC whose session lapsed, a revoked key), the
+// cached source is dropped and, after gcpRetryAfter, the supply is re-read:
+// re-authenticating on the host (e.g. `gcloud auth application-default
+// login` under a `command: [cat, <adc file>]` supply) or rotating a key takes
+// effect at the next request, without restarting serve. A lapse is logged once
+// (a WARN naming the credential and Google's error code) and recovery once.
 type GCPTokenResolver struct {
 	base  CredResolver
 	names []string
+	log   *slog.Logger
+	now   func() time.Time
 
 	mu      sync.Mutex
 	sources map[string]oauth2.TokenSource
+	failed  map[string]gcpFailure // names whose last exchange failed
 	// newSource builds a token source from a credentials JSON; a test seam.
 	newSource func(data []byte) (oauth2.TokenSource, error)
 }
 
+// gcpFailure is a name's last failed exchange: when, and the error to answer
+// with until gcpRetryAfter has passed.
+type gcpFailure struct {
+	at  time.Time
+	err error
+}
+
 // NewGCPTokenResolver wraps base so names are served as GCP access tokens.
-func NewGCPTokenResolver(base CredResolver, names []string) *GCPTokenResolver {
-	return &GCPTokenResolver{base: base, names: slices.Clone(names), sources: map[string]oauth2.TokenSource{}, newSource: gcpTokenSource}
+// log receives the lapse/recovery records (names and error codes only).
+func NewGCPTokenResolver(base CredResolver, names []string, log *slog.Logger) *GCPTokenResolver {
+	return &GCPTokenResolver{
+		base: base, names: slices.Clone(names), log: log, now: time.Now,
+		sources: map[string]oauth2.TokenSource{}, failed: map[string]gcpFailure{},
+		newSource: gcpTokenSource,
+	}
 }
 
 // Resolve returns a current access token for a gcp-exchange name, else the
@@ -59,15 +87,48 @@ func (g *GCPTokenResolver) Resolve(name string) (string, error) {
 	if !slices.Contains(g.names, name) {
 		return g.base.Resolve(name)
 	}
+	g.mu.Lock()
+	if f, ok := g.failed[name]; ok && g.now().Sub(f.at) < gcpRetryAfter {
+		g.mu.Unlock()
+		return "", f.err
+	}
+	g.mu.Unlock()
 	ts, err := g.source(name)
 	if err != nil {
+		g.fail(name, err, "")
 		return "", err
 	}
 	tok, err := ts.Token()
 	if err != nil {
-		return "", fmt.Errorf("credential %q: GCP token refresh failed: %w", name, err)
+		code := "unknown"
+		if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok && re.ErrorCode != "" {
+			code = re.ErrorCode
+		}
+		err = fmt.Errorf("credential %q: GCP token refresh failed (%s); re-authenticate or replace the supplied credentials — Jam re-reads them at the next request", name, code)
+		g.fail(name, err, code)
+		return "", err
+	}
+	g.mu.Lock()
+	_, wasFailing := g.failed[name]
+	delete(g.failed, name)
+	g.mu.Unlock()
+	if wasFailing {
+		g.log.Info("GCP credential recovered", "cred", name)
 	}
 	return tok.AccessToken, nil
+}
+
+// fail records a failed exchange for name and drops its cached source, so the
+// next attempt re-reads the supply. The first failure of a streak is logged.
+func (g *GCPTokenResolver) fail(name string, err error, code string) {
+	g.mu.Lock()
+	_, already := g.failed[name]
+	g.failed[name] = gcpFailure{at: g.now(), err: err}
+	delete(g.sources, name)
+	g.mu.Unlock()
+	if !already {
+		g.log.Warn("GCP credential unavailable; brokered requests fail until it is re-authenticated or replaced", "cred", name, "error_code", code)
+	}
 }
 
 // Load builds the token source for every gcp-exchange name now, so a missing

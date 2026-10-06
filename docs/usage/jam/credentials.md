@@ -74,7 +74,8 @@ A demand may carry one non-secret setting, **`exchange: gcp`**:
 JSON (`service_account`, `authorized_user`, `external_account` or
 `impersonated_service_account`). The broker swaps it for short-lived
 `cloud-platform` access tokens and caches each one, refreshing it 5 minutes
-before it expires. A destination naming the credential injects the current token,
+before it expires. If a refresh fails, the broker re-reads the supply (at most
+every 10 seconds), so a re-login or a rotated key needs no restart. A destination naming the credential injects the current token,
 and the JSON never leaves the host. `serve` refuses an unknown `exchange`, a JSON
 of another type, or the pool's credential. See [vertex.md](vertex.md) for its use.
 

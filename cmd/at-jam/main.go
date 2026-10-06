@@ -1778,7 +1778,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if names := cfg.gcpCredentials(); len(names) > 0 {
 		// exchange: gcp — the supplied Google credentials JSON stays on this host;
 		// destinations get short-lived access tokens, refreshed on demand.
-		gcp := jam.NewGCPTokenResolver(base, names)
+		gcp := jam.NewGCPTokenResolver(base, names, log)
 		if err := gcp.Load(); err != nil {
 			fmt.Fprintln(stderr, "at-jam: credentials:", err)
 			return 1

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
@@ -203,7 +204,7 @@ func TestGCPTokenResolver(t *testing.T) {
 		}
 		return "", errors.New("no such credential")
 	})
-	g := NewGCPTokenResolver(base, []string{"vertex-gcp"})
+	g := NewGCPTokenResolver(base, []string{"vertex-gcp"}, testLoggerTo(io.Discard))
 	if err := g.Load(); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -232,7 +233,7 @@ func TestGCPTokenResolverRefusals(t *testing.T) {
 		"not json":         "sekrit-not-json",
 		"unsupported type": `{"type":"gdch_service_account","x":"sekrit"}`,
 	} {
-		g := NewGCPTokenResolver(credFunc(func(string) (string, error) { return supply, nil }), []string{"c"})
+		g := NewGCPTokenResolver(credFunc(func(string) (string, error) { return supply, nil }), []string{"c"}, testLoggerTo(io.Discard))
 		err := g.Load()
 		if err == nil {
 			t.Errorf("%s: Load accepted", name)
@@ -245,19 +246,76 @@ func TestGCPTokenResolverRefusals(t *testing.T) {
 	// A malformed key only fails at the first exchange, still without echoing it.
 	g := NewGCPTokenResolver(credFunc(func(string) (string, error) {
 		return `{"type":"service_account","private_key":"sekrit","client_email":"a@b","token_uri":"http://127.0.0.1:1"}`, nil
-	}), []string{"c"})
+	}), []string{"c"}, testLoggerTo(io.Discard))
 	if _, err := g.Resolve("c"); err == nil || strings.Contains(err.Error(), "sekrit") {
 		t.Errorf("bad key: err = %v; want a refusal without the key", err)
 	}
-	// A failed build is not cached: a fixed supply is picked up on retry.
+	// A failed build is not cached: a fixed supply is picked up on the next
+	// attempt after gcpRetryAfter.
 	srv, _ := fakeGoogleTokenServer(t)
 	supply := "broken"
-	g = NewGCPTokenResolver(credFunc(func(string) (string, error) { return supply, nil }), []string{"c"})
+	g = NewGCPTokenResolver(credFunc(func(string) (string, error) { return supply, nil }), []string{"c"}, testLoggerTo(io.Discard))
 	if _, err := g.Resolve("c"); err == nil {
 		t.Fatal("broken supply resolved")
 	}
 	supply = serviceAccountJSON(t, srv.URL)
+	now := time.Now().Add(gcpRetryAfter)
+	g.now = func() time.Time { return now }
 	if tok, err := g.Resolve("c"); err != nil || tok != "ya29.fake" {
 		t.Fatalf("after fix: %q, %v", tok, err)
+	}
+}
+
+// A refresh failure (e.g. a user ADC whose session lapsed: invalid_grant) drops
+// the cached source; after gcpRetryAfter the supply is re-read, so a
+// re-authenticated credential works with no restart. Within the window the
+// error is answered from memory (Google isn't hammered). Lapse and recovery
+// are each logged once, naming the error code only.
+func TestGCPTokenResolverReReadsAfterLapse(t *testing.T) {
+	var revoked atomic.Bool
+	revoked.Store(true)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.FormValue("refresh_token") == "old-refresh" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":"invalid_grant","error_description":"reauth related error (invalid_rapt)"}`)
+			return
+		}
+		io.WriteString(w, `{"access_token":"ya29.new","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer srv.Close()
+	adc := func(refresh string) string {
+		return `{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"` + refresh + `","token_uri":"` + srv.URL + `"}`
+	}
+	supply := adc("old-refresh")
+	var logs strings.Builder
+	g := NewGCPTokenResolver(credFunc(func(string) (string, error) { return supply, nil }), []string{"vertex-gcp"}, testLoggerTo(&logs))
+	now := time.Unix(1_000_000, 0)
+	g.now = func() time.Time { return now }
+
+	for range 3 {
+		if _, err := g.Resolve("vertex-gcp"); err == nil || !strings.Contains(err.Error(), "invalid_grant") || strings.Contains(err.Error(), "old-refresh") {
+			t.Fatalf("lapsed: err = %v; want invalid_grant, no secret", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("token endpoint hit %d times within the retry window, want 1", calls.Load())
+	}
+	supply = adc("new-refresh") // the operator re-authenticates on the host
+	if _, err := g.Resolve("vertex-gcp"); err == nil {
+		t.Fatal("re-read before gcpRetryAfter elapsed")
+	}
+	now = now.Add(gcpRetryAfter)
+	if tok, err := g.Resolve("vertex-gcp"); err != nil || tok != "ya29.new" {
+		t.Fatalf("after re-auth: %q, %v", tok, err)
+	}
+	l := logs.String()
+	if strings.Count(l, "GCP credential unavailable") != 1 || strings.Count(l, "GCP credential recovered") != 1 || !strings.Contains(l, "error_code=invalid_grant") {
+		t.Fatalf("want one lapse WARN (with the code) and one recovery INFO, logs:\n%s", l)
+	}
+	if strings.Contains(l, "refresh") && strings.Contains(l, "old-refresh") {
+		t.Fatal("secret in logs")
 	}
 }

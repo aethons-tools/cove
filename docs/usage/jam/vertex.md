@@ -35,7 +35,18 @@ credentials:
 ```
 
 `serve` parses the JSON at startup and fails closed if it is missing or of an
-unsupported type. The first token is minted on the first request. The Jam host
+unsupported type. The first token is minted on the first request.
+
+**Your own login (ADC) works too, with a re-login now and then.** Use
+`command: ["cat", "<home>/.config/gcloud/application_default_credentials.json"]`.
+If your org enforces Google Cloud *session control*, that login's refresh token
+lapses after the configured session length, wherever it is held. Once it lapses,
+the broker logs one WARN `GCP credential unavailable` (with Google's error code,
+typically `invalid_grant`) and vertex requests fail with 502. To recover, run
+`gcloud auth application-default login` on the Jam host. The broker re-reads the
+supply within 10 seconds and logs `GCP credential recovered`, with no restart.
+Rotating a service-account key recovers the same way. A service account (or
+workload identity federation) avoids session limits entirely. The Jam host
 (not the cove) needs egress to `oauth2.googleapis.com` and the region's
 `<region>-aiplatform.googleapis.com` (`aiplatform.googleapis.com` for `global`).
 
@@ -96,6 +107,6 @@ the routing env above, and `provider-env` can never override it. A spec's
 | Symptom | Cause |
 |---|---|
 | 403 `path not allowed on this destination` | The spec's project/region (or the model path) doesn't match the destination's `allow_paths`. The broker logs `reason="path not in allow_paths"` with the path. |
-| 502 `credential unavailable` | The token exchange failed: the supplied JSON is wrong or revoked, or the Jam host can't reach `oauth2.googleapis.com`. |
+| 502 `credential unavailable` | The token exchange failed: the supplied JSON is wrong or revoked, a user login's session lapsed (see the `GCP credential unavailable` WARN and [re-login](#1-the-credential)), or the Jam host can't reach `oauth2.googleapis.com`. |
 | 401 `missing identity` | The cove lacks `ANTHROPIC_CUSTOM_HEADERS`: the role isn't granted the destination, or the destination's `env` is incomplete. |
 | 403 from Google | The service account lacks `roles/aiplatform.user` on the project, or the model isn't enabled in that region. |
