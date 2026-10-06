@@ -146,7 +146,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"credentials":{"anthropic":"anthropic-sub"},"repos":["acme/*"],"ttl_seconds":3600}]`))
 		case r.URL.Path == "/admin/projects":
 			_, _ = w.Write([]byte(`["acme"]`))
-		case r.URL.Path == "/admin/roster":
+		case r.URL.Path == "/admin/actors":
 			_, _ = w.Write([]byte(`[{"id":"m","grants":[{"project":"acme","role":"guest","destinations":["anthropic"],"repos":["acme/*"]}]}]`))
 		default:
 			w.WriteHeader(http.StatusCreated)
@@ -181,7 +181,7 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 		t.Fatalf("RemoveRole wire = %s %s", gotMethod, gotPath)
 	}
 
-	roster, err := c.Roster()
+	roster, err := c.Actors()
 	if err != nil {
 		t.Fatalf("Roster: %v", err)
 	}
@@ -204,16 +204,19 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	}
 }
 
-// TestClientRosterAndAddressing exercises AddHuman/AddChannel/GetRoster/
-// RemoveHuman/RemoveChannel and role Addressing round-trips against a real
-// Jam admin handler + MemStore (not just a wire-format mock).
+// TestClientRosterAndAddressing exercises users + members, AddChannel/
+// GetRoster/RemoveChannel and role Addressing round-trips against a real Jam
+// admin handler + MemStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
-	if err := c.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.h"}); err != nil {
-		t.Fatalf("AddHuman: %v", err)
+	if _, err := c.CreateUser(jam.UserBody{Name: "alice"}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := c.PutMember("acme", "alice", nil); err != nil {
+		t.Fatalf("PutMember: %v", err)
 	}
 	if err := c.AddChannel("acme", jam.Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
 		t.Fatalf("AddChannel: %v", err)
@@ -222,15 +225,15 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRoster: %v", err)
 	}
-	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" || rr.Humans[0].Handle != "alice.h" {
+	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" {
 		t.Fatalf("roster humans = %+v", rr.Humans)
 	}
 	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
 		t.Fatalf("roster channels = %+v", rr.Channels)
 	}
 
-	if err := c.RemoveHuman("acme", "alice"); err != nil {
-		t.Fatalf("RemoveHuman: %v", err)
+	if err := c.RemoveMember("acme", "alice"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
 	}
 	if err := c.RemoveChannel("acme", "eng-help"); err != nil {
 		t.Fatalf("RemoveChannel: %v", err)
@@ -365,34 +368,63 @@ func TestClientChatService(t *testing.T) {
 	}
 }
 
-// TestClientAddHumanCarriesDelivery proves AddHuman's wire body carries the
-// human's per-service Delivery profiles through to the server, round-tripped
-// via GetRoster.
-func TestClientAddHumanCarriesDelivery(t *testing.T) {
+// TestClientUsersMembersAccounts round-trips the registry routes: a user
+// with a login, a member with delivery, an account linked and unlinked.
+func TestClientUsersMembersAccounts(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
+	if _, err := store.CreateConnection(jam.Connection{Kind: "discord", Name: "discord"}); err != nil {
+		t.Fatal(err)
+	}
 	c := New(ts.URL, "")
-
-	h := jam.Human{
-		Name:   "dave",
-		Handle: "dave.h",
-		Delivery: []jam.DeliveryProfile{
-			{Service: "discord", Address: "chan-9"},
-		},
+	u, err := c.CreateUser(jam.UserBody{Name: "dave", Logins: []string{"auth0|d"}})
+	if err != nil || u.Name != "dave" {
+		t.Fatalf("CreateUser = %+v, %v", u, err)
 	}
-	if err := c.AddHuman("acme", h); err != nil {
-		t.Fatalf("AddHuman: %v", err)
+	if err := c.RenameUser("dave", "david"); err != nil {
+		t.Fatalf("RenameUser: %v", err)
 	}
-	rr, err := c.GetRoster("acme")
-	if err != nil {
-		t.Fatalf("GetRoster: %v", err)
+	if err := c.SetUserOIDC("david", []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}}); err != nil {
+		t.Fatalf("SetUserOIDC: %v", err)
 	}
-	if len(rr.Humans) != 1 {
-		t.Fatalf("roster humans = %+v", rr.Humans)
+	if err := c.SetUserLogins(string(u.ID), nil); err != nil {
+		t.Fatalf("SetUserLogins: %v", err)
 	}
-	d, ok := rr.Humans[0].DeliveryFor("discord")
-	if !ok || d.Address != "chan-9" {
-		t.Fatalf("delivery = %+v, ok=%v", d, ok)
+	if err := c.PutMember("acme", "david", []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}); err != nil {
+		t.Fatalf("PutMember: %v", err)
+	}
+	ms, err := c.ListMembers("acme")
+	if err != nil || len(ms) != 1 || ms[0].Delivery[0].Address != "chan-9" {
+		t.Fatalf("ListMembers = %+v, %v", ms, err)
+	}
+	a, err := c.AddAccount(jam.AccountBody{Connection: "discord", ServiceUID: "123", User: "david"})
+	if err != nil || a.User != "david" {
+		t.Fatalf("AddAccount = %+v, %v", a, err)
+	}
+	if err := c.UnlinkAccount(string(a.ID)); err != nil {
+		t.Fatalf("UnlinkAccount: %v", err)
+	}
+	if err := c.LinkAccount(string(a.ID), "david"); err != nil {
+		t.Fatalf("LinkAccount: %v", err)
+	}
+	got, err := c.GetUser("david")
+	if err != nil || len(got.Accounts) != 1 || len(got.OIDC) != 1 || len(got.Logins) != 0 || got.Projects[0] != "acme" {
+		t.Fatalf("GetUser = %+v, %v", got, err)
+	}
+	if conns, err := c.ListConnections(); err != nil || len(conns) != 1 {
+		t.Fatalf("ListConnections = %+v, %v", conns, err)
+	}
+	if accs, err := c.ListAccounts("discord"); err != nil || len(accs) != 1 {
+		t.Fatalf("ListAccounts = %+v, %v", accs, err)
+	}
+	if users, err := c.ListUsers(); err != nil || len(users) != 1 {
+		t.Fatalf("ListUsers = %+v, %v", users, err)
+	}
+	if err := c.RemoveMember("acme", "david"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if err := c.RemoveUser("david"); err != nil {
+		t.Fatalf("RemoveUser: %v", err)
 	}
 }
 
