@@ -167,3 +167,45 @@ func TestActorsPageReplacesRoster(t *testing.T) {
 		t.Errorf("/ui/roster = %d, want 404", rec.Code)
 	}
 }
+
+func TestUserPageGuards(t *testing.T) {
+	store := seedProjects(t)
+	h := projHandler(store)
+	bob, _ := store.CreateUser(jam.User{Name: "bob"})
+	alice := userID(t, store, "alice")
+	var aliceAcc ident.ID
+	for _, c := range store.ListConnections() {
+		for _, a := range store.ListAccounts(c.ID) {
+			if a.UserID == alice {
+				aliceAcc = a.ID
+			}
+		}
+	}
+	// Unlinking through bob's page must not touch alice's account.
+	if rec := del(t, h, "/ui/accounts/"+string(aliceAcc)+"/user?user="+string(bob.ID)); rec.Code != http.StatusNotFound {
+		t.Errorf("unlink another user's account = %d, want 404", rec.Code)
+	}
+	if a, _ := store.GetAccount(aliceAcc); a.UserID != alice {
+		t.Fatal("alice's account was unlinked through bob's page")
+	}
+	// A removed user's page is read-only.
+	if err := store.RemoveUser(bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, h, "/ui/users/"+string(bob.ID)).Body.String()
+	if !strings.Contains(body, "removed") || strings.Contains(body, "hx-post=") || strings.Contains(body, "hx-delete=") {
+		t.Errorf("a removed user's page must be read-only:\n%s", body)
+	}
+}
+
+func TestAddMemberKeepsExistingDelivery(t *testing.T) {
+	store := seedProjects(t)
+	h := projHandler(store)
+	if rec := post(t, h, "/ui/projects/acme/members", url.Values{"user": {"alice"}, "add": {"1"}}); rec.Code != http.StatusOK {
+		t.Fatalf("re-add = %d: %s", rec.Code, rec.Body.String())
+	}
+	p, _ := store.GetProject("acme")
+	if ms, _ := store.GetMembership(p.ID, userID(t, store, "alice")); len(ms.Delivery) != 1 {
+		t.Fatalf("Add member with no delivery must keep alice's inbox: %+v", ms)
+	}
+}

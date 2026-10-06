@@ -17,10 +17,11 @@ import (
 
 func userURL(id ident.ID) string { return "/ui/users/" + url.PathEscape(string(id)) }
 
-// userDetail is the user page payload.
+// userDetail is the user page payload. A removed user's page is read-only.
 type userDetail struct {
 	Title       string
 	User        jam.UserView
+	Removed     bool
 	LoginSpec   string
 	OIDCSpec    string
 	Connections []jam.Connection
@@ -37,6 +38,7 @@ func buildUserDetail(store jam.Store, ref string) (userDetail, bool) {
 	return userDetail{
 		Title:       "Users",
 		User:        jam.NewUserView(store, u),
+		Removed:     u.Status == jam.StatusRemoved,
 		LoginSpec:   strings.Join(u.Logins, "\n"),
 		OIDCSpec:    lines(u.OIDC, jam.FormatOIDCSpec),
 		Connections: store.ListConnections(),
@@ -101,7 +103,6 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return false
 		}
-		log.Info("ui user "+what, "operator", jam.OperatorID(r), "user", r.PathValue("user"))
 		return true
 	}
 	// edit applies a write to the {user} and answers with the re-rendered body.
@@ -117,6 +118,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 			}) {
 				return
 			}
+			log.Info("ui user "+what, "operator", jam.OperatorID(r), "user", id)
 			d, _ := buildUserDetail(store, string(id))
 			renderFragment(w, "user", "user-body", d)
 		}
@@ -134,6 +136,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		}) {
 			return
 		}
+		log.Info("ui user created", "operator", jam.OperatorID(r), "user", u.ID, "name", u.Name)
 		w.Header().Set("HX-Redirect", userURL(u.ID))
 		renderFragment(w, "users", "users-table", usersData(store))
 	})
@@ -163,10 +166,13 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 	// Unlinking answers with the page of the user named by ?user=.
 	mux.HandleFunc("DELETE /ui/accounts/{account}/user", func(w http.ResponseWriter, r *http.Request) {
 		r.SetPathValue("user", r.URL.Query().Get("user"))
-		edit("account unlinked", func(r *http.Request, _ ident.ID) error {
+		edit("account unlinked", func(r *http.Request, user ident.ID) error {
 			acc, err := ident.Parse(r.PathValue("account"))
 			if err != nil || acc.Kind() != ident.Account {
 				return &jam.WriteError{Status: http.StatusNotFound, Msg: "no such account"}
+			}
+			if a, ok := store.GetAccount(acc); !ok || a.UserID != user {
+				return &jam.WriteError{Status: http.StatusNotFound, Msg: "no such account on this user"}
 			}
 			return store.LinkAccount(acc, "")
 		})(w, r)
@@ -177,7 +183,11 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 			if err != nil {
 				return err
 			}
-			return jam.RemoveUserChecked(store, id)
+			if err := jam.RemoveUserChecked(store, id); err != nil {
+				return err
+			}
+			log.Info("ui user removed", "operator", jam.OperatorID(r), "user", id)
+			return nil
 		}) {
 			return
 		}

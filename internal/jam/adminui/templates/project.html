@@ -105,6 +105,7 @@
     <details class="edit">
       <summary>Add member</summary>
       <form hx-post="/ui/projects/{{$p}}/members" hx-target="#project" hx-swap="outerHTML">
+        <input type="hidden" name="add" value="1">
         <div class="grid">
           <label>User <span class="req">required</span><span class="hint">a <a href="/ui/users">user</a>'s name</span><input name="user" data-ta="users" required autocomplete="off"></label>
           <label class="wide">Delivery <span class="hint">one per line, <code>service:address</code>, e.g. <code>discord:&lt;inbox-channel-id&gt;</code></span><textarea name="delivery" spellcheck="false"></textarea></label>

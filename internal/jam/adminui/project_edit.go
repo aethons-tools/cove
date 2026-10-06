@@ -154,6 +154,13 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 			return err
 		}
 		p, _ := store.GetProject(project)
+		// "Add member" for someone already a member, with no delivery given,
+		// keeps their delivery (the per-member Edit form replaces it).
+		if r.FormValue("add") != "" && delivery == nil {
+			if ms, ok := store.GetMembership(p.ID, uid); ok {
+				delivery = ms.Delivery
+			}
+		}
 		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
 	}))
 	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", func(r *http.Request, project string) error {

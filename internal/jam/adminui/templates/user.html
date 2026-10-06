@@ -24,11 +24,13 @@
 {{define "user-body"}}
 {{$u := .User}}{{$base := userURL $u.ID}}
 <div id="user">
-<div class="page-head"><h1 class="mono">{{$u.Name}}</h1><span class="sub mono">{{$u.ID}}{{if eq (print $u.Status) "removed"}} · removed{{end}}</span><span class="spacer"></span>
-  <button class="danger" hx-delete="{{$base}}" hx-confirm="Remove user {{$u.Name}}? They leave every project; history keeps showing them as removed.">Remove user</button></div>
+<div class="page-head"><h1 class="mono">{{$u.Name}}</h1><span class="sub mono">{{$u.ID}}{{if .Removed}} · removed{{end}}</span><span class="spacer"></span>
+  {{if not .Removed}}<button class="danger" hx-delete="{{$base}}" hx-confirm="Remove user {{$u.Name}}? They leave every project; history keeps showing them as removed.">Remove user</button>{{end}}</div>
+{{if .Removed}}<div class="banner">This user was removed. Their id still labels history as <span class="mono">{{$u.Name}} (removed)</span>; nothing here can be changed.</div>
+{{else}}
 <div class="sections">
   <section class="card">
-    <header><h2>Name</h2><span class="sub">Jam-wide; renaming changes nothing else</span></header>
+    <header><h2>Name</h2><span class="sub">Jam-wide; escalation tiers still name people (<code>human:&lt;name&gt;</code>) — update them after a rename</span></header>
     <div class="body"><form hx-post="{{$base}}/name" hx-target="#user" hx-swap="outerHTML">
       <div class="grid"><label>Name <span class="req">required</span><input name="name" value="{{$u.Name}}" required></label></div>
       <div class="form-actions"><button type="submit" class="primary small">Rename</button></div>
@@ -79,5 +81,6 @@
     </details>
   </section>
 </div>
+{{end}}
 </div>
 {{end}}
