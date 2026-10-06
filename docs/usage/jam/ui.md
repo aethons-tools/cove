@@ -129,7 +129,7 @@ Auth differs from the operator UI in two deliberate ways:
 
 The session (cookie `jam_participant`, Path `/me`) is the ID token, verified
 against the browser client id; its `(issuer, subject)` is matched to a roster
-`Human.Identity` binding (bind one with `at-jam project roster add-human --oidc
+OIDC binding of a project member's user (bind one with `at-jam user oidc <user>
 <issuer>:<subject>`; see [comms-addressing.md](comms-addressing.md)). A **global
 person**: the same subject bound in several projects is one participant whose
 view spans them. An unbound subject — one that authenticates at the IdP but is

@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-06
 ---
 
 # Personal sessions
@@ -102,9 +102,10 @@ refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
   `at-jam project chat-service set --project acme --service discord`;
-- you (the owner) have a Discord delivery profile — your inbox channel, ideally
-  bound to your Discord user id ([discord.md](discord.md)):
-  `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>:<your-user-id>`.
+- you (the owner) have a Discord inbox in the project, ideally with your Discord
+  account bound ([discord.md](discord.md)):
+  `at-jam project member add acme alice --delivery discord:<inbox-channel>` and
+  `at-jam account add --connection discord --uid <your-user-id> --user alice`.
 
 Jam must also run the Discord relay (`runtime.discord`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
@@ -115,14 +116,15 @@ polls every project whose chat service is `discord`
 
 Jam finds the owner by matching the caller's **admin login** (the operator
 identity: your OIDC `sub`, which `at-jam whoami` shows, or `local` on a
-loopback-only Jam) against the **roster human** in the target project whose
-`Login` is set to it:
+loopback-only Jam) against the **user** holding that login, who must be a
+member of the target project:
 
 ```
-at-jam project roster add-human acme --name alice --handle alice.h --login 'auth0|abc123'
+at-jam user login alice 'auth0|abc123'
+at-jam project member add acme alice
 ```
 
-A login links at most one human per project. `--login` is described with the
+A login belongs to one user Jam-wide. `--login` is described with the
 rest of the roster in [comms-addressing.md](comms-addressing.md#the-project-roster).
 If no human in the project is linked to your login, every `session` call answers
 **403**.

@@ -4,12 +4,12 @@ read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator
 owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-09-13
+updated: 2026-10-06
 ---
 
 # Operator sign-in & the admin client
 
-Every `at-jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `roster`,
+Every `at-jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `actors`, `user`, `account`,
 `enroll`, `revoke`, `kit`, `studio`) is a client of a running Jam's admin API. This doc
 covers how that client authenticates and how one machine targets several Jams.
 
@@ -101,7 +101,7 @@ dev-app:
   to `login` **persists** it to the profile.
 - `--base-url` (on `enroll`) overrides `base-url` for the printed snippet.
 
-So `at-jam --app dev-app roster` lists the dev Jam's roster using the dev
+So `at-jam --app dev-app actors` lists the dev Jam's actors using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
 [roster.md](roster.md) (RBAC + enrollment) and [kits.md](kits.md) (registry);
 `destination` is in [serve.md](serve.md); the managed-cove verbs are in

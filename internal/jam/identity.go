@@ -308,10 +308,13 @@ func HumanByDiscordUser(r Roster, userID string) (Human, bool) {
 	return found, true
 }
 
-// DeliveryFor returns the human's profile for service, if present.
+// DeliveryFor returns the human's deliverable profile for service: one with
+// an address. (The roster view carries a discord profile holding only the
+// Discord user id when the person has no inbox in the project; that binds
+// attribution but is not somewhere to deliver.)
 func (h Human) DeliveryFor(service string) (DeliveryProfile, bool) {
 	for _, d := range h.Delivery {
-		if d.Service == service {
+		if d.Service == service && d.Address != "" {
 			return d, true
 		}
 	}
