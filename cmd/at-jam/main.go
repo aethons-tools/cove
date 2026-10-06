@@ -1890,7 +1890,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, tickets, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands

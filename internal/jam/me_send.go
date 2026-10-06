@@ -9,6 +9,12 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
+// appender is the legacy log's write side, which /me/send still uses until
+// it moves to the channel log (2b task 6).
+type appender interface {
+	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
+}
+
 // participantSendStore is the narrow slice of Store the participant send path
 // reads: the per-project roster (to resolve the sender's roster identity and any
 // named-channel target) and the live instances (to resolve a studio/session

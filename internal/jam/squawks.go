@@ -9,17 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // maxSquawkBodyBytes caps a POST body to bound abuse (~16 KiB).
 const maxSquawkBodyBytes = 16 * 1024
 
-// Squawk is one squawk in a cove's inbox, as returned by GET /squawks. ID
-// and At are best-effort: a reader that cannot supply them leaves them unset.
-// At is a pointer so an unset timestamp is omitted from the wire (json
-// omitempty is ineffective for a time.Time value, which would serialize a
-// bogus zero time).
+// Squawk is one squawk in a session's inbox, as returned by GET /squawks.
+// Channel and From are the channel model's (intercom slice 2); Author stays,
+// holding From's label, for clients that predate them (a studio runs the
+// cove-master baked into its image). A legacy entry (before the cutover) has
+// no Channel. At is a pointer so an unset timestamp is omitted from the wire.
 type Squawk struct {
 	ID     string     `json:"id,omitempty"`
 	Author string     `json:"author"`
@@ -28,58 +29,37 @@ type Squawk struct {
 	// ContentType is how Body is meant to be read: text/markdown (default) or
 	// text/plain (show literally).
 	ContentType string `json:"content_type"`
+	Channel     *Party `json:"channel,omitempty"`
+	From        *Party `json:"from,omitempty"`
 }
 
-// inboxReader is the narrow read side of the message Log the /squawks GET
-// and commit paths need — seekable in both directions (so the handler never
-// needs the unbounded ReadInbox), plus SeqOf to resolve a wire-level message
-// id to its append-order Seq at the boundary (the cove-facing wire stays
-// id-based; Jam resolves internally). Satisfied by *intercom.Log and
-// *intercompg.Store; nil disables reads (GET → 503) and commits (POST
-// /squawks/commit → 503, since it can no longer resolve up_to to a Seq).
-type inboxReader interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk
-	ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.LegacySquawk
-	SeqOf(id string) (int64, bool)
-}
-
-// squawkStore is the narrow slice of Store the /squawks handler needs.
-// jam.Store satisfies it.
-type squawkStore interface {
-	Lookup(tokenHash string) (Actor, bool)
-	GetInstance(actorID string) (Instance, bool)
-	GetRole(project, name string) (Role, bool)
-	GetRoster(project string) (Roster, bool)
-	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error)
-}
-
-// appender is the narrow write side of the message Log — the authoritative
-// send path for /squawks POST. Satisfied by *intercom.Log; nil means messaging
-// is unconfigured and a send fails with 503.
-type appender interface {
-	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
-}
-
-// SquawksHandler is Jam's brokered messaging endpoint. Reads, and sends
-// with no `to`, are self-scoped by construction: the ticket identifier comes
-// solely from the caller's own Instance.Unit (server-derived, resolved after
-// authentication). A send may instead carry a `to` target; that path is
-// authorized by the comms access-graph (DecideSend). A send only appends the
-// logical message to the Log — it never talks to the tracker directly; a
-// separate egress engine renders and delivers it (an @-mention on the cove's
-// own ticket for a human target, a comment on the channel's own thread for a
-// channel target). Implements http.Handler.
+// SquawksHandler is Jam's brokered messaging endpoint for sessions. Every
+// request is self-scoped by construction: the session is the authenticated
+// token's, resolved server-side. A send is planned by the intercom (address
+// → channel, the role's addressing as the ceiling, the audience) and
+// appended to the channel log; relays render it onto surfaces later. A read
+// is the session's inbox (SessionInbox) as a durable queue with an explicit
+// commit cursor. Implements http.Handler.
 type SquawksHandler struct {
-	store  squawkStore
-	reader inboxReader
-	lg     appender
-	log    *slog.Logger
+	store Store
+	ic    *Intercom
+	inbox SessionInbox
+	log   *slog.Logger
+	now   func() time.Time
 }
 
-// NewSquawksHandler constructs a SquawksHandler. reader and lg may each be
-// nil: a nil lg makes a send fail 503, a nil reader makes a read fail 503.
-func NewSquawksHandler(store squawkStore, reader inboxReader, lg appender, log *slog.Logger) *SquawksHandler {
-	return &SquawksHandler{store: store, reader: reader, lg: lg, log: log}
+// NewSquawksHandler constructs a SquawksHandler. A nil ic or lg leaves
+// messaging unconfigured: sends, reads and commits answer 503.
+func NewSquawksHandler(store Store, ic *Intercom, lg intercom.Store, legacy LegacyInbox, log *slog.Logger) *SquawksHandler {
+	return &SquawksHandler{store: store, ic: ic, inbox: SessionInbox{Log: lg, Legacy: legacy}, log: log, now: time.Now}
+}
+
+func (h *SquawksHandler) configured(w http.ResponseWriter) bool {
+	if h.ic == nil || h.inbox.Log == nil {
+		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+		return false
+	}
+	return true
 }
 
 func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +92,7 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// ticket resolution: targets needs no ticket, so a targets request must
 	// never resolve one (and must never fail if the ticket is unavailable).
 	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/targets") {
-		h.handleTargets(w, r, actor)
+		h.handleTargets(w, r, actor, inst)
 		return
 	}
 
@@ -162,59 +142,42 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		http.Error(w, "unsupported content_type (want text/markdown or text/plain)", http.StatusBadRequest)
 		return
 	}
-
-	// Resolve the logical target (authz via the comms access-graph). No `to` →
-	// the cove's default recipient: its own ticket (channel:<Unit>) when it has
-	// one, else its owner (a personal session → user:<OwnerID>, authorized like
-	// any explicit target), else there is no one to send to. A human/channel
-	// target is authorized here; rendering + ticket resolution happen at egress.
-	logicalTo := intercom.Target{Kind: "channel", Ref: inst.Unit}
-	if req.To == "" && inst.Unit == "" {
-		switch {
-		case inst.OwnerID != "":
-			req.To = "user:" + string(inst.OwnerID)
-		case inst.Owner != "":
-			req.To = "user:" + inst.Owner
-		default:
-			http.Error(w, `no default recipient: pass "to"`, http.StatusBadRequest)
-			return
-		}
-	}
-	if req.To != "" {
-		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())
-		switch {
-		case errors.Is(err, ErrSendDenied):
-			http.Error(w, "target not authorized", http.StatusForbidden)
-			return
-		case errors.Is(err, ErrSendUnresolved):
-			http.Error(w, "target not found", http.StatusNotFound)
-			return
-		case err != nil:
-			http.Error(w, "target error", http.StatusForbidden)
-			return
-		}
-		logicalTo = intercom.Target{Kind: st.Kind, Ref: st.Name}
-	}
-
-	// The Log is the authoritative delivery path (egress delivers it to Linear).
-	// A send requires a configured Log; an append failure fails the send.
-	if h.lg == nil {
-		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+	if !h.configured(w) {
 		return
 	}
-	if _, err := h.lg.Append(intercom.LegacySquawk{
-		From:        intercom.Target{Kind: "actor", Ref: actor.ID},
-		To:          []intercom.Target{logicalTo},
-		Body:        req.Body, // raw — @handle rendering is the adapter's job at egress
-		Project:     inst.Project,
-		ContentType: req.ContentType,
-	}); err != nil {
-		h.log.Error("intercom: append failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+	// No `to`: the session's default channel (its ticket's, or a chat with the
+	// user who started it). A `to` is planned against the role's addressing.
+	pl, err := h.ic.Plan(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
+	switch {
+	case errors.Is(err, ErrSendDenied):
+		http.Error(w, "target not authorized", http.StatusForbidden)
+		return
+	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
+		http.Error(w, "target not found", http.StatusNotFound)
+		return
+	case errors.Is(err, ErrNoDefaultChannel):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	case err != nil:
+		h.log.Error("intercom: plan failed", "actor", actor.ID, "error", err.Error())
+		http.Error(w, "send failed", http.StatusInternalServerError)
+		return
+	}
+	m, err := h.ic.Post(pl, intercom.Squawk{From: ident.ID(actor.ID), Body: req.Body, ContentType: req.ContentType})
+	if err != nil {
+		h.log.Error("intercom: append failed", "actor", actor.ID, "channel", string(pl.Channel.ID), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return
 	}
-	h.log.Info("intercom", "actor", actor.ID, "ticket", inst.Unit, "op", "send", "to", req.To, "bytes", len(req.Body))
-	w.WriteHeader(http.StatusNoContent)
+	h.log.Info("intercom", "actor", actor.ID, "op", "send", "to", req.To, "channel", string(pl.Channel.ID), "audience", len(pl.Audience), "bytes", len(req.Body))
+	ch := h.ic.ChannelParty(pl.Channel.ID)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		ID      string `json:"id"`
+		Channel Party  `json:"channel"`
+	}{ID: m.ID, Channel: ch}); err != nil {
+		h.log.Error("intercom: encode send response failed", "actor", actor.ID, "error", err.Error())
+	}
 }
 
 // targetOut is one entry in the GET /squawks/targets response. Handles are
@@ -226,13 +189,16 @@ type targetOut struct {
 	Name   string `json:"name"`
 }
 
-func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, actor Actor) {
-	targets := ListTargets(actor, h.store.GetRole, h.store.GetRoster, time.Now())
-	out := make([]targetOut, 0, len(targets))
+func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
+	targets := ListTargets(actor, h.store.GetRole, h.store.GetRoster, h.now())
+	out := make([]targetOut, 0, len(targets)+1)
+	if inst.Unit != "" {
+		out = append(out, targetOut{Target: "ticket:" + inst.Unit, Kind: "ticket", Name: inst.Unit})
+	}
 	for _, t := range targets {
 		kind := t.Kind
 		if kind == "human" {
-			kind = "user" // a person; "human" is only the log's kind until slice 2
+			kind = "user" // a person: user:<name>
 		}
 		out = append(out, targetOut{Target: kind + ":" + t.Name, Kind: kind, Name: t.Name})
 	}
@@ -253,17 +219,14 @@ const (
 	maxReadLimit     = 500
 )
 
-// handleGet serves a seekable page of the cove's own inbox. anchor selects
-// where the page starts — "" or "cursor" (the cove's durable CommitSeq, the
-// default), "start"/"end" (the log's bounds), or "id" (an explicit message id
-// via ?id=, resolved to its Seq via SeqOf) — and dir selects which way the
-// page reads from there: "" or "forward" (ReadInboxSince) or "backward"
-// (ReadInboxBefore). A read never advances the commit cursor; only POST
-// /squawks/commit does that. The wire stays id-based throughout (Seq is an
-// internal resolution detail, never returned).
+// handleGet serves a seekable page of the session's inbox. anchor selects
+// where the page starts — "" or "cursor" (the durable CommitSeq, the
+// default), "start"/"end", or "id" (?id=, resolved to its seq in either log)
+// — and dir which way it reads: "" or "forward", or "backward". A read never
+// advances the commit cursor; only POST /squawks/commit does. The wire stays
+// id-based (seq is internal, never returned).
 func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
-	if h.reader == nil {
-		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+	if !h.configured(w) {
 		return
 	}
 	q := r.URL.Query()
@@ -278,55 +241,56 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 		}
 		limit = n
 	}
-	if limit > maxReadLimit {
-		limit = maxReadLimit
+	limit = min(limit, maxReadLimit)
+	self := ident.ID(actor.ID)
+	page := func(seq int64) []intercom.Squawk {
+		if dir == "backward" {
+			return h.inbox.Before(self, seq, limit)
+		}
+		return h.inbox.Since(self, seq, limit)
 	}
-	target := intercom.Target{Kind: "actor", Ref: actor.ID}
 
-	var msgs []intercom.LegacySquawk
+	var msgs []intercom.Squawk
 	switch anchor {
 	case "", "cursor":
-		if dir == "backward" {
-			msgs = h.reader.ReadInboxBefore(target, inst.CommitSeq, limit)
-		} else {
-			msgs = h.reader.ReadInboxSince(target, inst.CommitSeq, limit)
-		}
+		msgs = page(inst.CommitSeq)
 	case "start":
-		msgs = h.reader.ReadInboxSince(target, 0, limit)
+		msgs = h.inbox.Since(self, 0, limit)
 	case "end":
-		msgs = h.reader.ReadInboxBefore(target, 0, limit)
+		msgs = h.inbox.Before(self, 0, limit)
 	case "id":
 		id := q.Get("id")
 		if id == "" {
 			http.Error(w, "anchor=id requires id", http.StatusBadRequest)
 			return
 		}
-		seq, ok := h.reader.SeqOf(id)
+		seq, ok := h.inbox.Log.SeqOf(id)
 		if !ok {
 			http.Error(w, "unknown message id", http.StatusBadRequest)
 			return
 		}
-		if dir == "backward" {
-			msgs = h.reader.ReadInboxBefore(target, seq, limit)
-		} else {
-			msgs = h.reader.ReadInboxSince(target, seq, limit)
-		}
+		msgs = page(seq)
 	default:
 		http.Error(w, "invalid anchor", http.StatusBadRequest)
 		return
 	}
 
 	out := make([]Squawk, 0, len(msgs))
-	for i := range msgs {
-		m := msgs[i]
+	for _, m := range msgs {
 		at := m.At
-		out = append(out, Squawk{ID: m.ID, Author: m.From.Ref, Body: m.Body, At: &at, ContentType: m.ContentType})
+		from := h.ic.PartyOf(m.From)
+		sq := Squawk{ID: m.ID, Author: from.Label, Body: m.Body, At: &at, ContentType: m.ContentType, From: &from}
+		if m.Channel != "" {
+			ch := h.ic.ChannelParty(m.Channel)
+			sq.Channel = &ch
+		}
+		out = append(out, sq)
 	}
 	pageFirst, pageLast := "", ""
 	if len(msgs) > 0 {
 		pageFirst, pageLast = msgs[0].ID, msgs[len(msgs)-1].ID
 	}
-	h.log.Info("intercom", "actor", actor.ID, "ticket", inst.Unit, "op", "read", "anchor", anchor, "dir", dir, "count", len(out))
+	h.log.Info("intercom", "actor", actor.ID, "op", "read", "anchor", anchor, "dir", dir, "count", len(out))
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(struct {
 		Squawks         []Squawk `json:"squawks"`
@@ -334,17 +298,14 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 		PageFirst       string   `json:"page_first"`
 		PageLast        string   `json:"page_last"`
 	}{Squawks: out, CommittedCursor: inst.CommitCursor, PageFirst: pageFirst, PageLast: pageLast}); err != nil {
-		h.log.Error("intercom: encode response failed", "actor", actor.ID, "ticket", inst.Unit, "error", err.Error())
+		h.log.Error("intercom: encode response failed", "actor", actor.ID, "error", err.Error())
 	}
 }
 
 // handleCommit advances the caller's durable commit cursor to up_to (POST
-// /squawks/commit {"up_to": "<message id>"}). The actor comes solely from
-// the authenticated token, never the request body — there is no way for a
-// cove to advance another cove's cursor. up_to is a wire-level message id;
-// it's resolved to its append-order Seq (the actual ordering key) via
-// h.reader.SeqOf before the store is touched — an unknown id is a 400, never
-// silently advances anything.
+// /squawks/commit {"up_to": "<message id>"}). The session comes solely from
+// the token, never the body. up_to resolves to its seq in either log first;
+// an unknown id is a 400 and never advances anything.
 func (h *SquawksHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {
@@ -363,11 +324,10 @@ func (h *SquawksHandler) handleCommit(w http.ResponseWriter, r *http.Request, ac
 		http.Error(w, "up_to required", http.StatusBadRequest)
 		return
 	}
-	if h.reader == nil {
-		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
+	if !h.configured(w) {
 		return
 	}
-	seq, ok := h.reader.SeqOf(req.UpTo)
+	seq, ok := h.inbox.Log.SeqOf(req.UpTo)
 	if !ok {
 		http.Error(w, "unknown message id", http.StatusBadRequest)
 		return

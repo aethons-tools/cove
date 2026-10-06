@@ -24,7 +24,7 @@ import (
 
 // ErrNoDefaultChannel is a send with no address from a session that has no
 // default channel (a standing session: no ticket, no one who started it).
-var ErrNoDefaultChannel = errors.New(`no default channel: pass "to"`)
+var ErrNoDefaultChannel = errors.New(`no default recipient: pass "to"`)
 
 // Poster is who posts: a participant id, and for a session its instance (its
 // project, ticket and starter) and actor (its grants: the addressing ceiling).
@@ -201,7 +201,7 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 		return Planned{}, ErrSendDenied
 	}
 	if addr == "" {
-		ch, err := ic.defaultChannel(*p.Session)
+		ch, err := ic.DefaultChannel(*p.Session)
 		if err != nil {
 			return Planned{}, err
 		}
@@ -325,10 +325,10 @@ func (ic *Intercom) isMemberOf(ch Channel, p ident.ID) bool {
 	return listed && ic.reachable(ch, p)
 }
 
-// defaultChannel is a session's channel when it gives no address: its
+// DefaultChannel is a session's channel when it gives no address: its
 // ticket's, else a chat with the user who started it (until slice 3 gives
 // every session its own channel).
-func (ic *Intercom) defaultChannel(inst Instance) (Channel, error) {
+func (ic *Intercom) DefaultChannel(inst Instance) (Channel, error) {
 	switch {
 	case inst.Unit != "":
 		ch, ok, err := ic.ticketChannel(inst, true)
@@ -497,7 +497,7 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	}
 	switch {
 	case own:
-		return ic.defaultChannel(*p.Session)
+		return ic.DefaultChannel(*p.Session)
 	case !connOK:
 		return Channel{}, ErrSendUnresolved
 	}

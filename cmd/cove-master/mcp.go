@@ -47,12 +47,31 @@ type squawkOut struct {
 	// ContentType: text/markdown, or text/plain (the sender opted out of
 	// markdown; read it literally).
 	ContentType string `json:"content_type,omitempty"`
+	// Channel is the conversation it's in (absent on one from before Jam's
+	// channel cutover); From who sent it.
+	Channel *partyOut `json:"channel,omitempty"`
+	From    *partyOut `json:"from,omitempty"`
+}
+
+// partyOut mirrors a channel or participant in Jam's responses: an id, a kind
+// (ticket/chat/room; session/user/account) and a label.
+type partyOut struct {
+	ID    string `json:"id,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// sendOut is the "send" tool's typed output: the squawk's id and the channel
+// it went to (both empty from a Jam that predates them).
+type sendOut struct {
+	ID      string   `json:"id,omitempty"`
+	Channel partyOut `json:"channel,omitempty"`
 }
 
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name> or channel:<name>; omit to message this cove's default recipient — its ticket, or its owner for a personal session"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, or ticket:<key>; omit to post in your default channel — your ticket's, or a chat with whoever started your session"`
 	// ContentType opts out of the markdown default.
 	ContentType string `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
 }
@@ -246,19 +265,28 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 	return respBody, nil
 }
 
-// send posts a message to the cove's own ticket via Jam, or, when to is
-// non-empty, to the authorized user/channel target it names.
-func (c *messagingClient) send(ctx context.Context, text, to, contentType string) error {
+// send posts a message via Jam: to the cove's default channel, or, when to
+// is non-empty, to the authorized target it names.
+func (c *messagingClient) send(ctx context.Context, text, to, contentType string) (sendOut, error) {
 	payload, err := json.Marshal(struct {
 		Body        string `json:"body"`
 		To          string `json:"to,omitempty"`
 		ContentType string `json:"content_type,omitempty"`
 	}{Body: text, To: to, ContentType: contentType})
 	if err != nil {
-		return fmt.Errorf("encoding send payload: %w", err)
+		return sendOut{}, fmt.Errorf("encoding send payload: %w", err)
 	}
-	_, err = c.do(ctx, http.MethodPost, "/squawks", payload)
-	return err
+	body, err := c.do(ctx, http.MethodPost, "/squawks", payload)
+	if err != nil {
+		return sendOut{}, err
+	}
+	var out sendOut
+	if len(body) > 0 { // an older Jam answers 204, no body
+		if err := json.Unmarshal(body, &out); err != nil {
+			return sendOut{}, fmt.Errorf("decoding send response: %w", err)
+		}
+	}
+	return out, nil
 }
 
 // read fetches the cove's inbox via Jam, optionally seeking via in's
@@ -428,20 +456,21 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to message this cove's default recipient — its ticket, or its owner for a personal session; set to=user:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel. The body is markdown by default; set content_type=text/plain to have it shown literally.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
+		Description: "Post a message. Omit 'to' to post in your default channel — your ticket's, or a chat with whoever started your session; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, or ticket:<key> for a ticket's conversation. Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
-			return nil, nil, cfgErr
+			return nil, sendOut{}, cfgErr
 		}
-		if err := client.send(ctx, in.Text, in.To, in.ContentType); err != nil {
-			return nil, nil, err
+		out, err := client.send(ctx, in.Text, in.To, in.ContentType)
+		if err != nil {
+			return nil, sendOut{}, err
 		}
-		return nil, nil, nil
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read",
-		Description: "Read your inbox as a queue. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
+		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, readOut, error) {
 		if cfgErr != nil {
 			return nil, readOut{}, cfgErr
@@ -469,7 +498,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_targets",
-		Description: "List the targets this cove may send to (user:<name> / channel:<name>).",
+		Description: "List the targets this cove may send to (ticket:<key> / user:<name> / channel:<room>).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTargetsIn) (*mcp.CallToolResult, targetsOut, error) {
 		if cfgErr != nil {
 			return nil, targetsOut{}, cfgErr
