@@ -48,8 +48,18 @@ owns a **Roster** of addressable members:
   non-empty. (Data-model + CLI only for now; the auth/session mapping is a later
   slice.)
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
-  (`channel:<Name>`); `Service` is the transport (`linear` in C1); `Ref` is a
-  tracker issue identifier (e.g. `ACME-1`) the channel posts to.
+  (`channel:<Name>`); `Service` is the transport (`linear` or `discord`); `Ref` is
+  the surface it posts to (a tracker issue identifier like `ACME-1`, or a Discord
+  channel id).
+
+**Roster channels are rooms.** Since intercom slice 2a, a project's channels are
+*rooms* in Jam's channel registry, each with an id and a **binding** of its `Ref`
+on the connection of its `Service` (the default connection of that kind, created
+if there is none). On upgrade, each project's channels became rooms once. A ref
+receives replies for at most one channel: adding a channel on a ref another
+channel already holds is refused (`409`). If two existing channels shared a ref,
+the first kept it and the other now only posts there; the upgrade logs which.
+Removing a channel archives its room.
 
 **Roster humans are Jam-wide users.** Since intercom slice 1a-3a, a human is
 a user in the [identity registry](roster.md) plus a project membership: the

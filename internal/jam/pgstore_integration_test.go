@@ -5,6 +5,7 @@ package jam_test
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -249,5 +250,70 @@ func TestPostgresPolicyRefsMigration(t *testing.T) {
 	}
 	if r, _ := open().GetRole("acme", "impl"); r.Scope.Addressing[0] != "user:"+string(alice) {
 		t.Fatalf("reload: addressing = %v", r.Scope.Addressing)
+	}
+}
+
+// TestPostgresRoomsMigration: a store at roster_schema 4 whose project doc
+// still holds roster channels gets them as rooms at load, once; the doc drops
+// them, and the roster view and a reload agree.
+func TestPostgresRoomsMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`UPDATE jam_settings SET doc = '4' WHERE key = 'roster_schema'`,
+		`UPDATE projects SET doc = jsonb_set(doc, '{roster}', '{"channels":[{"name":"eng","service":"linear","ref":"ACME-1"}]}') WHERE name = 'acme'`,
+	} {
+		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	m := open()
+	want := []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-1"}}
+	if r, _ := m.GetRoster("acme"); !reflect.DeepEqual(r.Channels, want) {
+		t.Fatalf("roster channels = %+v", r.Channels)
+	}
+	p, _ := m.GetProject("acme")
+	rooms := m.ListChannels(p.ID, jam.SourceRoom)
+	if len(rooms) != 1 {
+		t.Fatalf("rooms = %+v", rooms)
+	}
+	var stored int
+	if err := m.Pool().QueryRow(ctx, `SELECT count(*) FROM projects WHERE jsonb_array_length(coalesce(doc->'roster'->'channels', '[]')) > 0`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("project docs still holding channels = %d, %v", stored, err)
+	}
+	again := open()
+	if got := again.ListChannels(p.ID, jam.SourceRoom); len(got) != 1 || got[0].ID != rooms[0].ID {
+		t.Fatalf("reload: rooms = %+v", got)
+	}
+	if err := again.JoinChannel(rooms[0].ID, "standing-acme-impl-spider", 4); err != nil {
+		t.Fatalf("join a grandfathered session: %v", err)
+	}
+	if got := open().ChannelMembers(rooms[0].ID); len(got) != 1 {
+		t.Fatalf("reload: members = %+v", got)
+	}
+	if err := again.RemoveProject("acme"); err != nil {
+		t.Fatalf("RemoveProject with rooms: %v", err)
+	}
+	if _, ok := open().GetChannel(rooms[0].ID); ok {
+		t.Fatal("a removed project's rooms go with it")
 	}
 }

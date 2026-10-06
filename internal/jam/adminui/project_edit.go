@@ -54,7 +54,7 @@ func targetKnown(target string, r jam.Roster) bool {
 	case "user", "human": // human: is the pre-registry alias
 		return slices.ContainsFunc(r.Humans, func(h jam.Human) bool { return h.Name == name || string(h.UserID) == name })
 	case "channel":
-		return slices.ContainsFunc(r.Channels, func(c jam.Channel) bool { return c.Name == name })
+		return slices.ContainsFunc(r.Channels, func(c jam.RosterChannel) bool { return c.Name == name })
 	}
 	return false
 }
@@ -170,7 +170,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 	}))
 
 	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("channel put", func(r *http.Request, project string) error {
-		c := jam.Channel{
+		c := jam.RosterChannel{
 			Name:    strings.TrimSpace(r.FormValue("name")),
 			Service: strings.TrimSpace(r.FormValue("service")),
 			Ref:     strings.TrimSpace(r.FormValue("ref")),

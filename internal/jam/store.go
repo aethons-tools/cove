@@ -7,6 +7,7 @@ import "github.com/aethons-tools/cove/internal/jam/sessionctx"
 type Store interface {
 	RegistryStore
 	StandingSessionStore
+	ChannelStore
 
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)
@@ -78,7 +79,7 @@ type Store interface {
 	ImportConfig(s ConfigSnapshot) error
 
 	AddHuman(project string, h Human) error // upsert by name
-	AddChannel(project string, c Channel) error
+	AddChannel(project string, c RosterChannel) error
 	RemoveHuman(project, name string) error
 	RemoveChannel(project, name string) error
 	GetProject(name string) (Project, bool)

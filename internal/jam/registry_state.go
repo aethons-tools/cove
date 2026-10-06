@@ -31,6 +31,10 @@ func (m *memState) Resolve(id ident.ID) (Entry, bool) {
 		if a, ok := m.accounts[id]; ok {
 			return Entry{ID: id, Kind: ident.Account, Name: accountName(a), Status: a.Status}, true
 		}
+	case ident.Channel:
+		if c, ok := m.channels[id]; ok {
+			return Entry{ID: id, Kind: ident.Channel, Name: c.Label, Status: c.Status}, true
+		}
 	}
 	return Entry{}, false
 }
@@ -149,7 +153,8 @@ func (m *memState) idExists(id ident.ID) bool {
 	_, c := m.connections[id]
 	_, a := m.accounts[id]
 	_, p := m.projectByID(id)
-	return u || c || a || p
+	_, ch := m.channels[id]
+	return u || c || a || p || ch
 }
 
 // projectByID finds a project record by its id. Caller holds mu.
@@ -427,6 +432,9 @@ func (m *memState) prepareRemoveConnection(id ident.ID) (Connection, error) {
 		if p.ChatService == string(id) {
 			return Connection{}, fmt.Errorf("%w: connection %q is project %q's chat service", ErrConnectionInUse, c.Name, p.Name)
 		}
+	}
+	if ch, bound := m.boundConnection(id); bound {
+		return Connection{}, fmt.Errorf("%w: connection %q binds %s %q", ErrConnectionInUse, c.Name, ch.Kind, ch.Key)
 	}
 	c.Status = StatusRemoved
 	return c, nil

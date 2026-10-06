@@ -678,12 +678,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		writeJSON(w, http.StatusOK, rr)
 	})
 	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
-		var b Channel
+		var b RosterChannel
 		if !decode(w, r, &b) {
 			return
 		}
 		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			http.Error(w, err.Error(), projectErrStatus(err, RegistryErrStatus(err)))
 			return
 		}
 		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)

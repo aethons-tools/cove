@@ -50,7 +50,7 @@ func meWorld() *meFakeStore {
 					{Name: "alice", Handle: "alice", Identity: []jam.OIDCIdentity{{Issuer: testIssuer, Subject: testSubject}}},
 					{Name: "bob"},
 				},
-				Channels: []jam.Channel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
+				Channels: []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
 			},
 		},
 		instances: []jam.Instance{

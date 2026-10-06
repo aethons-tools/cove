@@ -25,6 +25,7 @@ var ErrAccountLinked = errors.New("account is linked to another user")
 func (m *memState) viewProject(p Project) Project {
 	p = copyProject(p)
 	p.Roster.Humans = m.rosterHumans(p.ID)
+	p.Roster.Channels = m.rosterChannels(p.ID)
 	return p
 }
 

@@ -304,7 +304,7 @@ func TestDiscordPolledChannels(t *testing.T) {
 					{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
 					{Name: "dave"}, // no discord profile
 				},
-				Channels: []jam.Channel{
+				Channels: []jam.RosterChannel{
 					{Name: "eng-help", Service: "discord", Ref: "chan-C"},   // discord channel → MUST be polled (reply-routing)
 					{Name: "chan-A-dup", Service: "discord", Ref: "chan-A"}, // duplicate of a human inbox → deduped
 					{Name: "linear-only", Service: "linear", Ref: "ACME-1"}, // non-discord → excluded

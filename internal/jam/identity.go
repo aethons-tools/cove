@@ -386,9 +386,11 @@ func DiscordAuthor(r Roster, channel, authorID string, isBot bool) (name, by str
 	return owner, "channel", true
 }
 
-// Channel is a named conduit on a Service. C1: Service == "linear", Ref is a
-// tracker issue identifier (e.g. "ACME-1") the channel posts to.
-type Channel struct {
+// RosterChannel is the roster view of a room (intercom slice 2a): Name is the
+// room's name, Service its bound connection's kind ("linear", "discord"), Ref
+// the bound surface (a tracker issue key like "ACME-1", a Discord channel id).
+// Rooms live in the channel registry (rooms.go); this view goes with 2b.
+type RosterChannel struct {
 	Name    string `json:"name"`
 	Service string `json:"service"`
 	Ref     string `json:"ref"`
@@ -396,8 +398,8 @@ type Channel struct {
 
 // Roster is a Project's addressable membership.
 type Roster struct {
-	Humans   []Human   `json:"humans,omitempty"`
-	Channels []Channel `json:"channels,omitempty"`
+	Humans   []Human         `json:"humans,omitempty"`
+	Channels []RosterChannel `json:"channels,omitempty"`
 }
 
 // EscalationTier is one rung of a Project's escalation policy: the targets to

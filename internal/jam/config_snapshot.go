@@ -19,7 +19,7 @@ import (
 // connections, accounts, memberships, legacy aliases) with their ids; import
 // also reads 1, whose roster humans and kind-named chat services it migrates.
 // Import rejects any other value rather than mis-loading.
-const ConfigSnapshotVersion = 2
+const ConfigSnapshotVersion = 3
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
@@ -55,6 +55,10 @@ type ConfigSnapshot struct {
 	// StandingSessions maps declared standing sessions to their sessions, so
 	// a restore keeps them on their state.
 	StandingSessions []StandingSessionRef `json:"standing_sessions,omitempty"`
+	// Channels (v3) is the channel registry — rooms, live and archived, with
+	// their bindings — so a restore keeps channel ids. Membership is runtime
+	// state and is not exported.
+	Channels []Channel `json:"channels,omitempty"`
 }
 
 // ErrConfigNotEmpty is returned by ImportConfig when the target already holds
@@ -143,8 +147,8 @@ func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
 // ErrConfigNotEmpty (naming the offending aggregates) if any config aggregate
 // already has entries.
 func checkImport(m *memState, s ConfigSnapshot) error {
-	if s.Version != 1 && s.Version != ConfigSnapshotVersion {
-		return fmt.Errorf("%w: got %d, want 1 or %d", ErrUnsupportedConfigVersion, s.Version, ConfigSnapshotVersion)
+	if s.Version < 1 || s.Version > ConfigSnapshotVersion {
+		return fmt.Errorf("%w: got %d, want 1 to %d", ErrUnsupportedConfigVersion, s.Version, ConfigSnapshotVersion)
 	}
 	if names := nonEmptyConfigAggregates(m); len(names) > 0 {
 		return fmt.Errorf("%w (non-empty: %s)", ErrConfigNotEmpty, strings.Join(names, ", "))
@@ -256,7 +260,7 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	}
 	// Connections alone don't count: a starting serve creates the one its
 	// (deprecated) serve config names; import reconciles them.
-	if len(m.users) > 0 || len(m.accounts) > 0 {
+	if len(m.users) > 0 || len(m.accounts) > 0 || len(m.channels) > 0 {
 		names = append(names, "registry")
 	}
 	if !m.jamContext.Empty() {
@@ -380,6 +384,9 @@ func (m *memState) exportRegistry(snap *ConfigSnapshot) {
 		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: id})
 	}
 	slices.SortFunc(snap.StandingSessions, func(a, b StandingSessionRef) int { return strings.Compare(a.SessionID, b.SessionID) })
+	for _, id := range slices.Sorted(maps.Keys(m.channels)) {
+		snap.Channels = append(snap.Channels, copyChannel(m.channels[id]))
+	}
 }
 
 // importPlan validates a snapshot for import into m (an empty store) and
@@ -411,6 +418,7 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 	reg.roles = append(reg.roles, mig.roles...)
 	reg.actors = append(reg.actors, mig.actors...)
 	reg.standing = append(reg.standing, mig.standing...)
+	reg.channels = append(reg.channels, mig.channels...)
 	reg.report = mig.report
 	return s, reg, nil
 }
@@ -522,6 +530,28 @@ func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *
 		}
 		m.applyPutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID)
 		plan.standing = append(plan.standing, ss)
+	}
+	for _, c := range s.Channels {
+		if c.Status == StatusArchived {
+			if err := checkID(c.ID, ident.Channel); err != nil {
+				return bad("channel %q: %v", c.Key, err)
+			}
+			if _, ok := m.projectByID(c.ProjectID); !ok || !slices.Contains(sourceKinds, c.Kind) {
+				return bad("channel %q: unknown project %s or kind %q", c.Key, c.ProjectID, c.Kind)
+			}
+			for _, b := range c.Bindings {
+				if _, ok := m.connections[b.ConnectionID]; !ok {
+					return bad("channel %q: no connection %s", c.Key, b.ConnectionID)
+				}
+			}
+		} else {
+			created, err := m.prepareCreateChannel(c)
+			if err != nil || created.ID != c.ID {
+				return bad("channel %q: %v", c.Key, err)
+			}
+		}
+		m.applyPutChannel(c)
+		plan.channels = append(plan.channels, copyChannel(c))
 	}
 	return plan, m, nil
 }

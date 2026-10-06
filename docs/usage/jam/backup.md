@@ -17,14 +17,19 @@ control-plane aggregates:
 - **kits** (all versions **and** the pin)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
-- **projects** (channels, escalation policy, chat service, session context and resources)
+- **projects** (escalation policy, chat service, session context and resources)
 - the **identity registry** — users (removed ones too: their ids back history),
   connections, accounts, project memberships and the legacy human aliases — with
-  their ids, so a restore keeps every reference valid (format `version: 2`; an
-  older Jam can't read it). A `version: 1` backup still imports: its roster
-  humans are merged into users the way an upgrade does
-  ([comms-addressing.md](comms-addressing.md#the-project-roster))
+  their ids, so a restore keeps every reference valid
+- the **channel registry**: rooms (a project's channels, archived ones too)
+  with their bindings and ids. Channel membership is runtime state and is not
+  exported.
 - the **Jam-wide session context**
+
+The format is `version: 3`; an older Jam can't read it. Older backups still
+import: a `version: 1` backup's roster humans are merged into users the way an
+upgrade does ([comms-addressing.md](comms-addressing.md#the-project-roster)),
+and a `version: 1` or `2` backup's project channels become rooms.
 
 Import requires an empty target, registry included — except connections, which
 a starting serve creates: a backup's connection of the same name takes over —

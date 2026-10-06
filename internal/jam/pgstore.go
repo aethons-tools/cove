@@ -840,17 +840,23 @@ func (s *PostgresStore) AddHuman(project string, h Human) error {
 	return nil
 }
 
-func (s *PostgresStore) AddChannel(project string, c Channel) error {
+func (s *PostgresStore) AddChannel(project string, c RosterChannel) error {
 	if c.Name == "" {
 		return fmt.Errorf("channel name required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
+	plan, err := s.prepareAddRoom(project, c)
 	if err != nil {
 		return err
 	}
-	return s.putProject(upsertChannel(copyProject(p), c))
+	if err := s.registryTx("AddChannel", func(ctx context.Context, tx pgx.Tx) error {
+		return writeHumanPlanTx(ctx, tx, plan)
+	}); err != nil {
+		return err
+	}
+	s.applyHumanPlan(plan)
+	return nil
 }
 
 func (s *PostgresStore) RemoveHuman(project, name string) error {
@@ -873,11 +879,17 @@ func (s *PostgresStore) RemoveHuman(project, name string) error {
 func (s *PostgresStore) RemoveChannel(project, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
+	ch, ok, err := s.prepareRemoveRoom(project, name)
+	if err != nil || !ok {
+		return err
 	}
-	return s.putProject(removeChannelFrom(copyProject(p), name))
+	if err := s.registryTx("RemoveChannel", func(ctx context.Context, tx pgx.Tx) error {
+		return putChannelTx(ctx, tx, ch)
+	}); err != nil {
+		return err
+	}
+	s.applyPutChannel(ch)
+	return nil
 }
 
 func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {

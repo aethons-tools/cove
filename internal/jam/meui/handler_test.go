@@ -51,7 +51,7 @@ func fixture() (*fakeStore, fakeLog, jam.Participant) {
 			Name: "alice", Handle: "alice",
 			Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}},
 		}},
-		Channels: []jam.Channel{{Name: "eng"}},
+		Channels: []jam.RosterChannel{{Name: "eng"}},
 	}
 	store := &fakeStore{rosters: map[string]jam.Roster{"proj": roster}}
 	log := fakeLog{sq: []intercom.Squawk{{

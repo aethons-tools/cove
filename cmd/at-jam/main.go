@@ -576,7 +576,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam project roster add-channel: expected <project> --name and --ref")
 			return 2
 		}
-		if err := c.AddChannel(pos[0], jam.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
+		if err := c.AddChannel(pos[0], jam.RosterChannel{Name: *name, Service: *service, Ref: *ref}); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
