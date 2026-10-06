@@ -7,12 +7,15 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
-// StandingActorID is the actor (and reservation) id Jam raises a role's
-// standing session under: "standing-<project>-<role>-<name>", each part with
-// characters outside [A-Za-z0-9._-] mapped to '-' (as for personal session ids).
-// One id per name is what keeps the standing reconciler idempotent.
+// StandingActorID is the id Jam raised a role's standing session under before
+// sessions had ids of their own: "standing-<project>-<role>-<name>", each part
+// with characters outside [A-Za-z0-9._-] mapped to '-'. The registry migration
+// seeds the standing-session map with it, so sessions live then keep their
+// state; nothing derives an id from a name since.
 func StandingActorID(project, role, name string) string {
 	return "standing-" + safeIDPart(project) + "-" + safeIDPart(role) + "-" + safeIDPart(name)
 }
@@ -31,13 +34,26 @@ type StandingResetResult struct {
 // StandingUpgrader.UpgradeState).
 type StandingStatus struct {
 	StandingSession
-	Upgrade string `json:"upgrade,omitempty"`
+	// SessionID is the session the declaration currently is ("" until first
+	// raised); its studio is the cove with this id.
+	SessionID string `json:"session_id,omitempty"`
+	Upgrade   string `json:"upgrade,omitempty"`
+}
+
+// StandingSessionOf is the session a declaration currently is ("" none yet).
+func StandingSessionOf(store Store, project, role, name string) string {
+	pid, ok := store.LookupName(ident.Project, orDefaultProject(project))
+	if !ok {
+		return ""
+	}
+	id, _ := store.StandingSessionID(pid, role, name)
+	return id
 }
 
 // standingTarget is the shared prologue of the per-name standing operations:
 // 404 for an unknown role or name, 503 when the operation's reconciler hook
-// isn't wired, and 409 when the name's actor id is held by a live cove that is
-// not this session. It returns the actor id.
+// isn't wired, and 409 when the name's session id is held by a live cove that
+// is not this session. It returns the session id ("" if never started).
 func standingTarget(store Store, project, roleName, name string, wired bool) (string, error) {
 	role, ok := store.GetRole(project, roleName)
 	if !ok {
@@ -49,8 +65,8 @@ func standingTarget(store Store, project, roleName, name string, wired bool) (st
 	if !wired {
 		return "", writeErr(http.StatusServiceUnavailable, "standing reconciler not running")
 	}
-	id := StandingActorID(project, roleName, name)
-	if inst, ok := store.GetInstance(id); ok && inst.Phase != PhaseGone &&
+	id := StandingSessionOf(store, project, roleName, name)
+	if inst, ok := store.GetInstance(id); id != "" && ok && inst.Phase != PhaseGone &&
 		(inst.SessionKind != SessionKindStanding || inst.Project != project || inst.Role != roleName || inst.Name != name) {
 		return "", writeErr(http.StatusConflict, "actor id %s is held by another cove; not touching it", id)
 	}
@@ -121,6 +137,9 @@ func UpgradeStanding(store Store, sup *Supervisor, project, roleName, name strin
 	if err != nil {
 		return StandingUpgradeResult{}, err
 	}
+	if id == "" {
+		return StandingUpgradeResult{Reason: "not started yet; its first raise runs the current image"}, nil
+	}
 	if inst, ok := store.GetInstance(id); ok && !force &&
 		imageStatus(sup, map[[2]string]currentImage{}, inst) == "ok" {
 		return StandingUpgradeResult{Image: inst.ImageTag, Reason: "already current"}, nil
@@ -156,21 +175,6 @@ func writeStandingResult(w http.ResponseWriter, body any, pending bool, err erro
 	writeJSON(w, code, body)
 }
 
-// standingIDHolder returns "project/role/name" of the declared standing session
-// whose actor id is id, if any.
-func standingIDHolder(store Store, id string) (string, bool) {
-	for _, p := range store.ListProjects() {
-		for _, ro := range store.ListRoles(p) {
-			for _, s := range ro.Allocation.Standing {
-				if StandingActorID(p, ro.Name, s.Name) == id {
-					return p + "/" + ro.Name + "/" + s.Name, true
-				}
-			}
-		}
-	}
-	return "", false
-}
-
 // registerStanding mounts the standing-declaration routes. Writes go through
 // AddStanding/RemoveStanding, which hold the shared role lock. Reset and
 // upgrade need the supervisor (nil → 503).
@@ -184,7 +188,8 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 		}
 		out := []StandingStatus{}
 		for _, s := range role.Allocation.Standing {
-			out = append(out, StandingStatus{StandingSession: s, Upgrade: sup.StandingUpgradeState(r.PathValue("project"), role.Name, s.Name)})
+			out = append(out, StandingStatus{StandingSession: s, SessionID: StandingSessionOf(store, r.PathValue("project"), role.Name, s.Name),
+				Upgrade: sup.StandingUpgradeState(r.PathValue("project"), role.Name, s.Name)})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -199,7 +204,7 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
 			return
 		}
-		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name, "id", StandingActorID(project, roleName, b.Name))
+		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name)
 		w.WriteHeader(http.StatusCreated)
 	})
 
@@ -237,4 +242,19 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 		}
 		writeStandingResult(w, res, res.Pending, err)
 	})
+}
+
+// SeedStandingSession maps a standing declaration that has no session yet to
+// the id it ran under before sessions had their own (StandingActorID) — the
+// registry migration's seed rule — and returns the declaration's session id.
+// For tools and tests that set up a pre-registry standing session.
+func SeedStandingSession(store Store, project, role, name string) string {
+	if id := StandingSessionOf(store, project, role, name); id != "" {
+		return id
+	}
+	id := StandingActorID(orDefaultProject(project), role, name)
+	if pid, ok := store.LookupName(ident.Project, orDefaultProject(project)); ok {
+		_ = store.PutStandingSession(pid, role, name, id)
+	}
+	return id
 }

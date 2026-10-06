@@ -175,7 +175,7 @@ func TestEditStandingReset(t *testing.T) {
 	sup := newSup(t, store)
 	rs := &teardownResetter{sup: sup}
 	sup.SetStandingResetter(rs)
-	id := jam.StandingActorID("acme", "review", "nightly")
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: jam.SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,7 @@ func seedRichRole(t *testing.T) jam.Store {
 		}
 	}
 	for _, i := range []jam.Instance{
-		{ActorID: jam.StandingActorID("acme", "review", "nightly"), Project: "acme", Role: "review", Name: "nightly", Phase: jam.PhaseLive},
+		{ActorID: jam.SeedStandingSession(store, "acme", "review", "nightly"), Project: "acme", Role: "review", Name: "nightly", Phase: jam.PhaseLive},
 		{ActorID: "studio-of-review", Project: "acme", Role: "review", Phase: jam.PhaseLive},
 		{ActorID: "studio-of-other", Project: "acme", Role: "other", Phase: jam.PhaseLive},
 	} {

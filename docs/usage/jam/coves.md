@@ -46,13 +46,17 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ```
 at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md]
-at-jam studio list     # id  role  unit  phase  activity  lease-holder  connector  image
+at-jam studio list     # id  name  role  unit  phase  activity  lease-holder  connector  image
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```
 
-- `studio raise` enrolls the identity (the role must exist — fail-closed) and
-  records a `live` Instance. The role supplies scope, exactly as with
+- `studio raise` starts a **new session** (a minted `ses_…` id, printed) and
+  enrolls its identity (the role must exist — fail-closed), recording a `live`
+  Instance. `--id` is the session's **label**: unique among live sessions (409
+  otherwise), it addresses the session in `status`/`teardown` (as does its id),
+  and is free again once the session ends — a later raise under it is a new
+  session that inherits nothing. The role supplies scope, exactly as with
   [enroll](roster.md). `--prompt-file` supplies the workload prompt (read
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.

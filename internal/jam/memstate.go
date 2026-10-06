@@ -43,6 +43,9 @@ type memState struct {
 	// aliases maps a pre-registry roster human (project name → human name) to
 	// the user it became (legacy_human_aliases); written only by the migration.
 	aliases map[string]map[string]ident.ID
+	// standing maps a declared standing session to its session id
+	// (standing_sessions.go).
+	standing map[standingKey]string
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -68,6 +71,7 @@ func newMemState() *memState {
 		accounts:    map[ident.ID]Account{},
 		members:     map[ident.ID]map[ident.ID]Membership{},
 		aliases:     map[string]map[string]ident.ID{},
+		standing:    map[standingKey]string{},
 		unread:      map[string]map[string]int64{},
 	}
 }
@@ -386,6 +390,11 @@ func (m *memState) grantProjects(a Actor) ([]Project, error) {
 func (m *memState) projectReference(project string) (string, bool) {
 	if n := len(m.members[m.projects[project].ID]); n > 0 {
 		return fmt.Sprintf("%d member(s)", n), true
+	}
+	for k := range m.standing {
+		if k.project == m.projects[project].ID && k.project != "" {
+			return fmt.Sprintf("standing session %s/%s (its session is still being ended)", k.role, k.name), true
+		}
 	}
 	for name := range m.roles[project] {
 		return fmt.Sprintf("role %s/%s", project, name), true

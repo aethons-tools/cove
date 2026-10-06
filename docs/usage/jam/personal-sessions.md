@@ -161,11 +161,11 @@ All take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 ```
 at-jam session request --project acme --role pair --prompt-file task.md   # prints the session id
 at-jam session list    [--project acme]
-at-jam session release personal-alice-1a2b3c4d
+at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 ```
 
 - **request** grants a slot, then raises the studio with you as its owner, and
-  prints only the session id (`personal-<owner>-<8 hex>`). The admin UI's role
+  prints only the session id (a new `ses_…` id for each request). The admin UI's role
   **Request** action does the same from the browser (see
   [ui.md](ui.md#runtime-studios)). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike

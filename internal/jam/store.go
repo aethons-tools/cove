@@ -6,6 +6,7 @@ import "github.com/aethons-tools/cove/internal/jam/sessionctx"
 // destination table, and the model-spec table.
 type Store interface {
 	RegistryStore
+	StandingSessionStore
 
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)

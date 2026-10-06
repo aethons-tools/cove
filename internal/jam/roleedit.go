@@ -3,6 +3,7 @@ package jam
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
@@ -107,21 +108,18 @@ func ClearRoleEgress(store Store, project, name string) error {
 }
 
 // AddStanding declares a standing session on the role. A missing name or
-// prompt, a duplicate name, or an actor id that collides with another
-// declaration (in any role or project) is a 400 WriteError.
+// prompt, a name with "/" (it names a route segment) or a duplicate name is a
+// 400 WriteError. Its first raise starts a new session (standing-session map).
 func AddStanding(store Store, project, name string, s StandingSession) error {
 	if s.Name == "" || s.Prompt == "" {
 		return writeErr(http.StatusBadRequest, "name and prompt are required")
 	}
+	if strings.Contains(s.Name, "/") {
+		return writeErr(http.StatusBadRequest, "standing session name %q must not contain /", s.Name)
+	}
 	return UpdateRole(store, project, name, func(r *Role) error {
 		if slices.ContainsFunc(r.Allocation.Standing, func(x StandingSession) bool { return x.Name == s.Name }) {
 			return writeErr(http.StatusBadRequest, "standing session %q is already declared on %s/%s", s.Name, project, name)
-		}
-		// The reconciler keys each cove on its actor id, so it must be unique across
-		// every declaration, in any role or project.
-		id := StandingActorID(project, name, s.Name)
-		if owner, ok := standingIDHolder(store, id); ok {
-			return writeErr(http.StatusBadRequest, "standing session %q would share actor id %s with declared %s; pick a name that differs in [A-Za-z0-9._-]", s.Name, id, owner)
 		}
 		r.Allocation.Standing = append(slices.Clone(r.Allocation.Standing), s)
 		return nil

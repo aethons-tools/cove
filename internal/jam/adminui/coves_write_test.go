@@ -65,12 +65,12 @@ func TestRaiseCove(t *testing.T) {
 	}
 	found := false
 	for _, i := range store.ListInstances() {
-		if i.ActorID == "cove-1" {
+		if i.Name == "cove-1" && strings.HasPrefix(i.ActorID, "ses_") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("instance cove-1 was not registered")
+		t.Fatal("no session labelled cove-1 was registered")
 	}
 	if !strings.Contains(rec.Body.String(), "cove-1") {
 		t.Errorf("coves fragment should list the new cove; got:\n%s", rec.Body.String())
@@ -195,7 +195,7 @@ func TestCovesConnectorStaleIsFlagged(t *testing.T) {
 	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-s"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
 		t.Fatalf("raise = %d", rec.Code)
 	}
-	if err := sup.RecordConnector("cove-s", "not-the-current-fingerprint"); err != nil {
+	if err := sup.RecordConnector(jam.ResolveSession(store, "cove-s"), "not-the-current-fingerprint"); err != nil {
 		t.Fatal(err)
 	}
 	page := get(t, h, "/ui/coves").Body.String()

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -764,10 +765,10 @@ func TestStudioCommandsRoundTrip(t *testing.T) {
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("studio raise: exit=%d stderr=%s", code, errb.String())
 	}
-	// Only id+phase may be printed — proves the minted identity token never
-	// reaches stdout.
-	if out.String() != "raised w1 (phase=live)\n" {
-		t.Fatalf("studio raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
+	// Only label, session id and phase may be printed — proves the minted
+	// identity token never reaches stdout.
+	if !regexp.MustCompile(`^raised w1 as session ses_[0-9a-z]{26} \(phase=live\)\n$`).MatchString(out.String()) {
+		t.Fatalf("studio raise output = %q, want \"raised w1 as session <ses_id> (phase=live)\" (must not leak the identity token)", out.String())
 	}
 
 	// studio list reflects the raised cove
@@ -876,7 +877,7 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("session request: exit=%d stderr=%s", code, errb.String())
 	}
 	id := strings.TrimSpace(out.String())
-	if !strings.HasPrefix(id, "personal-alice-") || strings.ContainsAny(id, " \t\n") {
+	if !strings.HasPrefix(id, "ses_") || strings.ContainsAny(id, " \t\n") {
 		t.Fatalf("session request must print only the session id, got %q", out.String())
 	}
 	if inst, ok := store.GetInstance(id); !ok || inst.Owner != "alice" || inst.SessionKind != "personal" {
@@ -983,7 +984,7 @@ func TestStandingResetCommand(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	rs := &teardownResetter{sup: sup}
 	sup.SetStandingResetter(rs)
-	id := jam.StandingActorID("acme", "reviewer", "alice-bot")
+	id := jam.SeedStandingSession(store, "acme", "reviewer", "alice-bot")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "reviewer", Name: "alice-bot", SessionKind: jam.SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}
@@ -1055,6 +1056,7 @@ func TestStandingUpgradeCommand(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
+	jam.SeedStandingSession(store, "acme", "reviewer", "alice-bot") // a session to upgrade (down)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -1109,7 +1111,7 @@ func waitServer(t *testing.T, pending int, image string) *httptest.Server {
 			_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Pending: true, State: jam.UpgradeQueued})
 		case strings.HasSuffix(r.URL.Path, "/standing"):
 			polls++
-			st := jam.StandingStatus{StandingSession: jam.StandingSession{Name: "bot", Prompt: "p"}}
+			st := jam.StandingStatus{StandingSession: jam.StandingSession{Name: "bot", Prompt: "p"}, SessionID: jam.StandingActorID(jam.DefaultProject, "dev", "bot")}
 			if polls <= pending {
 				st.Upgrade = jam.UpgradePreparing
 			}
@@ -1178,7 +1180,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), jam.StandingActorID("acme", "reviewer", "alice-bot")) {
+	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), "id=-") {
 		t.Fatalf("standing list output:\n%s", out.String())
 	}
 

@@ -127,6 +127,11 @@ func writeHumanPlanTx(ctx context.Context, tx pgx.Tx, p humanPlan) error {
 			return err
 		}
 	}
+	for _, s := range p.standing {
+		if err := putStandingSessionTx(ctx, tx, s.ProjectID, s.Role, s.Name, s.SessionID); err != nil {
+			return err
+		}
+	}
 	for _, inst := range p.instances {
 		doc, err := json.Marshal(inst)
 		if err != nil {

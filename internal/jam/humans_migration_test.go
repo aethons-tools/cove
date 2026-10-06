@@ -368,3 +368,31 @@ func TestPlanPolicyRefsPrefersLiveNameOverAlias(t *testing.T) {
 		t.Fatalf("owner = %+v, want the live alice", plan.instances)
 	}
 }
+
+// Step 4 seeds the standing-session map with the ids live sessions already
+// run under, so their state volumes and inboxes carry over untouched.
+func TestPlanRegistryMigrationSeedsStandingSessions(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "spider", Prompt: "p"}, {Name: "ant", Prompt: "p"}}}}}
+	acme := m.projects["acme"].ID
+	m.standing[standingKey{acme, "impl", "ant"}] = "ses-already"
+	plan := m.planRegistryMigration(3)
+	if len(plan.standing) != 1 || plan.standing[0] != (StandingSessionRef{ProjectID: acme, Role: "impl", Name: "spider", SessionID: StandingActorID("acme", "impl", "spider")}) {
+		t.Fatalf("standing = %+v", plan.standing)
+	}
+	if again := m.planRegistryMigration(4); len(again.standing) != 0 {
+		t.Fatalf("from 4 = %+v", again.standing)
+	}
+}
+
+// Two declarations whose pre-registry ids coincide (names differing only in
+// characters the old id mapped to "-") never share one: the second is left
+// for the reconciler to start with a minted id.
+func TestPlanStandingSessionsSkipsCollidingIDs(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "a b", Prompt: "p"}, {Name: "a-b", Prompt: "p"}}}}}
+	plan := m.planRegistryMigration(3)
+	if len(plan.standing) != 1 {
+		t.Fatalf("standing = %+v, want one seeded entry", plan.standing)
+	}
+}

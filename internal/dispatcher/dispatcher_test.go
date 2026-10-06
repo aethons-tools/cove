@@ -110,7 +110,7 @@ func TestTickClaimsAndRaises(t *testing.T) {
 		t.Fatalf("want 1 raise, got %d", len(r.specs))
 	}
 	s := r.specs[0]
-	if s.ActorID != "cove-AET-1" || s.Role != "worker" || s.Project != "acme" || s.Unit != "AET-1" {
+	if !strings.HasPrefix(s.ActorID, "ses_") || s.Role != "worker" || s.Project != "acme" || s.Unit != "AET-1" {
 		t.Fatalf("raise spec = %+v", s)
 	}
 	if !strings.Contains(s.Prompt, "do a thing") || strings.Contains(s.Prompt, "worker-result") ||
@@ -145,7 +145,7 @@ func TestTickRaisesOnlyLabeledAmongMixed(t *testing.T) {
 func TestTickDedupsExistingInstance(t *testing.T) {
 	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
-	reg := &fakeRegistry{insts: []jam.Instance{{ActorID: "cove-AET-1", Phase: jam.PhaseLive}}}
+	reg := &fakeRegistry{insts: []jam.Instance{{ActorID: "ses-earlier", Unit: "AET-1", Phase: jam.PhaseLive}}}
 	newTestDispatcher(tr, r, reg, 5).tick(context.Background())
 	if len(tr.transitions) != 0 || len(r.specs) != 0 {
 		t.Fatalf("existing instance must be skipped: transitions=%v raises=%v", tr.transitions, r.specs)
@@ -178,10 +178,10 @@ func TestTick_GrantBeforeRaise_SuccessNoRelease(t *testing.T) {
 	adm := &fakeAdmitter{grant: true}
 	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
 	d.tick(context.Background())
-	if len(adm.granted) != 1 || adm.granted[0] != "cove-AET-1" {
-		t.Fatalf("Grant calls = %v, want [cove-AET-1]", adm.granted)
+	if len(adm.granted) != 1 || len(rz.specs) != 1 || adm.granted[0] != rz.specs[0].ActorID {
+		t.Fatalf("Grant calls = %v, want the raised session's id", adm.granted)
 	}
-	want := allocator.Request{Project: "acme", Role: "worker", ReservationID: "cove-AET-1", Kind: allocator.SessionEphemeral}
+	want := allocator.Request{Project: "acme", Role: "worker", ReservationID: rz.specs[0].ActorID, Kind: allocator.SessionEphemeral}
 	if adm.requests[0] != want {
 		t.Fatalf("Requisitioner requested %+v, want an ephemeral reservation %+v", adm.requests[0], want)
 	}
@@ -227,8 +227,8 @@ func TestTick_RaiseFailure_CompensatesRelease(t *testing.T) {
 	adm := &fakeAdmitter{grant: true}
 	d := New(tr, rz, &fakeRegistry{}, adm, Config{Role: "worker", Project: "acme"}, nil)
 	d.tick(context.Background())
-	if len(adm.released) != 1 || adm.released[0] != "cove-AET-1" {
-		t.Fatalf("expected compensation release for cove-AET-1, got %v", adm.released)
+	if len(adm.released) != 1 || len(adm.granted) != 1 || adm.released[0] != adm.granted[0] {
+		t.Fatalf("expected compensation release of the granted session, got %v (granted %v)", adm.released, adm.granted)
 	}
 	// ticket moves to needs-input on raise failure
 	if len(tr.transitions) != 2 || tr.transitions[1].role != scheduler.RoleNeedsInput {
@@ -248,8 +248,8 @@ func TestTick_ClaimFailure_CompensatesRelease(t *testing.T) {
 	if len(rz.specs) != 0 {
 		t.Fatalf("claim failure must skip raise, got %d raises", len(rz.specs))
 	}
-	if len(adm.released) != 1 || adm.released[0] != "cove-AET-1" {
-		t.Fatalf("expected compensation release for cove-AET-1, got %v", adm.released)
+	if len(adm.released) != 1 || len(adm.granted) != 1 || adm.released[0] != adm.granted[0] {
+		t.Fatalf("expected compensation release of the granted session, got %v (granted %v)", adm.released, adm.granted)
 	}
 }
 
@@ -271,5 +271,16 @@ func TestTickClaimFailureSkipsRaise(t *testing.T) {
 	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
 	if len(r.specs) != 0 {
 		t.Fatalf("claim failure must skip raise, got %d raises", len(r.specs))
+	}
+}
+
+// A ticket whose earlier session is gone gets a new session on re-dispatch.
+func TestTickRedispatchStartsNewSession(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
+	r := &fakeRaiser{}
+	reg := &fakeRegistry{insts: []jam.Instance{{ActorID: "ses-earlier", Unit: "AET-1", Phase: jam.PhaseGone}}}
+	newTestDispatcher(tr, r, reg, 5).tick(context.Background())
+	if len(r.specs) != 1 || r.specs[0].ActorID == "ses-earlier" {
+		t.Fatalf("raises = %+v, want one new session", r.specs)
 	}
 }

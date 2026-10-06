@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/allocator"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -28,6 +29,45 @@ type fakeWorld struct {
 	notReady  bool   // PrepareImage reports the current image still preparing
 	prepErr   error  // PrepareImage fails
 	prepares  int    // PrepareImage calls
+	// sessions is the standing-session map, keyed "project/role/name".
+	sessions map[string]string
+}
+
+// LookupName gives every project a fake id: "prj-<name>".
+func (w *fakeWorld) LookupName(k ident.Kind, name string) (ident.ID, bool) {
+	if k != ident.Project {
+		return "", false
+	}
+	return ident.ID("prj-" + name), true
+}
+
+func sessKey(project ident.ID, role, name string) string {
+	return strings.TrimPrefix(string(project), "prj-") + "/" + role + "/" + name
+}
+
+func (w *fakeWorld) StandingSessionID(project ident.ID, role, name string) (string, bool) {
+	id, ok := w.sessions[sessKey(project, role, name)]
+	return id, ok
+}
+
+func (w *fakeWorld) PutStandingSession(project ident.ID, role, name, id string) error {
+	w.sessions[sessKey(project, role, name)] = id
+	return nil
+}
+
+func (w *fakeWorld) RemoveStandingSession(project ident.ID, role, name string) error {
+	delete(w.sessions, sessKey(project, role, name))
+	return nil
+}
+
+func (w *fakeWorld) ListStandingSessions() []jam.StandingSessionRef {
+	var out []jam.StandingSessionRef
+	for k, id := range w.sessions {
+		p, rest, _ := strings.Cut(k, "/")
+		role, name, _ := strings.Cut(rest, "/")
+		out = append(out, jam.StandingSessionRef{ProjectID: ident.ID("prj-" + p), Role: role, Name: name, SessionID: id})
+	}
+	return out
 }
 
 func (w *fakeWorld) CurrentImage(string, string) (jam.CurrentImage, error) {
@@ -48,7 +88,7 @@ func (w *fakeWorld) PrepareImage(_ context.Context, p, r string) (jam.CurrentIma
 
 func newWorld() *fakeWorld {
 	return &fakeWorld{roles: map[string][]jam.Role{}, insts: map[string]jam.Instance{}, failRaise: map[string]bool{},
-		state: map[string]bool{}, failPurge: map[string]bool{}, failTear: map[string]bool{}}
+		state: map[string]bool{}, failPurge: map[string]bool{}, failTear: map[string]bool{}, sessions: map[string]string{}}
 }
 
 func (w *fakeWorld) ListProjects() []string {
@@ -111,8 +151,20 @@ func (w *fakeWorld) StateOwners(context.Context) ([]string, error) {
 	return out, nil
 }
 
-// declare sets project/role's standing declarations.
+// declare sets project/role's standing declarations, each mapped (as the
+// registry migration seeds existing declarations) to its pre-registry id
+// unless already mapped. declareNew leaves the map alone.
 func (w *fakeWorld) declare(project, role string, ss ...jam.StandingSession) {
+	for _, s := range ss {
+		k := project + "/" + role + "/" + s.Name
+		if _, ok := w.sessions[k]; !ok {
+			w.sessions[k] = jam.StandingActorID(project, role, s.Name)
+		}
+	}
+	w.declareNew(project, role, ss...)
+}
+
+func (w *fakeWorld) declareNew(project, role string, ss ...jam.StandingSession) {
 	rs := w.roles[project]
 	for i := range rs {
 		if rs[i].Name == role {
@@ -205,8 +257,9 @@ func TestTick_DeadRaisedAgainSameID(t *testing.T) {
 	}
 }
 
-// Reset tears the cove down and purges its state, keeping the declaration;
-// the next tick raises it fresh. It clears the name's backoff.
+// Reset tears the cove down, purges its state and ends the session, keeping
+// the declaration; the next tick starts a new session (a new id, so a new
+// inbox and fresh volumes).
 func TestReset_PurgesAndReRaises(t *testing.T) {
 	r, w, _, _ := kit()
 	ctx := context.Background()
@@ -219,8 +272,45 @@ func TestReset_PurgesAndReRaises(t *testing.T) {
 		t.Fatalf("torn=%v purged=%v; want both [%s]", w.torn, w.purged, botID)
 	}
 	r.Tick(ctx)
-	if len(w.raised) != 2 || w.raised[1].ActorID != botID {
-		t.Fatalf("want a fresh raise after reset; raised=%+v", w.raised)
+	if len(w.raised) != 2 || w.raised[1].ActorID == botID || !strings.HasPrefix(w.raised[1].ActorID, "ses_") {
+		t.Fatalf("want a new session raised after reset; raised=%+v", w.raised)
+	}
+	if id, _ := w.StandingSessionID("prj-acme", "reviewer", "alice-bot"); id != w.raised[1].ActorID {
+		t.Fatalf("map = %q, want the new session %q", id, w.raised[1].ActorID)
+	}
+	// The new session then survives restarts like any other.
+	delete(w.insts, w.raised[1].ActorID)
+	r.Tick(ctx)
+	if len(w.raised) != 3 || w.raised[2].ActorID != w.raised[1].ActorID {
+		t.Fatalf("a restart must keep the session; raised=%+v", w.raised)
+	}
+}
+
+// A declaration made after the map was seeded starts with a minted session id;
+// dismissing it drops its entry and sweeps its state.
+func TestNewDeclarationMintsSession(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declareNew("acme", "reviewer", bot)
+	r.Tick(ctx)
+	if len(w.raised) != 1 || !strings.HasPrefix(w.raised[0].ActorID, "ses_") {
+		t.Fatalf("raised = %+v", w.raised)
+	}
+	id := w.raised[0].ActorID
+	w.declareNew("acme", "reviewer") // dismissed
+	r.Tick(ctx)                      // tears down
+	r.Tick(ctx)                      // sweeps
+	if _, ok := w.StandingSessionID("prj-acme", "reviewer", "alice-bot"); ok {
+		t.Fatal("a dismissed declaration's entry must go")
+	}
+	if w.state[id] {
+		t.Fatalf("the dismissed session's state must be swept; purged %v", w.purged)
+	}
+	// Declaring the same name again starts a new session, never the old one.
+	w.declareNew("acme", "reviewer", bot)
+	r.Tick(ctx)
+	if last := w.raised[len(w.raised)-1].ActorID; last == id {
+		t.Fatal("a re-declared name must not resume the dismissed session")
 	}
 }
 
@@ -237,8 +327,9 @@ func TestReset_ClearsBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Tick(ctx)
-	if _, ok := w.insts[botID]; !ok {
-		t.Fatal("reset must clear the backoff; not raised")
+	id, _ := w.StandingSessionID("prj-acme", "reviewer", "alice-bot")
+	if _, ok := w.insts[id]; !ok || id == botID {
+		t.Fatal("reset must start a new session, raised at once; not raised")
 	}
 }
 
@@ -733,5 +824,36 @@ func TestUpgrade_QueueRefusals(t *testing.T) {
 	_ = r.ResetStanding(context.Background(), "acme", "reviewer", "alice-bot") // pending
 	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); !errors.Is(err, jam.ErrStandingResetPending) {
 		t.Fatalf("during a pending reset = %v", err)
+	}
+}
+
+// Dismissing a name whose teardown fails keeps its entry while its studio
+// lives, so re-declaring the name adopts that studio instead of raising a
+// second one beside it.
+func TestRedeclareWhileDismissedStudioLives(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+	w.failTear[botID] = true
+	w.declareNew("acme", "reviewer") // dismissed; its teardown fails
+	r.Tick(ctx)
+	w.declareNew("acme", "reviewer", bot) // re-declared before the teardown succeeded
+	r.Tick(ctx)
+	if len(w.raised) != 1 {
+		t.Fatalf("raised = %+v; the live studio must be adopted, not doubled", w.raised)
+	}
+}
+
+// Queuing an upgrade never starts a session: a declaration not yet raised
+// has nothing to upgrade (its first raise uses the current image).
+func TestQueueUpgradeNeverMints(t *testing.T) {
+	r, w, _, _ := kit()
+	w.declareNew("acme", "reviewer", bot)
+	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.sessions) != 0 || r.UpgradeState("acme", "reviewer", "alice-bot") != "" {
+		t.Fatalf("sessions %v, upgrade %q; want nothing minted or queued", w.sessions, r.UpgradeState("acme", "reviewer", "alice-bot"))
 	}
 }

@@ -534,13 +534,13 @@ func TestCoveClientRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(coves) != 1 || coves[0].ID != "w1" {
+	if len(coves) != 1 || coves[0].ID != res.ID || coves[0].Name != "w1" {
 		t.Fatalf("list = %+v", coves)
 	}
 	if err := c.ReportCoveStatus("w1", "blocked"); err != nil {
 		t.Fatal(err)
 	}
-	if inst, _ := store.GetInstance("w1"); inst.Activity != jam.ActivityBlocked {
+	if inst, _ := store.GetInstance(res.ID); inst.Activity != jam.ActivityBlocked {
 		t.Fatalf("activity = %s", inst.Activity)
 	}
 	if err := c.TeardownCove("w1"); err != nil {
@@ -590,7 +590,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestPersonalSession: %v", err)
 	}
-	if !strings.HasPrefix(res.ID, "personal-alice-") || res.Owner != "alice" {
+	if !strings.HasPrefix(res.ID, "ses_") || res.Owner != "alice" {
 		t.Fatalf("result = %+v", res)
 	}
 	list, err := c.ListPersonalSessions("acme")
@@ -703,6 +703,7 @@ func TestClientUpgradeStanding(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
+	jam.SeedStandingSession(store, jam.DefaultProject, "guest", "bot") // a session to upgrade (down)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")

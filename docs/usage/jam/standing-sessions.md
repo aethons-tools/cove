@@ -1,7 +1,7 @@
 ---
 summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
 read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after an at-jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-10-06
@@ -32,7 +32,7 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
 - **add** declares the name with its prompt. The prompt file is read on the host
   and sent in the request body. It never goes on argv. Both `--name` and
   `--prompt-file` are required.
-- **list** prints each declared name, the actor id its studio runs under, and that
+- **list** prints each declared name, its session id (`-` until first raised), and that
   studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs,
   or — with a warning on stderr — when Jam can't list studios).
 - **rm** removes the name. Jam then tears its studio down and deletes its state
@@ -48,22 +48,22 @@ back, so the role's scope, kit and other allocation settings are kept. Re-runnin
 `role add` for the role keeps its standing declarations
 ([roster.md](roster.md#roles)).
 
-Each name runs under the actor id
-`standing-<project>-<role>-<name>`, with characters outside `[A-Za-z0-9._-]` turned
-into `-` (as for personal session ids). A name is refused with **400** if it is
-already declared on the role, or if its actor id is already used by another
-declaration on any role or project (for example, `a b` and `a/b` both become
-`a-b`).
+Each declaration **is a session** (Jam's standing-session map): its first raise
+starts one with a minted `ses_…` id (`standing list` shows it); every restart or
+upgrade sets that same session up in a new studio — same id, conversation and
+workspace — and a [reset](#reset) ends it. Sessions from before session ids keep
+their `standing-<project>-<role>-<name>` id. A name is refused with **400** if
+it is already declared on the role or contains `/`.
 
 ## The admin routes
 
 | Route | Result |
 |---|---|
-| `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared, or its actor id is already in use. **404** for an unknown role. |
+| `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared or contains `/`. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included, each with its pending `upgrade` state (omitted when none). **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
-| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current. **409** a reset is pending or the actor id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
-| `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without the standing reconciler. |
+| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current or not started yet. **409** a reset is pending or the session id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
+| `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the session id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
 The role page in the admin UI has **Upgrade** and **Reset** buttons (with a
 confirm) beside **Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
@@ -76,7 +76,7 @@ name:
 
 - **Its studio is live**: nothing to do.
 - **It has no studio**: Jam asks the Allocator for a standing slot (see
-  [Admission](#admission)), then raises the studio under the name's actor id, with
+  [Admission](#admission)), then raises the studio as the name's session, with
   the declared prompt as-is. Who it is (the standing session `<name>`) and how to
   message people come from the Boilerplate of its [session context](session-context.md).
 - **Its studio died**: the supervisor detects it and tears it down (see
@@ -116,9 +116,9 @@ and the resume rules are in [standing-state.md](standing-state.md).
 
 ## Reset
 
-`standing reset` (or the UI's **Reset**) tears the name's studio down **and
-deletes its volumes**, keeping the declaration, then the reconciler raises a
-fresh session with the declared prompt. It runs inside the reconciler (one pass
+`standing reset` (or the UI's **Reset**) tears the name's studio down, **deletes
+its volumes and ends its session**, keeping the declaration; the reconciler then
+starts a **new session** (a new id, so a new inbox too) with the declared prompt. It runs inside the reconciler (one pass
 at a time) and clears the name's raise backoff. Use it when a session's
 conversation or workspace has gone bad. A name that is down has its volumes
 deleted all the same. If the teardown or the deletion fails (a volume still in
@@ -146,9 +146,9 @@ highlighted when stale). The request only records intent and answers at once:
    `waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,
    and [`holding`](turn-end.md#holding) (background tasks a teardown would kill)
    are busy: the upgrade waits, it is never refused. `--force` skips the wait.
-3. **Restart**: a plain teardown — **its volumes are kept** — then a raise under
-   the same actor id, which **resumes its conversation and workspace** like any
-   restart. A failed teardown stays pending (`teardown-failed: <reason>`) and
+3. **Restart**: a plain teardown — **its volumes are kept** — then a raise of the
+   same session, which **resumes its conversation and workspace** like any
+   restart (its Docker cache starts clean: it is the studio's). A failed teardown stays pending (`teardown-failed: <reason>`) and
    is retried every pass; a failed raise backs the name off as usual. A name
    with no studio is just raised, its backoff cleared.
 

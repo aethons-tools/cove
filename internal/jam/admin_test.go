@@ -743,7 +743,7 @@ func TestCoveRaiseListStatusTeardown(t *testing.T) {
 	// List — never leaks a token/hash.
 	var coves []CoveSummary
 	getJSON(t, h, "/admin/coves", &coves)
-	if len(coves) != 1 || coves[0].ID != "w1" || coves[0].Role != "guest" || coves[0].Unit != "AET-9" {
+	if len(coves) != 1 || coves[0].ID != res.ID || coves[0].Name != "w1" || coves[0].Role != "guest" || coves[0].Unit != "AET-9" {
 		t.Fatalf("list = %+v", coves)
 	}
 	// The runtime summary must never carry identity secrets.
@@ -755,7 +755,7 @@ func TestCoveRaiseListStatusTeardown(t *testing.T) {
 	if rc := doJSON(t, h, "POST", "/admin/coves/w1/status", CoveStatusBody{Activity: "waiting"}); rc.Code != http.StatusNoContent {
 		t.Fatalf("status code = %d body=%s", rc.Code, rc.Body.String())
 	}
-	got, _ := store.GetInstance("w1")
+	got, _ := store.GetInstance(res.ID) // the label addressed it
 	if got.Activity != ActivityWaiting {
 		t.Fatalf("activity = %s", got.Activity)
 	}
@@ -769,8 +769,18 @@ func TestCoveRaiseListStatusTeardown(t *testing.T) {
 	if rc := doReq(t, h, "DELETE", "/admin/coves/w1", nil); rc.Code != http.StatusNoContent {
 		t.Fatalf("teardown code = %d", rc.Code)
 	}
-	if _, ok := store.GetInstance("w1"); ok {
+	if _, ok := store.GetInstance(res.ID); ok {
 		t.Fatal("instance still present after teardown")
+	}
+	// The label is free again: a new raise is a new session.
+	rec = doJSON(t, h, "POST", "/admin/coves", CoveRaiseBody{ID: "w1", Role: "guest"})
+	var again CoveRaiseResult
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &again) != nil || again.ID == res.ID {
+		t.Fatalf("re-raise under the label = %d %+v; want a new session", rec.Code, again)
+	}
+	// ...and while it lives, the label is taken.
+	if rc := doJSON(t, h, "POST", "/admin/coves", CoveRaiseBody{ID: "w1", Role: "guest"}); rc.Code != http.StatusConflict {
+		t.Fatalf("duplicate live label = %d, want 409", rc.Code)
 	}
 }
 

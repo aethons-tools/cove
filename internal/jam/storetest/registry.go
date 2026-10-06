@@ -942,4 +942,37 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("connections = %+v, want only the startup one", conns)
 		}
 	})
+
+	t.Run("standing_sessions_map", func(t *testing.T) {
+		s := newStore(t)
+		acme := mustProject(t, s, "acme")
+		if _, ok := s.StandingSessionID(acme, "impl", "spider"); ok {
+			t.Fatal("no entry yet")
+		}
+		id := string(ident.New(ident.Session))
+		if err := s.PutStandingSession(acme, "impl", "spider", id); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := s.StandingSessionID(acme, "impl", "spider"); !ok || got != id {
+			t.Fatalf("StandingSessionID = %q, %v", got, ok)
+		}
+		if err := s.PutStandingSession(acme, "impl", "other", id); err == nil {
+			t.Fatal("one session id serves one declaration")
+		}
+		if err := s.PutStandingSession(ident.New(ident.Project), "impl", "x", "ses-x"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("unknown project: %v", err)
+		}
+		if l := s.ListStandingSessions(); len(l) != 1 || l[0].SessionID != id || l[0].Name != "spider" {
+			t.Fatalf("ListStandingSessions = %+v", l)
+		}
+		if err := s.RemoveStandingSession(acme, "impl", "spider"); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.StandingSessionID(acme, "impl", "spider"); ok {
+			t.Fatal("entry kept after remove")
+		}
+		if err := s.RemoveStandingSession(acme, "impl", "spider"); err != nil {
+			t.Fatalf("removing an absent entry is a no-op: %v", err)
+		}
+	})
 }
