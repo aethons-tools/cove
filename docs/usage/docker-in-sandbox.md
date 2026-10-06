@@ -1,10 +1,10 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-read_when: You are enabling Docker inside a sandbox (a kit that runs `docker build` / `docker compose up` / testcontainers) — flipping the flag, installing Sysbox in the colima VM, allow-listing a registry, or debugging a nested container that can't reach the network.
-owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations
+read_when: You are enabling Docker inside a sandbox (a kit that runs `docker build` / `docker compose up` / testcontainers) — flipping the flag, installing Sysbox in the colima VM (`at-jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-jam colima setup-docker`/`check-docker` commands that automate it
 prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#docker for the flag's schema
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-06
 ---
 
 # Docker inside the sandbox
@@ -51,6 +51,28 @@ installed in the colima VM, and Docker must have the `sysbox-runc` runtime
 `/etc/docker/daemon.json` and regenerates it on every start** — a runtime entry
 written by the Sysbox `.deb` postinstall (or by hand) is wiped on the next boot, so
 register the runtime through colima's own config instead.
+
+**The quick way — `at-jam colima setup-docker`.** On the colima host, run:
+
+```console
+$ at-jam colima setup-docker --dry-run   # show the change as a diff, write nothing
+$ at-jam colima setup-docker             # write it (backs up colima.yaml.bak first)
+$ colima restart                         # runs the hook — restarts every cove in the VM
+$ at-jam colima check-docker             # ok: sysbox-runc is registered
+```
+
+It edits the default profile's config (`$COLIMA_HOME/default/colima.yaml`, else
+`~/.colima/default/colima.yaml` — the profile behind the `colima` docker context
+at-cove uses) and writes exactly the two pieces below: one provision hook it owns
+(marked `# managed by at-jam colima setup-docker`; re-running replaces it, your
+other hooks are kept) and the `sysbox-runc` runtime entry. It is idempotent — a
+re-run with nothing to change leaves the file untouched. `--sysbox-version`
+(default and minimum `0.7.1`) picks the release. A run that *does* change the file
+keeps your comments but normalizes its formatting (indentation, blank lines). It
+never restarts colima for you. `check-docker` runs the same probe as at-cove's
+preflight and exits non-zero when the runtime is missing.
+
+To do it by hand instead (or to see what the command writes):
 
 **1. Install Sysbox** with a colima **provision hook** (a system-mode script re-run on
 every VM boot). Open the colima config and add a `provision:` entry:
@@ -108,7 +130,7 @@ the URL above already matches the 0.7.x naming.
 > The provision hook is idempotent on the binary, so it **won't upgrade** a VM that
 > already has an older `sysbox-runc` — upgrade it once by hand (`apt-get install` the
 > newer `.deb`); the hook value then governs from-scratch VMs. A one-off `colima ssh`
-> install (without the hook) is likewise lost on the next `colima stop/start`.
+> install (without the hook) is likewise lost on the next `colima stop/start`. `at-jam colima setup-docker` prints the one-line upgrade command after it writes the hook.
 
 ## Allow-listing registries
 
