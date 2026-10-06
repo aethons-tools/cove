@@ -324,6 +324,10 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		envKV = append(envKV, s)
 		return nil
 	})
+	fs.Func("allow-path", "path.Match pattern (after the route) the broker may forward; repeatable; none = any path", func(s string) error {
+		d.AllowPaths = append(d.AllowPaths, s)
+		return nil
+	})
 	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
 	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -369,6 +373,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			ob := ""
 			if len(dd.Env) > 0 {
 				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			}
+			if len(dd.AllowPaths) > 0 {
+				ob += fmt.Sprintf(", %d allow-paths", len(dd.AllowPaths))
 			}
 			if dd.Git {
 				ob += ", git"
@@ -1767,7 +1774,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
-	base := jam.NewSecretResolver(runner.OS{}, specs)
+	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
+	if names := cfg.gcpCredentials(); len(names) > 0 {
+		// exchange: gcp — the supplied Google credentials JSON stays on this host;
+		// destinations get short-lived access tokens, refreshed on demand.
+		gcp := jam.NewGCPTokenResolver(base, names)
+		if err := gcp.Load(); err != nil {
+			fmt.Fprintln(stderr, "at-jam: credentials:", err)
+			return 1
+		}
+		base = gcp
+		log.Info("GCP token exchange enabled", "creds", names) // names only
+	}
 	var creds jam.CredResolver = base
 	if cfg.Pool != nil {
 		poolStore, err := jam.NewFilePoolStore(cfg.Pool.Store)

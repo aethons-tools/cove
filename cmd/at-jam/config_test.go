@@ -735,6 +735,38 @@ credentials:
 	}
 }
 
+func TestValidateCredentials_ExchangeGCP(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  git-pat:
+  vertex-gcp: { exchange: gcp }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err != nil {
+		t.Fatalf("exchange: gcp should validate: %v", err)
+	}
+	if got := cfg.gcpCredentials(); len(got) != 1 || got[0] != "vertex-gcp" {
+		t.Fatalf("gcpCredentials = %v", got)
+	}
+	if got := cfg.demandedCredentials(); len(got) != 2 {
+		t.Fatalf("an exchange credential is still demanded: %v", got)
+	}
+	for name, yml := range map[string]string{
+		"unknown exchange": "credentials:\n  c: { exchange: aws }\n",
+		"pool credential":  "pool: { store: /tmp/p.json, cred-name: c }\ncredentials:\n  c: { exchange: gcp }\n",
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := cfg.validateCredentials(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestCredentialsFilePath_DefaultUnderXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	var cfg serveConfig

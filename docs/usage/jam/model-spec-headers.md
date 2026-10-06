@@ -4,7 +4,7 @@ read_when: You need a model-spec's principal to send an extra upstream header (e
 owns: model-spec principal header rules — their schema, validation, broker application and UI syntax
 prereqs: model-specs.md for the model-spec entity; header-specs.md for destination identity/apply headers
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Model-spec principal header rules
@@ -41,9 +41,11 @@ destination that matched the request. For `type: claude` with
 `/anthropic/` route without `env`, or a destination whose `env` sets it,
 whatever its name. A more specific sub-route (say `/anthropic/files/`) is its
 own destination and gets no rules unless it sets `ANTHROPIC_BASE_URL` itself.
-Other destinations a role reaches (git, Linear, …) never see the rules, and
-`vertex`/`bedrock` specs have no brokered provider destination, so their rules
-apply nowhere today.
+For `provider: vertex` it is any destination whose `env` sets
+`ANTHROPIC_VERTEX_BASE_URL` ([vertex.md](vertex.md)). A spec's rules never reach
+another provider's destination. Other destinations a role reaches (git,
+Linear, …) never see the rules. `bedrock` specs have no brokered provider
+destination, so their rules apply nowhere today.
 
 The broker resolves the actor's model-spec exactly as the connector does (one
 spec per actor; a conflict or a missing bound spec applies no rules and logs a

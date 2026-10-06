@@ -211,3 +211,28 @@ func TestDestinationHeaderSpecsInUI(t *testing.T) {
 		t.Fatalf("custom spec dropped: %+v", d)
 	}
 }
+
+// allow_paths round-trips through the form: stored one per line, shown on the
+// detail page and pre-filled in the edit form, and a bad pattern is a 400.
+func TestDestinationAllowPathsInUI(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	pats := "/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:rawPredict\r\n\r\n/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:streamRawPredict\n"
+	if rec := post(t, h, "/ui/destinations", url.Values{
+		"name": {"vertex"}, "route": {"/vertex/"}, "upstream": {"https://us-east5-aiplatform.googleapis.com"},
+		"identity-in": {"bearer"}, "apply": {"bearer"}, "allow-paths": {pats},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	d := store.ListDestinations()[0]
+	if len(d.AllowPaths) != 2 || !strings.HasSuffix(d.AllowPaths[1], ":streamRawPredict") {
+		t.Fatalf("stored allow_paths = %q", d.AllowPaths)
+	}
+	body := get(t, h, "/ui/destinations/vertex").Body.String()
+	if !strings.Contains(body, "*:rawPredict\n/v1/projects") || !strings.Contains(body, `name="allow-paths"`) {
+		t.Errorf("edit form not pre-filled with allow_paths:\n%s", body)
+	}
+	if rec := post(t, h, "/ui/destinations", url.Values{"name": {"n"}, "route": {"/n/"}, "upstream": {"https://n"}, "allow-paths": {"relative/path"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad allow-path = %d, want 400", rec.Code)
+	}
+}

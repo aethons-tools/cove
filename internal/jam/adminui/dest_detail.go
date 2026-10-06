@@ -44,7 +44,8 @@ type destConflict struct {
 
 // destForm is the destination in the edit form's input syntax.
 type destForm struct {
-	Env string // KEY=TEMPLATE lines, the declared env only
+	Env        string // KEY=TEMPLATE lines, the declared env only
+	AllowPaths string // one pattern per line
 }
 
 // destDetail is the destination page payload.
@@ -123,6 +124,7 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 		lines = append(lines, k+"="+d.Env[k])
 	}
 	out.Form.Env = strings.Join(lines, "\n")
+	out.Form.AllowPaths = strings.Join(d.AllowPaths, "\n")
 
 	// Flag (never block) roles whose connector assembly this destination breaks,
 	// mirroring jam.ConnectorFor over the role's own scope.
@@ -186,6 +188,18 @@ func parseEnv(s string) (map[string]string, error) {
 	return env, nil
 }
 
+// parseAllowPaths reads the allow-paths textarea: one pattern per line, blank
+// lines skipped. Empty means any path.
+func parseAllowPaths(s string) []string {
+	var out []string
+	for line := range strings.Lines(s) {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // destFromForm reads every destination field but the name from the form.
 func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 	env, err := parseEnv(r.FormValue("env"))
@@ -200,6 +214,7 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 		CredName:   strings.TrimSpace(r.FormValue("cred-name")),
 		Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
 		Env:        env,
+		AllowPaths: parseAllowPaths(r.FormValue("allow-paths")),
 		Git:        r.FormValue("git") != "",
 		Note:       strings.TrimSpace(r.FormValue("note")),
 	}, nil

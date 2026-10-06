@@ -4,7 +4,7 @@ read_when: You are authoring, listing, changing or deleting a model-spec, bindin
 owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Model-specs
@@ -142,7 +142,7 @@ rebuild the image or change the spec's version / version-constraint`). Then each
 |-------|------------|
 | `model.id` | `--model ID` |
 | `model.effort` | `--effort LEVEL` (Claude Code's flag; `low`…`max`) |
-| `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1`; `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
+| `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1` (routed through a brokered vertex destination — [vertex.md](vertex.md)); `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
 | `claude.provider-env` | set in the agent env — never over a key the connector sets (routing and identity stay Jam's) |
 | `claude.settings` + `claude.plugins` | written to `/dev/shm/cove-agent-settings.json` — the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces — passed as `--settings` (only when either is non-empty) |
 | `policy` | permission flags — see [model-spec-policy.md](model-spec-policy.md) |

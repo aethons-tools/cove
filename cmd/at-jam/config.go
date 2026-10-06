@@ -22,12 +22,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// credSpec is the YAML shape for one Jam credential: either a resolver
-// command or a literal value (dev only).
+// credSpec is the YAML shape for one serve-config credentials: entry. The
+// strategy (Command/Value) is the removed inline form, kept only so
+// validateCredentials can refuse it; Exchange is the one setting a demand may
+// carry — how Jam uses the supplied value (credExchangeGCP), never the value.
 type credSpec struct {
-	Command []string `yaml:"command"`
-	Value   string   `yaml:"value"`
+	Command  []string `yaml:"command"`
+	Value    string   `yaml:"value"`
+	Exchange string   `yaml:"exchange"`
 }
+
+// credExchangeGCP marks a credential whose supplied value is a Google
+// credentials JSON: the broker exchanges it for short-lived GCP access tokens
+// (jam.GCPTokenResolver), and that token is what a destination applies.
+const credExchangeGCP = "gcp"
 
 // devIdentityConfig names the roster human dev-identity impersonates.
 type devIdentityConfig struct {
@@ -687,15 +695,36 @@ const credentialsFileHint = "supply its strategy in the at-jam credentials file 
 
 // validateCredentials enforces the demand/supply split: a serve-config
 // credentials: entry names a credential only; an inline command:/value: (the old
-// form) is a hard error pointing at the credentials file.
+// form) is a hard error pointing at the credentials file. An exchange must be a
+// known one.
 func (c serveConfig) validateCredentials() error {
 	for _, name := range c.demandedCredentials() {
 		cs := c.Credentials[name]
 		if len(cs.Command) > 0 || cs.Value != "" {
 			return fmt.Errorf("credentials.%s: an inline command/value is no longer allowed — list the name only and %s", name, credentialsFileHint)
 		}
+		switch cs.Exchange {
+		case "":
+		case credExchangeGCP:
+			if c.Pool != nil && name == c.Pool.CredName {
+				return fmt.Errorf("credentials.%s: the pool's credential cannot also be exchange: %s", name, credExchangeGCP)
+			}
+		default:
+			return fmt.Errorf("credentials.%s: exchange %q is not supported (want %s)", name, cs.Exchange, credExchangeGCP)
+		}
 	}
 	return nil
+}
+
+// gcpCredentials is the sorted set of demanded credentials with exchange: gcp.
+func (c serveConfig) gcpCredentials() []string {
+	var out []string
+	for _, name := range c.demandedCredentials() {
+		if c.Credentials[name].Exchange == credExchangeGCP {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // demandedCredentials is the sorted set of credential names the serve config

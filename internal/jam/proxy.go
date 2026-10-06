@@ -10,7 +10,8 @@ import (
 )
 
 // Broker is the credential-injecting reverse proxy: authenticate the identity,
-// run the three-question decision, resolve Jam's real credential, rewrite the
+// run the three-question decision, check the path against the destination's
+// allow_paths, resolve Jam's real credential, rewrite the
 // request with it, and proxy to the upstream. Implements http.Handler.
 type Broker struct {
 	store Store
@@ -56,6 +57,13 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
+	upPath := strings.TrimPrefix(r.URL.Path, trimmed)
+	if !dest.PathAllowed(upPath) {
+		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", "path not in allow_paths", "path", r.URL.Path)
+		http.Error(w, "path not allowed on this destination", http.StatusForbidden)
+		return
+	}
 	var cred string
 	fromPool := false // the credential is a subscription-OAuth token from the pool
 	if dec.NeedCred {
@@ -82,14 +90,14 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rules := b.principalHeaderRules(actor, dest, in) // resolved and filtered once, outside the Director
-	trimmed := strings.TrimSuffix(dest.Route, "/")   // "/anthropic/" -> "/anthropic"
 	rp := &httputil.ReverseProxy{Director: func(out *http.Request) {
 		out.URL.Scheme = up.Scheme
 		out.URL.Host = up.Host
 		out.Host = up.Host
-		out.URL.Path = strings.TrimPrefix(r.URL.Path, trimmed) // strip the route prefix
-		out.Header.Del("Authorization")                        // never forward a caller's Authorization upstream
-		out.Header.Del(in.Header)                              // the identity is Jam's, never the upstream's, whatever header it arrived in
+		out.URL.Path = upPath           // the route prefix stripped
+		out.URL.RawPath = ""            // forward exactly the path allow_paths checked
+		out.Header.Del("Authorization") // never forward a caller's Authorization upstream
+		out.Header.Del(in.Header)       // the identity is Jam's, never the upstream's, whatever header it arrived in
 		if dec.NeedCred {
 			// The decision is the one source for how the credential is applied.
 			if spec, ok := outboundSpec(dec.Apply, dec.Dest.ApplySpec); ok {
