@@ -59,7 +59,7 @@ declaration on any role or project (for example, `a b` and `a/b` both become
 | `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared, or its actor id is already in use. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included. **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
-| `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **204**: studio torn down and state deleted, declaration kept. **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without a runtime supervisor. |
+| `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
 The role page in the admin UI has a **Reset** button (with a confirm) beside
 **Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
@@ -107,42 +107,53 @@ reclaimed, because it has no owner. That ladder is for
 A standing studio mounts two named Docker volumes, named after its container
 (`atcove-cove-<actor id>`) like an `at-cove create` sandbox's:
 `<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
-conversations, settings, logs) and `<container>-workspace` at
-`/home/agent/workspace`. The container runs with `--rm`, which removes only
-anonymous volumes, so these outlive it and re-attach when the name is raised
-again under the same actor id. The image's entrypoint seeds `/agent-data` only
-once (its `.seeded` guard) and refreshes what the image's `.refresh` lists; a
-fresh workspace volume comes up agent-owned (Docker copies the image's
-agent-owned directory into an empty volume).
+conversations, settings, logs) and `<container>-workspace` at the agent's working
+directory (`/home/agent/workspace` by default). Jam creates them before the
+container, labeled `harbor.cove.state=<actor id>`. The container runs with `--rm`,
+which removes only anonymous volumes, so these outlive it and re-attach when the
+name is raised again under the same actor id. The image's entrypoint seeds
+`/agent-data` only once (its `.seeded` guard) and refreshes what the image's
+`.refresh` lists; a fresh workspace volume comes up agent-owned (Docker copies
+the image's agent-owned directory into an empty volume). The agent's stream log
+there (`agent-stream.jsonl`) is rotated to `.1` at start once over 16 MiB.
 
-On its first episode, cove-master writes `/agent-data/.cove-conversation`. When a
-restarted standing session finds that marker, its first episode runs
+Once the agent first replies, cove-master writes `/agent-data/.cove-conversation`.
+When a restarted standing session finds that marker, its first episode runs
 `claude --continue` and, instead of the declared prompt (which the conversation
 already holds), gets a restart notice: it was restarted, its conversation and
 workspace are intact, `read` the intercom for what arrived meanwhile, then
-continue. Without the marker it starts fresh with the declared prompt.
+continue. If that resumed episode fails quickly without the agent replying (no
+conversation to continue), cove-master drops the marker and retries once, fresh,
+with the declared prompt. Without the marker it starts fresh.
 
-The state is kept by every teardown except dismissal and reset: a dead or Lost
-studio, a Jam restart or upgrade, an idle reap, or a hand `studio teardown`.
-Ephemeral and [personal](personal-sessions.md) sessions mount no volumes and
-always start fresh.
+No teardown deletes the state — a dead or Lost studio, a Jam restart or upgrade,
+an idle reap, a hand `studio teardown` all keep it. Only the reconciler does, by
+the declarations: every pass it removes the labeled volumes of any actor id no
+longer declared on a role (see [Dismissal](#dismissal)), and [Reset](#reset)
+removes a declared one's. Ephemeral and [personal](personal-sessions.md)
+sessions mount no volumes and always start fresh.
 
 ## Reset
 
 `standing reset` (or the UI's **Reset**) tears the name's studio down **and
-deletes its volumes**, keeping the declaration. The next pass (within about 30s)
-raises a fresh session with the declared prompt. Use it when a session's
-conversation or workspace has gone bad, or when it fails to come up
-resuming (for example, `--continue` finding no conversation). A name that is down has its
-volumes deleted all the same. If the deletion fails (a volume still in use),
-the reset errors and the studio is left in place; run it again.
+deletes its volumes**, keeping the declaration, then the reconciler raises a
+fresh session with the declared prompt. It runs inside the reconciler (one pass
+at a time) and clears the name's raise backoff. Use it when a session's
+conversation or workspace has gone bad. A name that is down has its volumes
+deleted all the same. If the teardown or the deletion fails (a volume still in
+use), the reset is **pending**: the name is held back from raising — it would
+re-attach the old state — and every pass retries until it completes. The pending
+mark is in memory: a Jam restart forgets it, and the name is raised on whatever
+state remains.
 
 ## Dismissal
 
 Once a name is no longer declared, or its role is removed, the next pass tears its
-studio down **and deletes its volumes**, so declaring the name again starts
-fresh. `standing rm` only changes the declaration, so the studio goes away within
-about one pass (30s). The teardown releases the reservation like any other.
+studio down and **deletes its volumes** once no container uses them (retrying
+every pass until it can), so declaring the name again starts fresh. This also
+covers a name dismissed while its studio was down. `standing rm` only changes
+the declaration, so the studio goes away within about one pass (30s). The
+teardown releases the reservation like any other.
 
 To stop a standing session for good, remove its name. Tearing its studio down by
 hand (`studio teardown`) only restarts it: the next pass raises it again,

@@ -594,13 +594,7 @@ func TestClientStandingRoundTrip(t *testing.T) {
 	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
 		t.Fatalf("role scope not kept: %+v", r.Scope)
 	}
-	if err := c.ResetStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
-		t.Fatalf("ResetStanding: %v", err)
-	}
-	if list, _ := c.ListStanding(jam.DefaultProject, "guest"); len(list) != 1 {
-		t.Fatalf("reset must keep the declaration; list = %+v", list)
-	}
-	if err := c.ResetStanding(jam.DefaultProject, "guest", "nobody"); !errors.Is(err, ErrNotFound) {
+	if _, err := c.ResetStanding(jam.DefaultProject, "guest", "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("reset of an undeclared name = %v, want ErrNotFound", err)
 	}
 	if err := c.RemoveStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
@@ -611,6 +605,38 @@ func TestClientStandingRoundTrip(t *testing.T) {
 	}
 	if _, err := c.ListStanding(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
+	}
+}
+
+// resetterFunc adapts a func to jam.StandingResetter.
+type resetterFunc func() error
+
+func (f resetterFunc) ResetStanding(context.Context, string, string, string) error { return f() }
+
+// TestClientResetStanding: a done reset is Pending=false, one the reconciler
+// is still finishing Pending=true with its reason; the declaration is kept.
+func TestClientResetStanding(t *testing.T) {
+	store := jam.NewMemStore()
+	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "bot", Prompt: "p"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	var resetErr error
+	sup.SetStandingResetter(resetterFunc(func() error { return resetErr }))
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	t.Cleanup(ts.Close)
+	c := New(ts.URL, "")
+
+	if res, err := c.ResetStanding(jam.DefaultProject, "guest", "bot"); err != nil || res.Pending {
+		t.Fatalf("ResetStanding = %+v, %v", res, err)
+	}
+	resetErr = errors.New("volume in use")
+	if res, err := c.ResetStanding(jam.DefaultProject, "guest", "bot"); err != nil || !res.Pending || !strings.Contains(res.Reason, "volume in use") {
+		t.Fatalf("pending ResetStanding = %+v, %v", res, err)
+	}
+	if list, _ := c.ListStanding(jam.DefaultProject, "guest"); len(list) != 1 {
+		t.Fatalf("reset must keep the declaration; list = %+v", list)
 	}
 }
 

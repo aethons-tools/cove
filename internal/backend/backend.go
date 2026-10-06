@@ -177,14 +177,19 @@ type Mount struct {
 	Target string // absolute mount path in the container
 }
 
-// VolumeRemover deletes named volumes. Kept its own interface so the
+// VolumeOps manages labeled named volumes. Kept its own interface so the
 // DispatchOps surface (at-cove work, whose containers mount no named state)
-// doesn't grow it; Jam's launcher requires it to purge a dismissed or reset
-// standing session's state.
-type VolumeRemover interface {
+// doesn't grow it; Jam's launcher requires it for standing sessions' state
+// volumes (COV-249), and Destroy removes an instance's volumes through it.
+type VolumeOps interface {
+	// CreateVolume creates the named volume with labels ("key=value" each);
+	// creating an existing volume is a no-op.
+	CreateVolume(name string, labels ...string) error
 	// RemoveVolumes deletes the named volumes; an absent volume is not an
 	// error, an in-use one is.
 	RemoveVolumes(names ...string) error
+	// ListVolumes returns the volumes carrying label key, name → its value.
+	ListVolumes(key string) (map[string]string, error)
 }
 
 // SessionEgress applies a session's per-class egress delta to a running

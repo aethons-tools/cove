@@ -263,10 +263,11 @@ type scriptedCall struct {
 }
 
 // scriptedSpawner scripts each call's stdout: call i's Wait writes lines[i]
-// (if present) and returns nil.
+// (if present) and returns errs[i] (nil if absent).
 type scriptedSpawner struct {
 	mu    sync.Mutex
 	lines [][]string // per call: stdout lines
+	errs  []error    // per call: Wait's result
 	dir   string
 	calls []scriptedCall
 }
@@ -282,6 +283,9 @@ func (f *scriptedSpawner) Spawn(_ context.Context, bin string, args []string, di
 			for _, l := range f.lines[i] {
 				io.WriteString(stdout, l+"\n")
 			}
+		}
+		if i < len(f.errs) {
+			return f.errs[i]
 		}
 		return nil
 	}}, nil

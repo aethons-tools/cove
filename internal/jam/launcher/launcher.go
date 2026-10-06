@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +36,7 @@ const Label = "harbor.cove"
 type Backend interface {
 	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
 	backend.KitImageBuilder // BuildKitImage, HasKitImage (studio-kit prepare)
-	backend.VolumeRemover   // RemoveVolumes (purge a standing session's state)
+	backend.VolumeOps       // standing sessions' labeled state volumes
 	GetStatus(container string) (backend.State, error)
 }
 
@@ -84,7 +85,7 @@ type Launcher struct {
 
 var (
 	_ jam.Launcher    = (*Launcher)(nil)
-	_ jam.StatePurger = (*Launcher)(nil)
+	_ jam.StateKeeper = (*Launcher)(nil)
 )
 
 func New(cfg Config) *Launcher {
@@ -138,7 +139,11 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
 	// names the exact built image by its build-input digest.
 	image, digest := l.imageTag(spec.Kit), ""
-	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, stateMounts(spec, name)...); err != nil {
+	mounts, err := l.stateMounts(spec, name)
+	if err != nil {
+		return "", fmt.Errorf("raise %s: %w", name, err)
+	}
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, mounts...); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.
@@ -185,46 +190,69 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	return name, nil
 }
 
-// agentDataPath and workspacePath are where a standing session's state
-// volumes mount: the agent's CLAUDE_CONFIG_DIR (conversations, settings) and
-// its workspace (the hardening layer's agent-owned dir, so Docker initializes
-// a fresh volume agent-owned).
-const (
-	agentDataPath = "/agent-data"
-	workspacePath = "/home/agent/workspace"
-)
+// StateLabel is the docker label on a standing session's state volumes; its
+// value is the owning actor id. The standing reconciler sweeps by it: a
+// labeled volume whose actor id is no longer declared is removed.
+const StateLabel = "harbor.cove.state"
 
-// stateMounts is what a raise mounts to persist the session's state across
-// restarts: a standing session gets its <container>-agent-data and
-// <container>-workspace named volumes (the at-cove create path's names), which
-// outlive the --rm container and re-attach when the same actor id is raised
-// again. Ephemeral and personal sessions get none: always fresh (COV-249).
-func stateMounts(spec jam.RaiseSpec, name string) []backend.Mount {
-	if spec.SessionKind != jam.SessionKindStanding {
-		return nil
-	}
-	return []backend.Mount{
-		{Volume: naming.AgentDataVolume(name), Target: agentDataPath},
-		{Volume: naming.WorkspaceVolume(name), Target: workspacePath},
-	}
+// agentDataPath is where a standing session's agent-data volume mounts: the
+// agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).
+const agentDataPath = "/agent-data"
+
+// stateVolumes names a cove's state volumes, given its container name: the
+// at-cove create path's <container>-agent-data and <container>-workspace. The
+// one source for the raise's mounts and the purge.
+func stateVolumes(name string) (agentData, workspace string) {
+	return naming.AgentDataVolume(name), naming.WorkspaceVolume(name)
 }
 
-// PurgeState deletes the named volumes inst's raises mount (stateMounts, plus
-// the docker:true -docker cache), so the next raise under the same actor id
-// starts fresh. Jam calls it only after Teardown removed the container — on a
-// standing session's dismissal or reset, never on a restart or a Lost cove.
-// An instance with no volumes (ephemeral, personal) is a no-op in effect: the
-// removal tolerates absent volumes.
-func (l *Launcher) PurgeState(ctx context.Context, inst jam.Instance) error {
-	name := inst.Location
-	if name == "" {
-		name = naming.CoveContainer(inst.ActorID)
+// stateMounts creates (labeled with the actor id) and returns what a standing
+// raise mounts to persist the session across restarts: its agent-data volume
+// at /agent-data and its workspace volume at the agent's WorkDir. Both outlive
+// the --rm container and re-attach when the same actor id is raised again.
+// Ephemeral and personal sessions get none: always fresh (COV-249).
+func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount, error) {
+	if spec.SessionKind != jam.SessionKindStanding {
+		return nil, nil
 	}
-	if err := l.cfg.Ops.RemoveVolumes(naming.AgentDataVolume(name), naming.WorkspaceVolume(name), naming.DockerVolume(name)); err != nil {
+	ad, ws := stateVolumes(name)
+	mounts := []backend.Mount{{Volume: ad, Target: agentDataPath}, {Volume: ws, Target: l.cfg.WorkDir}}
+	for _, m := range mounts {
+		// -v would auto-create the volume, but without the label the sweep keys on.
+		if err := l.cfg.Ops.CreateVolume(m.Volume, StateLabel+"="+spec.ActorID); err != nil {
+			return nil, fmt.Errorf("create state volume %s: %w", m.Volume, err)
+		}
+	}
+	return mounts, nil
+}
+
+// PurgeState deletes actorID's state volumes so its next raise starts fresh.
+// A volume still in use by a container errors (the caller retries later); an
+// absent one is fine.
+func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
+	name := naming.CoveContainer(actorID)
+	ad, ws := stateVolumes(name)
+	if err := l.cfg.Ops.RemoveVolumes(ad, ws); err != nil {
 		return fmt.Errorf("purge %s state: %w", name, err)
 	}
-	l.cfg.Log.Info("cove state purged", "id", inst.ActorID, "container", name)
+	l.cfg.Log.Info("cove state purged", "id", actorID, "container", name)
 	return nil
+}
+
+// StateOwners lists the actor ids owning StateLabel-ed volumes, sorted.
+func (l *Launcher) StateOwners(ctx context.Context) ([]string, error) {
+	vols, err := l.cfg.Ops.ListVolumes(StateLabel)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, id := range vols {
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
 }
 
 // applyRoleEgress pushes spec's role egress policy into the raised container. A
@@ -280,7 +308,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 		l.cfg.Log.Warn("teardown: unpause before capture failed (continuing)", "id", inst.ActorID, "error", err.Error())
 	}
 	// Post-mortem insurance: before the container is removed (a standing
-	// session's state volumes survive it; PurgeState alone deletes them), grab the tail of cove-master's log and record it, so a cove
+	// session's state volumes survive it; only PurgeState deletes them), grab the tail of cove-master's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.

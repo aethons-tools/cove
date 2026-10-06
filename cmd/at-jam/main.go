@@ -1305,9 +1305,14 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam standing reset: expected one standing session name")
 			return 2
 		}
-		if err := c.ResetStanding(proj, *role, pos[0]); err != nil {
+		res, err := c.ResetStanding(proj, *role, pos[0])
+		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
+		}
+		if res.Pending {
+			fmt.Fprintf(stdout, "reset of standing session %s pending: %s\n", pos[0], res.Reason)
+			break
 		}
 		fmt.Fprintf(stdout, "reset standing session %s (cove and state deleted; Jam raises it fresh)\n", pos[0])
 	default:
@@ -1847,7 +1852,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever Jam serves; with no declarations a tick does nothing.
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
-	stdg.SetActors(st) // clear a standing identity left over from an interrupted raise
+	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
+	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 

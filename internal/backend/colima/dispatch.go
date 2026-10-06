@@ -11,8 +11,8 @@ import (
 
 // Compile-time proof colima satisfies the dispatch surface.
 var (
-	_ backend.DispatchOps   = (*Colima)(nil)
-	_ backend.VolumeRemover = (*Colima)(nil)
+	_ backend.DispatchOps = (*Colima)(nil)
+	_ backend.VolumeOps   = (*Colima)(nil)
 )
 
 // RunEphemeral starts a fresh, labeled container with --rm and a published sshd,
@@ -75,6 +75,40 @@ func (c *Colima) RemoveVolumes(names ...string) error {
 		return err
 	}
 	return c.r.Run("docker", dargs(append([]string{"volume", "rm", "-f"}, names...)...)...)
+}
+
+// CreateVolume creates a labeled named volume (`docker volume create`;
+// idempotent for an existing one). A volume `-v` auto-creates carries no
+// label, so a caller that needs one creates it first.
+func (c *Colima) CreateVolume(name string, labels ...string) error {
+	if err := c.preflight(); err != nil {
+		return err
+	}
+	args := []string{"volume", "create"}
+	for _, l := range labels {
+		args = append(args, "--label", l)
+	}
+	return c.r.Run("docker", dargs(append(args, name)...)...)
+}
+
+// ListVolumes lists the volumes carrying label key, name → value.
+func (c *Colima) ListVolumes(key string) (map[string]string, error) {
+	if err := c.preflight(); err != nil {
+		return nil, err
+	}
+	out, err := c.r.Output("docker", dargs("volume", "ls", "--filter", "label="+key,
+		"--format", "{{.Name}}\t{{.Label \""+key+"\"}}")...) // a real tab: no shell, no escape processing
+	if err != nil {
+		return nil, err
+	}
+	vols := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		name, val, _ := strings.Cut(strings.TrimSpace(line), "\t")
+		if name != "" {
+			vols[name] = val
+		}
+	}
+	return vols, nil
 }
 
 // Pause freezes a running container (docker pause; cgroup freezer) so an idle

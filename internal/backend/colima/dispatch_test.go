@@ -159,6 +159,36 @@ func TestRemoveVolumes(t *testing.T) {
 	}
 }
 
+// TestCreateVolumeLabels: `docker volume create --label k=v <name>`, so a
+// state volume carries its owner from the moment it exists (COV-249).
+func TestCreateVolumeLabels(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if err := c.CreateVolume("v1", "harbor.cove.state=standing-a-b-c"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label harbor.cove.state=standing-a-b-c v1" {
+		t.Errorf("args = %q", got)
+	}
+}
+
+// TestListVolumes: lists the volumes carrying a label key, name → value.
+func TestListVolumes(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
+	c := New(f).(*Colima)
+	got, err := c.ListVolumes("harbor.cove.state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["v1"] != "id-1" || got["v2"] != "id-2" {
+		t.Fatalf("got %v", got)
+	}
+	args := strings.Join(dockerCall(f.Calls, "volume"), " ")
+	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
+		t.Errorf("args = %q", args)
+	}
+}
+
 // TestPauseUnpauseArgs: Pause/Unpause shell out to `docker pause`/`docker
 // unpause` on the named container, mirroring RemoveContainer's preflight +
 // dargs shape (COV-162).

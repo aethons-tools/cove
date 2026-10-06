@@ -48,8 +48,17 @@ const standingRestartPrompt = "Your session was restarted (for example, Jam was 
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
 	"then continue where you left off. Pass `to` when you `send`."
 
+// resumeFailWindow bounds the resume fallback: a resumed episode that exits
+// non-zero within it, the agent never having replied, is retried fresh.
+const resumeFailWindow = 2 * time.Minute
+
+// streamLogCap is the stream log size past which Run rotates it at start
+// (keeping one <path>.1), so a long-lived session's log can't grow unbounded
+// on its persisted /agent-data. A var so tests can shrink it.
+var streamLogCap int64 = 16 << 20
+
 // defaultConversationMarker is the file a standing session's cove-master
-// writes once its first episode has started: on the persisted /agent-data
+// writes once its agent is first seen replying (so a conversation exists): on the persisted /agent-data
 // volume, so a restarted session knows there is a conversation to continue. A
 // var so tests can point it away from the real /agent-data.
 var defaultConversationMarker = "/agent-data/.cove-conversation"
@@ -99,7 +108,8 @@ type Config struct {
 	// ConversationMarker is the standing-session conversation marker's path;
 	// empty defaults to defaultConversationMarker. Only a "standing" session
 	// reads or writes it: present at Run start, the first episode continues
-	// the prior conversation with standingRestartPrompt.
+	// the prior conversation with standingRestartPrompt (falling back once to a
+	// fresh start if that fails before the agent replies).
 	ConversationMarker string
 }
 
@@ -221,6 +231,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	if logPath == "" {
 		logPath = defaultStreamLogPath
 	}
+	rotateStreamLog(logPath, w.log)
 	if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err != nil {
 		w.log.Warn("agentrun: stream log unavailable; events only", "path", logPath, "err", err.Error())
 	} else {
@@ -231,10 +242,13 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	continued := false
 	// A standing session's state persists across restarts (COV-249): when a
 	// prior conversation exists, the first episode continues it.
+	// resuming: this episode continues from the marker (the fallback below
+	// applies to it, once).
 	persists := w.cfg.SessionKind == "standing"
+	resuming := false
 	if persists {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
-			prompt, continued = standingRestartPrompt, true
+			prompt, continued, resuming = standingRestartPrompt, true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
 		}
 	}
@@ -244,6 +258,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		t := turn
 		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
 		tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
+		if persists {
+			tr.onReply = w.markConversation // a reply means a conversation to continue exists
+		}
 		trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
 			if dropped > 0 {
 				w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
@@ -290,9 +307,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		}
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
-		if persists && turn == 1 && !continued {
-			w.markConversation()
-		}
+		started := time.Now()
 
 		waitErr := w.episode(ctx, h, proc, tr, first)
 		split.Flush()
@@ -313,6 +328,19 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			w.log.Info("agentrun: agent interrupted by context cancel", "err", ctx.Err())
 			return ctx.Err()
 		}
+		if resuming {
+			resuming = false
+			if waitErr != nil && !tr.Replied() && time.Since(started) < resumeFailWindow {
+				// --continue failed before the agent replied (e.g. no saved
+				// conversation): drop the marker and start fresh, once.
+				w.log.Warn("agentrun: resuming the prior conversation failed; starting fresh", "err", waitErr.Error())
+				if err := os.Remove(w.cfg.ConversationMarker); err != nil && !os.IsNotExist(err) {
+					w.log.Warn("agentrun: conversation marker not removed", "path", w.cfg.ConversationMarker, "err", err.Error())
+				}
+				prompt, continued = w.cfg.Prompt, false
+				continue
+			}
+		}
 
 		// Every turn ends the same way, whatever the session kind: wait for a
 		// Wake (a reply, an alarm, the idle timeout). Jam decides when the
@@ -329,10 +357,25 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 
 // markConversation records that this standing session has a conversation to
 // continue after a restart. Best-effort: without it a restart starts fresh.
+// Runs on the stdout goroutine (the idle tracker's onReply).
 func (w *Workload) markConversation() {
 	if err := os.WriteFile(w.cfg.ConversationMarker, nil, 0o600); err != nil {
 		w.log.Warn("agentrun: conversation marker not written; a restart will start fresh", "path", w.cfg.ConversationMarker, "err", err.Error())
 	}
+}
+
+// rotateStreamLog moves the stream log at path to <path>.1 (replacing any
+// older one) when it exceeds streamLogCap. Best-effort.
+func rotateStreamLog(path string, log *slog.Logger) {
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() <= streamLogCap {
+		return
+	}
+	if err := os.Rename(path, path+".1"); err != nil {
+		log.Warn("agentrun: stream log not rotated", "path", path, "err", err.Error())
+		return
+	}
+	log.Info("agentrun: stream log rotated", "path", path, "size", fi.Size())
 }
 
 // applySpec validates spec with the harness when it differs from the one in

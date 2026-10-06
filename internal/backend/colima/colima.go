@@ -382,8 +382,7 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 		if inst.Volumes.State == "" {
 			vols = []string{inst.Container + "-state", inst.Container + "-workspace"}
 		}
-		args := append([]string{"volume", "rm", "-f"}, nonEmpty(vols)...)
-		_ = c.r.Run("docker", dargs(args...)...)
+		_ = c.RemoveVolumes(nonEmpty(vols)...)
 	}
 	// The image is deliberately NOT removed: it is an `install` artifact (COV-38),
 	// not a per-create build. create/recreate/work consume it without rebuilding,

@@ -127,7 +127,7 @@ func TestClaudeParseEvent(t *testing.T) {
 		want       Event
 	}{
 		{"init", `{"type":"system","subtype":"init","session_id":"s"}`, Event{Kind: EventTurnStart}},
-		{"assistant", `{"type":"assistant","message":{}}`, Event{Kind: EventTurnStart}},
+		{"assistant", `{"type":"assistant","message":{}}`, Event{Kind: EventTurnStart, Reply: true}},
 		{"user", `{"type":"user","message":{}}`, Event{Kind: EventTurnStart}},
 		{"result idle", `{"type":"result","subtype":"success","queued_turn_count":0}`, Event{Kind: EventTurnEnd, QueuedEmpty: true}},
 		{"result no count", `{"type":"result","subtype":"success"}`, Event{Kind: EventTurnEnd, QueuedEmpty: true}},
@@ -145,7 +145,7 @@ func TestClaudeParseEvent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Kind != c.want.Kind || got.QueuedEmpty != c.want.QueuedEmpty || got.TaskID != c.want.TaskID || !slices.Equal(got.Tasks, c.want.Tasks) {
+			if got.Kind != c.want.Kind || got.QueuedEmpty != c.want.QueuedEmpty || got.TaskID != c.want.TaskID || got.Reply != c.want.Reply || !slices.Equal(got.Tasks, c.want.Tasks) {
 				t.Fatalf("got %+v want %+v", got, c.want)
 			}
 		})

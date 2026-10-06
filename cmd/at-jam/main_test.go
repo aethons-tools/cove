@@ -1146,8 +1146,23 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 	}
 }
 
-// `standing reset` deletes a declared name's cove and state, keeping the
-// declaration; an undeclared name exits 1 (404) (COV-249).
+// teardownResetter is a jam.StandingResetter that tears the session down via
+// the supervisor (state is the reconciler's concern), or fails with err.
+type teardownResetter struct {
+	sup *jam.Supervisor
+	err error
+}
+
+func (r *teardownResetter) ResetStanding(ctx context.Context, project, role, name string) error {
+	if r.err != nil {
+		return r.err
+	}
+	return r.sup.Teardown(ctx, jam.StandingActorID(project, role, name))
+}
+
+// `standing reset` resets a declared name through the standing reconciler,
+// keeping the declaration; a pending reset says so; an undeclared name exits 1
+// (404) (COV-249).
 func TestStandingResetCommand(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
@@ -1157,6 +1172,8 @@ func TestStandingResetCommand(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	rs := &teardownResetter{sup: sup}
+	sup.SetStandingResetter(rs)
 	id := jam.StandingActorID("acme", "reviewer", "alice-bot")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "reviewer", Name: "alice-bot", SessionKind: jam.SessionKindStanding}); err != nil {
 		t.Fatal(err)
@@ -1164,9 +1181,10 @@ func TestStandingResetCommand(t *testing.T) {
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	defer ts.Close()
 	getenv := func(string) string { return "" }
+	args := []string{"standing", "reset", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}
 
 	var out, errb bytes.Buffer
-	if code := run([]string{"standing", "reset", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 {
+	if code := run(args, getenv, &out, &errb); code != 0 {
 		t.Fatalf("standing reset: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "reset standing session alice-bot") {
@@ -1178,6 +1196,13 @@ func TestStandingResetCommand(t *testing.T) {
 	if r, _ := store.GetRole("acme", "reviewer"); len(r.Allocation.Standing) != 1 {
 		t.Fatalf("reset must keep the declaration: %+v", r.Allocation.Standing)
 	}
+
+	rs.err = errors.New("volume in use")
+	out.Reset()
+	if code := run(args, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "pending") || !strings.Contains(out.String(), "volume in use") {
+		t.Fatalf("pending reset: exit=%d out=%q", code, out.String())
+	}
+
 	out.Reset()
 	errb.Reset()
 	if code := run([]string{"standing", "reset", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "nobody"}, getenv, &out, &errb); code != 1 {

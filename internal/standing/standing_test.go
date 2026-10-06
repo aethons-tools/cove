@@ -18,12 +18,16 @@ type fakeWorld struct {
 	insts     map[string]jam.Instance
 	raised    []jam.RaiseSpec
 	torn      []string
-	purged    []string // TeardownPurge ids (also recorded in torn)
+	purged    []string        // successful PurgeState ids, in order
+	state     map[string]bool // actor ids with persisted state (a standing raise creates it)
+	failPurge map[string]bool // PurgeState of these ids fails
+	failTear  map[string]bool // Teardown of these ids fails
 	failRaise map[string]bool
 }
 
 func newWorld() *fakeWorld {
-	return &fakeWorld{roles: map[string][]jam.Role{}, insts: map[string]jam.Instance{}, failRaise: map[string]bool{}}
+	return &fakeWorld{roles: map[string][]jam.Role{}, insts: map[string]jam.Instance{}, failRaise: map[string]bool{},
+		state: map[string]bool{}, failPurge: map[string]bool{}, failTear: map[string]bool{}}
 }
 
 func (w *fakeWorld) ListProjects() []string {
@@ -52,18 +56,38 @@ func (w *fakeWorld) Raise(_ context.Context, spec jam.RaiseSpec) (jam.Instance, 
 	}
 	inst := jam.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive}
 	w.insts[spec.ActorID] = inst
+	if spec.SessionKind == jam.SessionKindStanding {
+		w.state[spec.ActorID] = true
+	}
 	return inst, "tok", "secret", nil
 }
 
 func (w *fakeWorld) Teardown(_ context.Context, id string) error {
+	if w.failTear[id] {
+		return errors.New("teardown failed")
+	}
 	w.torn = append(w.torn, id)
 	delete(w.insts, id)
 	return nil
 }
 
-func (w *fakeWorld) TeardownPurge(ctx context.Context, id string) error {
+// PurgeState refuses state still in use by a live cove, like docker.
+func (w *fakeWorld) PurgeState(_ context.Context, id string) error {
+	if _, live := w.insts[id]; live || w.failPurge[id] {
+		return errors.New("volume in use")
+	}
+	delete(w.state, id)
 	w.purged = append(w.purged, id)
-	return w.Teardown(ctx, id)
+	return nil
+}
+
+func (w *fakeWorld) StateOwners(context.Context) ([]string, error) {
+	var out []string
+	for id := range w.state {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // declare sets project/role's standing declarations.
@@ -154,23 +178,109 @@ func TestTick_DeadRaisedAgainSameID(t *testing.T) {
 	if len(w.raised) != 2 || w.raised[1].ActorID != botID || len(g.grants) != 2 {
 		t.Fatalf("want a second raise under %s; raised=%+v grants=%d", botID, w.raised, len(g.grants))
 	}
-	if len(w.purged) != 0 {
+	if len(w.purged) != 0 || !w.state[botID] {
 		t.Fatalf("a restart must keep the session's state; purged %v", w.purged)
 	}
 }
 
-// A reset (TeardownPurge of a still-declared name, by the admin route) is
-// followed by a fresh raise under the same id on the next tick.
-func TestTick_ResetRaisedAgain(t *testing.T) {
+// Reset tears the cove down and purges its state, keeping the declaration;
+// the next tick raises it fresh. It clears the name's backoff.
+func TestReset_PurgesAndReRaises(t *testing.T) {
 	r, w, _, _ := kit()
+	ctx := context.Background()
 	w.declare("acme", "reviewer", bot)
-	r.Tick(context.Background())
-	if err := w.TeardownPurge(context.Background(), botID); err != nil {
+	r.Tick(ctx)
+	if err := r.ResetStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
 		t.Fatal(err)
 	}
-	r.Tick(context.Background())
+	if !slices.Equal(w.torn, []string{botID}) || !slices.Equal(w.purged, []string{botID}) {
+		t.Fatalf("torn=%v purged=%v; want both [%s]", w.torn, w.purged, botID)
+	}
+	r.Tick(ctx)
 	if len(w.raised) != 2 || w.raised[1].ActorID != botID {
-		t.Fatalf("want a re-raise under %s after reset; raised=%+v", botID, w.raised)
+		t.Fatalf("want a fresh raise after reset; raised=%+v", w.raised)
+	}
+}
+
+// A reset clears the name's raise backoff: a reset name is raised on the next
+// tick even mid-backoff.
+func TestReset_ClearsBackoff(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	w.failRaise[botID] = true
+	r.Tick(ctx) // fails → backing off
+	w.failRaise[botID] = false
+	if err := r.ResetStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
+		t.Fatal(err)
+	}
+	r.Tick(ctx)
+	if _, ok := w.insts[botID]; !ok {
+		t.Fatal("reset must clear the backoff; not raised")
+	}
+}
+
+// A reset whose purge fails stays pending: the name is not raised (it would
+// re-attach the old state), and each tick retries until the purge succeeds;
+// then the name is raised in that same tick.
+func TestReset_PendingRetriedNotRaised(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+	w.failPurge[botID] = true
+	if err := r.ResetStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
+		t.Fatal("want a pending error")
+	}
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if len(w.raised) != 1 {
+		t.Fatalf("a pending reset must not be raised; raised=%+v", w.raised)
+	}
+	w.failPurge[botID] = false
+	r.Tick(ctx)
+	if !slices.Equal(w.purged, []string{botID}) || len(w.raised) != 2 {
+		t.Fatalf("purged=%v raised=%d; want the retry to purge then raise", w.purged, len(w.raised))
+	}
+}
+
+// The sweep purges the state of a name no longer declared even when it has no
+// cove (dismissed while down), and keeps retrying a purge that failed.
+func TestSweep_PurgesUndeclaredState(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	w.state["standing-old-gone-x"] = true // dismissed while down
+	w.state[botID] = true
+	w.failPurge["standing-old-gone-x"] = true
+	r.Tick(ctx)
+	if len(w.purged) != 0 {
+		t.Fatalf("purged %v; a failed purge and a declared name's state must stay", w.purged)
+	}
+	w.failPurge["standing-old-gone-x"] = false
+	r.Tick(ctx)
+	if !slices.Equal(w.purged, []string{"standing-old-gone-x"}) || !w.state[botID] {
+		t.Fatalf("purged=%v state=%v", w.purged, w.state)
+	}
+}
+
+// State in use by a cove that failed to tear down is skipped, then purged
+// once the teardown succeeds.
+func TestSweep_SkipsInUseState(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+	w.declare("acme", "reviewer")
+	w.failTear[botID] = true
+	r.Tick(ctx)
+	if len(w.purged) != 0 {
+		t.Fatalf("in-use state purged: %v", w.purged)
+	}
+	w.failTear[botID] = false
+	r.Tick(ctx)
+	if !slices.Equal(w.purged, []string{botID}) {
+		t.Fatalf("purged = %v", w.purged)
 	}
 }
 
@@ -255,7 +365,8 @@ func TestTick_DismissedTornDown(t *testing.T) {
 	if want := []string{botID, "standing-acme-triager-t"}; !slices.Equal(w.torn, want) {
 		t.Fatalf("torn = %v, want %v", w.torn, want)
 	}
-	// Dismissal deletes the session's persisted state (volumes).
+	// Dismissal (a name removed, a role gone) deletes the session's state in
+	// the same pass, once its cove is gone.
 	slices.Sort(w.purged)
 	if !slices.Equal(w.purged, w.torn) {
 		t.Fatalf("purged = %v, want every dismissed session %v", w.purged, w.torn)

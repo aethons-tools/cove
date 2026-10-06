@@ -109,12 +109,24 @@ type CurrentImage struct {
 	Tag    string // the launcher's image tag for Kit; "" when it cannot name images
 }
 
-// StatePurger is the optional launcher surface that deletes a session's
-// persisted state (a standing session's named volumes, COV-249). The
-// supervisor calls it only from TeardownPurge, after Launcher.Teardown removed
-// the container. A launcher without it persists no state: purging is a no-op.
-type StatePurger interface {
-	PurgeState(ctx context.Context, inst Instance) error
+// StateKeeper is the optional launcher surface over sessions' persisted state
+// (a standing session's labeled volumes, COV-249). Only the standing
+// reconciler drives it — sweeping the state of undeclared names and purging a
+// reset one — never a teardown, so a restart or a Lost cove keeps its state. A
+// launcher without it persists no state.
+type StateKeeper interface {
+	// PurgeState deletes actorID's state; state still in use errors.
+	PurgeState(ctx context.Context, actorID string) error
+	// StateOwners lists the actor ids that have persisted state.
+	StateOwners(ctx context.Context) ([]string, error)
+}
+
+// StandingResetter resets a declared standing session — tears its cove down
+// and deletes its state, the declaration kept — serialized with the standing
+// reconciler so it can't re-raise the session on the old state mid-reset.
+// An error means the reset is still pending: the reconciler finishes it.
+type StandingResetter interface {
+	ResetStanding(ctx context.Context, project, role, name string) error
 }
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
@@ -168,6 +180,9 @@ type Supervisor struct {
 	kitRefs   kitRefCache          // CurrentImage's resolved kit refs
 	imgLogMu  sync.Mutex           // guards imgLogged
 	imgLogged map[string]time.Time // project/role → last CurrentImage error logged
+	// resetter is the standing reconciler (SetStandingResetter); nil → a
+	// standing reset is unavailable (503).
+	resetter StandingResetter
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -1064,26 +1079,8 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 // retryable — a dangling identity is never left behind silently. Idempotent —
 // an absent instance, or an already-revoked identity, is a no-op.
 func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
-	return s.teardown(ctx, actorID, false)
-}
-
-// TeardownPurge is Teardown that also deletes the session's persisted state
-// (StatePurger) once its container is gone, so the next raise under actorID
-// starts fresh. It is for a standing session's dismissal and reset only: a
-// restart, a Lost cove, an idle reap or an admin teardown use Teardown and keep
-// the state. With no instance recorded it still purges (by actorID), so a reset
-// of a session that is down clears its state too. A failed purge fails the call
-// with the instance left in place, so it can be retried.
-func (s *Supervisor) TeardownPurge(ctx context.Context, actorID string) error {
-	return s.teardown(ctx, actorID, true)
-}
-
-func (s *Supervisor) teardown(ctx context.Context, actorID string, purge bool) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
-		if purge {
-			return s.purgeState(ctx, Instance{ActorID: actorID})
-		}
 		return nil
 	}
 	if s.sink != nil {
@@ -1099,11 +1096,6 @@ func (s *Supervisor) teardown(ctx context.Context, actorID string, purge bool) e
 	}
 	if err := s.launcher.Teardown(ctx, inst); err != nil {
 		return fmt.Errorf("teardown launcher: %w", err)
-	}
-	if purge {
-		if err := s.purgeState(ctx, inst); err != nil {
-			return err
-		}
 	}
 	if err := s.revokeActor(actorID); err != nil {
 		return fmt.Errorf("teardown revoke identity: %w", err)
@@ -1122,21 +1114,30 @@ func (s *Supervisor) teardown(ctx context.Context, actorID string, purge bool) e
 	return nil
 }
 
-// purgeState deletes inst's persisted state via the launcher's StatePurger;
-// a launcher without one has none to delete.
-func (s *Supervisor) purgeState(ctx context.Context, inst Instance) error {
-	p, ok := s.launcher.(StatePurger)
+// PurgeState deletes actorID's persisted state via the launcher's
+// StateKeeper; a launcher without one has none. State still in use (a live
+// container) errors: the caller retries later.
+func (s *Supervisor) PurgeState(ctx context.Context, actorID string) error {
+	k, ok := s.launcher.(StateKeeper)
 	if !ok {
 		return nil
 	}
-	if err := p.PurgeState(ctx, inst); err != nil {
-		return fmt.Errorf("teardown purge state: %w", err)
-	}
-	if s.log != nil {
-		s.log.Info("cove state purged", "id", inst.ActorID)
-	}
-	return nil
+	return k.PurgeState(ctx, actorID)
 }
+
+// StateOwners lists the actor ids with persisted state (none without a
+// StateKeeper launcher).
+func (s *Supervisor) StateOwners(ctx context.Context) ([]string, error) {
+	k, ok := s.launcher.(StateKeeper)
+	if !ok {
+		return nil, nil
+	}
+	return k.StateOwners(ctx)
+}
+
+// SetStandingResetter wires the standing reconciler in as the reset path for
+// the admin API and UI (jam.ResetStanding). Call before serving.
+func (s *Supervisor) SetStandingResetter(r StandingResetter) { s.resetter = r }
 
 // Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
 // Instance: renew our own unexpired lease; for an expired lease, Probe the cove —

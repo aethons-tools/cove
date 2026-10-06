@@ -2,6 +2,7 @@ package adminui_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -151,12 +152,29 @@ func TestEditStandingAddRemove(t *testing.T) {
 	}
 }
 
+// teardownResetter resets by tearing the session down via the supervisor, or
+// fails with err (a pending reset).
+type teardownResetter struct {
+	sup *jam.Supervisor
+	err error
+}
+
+func (r *teardownResetter) ResetStanding(ctx context.Context, project, role, name string) error {
+	if r.err != nil {
+		return r.err
+	}
+	return r.sup.Teardown(ctx, jam.StandingActorID(project, role, name))
+}
+
 // Reset (COV-249): the button shows with a supervisor (behind a confirm), the
-// POST tears the studio down keeping the declaration, an undeclared name is
-// 404; without a supervisor the button is absent and the POST is 503.
+// POST resets through the standing reconciler keeping the declaration, a
+// pending reset is reported (202), an undeclared name is 404; without a
+// supervisor the button is absent and the POST is 503.
 func TestEditStandingReset(t *testing.T) {
 	store := seedRichRole(t)
 	sup := newSup(t, store)
+	rs := &teardownResetter{sup: sup}
+	sup.SetStandingResetter(rs)
 	id := jam.StandingActorID("acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: jam.SessionKindStanding}); err != nil {
 		t.Fatal(err)
@@ -174,6 +192,10 @@ func TestEditStandingReset(t *testing.T) {
 	}
 	if r, _ := store.GetRole("acme", "review"); len(r.Allocation.Standing) != 1 {
 		t.Fatalf("reset must keep the declaration: %+v", r.Allocation.Standing)
+	}
+	rs.err = errors.New("volume in use")
+	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "pending") {
+		t.Errorf("pending reset = %d: %s", rec.Code, rec.Body.String())
 	}
 	if rec := post(t, h, "/ui/roles/acme/review/standing/nobody/reset", url.Values{}); rec.Code != http.StatusNotFound {
 		t.Errorf("reset of an undeclared name = %d, want 404", rec.Code)
