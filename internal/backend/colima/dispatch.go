@@ -10,13 +10,18 @@ import (
 )
 
 // Compile-time proof colima satisfies the dispatch surface.
-var _ backend.DispatchOps = (*Colima)(nil)
+var (
+	_ backend.DispatchOps   = (*Colima)(nil)
+	_ backend.VolumeRemover = (*Colima)(nil)
+)
 
 // RunEphemeral starts a fresh, labeled container with --rm and a published sshd,
 // so a force-remove (or --rm on stop) reclaims everything. A docker:true dispatch
 // additionally runs it under Sysbox with a -docker cache volume named after the
 // worker container (COV-117); docker:false is volume-less, exactly as before.
-func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
+// Each mount adds `-v <volume>:<target>`: named volumes survive the --rm
+// (which removes only anonymous ones), so a re-run re-attaches them (COV-249).
+func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
@@ -39,6 +44,9 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts [
 	runArgs = append(runArgs, dnsArgs(dns)...)
 	runArgs = append(runArgs, addHostArgs(addHosts)...)
 	runArgs = append(runArgs, dockerArgs(docker, naming.DockerVolume(name))...)
+	for _, m := range mounts {
+		runArgs = append(runArgs, "-v", m.Volume+":"+m.Target)
+	}
 	runArgs = append(runArgs,
 		"-p", "127.0.0.1::2222",
 		runImage(image, digest),
@@ -54,6 +62,19 @@ func (c *Colima) RemoveContainer(name string) error {
 		return err
 	}
 	return c.r.Run("docker", dargs("rm", "-f", name)...)
+}
+
+// RemoveVolumes deletes the named volumes (`docker volume rm -f`: an absent
+// volume is a no-op; one still in use by a container errors). No names is a
+// no-op that runs nothing.
+func (c *Colima) RemoveVolumes(names ...string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	if err := c.preflight(); err != nil {
+		return err
+	}
+	return c.r.Run("docker", dargs(append([]string{"volume", "rm", "-f"}, names...)...)...)
 }
 
 // Pause freezes a running container (docker pause; cgroup freezer) so an idle

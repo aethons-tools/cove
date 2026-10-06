@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"net/http"
 	"reflect"
 	"testing"
@@ -142,5 +143,56 @@ func TestAdminStandingRejectsCrossRoleIDCollision(t *testing.T) {
 	}
 	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a/standing", StandingSession{Name: "b-c", Prompt: "p"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("colliding id standing-acme-a-b-c = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// Reset tears a declared standing session's cove down and purges its state,
+// keeping the declaration; an unknown name or role is 404; a missing
+// supervisor is 503 (COV-249).
+func TestAdminStandingReset(t *testing.T) {
+	h, store, sup, f := newTestAdminWithSupervisorAndLauncher(t)
+	putStandingRole(t, store)
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+		t.Fatal(err)
+	}
+	id := StandingActorID("acme", "reviewer", "alice-bot")
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: id, Project: "acme", Role: "reviewer", Name: "alice-bot", SessionKind: SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := doReq(t, h, "POST", "/admin/roles/acme/reviewer/standing/alice-bot/reset", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("reset = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok := store.GetInstance(id); ok {
+		t.Fatal("reset must tear the cove down")
+	}
+	if !reflect.DeepEqual(f.purged, []string{id}) || !reflect.DeepEqual(f.tornDown, []string{id}) {
+		t.Fatalf("tornDown=%v purged=%v; want both [%s]", f.tornDown, f.purged, id)
+	}
+	if role, _ := store.GetRole("acme", "reviewer"); len(role.Allocation.Standing) != 1 {
+		t.Fatalf("reset must keep the declaration; standing = %+v", role.Allocation.Standing)
+	}
+
+	// A declared name that is down still has its state purged.
+	if rec := doReq(t, h, "POST", "/admin/roles/acme/reviewer/standing/alice-bot/reset", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("reset of a down session = %d", rec.Code)
+	}
+	if len(f.purged) != 2 {
+		t.Fatalf("purged = %v; want a second purge", f.purged)
+	}
+
+	for _, path := range []string{"/admin/roles/acme/reviewer/standing/nobody/reset", "/admin/roles/acme/ghost/standing/alice-bot/reset"} {
+		if rec := doReq(t, h, "POST", path, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want 404", path, rec.Code)
+		}
+	}
+
+	h2, store2 := newTestAdmin(t)
+	putStandingRole(t, store2)
+	if err := AddStanding(store2, "acme", "reviewer", StandingSession{Name: "alice-bot", Prompt: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doReq(t, h2, "POST", "/admin/roles/acme/reviewer/standing/alice-bot/reset", nil); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("no supervisor = %d, want 503", rec.Code)
 	}
 }

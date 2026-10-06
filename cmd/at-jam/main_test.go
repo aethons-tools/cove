@@ -1146,6 +1146,45 @@ func TestPersonalAllocator_MapsRequest(t *testing.T) {
 	}
 }
 
+// `standing reset` deletes a declared name's cove and state, keeping the
+// declaration; an undeclared name exits 1 (404) (COV-249).
+func TestStandingResetCommand(t *testing.T) {
+	store := jam.NewMemStore()
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour},
+		Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "p"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	id := jam.StandingActorID("acme", "reviewer", "alice-bot")
+	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "reviewer", Name: "alice-bot", SessionKind: jam.SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"standing", "reset", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("standing reset: exit=%d stderr=%s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "reset standing session alice-bot") {
+		t.Fatalf("output = %q", out.String())
+	}
+	if _, ok := store.GetInstance(id); ok {
+		t.Fatal("reset must tear the cove down")
+	}
+	if r, _ := store.GetRole("acme", "reviewer"); len(r.Allocation.Standing) != 1 {
+		t.Fatalf("reset must keep the declaration: %+v", r.Allocation.Standing)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"standing", "reset", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "nobody"}, getenv, &out, &errb); code != 1 {
+		t.Fatalf("reset of an undeclared name: exit=%d, want 1 (stderr=%s)", code, errb.String())
+	}
+}
+
 // `standing add|list|rm` declare, list and dismiss a role's standing sessions;
 // the prompt is read from a file host-side, and the role's other fields are kept.
 func TestStandingCommandsRoundTrip(t *testing.T) {
@@ -1206,6 +1245,8 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--name", "x"},
 		{"standing", "add", "--admin-url", ts.URL, "--name", "x", "--prompt-file", promptFile},
 		{"standing", "rm", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"standing", "reset", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"standing", "reset", "--admin-url", ts.URL, "x"},
 		{"standing", "list", "--admin-url", ts.URL},
 		{"standing"},
 	} {

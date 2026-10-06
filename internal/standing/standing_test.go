@@ -18,6 +18,7 @@ type fakeWorld struct {
 	insts     map[string]jam.Instance
 	raised    []jam.RaiseSpec
 	torn      []string
+	purged    []string // TeardownPurge ids (also recorded in torn)
 	failRaise map[string]bool
 }
 
@@ -58,6 +59,11 @@ func (w *fakeWorld) Teardown(_ context.Context, id string) error {
 	w.torn = append(w.torn, id)
 	delete(w.insts, id)
 	return nil
+}
+
+func (w *fakeWorld) TeardownPurge(ctx context.Context, id string) error {
+	w.purged = append(w.purged, id)
+	return w.Teardown(ctx, id)
 }
 
 // declare sets project/role's standing declarations.
@@ -148,6 +154,24 @@ func TestTick_DeadRaisedAgainSameID(t *testing.T) {
 	if len(w.raised) != 2 || w.raised[1].ActorID != botID || len(g.grants) != 2 {
 		t.Fatalf("want a second raise under %s; raised=%+v grants=%d", botID, w.raised, len(g.grants))
 	}
+	if len(w.purged) != 0 {
+		t.Fatalf("a restart must keep the session's state; purged %v", w.purged)
+	}
+}
+
+// A reset (TeardownPurge of a still-declared name, by the admin route) is
+// followed by a fresh raise under the same id on the next tick.
+func TestTick_ResetRaisedAgain(t *testing.T) {
+	r, w, _, _ := kit()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(context.Background())
+	if err := w.TeardownPurge(context.Background(), botID); err != nil {
+		t.Fatal(err)
+	}
+	r.Tick(context.Background())
+	if len(w.raised) != 2 || w.raised[1].ActorID != botID {
+		t.Fatalf("want a re-raise under %s after reset; raised=%+v", botID, w.raised)
+	}
 }
 
 // A raise failure releases the grant and backs off: no retry before the
@@ -230,6 +254,11 @@ func TestTick_DismissedTornDown(t *testing.T) {
 	slices.Sort(w.torn)
 	if want := []string{botID, "standing-acme-triager-t"}; !slices.Equal(w.torn, want) {
 		t.Fatalf("torn = %v, want %v", w.torn, want)
+	}
+	// Dismissal deletes the session's persisted state (volumes).
+	slices.Sort(w.purged)
+	if !slices.Equal(w.purged, w.torn) {
+		t.Fatalf("purged = %v, want every dismissed session %v", w.purged, w.torn)
 	}
 	if _, ok := w.insts["standing-acme-reviewer-bob-bot"]; !ok {
 		t.Fatal("a still-declared name was torn down")

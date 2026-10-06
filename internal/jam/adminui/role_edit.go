@@ -92,7 +92,7 @@ func badRequest(msg string) error { return &jam.WriteError{Status: http.StatusBa
 // registerRoleEdits mounts the role page's per-section writes. Each goes
 // through jam's role read-modify-write functions (one shared lock with the JSON
 // API) and answers with the re-rendered role body.
-func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	// edit wraps one section write: guard, parse the form, run apply, log, and
 	// render the role body (or the refusal, with its status).
 	edit := func(what string, apply func(r *http.Request, project, name string) error) http.HandlerFunc {
@@ -201,5 +201,10 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 	}))
 	mux.HandleFunc("DELETE /ui/roles/{project}/{name}/standing/{session}", edit("standing dismissed", func(r *http.Request, project, name string) error {
 		return jam.RemoveStanding(store, project, name, r.PathValue("session"))
+	}))
+	// Reset: the session's studio and persisted state are deleted, the
+	// declaration kept — Jam raises it fresh on its next standing pass.
+	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/reset", edit("standing reset", func(r *http.Request, project, name string) error {
+		return jam.ResetStanding(r.Context(), store, sup, project, name, r.PathValue("session"))
 	}))
 }

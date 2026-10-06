@@ -1,7 +1,7 @@
 ---
-summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again if it dies, and tears it down when the name is removed. Covers declaring, the `standing add|list|rm` verbs and admin routes, keep-alive with backoff, dismissal, admission, and messaging.
-read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing one, or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset` verbs and admin routes, keep-alive with backoff, persisted state, reset, dismissal, admission, and messaging.
+read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing or resetting one, or you need to know what survives its restart, or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
+owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), a standing session's persisted state (its volumes, conversation resume) and reset, standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-10-06
@@ -12,15 +12,17 @@ updated: 2026-10-06
 A **standing session** is a named, long-lived agent that an operator declares on
 a role, such as `reviewer/alice-bot`. The declaration is the desired state.
 Jam keeps **exactly one studio running per declared name**. If the studio dies, Jam
-raises it again under the same name. When the name is removed, Jam tears the
-studio down. Its admission is capped by the allocation ledger.
+raises it again under the same name, and it **resumes**: its conversation and
+workspace persist across restarts ([State across restarts](#state-across-restarts)).
+When the name is removed, Jam tears the studio down and deletes that state. Its admission is capped by the allocation ledger.
 
 ## Declaring one
 
 ```
 at-jam standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
 at-jam standing list --project acme --role reviewer
-at-jam standing rm   --project acme --role reviewer alice-bot
+at-jam standing rm    --project acme --role reviewer alice-bot
+at-jam standing reset --project acme --role reviewer alice-bot
 ```
 
 Like every admin verb they take `--app`/`--admin-url`/`--token`
@@ -32,8 +34,10 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
 - **list** prints each declared name, the actor id its studio runs under, and that
   studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs,
   or — with a warning on stderr — when Jam can't list studios).
-- **rm** removes the name. Jam then tears its studio down (see
-  [Dismissal](#dismissal)).
+- **rm** removes the name. Jam then tears its studio down and deletes its state
+  (see [Dismissal](#dismissal)).
+- **reset** keeps the name but deletes its studio and state, so Jam raises it
+  fresh (see [Reset](#reset)).
 
 The declarations live on the role (`allocation.standing`, a list of
 `{name, prompt}`). Each write reads the role, changes only that list, and writes it
@@ -55,6 +59,10 @@ declaration on any role or project (for example, `a b` and `a/b` both become
 | `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared, or its actor id is already in use. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included. **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
+| `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **204**: studio torn down and state deleted, declaration kept. **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without a runtime supervisor. |
+
+The role page in the admin UI has a **Reset** button (with a confirm) beside
+**Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
 
 ## What "kept alive" means
 
@@ -69,8 +77,8 @@ name:
   message people come from the Boilerplate of its [session context](session-context.md).
 - **Its studio died**: the supervisor detects it and tears it down (see
   [coves.md](coves.md#the-model)). That frees its reservation, and the next pass
-  raises the name again. This is a **fresh session** under the same name. The
-  agent's context from before the death is not carried over.
+  raises the name again. The new studio **resumes** the old one's conversation
+  and workspace ([State across restarts](#state-across-restarts)).
 
 **Backoff.** If a raise fails, Jam releases the slot and waits before trying
 that name again: 30s, then doubling (1m, 2m, …) up to 30m. The backoff is per name,
@@ -94,14 +102,51 @@ it is still paused and woken on a reply. It gets **no idle nags** and is never
 reclaimed, because it has no owner. That ladder is for
 [personal sessions](personal-sessions.md#the-idle-ladder) only.
 
+## State across restarts
+
+A standing studio mounts two named Docker volumes, named after its container
+(`atcove-cove-<actor id>`) like an `at-cove create` sandbox's:
+`<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
+conversations, settings, logs) and `<container>-workspace` at
+`/home/agent/workspace`. The container runs with `--rm`, which removes only
+anonymous volumes, so these outlive it and re-attach when the name is raised
+again under the same actor id. The image's entrypoint seeds `/agent-data` only
+once (its `.seeded` guard) and refreshes what the image's `.refresh` lists; a
+fresh workspace volume comes up agent-owned (Docker copies the image's
+agent-owned directory into an empty volume).
+
+On its first episode, cove-master writes `/agent-data/.cove-conversation`. When a
+restarted standing session finds that marker, its first episode runs
+`claude --continue` and, instead of the declared prompt (which the conversation
+already holds), gets a restart notice: it was restarted, its conversation and
+workspace are intact, `read` the intercom for what arrived meanwhile, then
+continue. Without the marker it starts fresh with the declared prompt.
+
+The state is kept by every teardown except dismissal and reset: a dead or Lost
+studio, a Jam restart or upgrade, an idle reap, or a hand `studio teardown`.
+Ephemeral and [personal](personal-sessions.md) sessions mount no volumes and
+always start fresh.
+
+## Reset
+
+`standing reset` (or the UI's **Reset**) tears the name's studio down **and
+deletes its volumes**, keeping the declaration. The next pass (within about 30s)
+raises a fresh session with the declared prompt. Use it when a session's
+conversation or workspace has gone bad, or when it fails to come up
+resuming (for example, `--continue` finding no conversation). A name that is down has its
+volumes deleted all the same. If the deletion fails (a volume still in use),
+the reset errors and the studio is left in place; run it again.
+
 ## Dismissal
 
 Once a name is no longer declared, or its role is removed, the next pass tears its
-studio down. `standing rm` only changes the declaration, so the studio goes away within
+studio down **and deletes its volumes**, so declaring the name again starts
+fresh. `standing rm` only changes the declaration, so the studio goes away within
 about one pass (30s). The teardown releases the reservation like any other.
 
 To stop a standing session for good, remove its name. Tearing its studio down by
-hand (`studio teardown`) only restarts it: the next pass raises it again.
+hand (`studio teardown`) only restarts it: the next pass raises it again,
+resuming its state.
 
 ## Admission
 

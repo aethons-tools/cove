@@ -41,6 +41,19 @@ const residentResumePrompt = "Your owner may have replied — use the intercom `
 // no default recipient.
 const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. Pass `to` when you `send`."
 
+// standingRestartPrompt is the first message of a standing session's first
+// episode when it resumes a prior conversation (its /agent-data survived a
+// restart): it replaces the raise prompt, which the conversation already holds.
+const standingRestartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
+	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
+	"then continue where you left off. Pass `to` when you `send`."
+
+// defaultConversationMarker is the file a standing session's cove-master
+// writes once its first episode has started: on the persisted /agent-data
+// volume, so a restarted session knows there is a conversation to continue. A
+// var so tests can point it away from the real /agent-data.
+var defaultConversationMarker = "/agent-data/.cove-conversation"
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent (and its gates)
@@ -83,6 +96,11 @@ type Config struct {
 	SessionKind string
 	// ContextFetchTimeout bounds each context refresh fetch; 0 = 3 s.
 	ContextFetchTimeout time.Duration
+	// ConversationMarker is the standing-session conversation marker's path;
+	// empty defaults to defaultConversationMarker. Only a "standing" session
+	// reads or writes it: present at Run start, the first episode continues
+	// the prior conversation with standingRestartPrompt.
+	ConversationMarker string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -130,6 +148,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	}
 	if cfg.ContextDir == "" {
 		cfg.ContextDir = defaultContextDir
+	}
+	if cfg.ConversationMarker == "" {
+		cfg.ConversationMarker = defaultConversationMarker
 	}
 	sp := cfg.Spawner
 	if sp == nil {
@@ -208,6 +229,15 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	}
 	prompt := w.cfg.Prompt
 	continued := false
+	// A standing session's state persists across restarts (COV-249): when a
+	// prior conversation exists, the first episode continues it.
+	persists := w.cfg.SessionKind == "standing"
+	if persists {
+		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
+			prompt, continued = standingRestartPrompt, true
+			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
+		}
+	}
 	var turn uint32
 	for {
 		turn++
@@ -260,6 +290,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		}
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
+		if persists && turn == 1 && !continued {
+			w.markConversation()
+		}
 
 		waitErr := w.episode(ctx, h, proc, tr, first)
 		split.Flush()
@@ -291,6 +324,14 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			return ctx.Err()
 		}
 		prompt, continued = renderWake(w.resumeText(), rs), true
+	}
+}
+
+// markConversation records that this standing session has a conversation to
+// continue after a restart. Best-effort: without it a restart starts fresh.
+func (w *Workload) markConversation() {
+	if err := os.WriteFile(w.cfg.ConversationMarker, nil, 0o600); err != nil {
+		w.log.Warn("agentrun: conversation marker not written; a restart will start fresh", "path", w.cfg.ConversationMarker, "err", err.Error())
 	}
 }
 

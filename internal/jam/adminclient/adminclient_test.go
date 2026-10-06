@@ -594,6 +594,15 @@ func TestClientStandingRoundTrip(t *testing.T) {
 	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
 		t.Fatalf("role scope not kept: %+v", r.Scope)
 	}
+	if err := c.ResetStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
+		t.Fatalf("ResetStanding: %v", err)
+	}
+	if list, _ := c.ListStanding(jam.DefaultProject, "guest"); len(list) != 1 {
+		t.Fatalf("reset must keep the declaration; list = %+v", list)
+	}
+	if err := c.ResetStanding(jam.DefaultProject, "guest", "nobody"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reset of an undeclared name = %v, want ErrNotFound", err)
+	}
 	if err := c.RemoveStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
 		t.Fatalf("RemoveStanding: %v", err)
 	}

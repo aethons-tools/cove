@@ -727,7 +727,7 @@ func TestRunRefreshesContextPerEpisode(t *testing.T) {
 	defer cancel()
 	one, two := compileRole("ONE"), compileRole("TWO")
 	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f,
-		Resident: true, SessionKind: "standing", Context: &one, ContextDir: cdir,
+		Resident: true, SessionKind: "standing", ConversationMarker: filepath.Join(dir, ".cove-conversation"), Context: &one, ContextDir: cdir,
 		ContextSource: &seqContext{bundles: []sessionctx.Bundle{one, two}}}, nil)
 	h := &recordHandle{}
 	done := runAsync(ctx, w, h)

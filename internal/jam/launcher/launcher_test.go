@@ -32,17 +32,20 @@ func readyInv() *fakeInv {
 }
 
 type fakeOps struct {
-	ran        bool
-	runName    string
-	runImage   string
-	runDigest  string
-	runAddHost []string
-	removed    string
-	paused     string
-	unpaused   string
-	status     backend.State
-	statusErr  error
-	runErr     error
+	ran         bool
+	runName     string
+	runImage    string
+	runDigest   string
+	runAddHost  []string
+	runMounts   []backend.Mount
+	removed     string
+	volsRemoved []string // RemoveVolumes names, across calls
+	volsErr     error
+	paused      string
+	unpaused    string
+	status      backend.State
+	statusErr   error
+	runErr      error
 
 	// KitImageBuilder scripting/recording.
 	builds       int
@@ -59,8 +62,8 @@ type fakeOps struct {
 	resolveTarErr   error  // when set, ResolveKitBaseTar fails (gate-fail simulation)
 }
 
-func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (backend.Instance, error) {
-	f.ran, f.runName, f.runImage, f.runDigest, f.runAddHost = true, name, image, digest, addHosts
+func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
+	f.ran, f.runName, f.runImage, f.runDigest, f.runAddHost, f.runMounts = true, name, image, digest, addHosts, mounts
 	if f.runErr != nil {
 		return backend.Instance{}, f.runErr
 	}
@@ -97,8 +100,12 @@ func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil
 }
 func (f *fakeOps) RemoveContainer(name string) error { f.removed = name; return nil }
-func (f *fakeOps) Pause(name string) error           { f.paused = name; return nil }
-func (f *fakeOps) Unpause(name string) error         { f.unpaused = name; return nil }
+func (f *fakeOps) RemoveVolumes(names ...string) error {
+	f.volsRemoved = append(f.volsRemoved, names...)
+	return f.volsErr
+}
+func (f *fakeOps) Pause(name string) error   { f.paused = name; return nil }
+func (f *fakeOps) Unpause(name string) error { f.unpaused = name; return nil }
 func (f *fakeOps) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {
 	return 0, nil
 }
@@ -266,6 +273,77 @@ func TestTeardownRemoves(t *testing.T) {
 	}
 	if ops.removed != "atcove-cove-w1" {
 		t.Fatalf("removed = %q", ops.removed)
+	}
+}
+
+// TestRaiseMountsStateOnlyForStanding: a standing raise mounts the
+// <container>-agent-data and <container>-workspace named volumes (so a re-raise
+// under the same actor id re-attaches them); ephemeral and personal raises
+// mount nothing (COV-249).
+func TestRaiseMountsStateOnlyForStanding(t *testing.T) {
+	for kind, want := range map[string][]backend.Mount{
+		"":                      nil,
+		"ephemeral":             nil,
+		jam.SessionKindPersonal: nil,
+		jam.SessionKindStanding: {
+			{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
+			{Volume: "atcove-cove-s1-workspace", Target: "/home/agent/workspace"},
+		},
+	} {
+		ops := &fakeOps{}
+		if _, err := newLauncher(ops).Raise(context.Background(), jam.RaiseSpec{ActorID: "s1", Kit: testKitRef, Prompt: "go", SessionKind: kind}, jam.LaunchCreds{}); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(ops.runMounts, want) {
+			t.Errorf("kind %q: mounts = %v, want %v", kind, ops.runMounts, want)
+		}
+	}
+}
+
+// TestRaiseFailureKeepsStateVolumes: a failed standing raise removes its
+// container but never its state volumes.
+func TestRaiseFailureKeepsStateVolumes(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: failingRunner{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(), sleep: func(time.Duration) {},
+	})
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "s1", Kit: testKitRef, SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{}); err == nil {
+		t.Fatal("want a launch failure")
+	}
+	if ops.removed != "atcove-cove-s1" || len(ops.volsRemoved) != 0 {
+		t.Fatalf("removed=%q volsRemoved=%v; want the container only", ops.removed, ops.volsRemoved)
+	}
+}
+
+// TestTeardownKeepsVolumes: Teardown removes the container only.
+func TestTeardownKeepsVolumes(t *testing.T) {
+	ops := &fakeOps{}
+	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ops.volsRemoved) != 0 {
+		t.Fatalf("Teardown removed volumes %v", ops.volsRemoved)
+	}
+}
+
+// TestPurgeStateRemovesVolumes: PurgeState removes the session's state
+// volumes (and the docker:true cache), by Location or, absent one, by the
+// actor id's container name.
+func TestPurgeStateRemovesVolumes(t *testing.T) {
+	for _, inst := range []jam.Instance{{ActorID: "s1", Location: "atcove-cove-s1"}, {ActorID: "s1"}} {
+		ops := &fakeOps{}
+		if err := newLauncher(ops).PurgeState(context.Background(), inst); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"atcove-cove-s1-agent-data", "atcove-cove-s1-workspace", "atcove-cove-s1-docker"}
+		if !slices.Equal(ops.volsRemoved, want) {
+			t.Fatalf("inst %+v: volsRemoved = %v, want %v", inst, ops.volsRemoved, want)
+		}
+	}
+	ops := &fakeOps{volsErr: errors.New("in use")}
+	if err := newLauncher(ops).PurgeState(context.Background(), jam.Instance{ActorID: "s1"}); err == nil {
+		t.Fatal("want the removal error")
 	}
 }
 

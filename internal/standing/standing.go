@@ -1,9 +1,10 @@
 // Package standing is Jam's standing-session reconciler: a resident loop that
 // keeps exactly one live cove per standing session declared on a role
 // (RoleAllocation.Standing). A declared name with no cove is granted and raised;
-// one whose cove died is raised again under the same actor id (a fresh session:
-// no context carries over); a cove whose name is no longer declared, or whose
-// role is gone, is torn down. A name whose raise keeps failing backs off
+// one whose cove died is raised again under the same actor id, and resumes:
+// its /agent-data and workspace volumes survive and cove-master continues the
+// prior conversation (COV-249); a cove whose name is no longer declared, or
+// whose role is gone, is dismissed — torn down with its state deleted. A name whose raise keeps failing backs off
 // exponentially. It lives outside internal/jam core (Jam must not import
 // it) and is wired from cmd/at-jam whenever Jam serves.
 package standing
@@ -36,10 +37,11 @@ type Granter interface {
 }
 
 // Supervisor raises and tears down coves (satisfied by *jam.Supervisor).
-// Teardown records the reservation release itself.
+// TeardownPurge (a dismissal) also deletes the session's persisted state, and
+// records the reservation release itself.
 type Supervisor interface {
 	Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error)
-	Teardown(ctx context.Context, actorID string) error
+	TeardownPurge(ctx context.Context, actorID string) error
 }
 
 // Actors is the actor store, used to clear a leftover identity. A crash between
@@ -144,7 +146,9 @@ func (r *Reconciler) Tick(ctx context.Context) {
 		if declared[declKey{inst.Project, inst.Role, inst.Name}] {
 			continue
 		}
-		if err := r.sup.Teardown(ctx, inst.ActorID); err != nil {
+		// A dismissal is final: delete the session's state too, so declaring
+		// the name again starts fresh.
+		if err := r.sup.TeardownPurge(ctx, inst.ActorID); err != nil {
 			r.log.Warn("standing: teardown of dismissed session failed", "id", inst.ActorID, "err", err.Error())
 			continue
 		}

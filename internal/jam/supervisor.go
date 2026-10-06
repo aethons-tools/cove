@@ -109,6 +109,14 @@ type CurrentImage struct {
 	Tag    string // the launcher's image tag for Kit; "" when it cannot name images
 }
 
+// StatePurger is the optional launcher surface that deletes a session's
+// persisted state (a standing session's named volumes, COV-249). The
+// supervisor calls it only from TeardownPurge, after Launcher.Teardown removed
+// the container. A launcher without it persists no state: purging is a no-op.
+type StatePurger interface {
+	PurgeState(ctx context.Context, inst Instance) error
+}
+
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
 // nil when no stream server runs (slice-1 behavior).
@@ -1056,8 +1064,26 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 // retryable — a dangling identity is never left behind silently. Idempotent —
 // an absent instance, or an already-revoked identity, is a no-op.
 func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
+	return s.teardown(ctx, actorID, false)
+}
+
+// TeardownPurge is Teardown that also deletes the session's persisted state
+// (StatePurger) once its container is gone, so the next raise under actorID
+// starts fresh. It is for a standing session's dismissal and reset only: a
+// restart, a Lost cove, an idle reap or an admin teardown use Teardown and keep
+// the state. With no instance recorded it still purges (by actorID), so a reset
+// of a session that is down clears its state too. A failed purge fails the call
+// with the instance left in place, so it can be retried.
+func (s *Supervisor) TeardownPurge(ctx context.Context, actorID string) error {
+	return s.teardown(ctx, actorID, true)
+}
+
+func (s *Supervisor) teardown(ctx context.Context, actorID string, purge bool) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
+		if purge {
+			return s.purgeState(ctx, Instance{ActorID: actorID})
+		}
 		return nil
 	}
 	if s.sink != nil {
@@ -1074,6 +1100,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if err := s.launcher.Teardown(ctx, inst); err != nil {
 		return fmt.Errorf("teardown launcher: %w", err)
 	}
+	if purge {
+		if err := s.purgeState(ctx, inst); err != nil {
+			return err
+		}
+	}
 	if err := s.revokeActor(actorID); err != nil {
 		return fmt.Errorf("teardown revoke identity: %w", err)
 	}
@@ -1087,6 +1118,22 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if s.log != nil {
 		s.log.Info("cove torn down", "id", actorID)
+	}
+	return nil
+}
+
+// purgeState deletes inst's persisted state via the launcher's StatePurger;
+// a launcher without one has none to delete.
+func (s *Supervisor) purgeState(ctx context.Context, inst Instance) error {
+	p, ok := s.launcher.(StatePurger)
+	if !ok {
+		return nil
+	}
+	if err := p.PurgeState(ctx, inst); err != nil {
+		return fmt.Errorf("teardown purge state: %w", err)
+	}
+	if s.log != nil {
+		s.log.Info("cove state purged", "id", inst.ActorID)
 	}
 	return nil
 }

@@ -36,6 +36,8 @@ type fakeLauncher struct {
 	egressErr   error
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
+	purged      []string // PurgeState calls (actor ids), in order
+	purgeErr    error
 
 	// onProbe / onEgress run inside Probe / ApplyEgress, simulating a concurrent
 	// write (e.g. a cove's connector report) landing mid-Reconcile.
@@ -75,6 +77,10 @@ func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec, creds LaunchCred
 func (f *fakeLauncher) Teardown(_ context.Context, inst Instance) error {
 	f.tornDown = append(f.tornDown, inst.ActorID)
 	return f.teardownErr
+}
+func (f *fakeLauncher) PurgeState(_ context.Context, inst Instance) error {
+	f.purged = append(f.purged, inst.ActorID)
+	return f.purgeErr
 }
 func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error) {
 	f.probed = append(f.probed, inst.ActorID)
@@ -616,6 +622,74 @@ func TestTeardownPropagatesRevokeFailure(t *testing.T) {
 	}
 	if len(store.ListActors()) != 0 {
 		t.Fatal("actor should be revoked after the successful retry")
+	}
+}
+
+// TestTeardownKeepsState: a plain Teardown (restart, admin teardown, idle reap)
+// never purges the session's persisted state; TeardownPurge purges it after
+// the container is torn down (COV-249).
+func TestTeardownKeepsStateTeardownPurgeDeletesIt(t *testing.T) {
+	f := &fakeLauncher{}
+	sup, store, _ := supTestKit(t, f)
+	ctx := context.Background()
+	sup.Raise(ctx, RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Teardown(ctx, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.purged) != 0 {
+		t.Fatalf("Teardown must keep state; purged %v", f.purged)
+	}
+	sup.Raise(ctx, RaiseSpec{ActorID: "w2", Role: "guest"})
+	if err := sup.TeardownPurge(ctx, "w2"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.purged, []string{"w2"}) || !slices.Equal(f.tornDown, []string{"w1", "w2"}) {
+		t.Fatalf("purged=%v tornDown=%v; want w2 purged after its teardown", f.purged, f.tornDown)
+	}
+	if _, ok := store.GetInstance("w2"); ok {
+		t.Fatal("instance must be gone after TeardownPurge")
+	}
+}
+
+// TestTeardownPurgeWithoutInstance: a session with no live cove (down, backing
+// off) still has its state purged — a reset of a down session is fresh too.
+func TestTeardownPurgeWithoutInstance(t *testing.T) {
+	f := &fakeLauncher{}
+	sup, _, _ := supTestKit(t, f)
+	if err := sup.TeardownPurge(context.Background(), "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.purged, []string{"gone"}) || len(f.tornDown) != 0 {
+		t.Fatalf("purged=%v tornDown=%v; want a purge and no teardown", f.purged, f.tornDown)
+	}
+}
+
+// TestTeardownPurgeFailureKeepsInstance: a failed purge fails the call and
+// leaves the instance (and identity) in place so it can be retried.
+func TestTeardownPurgeFailureKeepsInstance(t *testing.T) {
+	f := &fakeLauncher{purgeErr: errors.New("volume in use")}
+	sup, store, _ := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.TeardownPurge(context.Background(), "w1"); err == nil {
+		t.Fatal("want the purge error")
+	}
+	if _, ok := store.GetInstance("w1"); !ok {
+		t.Fatal("a failed purge must leave the instance in place")
+	}
+}
+
+// TestReconcileLostKeepsState: a Lost cove is torn down without purging its
+// state — the standing reconciler's re-raise resumes from it.
+func TestReconcileLostKeepsState(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessDead}
+	sup, _, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	*clk = clk.Add(2 * time.Minute)
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.tornDown) != 1 || len(f.purged) != 0 {
+		t.Fatalf("tornDown=%v purged=%v; want torn down, state kept", f.tornDown, f.purged)
 	}
 }
 

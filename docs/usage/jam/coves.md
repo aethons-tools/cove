@@ -245,13 +245,13 @@ context (`GET /context`) before every later episode *and* before each wake it wr
 into a live episode, swapping `/agent-data/context` and telling the agent which
 layers changed — see [session-context.md](session-context.md#refresh).
 
-**Post-mortem on teardown.** Just before the container (and its `/agent-data`
-volume) is removed, the launcher grabs the **tail of `cove-master`'s log**
+**Post-mortem on teardown.** Just before the container is removed (only a
+standing session's state volumes outlive it), the launcher grabs the **tail of `cove-master`'s log**
 (`/agent-data/cove-master.log`, cove-master's own log plus `claude`'s stderr; the agent's stdout stream lives in `/agent-data/agent-stream.jsonl`, which is never read) over SSH and
 records it at `WARN` (`cove agent log (tail, captured on teardown)`, keyed by
 `id`). So a cove that died — a crash, a `claude` auth failure, an egress-blocked
 model call, or a one-shot exit from a stale image — leaves its reason in Jam's
-log instead of vanishing with the volume. It is strictly best-effort: an
+log instead of vanishing with the container. It is strictly best-effort: an
 unreachable cove or a missing log never blocks the teardown. An **idled** cove is
 `docker pause`d — SSH into a frozen container hangs — so teardown **unpauses it
 first** (idempotently) before the capture and removal. `Pause`/`Unpause` are
@@ -267,6 +267,8 @@ it instead — see the wake paragraph above. A resident session ends only when a
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears a resident session down for
 `wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+A restarted standing session resumes its conversation; others start fresh
+([standing-sessions.md](standing-sessions.md#state-across-restarts)).
 
 > **Still deferred:** cove-master becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).

@@ -1,6 +1,7 @@
 package adminui_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -147,6 +148,43 @@ func TestEditStandingAddRemove(t *testing.T) {
 	r, _ := store.GetRole("acme", "review")
 	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0].Name != "weekly" {
 		t.Fatalf("standing = %+v", r.Allocation.Standing)
+	}
+}
+
+// Reset (COV-249): the button shows with a supervisor (behind a confirm), the
+// POST tears the studio down keeping the declaration, an undeclared name is
+// 404; without a supervisor the button is absent and the POST is 503.
+func TestEditStandingReset(t *testing.T) {
+	store := seedRichRole(t)
+	sup := newSup(t, store)
+	id := jam.StandingActorID("acme", "review", "nightly")
+	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: jam.SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), sup, nil, credKnown, nil)
+	body := get(t, h, "/ui/roles/acme/review").Body.String()
+	if !strings.Contains(body, `hx-post="/ui/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing session nightly?`) {
+		t.Fatalf("role page lacks a confirmed reset button:\n%s", body)
+	}
+	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK {
+		t.Fatalf("reset = %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := store.GetInstance(id); ok {
+		t.Fatal("reset must tear the studio down")
+	}
+	if r, _ := store.GetRole("acme", "review"); len(r.Allocation.Standing) != 1 {
+		t.Fatalf("reset must keep the declaration: %+v", r.Allocation.Standing)
+	}
+	if rec := post(t, h, "/ui/roles/acme/review/standing/nobody/reset", url.Values{}); rec.Code != http.StatusNotFound {
+		t.Errorf("reset of an undeclared name = %d, want 404", rec.Code)
+	}
+
+	ro := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
+	if strings.Contains(get(t, ro, "/ui/roles/acme/review").Body.String(), "/standing/nightly/reset") {
+		t.Error("no supervisor: the reset button must be hidden")
+	}
+	if rec := post(t, ro, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("no supervisor: reset = %d, want 503", rec.Code)
 	}
 }
 

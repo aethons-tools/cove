@@ -35,6 +35,7 @@ const Label = "harbor.cove"
 type Backend interface {
 	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
 	backend.KitImageBuilder // BuildKitImage, HasKitImage (studio-kit prepare)
+	backend.VolumeRemover   // RemoveVolumes (purge a standing session's state)
 	GetStatus(container string) (backend.State, error)
 }
 
@@ -81,7 +82,10 @@ type Launcher struct {
 	asm      string                 // assembly fingerprint, part of every image tag
 }
 
-var _ jam.Launcher = (*Launcher)(nil)
+var (
+	_ jam.Launcher    = (*Launcher)(nil)
+	_ jam.StatePurger = (*Launcher)(nil)
+)
 
 func New(cfg Config) *Launcher {
 	if cfg.sleep == nil {
@@ -134,7 +138,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
 	// names the exact built image by its build-input digest.
 	image, digest := l.imageTag(spec.Kit), ""
-	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker); err != nil {
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, stateMounts(spec, name)...); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.
@@ -179,6 +183,48 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		return "", fmt.Errorf("raise %s: %w", name, err)
 	}
 	return name, nil
+}
+
+// agentDataPath and workspacePath are where a standing session's state
+// volumes mount: the agent's CLAUDE_CONFIG_DIR (conversations, settings) and
+// its workspace (the hardening layer's agent-owned dir, so Docker initializes
+// a fresh volume agent-owned).
+const (
+	agentDataPath = "/agent-data"
+	workspacePath = "/home/agent/workspace"
+)
+
+// stateMounts is what a raise mounts to persist the session's state across
+// restarts: a standing session gets its <container>-agent-data and
+// <container>-workspace named volumes (the at-cove create path's names), which
+// outlive the --rm container and re-attach when the same actor id is raised
+// again. Ephemeral and personal sessions get none: always fresh (COV-249).
+func stateMounts(spec jam.RaiseSpec, name string) []backend.Mount {
+	if spec.SessionKind != jam.SessionKindStanding {
+		return nil
+	}
+	return []backend.Mount{
+		{Volume: naming.AgentDataVolume(name), Target: agentDataPath},
+		{Volume: naming.WorkspaceVolume(name), Target: workspacePath},
+	}
+}
+
+// PurgeState deletes the named volumes inst's raises mount (stateMounts, plus
+// the docker:true -docker cache), so the next raise under the same actor id
+// starts fresh. Jam calls it only after Teardown removed the container — on a
+// standing session's dismissal or reset, never on a restart or a Lost cove.
+// An instance with no volumes (ephemeral, personal) is a no-op in effect: the
+// removal tolerates absent volumes.
+func (l *Launcher) PurgeState(ctx context.Context, inst jam.Instance) error {
+	name := inst.Location
+	if name == "" {
+		name = naming.CoveContainer(inst.ActorID)
+	}
+	if err := l.cfg.Ops.RemoveVolumes(naming.AgentDataVolume(name), naming.WorkspaceVolume(name), naming.DockerVolume(name)); err != nil {
+		return fmt.Errorf("purge %s state: %w", name, err)
+	}
+	l.cfg.Log.Info("cove state purged", "id", inst.ActorID, "container", name)
+	return nil
 }
 
 // applyRoleEgress pushes spec's role egress policy into the raised container. A
@@ -233,8 +279,8 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	if err := l.cfg.Ops.Unpause(inst.Location); err != nil {
 		l.cfg.Log.Warn("teardown: unpause before capture failed (continuing)", "id", inst.ActorID, "error", err.Error())
 	}
-	// Post-mortem insurance: before the container (and its /agent-data volume)
-	// is removed, grab the tail of cove-master's log and record it, so a cove
+	// Post-mortem insurance: before the container is removed (a standing
+	// session's state volumes survive it; PurgeState alone deletes them), grab the tail of cove-master's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
