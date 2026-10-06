@@ -104,7 +104,7 @@ func writeHumanPlanTx(ctx context.Context, tx pgx.Tx, p humanPlan) error {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO legacy_human_aliases (project_name, human_name, user_id) VALUES ($1,$2,$3)
 			 ON CONFLICT (project_name, human_name) DO UPDATE SET user_id = EXCLUDED.user_id`,
-			al.Project, al.Name, al.User); err != nil {
+			al.Project, al.Name, al.UserID); err != nil {
 			return err
 		}
 	}

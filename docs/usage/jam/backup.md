@@ -17,14 +17,18 @@ control-plane aggregates:
 - **kits** (all versions **and** the pin)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
-- **projects** (roster, escalation policy, chat service, session context and resources).
-  Roster humans are exported from the identity registry and, on import, merged
-  into users the same way an upgrade does ([comms-addressing.md](comms-addressing.md#the-project-roster));
-  user ids are not preserved until the v2 format, and a chat service travels as
-  its kind (`discord`), restored onto that kind's connection
+- **projects** (channels, escalation policy, chat service, session context and resources)
+- the **identity registry** — users (removed ones too: their ids back history),
+  connections, accounts, project memberships and the legacy human aliases — with
+  their ids, so a restore keeps every reference valid (format `version: 2`; an
+  older Jam can't read it). A `version: 1` backup still imports: its roster
+  humans are merged into users the way an upgrade does
+  ([comms-addressing.md](comms-addressing.md#the-project-roster))
 - the **Jam-wide session context**
 
-Import applies the admin API's authoring rules to session context (layer budgets,
+Import requires an empty target, registry included, and checks the registry is
+consistent (unique live names and identities, references that resolve). It
+applies the admin API's authoring rules to session context (layer budgets,
 leaf names, resources), destination notes and
 [header specs](header-specs.md), and model-spec structure (credential
 names are not checked — they are serve-config, not backup, state); a snapshot

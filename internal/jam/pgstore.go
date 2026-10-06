@@ -358,20 +358,12 @@ func createdProjects(p Project, created bool) []Project {
 func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := checkImport(s.memState, snap); err != nil {
+	snap, plan, err := importPlan(s.memState, snap)
+	if err != nil {
 		return err
 	}
 	ctx := context.Background()
-	snap = withReferencedProjects(snap)
-	// Plan the snapshot's roster humans into the registry first, so they are
-	// written in the same transaction (a scratch state: the snapshot's config
-	// over this store's registry, which the planner only reads).
-	scratch := newMemState()
-	scratch.users, scratch.connections, scratch.accounts = s.users, s.connections, s.accounts
-	scratch.members, scratch.aliases = s.members, s.aliases
-	applyImport(scratch, snap)
-	plan := scratch.planRegistryMigration(0)
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
 			if err := insertProjectTx(ctx, tx, p); err != nil {
