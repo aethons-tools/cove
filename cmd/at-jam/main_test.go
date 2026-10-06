@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1210,6 +1211,131 @@ func TestStandingResetCommand(t *testing.T) {
 	}
 }
 
+// queueUpgrader is a jam.StandingUpgrader queue: it records the last force
+// and fails with err.
+type queueUpgrader struct {
+	force, queued bool
+	err           error
+}
+
+func (q *queueUpgrader) QueueUpgrade(_, _, _ string, force bool) error {
+	if q.err != nil {
+		return q.err
+	}
+	q.force, q.queued = force, true
+	return nil
+}
+
+func (q *queueUpgrader) UpgradeState(string, string, string) string {
+	if q.queued {
+		return jam.UpgradeQueued
+	}
+	return ""
+}
+
+// `standing upgrade` queues the upgrade and says how to watch it; --force
+// reaches the server; `standing list` shows upgrade=; a pending reset or an
+// undeclared name exits 1; an already-current session says so (COV-251).
+func TestStandingUpgradeCommand(t *testing.T) {
+	store := jam.NewMemStore()
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour},
+		Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "alice-bot", Prompt: "p"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	q := &queueUpgrader{}
+	sup.SetStandingUpgrader(q)
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	args := []string{"standing", "upgrade", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}
+
+	var out, errb bytes.Buffer
+	if code := run(args, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "queued") || !strings.Contains(out.String(), "standing list") || q.force {
+		t.Fatalf("upgrade: exit=%d out=%q stderr=%s force=%v", code, out.String(), errb.String(), q.force)
+	}
+	out.Reset()
+	if code := run(append(args, "--force"), getenv, &out, &errb); code != 0 || !q.force {
+		t.Fatalf("forced upgrade: exit=%d out=%q force=%v", code, out.String(), q.force)
+	}
+	out.Reset()
+	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "\tupgrade=queued\n") {
+		t.Fatalf("list: exit=%d out=%q", code, out.String())
+	}
+
+	q.err = fmt.Errorf("%w: x", jam.ErrStandingResetPending)
+	errb.Reset()
+	if code := run(args, getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "reset") {
+		t.Fatalf("during a pending reset: exit=%d stderr=%q, want 1", code, errb.String())
+	}
+	q.err = nil
+	if code := run([]string{"standing", "upgrade", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "nobody"}, getenv, &out, &errb); code != 1 {
+		t.Fatalf("upgrade of an undeclared name: exit=%d, want 1", code)
+	}
+
+	// Already current: nothing restarted, said so.
+	cur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Image: "cove-kit:abc", Reason: "already current"})
+	}))
+	defer cur.Close()
+	out.Reset()
+	if code := run([]string{"standing", "upgrade", "--admin-url", cur.URL, "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 ||
+		!strings.Contains(out.String(), "already runs the current image (cove-kit:abc)") {
+		t.Fatalf("already current: exit=%d out=%q", code, out.String())
+	}
+}
+
+// waitServer is a fake admin API for `standing upgrade --wait`: the upgrade is
+// queued; the standing list reports it pending for the first pending polls,
+// then gone; the studio's image is image.
+func waitServer(t *testing.T, pending int, image string) *httptest.Server {
+	t.Helper()
+	polls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST":
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Pending: true, State: jam.UpgradeQueued})
+		case strings.HasSuffix(r.URL.Path, "/standing"):
+			polls++
+			st := jam.StandingStatus{StandingSession: jam.StandingSession{Name: "bot", Prompt: "p"}}
+			if polls <= pending {
+				st.Upgrade = jam.UpgradePreparing
+			}
+			_ = json.NewEncoder(w).Encode([]jam.StandingStatus{st})
+		default: // coves
+			_ = json.NewEncoder(w).Encode([]jam.CoveSummary{{ID: jam.StandingActorID(jam.DefaultProject, "dev", "bot"), Phase: "live", Image: image}})
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// `standing upgrade --wait` polls until the upgrade is done and reports the
+// studio's image; exit 1 when it ends not ok or times out.
+func TestStandingUpgradeWait(t *testing.T) {
+	defer func(d time.Duration) { standingWaitPoll = d }(standingWaitPoll)
+	standingWaitPoll = time.Millisecond
+	getenv := func(string) string { return "" }
+	up := func(url string, extra ...string) (int, string) {
+		var out, errb bytes.Buffer
+		code := run(append([]string{"standing", "upgrade", "--admin-url", url, "--role", "dev", "bot", "--wait"}, extra...), getenv, &out, &errb)
+		return code, out.String() + errb.String()
+	}
+	if code, out := up(waitServer(t, 2, "ok").URL); code != 0 || !strings.Contains(out, "upgraded standing session bot") || !strings.Contains(out, "image=ok") {
+		t.Fatalf("wait ok: exit=%d out=%q", code, out)
+	}
+	if code, out := up(waitServer(t, 0, "-").URL); code != 1 || !strings.Contains(out, "image=-") {
+		t.Fatalf("wait, not raised: exit=%d out=%q", code, out)
+	}
+	if code, out := up(waitServer(t, 1<<30, "stale").URL, "--wait-timeout", "20ms"); code != 1 || !strings.Contains(out, "timed out") || !strings.Contains(out, "preparing") {
+		t.Fatalf("wait timeout: exit=%d out=%q", code, out)
+	}
+}
+
 // `standing add|list|rm` declare, list and dismiss a role's standing sessions;
 // the prompt is read from a file host-side, and the role's other fields are kept.
 func TestStandingCommandsRoundTrip(t *testing.T) {
@@ -1272,6 +1398,8 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 		{"standing", "rm", "--admin-url", ts.URL, "--role", "reviewer"},
 		{"standing", "reset", "--admin-url", ts.URL, "--role", "reviewer"},
 		{"standing", "reset", "--admin-url", ts.URL, "x"},
+		{"standing", "upgrade", "--admin-url", ts.URL, "--role", "reviewer"},
+		{"standing", "upgrade", "--admin-url", ts.URL, "x"},
 		{"standing", "list", "--admin-url", ts.URL},
 		{"standing"},
 	} {

@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"html/template"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -93,9 +94,12 @@ func badRequest(msg string) error { return &jam.WriteError{Status: http.StatusBa
 // through jam's role read-modify-write functions (one shared lock with the JSON
 // API) and answers with the re-rendered role body.
 func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// edit wraps one section write: guard, parse the form, run apply, log, and
-	// render the role body (or the refusal, with its status).
-	edit := func(what string, apply func(r *http.Request, project, name string) error) http.HandlerFunc {
+	// editFlash wraps one section write: guard, parse the form, run apply, log,
+	// and render the role body — plus a success flash when apply returns a
+	// message — or the refusal, with its status. Every success (including an
+	// accepted-but-pending standing reset or upgrade) is a 200 role body;
+	// renderError is for refusals only.
+	editFlash := func(what string, apply func(r *http.Request, project, name string) (string, error)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !guardWrite(w, r) {
 				return
@@ -105,7 +109,8 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 				return
 			}
 			project, name := r.PathValue("project"), r.PathValue("name")
-			if err := apply(r, project, name); err != nil {
+			msg, err := apply(r, project, name)
+			if err != nil {
 				renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 				return
 			}
@@ -117,7 +122,14 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 			}
 			d.CanRequest = canRequest
 			renderFragment(w, "role", "role-body", d)
+			if msg != "" {
+				_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
+			}
 		}
+	}
+	// edit is editFlash for writes with no message.
+	edit := func(what string, apply func(r *http.Request, project, name string) error) http.HandlerFunc {
+		return editFlash(what, func(r *http.Request, project, name string) (string, error) { return "", apply(r, project, name) })
 	}
 
 	mux.HandleFunc("POST /ui/roles/{project}/{name}/scope", edit("scope set", func(r *http.Request, project, name string) error {
@@ -203,8 +215,31 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		return jam.RemoveStanding(store, project, name, r.PathValue("session"))
 	}))
 	// Reset: the session's studio and persisted state are deleted, the
-	// declaration kept — Jam raises it fresh on its next standing pass.
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/reset", edit("standing reset", func(r *http.Request, project, name string) error {
-		return jam.ResetStanding(r.Context(), store, sup, project, name, r.PathValue("session"))
+	// declaration kept — Jam raises it fresh on its next standing pass. A
+	// pending reset is accepted (flashed), not an error.
+	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/reset", editFlash("standing reset", func(r *http.Request, project, name string) (string, error) {
+		session := r.PathValue("session")
+		res, err := jam.ResetStanding(r.Context(), store, sup, project, name, session)
+		switch {
+		case err != nil:
+			return "", err
+		case res.Pending:
+			return res.Reason, nil
+		}
+		return "reset standing session " + session + "; Jam raises it fresh", nil
+	}))
+	// Upgrade: queued with the standing reconciler, which prepares the current
+	// image, waits for the session to be idle, and re-raises it keeping its
+	// conversation and workspace (the UI never forces; the CLI's --force does).
+	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/upgrade", editFlash("standing upgrade", func(r *http.Request, project, name string) (string, error) {
+		session := r.PathValue("session")
+		res, err := jam.UpgradeStanding(store, sup, project, name, session, false)
+		switch {
+		case err != nil:
+			return "", err
+		case !res.Pending:
+			return "standing session " + session + " already runs the current image; nothing restarted", nil
+		}
+		return "upgrade of standing session " + session + " " + res.State + "; Jam restarts it once the image is ready and the session is idle", nil
 	}))
 }

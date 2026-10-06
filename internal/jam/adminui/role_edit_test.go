@@ -193,8 +193,12 @@ func TestEditStandingReset(t *testing.T) {
 	if r, _ := store.GetRole("acme", "review"); len(r.Allocation.Standing) != 1 {
 		t.Fatalf("reset must keep the declaration: %+v", r.Allocation.Standing)
 	}
+	// A pending reset is accepted: a success flash over the re-rendered role,
+	// never an error box.
 	rs.err = errors.New("volume in use")
-	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "pending") {
+	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `<div id="flash" hx-swap-oob="innerHTML"><p class="ok">`) || !strings.Contains(rec.Body.String(), "volume in use") ||
+		strings.Contains(rec.Body.String(), `class="error"`) {
 		t.Errorf("pending reset = %d: %s", rec.Code, rec.Body.String())
 	}
 	if rec := post(t, h, "/ui/roles/acme/review/standing/nobody/reset", url.Values{}); rec.Code != http.StatusNotFound {

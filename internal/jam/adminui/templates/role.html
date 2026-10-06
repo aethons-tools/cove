@@ -154,8 +154,10 @@
         <tr data-id="{{.Name}}">
           <td><span class="mono">{{.Name}}</span></td>
           <td class="prompt">{{.Prompt}}</td>
-          <td>{{if .Phase}}{{template "phase" .Phase}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
-          <td class="actions">{{if $.CanRequest}}<button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
+          <td>{{if .Phase}}{{template "phase" .Phase}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}}{{if .Upgrade}} <span class="pill phase-raising" title="pending upgrade (Jam restarts it on the current image once ready and idle)">upgrade: {{.Upgrade}}</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
+          <td class="actions">{{if $.CanRequest}}<button class="small{{if eq .Image "stale"}} primary{{end}}" hx-post="{{$base}}/standing/{{.Name}}/upgrade" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Upgrade standing session {{.Name}}? Its studio is restarted on the current image; its conversation and workspace are kept.">Upgrade</button>
+            <button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
               hx-confirm="Reset standing session {{.Name}}? Its studio, conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
             <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
               hx-confirm="Dismiss standing session {{.Name}}? Its studio, conversation and workspace are deleted.">Dismiss</button></td>

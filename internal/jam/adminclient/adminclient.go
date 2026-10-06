@@ -426,9 +426,9 @@ func (c *Client) AddStanding(project, role string, s jam.StandingSession) error 
 }
 
 // ListStanding lists the standing sessions declared on project's role, prompts
-// included.
-func (c *Client) ListStanding(project, role string) ([]jam.StandingSession, error) {
-	var out []jam.StandingSession
+// included, each with its pending upgrade state ("" none).
+func (c *Client) ListStanding(project, role string) ([]jam.StandingStatus, error) {
+	var out []jam.StandingStatus
 	err := c.do("GET", standingPath(project, role), nil, &out)
 	return out, err
 }
@@ -446,6 +446,23 @@ func (c *Client) RemoveStanding(project, role, name string) error {
 func (c *Client) ResetStanding(project, role, name string) (jam.StandingResetResult, error) {
 	var out jam.StandingResetResult
 	err := c.do("POST", standingPath(project, role)+"/"+url.PathEscape(name)+"/reset", nil, &out)
+	return out, err
+}
+
+// UpgradeStanding queues a re-raise of a declared standing session on the
+// image a raise would run now, keeping its conversation and workspace: Pending
+// with its State (watch ListStanding's Upgrade) when queued; not Pending with
+// Reason "already current" when it already runs that image. Jam prepares the
+// image and waits for the session to be idle; force skips the wait and the
+// already-current check. A pending reset is ErrConflict; an undeclared name
+// ErrNotFound.
+func (c *Client) UpgradeStanding(project, role, name string, force bool) (jam.StandingUpgradeResult, error) {
+	var out jam.StandingUpgradeResult
+	path := standingPath(project, role) + "/" + url.PathEscape(name) + "/upgrade"
+	if force {
+		path += "?force=true"
+	}
+	err := c.do("POST", path, nil, &out)
 	return out, err
 }
 

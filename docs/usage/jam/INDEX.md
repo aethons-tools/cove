@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # `at-jam` — operating the central service
@@ -49,7 +49,8 @@ five pillars), see the design history:
 | [session-context-authoring.md](session-context-authoring.md) | You want sessions of a role, a project or the whole Jam to know something at raise — rules, goals, repos — and need `at-jam context`, the YAML format or the limits. |
 | [session-context.md](session-context.md) | You are writing a kit prompt, debugging what a session was told at raise, or changing how session context is compiled or delivered. |
 | [personal-sessions.md](personal-sessions.md) | You (a human operator) want your own session of a role: linking your login to the roster, the role's personal caps, `session request\|list\|release`, talking to it over Discord until you release it, its idle ladder (nags, replying `keep`/`release` to one, optional reclaim), and why it needs `store-postgres` and a Discord inbox. |
-| [standing-sessions.md](standing-sessions.md) | You want a role to have a permanent, named agent running (a standing teammate) or want to remove or reset one: `standing add\|list\|rm\|reset`, how Jam keeps one studio per name alive (restart with its conversation and workspace kept, backoff), dismissal, admission, and how it messages people. |
+| [standing-sessions.md](standing-sessions.md) | You want a role to have a permanent, named agent running (a standing teammate) or want to remove, reset or upgrade one: `standing add\|list\|rm\|reset\|upgrade`, how Jam keeps one studio per name alive (restart with its conversation and workspace kept, backoff), upgrading a stale one, dismissal, admission, and how it messages people. |
+| [standing-state.md](standing-state.md) | You need to know what survives a standing session's restart or upgrade, where its conversation and workspace live (labeled volumes), why it did or didn't resume, or which volumes Jam may delete. |
 | [requisitioner.md](requisitioner.md) | You are enabling Jam's always-on intake — polling a tracker (Linear) and raising a managed studio per ready ticket — or tuning its concurrency cap / poll interval. |
 | [ui.md](ui.md) | You want to watch a running Jam in a browser — the live studios and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), edit kits/destinations/model-specs, or raise/tear down a managed studio, from the browser instead of the CLI. |
 | [ui-pages.md](ui-pages.md) | You are viewing or editing one project, studio, role, destination, model-spec or kit in the admin UI — a project's roster/escalation, a studio's runtime/session/squawks, its scope, egress, allocation, standing sessions, client env/connector, kit versions/diffs/pinning, who uses it — or wondering why the list pages only create. |

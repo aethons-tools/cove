@@ -25,6 +25,7 @@ type destRow struct {
 type standingRow struct {
 	Name, Prompt, ActorID, Phase string
 	Image                        string // the running studio's image status (CoveSummary.Image)
+	Upgrade                      string // its pending upgrade state ("" none)
 }
 
 // holderRow is one actor holding a grant on the role.
@@ -102,7 +103,13 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	}
 	for _, s := range a.Standing {
 		id := jam.StandingActorID(project, name, s.Name)
-		d.Standing = append(d.Standing, standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image})
+		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image}
+		if u, ok := img.(interface {
+			StandingUpgradeState(project, role, name string) string
+		}); ok {
+			row.Upgrade = u.StandingUpgradeState(project, name, s.Name)
+		}
+		d.Standing = append(d.Standing, row)
 	}
 
 	for _, act := range store.ListActors() {

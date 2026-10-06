@@ -109,6 +109,17 @@ type CurrentImage struct {
 	Tag    string // the launcher's image tag for Kit; "" when it cannot name images
 }
 
+// Key identifies the image: its tag, else its kit ref; "" for no kit.
+func (c CurrentImage) Key() string {
+	switch {
+	case !c.HasKit:
+		return ""
+	case c.Tag != "":
+		return c.Tag
+	}
+	return c.Kit.String()
+}
+
 // StateKeeper is the optional launcher surface over sessions' persisted state
 // (a standing session's labeled volumes, COV-249). Only the standing
 // reconciler drives it — sweeping the state of undeclared names and purging a
@@ -128,6 +139,36 @@ type StateKeeper interface {
 type StandingResetter interface {
 	ResetStanding(ctx context.Context, project, role, name string) error
 }
+
+// StandingUpgrader is the standing reconciler's upgrade queue (COV-251). The
+// admin API and UI only record intent (QueueUpgrade); each reconciler pass
+// then prepares the current image, waits for the session to be idle (unless
+// forced), tears its cove down keeping its state, and raises it again. Pending
+// upgrades are in memory: a Jam restart drops them.
+type StandingUpgrader interface {
+	// QueueUpgrade records a pending upgrade (a re-queue keeps one, OR-ing
+	// force). Errors wrap ErrStandingNotDeclared or ErrStandingResetPending.
+	QueueUpgrade(project, role, name string, force bool) error
+	// UpgradeState is the name's pending upgrade state — queued, preparing,
+	// waiting-for-idle, teardown-failed or error, with a detail after ": " —
+	// or "" when none is pending.
+	UpgradeState(project, role, name string) string
+}
+
+// Pending-upgrade states (StandingUpgrader.UpgradeState's prefix).
+const (
+	UpgradeQueued         = "queued"
+	UpgradePreparing      = "preparing"
+	UpgradeWaitingIdle    = "waiting-for-idle"
+	UpgradeTeardownFailed = "teardown-failed"
+	UpgradeError          = "error"
+)
+
+// Standing-reconciler refusals, mapped to HTTP statuses by the admin API.
+var (
+	ErrStandingNotDeclared  = errors.New("standing session not declared")
+	ErrStandingResetPending = errors.New("standing session reset pending")
+)
 
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
@@ -183,6 +224,9 @@ type Supervisor struct {
 	// resetter is the standing reconciler (SetStandingResetter); nil → a
 	// standing reset is unavailable (503).
 	resetter StandingResetter
+	// upgrader is the standing reconciler (SetStandingUpgrader); nil → a
+	// standing upgrade is unavailable (503).
+	upgrader StandingUpgrader
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -1138,6 +1182,42 @@ func (s *Supervisor) StateOwners(ctx context.Context) ([]string, error) {
 // SetStandingResetter wires the standing reconciler in as the reset path for
 // the admin API and UI (jam.ResetStanding). Call before serving.
 func (s *Supervisor) SetStandingResetter(r StandingResetter) { s.resetter = r }
+
+// SetStandingUpgrader wires the standing reconciler in as the upgrade queue for
+// the admin API and UI (jam.UpgradeStanding). Call before serving.
+func (s *Supervisor) SetStandingUpgrader(u StandingUpgrader) { s.upgrader = u }
+
+// StandingUpgradeState is the declared standing session's pending upgrade
+// state ("" none, or no upgrader wired). Nil-safe: the UI holds a possibly-nil
+// *Supervisor as its ImageResolver.
+func (s *Supervisor) StandingUpgradeState(project, role, name string) string {
+	if s == nil || s.upgrader == nil {
+		return ""
+	}
+	return s.upgrader.UpgradeState(project, role, name)
+}
+
+// PrepareImage makes the image a raise for project/role would run now ready,
+// via the launcher's PrepareKit (idempotent: an image already present returns
+// at once; otherwise it builds, which may take minutes — callers must not hold
+// a lock across it). A role that raises no kit is ready as is. The returned
+// CurrentImage identifies what was prepared (its Key matches CurrentImage's).
+func (s *Supervisor) PrepareImage(ctx context.Context, project, role string) (CurrentImage, KitStatus, error) {
+	r, ok := s.store.GetRole(project, role)
+	if !ok {
+		return CurrentImage{}, KitStatus{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
+	}
+	def, have, err := s.raiseKit(project, r)
+	if err != nil {
+		return CurrentImage{}, KitStatus{}, err
+	}
+	if !have {
+		return CurrentImage{}, KitStatus{State: KitReady}, nil
+	}
+	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTag(def.Ref)}
+	st, err := s.launcher.PrepareKit(ctx, def)
+	return cur, st, err
+}
 
 // Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
 // Instance: renew our own unexpired lease; for an expired lease, Probe the cove —
