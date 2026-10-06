@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
@@ -226,4 +228,86 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestDecideSendUserTargets(t *testing.T) {
+	alice, bob := ident.New(ident.User), ident.New(ident.User)
+	roles := map[string]map[string]Role{"acme": {
+		"any":    {Name: "any", Scope: Scope{Addressing: []string{"user:*"}}},
+		"legacy": {Name: "legacy", Scope: Scope{Addressing: []string{"human:alice"}}},
+		"byid":   {Name: "byid", Scope: Scope{Addressing: []string{"user:" + string(alice)}}},
+		"byname": {Name: "byname", Scope: Scope{Addressing: []string{"user:alice"}}},
+	}}
+	rosters := map[string]Roster{"acme": {Humans: []Human{
+		{Name: "alice", UserID: alice, Handle: "alice.h"},
+		{Name: "bob", UserID: bob},
+	}}}
+	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
+	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
+	now := time.Unix(1, 0)
+	as := func(role string) Actor { return Actor{ID: role, Grants: []Grant{{Project: "acme", Role: role}}} }
+
+	for _, tc := range []struct {
+		role, target string
+		ok           bool
+	}{
+		{"any", "user:alice", true},
+		{"any", "user:" + string(alice), true},
+		{"any", "human:alice", true}, // alias
+		{"legacy", "user:alice", true},
+		{"legacy", "user:" + string(alice), true},
+		{"legacy", "user:bob", false},
+		{"byid", "user:alice", true},
+		{"byid", "user:bob", false},
+		{"byname", "user:" + string(alice), true},
+		{"byname", "user:" + string(bob), false}, // an id never widens what a name glob grants
+	} {
+		st, err := DecideSend(as(tc.role), getRole, getRoster, tc.target, now)
+		if tc.ok != (err == nil) {
+			t.Errorf("%s → %s: err = %v, want ok=%v", tc.role, tc.target, err, tc.ok)
+			continue
+		}
+		if tc.ok && (st.Kind != "human" || st.Name != "alice" || st.UserID != alice || st.Handle != "alice.h") {
+			t.Errorf("%s → %s resolved to %+v", tc.role, tc.target, st)
+		}
+	}
+	if _, err := DecideSend(as("any"), getRole, getRoster, "user:"+string(ident.New(ident.User)), now); !errors.Is(err, ErrSendUnresolved) {
+		t.Errorf("unknown user id: %v, want ErrSendUnresolved", err)
+	}
+	got := ListTargets(as("legacy"), getRole, getRoster, now)
+	if len(got) != 1 || got[0].Name != "alice" {
+		t.Errorf("ListTargets under a legacy human: glob = %+v", got)
+	}
+}
+
+// A name glob never matches a user id: every id is "usr_…", so a glob like
+// user:u* or *r* would otherwise reach every member.
+func TestNameGlobsNeverMatchIDs(t *testing.T) {
+	bob := ident.New(ident.User)
+	roles := map[string]map[string]Role{"acme": {
+		"u":    {Name: "u", Scope: Scope{Addressing: []string{"user:u*"}}},
+		"star": {Name: "star", Scope: Scope{Addressing: []string{"user:*_*", "user:*0*"}}},
+		"all":  {Name: "all", Scope: Scope{Addressing: []string{"user:*"}}},
+		"any":  {Name: "any", Scope: Scope{Addressing: []string{"*"}}},
+	}}
+	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "bob", UserID: bob}}}}
+	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
+	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
+	as := func(role string) Actor { return Actor{ID: role, Grants: []Grant{{Project: "acme", Role: role}}} }
+	now := time.Unix(1, 0)
+	for _, role := range []string{"u", "star"} {
+		for _, target := range []string{"user:bob", "user:" + string(bob)} {
+			if _, err := DecideSend(as(role), getRole, getRoster, target, now); !errors.Is(err, ErrSendDenied) {
+				t.Errorf("%s → %s: %v, want denied", role, target, err)
+			}
+		}
+		if got := ListTargets(as(role), getRole, getRoster, now); len(got) != 0 {
+			t.Errorf("%s lists %+v, want nobody", role, got)
+		}
+	}
+	for _, role := range []string{"all", "any"} {
+		if _, err := DecideSend(as(role), getRole, getRoster, "user:"+string(bob), now); err != nil {
+			t.Errorf("%s → bob's id: %v, want allowed", role, err)
+		}
+	}
 }

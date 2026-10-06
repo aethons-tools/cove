@@ -214,11 +214,11 @@ verbs in [roster.md](roster.md):
   `git → git-pat`); credential *values* never appear.
 - Every field that names another entity is a **type-ahead**: projects, roles
   (of the project in the same form), kits, destinations and — after `=` in a
-  destinations list — credentials, roster targets (`human:`/`channel:` in
+  destinations list — credentials, roster targets (`user:`/`channel:` in
   addressing and escalation tiers), Intercom participants, and chat services.
   In list fields it completes the entry under the cursor. ↑/↓ move, Enter or
   Tab accept, Esc closes. Suggestions guide but don't restrict: the server
-  still validates, so a glob like `human:*` is fine and an unknown project is
+  still validates, so a glob like `user:*` is fine and an unknown project is
   refused (a project must exist first — [projects.md](projects.md)). Project
   fields start at `default`. Credential suggestions are the names `at-jam serve`
   is configured with (names only, never values).
@@ -253,7 +253,7 @@ config — see [coves.md](coves.md)), the Studios page can also:
 
 The Roles page gains a **Request** action per role: it raises a
 [personal session](personal-sessions.md) of that role **for you**, with the
-prompt `Squawk me (human:<your roster name>) and we will get to work.`, so the
+prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 session opens the conversation with you on the intercom. You must be signed in
 (`/ui/auth/login`) as a login linked to a roster human in the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,

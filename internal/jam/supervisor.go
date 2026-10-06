@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
@@ -35,8 +36,10 @@ type RaiseSpec struct {
 	Role    string
 	Unit    string
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
-	// Owner is the owning roster Human's name for a personal session; "" otherwise.
+	// Owner is the owning user's name for a personal session; "" otherwise.
 	Owner string
+	// OwnerID is the owning user for a personal session.
+	OwnerID ident.ID
 	// Name is a standing session's declared name; "" otherwise.
 	Name string
 	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
@@ -288,8 +291,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// A personal session's cove may message its owner and nobody else: the
 	// override REPLACES the role's addressing (least privilege).
 	var ov *Override
-	if spec.Owner != "" {
-		ov = &Override{Addressing: []string{"human:" + spec.Owner}}
+	switch {
+	case spec.OwnerID != "":
+		ov = &Override{Addressing: []string{"user:" + string(spec.OwnerID)}}
+	case spec.Owner != "":
+		ov = &Override{Addressing: []string{"user:" + spec.Owner}}
 	}
 	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, ov, s.now())
 	if err != nil {
@@ -369,7 +375,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	now := s.now()
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
-		Owner: spec.Owner, Name: spec.Name, SessionKind: spec.SessionKind,
+		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
 		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
@@ -1495,7 +1501,7 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 	}
 	// The cove runs the kit image it was raised with (inst.Kit); only the
 	// current version's prompt and notes are picked up.
-	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
+	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
 	promptKit := inst.Kit
 	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
 		if role.Scope.Egress != nil {

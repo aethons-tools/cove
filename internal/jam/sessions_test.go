@@ -7,9 +7,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // fakeSessionAlloc is a scripted SessionAllocator: it records grants and
@@ -112,8 +115,19 @@ func TestPersonalSessionRequest_LinkedHuman(t *testing.T) {
 		t.Fatalf("raise spec = %+v", s)
 	}
 	inst, ok := k.store.GetInstance(res.ID)
-	if !ok || inst.Owner != "alice" || inst.SessionKind != "personal" {
+	alice, _ := k.store.LookupName(ident.User, "alice")
+	if !ok || inst.Owner != "alice" || inst.OwnerID != alice || inst.SessionKind != "personal" {
 		t.Fatalf("instance = %+v,%v", inst, ok)
+	}
+	// The session may address its owner, and only them — by user id.
+	var a Actor
+	for _, x := range k.store.ListActors() {
+		if x.ID == res.ID {
+			a = x
+		}
+	}
+	if len(a.Grants) != 1 || a.Grants[0].Overrides == nil || !slices.Equal(a.Grants[0].Overrides.Addressing, []string{"user:" + string(alice)}) {
+		t.Fatalf("grant = %+v; want an override addressing user:%s", a.Grants, alice)
 	}
 }
 

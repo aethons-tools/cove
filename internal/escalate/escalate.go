@@ -137,21 +137,21 @@ func (e *Engine) pingTier(ctx context.Context, inst jam.Instance, proj jam.Proje
 func (e *Engine) resolveHandles(roster jam.Roster, chain []jam.EscalationTier, tier int) []string {
 	var handles []string
 	for _, target := range chain[tier].Targets {
-		kind, name, ok := strings.Cut(target, ":")
-		if !ok || kind != "human" {
-			e.log.Warn("escalate: skipping non-human tier target", "target", target)
+		kind, ref, ok := strings.Cut(target, ":")
+		if !ok || (kind != "user" && kind != "human") { // human: is the pre-registry alias
+			e.log.Warn("escalate: skipping non-user tier target", "target", target)
 			continue
 		}
 		found := false
 		for _, h := range roster.Humans {
-			if h.Name == name {
+			if h.Name == ref || (h.UserID != "" && string(h.UserID) == ref) {
 				handles = append(handles, "@"+h.Handle)
 				found = true
 				break
 			}
 		}
 		if !found {
-			e.log.Warn("escalate: human target not in roster, skipping", "target", target)
+			e.log.Warn("escalate: user target not a project member, skipping", "target", target)
 		}
 	}
 	return handles

@@ -12,7 +12,7 @@ import (
 // requestPrompt is the prompt a role Request raises the operator's personal
 // session with: it asks the agent to open the conversation with its owner.
 func requestPrompt(owner string) string {
-	return fmt.Sprintf("Squawk me (human:%s) and we will get to work.", owner)
+	return fmt.Sprintf("Squawk me (user:%s) and we will get to work.", owner)
 }
 
 // registerRoleRequest mounts the roles screen's Request action: raise a

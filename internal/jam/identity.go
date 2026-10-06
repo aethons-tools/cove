@@ -161,8 +161,11 @@ type Actor struct {
 
 // Human is a roster member reachable by @-mention on a tracker thread.
 type Human struct {
-	Name   string `json:"name"`   // roster-local name, e.g. "alice"
-	Handle string `json:"handle"` // tracker @-mention handle
+	// UserID is the registry user this roster human is (the roster view
+	// fills it); addressing matches a person by name or by this id.
+	UserID ident.ID `json:"user_id,omitempty"`
+	Name   string   `json:"name"`   // the user's (Jam-wide) name, e.g. "alice"
+	Handle string   `json:"handle"` // tracker @-mention handle
 	// Login links the human to their admin operator identity (OperatorID: the
 	// OIDC sub, or "local" on loopback). It is how Jam knows which roster
 	// human is behind an admin request, e.g. to own a personal session. "" =

@@ -90,7 +90,7 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	if inst.Owner != "alice" || inst.SessionKind != jam.SessionKindPersonal {
 		t.Fatalf("instance = %+v, want a personal session owned by alice", inst)
 	}
-	if len(l.prompts) != 1 || !strings.HasSuffix(l.prompts[0], "Squawk me (human:alice) and we will get to work.") {
+	if len(l.prompts) != 1 || !strings.HasSuffix(l.prompts[0], "Squawk me (user:alice) and we will get to work.") {
 		t.Errorf("prompt = %q, want it to end with the squawk-me request", l.prompts)
 	}
 	if !strings.Contains(rec.Body.String(), inst.ActorID) {

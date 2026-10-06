@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // Decision is the outcome of the three-question pipeline for one request.
@@ -76,11 +78,12 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 
 // SendTarget is a resolved comms recipient: how Jam should deliver a send.
 type SendTarget struct {
-	Kind    string // "human" | "channel"
-	Name    string // roster-local name
-	Handle  string // human @-mention handle (Kind=="human")
-	Ref     string // channel thread identifier (Kind=="channel")
-	Project string // the project whose grant authorized+resolved this target
+	Kind    string   // "human" (a user; the log's kind until slice 2) | "channel"
+	Name    string   // the user's or channel's name
+	UserID  ident.ID // the user (Kind=="human")
+	Handle  string   // human @-mention handle (Kind=="human")
+	Ref     string   // channel thread identifier (Kind=="channel")
+	Project string   // the project whose grant authorized+resolved this target
 }
 
 // ErrSendDenied means no grant's addressing authorizes the target's form (403);
@@ -92,69 +95,125 @@ var (
 	ErrSendUnresolved = errors.New("comms: send target not found")
 )
 
-func parseTarget(target string) (kind, name string, ok bool) {
+// parseTarget splits a send target. People are "user:<name|usr_id>";
+// "human:<name>" is accepted as an alias (one release) and read as "user:".
+func parseTarget(target string) (kind, ref string, ok bool) {
 	k, n, found := strings.Cut(target, ":")
-	if !found || n == "" || (k != "human" && k != "channel") {
+	if !found || n == "" {
 		return "", "", false
 	}
-	return k, n, true
+	switch k {
+	case "user", "human":
+		return "user", n, true
+	case "channel":
+		return k, n, true
+	}
+	return "", "", false
 }
 
-func targetAllowed(target string, globs []string) bool {
+// normalizeGlob reads a pre-registry "human:" addressing glob as "user:".
+func normalizeGlob(g string) string {
+	if rest, ok := strings.CutPrefix(g, "human:"); ok {
+		return "user:" + rest
+	}
+	return g
+}
+
+// anyAllowed reports whether some glob matches some of a target's forms (a
+// person is "user:<name>" and "user:<usr_id>"; a channel "channel:<name>").
+// An id form is matched only by that exact id, "user:*" or "*": a name glob
+// never matches an id ("usr_…"), so it can't reach every member.
+func anyAllowed(forms []string, globs []string) bool {
 	for _, g := range globs {
-		if ok, _ := path.Match(g, target); ok {
-			return true
+		g = normalizeGlob(g)
+		for _, f := range forms {
+			if isIDForm(f) {
+				if g == f || g == "user:*" || g == "*" {
+					return true
+				}
+				continue
+			}
+			if ok, _ := path.Match(g, f); ok {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func resolveInRoster(kind, name string, r Roster) (SendTarget, bool) {
+// isIDForm reports whether a target form names a person by user id.
+func isIDForm(f string) bool {
+	ref, ok := strings.CutPrefix(f, "user:")
+	if !ok {
+		return false
+	}
+	id, err := ident.Parse(ref)
+	return err == nil && id.Kind() == ident.User
+}
+
+// humanForms are the addressable forms of a roster person.
+func humanForms(h Human) []string {
+	forms := []string{"user:" + h.Name}
+	if h.UserID != "" {
+		forms = append(forms, "user:"+string(h.UserID))
+	}
+	return forms
+}
+
+func resolveInRoster(kind, ref string, r Roster) (SendTarget, []string, bool) {
 	switch kind {
-	case "human":
+	case "user":
 		for _, h := range r.Humans {
-			if h.Name == name {
-				return SendTarget{Kind: "human", Name: name, Handle: h.Handle}, true
+			if h.Name == ref || (h.UserID != "" && string(h.UserID) == ref) {
+				return SendTarget{Kind: "human", Name: h.Name, UserID: h.UserID, Handle: h.Handle}, humanForms(h), true
 			}
 		}
 	case "channel":
 		for _, c := range r.Channels {
-			if c.Name == name {
-				return SendTarget{Kind: "channel", Name: name, Ref: c.Ref}, true
+			if c.Name == ref {
+				return SendTarget{Kind: "channel", Name: ref, Ref: c.Ref}, []string{"channel:" + ref}, true
 			}
 		}
 	}
-	return SendTarget{}, false
+	return SendTarget{}, nil, false
 }
 
 // DecideSend authorizes actor a to send to target and resolves delivery. Live,
 // additive across grants, per-grant existential, fail-closed. See ErrSendDenied
 // / ErrSendUnresolved for the 403/404 split (authz checked before existence).
+// A grant authorizes a target when one of its addressing globs matches the
+// target as written, or (once resolved in its project) any form of whom it
+// names — so an id-form glob covers the name and vice versa, and an id never
+// widens what a name glob grants.
 func DecideSend(a Actor, getRole func(project, role string) (Role, bool), getRoster func(project string) (Roster, bool), target string, now time.Time) (SendTarget, error) {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return SendTarget{}, fmt.Errorf("actor %q expired", a.ID)
 	}
-	kind, name, ok := parseTarget(target)
+	kind, ref, ok := parseTarget(target)
 	if !ok {
 		return SendTarget{}, ErrSendDenied
 	}
+	written := kind + ":" + ref
 	authorized := false
 	for _, g := range a.Grants {
 		role, ok := getRole(g.Project, g.Role)
 		if !ok {
 			continue
 		}
-		if !targetAllowed(target, EffectiveScope(g, role).Addressing) {
-			continue
+		globs := EffectiveScope(g, role).Addressing
+		roster, hasRoster := getRoster(g.Project)
+		var st SendTarget
+		var forms []string
+		found := false
+		if hasRoster {
+			st, forms, found = resolveInRoster(kind, ref, roster)
 		}
-		authorized = true
-		roster, ok := getRoster(g.Project)
-		if !ok {
-			continue
-		}
-		if st, ok := resolveInRoster(kind, name, roster); ok {
+		if found && anyAllowed(forms, globs) {
 			st.Project = g.Project
 			return st, nil
+		}
+		if anyAllowed([]string{written}, globs) {
+			authorized = true
 		}
 	}
 	if authorized {
@@ -182,15 +241,15 @@ func ListTargets(a Actor, getRole func(project, role string) (Role, bool), getRo
 			continue
 		}
 		for _, h := range roster.Humans {
-			key := "human:" + h.Name
-			if !seen[key] && targetAllowed(key, globs) {
+			key := "user:" + h.Name
+			if !seen[key] && anyAllowed(humanForms(h), globs) {
 				seen[key] = true
-				out = append(out, SendTarget{Kind: "human", Name: h.Name, Handle: h.Handle, Project: g.Project})
+				out = append(out, SendTarget{Kind: "human", Name: h.Name, UserID: h.UserID, Handle: h.Handle, Project: g.Project})
 			}
 		}
 		for _, c := range roster.Channels {
 			key := "channel:" + c.Name
-			if !seen[key] && targetAllowed(key, globs) {
+			if !seen[key] && anyAllowed([]string{key}, globs) {
 				seen[key] = true
 				out = append(out, SendTarget{Kind: "channel", Name: c.Name, Ref: c.Ref, Project: g.Project})
 			}

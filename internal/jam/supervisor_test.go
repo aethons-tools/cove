@@ -1152,8 +1152,8 @@ func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
 		grants[a.ID] = a.Grants
 	}
 	p := grants["p1"]
-	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "human:alice" {
-		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
+	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "user:alice" {
+		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [user:alice] (a name-only owner; ids are user:<usr_id>)", p)
 	}
 	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
 		t.Fatalf("Requisitioner cove grant = %+v; want no override", w)
@@ -1313,7 +1313,7 @@ func TestRaiseContextStudioNamesOwner(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal, Prompt: "P"}); err != nil {
 		t.Fatal(err)
 	}
-	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`human:alice` — your owner") {
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`user:alice` — your owner") {
 		t.Fatalf("studio layer must name the owner: %+v", c)
 	}
 }

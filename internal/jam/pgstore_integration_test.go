@@ -200,3 +200,54 @@ func TestPostgresChatServiceMigration(t *testing.T) {
 		t.Fatalf("reload: chat service %q, connections %+v", q.ChatService, again.ListConnections())
 	}
 }
+
+// TestPostgresPolicyRefsMigration: a store at roster_schema 2 whose policy
+// still names people "human:<name>" and whose personal session has no owner
+// id is moved to user ids at load (step 3), once.
+func TestPostgresPolicyRefsMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:alice", "human:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutInstance(jam.Instance{ActorID: "p1", Project: "acme", Role: "impl", Owner: "alice", SessionKind: jam.SessionKindPersonal}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool().Exec(ctx, `UPDATE jam_settings SET doc = '2' WHERE key = 'roster_schema'`); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := s.LookupName(ident.User, "alice")
+
+	m := open()
+	if r, _ := m.GetRole("acme", "impl"); len(r.Scope.Addressing) != 2 || r.Scope.Addressing[0] != "user:"+string(alice) || r.Scope.Addressing[1] != "user:*" {
+		t.Fatalf("addressing = %v", r.Scope.Addressing)
+	}
+	if inst, _ := m.GetInstance("p1"); inst.OwnerID != alice {
+		t.Fatalf("owner id = %q, want %q", inst.OwnerID, alice)
+	}
+	if r, _ := open().GetRole("acme", "impl"); r.Scope.Addressing[0] != "user:"+string(alice) {
+		t.Fatalf("reload: addressing = %v", r.Scope.Addressing)
+	}
+}

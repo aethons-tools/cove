@@ -46,7 +46,7 @@ func (m *memState) rosterHumans(project ident.ID) []Human {
 // membership's delivery, with their discord account's uid on the discord
 // profile. Caller holds mu.
 func (m *memState) humanView(u User, ms Membership) Human {
-	h := Human{Name: u.Name, Identity: slices.Clone(u.OIDC), Delivery: slices.Clone(ms.Delivery)}
+	h := Human{UserID: u.ID, Name: u.Name, Identity: slices.Clone(u.OIDC), Delivery: slices.Clone(ms.Delivery)}
 	if len(u.Logins) > 0 {
 		h.Login = u.Logins[0]
 	}

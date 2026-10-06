@@ -165,16 +165,20 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 
 	// Resolve the logical target (authz via the comms access-graph). No `to` →
 	// the cove's default recipient: its own ticket (channel:<Unit>) when it has
-	// one, else its owner (a personal session → human:<Owner>, authorized like
+	// one, else its owner (a personal session → user:<OwnerID>, authorized like
 	// any explicit target), else there is no one to send to. A human/channel
 	// target is authorized here; rendering + ticket resolution happen at egress.
 	logicalTo := intercom.Target{Kind: "channel", Ref: inst.Unit}
 	if req.To == "" && inst.Unit == "" {
-		if inst.Owner == "" {
+		switch {
+		case inst.OwnerID != "":
+			req.To = "user:" + string(inst.OwnerID)
+		case inst.Owner != "":
+			req.To = "user:" + inst.Owner
+		default:
 			http.Error(w, `no default recipient: pass "to"`, http.StatusBadRequest)
 			return
 		}
-		req.To = "human:" + inst.Owner
 	}
 	if req.To != "" {
 		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())
@@ -215,9 +219,9 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 
 // targetOut is one entry in the GET /squawks/targets response. Handles are
 // deliberately omitted: they are roster config, not something the agent needs
-// to address a target — the agent addresses by "human:<name>"/"channel:<name>".
+// to address a target — the agent addresses by "user:<name>"/"channel:<name>".
 type targetOut struct {
-	Target string `json:"target"` // "human:alice"
+	Target string `json:"target"` // "user:alice"
 	Kind   string `json:"kind"`
 	Name   string `json:"name"`
 }
@@ -226,7 +230,11 @@ func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, a
 	targets := ListTargets(actor, h.store.GetRole, h.store.GetRoster, time.Now())
 	out := make([]targetOut, 0, len(targets))
 	for _, t := range targets {
-		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})
+		kind := t.Kind
+		if kind == "human" {
+			kind = "user" // a person; "human" is only the log's kind until slice 2
+		}
+		out = append(out, targetOut{Target: kind + ":" + t.Name, Kind: kind, Name: t.Name})
 	}
 	h.log.Info("intercom", "actor", actor.ID, "op", "targets", "count", len(out))
 	w.Header().Set("Content-Type", "application/json")

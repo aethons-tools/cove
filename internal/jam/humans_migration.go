@@ -584,8 +584,9 @@ func mapsKeys[V any](mm map[string]V) func(func(string) bool) {
 
 // rosterSchemaVersion is the registry migration level this binary brings a
 // store to: 1 = roster humans are users (1a-3a); 2 = a project's chat service
-// is a connection id, not a kind name (1a-4).
-const rosterSchemaVersion = 2
+// is a connection id, not a kind name (1a-4); 3 = stored policy names people
+// as user:<usr_id> and personal sessions carry their owner's id (1a-3d).
+const rosterSchemaVersion = 3
 
 // planRegistryMigration plans every registry migration step above level from
 // (a store's roster_schema; 0 for an import, whose snapshot may predate them
@@ -598,7 +599,183 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 	if from < 2 {
 		m.planChatServices(&plan)
 	}
+	if from < 3 {
+		m.planPolicyRefs(&plan)
+	}
 	return plan
+}
+
+// planPolicyRefs moves stored policy to user ids: every "human:<name>" in a
+// role's addressing, a grant override and an escalation tier becomes
+// "user:<usr_id>" when the name is a user (the live user of that name, else
+// that project's legacy alias) and "user:<name>" otherwise, and a
+// "human:<glob>" becomes "user:<glob>"; a personal session's instance gains
+// its owner's id. It reads earlier steps' writes (users, aliases, rewritten
+// docs) from plan, so a fresh migration resolves the users it is creating.
+func (m *memState) planPolicyRefs(plan *humanPlan) {
+	// A name means the live user of that name now (step 1 already rewrote a
+	// collision-renamed human's refs); the legacy alias is only the fallback
+	// for a name no live user has.
+	userOf := func(project, name string) (ident.ID, bool) {
+		for _, u := range plan.users {
+			if u.Name == name && u.Status == StatusLive {
+				return u.ID, true
+			}
+		}
+		if u, ok := m.liveUserNamed(name); ok {
+			return u.ID, true
+		}
+		for _, al := range plan.aliases {
+			if al.Project == project && al.Name == name {
+				return al.UserID, true
+			}
+		}
+		if id, ok := m.aliases[project][name]; ok {
+			return id, true
+		}
+		return "", false
+	}
+	rewrite := func(project string, targets []string) ([]string, bool) {
+		out := slices.Clone(targets)
+		changed := false
+		for i, t := range out {
+			ref, ok := strings.CutPrefix(t, "human:")
+			if !ok {
+				continue
+			}
+			changed = true
+			if id, ok := userOf(project, ref); ok && !strings.ContainsAny(ref, "*?[") {
+				out[i] = "user:" + string(id)
+			} else {
+				out[i] = "user:" + ref
+			}
+		}
+		return out, changed
+	}
+
+	// Projects (escalation tiers), over the docs earlier steps planned.
+	projIdx := map[string]int{}
+	for i, p := range plan.projects {
+		projIdx[p.Name] = i
+	}
+	for _, name := range slices.Sorted(mapsKeys(m.projects)) {
+		p := m.projects[name]
+		if i, ok := projIdx[name]; ok {
+			p = plan.projects[i]
+		}
+		p = copyProject(p)
+		changed := false
+		for i := range p.Escalation {
+			var ch bool
+			p.Escalation[i].Targets, ch = rewrite(name, p.Escalation[i].Targets)
+			changed = changed || ch
+		}
+		for cat, tiers := range p.EscalationByCategory {
+			for i := range tiers {
+				var ch bool
+				tiers[i].Targets, ch = rewrite(name, tiers[i].Targets)
+				changed = changed || ch
+			}
+			p.EscalationByCategory[cat] = tiers
+		}
+		if !changed {
+			continue
+		}
+		if i, ok := projIdx[name]; ok {
+			plan.projects[i] = p
+		} else {
+			projIdx[name] = len(plan.projects)
+			plan.projects = append(plan.projects, p)
+		}
+	}
+
+	// Roles' addressing.
+	roleIdx := map[[2]string]int{}
+	for i, rw := range plan.roles {
+		roleIdx[[2]string{rw.Project, rw.Role.Name}] = i
+	}
+	for _, project := range slices.Sorted(mapsKeys(m.roles)) {
+		for _, name := range slices.Sorted(mapsKeys(m.roles[project])) {
+			key := [2]string{project, name}
+			r := m.roles[project][name]
+			if i, ok := roleIdx[key]; ok {
+				r = plan.roles[i].Role
+			}
+			addr, changed := rewrite(project, r.Scope.Addressing)
+			if !changed {
+				continue
+			}
+			r.Scope.Addressing = addr
+			if i, ok := roleIdx[key]; ok {
+				plan.roles[i].Role = r
+			} else {
+				roleIdx[key] = len(plan.roles)
+				plan.roles = append(plan.roles, roleWrite{Project: project, Role: r})
+			}
+		}
+	}
+
+	// Grant overrides.
+	actorIdx := map[string]int{}
+	for i, a := range plan.actors {
+		actorIdx[a.TokenHash] = i
+	}
+	for _, h := range slices.Sorted(mapsKeys(m.actors)) {
+		a := m.actors[h]
+		if i, ok := actorIdx[h]; ok {
+			a = plan.actors[i]
+		}
+		grants := slices.Clone(a.Grants)
+		changed := false
+		for gi, g := range grants {
+			if g.Overrides == nil {
+				continue
+			}
+			if addr, ch := rewrite(orDefaultProject(g.Project), g.Overrides.Addressing); ch {
+				o := *g.Overrides
+				o.Addressing = addr
+				grants[gi].Overrides = &o
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		a.Grants = grants
+		if i, ok := actorIdx[h]; ok {
+			plan.actors[i] = a
+		} else {
+			actorIdx[h] = len(plan.actors)
+			plan.actors = append(plan.actors, a)
+		}
+	}
+
+	// Personal sessions' owners.
+	instIdx := map[string]int{}
+	for i, inst := range plan.instances {
+		instIdx[inst.ActorID] = i
+	}
+	for _, id := range slices.Sorted(mapsKeys(m.instances)) {
+		inst := m.instances[id]
+		if i, ok := instIdx[id]; ok {
+			inst = plan.instances[i]
+		}
+		if inst.Owner == "" || inst.OwnerID != "" {
+			continue
+		}
+		uid, ok := userOf(orDefaultProject(inst.Project), inst.Owner)
+		if !ok {
+			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("personal session %s: owner %q is no user; left by name", id, inst.Owner))
+			continue
+		}
+		inst.OwnerID = uid
+		if i, ok := instIdx[id]; ok {
+			plan.instances[i] = inst
+		} else {
+			instIdx[id] = len(plan.instances)
+			plan.instances = append(plan.instances, inst)
+		}
+	}
 }
 
 // planChatServices turns every project's chat service still stored as a kind

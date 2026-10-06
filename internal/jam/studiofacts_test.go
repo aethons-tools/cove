@@ -71,7 +71,7 @@ func TestStudioFactsOmitHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := studioFacts(store, Actor{ID: "w1", Grants: []Grant{{Project: "default", Role: "dev"}}}, "", nil, nil, false, time.Now())
-	if len(f.Targets) != 1 || f.Targets[0].Target != "human:bob" || strings.Contains(f.Targets[0].Who, "bob-gh") {
-		t.Fatalf("targets = %+v; want human:bob without its handle", f.Targets)
+	if len(f.Targets) != 1 || f.Targets[0].Target != "user:bob" || strings.Contains(f.Targets[0].Who, "bob-gh") {
+		t.Fatalf("targets = %+v; want user:bob without its handle", f.Targets)
 	}
 }
