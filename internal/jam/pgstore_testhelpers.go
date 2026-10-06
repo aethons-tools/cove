@@ -2,14 +2,18 @@
 
 package jam
 
-import "context"
+import (
+	"context"
+
+	"github.com/aethons-tools/cove/internal/ident"
+)
 
 // TruncateAllForTest clears every control-plane table and resets the in-memory
 // cache, so an integration test can start each case from an empty store while
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, model_specs, projects, intercom_unread_cursors`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE actors, roles, kits, instances, destinations, model_specs, projects, intercom_unread_cursors, accounts, connections, user_oidc, user_logins, users, participants`); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -22,5 +26,8 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.instances = map[string]Instance{}
 	s.projects = map[string]Project{}
 	s.unread = map[string]map[string]int64{}
+	s.users = map[ident.ID]User{}
+	s.connections = map[ident.ID]Connection{}
+	s.accounts = map[ident.ID]Account{}
 	return nil
 }
