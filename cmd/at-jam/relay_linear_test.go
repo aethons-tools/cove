@@ -760,3 +760,68 @@ func TestLinearDeliverEscapesPlainText(t *testing.T) {
 		t.Fatalf("posts = %+v", fp.posts)
 	}
 }
+
+// Linear ingress attributes a comment by its author's Linear user id: the
+// author's account (learned on first sight; the Linear @-handle is the display
+// name, so a member's handle account learns its uid) names the user when
+// linked; an unknown author is recorded as an unlinked account and the
+// comment stays from their display name.
+func TestRouteLinearAttributesByAccount(t *testing.T) {
+	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
+	if err := st.AddHuman("acme", jam.Human{Name: "alice", Handle: "alice.l"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Project: "acme", Unit: "ACME-1"}); err != nil {
+		t.Fatal(err)
+	}
+	d := &directory{store: st, accounts: st, project: "acme"}
+
+	from, to, _, ok := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "alice.l", AuthorID: "lin-u1", Body: "hi"})
+	if !ok || from != (intercom.Target{Kind: "human", Ref: "alice"}) || to[0].Ref != "cove-1" {
+		t.Fatalf("member comment = %v → %v, %v", from, to, ok)
+	}
+	lin, _ := st.ConnectionOfKind("linear")
+	if a, ok := st.AccountByUID(lin.ID, "lin-u1"); !ok || a.Handle != "alice.l" || a.UserID == "" {
+		t.Fatalf("alice's account = %+v, %v; want her handle account to learn the uid", a, ok)
+	}
+	// Renamed on Linear: the uid still finds her.
+	if from, _, _, _ := d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "alice.new", AuthorID: "lin-u1", Body: "hi"}); from.Ref != "alice" {
+		t.Fatalf("renamed author = %v, want alice", from)
+	}
+	from, _, _, _ = d.Route("linear", "acme", relay.Event{Surface: "ACME-1", Author: "stranger", AuthorID: "lin-u2", Body: "hi"})
+	if from != (intercom.Target{Kind: "human", Ref: "stranger"}) {
+		t.Fatalf("unknown author = %v", from)
+	}
+	if a, ok := st.AccountByUID(lin.ID, "lin-u2"); !ok || a.UserID != "" || a.Label != "stranger" {
+		t.Fatalf("stranger's account = %+v, %v; want an unlinked account", a, ok)
+	}
+}
+
+// An unknown Discord author of a routed reply is recorded as an unlinked
+// account; attribution is unchanged (their display name).
+func TestRouteDiscordRecordsUnknownAuthors(t *testing.T) {
+	st := newTestStore(t)
+	mustCreateProject(t, st, "acme")
+	rc, err := newFileReceipts(t.TempDir() + "/r.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Record("m1", "cove-1", "sq-1"); err != nil {
+		t.Fatal(err)
+	}
+	d := &directory{store: st, accounts: st, project: "acme", receipts: rc}
+	from, _, _, ok := d.Route("discord", "acme", relay.Event{Surface: "chan", Author: "Zed", AuthorID: "999", ReplyToForeign: "m1", Body: "hi"})
+	if !ok || from.Ref != "Zed" {
+		t.Fatalf("route = %v, %v", from, ok)
+	}
+	dc, _ := st.ConnectionOfKind("discord")
+	if a, ok := st.AccountByUID(dc.ID, "999"); !ok || a.UserID != "" || a.Label != "Zed" {
+		t.Fatalf("account = %+v, %v", a, ok)
+	}
+	// A bot is never recorded.
+	d.Route("discord", "acme", relay.Event{Surface: "chan", Author: "Bot", AuthorID: "777", AuthorBot: true, ReplyToForeign: "m1", Body: "x"})
+	if _, ok := st.AccountByUID(dc.ID, "777"); ok {
+		t.Fatal("a bot must not become an account")
+	}
+}

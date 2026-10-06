@@ -1961,7 +1961,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st, log: log}
+	dir := &directory{store: st, log: log, accounts: st}
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord {

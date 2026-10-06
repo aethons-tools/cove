@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -64,6 +65,7 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 			ForeignID:      c.ID,
 			Surface:        c.IssueIdentifier,
 			Author:         c.Author,
+			AuthorID:       c.AuthorID,
 			Body:           c.Body,
 			ReplyToForeign: c.ParentID,
 			At:             c.CreatedAt,
@@ -131,6 +133,53 @@ type directory struct {
 	selfIdentity string        // Jam's Linear viewer displayName (self-post filter)
 	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
 	log          *slog.Logger  // optional (nil = silent): debug attribution notes
+	// accounts records ingress authors as registry accounts and names the user
+	// a linked one belongs to (nil = attribution by roster/display name only).
+	accounts accountRecorder
+}
+
+// accountRecorder is the slice of jam.Store ingress attribution writes.
+type accountRecorder interface {
+	ConnectionOfKind(kind string) (jam.Connection, bool)
+	UpsertAccount(a jam.Account) (jam.Account, error)
+	GetUser(id ident.ID) (jam.User, bool)
+	CreateConnection(c jam.Connection) (jam.Connection, error)
+}
+
+// recordAuthor upserts an ingress author as an account on the connection of
+// kind (created when absent, like the implicit connections), learning its
+// handle and label, and returns the live user it is linked to, if any.
+// Best-effort: a failure is logged and attributes nobody.
+func (d *directory) recordAuthor(kind, uid, handle, label string) (jam.User, bool) {
+	if d.accounts == nil || uid == "" {
+		return jam.User{}, false
+	}
+	c, ok := d.accounts.ConnectionOfKind(kind)
+	if !ok {
+		var err error
+		if c, err = d.accounts.CreateConnection(jam.Connection{Kind: kind, Name: kind}); err != nil {
+			if c, ok = d.accounts.ConnectionOfKind(kind); !ok {
+				d.debug("relay: record author: no connection", "kind", kind, "error", err.Error())
+				return jam.User{}, false
+			}
+		}
+	}
+	a, err := d.accounts.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: uid, Handle: handle, Label: label})
+	if err != nil {
+		d.debug("relay: record author failed", "kind", kind, "error", err.Error())
+		return jam.User{}, false
+	}
+	if a.UserID == "" {
+		return jam.User{}, false
+	}
+	u, ok := d.accounts.GetUser(a.UserID)
+	return u, ok && u.Status == jam.StatusLive
+}
+
+func (d *directory) debug(msg string, args ...any) {
+	if d.log != nil {
+		d.log.Debug(msg, args...)
+	}
 }
 
 // Projects lists the projects a relay engine polls. Discord covers every store
@@ -191,13 +240,19 @@ func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.T
 		replyTo = "in:discord:" + e.ReplyToForeign
 	}
 	from = intercom.Target{Kind: "human", Ref: e.Author}
+	attributed := false
 	if r, ok := d.store.GetRoster(project); ok {
 		if name, by, ok := jam.DiscordAuthor(r, e.Surface, e.AuthorID, e.AuthorBot); ok {
-			from.Ref = name
-			if d.log != nil { // ids and names only — never the body
-				d.log.Debug("relay: discord reply attributed", "project", project, "human", name, "by", by)
-			}
+			from.Ref, attributed = name, true
+			// ids and names only — never the body
+			d.debug("relay: discord reply attributed", "project", project, "human", name, "by", by)
 		}
+	}
+	if !attributed && !e.AuthorBot {
+		// Record an unknown author so an operator can link them later; the
+		// reply stays theirs by display name (a linked account outside this
+		// project's roster names nobody here).
+		d.recordAuthor("discord", e.AuthorID, "", e.Author)
 	}
 	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
 }
@@ -231,6 +286,12 @@ func (d *directory) routeLinear(project string, e relay.Event) (from intercom.Ta
 	}
 	if to == nil {
 		return intercom.Target{}, nil, "", false
+	}
+	// The author's Linear user id names their account (the @-handle is the
+	// display name, so a member's handle account learns its uid); a linked
+	// account's user is the sender.
+	if u, ok := d.recordAuthor("linear", e.AuthorID, e.Author, e.Author); ok {
+		from.Ref = u.Name
 	}
 	if e.ReplyToForeign != "" {
 		replyTo = "in:linear:" + e.ReplyToForeign

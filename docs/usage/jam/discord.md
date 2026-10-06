@@ -110,4 +110,7 @@ their own Discord account counts as them, so someone else posting in their
 inbox is attributed by display name. Binding is operator-asserted (like
 `--login`), not verified.
 Jam logs at debug whether a reply was attributed `by=id` or `by=channel`
-(never the message body).
+(never the message body). An unattributed (non-bot) author is recorded as an
+**unlinked account** on the discord connection — `at-jam account list
+--connection discord` shows them; `account link <account> <user>` makes their
+later replies that user's.
