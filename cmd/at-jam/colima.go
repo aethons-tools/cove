@@ -15,8 +15,8 @@ import (
 
 // cmdColima returns the `at-jam colima` group: host-side setup of the colima VM
 // docker:true kits need (docs/usage/docker-in-sandbox.md). getenv resolves the
-// config path (COLIMA_HOME, HOME) and r runs the check's docker probe, both
-// injected so the command stays hermetic in tests.
+// config path (COLIMA_HOME, HOME, XDG_CONFIG_HOME) and r runs the check's docker
+// probe, both injected so the command stays hermetic in tests.
 func cmdColima(getenv func(string) string, r runner.Runner) func([]string, cli.Globals, io.Writer, io.Writer) int {
 	return func(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 		if len(args) == 0 {
