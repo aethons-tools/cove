@@ -172,11 +172,12 @@ func TestCreateVolumeLabels(t *testing.T) {
 	}
 }
 
-// TestListVolumes: lists the volumes carrying a label key, name → value.
+// TestListVolumes: lists the volumes carrying a label key (and every match
+// label=value), name → the key's value.
 func TestListVolumes(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
 	c := New(f).(*Colima)
-	got, err := c.ListVolumes("harbor.cove.state")
+	got, err := c.ListVolumes("harbor.cove.state", "harbor.cove.jam=j1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestListVolumes(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	args := strings.Join(dockerCall(f.Calls, "volume"), " ")
-	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
+	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --filter label=harbor.cove.jam=j1 --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
 		t.Errorf("args = %q", args)
 	}
 }

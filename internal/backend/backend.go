@@ -188,8 +188,9 @@ type VolumeOps interface {
 	// RemoveVolumes deletes the named volumes; an absent volume is not an
 	// error, an in-use one is.
 	RemoveVolumes(names ...string) error
-	// ListVolumes returns the volumes carrying label key, name → its value.
-	ListVolumes(key string) (map[string]string, error)
+	// ListVolumes returns the volumes carrying label key, name → its value,
+	// narrowed to those also carrying every match label ("key=value").
+	ListVolumes(key string, match ...string) (map[string]string, error)
 }
 
 // SessionEgress applies a session's per-class egress delta to a running

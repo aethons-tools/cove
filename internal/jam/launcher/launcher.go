@@ -50,9 +50,14 @@ type Config struct {
 	KnownHostsDir string
 	DNS           []string
 	Docker        bool
-	Subscription  bool         // legacy-render fallback only: the supervisor always sets RaiseSpec.Connector, whose env carries the mode
-	WorkDir       string       // AT_COVE_WORKDIR; default /home/agent/workspace
-	Log           *slog.Logger // nil → discard
+	Subscription  bool   // legacy-render fallback only: the supervisor always sets RaiseSpec.Connector, whose env carries the mode
+	WorkDir       string // AT_COVE_WORKDIR; default /home/agent/workspace
+	// JamID labels the state volumes this Jam creates (JamLabel) and scopes
+	// its sweep to them. It must be stable across restarts and distinct per
+	// Jam sharing a docker host; default RuntimeAddr (the address coves dial
+	// this Jam at — two Jams can't share it).
+	JamID string
+	Log   *slog.Logger // nil → discard
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
 	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
@@ -94,6 +99,9 @@ func New(cfg Config) *Launcher {
 	}
 	if cfg.WorkDir == "" {
 		cfg.WorkDir = "/home/agent/workspace"
+	}
+	if cfg.JamID == "" {
+		cfg.JamID = cfg.RuntimeAddr
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
@@ -195,53 +203,64 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 // labeled volume whose actor id is no longer declared is removed.
 const StateLabel = "harbor.cove.state"
 
+// JamLabel scopes a state volume to the Jam that created it (its value is
+// Config.JamID), so a Jam sweeps only its own volumes, never another's on a
+// shared docker host.
+const JamLabel = "harbor.cove.jam"
+
 // agentDataPath is where a standing session's agent-data volume mounts: the
 // agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).
 const agentDataPath = "/agent-data"
 
 // stateVolumes names a cove's state volumes, given its container name: the
-// at-cove create path's <container>-agent-data and <container>-workspace. The
-// one source for the raise's mounts and the purge.
-func stateVolumes(name string) (agentData, workspace string) {
-	return naming.AgentDataVolume(name), naming.WorkspaceVolume(name)
+// at-cove create path's <container>-agent-data and <container>-workspace, plus
+// with docker the <container>-docker /var/lib/docker cache (which the backend
+// mounts itself). The one source for the raise and the purge.
+func stateVolumes(name string, docker bool) []string {
+	vols := []string{naming.AgentDataVolume(name), naming.WorkspaceVolume(name)}
+	if docker {
+		vols = append(vols, naming.DockerVolume(name))
+	}
+	return vols
 }
 
-// stateMounts creates (labeled with the actor id) and returns what a standing
-// raise mounts to persist the session across restarts: its agent-data volume
-// at /agent-data and its workspace volume at the agent's WorkDir. Both outlive
-// the --rm container and re-attach when the same actor id is raised again.
-// Ephemeral and personal sessions get none: always fresh (COV-249).
+// stateMounts creates every state volume (labeled with the actor id and this
+// Jam) and returns what a standing raise mounts to persist the session across
+// restarts: its agent-data volume at /agent-data and its workspace volume at
+// the agent's WorkDir. They outlive the --rm container and re-attach when the
+// same actor id is raised again. Ephemeral and personal sessions get none:
+// always fresh (COV-249).
 func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount, error) {
 	if spec.SessionKind != jam.SessionKindStanding {
 		return nil, nil
 	}
-	ad, ws := stateVolumes(name)
-	mounts := []backend.Mount{{Volume: ad, Target: agentDataPath}, {Volume: ws, Target: l.cfg.WorkDir}}
-	for _, m := range mounts {
-		// -v would auto-create the volume, but without the label the sweep keys on.
-		if err := l.cfg.Ops.CreateVolume(m.Volume, StateLabel+"="+spec.ActorID); err != nil {
-			return nil, fmt.Errorf("create state volume %s: %w", m.Volume, err)
+	vols := stateVolumes(name, l.cfg.Docker)
+	for _, v := range vols {
+		// -v would auto-create the volume, but without the labels the sweep keys on.
+		if err := l.cfg.Ops.CreateVolume(v, StateLabel+"="+spec.ActorID, JamLabel+"="+l.cfg.JamID); err != nil {
+			return nil, fmt.Errorf("create state volume %s: %w", v, err)
 		}
 	}
-	return mounts, nil
+	return []backend.Mount{{Volume: vols[0], Target: agentDataPath}, {Volume: vols[1], Target: l.cfg.WorkDir}}, nil
 }
 
-// PurgeState deletes actorID's state volumes so its next raise starts fresh.
-// A volume still in use by a container errors (the caller retries later); an
+// PurgeState deletes actorID's state volumes (the -docker cache included,
+// whatever the current docker setting) so its next raise starts fresh. A
+// volume still in use by a container errors (the caller retries later); an
 // absent one is fine.
 func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
 	name := naming.CoveContainer(actorID)
-	ad, ws := stateVolumes(name)
-	if err := l.cfg.Ops.RemoveVolumes(ad, ws); err != nil {
+	if err := l.cfg.Ops.RemoveVolumes(stateVolumes(name, true)...); err != nil {
 		return fmt.Errorf("purge %s state: %w", name, err)
 	}
 	l.cfg.Log.Info("cove state purged", "id", actorID, "container", name)
 	return nil
 }
 
-// StateOwners lists the actor ids owning StateLabel-ed volumes, sorted.
+// StateOwners lists the actor ids owning this Jam's StateLabel-ed volumes,
+// sorted.
 func (l *Launcher) StateOwners(ctx context.Context) ([]string, error) {
-	vols, err := l.cfg.Ops.ListVolumes(StateLabel)
+	vols, err := l.cfg.Ops.ListVolumes(StateLabel, JamLabel+"="+l.cfg.JamID)
 	if err != nil {
 		return nil, err
 	}

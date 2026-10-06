@@ -91,13 +91,18 @@ func (c *Colima) CreateVolume(name string, labels ...string) error {
 	return c.r.Run("docker", dargs(append(args, name)...)...)
 }
 
-// ListVolumes lists the volumes carrying label key, name → value.
-func (c *Colima) ListVolumes(key string) (map[string]string, error) {
+// ListVolumes lists the volumes carrying label key (and every match label,
+// "key=value"), name → the key's value.
+func (c *Colima) ListVolumes(key string, match ...string) (map[string]string, error) {
 	if err := c.preflight(); err != nil {
 		return nil, err
 	}
-	out, err := c.r.Output("docker", dargs("volume", "ls", "--filter", "label="+key,
-		"--format", "{{.Name}}\t{{.Label \""+key+"\"}}")...) // a real tab: no shell, no escape processing
+	args := []string{"volume", "ls", "--filter", "label=" + key}
+	for _, m := range match {
+		args = append(args, "--filter", "label="+m)
+	}
+	args = append(args, "--format", "{{.Name}}\t{{.Label \""+key+"\"}}") // a real tab: no shell, no escape processing
+	out, err := c.r.Output("docker", dargs(args...)...)
 	if err != nil {
 		return nil, err
 	}

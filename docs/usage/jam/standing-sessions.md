@@ -108,8 +108,13 @@ A standing studio mounts two named Docker volumes, named after its container
 (`atcove-cove-<actor id>`) like an `at-cove create` sandbox's:
 `<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
 conversations, settings, logs) and `<container>-workspace` at the agent's working
-directory (`/home/agent/workspace` by default). Jam creates them before the
-container, labeled `harbor.cove.state=<actor id>`. The container runs with `--rm`,
+directory (`/home/agent/workspace` by default), plus, for a `docker: true`
+launcher, its `<container>-docker` cache at `/var/lib/docker`. Jam creates them
+before the container, labeled `harbor.cove.state=<actor id>` and
+`harbor.cove.jam=<this Jam's runtime address>`; a Jam only ever sweeps volumes
+carrying its own address, so two Jams sharing a docker host can't purge each
+other's (changing the runtime address orphans the old volumes rather than
+deleting them). The container runs with `--rm`,
 which removes only anonymous volumes, so these outlive it and re-attach when the
 name is raised again under the same actor id. The image's entrypoint seeds
 `/agent-data` only once (its `.seeded` guard) and refreshes what the image's

@@ -45,6 +45,8 @@ type fakeOps struct {
 	createdRan  bool     // RunEphemeral had run when a volume was created
 	createErr   error
 	listed      map[string]string // ListVolumes result
+	listedKey   string            // ListVolumes key
+	listedMatch []string          // ListVolumes match filters
 	paused      string
 	unpaused    string
 	status      backend.State
@@ -109,7 +111,10 @@ func (f *fakeOps) CreateVolume(name string, labels ...string) error {
 	f.createdRan = f.createdRan || f.ran
 	return f.createErr
 }
-func (f *fakeOps) ListVolumes(key string) (map[string]string, error) { return f.listed, nil }
+func (f *fakeOps) ListVolumes(key string, match ...string) (map[string]string, error) {
+	f.listedKey, f.listedMatch = key, match
+	return f.listed, nil
+}
 func (f *fakeOps) RemoveVolumes(names ...string) error {
 	f.volsRemoved = append(f.volsRemoved, names...)
 	return f.volsErr
@@ -314,11 +319,33 @@ func TestRaiseMountsStateOnlyForStanding(t *testing.T) {
 		}
 		var wantCreated []string
 		for _, m := range want {
-			wantCreated = append(wantCreated, m.Volume+" "+StateLabel+"=s1")
+			wantCreated = append(wantCreated, m.Volume+" "+StateLabel+"=s1 "+JamLabel+"=h:443")
 		}
 		if !slices.Equal(ops.created, wantCreated) || ops.createdRan {
 			t.Errorf("kind %q: created = %v (after run: %v), want %v before the run", kind, ops.created, ops.createdRan, wantCreated)
 		}
+	}
+}
+
+// A docker:true standing raise also creates its -docker cache volume labeled
+// (the backend mounts it), so the sweep removes it with the rest; the jam
+// label carries the configured JamID.
+func TestRaiseDockerStandingLabelsCacheVolume(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(), Docker: true, JamID: "jam-a", sleep: func(time.Duration) {},
+	})
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "s1", Kit: testKitRef, SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	lbl := " " + StateLabel + "=s1 " + JamLabel + "=jam-a"
+	want := []string{"atcove-cove-s1-agent-data" + lbl, "atcove-cove-s1-workspace" + lbl, "atcove-cove-s1-docker" + lbl}
+	if !slices.Equal(ops.created, want) {
+		t.Fatalf("created = %v, want %v", ops.created, want)
+	}
+	if len(ops.runMounts) != 2 {
+		t.Fatalf("mounts = %v; the -docker volume is the backend's own mount", ops.runMounts)
 	}
 }
 
@@ -361,13 +388,13 @@ func TestTeardownKeepsVolumes(t *testing.T) {
 }
 
 // TestPurgeStateRemovesVolumes: PurgeState removes the actor's state
-// volumes (the same stateVolumes the raise mounts).
+// volumes (stateVolumes, -docker cache included: absent is fine).
 func TestPurgeStateRemovesVolumes(t *testing.T) {
 	ops := &fakeOps{}
 	if err := newLauncher(ops).PurgeState(context.Background(), "s1"); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"atcove-cove-s1-agent-data", "atcove-cove-s1-workspace"}; !slices.Equal(ops.volsRemoved, want) {
+	if want := []string{"atcove-cove-s1-agent-data", "atcove-cove-s1-workspace", "atcove-cove-s1-docker"}; !slices.Equal(ops.volsRemoved, want) {
 		t.Fatalf("volsRemoved = %v, want %v", ops.volsRemoved, want)
 	}
 	ops = &fakeOps{volsErr: errors.New("in use")}
@@ -386,6 +413,11 @@ func TestStateOwners(t *testing.T) {
 	}
 	if want := []string{"id-a", "id-b"}; !slices.Equal(got, want) {
 		t.Fatalf("owners = %v, want %v", got, want)
+	}
+	// Only this Jam's volumes: another Jam on the same docker host never
+	// has its state swept from here.
+	if ops.listedKey != StateLabel || !slices.Equal(ops.listedMatch, []string{JamLabel + "=jam.example.com:443"}) {
+		t.Fatalf("ListVolumes(%q, %v); want scoped to this Jam (JamID defaults to RuntimeAddr)", ops.listedKey, ops.listedMatch)
 	}
 }
 
