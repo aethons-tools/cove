@@ -1776,11 +1776,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Message Log: opened once (handle held for the serve lifetime) and shared
 	// between the /squawks writer (dual-write shadow, below) and the admin UI's
 	// read-only reader (further down). Postgres (the shared control-plane pool).
-	ml, err := intercompg.NewLegacy(context.Background(), pgPool, log)
+	chlog, err := intercompg.New(context.Background(), pgPool, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
+	ml := chlog.Legacy()
 	var intercomLog intercom.LegacyStore = ml // Close is a no-op; the store owns the pool
 	log.Info("Jam message log: postgres (shared control-plane database)")
 	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
@@ -1792,13 +1793,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// channels key on the requisitioner's tracker connection, resolved below
 	// (until then, or with no requisitioner, the linear connection if any).
 	var trackerConn atomic.Value // ident.ID
-	sup.SetSessionChannels(jam.NewIntercom(st, func() (ident.ID, bool) {
+	ic := jam.NewIntercom(st, func() (ident.ID, bool) {
 		if id, ok := trackerConn.Load().(ident.ID); ok {
 			return id, true
 		}
 		c, ok := st.ConnectionOfKind("linear")
 		return c.ID, ok
-	}, func() int64 { seq, _ := intercomLog.TailSeq(); return seq }, log))
+	}, chlog, nil, log)
+	sup.SetSessionChannels(ic)
+	if err := ic.Reconcile(); err != nil {
+		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
+	}
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.

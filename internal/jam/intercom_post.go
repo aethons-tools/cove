@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // The intercom's posting rules (intercom slice 2a-2): which channel an
@@ -55,21 +56,69 @@ type Source interface {
 type Intercom struct {
 	store   Store
 	tracker func() (ident.ID, bool) // the connection ticket keys belong to
+	lg      intercom.Store          // the channel log posts append to
 	tail    func() int64            // the log's tail seq: where new members join
 	log     *slog.Logger
 	sources map[SourceKind]Source
 }
 
-// NewIntercom returns the intercom over store. tracker names the tracker
-// connection ticket channels are keyed on (ok=false: none, so no ticket
-// channels); tail reads the log's tail seq.
-func NewIntercom(store Store, tracker func() (ident.ID, bool), tail func() int64, log *slog.Logger) *Intercom {
-	ic := &Intercom{store: store, tracker: tracker, tail: tail, log: log}
+// NewIntercom returns the intercom over store, appending to lg. tracker
+// names the tracker connection ticket channels are keyed on (ok=false: none,
+// so no ticket channels); tail reads the log's tail seq (nil: lg's).
+func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store, tail func() int64, log *slog.Logger) *Intercom {
+	if tail == nil {
+		tail = func() int64 { seq, _ := lg.TailSeq(); return seq }
+	}
+	ic := &Intercom{store: store, tracker: tracker, lg: lg, tail: tail, log: log}
 	ic.sources = map[SourceKind]Source{}
 	for _, s := range []Source{chatSource{ic}, ticketSource{ic}, roomSource{ic}} {
 		ic.sources[s.Kind()] = s
 	}
 	return ic
+}
+
+// ---- writing ----
+
+// Post appends m to the planned channel with the planned audience (m's
+// Channel is set from the plan). A person posting in a ticket or room joins
+// it, from this post on.
+func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error) {
+	m.Channel = pl.Channel.ID
+	m, err := ic.lg.Append(m, pl.Audience)
+	if err != nil {
+		return intercom.Squawk{}, err
+	}
+	if (pl.Channel.Kind == SourceTicket || pl.Channel.Kind == SourceRoom) && !isSessionID(m.From) && !ic.isMemberOf(pl.Channel, m.From) {
+		if err := ic.store.JoinChannel(pl.Channel.ID, m.From, m.Seq); err != nil && ic.log != nil {
+			ic.log.Warn("intercom: joining the poster to the channel failed", "channel", string(pl.Channel.ID), "err", err.Error())
+		}
+	}
+	return m, nil
+}
+
+// PostTrusted posts m into ch without asking the source whether its author
+// may: relay ingress (already resolved by its binding) and Jam's own notices.
+// The audience is still the channel's; an archived channel takes nothing.
+func (ic *Intercom) PostTrusted(ch Channel, m intercom.Squawk) (intercom.Squawk, error) {
+	if ch.Status != StatusLive {
+		return intercom.Squawk{}, fmt.Errorf("%w: channel %s", ErrRemoved, ch.ID)
+	}
+	return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
+}
+
+// Reconcile gives every live session on a ticket its ticket channel — at
+// startup, for sessions set up before ticket channels existed, so replies on
+// their tickets have somewhere to land before they send.
+func (ic *Intercom) Reconcile() error {
+	var errs []error
+	for _, inst := range ic.store.ListInstances() {
+		if inst.Phase != PhaseGone && inst.Unit != "" {
+			if err := ic.SetUp(inst); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", inst.ActorID, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // ---- sessions' ticket channels ----
