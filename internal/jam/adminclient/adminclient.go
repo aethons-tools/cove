@@ -287,7 +287,7 @@ func (c *Client) RemoveKit(name string) error {
 }
 
 // AddChannel upserts a roster channel (by name) within project.
-func (c *Client) AddChannel(project string, ch jam.Channel) error {
+func (c *Client) AddChannel(project string, ch jam.RosterChannel) error {
 	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/channels", ch, nil)
 }
 

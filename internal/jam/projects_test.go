@@ -55,7 +55,7 @@ func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 	}{
 		{"POST", "/admin/roles", RoleBody{Project: "ghost", Name: "worker"}},
 		{"PUT", "/admin/projects/ghost/members/alice", MemberBody{}},
-		{"POST", "/admin/projects/ghost/channels", Channel{Name: "eng", Ref: "ENG-1"}},
+		{"POST", "/admin/projects/ghost/channels", RosterChannel{Name: "eng", Ref: "ENG-1"}},
 		{"PUT", "/admin/projects/ghost/escalation", EscalationBody{}},
 		{"PUT", "/admin/projects/ghost/chat-service", ChatServiceBody{Service: "discord"}},
 	}

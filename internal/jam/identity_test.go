@@ -104,7 +104,7 @@ func TestDiscordInboxOwner(t *testing.T) {
 			{Name: "erin", Delivery: disc("inbox-E")},
 			{Name: "noaddr", Delivery: disc("")},
 		},
-		Channels: []Channel{{Name: "team", Service: "discord", Ref: "inbox-E"}},
+		Channels: []RosterChannel{{Name: "team", Service: "discord", Ref: "inbox-E"}},
 	}
 	for _, tc := range []struct {
 		channel, want string
@@ -164,7 +164,7 @@ func TestDiscordAuthor(t *testing.T) {
 			{Name: "carol", Delivery: disc("shared", "333")},  // bound, shared inbox
 			{Name: "dave", Delivery: disc("shared", "")},      // unbound, shared inbox
 		},
-		Channels: []Channel{{Name: "team", Service: "discord", Ref: "team-ch"}},
+		Channels: []RosterChannel{{Name: "team", Service: "discord", Ref: "team-ch"}},
 	}
 	for _, tc := range []struct {
 		name, channel, authorID string

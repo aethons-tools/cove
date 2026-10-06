@@ -47,7 +47,7 @@ func seedProjects(t *testing.T) jam.Store {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddChannel("acme", jam.Channel{Name: "eng", Service: "discord", Ref: "chan-eng"}); err != nil {
+	if err := store.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "discord", Ref: "chan-eng"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetEscalationPolicy("acme", "", []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 30 * time.Minute}}); err != nil {

@@ -74,10 +74,12 @@ type Entry struct {
 	Status Status
 }
 
-// Label renders the entry for people: its name, marked when removed.
+// Label renders the entry for people: its name, marked when removed (or, for
+// a channel, archived).
 func (e Entry) Label() string {
-	if e.Status == StatusRemoved {
-		return e.Name + " (removed)"
+	switch e.Status {
+	case StatusRemoved, StatusArchived:
+		return e.Name + " (" + string(e.Status) + ")"
 	}
 	return e.Name
 }

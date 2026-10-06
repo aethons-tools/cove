@@ -18,6 +18,7 @@ import (
 // a fresh, empty store on each call.
 func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runRegistryConformance(t, newStore)
+	runChannelConformance(t, newStore)
 
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
 	// which most subtests write into.
@@ -582,7 +583,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil { // upsert by name
 			t.Fatalf("AddHuman (upsert): %v", err)
 		}
-		if err := s.AddChannel("acme", jam.Channel{Name: "eng", Ref: "ACME-1"}); err != nil {
+		if err := s.AddChannel("acme", jam.RosterChannel{Name: "eng", Ref: "ACME-1"}); err != nil {
 			t.Fatalf("AddChannel: %v", err)
 		}
 		ros, ok := s.GetRoster("acme")
@@ -686,7 +687,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		writes := map[string]func() error{
 			"PutRole":             func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
 			"AddHuman":            func() error { return s.AddHuman("ghost", jam.Human{Name: "h"}) },
-			"AddChannel":          func() error { return s.AddChannel("ghost", jam.Channel{Name: "c"}) },
+			"AddChannel":          func() error { return s.AddChannel("ghost", jam.RosterChannel{Name: "c"}) },
 			"SetEscalationPolicy": func() error { return s.SetEscalationPolicy("ghost", "", nil) },
 			"SetChatService":      func() error { return s.SetChatService("ghost", "discord") },
 			"AddActor": func() error {

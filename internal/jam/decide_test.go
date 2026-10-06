@@ -94,7 +94,7 @@ func TestDecideSend(t *testing.T) {
 	rosters := map[string]Roster{
 		"acme": {
 			Humans:   []Human{{Name: "alice", Handle: "alice.h"}},
-			Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}},
+			Channels: []RosterChannel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}},
 		},
 	}
 	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
@@ -145,7 +145,7 @@ func TestDecideSendPerGrantExistential(t *testing.T) {
 	}
 	rosters := map[string]Roster{
 		"acme": {Humans: []Human{{Name: "alice", Handle: "h"}}},
-		"beta": {Channels: []Channel{{Name: "ops", Ref: "BETA-9"}}},
+		"beta": {Channels: []RosterChannel{{Name: "ops", Ref: "BETA-9"}}},
 	}
 	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
 	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
@@ -162,7 +162,7 @@ func TestDecideSendPerGrantExistential(t *testing.T) {
 
 func TestListTargets(t *testing.T) {
 	roles := map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}}
-	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "h"}, {Name: "bob", Handle: "h2"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}}
+	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "h"}, {Name: "bob", Handle: "h2"}}, Channels: []RosterChannel{{Name: "eng", Ref: "R"}}}}
 	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
 	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
 	a := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}

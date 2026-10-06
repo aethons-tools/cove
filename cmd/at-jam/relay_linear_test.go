@@ -89,7 +89,7 @@ func TestDirectoryRoute(t *testing.T) {
 	if err := st.PutInstance(jam.Instance{ActorID: "cove-1", Unit: "ACME-42", Project: "acme"}); err != nil {
 		t.Fatalf("PutInstance: %v", err)
 	}
-	if err := st.AddChannel("acme", jam.Channel{Name: "eng", Service: "linear", Ref: "ACME-9"}); err != nil {
+	if err := st.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "linear", Ref: "ACME-9"}); err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
 	d := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
@@ -372,7 +372,7 @@ func TestEgressGoldenParity(t *testing.T) {
 		jam.Instance{ActorID: "cove-1", Unit: "ACME-7", Project: "acme"},
 		jam.Roster{
 			Humans:   []jam.Human{{Name: "alice", Handle: "alice.h"}},
-			Channels: []jam.Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
+			Channels: []jam.RosterChannel{{Name: "eng-help", Service: "linear", Ref: "ACME-9"}},
 		})
 	poster := &fakePoster{idByID: map[string]string{"ACME-7": "iss_7", "ACME-9": "iss_9"}}
 	dir := &directory{store: st, project: "acme", selfIdentity: "jam-bot"}
@@ -422,7 +422,7 @@ func TestResolveDiscordRouting(t *testing.T) {
 			{Name: "alice", Handle: "alice.h", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-A"}}},
 			{Name: "bob", Handle: "bob.h"}, // no discord profile
 		},
-		Channels: []jam.Channel{
+		Channels: []jam.RosterChannel{
 			{Name: "eng", Service: "discord", Ref: "disc-eng"},
 			{Name: "tick", Service: "linear", Ref: "ACME-9"},
 		},

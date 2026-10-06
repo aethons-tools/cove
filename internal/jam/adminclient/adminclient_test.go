@@ -218,7 +218,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if err := c.PutMember("acme", "alice", nil); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
-	if err := c.AddChannel("acme", jam.Channel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
+	if err := c.AddChannel("acme", jam.RosterChannel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
 		t.Fatalf("AddChannel: %v", err)
 	}
 	rr, err := c.GetRoster("acme")

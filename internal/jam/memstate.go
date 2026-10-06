@@ -46,6 +46,10 @@ type memState struct {
 	// standing maps a declared standing session to its session id
 	// (standing_sessions.go).
 	standing map[standingKey]string
+	// channels is the channel registry, keyed by id (archived ones stay), and
+	// chanMembers each channel's membership rows (channel_registry.go).
+	channels    map[ident.ID]Channel
+	chanMembers map[ident.ID][]ChannelMember
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -72,6 +76,8 @@ func newMemState() *memState {
 		members:     map[ident.ID]map[ident.ID]Membership{},
 		aliases:     map[string]map[string]ident.ID{},
 		standing:    map[standingKey]string{},
+		channels:    map[ident.ID]Channel{},
+		chanMembers: map[ident.ID][]ChannelMember{},
 		unread:      map[string]map[string]int64{},
 	}
 }
@@ -287,7 +293,7 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 	}
 	return Roster{
 		Humans:   m.rosterHumans(p.ID),
-		Channels: append([]Channel(nil), p.Roster.Channels...),
+		Channels: m.rosterChannels(p.ID),
 	}, true
 }
 
@@ -619,7 +625,12 @@ func prepareModelSpec(ms ModelSpec) (ModelSpec, error) {
 
 func (m *memState) applyPutProject(p Project) { m.projects[p.Name] = p }
 
-func (m *memState) applyRemoveProject(name string) { delete(m.projects, name) }
+func (m *memState) applyRemoveProject(name string) {
+	if p, ok := m.projects[name]; ok && p.ID != "" {
+		m.applyDropProjectChannels(p.ID)
+	}
+	delete(m.projects, name)
+}
 
 // ---- pure compute helpers for aggregate (doc) edits ----
 
@@ -668,20 +679,6 @@ func upsertHuman(p Project, h Human) Project {
 	return p
 }
 
-func upsertChannel(p Project, c Channel) Project {
-	if c.Service == "" {
-		c.Service = "linear"
-	}
-	for i := range p.Roster.Channels {
-		if p.Roster.Channels[i].Name == c.Name {
-			p.Roster.Channels[i] = c
-			return p
-		}
-	}
-	p.Roster.Channels = append(p.Roster.Channels, c)
-	return p
-}
-
 func removeHumanFrom(p Project, name string) Project {
 	out := p.Roster.Humans[:0]
 	for _, h := range p.Roster.Humans {
@@ -690,17 +687,6 @@ func removeHumanFrom(p Project, name string) Project {
 		}
 	}
 	p.Roster.Humans = out
-	return p
-}
-
-func removeChannelFrom(p Project, name string) Project {
-	out := p.Roster.Channels[:0]
-	for _, c := range p.Roster.Channels {
-		if c.Name != name {
-			out = append(out, c)
-		}
-	}
-	p.Roster.Channels = out
 	return p
 }
 
@@ -766,7 +752,7 @@ func copyProject(p Project) Project {
 	p.Context.Leaves = slices.Clone(p.Context.Leaves)
 	p.Resources = slices.Clone(p.Resources)
 	p.Roster.Humans = copyHumans(p.Roster.Humans)
-	p.Roster.Channels = append([]Channel(nil), p.Roster.Channels...)
+	p.Roster.Channels = append([]RosterChannel(nil), p.Roster.Channels...)
 	p.Escalation = append([]EscalationTier(nil), p.Escalation...)
 	for i := range p.Escalation {
 		p.Escalation[i].Targets = append([]string(nil), p.Escalation[i].Targets...)

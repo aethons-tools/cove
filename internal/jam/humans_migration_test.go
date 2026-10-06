@@ -396,3 +396,89 @@ func TestPlanStandingSessionsSkipsCollidingIDs(t *testing.T) {
 		t.Fatalf("standing = %+v, want one seeded entry", plan.standing)
 	}
 }
+
+// Step 5: roster channels become rooms bound on the connection of their
+// service; a ref two projects shared stays with the first project's room and
+// the second only posts there; the docs drop their channels.
+func TestPlanRegistryMigrationRosterChannelsToRooms(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil, "zeta": nil})
+	acme, zeta := m.projects["acme"], m.projects["zeta"]
+	acme.Roster.Channels = []RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-1"}, {Name: "chat", Service: "discord", Ref: "42"}}
+	zeta.Roster.Channels = []RosterChannel{{Name: "eng", Ref: "ACME-1"}, {Name: "bad", Service: "carrier-pigeon", Ref: "x"}}
+	m.projects["acme"], m.projects["zeta"] = acme, zeta
+
+	plan := m.planRegistryMigration(4)
+	if len(plan.connections) != 2 {
+		t.Fatalf("connections = %+v, want one linear and one discord", plan.connections)
+	}
+	if len(plan.channels) != 3 {
+		t.Fatalf("channels = %+v, want 3 rooms", plan.channels)
+	}
+	byKey := map[string][]Channel{}
+	for _, c := range plan.channels {
+		if c.Kind != SourceRoom || c.Status != StatusLive || c.ID.Kind() != ident.Channel {
+			t.Fatalf("room = %+v", c)
+		}
+		byKey[c.Key] = append(byKey[c.Key], c)
+	}
+	if e := byKey["eng"]; len(e) != 2 || e[0].ProjectID != acme.ID || e[0].Bindings[0].Mode != BindBoth || e[1].ProjectID != zeta.ID || e[1].Bindings[0].Mode != BindEgress {
+		t.Fatalf("eng rooms = %+v", e)
+	}
+	if len(plan.report.Notes) != 2 {
+		t.Fatalf("notes = %q, want the shared ref and the unknown service", plan.report.Notes)
+	}
+	if len(plan.projects) != 2 || len(plan.projects[0].Roster.Channels) != 0 || len(plan.projects[1].Roster.Channels) != 1 {
+		t.Fatalf("projects = %+v, want acme's doc cleared and zeta's keeping its unplaceable channel", plan.projects)
+	}
+
+	m.applyHumanPlan(plan)
+	if again := m.planRegistryMigration(5); len(again.channels)+len(again.projects) != 0 {
+		t.Fatalf("from 5 = %+v", again)
+	}
+	if got := m.rosterChannels(acme.ID); len(got) != 2 || got[0] != (RosterChannel{Name: "chat", Service: "discord", Ref: "42"}) {
+		t.Fatalf("roster view = %+v", got)
+	}
+}
+
+// Step 5 is lenient about what older Jams stored: a service in any case maps
+// to its kind, a name given twice is one room (the last wins, as the doc's
+// upsert did), and a channel it can't place stays in the doc rather than
+// being lost.
+func TestPlanRoomsKeepsWhatItCannotPlace(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	p := m.projects["acme"]
+	p.Roster.Channels = []RosterChannel{
+		{Name: "chat", Service: " Discord ", Ref: "42"},
+		{Name: "eng", Ref: "ACME-1"}, {Name: "eng", Ref: "ACME-2"},
+		{Name: "pigeon", Service: "carrier-pigeon", Ref: "x"},
+	}
+	m.projects["acme"] = p
+	plan := m.planRegistryMigration(4)
+	if len(plan.channels) != 2 {
+		t.Fatalf("channels = %+v, want chat and one eng", plan.channels)
+	}
+	m.applyHumanPlan(plan)
+	want := []RosterChannel{{Name: "chat", Service: "discord", Ref: "42"}, {Name: "eng", Service: "linear", Ref: "ACME-2"}}
+	if got := m.rosterChannels(p.ID); !slices.Equal(got, want) {
+		t.Fatalf("rooms = %+v, want %+v", got, want)
+	}
+	if kept := m.projects["acme"].Roster.Channels; len(kept) != 1 || kept[0].Name != "pigeon" {
+		t.Fatalf("doc channels = %+v, want the unplaceable one kept", kept)
+	}
+}
+
+// A fresh migration (from 0) moves humans and channels together: step 5
+// starts from the doc step 1 rewrote, so neither change is lost.
+func TestPlanRegistryMigrationRoomsKeepEarlierSteps(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": {{Name: "alice"}}})
+	p := m.projects["acme"]
+	p.Roster.Channels = []RosterChannel{{Name: "eng", Ref: "ACME-1"}}
+	m.projects["acme"] = p
+	plan := m.planRegistryMigration(0)
+	if len(plan.projects) != 1 || len(plan.projects[0].Roster.Humans)+len(plan.projects[0].Roster.Channels) != 0 {
+		t.Fatalf("projects = %+v", plan.projects)
+	}
+	if len(plan.users) != 1 || len(plan.channels) != 1 {
+		t.Fatalf("users %+v, channels %+v", plan.users, plan.channels)
+	}
+}

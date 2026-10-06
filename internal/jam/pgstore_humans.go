@@ -132,6 +132,11 @@ func writeHumanPlanTx(ctx context.Context, tx pgx.Tx, p humanPlan) error {
 			return err
 		}
 	}
+	for _, c := range p.channels {
+		if err := putChannelTx(ctx, tx, c); err != nil {
+			return err
+		}
+	}
 	for _, inst := range p.instances {
 		doc, err := json.Marshal(inst)
 		if err != nil {

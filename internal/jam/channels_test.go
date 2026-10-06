@@ -35,7 +35,7 @@ func channel(ref string) intercom.Target { return intercom.Target{Kind: "channel
 func projectionFixture() (fakeLog, jam.Roster, []jam.Instance) {
 	roster := jam.Roster{
 		Humans:   []jam.Human{{Name: "alice"}, {Name: "bob"}},
-		Channels: []jam.Channel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
+		Channels: []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
 	}
 	instances := []jam.Instance{
 		{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},

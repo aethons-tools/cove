@@ -50,6 +50,7 @@ type humanPlan struct {
 	actors      []Actor
 	instances   []Instance
 	standing    []StandingSessionRef // standing-session map entries to add
+	channels    []Channel            // rooms from roster channels (written after projects)
 	report      HumanMigration
 }
 
@@ -573,6 +574,9 @@ func (m *memState) applyHumanPlan(p humanPlan) {
 	for _, s := range p.standing {
 		m.applyPutStandingSession(s.ProjectID, s.Role, s.Name, s.SessionID)
 	}
+	for _, c := range p.channels {
+		m.applyPutChannel(c)
+	}
 }
 
 // mapsKeys is maps.Keys for slices.Sorted call sites over string-keyed maps.
@@ -590,8 +594,9 @@ func mapsKeys[V any](mm map[string]V) func(func(string) bool) {
 // store to: 1 = roster humans are users (1a-3a); 2 = a project's chat service
 // is a connection id, not a kind name (1a-4); 3 = stored policy names people
 // as user:<usr_id> and personal sessions carry their owner's id (1a-3d); 4 =
-// declared standing sessions are in the standing-session map (1b).
-const rosterSchemaVersion = 4
+// declared standing sessions are in the standing-session map (1b); 5 = roster
+// channels are rooms in the channel registry (2a).
+const rosterSchemaVersion = 5
 
 // planRegistryMigration plans every registry migration step above level from
 // (a store's roster_schema; 0 for an import, whose snapshot may predate them
@@ -609,6 +614,9 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 	}
 	if from < 4 {
 		m.planStandingSessions(&plan)
+	}
+	if from < 5 {
+		m.planRooms(&plan)
 	}
 	return plan
 }

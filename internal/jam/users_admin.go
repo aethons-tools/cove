@@ -95,12 +95,12 @@ var ErrUserBusy = errors.New("user owns a live personal session")
 
 // RegistryErrStatus maps registry and project errors to HTTP statuses.
 func RegistryErrStatus(err error) int {
-	for _, nf := range []error{ErrUserNotFound, ErrConnectionNotFound, ErrAccountNotFound, ErrMembershipNotFound, ErrProjectNotFound} {
+	for _, nf := range []error{ErrUserNotFound, ErrConnectionNotFound, ErrAccountNotFound, ErrMembershipNotFound, ErrProjectNotFound, ErrChannelNotFound} {
 		if errors.Is(err, nf) {
 			return http.StatusNotFound
 		}
 	}
-	for _, c := range []error{ErrNameTaken, ErrRemoved, ErrConnectionInUse, ErrProjectInUse, ErrUserBusy} {
+	for _, c := range []error{ErrNameTaken, ErrRemoved, ErrConnectionInUse, ErrProjectInUse, ErrUserBusy, ErrChannelExists, ErrBindingTaken} {
 		if errors.Is(err, c) {
 			return http.StatusConflict
 		}

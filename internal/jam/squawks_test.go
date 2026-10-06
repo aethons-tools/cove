@@ -354,7 +354,7 @@ func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []RosterChannel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
 	}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
@@ -428,7 +428,7 @@ func TestSendToDeniedIs403(t *testing.T) {
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "secret", Ref: "X"}}}},
+		rosters:   map[string]Roster{"acme": {Channels: []RosterChannel{{Name: "secret", Ref: "X"}}}},
 	}
 	ap := &fakeAppender{}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
@@ -483,7 +483,7 @@ func TestTargetsListsAllowedTargets(t *testing.T) {
 		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
 		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
 		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}},
+		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []RosterChannel{{Name: "eng", Ref: "R"}}}},
 	}
 	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
 	h := NewSquawksHandler(store, nil, nil, log)
