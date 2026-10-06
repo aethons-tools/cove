@@ -18,7 +18,7 @@ An integration branch was considered and rejected: PRs into a non-main branch ge
    - Neither `squawks.channel_id` / `from_id` nor `squawk_deliveries.participant_id` references jam tables.
    - The two migration runners are independent (intercompg's integration tests run without jam's schema), and `Post` validates ids before it appends.
    - A row whose channel is gone renders as "(removed channel)".
-2. **Project removal (decide in review; recommended (a)).**
+2. **Project removal: (a), decided 2026-10-06.**
    - (a) Removing a project still removes its channels; their squawks stay as history with no channel label. This is today's behaviour, made safe by decision 1.
    - (b) Pull 1b-3's project tombstones in here, so ids keep resolving. It touches the projects map's keying (by name) and every project lookup.
 3. **The grandfathered union is permanent and cheap.**
