@@ -49,6 +49,10 @@
 - `internal/jam/intercom_sources.go`: the `Source` interface (spec §2) and the `chat`, `ticket` and `room` sources over `ChannelStore` and `Directory`; `Intercom.Resolve(ctx, addr)` for the grammar in spec §5.
 - **Ticket channels at setup:** the dispatcher's setup creates or rejoins `ticket:<tracker connection>/<unit>` and joins the session (`joined_seq` = log tail). Teardown leaves it. This is harmless before 2b and means sessions set up after 2a-2 need no cutover backfill.
 - `Post` itself needs the new log, so it lands in 2b. 2a-2 ships `Intercom.Plan(from, addr) (Channel, audience, error)`: the resolve, authorization and audience step, tested on its own (fail-closed ordering, ceilings, ended sessions, archived channels).
+- As built: `Intercom.Plan(poster, addr, now)` for a session's address, `PlanChannel(poster, channel)` for a post into an existing channel, `CanSee`; `Supervisor.SetSessionChannels` calls `SetUp`/`Ended` at raise and teardown (best effort). Bindings for egress are computed with the relays in 2b.
+
+### 2a-3: `at-jam room`
+
 - `at-jam room add|list|rename|rm` and `/admin/projects/{p}/rooms` replace `project roster add-channel|list|rm-channel`, and the admin UI project page follows.
 
 ### 2b: log cutover (stacked into an `intercom-2b` integration branch, merged to main together)

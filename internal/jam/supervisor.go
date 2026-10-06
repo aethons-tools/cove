@@ -215,6 +215,7 @@ type Supervisor struct {
 	sink      ControlSink
 	tail      tailReader
 	released  Releaser
+	channels  SessionChannels
 	// defaultStudioKit is the studio kit a raise runs from when its role names no
 	// kit (its light reference). nil leaves such a raise with no kit (hermetic
 	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
@@ -260,6 +261,18 @@ func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 // actual-state-out seam). Called once at wiring time; nil (no Postgres ledger)
 // leaves teardown recording nothing, exactly as before.
 func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
+
+// SessionChannels follows sessions into and out of their channels: the
+// intercom joins a session set up on a ticket to the ticket's channel, and
+// takes it out when the session ends (teardown).
+type SessionChannels interface {
+	SetUp(inst Instance) error
+	Ended(inst Instance) error
+}
+
+// SetSessionChannels wires the intercom in. Best effort: a failure is logged
+// and never fails the setup or teardown. Call before serving.
+func (s *Supervisor) SetSessionChannels(c SessionChannels) { s.channels = c }
 
 // SetDefaultStudioKit wires the studio kit a raise runs from when its role names
 // no kit — its light reference, recorded in the registry by EnsureDefaultStudioKit
@@ -394,6 +407,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
 		return Instance{}, "", "", err
+	}
+	if s.channels != nil {
+		if err := s.channels.SetUp(inst); err != nil && s.log != nil {
+			s.log.Warn("raise: joining the session's channels failed (non-fatal)", "id", spec.ActorID, "err", err.Error())
+		}
 	}
 	if s.log != nil {
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
@@ -1152,6 +1170,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
+	}
+	if s.channels != nil {
+		if err := s.channels.Ended(inst); err != nil && s.log != nil {
+			s.log.Warn("teardown: leaving the session's channels failed (non-fatal)", "id", actorID, "err", err.Error())
+		}
 	}
 	if s.released != nil {
 		if err := s.released.RecordRelease(ctx, inst.Project, inst.Role, actorID); err != nil && s.log != nil {
