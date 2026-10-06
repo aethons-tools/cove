@@ -208,3 +208,48 @@ func TestPlanHumanMigrationNothingToDo(t *testing.T) {
 		t.Fatalf("plan = %+v, want empty", plan)
 	}
 }
+
+func TestPlanHumanMigrationLongNameCollisionTerminates(t *testing.T) {
+	long := strings.Repeat("x", 64)
+	m := legacyState(t, map[string][]Human{
+		"acme": {{Name: long, Login: "a"}},
+		"beta": {{Name: long, Login: "b"}},
+		"zeta": {{Name: long, Login: "c"}},
+	})
+	plan := m.planHumanMigration()
+	seen := map[string]bool{}
+	for _, u := range plan.users {
+		if seen[u.Name] || ValidateEntityName(u.Name) != nil {
+			t.Fatalf("user names = %+v: duplicate or invalid %q", plan.users, u.Name)
+		}
+		seen[u.Name] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("users = %d, want 3", len(seen))
+	}
+}
+
+func TestPlanHumanMigrationStrongGroupReusesIdentitylessUserByName(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": {{Name: "bob", Login: "auth0|b"}}})
+	bob := User{ID: ident.New(ident.User), Name: "bob", Status: StatusLive}
+	m.users[bob.ID] = bob
+	plan := m.planHumanMigration()
+	if len(plan.users) != 1 || plan.users[0].ID != bob.ID || !slices.Equal(plan.users[0].Logins, []string{"auth0|b"}) {
+		t.Fatalf("users = %+v; the human must become the existing identity-less bob", plan.users)
+	}
+}
+
+func TestPlanHumanMigrationNotesSeveralHandles(t *testing.T) {
+	m := legacyState(t, map[string][]Human{
+		"acme": {{Name: "alice", Login: "a", Handle: "@alice"}},
+		"beta": {{Name: "alice", Login: "a", Handle: "@alice-b"}},
+	})
+	plan := m.planHumanMigration()
+	var noted bool
+	for _, n := range plan.report.Notes {
+		noted = noted || strings.Contains(n, "handles")
+	}
+	if !noted {
+		t.Fatalf("notes = %v; a user with two handles must be reported", plan.report.Notes)
+	}
+}

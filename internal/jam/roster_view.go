@@ -81,10 +81,12 @@ func (m *memState) linkedAccount(conn string, user ident.ID, match func(Account)
 	return best, found
 }
 
-// prepareAddHuman plans AddHuman as registry writes: the user named h.Name
-// (created if new) takes h's login and OIDC bindings, becomes a member of the
-// project with h's delivery addresses, and has its linear and discord
-// accounts point at h's handle and Discord user id. Caller holds mu.
+// prepareAddHuman plans AddHuman as registry writes on the Jam-wide user named
+// h.Name (created if new). It never strips identity: h's login and OIDC
+// bindings are added to the user's; a given handle or Discord user id
+// becomes the user's (replacing their previous one), an absent one leaves
+// theirs as is. The user becomes a member of the project with h's delivery
+// addresses (this project only). Caller holds mu.
 func (m *memState) prepareAddHuman(project string, h Human) (humanPlan, error) {
 	var plan humanPlan
 	p, created, err := m.requireProject(project)
@@ -106,11 +108,17 @@ func (m *memState) prepareAddHuman(project string, h Human) (humanPlan, error) {
 		}
 		u = User{ID: ident.New(ident.User), Name: h.Name, Status: StatusLive}
 	}
-	u.Logins = nil
-	if h.Login != "" {
-		u.Logins = []string{h.Login}
+	if h.Login != "" && !slices.Contains(u.Logins, h.Login) {
+		u.Logins = append(u.Logins, h.Login)
 	}
-	u.OIDC = slices.Clone(h.Identity)
+	for _, o := range h.Identity {
+		if !slices.Contains(u.OIDC, o) {
+			u.OIDC = append(u.OIDC, o)
+		}
+	}
+	if err := ValidateIdentity(h.Identity); err != nil {
+		return plan, err
+	}
 	if err := m.checkLogins(u.Logins, u.ID); err != nil {
 		return plan, err
 	}
@@ -131,50 +139,45 @@ func (m *memState) prepareAddHuman(project string, h Human) (humanPlan, error) {
 	if ids := h.discordUserIDs(); len(ids) > 0 {
 		discordUID = ids[0]
 	}
-	if err := m.planUserAccount(&plan, "linear", u.ID, func(a Account) bool { return a.Handle == h.Handle }, h.Handle != "",
-		Account{Handle: h.Handle}); err != nil {
-		return plan, err
+	if h.Handle != "" {
+		if err := m.planUserAccount(&plan, "linear", u.ID, func(a Account) bool { return a.Handle == h.Handle }, Account{Handle: h.Handle}); err != nil {
+			return plan, err
+		}
 	}
-	if err := m.planUserAccount(&plan, "discord", u.ID, func(a Account) bool { return a.ServiceUID == discordUID }, discordUID != "",
-		Account{ServiceUID: discordUID}); err != nil {
-		return plan, err
+	if discordUID != "" {
+		if err := m.planUserAccount(&plan, "discord", u.ID, func(a Account) bool { return a.ServiceUID == discordUID }, Account{ServiceUID: discordUID}); err != nil {
+			return plan, err
+		}
 	}
 	return plan, nil
 }
 
-// planUserAccount points user's account on the implicit connection named kind
-// at the identity match selects (when want), creating the account (from tmpl)
-// or the connection if absent, and unlinks the user's other accounts there.
-// ErrAccountLinked when that identity belongs to another user.
-func (m *memState) planUserAccount(plan *humanPlan, kind string, user ident.ID, match func(Account) bool, want bool, tmpl Account) error {
+// planUserAccount makes the identity match selects on the implicit
+// connection named kind the user's account there, creating the account (from
+// tmpl) or the connection if absent, and unlinks the user's other accounts on
+// that connection. ErrAccountLinked when the identity belongs to another user.
+func (m *memState) planUserAccount(plan *humanPlan, kind string, user ident.ID, match func(Account) bool, tmpl Account) error {
 	c, ok := m.liveConnectionNamed(kind)
 	if !ok {
-		if !want {
-			return nil
-		}
 		c = Connection{ID: ident.New(ident.Connection), Kind: kind, Name: kind, Status: StatusLive}
 		plan.connections = append(plan.connections, c)
 	}
-	var target ident.ID
-	if want {
-		a, found := m.accountBy(c.ID, match)
-		switch {
-		case found && a.UserID != "" && a.UserID != user:
-			return fmt.Errorf("%w: %s identity %q", ErrAccountLinked, kind, accountName(a))
-		case !found:
-			a = tmpl
-			a.ID, a.ConnectionID, a.Status = ident.New(ident.Account), c.ID, StatusLive
-		}
-		a.UserID = user
-		plan.accounts = append(plan.accounts, a)
-		target = a.ID
+	a, found := m.accountBy(c.ID, match)
+	switch {
+	case found && a.UserID != "" && a.UserID != user:
+		return fmt.Errorf("%w: %s identity %q", ErrAccountLinked, kind, accountName(a))
+	case !found:
+		a = tmpl
+		a.ID, a.ConnectionID, a.Status = ident.New(ident.Account), c.ID, StatusLive
 	}
-	for _, a := range m.accounts {
-		if a.ConnectionID == c.ID && a.UserID == user && a.ID != target {
-			a.UserID = ""
-			plan.accounts = append(plan.accounts, a)
+	a.UserID = user
+	for _, other := range m.accounts {
+		if other.ConnectionID == c.ID && other.UserID == user && other.ID != a.ID {
+			other.UserID = ""
+			plan.accounts = append(plan.accounts, other)
 		}
 	}
+	plan.accounts = append(plan.accounts, a)
 	return nil
 }
 

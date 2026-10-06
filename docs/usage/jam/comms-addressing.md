@@ -49,9 +49,11 @@ owns a **Roster** of addressable members:
 a user in the [identity registry](roster.md) plus a project membership: the
 same name in two projects is one person, and a login, OIDC binding, tracker
 handle or Discord user id belongs to one person Jam-wide (claiming another
-person's is **400**). `add-human` on an existing name updates that person
-everywhere (their login, OIDC and accounts) and sets this project's delivery;
-`rm-human` ends only this project's membership. On upgrade, existing per-project
+person's is **400**). `add-human` on an existing name *adds* the given login and
+OIDC bindings to that person and makes a given handle or Discord user id
+theirs, everywhere — it never removes one (until the user admin pages land,
+a person's identities can't be removed) — and sets this project's delivery
+addresses; `rm-human` ends only this project's membership. On upgrade, existing per-project
 humans were merged into users once: same login/OIDC/Discord id → one user, else
 same name → one user; two different people sharing a name keep it for the
 first and the other becomes `<name>-<project>` (logged at startup, with that

@@ -110,6 +110,20 @@ func sanitizeEntityName(name string) string {
 	return out
 }
 
+// withSuffix appends suffix to a valid name, trimming the name (never the
+// suffix) to stay within 64 bytes, so distinct suffixes stay distinct.
+func withSuffix(name, suffix string) string {
+	suffix = sanitizeEntityName("x" + suffix)[1:]
+	if len(suffix) > 63 {
+		suffix = suffix[len(suffix)-63:]
+	}
+	for len(name)+len(suffix) > 64 {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return sanitizeEntityName(name + suffix)
+}
+
 // planHumanMigration plans the humans → users migration over every stored
 // project doc's Roster.Humans (spec §6 and plan 1a-3a). Caller holds mu. It
 // reads but never mutates memState.
@@ -215,13 +229,13 @@ func (m *memState) planHumanMigration() humanPlan {
 				note("human %q in project %q: name %q is not a valid user name; using %q", first.h.Name, first.project.Name, first.h.Name, name)
 			}
 			if _, clash := taken[name]; clash {
-				base := name + "-" + first.project.Name
-				name = sanitizeEntityName(base)
+				base := name
+				name = withSuffix(base, "-"+first.project.Name)
 				for n := 2; ; n++ {
 					if _, clash := taken[name]; !clash {
 						break
 					}
-					name = sanitizeEntityName(fmt.Sprintf("%s-%d", base, n))
+					name = withSuffix(base, fmt.Sprintf("-%s-%d", first.project.Name, n))
 				}
 				note("human %q in project %q is a different person from an existing user of that name; renamed to %q", first.h.Name, first.project.Name, name)
 			}
@@ -331,8 +345,19 @@ func (m *memState) planHumanMigration() humanPlan {
 		plan.memberships = append(plan.memberships, memberships[k])
 	}
 	plan.report.Memberships = len(plan.memberships)
+	perUser := map[[2]ident.ID]int{} // (connection, user) → linked accounts
 	for _, k := range slices.Sorted(mapsKeys(planned)) {
-		plan.accounts = append(plan.accounts, planned[k])
+		a := planned[k]
+		plan.accounts = append(plan.accounts, a)
+		perUser[[2]ident.ID{a.ConnectionID, a.UserID}]++
+	}
+	for _, r := range roots {
+		u := userOf[r]
+		for _, kind := range []string{"linear", "discord"} {
+			if c, ok := conns[kind]; ok && perUser[[2]ident.ID{c.ID, u.ID}] > 1 {
+				note("user %q has several %s handles or ids from different projects; the roster shows one of them", u.Name, kind)
+			}
+		}
 	}
 
 	// 4. Project docs lose their humans; renamed humans' exact references in
@@ -419,12 +444,25 @@ func (m *memState) existingUserFor(keys []string, name string) (User, bool) {
 			}
 		}
 	}
-	if len(keys) == 0 {
-		if u, ok := m.liveUserNamed(name); ok {
-			return copyUser(u), true
-		}
+	// By name: always for a group with no strong identity; for one with, only
+	// a user holding none of its own (nothing to conflict with).
+	if u, ok := m.liveUserNamed(name); ok && (len(keys) == 0 || !m.hasStrongIdentity(u)) {
+		return copyUser(u), true
 	}
 	return User{}, false
+}
+
+// hasStrongIdentity reports whether u holds a login, an OIDC binding or a
+// linked discord account. Caller holds mu.
+func (m *memState) hasStrongIdentity(u User) bool {
+	if len(u.Logins) > 0 || len(u.OIDC) > 0 {
+		return true
+	}
+	if c, ok := m.liveConnectionNamed("discord"); ok {
+		_, linked := m.accountBy(c.ID, func(a Account) bool { return a.UserID == u.ID && a.ServiceUID != "" })
+		return linked
+	}
+	return false
 }
 
 func (m *memState) loginHolder(login string) (ident.ID, bool) {

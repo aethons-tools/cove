@@ -55,11 +55,14 @@ func TestAddEditRemoveHuman(t *testing.T) {
 	if !ok || bob.Handle != "bob-h" || len(bob.Delivery) != 1 || bob.Delivery[0].UserID != "987654321" || len(bob.Identity) != 1 {
 		t.Fatalf("bob = %+v", bob)
 	}
-	// edit alice: every field comes from the form, so cleared lines clear
+	// edit alice: this project's delivery comes from the form, so cleared lines
+	// clear; her handle is replaced; but login, OIDC and her Discord account are
+	// the Jam-wide person's (1a-3a) — a project form adds, never strips, them.
 	if rec := post(t, h, "/ui/projects/acme/humans", url.Values{"name": {"alice"}, "handle": {"alice-2"}, "login": {"sub-alice"}}); rec.Code != http.StatusOK {
 		t.Fatalf("edit alice = %d", rec.Code)
 	}
-	if a, _ := rosterHuman(t, store, "alice"); a.Handle != "alice-2" || len(a.Delivery) != 0 || len(a.Identity) != 0 {
+	a, _ := rosterHuman(t, store, "alice")
+	if d, _ := a.DeliveryFor("discord"); a.Handle != "alice-2" || d.Address != "" || len(a.Identity) != 1 {
 		t.Fatalf("alice after edit = %+v", a)
 	}
 	for name, form := range map[string]url.Values{

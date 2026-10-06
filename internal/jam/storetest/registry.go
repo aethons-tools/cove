@@ -685,4 +685,35 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("exported humans = %d, want 2", exported)
 		}
 	})
+
+	t.Run("add_human_never_strips_identity_elsewhere", func(t *testing.T) {
+		s := newStore(t)
+		mustProject(t, s, "acme")
+		mustProject(t, s, "beta")
+		full := jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
+			Identity: []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}},
+			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}}
+		if err := s.AddHuman("acme", full); err != nil {
+			t.Fatal(err)
+		}
+		// alice joins beta with nothing but her name: acme's view must not change.
+		if err := s.AddHuman("beta", jam.Human{Name: "alice"}); err != nil {
+			t.Fatal(err)
+		}
+		r, _ := s.GetRoster("acme")
+		h := r.Humans[0]
+		if h.Login != "auth0|a" || h.Handle != "@alice" || len(h.Identity) != 1 {
+			t.Fatalf("acme alice after a bare add in beta = %+v", h)
+		}
+		if d, _ := h.DeliveryFor("discord"); d.UserID != "111" || d.Address != "inbox-a" {
+			t.Fatalf("acme delivery = %+v", d)
+		}
+		// A new handle given anywhere is the person's handle everywhere.
+		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil {
+			t.Fatal(err)
+		}
+		if r, _ := s.GetRoster("acme"); r.Humans[0].Handle != "@alice2" {
+			t.Fatalf("acme handle = %q, want @alice2", r.Humans[0].Handle)
+		}
+	})
 }
