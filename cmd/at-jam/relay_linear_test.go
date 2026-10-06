@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -304,6 +305,13 @@ func (f *fakeStore) GetRoster(p string) (jam.Roster, bool) {
 func (f *fakeStore) GetProject(name string) (jam.Project, bool) {
 	p, ok := f.projects[name]
 	return p, ok
+}
+
+// GetConnection treats a seeded Project.ChatService as a connection id whose
+// kind is the id itself, so a fake project with ChatService "discord" is a
+// discord chat service (the real store holds a con_ id there).
+func (f *fakeStore) GetConnection(id ident.ID) (jam.Connection, bool) {
+	return jam.Connection{ID: id, Kind: string(id), Name: string(id), Status: jam.StatusLive}, true
 }
 
 // ListProjects returns the seeded project names (Directory.Projects("discord")).
@@ -711,7 +719,7 @@ func TestFileMarkersEgressIsDeepCopied(t *testing.T) {
 func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 	st := newTestStore(t)
 	mustCreateProject(t, st, "acme", "beta", "gamma", "delta")
-	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": "", "delta": "slack"} {
+	for p, svc := range map[string]string{"acme": "discord", "beta": "discord", "gamma": ""} {
 		if err := st.SetChatService(p, svc); err != nil {
 			t.Fatal(err)
 		}

@@ -83,7 +83,9 @@ type Store interface {
 	GetProject(name string) (Project, bool)
 	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
-	SetChatService(project, service string) error
+	// SetChatService sets project's chat service to a connection, by id or
+	// name, or by chat kind for its implicit connection ("" clears).
+	SetChatService(project, ref string) error
 	// SetProjectContext replaces a project's authored session context and
 	// resources (ErrProjectNotFound for an unknown project).
 	SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error

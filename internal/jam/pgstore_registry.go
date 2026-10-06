@@ -98,6 +98,10 @@ func (s *PostgresStore) RenameConnection(id ident.ID, name string) error {
 	return s.putConnectionWith("RenameConnection", func() (Connection, error) { return s.prepareRenameConnection(id, name) })
 }
 
+func (s *PostgresStore) SetConnectionCred(id ident.ID, cred string) error {
+	return s.putConnectionWith("SetConnectionCred", func() (Connection, error) { return s.prepareSetConnectionCred(id, cred) })
+}
+
 func (s *PostgresStore) RemoveConnection(id ident.ID) error {
 	return s.putConnectionWith("RemoveConnection", func() (Connection, error) { return s.prepareRemoveConnection(id) })
 }

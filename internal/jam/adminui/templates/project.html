@@ -44,7 +44,7 @@
 <div id="project">
 <div class="page-head">
   <h1>{{.Project.Name}}</h1>
-  {{if .Project.ChatService}}<span class="chip">chat: {{.Project.ChatService}}</span>{{else}}<span class="sub">tracker @-mentions only</span>{{end}}
+  {{if .ChatService}}<span class="chip">chat: {{.ChatService}}</span>{{else}}<span class="sub">tracker @-mentions only</span>{{end}}
   <span class="spacer"></span>
   {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles and grants first">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/projects/{{$p}}" hx-swap="none"
@@ -170,7 +170,7 @@
     <header><h2>Chat service</h2><span class="sub">what backs human DMs</span></header>
     <div class="body">
       <form class="inline" hx-post="/ui/projects/{{$p}}/chat-service" hx-target="#project" hx-swap="outerHTML">
-        {{$cs := .Project.ChatService}}
+        {{$cs := .ChatService}}
         <select name="service" aria-label="Chat service">{{range .ChatServices}}<option value="{{.}}"{{if eq . $cs}} selected{{end}}>{{if .}}{{.}}{{else}}none — tracker @-mentions only{{end}}</option>{{end}}</select>
         <button type="submit" class="small">Save</button>
       </form>

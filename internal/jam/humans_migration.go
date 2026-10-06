@@ -275,7 +275,7 @@ func (m *memState) planHumanMigration() humanPlan {
 		if c, ok := conns[kind]; ok {
 			return c
 		}
-		c, ok := m.liveConnectionNamed(kind)
+		c, ok := m.connectionOfKind(kind)
 		if !ok {
 			c = Connection{ID: ident.New(ident.Connection), Kind: kind, Name: kind, Status: StatusLive}
 			plan.connections = append(plan.connections, c)
@@ -435,7 +435,7 @@ func (m *memState) existingUserFor(keys []string, name string) (User, bool) {
 				return copyUser(m.users[id]), true
 			}
 		case "discord":
-			if c, ok := m.liveConnectionNamed("discord"); ok {
+			if c, ok := m.connectionOfKind("discord"); ok {
 				if a, ok := m.accountBy(c.ID, func(a Account) bool { return a.ServiceUID == parts[1] }); ok && a.UserID != "" {
 					if u, ok := m.users[a.UserID]; ok && u.Status == StatusLive {
 						return copyUser(u), true
@@ -458,7 +458,7 @@ func (m *memState) hasStrongIdentity(u User) bool {
 	if len(u.Logins) > 0 || len(u.OIDC) > 0 {
 		return true
 	}
-	if c, ok := m.liveConnectionNamed("discord"); ok {
+	if c, ok := m.connectionOfKind("discord"); ok {
 		_, linked := m.accountBy(c.ID, func(a Account) bool { return a.UserID == u.ID && a.ServiceUID != "" })
 		return linked
 	}

@@ -87,7 +87,7 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			return out
 		},
 		"services": func(string) []string {
-			return slices.DeleteFunc(slices.Clone(chatServices), func(s string) bool { return s == "" })
+			return slices.Clone(jam.ChatKinds)
 		},
 	}
 }

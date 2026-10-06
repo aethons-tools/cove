@@ -233,7 +233,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 // "" when delivery is possible.
 func personalDeliveryProblem(store Store, project string, owner Human) string {
 	p, _ := store.GetProject(project)
-	if p.ChatService != "discord" {
+	if ChatKind(store, p) != "discord" {
 		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-jam project chat-service set --project %s --service discord)", project, project)
 	}
 	if _, ok := owner.DeliveryFor("discord"); !ok {

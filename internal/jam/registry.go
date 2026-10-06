@@ -149,8 +149,11 @@ type RegistryStore interface {
 
 	CreateConnection(c Connection) (Connection, error)
 	RenameConnection(id ident.ID, name string) error
+	// SetConnectionCred names the credential Jam uses for the connection (a
+	// demanded credential in serve config; checked by serve, not here).
+	SetConnectionCred(id ident.ID, cred string) error
 	// RemoveConnection tombstones the connection; ErrConnectionInUse while any
-	// account belongs to it.
+	// account belongs to it or a project uses it as its chat service.
 	RemoveConnection(id ident.ID) error
 	GetConnection(id ident.ID) (Connection, bool)
 	ListConnections() []Connection

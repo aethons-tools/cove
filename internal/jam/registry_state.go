@@ -423,6 +423,11 @@ func (m *memState) prepareRemoveConnection(id ident.ID) (Connection, error) {
 	if _, used := m.accountBy(id, func(Account) bool { return true }); used {
 		return Connection{}, fmt.Errorf("%w: connection %q has accounts", ErrConnectionInUse, c.Name)
 	}
+	for _, p := range m.projects {
+		if p.ChatService == string(id) {
+			return Connection{}, fmt.Errorf("%w: connection %q is project %q's chat service", ErrConnectionInUse, c.Name, p.Name)
+		}
+	}
 	c.Status = StatusRemoved
 	return c, nil
 }

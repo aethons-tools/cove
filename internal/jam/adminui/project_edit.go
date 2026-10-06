@@ -39,9 +39,6 @@ type chainView struct {
 	Spec     string // one targets@timeout per line
 }
 
-// chatServices are the chat-service choices; "" = tracker @-mentions only.
-var chatServices = []string{"", "discord"}
-
 func lines[T any](xs []T, f func(T) string) string {
 	out := make([]string, len(xs))
 	for i, x := range xs {

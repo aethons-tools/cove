@@ -433,8 +433,8 @@ func TestChatServiceRoute(t *testing.T) {
 		t.Fatalf("chat-service view = %+v, want discord", got)
 	}
 	p, ok := store.GetProject("acme")
-	if !ok || p.ChatService != "discord" {
-		t.Fatalf("store project chat-service = %q (ok=%v), want discord", p.ChatService, ok)
+	if !ok || ChatKind(store, p) != "discord" {
+		t.Fatalf("store project chat-service = %q (ok=%v), want a discord connection", p.ChatService, ok)
 	}
 
 	// operator auth is enforced on this route, like every other /admin/* route.

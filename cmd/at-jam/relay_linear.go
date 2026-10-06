@@ -117,6 +117,7 @@ type instanceRoster interface {
 	GetRoster(project string) (jam.Roster, bool)
 	GetProject(name string) (jam.Project, bool)
 	ListProjects() []string
+	jam.ConnectionGetter
 }
 
 // directory is the concrete relay.Directory mapping the Linear feed and
@@ -144,7 +145,7 @@ func (d *directory) Projects(service string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, name := range d.store.ListProjects() {
-		if p, ok := d.store.GetProject(name); ok && p.ChatService == "discord" && !seen[name] {
+		if p, ok := d.store.GetProject(name); ok && jam.ChatKind(d.store, p) == "discord" && !seen[name] {
 			seen[name] = true
 			out = append(out, name)
 		}
@@ -286,7 +287,7 @@ func (d *directory) resolveHuman(service, project string, to, from intercom.Targ
 	h, hok := findHuman(r, to.Ref)
 	proj, _ := d.store.GetProject(project)
 	// Discord DM: project uses discord AND the human has a discord profile.
-	if proj.ChatService == "discord" && hok {
+	if jam.ChatKind(d.store, proj) == "discord" && hok {
 		if p, ok := h.DeliveryFor("discord"); ok {
 			if service != "discord" {
 				return relay.Delivery{}, false // the linear engine doesn't own this target

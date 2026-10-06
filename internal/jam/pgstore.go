@@ -954,14 +954,28 @@ func (s *PostgresStore) SetJamContext(l sessionctx.Layer) error {
 	return nil
 }
 
-func (s *PostgresStore) SetChatService(project, service string) error {
+func (s *PostgresStore) SetChatService(project, ref string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
+	p, created, err := s.prepareSetChatService(project, ref)
 	if err != nil {
 		return err
 	}
-	return s.putProject(setChatService(copyProject(p), service))
+	if err := s.registryTx("SetChatService", func(ctx context.Context, tx pgx.Tx) error {
+		for _, c := range created {
+			if err := putConnectionTx(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return upsertProjectTx(ctx, tx, p)
+	}); err != nil {
+		return err
+	}
+	for _, c := range created {
+		s.applyPutConnection(c)
+	}
+	s.applyPutProject(p)
+	return nil
 }
 
 // putProject upserts a project's row and, on success, updates the cache.

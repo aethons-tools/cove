@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -64,7 +65,7 @@ func projectRows(store jam.Store) []projectRow {
 		out = append(out, projectRow{
 			Name: name, Roles: len(store.ListRoles(name)), Actors: len(projectHolders(store, name)),
 			Studios: studios[name], Members: len(store.ListMembers(p.ID)), Channels: len(p.Roster.Channels),
-			ChatService: p.ChatService, InUseBy: projectRef(store, name),
+			ChatService: chatServiceName(store, p), InUseBy: projectRef(store, name),
 		})
 	}
 	return out
@@ -103,7 +104,8 @@ type projectDetail struct {
 	Members      []memberRow
 	Escalation   []chainView // chains with at least one tier
 	DefaultChain chainView   // the default chain, possibly empty (its editor is always offered)
-	ChatServices []string
+	ChatService  string      // the chat-service connection's name; "" = none
+	ChatServices []string    // select options: "" plus the chat-kind connections
 	InUseBy      string
 	NotFound     bool
 	NotFoundFor  string
@@ -147,10 +149,8 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 			d.Escalation = append(d.Escalation, chain(c, tiers, p.Roster))
 		}
 	}
-	d.ChatServices = chatServices
-	if !slices.Contains(d.ChatServices, p.ChatService) {
-		d.ChatServices = append(slices.Clone(chatServices), p.ChatService)
-	}
+	d.ChatService = chatServiceName(store, p)
+	d.ChatServices = chatServiceChoices(store, d.ChatService)
 	return d, true
 }
 
@@ -204,4 +204,38 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		log.Info("ui project removed", "operator", jam.OperatorID(r), "project", name)
 		renderFragment(w, "projects", "projects-table", projectTableData(store))
 	})
+}
+
+// chatServiceName is the name of p's chat-service connection ("" = none).
+func chatServiceName(store jam.Store, p jam.Project) string {
+	if p.ChatService == "" {
+		return ""
+	}
+	if c, ok := store.GetConnection(ident.ID(p.ChatService)); ok {
+		return c.Name
+	}
+	return p.ChatService
+}
+
+// chatServiceChoices are the chat-service select's options: none, every live
+// chat-kind connection by name, the implicit kinds when no such connection
+// exists yet (choosing one creates it), and the current value.
+func chatServiceChoices(store jam.Store, current string) []string {
+	out := []string{""}
+	kinds := map[string]bool{}
+	for _, c := range store.ListConnections() {
+		if slices.Contains(jam.ChatKinds, c.Kind) {
+			out = append(out, c.Name)
+			kinds[c.Kind] = true
+		}
+	}
+	for _, k := range jam.ChatKinds {
+		if !kinds[k] && !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	if !slices.Contains(out, current) {
+		out = append(out, current)
+	}
+	return out
 }
