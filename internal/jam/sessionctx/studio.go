@@ -16,7 +16,7 @@ type StudioDestination struct {
 
 // StudioTarget is one message target the session may `send` to.
 type StudioTarget struct {
-	Target string // "human:<name>" | "channel:<name>"
+	Target string // "user:<name>" | "channel:<name>"
 	Who    string // e.g. "your owner", "project contact @alice", "channel"
 }
 

@@ -506,8 +506,8 @@ func TestTargetsListsAllowedTargets(t *testing.T) {
 		t.Fatalf("targets = %+v, want exactly 1 (channel must be excluded — not in addressing)", out.Targets)
 	}
 	tg := out.Targets[0]
-	if tg["target"] != "human:alice" || tg["kind"] != "human" || tg["name"] != "alice" {
-		t.Fatalf("target = %+v, want human:alice", tg)
+	if tg["target"] != "user:alice" || tg["kind"] != "user" || tg["name"] != "alice" {
+		t.Fatalf("target = %+v, want user:alice", tg)
 	}
 	if _, ok := tg["handle"]; ok {
 		t.Fatalf("target must not include the handle: %+v", tg)

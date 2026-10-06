@@ -1313,7 +1313,7 @@ func TestRaiseContextStudioNamesOwner(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal, Prompt: "P"}); err != nil {
 		t.Fatal(err)
 	}
-	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`human:alice` — your owner") {
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`user:alice` — your owner") {
 		t.Fatalf("studio layer must name the owner: %+v", c)
 	}
 }

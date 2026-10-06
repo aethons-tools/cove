@@ -51,7 +51,11 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 		case t.Name == owner:
 			who = "your owner"
 		}
-		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: t.Kind + ":" + t.Name, Who: who})
+		kind := t.Kind
+		if kind == "human" {
+			kind = "user" // a person; "human" is only the log's kind until slice 2
+		}
+		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: kind + ":" + t.Name, Who: who})
 	}
 	return f
 }
