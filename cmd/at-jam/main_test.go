@@ -876,7 +876,7 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("session request: exit=%d stderr=%s", code, errb.String())
 	}
 	id := strings.TrimSpace(out.String())
-	if !strings.HasPrefix(id, "personal-alice-") || strings.ContainsAny(id, " \t\n") {
+	if !strings.HasPrefix(id, "ses_") || strings.ContainsAny(id, " \t\n") {
 		t.Fatalf("session request must print only the session id, got %q", out.String())
 	}
 	if inst, ok := store.GetInstance(id); !ok || inst.Owner != "alice" || inst.SessionKind != "personal" {

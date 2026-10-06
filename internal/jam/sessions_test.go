@@ -102,7 +102,7 @@ func TestPersonalSessionRequest_LinkedHuman(t *testing.T) {
 	if code != http.StatusCreated {
 		t.Fatalf("request = %d %s", code, body)
 	}
-	if !strings.HasPrefix(res.ID, "personal-alice-") || res.Owner != "alice" || res.Project != "acme" || res.Role != "pair" || res.Phase != string(PhaseLive) {
+	if !strings.HasPrefix(res.ID, "ses_") || res.Owner != "alice" || res.Project != "acme" || res.Role != "pair" || res.Phase != string(PhaseLive) {
 		t.Fatalf("result = %+v", res)
 	}
 	if strings.Contains(body, "token") || strings.Contains(body, "secret") {
@@ -272,29 +272,16 @@ func TestPersonalSessions_NoSupervisorOrAllocator503(t *testing.T) {
 	}
 }
 
-// The session id is used as an actor id and in URL paths (DELETE
-// /admin/sessions/personal/{id}), so an owner name with path or URL-unsafe
-// characters must not leak into it. The real owner is stored on the Instance.
-func TestPersonalSessionID_SanitizesOwner(t *testing.T) {
-	for _, owner := range []string{"a/b", "alice smith", "bob?x=1", "ok.name_1-x"} {
-		id, err := personalSessionID(owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.HasPrefix(id, "personal-") {
-			t.Fatalf("id %q lacks the personal- prefix", id)
-		}
-		for _, r := range id {
-			ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '.' || r == '-'
-			if !ok {
-				t.Fatalf("owner %q produced unsafe id %q (char %q)", owner, id, r)
-			}
-		}
+// Each request starts a new session with a minted id (URL-safe, never derived
+// from the owner's name).
+func TestPersonalSessionRequestsAreNewSessions(t *testing.T) {
+	k := newSessionKit(t)
+	a, code, body := k.request(t)
+	if code != http.StatusCreated {
+		t.Fatalf("first = %d %s", code, body)
 	}
-	a, _ := personalSessionID("alice")
-	b, _ := personalSessionID("alice")
-	if a == b {
-		t.Fatalf("two ids for the same owner collided: %q", a)
+	if id, err := ident.Parse(a.ID); err != nil || id.Kind() != ident.Session {
+		t.Fatalf("id %q is not a session id", a.ID)
 	}
 }
 

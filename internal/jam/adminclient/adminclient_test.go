@@ -590,7 +590,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestPersonalSession: %v", err)
 	}
-	if !strings.HasPrefix(res.ID, "personal-alice-") || res.Owner != "alice" {
+	if !strings.HasPrefix(res.ID, "ses_") || res.Owner != "alice" {
 		t.Fatalf("result = %+v", res)
 	}
 	list, err := c.ListPersonalSessions("acme")

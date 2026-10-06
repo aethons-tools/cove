@@ -2,14 +2,14 @@ package jam
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // SessionKindPersonal is Instance.SessionKind for a human's personal session
@@ -197,10 +197,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	if msg := personalDeliveryProblem(store, project, human); msg != "" {
 		return refuse(http.StatusBadRequest, "%s", msg)
 	}
-	id, err := personalSessionID(human.Name)
-	if err != nil {
-		return PersonalSessionResult{}, err
-	}
+	id := string(ident.New(ident.Session)) // each request starts a new session
 	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, human.Name)
 	switch {
 	case errors.Is(err, ErrNeedsLedger):
@@ -243,20 +240,8 @@ func personalDeliveryProblem(store Store, project string, owner Human) string {
 	return ""
 }
 
-// personalSessionID mints a personal session's actor/reservation id:
-// "personal-<owner>-<8 hex>". The id is used as an actor id and in URL paths, so
-// characters outside [A-Za-z0-9._-] in the owner name become '-'; the real owner
-// is recorded on the Instance.
-func personalSessionID(owner string) (string, error) {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return "personal-" + safeIDPart(owner) + "-" + hex.EncodeToString(b[:]), nil
-}
-
 // safeIDPart maps characters outside [A-Za-z0-9._-] to '-', so s can be part of
-// an actor id (used in URL paths).
+// a pre-registry standing id (StandingActorID).
 func safeIDPart(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
