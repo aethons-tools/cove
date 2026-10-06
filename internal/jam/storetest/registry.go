@@ -221,4 +221,176 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("a rejected call must store nothing: %+v", got)
 		}
 	})
+
+	mustConn := func(t *testing.T, s jam.Store, kind, name string) jam.Connection {
+		t.Helper()
+		c, err := s.CreateConnection(jam.Connection{Kind: kind, Name: name, CredName: name + "-cred"})
+		if err != nil {
+			t.Fatalf("CreateConnection %s: %v", name, err)
+		}
+		return c
+	}
+
+	t.Run("connection_lifecycle", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "linear", "linear-acme")
+		if c.ID.Kind() != ident.Connection || c.Status != jam.StatusLive {
+			t.Fatalf("created = %+v", c)
+		}
+		if _, err := s.CreateConnection(jam.Connection{Kind: "linear", Name: "linear-acme"}); !errors.Is(err, jam.ErrNameTaken) {
+			t.Fatalf("duplicate: %v, want ErrNameTaken", err)
+		}
+		if _, err := s.CreateConnection(jam.Connection{Kind: "slack", Name: "s"}); err == nil {
+			t.Fatal("an unknown kind must be rejected")
+		}
+		if err := s.RenameConnection(c.ID, "linear-main"); err != nil {
+			t.Fatalf("RenameConnection: %v", err)
+		}
+		if id, _ := s.LookupName(ident.Connection, "linear-main"); id != c.ID {
+			t.Fatalf("renamed lookup = %q", id)
+		}
+		if err := s.RemoveConnection(c.ID); err != nil {
+			t.Fatalf("RemoveConnection: %v", err)
+		}
+		if e, _ := s.Resolve(c.ID); e.Label() != "linear-main (removed)" {
+			t.Fatalf("Resolve removed = %+v", e)
+		}
+		if len(s.ListConnections()) != 0 {
+			t.Fatalf("ListConnections = %+v", s.ListConnections())
+		}
+	})
+
+	t.Run("connection_remove_refused_while_accounts", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "discord", "discord-main")
+		if _, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "123"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveConnection(c.ID); !errors.Is(err, jam.ErrConnectionInUse) {
+			t.Fatalf("remove with accounts: %v, want ErrConnectionInUse", err)
+		}
+	})
+
+	t.Run("account_upsert_finds_and_learns", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "linear", "linear-acme")
+		a, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, Handle: "alice.h"})
+		if err != nil || a.ID.Kind() != ident.Account {
+			t.Fatalf("create by handle = %+v, %v", a, err)
+		}
+		// Ingress later learns the uid for the same handle: same account.
+		b, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-1", Handle: "alice.h", Label: "Alice H"})
+		if err != nil || b.ID != a.ID || b.ServiceUID != "u-1" || b.Label != "Alice H" {
+			t.Fatalf("learn uid = %+v, %v", b, err)
+		}
+		if got, ok := s.AccountByUID(c.ID, "u-1"); !ok || got.ID != a.ID {
+			t.Fatalf("AccountByUID = %+v, %v", got, ok)
+		}
+		// The handle changed on the service: found by uid, handle updated.
+		d, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-1", Handle: "alice.new"})
+		if err != nil || d.ID != a.ID || d.Handle != "alice.new" {
+			t.Fatalf("handle change = %+v, %v", d, err)
+		}
+		if _, ok := s.AccountByHandle(c.ID, "alice.h"); ok {
+			t.Fatal("the old handle must no longer resolve")
+		}
+		if e, _ := s.Resolve(a.ID); e.Label() != "Alice H" {
+			t.Fatalf("account label = %q", e.Label())
+		}
+		if _, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID}); err == nil {
+			t.Fatal("an account needs a uid or a handle")
+		}
+		if _, err := s.UpsertAccount(jam.Account{ConnectionID: ident.New(ident.Connection), Handle: "x"}); !errors.Is(err, jam.ErrConnectionNotFound) {
+			t.Fatalf("unknown connection: %v, want ErrConnectionNotFound", err)
+		}
+	})
+
+	t.Run("account_uid_wins_over_stale_handle", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "linear", "linear-acme")
+		stale, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, Handle: "alice.h"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bob, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-2", Handle: "bob.h"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// uid u-2 now carries handle alice.h: the uid's account takes the handle
+		// and the stale holder gives it up. The two are never merged.
+		got, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-2", Handle: "alice.h"})
+		if err != nil || got.ID != bob.ID || got.Handle != "alice.h" {
+			t.Fatalf("uid claims handle = %+v, %v", got, err)
+		}
+		if a, _ := s.AccountByHandle(c.ID, "alice.h"); a.ID != bob.ID {
+			t.Fatalf("handle resolves to %q, want %q", a.ID, bob.ID)
+		}
+		if a, _ := s.GetAccount(stale.ID); a.Handle != "" || a.Status != jam.StatusLive {
+			t.Fatalf("stale holder = %+v, want live with no handle", a)
+		}
+		if e, _ := s.Resolve(stale.ID); e.Label() != "alice.h" {
+			t.Fatalf("stale holder must stay renderable, label = %q", e.Label())
+		}
+
+		// A new uid takes a handle still held by an account with another uid
+		// (someone renamed away unseen, then a new person took the handle).
+		carol, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-1", Handle: "carol.h"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dave, err := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "u-3", Handle: "carol.h"})
+		if err != nil || dave.ID == carol.ID || dave.ServiceUID != "u-3" || dave.Handle != "carol.h" {
+			t.Fatalf("new uid on a held handle = %+v, %v", dave, err)
+		}
+		if a, _ := s.AccountByUID(c.ID, "u-1"); a.ID != carol.ID || a.Handle != "" {
+			t.Fatalf("displaced account = %+v, want carol with no handle", a)
+		}
+		if n := len(s.ListAccounts(c.ID)); n != 4 {
+			t.Fatalf("ListAccounts = %d, want 4 (nothing merged)", n)
+		}
+	})
+
+	t.Run("account_link_and_unlink_on_user_removal", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "discord", "discord-main")
+		u := mustUser(t, s, "alice")
+		a, _ := s.UpsertAccount(jam.Account{ConnectionID: c.ID, ServiceUID: "123"})
+		if err := s.LinkAccount(a.ID, u.ID); err != nil {
+			t.Fatalf("LinkAccount: %v", err)
+		}
+		if got, _ := s.GetAccount(a.ID); got.UserID != u.ID {
+			t.Fatalf("linked = %+v", got)
+		}
+		if err := s.LinkAccount(a.ID, ident.New(ident.User)); !errors.Is(err, jam.ErrUserNotFound) {
+			t.Fatalf("link to unknown user: %v, want ErrUserNotFound", err)
+		}
+		if err := s.RemoveUser(u.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetAccount(a.ID); got.UserID != "" {
+			t.Fatalf("removing the user must unlink: %+v", got)
+		}
+		if err := s.LinkAccount(a.ID, u.ID); !errors.Is(err, jam.ErrRemoved) {
+			t.Fatalf("link to removed user: %v, want ErrRemoved", err)
+		}
+		if err := s.LinkAccount(ident.New(ident.Account), ""); !errors.Is(err, jam.ErrAccountNotFound) {
+			t.Fatalf("unknown account: %v, want ErrAccountNotFound", err)
+		}
+	})
+
+	t.Run("accounts_listed_per_connection", func(t *testing.T) {
+		s := newStore(t)
+		c1 := mustConn(t, s, "discord", "d1")
+		c2 := mustConn(t, s, "discord", "d2")
+		if _, err := s.UpsertAccount(jam.Account{ConnectionID: c1.ID, ServiceUID: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		// The same service uid on another connection is a different account.
+		if _, err := s.UpsertAccount(jam.Account{ConnectionID: c2.ID, ServiceUID: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		if n1, n2 := len(s.ListAccounts(c1.ID)), len(s.ListAccounts(c2.ID)); n1 != 1 || n2 != 1 {
+			t.Fatalf("ListAccounts = %d, %d; want 1, 1", n1, n2)
+		}
+	})
 }

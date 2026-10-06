@@ -44,6 +44,10 @@ func (m *memState) LookupName(k ident.Kind, name string) (ident.ID, bool) {
 		if u, ok := m.liveUserNamed(name); ok {
 			return u.ID, true
 		}
+	case ident.Connection:
+		if c, ok := m.liveConnectionNamed(name); ok {
+			return c.ID, true
+		}
 	}
 	return "", false
 }
@@ -272,11 +276,204 @@ func copyUser(u User) User {
 	return u
 }
 
-func (m *memState) GetConnection(id ident.ID) (Connection, bool)  { return Connection{}, false }
-func (m *memState) ListConnections() []Connection                 { return nil }
-func (m *memState) GetAccount(id ident.ID) (Account, bool)        { return Account{}, false }
-func (m *memState) ListAccounts(conn ident.ID) []Account          { return nil }
-func (m *memState) AccountByUID(ident.ID, string) (Account, bool) { return Account{}, false }
-func (m *memState) AccountByHandle(ident.ID, string) (Account, bool) {
+func (m *memState) GetConnection(id ident.ID) (Connection, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.connections[id]
+	return c, ok
+}
+
+func (m *memState) ListConnections() []Connection {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []Connection
+	for _, c := range m.connections {
+		if c.Status == StatusLive {
+			out = append(out, c)
+		}
+	}
+	slices.SortFunc(out, func(a, b Connection) int { return cmp.Compare(a.Name, b.Name) })
+	return out
+}
+
+func (m *memState) GetAccount(id ident.ID) (Account, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	a, ok := m.accounts[id]
+	return a, ok
+}
+
+func (m *memState) ListAccounts(conn ident.ID) []Account {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []Account
+	for _, a := range m.accounts {
+		if a.ConnectionID == conn && a.Status == StatusLive {
+			out = append(out, a)
+		}
+	}
+	slices.SortFunc(out, func(a, b Account) int { return cmp.Compare(a.ID, b.ID) })
+	return out
+}
+
+func (m *memState) AccountByUID(conn ident.ID, uid string) (Account, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.accountBy(conn, func(a Account) bool { return uid != "" && a.ServiceUID == uid })
+}
+
+func (m *memState) AccountByHandle(conn ident.ID, handle string) (Account, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.accountBy(conn, func(a Account) bool { return handle != "" && a.Handle == handle })
+}
+
+// accountBy is the lock-free live-account finder on one connection.
+func (m *memState) accountBy(conn ident.ID, match func(Account) bool) (Account, bool) {
+	for _, a := range m.accounts {
+		if a.ConnectionID == conn && a.Status == StatusLive && match(a) {
+			return a, true
+		}
+	}
 	return Account{}, false
 }
+
+func (m *memState) liveConnectionNamed(name string) (Connection, bool) {
+	for _, c := range m.connections {
+		if c.Status == StatusLive && c.Name == name {
+			return c, true
+		}
+	}
+	return Connection{}, false
+}
+
+func (m *memState) liveConnection(id ident.ID) (Connection, error) {
+	c, ok := m.connections[id]
+	if !ok {
+		return Connection{}, fmt.Errorf("%w: %s", ErrConnectionNotFound, id)
+	}
+	if c.Status != StatusLive {
+		return Connection{}, fmt.Errorf("%w: connection %s", ErrRemoved, id)
+	}
+	return c, nil
+}
+
+func (m *memState) checkConnectionName(name string, self ident.ID) error {
+	if err := ValidateEntityName(name); err != nil {
+		return err
+	}
+	if other, ok := m.liveConnectionNamed(name); ok && other.ID != self {
+		return fmt.Errorf("%w: connection %q", ErrNameTaken, name)
+	}
+	return nil
+}
+
+func (m *memState) prepareCreateConnection(c Connection) (Connection, error) {
+	if !slices.Contains(ConnectionKinds, c.Kind) {
+		return Connection{}, fmt.Errorf("connection kind %q is not one of %v", c.Kind, ConnectionKinds)
+	}
+	id, err := m.newEntityID(c.ID, ident.Connection)
+	if err != nil {
+		return Connection{}, err
+	}
+	if err := m.checkConnectionName(c.Name, id); err != nil {
+		return Connection{}, err
+	}
+	c.ID, c.Status = id, StatusLive
+	return c, nil
+}
+
+func (m *memState) prepareRenameConnection(id ident.ID, name string) (Connection, error) {
+	c, err := m.liveConnection(id)
+	if err != nil {
+		return Connection{}, err
+	}
+	if err := m.checkConnectionName(name, id); err != nil {
+		return Connection{}, err
+	}
+	c.Name = name
+	return c, nil
+}
+
+func (m *memState) prepareRemoveConnection(id ident.ID) (Connection, error) {
+	c, err := m.liveConnection(id)
+	if err != nil {
+		return Connection{}, err
+	}
+	if _, used := m.accountBy(id, func(Account) bool { return true }); used {
+		return Connection{}, fmt.Errorf("%w: connection %q has accounts", ErrConnectionInUse, c.Name)
+	}
+	c.Status = StatusRemoved
+	return c, nil
+}
+
+// prepareUpsertAccount implements UpsertAccount's find-or-create (see
+// RegistryStore). It returns the account to write and, when the incoming
+// handle was held by a different account, that stale holder with the handle
+// cleared (write it first: live handles are unique). A cleared holder keeps
+// its old handle as its label so it stays renderable.
+func (m *memState) prepareUpsertAccount(in Account) (Account, []Account, error) {
+	if _, err := m.liveConnection(in.ConnectionID); err != nil {
+		return Account{}, nil, err
+	}
+	if in.ServiceUID == "" && in.Handle == "" {
+		return Account{}, nil, fmt.Errorf("an account needs a service uid or a handle")
+	}
+	byUID, hasUID := m.accountBy(in.ConnectionID, func(a Account) bool { return in.ServiceUID != "" && a.ServiceUID == in.ServiceUID })
+	byHandle, hasHandle := m.accountBy(in.ConnectionID, func(a Account) bool { return in.Handle != "" && a.Handle == in.Handle })
+	// The uid is authoritative: the handle's holder is this same account only
+	// when it is the uid's account, or when the uid is unclaimed and the
+	// holder has no uid of its own to contradict it.
+	sameHolder := hasHandle && (hasUID && byHandle.ID == byUID.ID ||
+		!hasUID && (in.ServiceUID == "" || byHandle.ServiceUID == ""))
+	var displaced []Account
+	if hasHandle && !sameHolder {
+		stale := byHandle
+		stale.Label = accountName(stale)
+		stale.Handle = ""
+		displaced = append(displaced, stale)
+	}
+	if hasUID || sameHolder {
+		a := byUID
+		if !hasUID {
+			a = byHandle
+		}
+		if in.ServiceUID != "" {
+			a.ServiceUID = in.ServiceUID
+		}
+		if in.Handle != "" {
+			a.Handle = in.Handle
+		}
+		if in.Label != "" {
+			a.Label = in.Label
+		}
+		return a, displaced, nil
+	}
+	id, err := m.newEntityID(in.ID, ident.Account)
+	if err != nil {
+		return Account{}, nil, err
+	}
+	if in.UserID != "" {
+		if _, err := m.liveUser(in.UserID); err != nil {
+			return Account{}, nil, err
+		}
+	}
+	in.ID, in.Status = id, StatusLive
+	return in, displaced, nil
+}
+
+func (m *memState) prepareLinkAccount(id, userID ident.ID) (Account, error) {
+	a, ok := m.accounts[id]
+	if !ok || a.Status != StatusLive {
+		return Account{}, fmt.Errorf("%w: %s", ErrAccountNotFound, id)
+	}
+	if userID != "" {
+		if _, err := m.liveUser(userID); err != nil {
+			return Account{}, err
+		}
+	}
+	a.UserID = userID
+	return a, nil
+}
+
+func (m *memState) applyPutConnection(c Connection) { m.connections[c.ID] = c }

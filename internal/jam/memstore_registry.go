@@ -52,8 +52,60 @@ func (fs *MemStore) putUserWith(prepare func() (User, error)) error {
 	return nil
 }
 
-func (fs *MemStore) CreateConnection(Connection) (Connection, error) { panic("task 4") }
-func (fs *MemStore) RenameConnection(ident.ID, string) error         { panic("task 4") }
-func (fs *MemStore) RemoveConnection(ident.ID) error                 { panic("task 4") }
-func (fs *MemStore) UpsertAccount(Account) (Account, error)          { panic("task 4") }
-func (fs *MemStore) LinkAccount(ident.ID, ident.ID) error            { panic("task 4") }
+func (fs *MemStore) CreateConnection(c Connection) (Connection, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	c, err := fs.prepareCreateConnection(c)
+	if err != nil {
+		return Connection{}, err
+	}
+	fs.applyPutConnection(c)
+	return c, nil
+}
+
+func (fs *MemStore) RenameConnection(id ident.ID, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	c, err := fs.prepareRenameConnection(id, name)
+	if err != nil {
+		return err
+	}
+	fs.applyPutConnection(c)
+	return nil
+}
+
+func (fs *MemStore) RemoveConnection(id ident.ID) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	c, err := fs.prepareRemoveConnection(id)
+	if err != nil {
+		return err
+	}
+	fs.applyPutConnection(c)
+	return nil
+}
+
+func (fs *MemStore) UpsertAccount(a Account) (Account, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	a, displaced, err := fs.prepareUpsertAccount(a)
+	if err != nil {
+		return Account{}, err
+	}
+	for _, d := range displaced {
+		fs.applyPutAccount(d)
+	}
+	fs.applyPutAccount(a)
+	return a, nil
+}
+
+func (fs *MemStore) LinkAccount(id, userID ident.ID) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	a, err := fs.prepareLinkAccount(id, userID)
+	if err != nil {
+		return err
+	}
+	fs.applyPutAccount(a)
+	return nil
+}
