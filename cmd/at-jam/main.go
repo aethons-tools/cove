@@ -1986,12 +1986,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var discordReceipts *fileReceipts
 	if runDiscord {
 		_, _, receiptsPath := relayStatePaths(stateDir)
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Runtime.Discord.BotTokenCred]})
+		dconn, dcred, err := resolveServeConnection(st, "runtime.discord", "discord", cfg.Runtime.Discord.Connection, cfg.Runtime.Discord.BotTokenCred, cfg.Credentials)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: discord bot-token:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		discordTok = tokEnv[cfg.Runtime.Discord.BotTokenCred]
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[dcred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: discord connection credential:", err)
+			return 1
+		}
+		discordTok = tokEnv[dcred]
+		log.Info("Jam relay (discord): connection", "connection", dconn.Name, "id", dconn.ID)
 		if discordReceipts, err = newFileReceipts(receiptsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
@@ -2001,12 +2007,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	if dc != nil {
 		// Resolve Jam's own tracker token (never injected into a cove, never logged).
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[dc.TrackerTokenCred]})
+		lconn, lcred, err := resolveServeConnection(st, "runtime.requisitioner", "linear", dc.Connection, dc.TrackerTokenCred, cfg.Credentials)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: requisitioner tracker-token:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		token := tokEnv[dc.TrackerTokenCred]
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[lcred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: requisitioner connection credential:", err)
+			return 1
+		}
+		token := tokEnv[lcred]
+		log.Info("requisitioner: connection", "connection", lconn.Name, "id", lconn.ID)
 		// linear.New wants a full kit.Config; wrap the configured LinearTracker.
 		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
 		tracker, err := linear.New(kitShell, token, nil)
