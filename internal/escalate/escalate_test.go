@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -189,7 +190,7 @@ func TestUnknownRosterNameWarns(t *testing.T) {
 
 	e.tick(context.Background())
 
-	if !strings.Contains(logBuf.String(), "human target not in roster") || !strings.Contains(logBuf.String(), "human:ghost") {
+	if !strings.Contains(logBuf.String(), "user target not a project member") || !strings.Contains(logBuf.String(), "human:ghost") {
 		t.Fatalf("expected warn for unknown roster target; log=%q", logBuf.String())
 	}
 }
@@ -370,6 +371,30 @@ func TestEscalatesOnlyOnNeedsInputReport(t *testing.T) {
 		e.tick(context.Background())
 		if got := pg.lastIssue != ""; got != c.want {
 			t.Errorf("%s: pinged=%v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Tier targets name people as user:<name>, user:<usr_id> or (alias) human:<name>.
+func TestUserTargetsResolveByNameOrID(t *testing.T) {
+	alice, bob := ident.New(ident.User), ident.New(ident.User)
+	clock := time.Unix(1000, 0)
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "cove-1", Project: "acme", Unit: "ACME-42", Activity: jam.ActivityWaiting, Report: needsInput}}}
+	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+		Escalation: []jam.EscalationTier{{Targets: []string{"user:" + string(alice), "user:bob", "human:carol"}, Timeout: 15 * time.Minute}},
+		Roster: jam.Roster{Humans: []jam.Human{
+			{UserID: alice, Name: "alice", Handle: "alice.h"},
+			{UserID: bob, Name: "bob", Handle: "bob.h"},
+			{Name: "carol", Handle: "carol.h"},
+		}}}}}
+	st := &fakeState{}
+	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	e := New(reg, proj, st, pg, Config{}, nil)
+	e.now = func() time.Time { return clock }
+	e.tick(context.Background())
+	for _, want := range []string{"@alice.h", "@bob.h", "@carol.h"} {
+		if !strings.Contains(pg.lastBody, want) {
+			t.Errorf("ping %q missing %s", pg.lastBody, want)
 		}
 	}
 }
