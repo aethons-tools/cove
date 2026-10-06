@@ -92,6 +92,11 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 
 	for name, p := range m.projects {
 		p = m.viewProject(p) // roster humans travel in the snapshot until v2 (1a-5)
+		// The snapshot carries no connections until v2: write the chat
+		// service as its kind, which import maps to that kind's connection.
+		if c, ok := m.connections[ident.ID(p.ChatService)]; ok {
+			p.ChatService = c.Kind
+		}
 		p.Name = name
 		snap.Projects = append(snap.Projects, p)
 	}

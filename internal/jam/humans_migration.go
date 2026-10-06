@@ -630,11 +630,17 @@ func (m *memState) planChatServices(plan *humanPlan) {
 		if cs == "" {
 			continue
 		}
-		if id, err := ident.Parse(cs); err == nil && id.Kind() == ident.Connection {
-			continue
+		id, perr := ident.Parse(cs)
+		if perr == nil && id.Kind() == ident.Connection {
+			if _, ok := m.connections[id]; ok {
+				continue
+			}
 		}
 		p = copyProject(p)
-		if slices.Contains(ChatKinds, cs) {
+		if perr == nil {
+			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("project %q: chat service connection %s does not exist here; cleared", name, cs))
+			p.ChatService = ""
+		} else if slices.Contains(ChatKinds, cs) {
 			p.ChatService = string(connOfKind(cs).ID)
 		} else {
 			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("project %q: chat service %q is not a chat kind %v; cleared", name, cs, ChatKinds))

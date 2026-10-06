@@ -52,6 +52,23 @@ func TestResolveServeConnection(t *testing.T) {
 	if err != nil || again.ID != c.ID || len(st2.ListConnections()) != 1 {
 		t.Fatalf("legacy, present = %+v %v; connections %+v", again, err, st2.ListConnections())
 	}
+	// Renaming the implicit connection keeps the legacy key bound to it (the
+	// connection of its kind), never forking a second, empty one.
+	if err := st2.RenameConnection(c.ID, "discord-main"); err != nil {
+		t.Fatal(err)
+	}
+	renamed, _, err := resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok", demanded)
+	if err != nil || renamed.ID != c.ID || len(st2.ListConnections()) != 1 {
+		t.Fatalf("legacy after rename = %+v %v; connections %+v", renamed, err, st2.ListConnections())
+	}
+	// The legacy key is the credential's source: changing it rebinds.
+	demanded["bot-tok-2"] = credSpec{}
+	if _, cred, err := resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok-2", demanded); err != nil || cred != "bot-tok-2" {
+		t.Fatalf("legacy cred change = %q, %v", cred, err)
+	}
+	if got, _ := st2.GetConnection(c.ID); got.CredName != "bot-tok-2" {
+		t.Fatalf("stored cred = %q, want bot-tok-2", got.CredName)
+	}
 }
 
 func mustConnID(t *testing.T, st jam.Store, name string) ident.ID {

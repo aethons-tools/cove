@@ -30,6 +30,13 @@ func (m *memState) connectionOfKind(k string) (Connection, bool) {
 	return best, found
 }
 
+// ConnectionOfKind is the store's connection of kind k (see connectionOfKind).
+func (m *memState) ConnectionOfKind(k string) (Connection, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.connectionOfKind(k)
+}
+
 // resolveChatService resolves a chat-service ref — a connection id, a
 // connection name, or a chat kind naming its implicit connection (created
 // when absent) — to the connection to store. Caller holds mu.
@@ -94,6 +101,9 @@ type ConnectionGetter interface {
 func ChatKind(store ConnectionGetter, p Project) string {
 	if p.ChatService == "" {
 		return ""
+	}
+	if _, err := ident.Parse(p.ChatService); err != nil && slices.Contains(ChatKinds, p.ChatService) {
+		return p.ChatService // a kind name an older binary wrote after the migration ran
 	}
 	c, ok := store.GetConnection(ident.ID(p.ChatService))
 	if !ok || c.Status != StatusLive {

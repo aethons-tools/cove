@@ -157,6 +157,9 @@ type RegistryStore interface {
 	RemoveConnection(id ident.ID) error
 	GetConnection(id ident.ID) (Connection, bool)
 	ListConnections() []Connection
+	// ConnectionOfKind is the live connection named k if any, else the
+	// lowest-id live connection of kind k.
+	ConnectionOfKind(k string) (Connection, bool)
 
 	// UpsertAccount finds the account by (ConnectionID, ServiceUID), else by
 	// (ConnectionID, Handle), and fills in what it learned (a missing uid, a

@@ -20,7 +20,8 @@ control-plane aggregates:
 - **projects** (roster, escalation policy, chat service, session context and resources).
   Roster humans are exported from the identity registry and, on import, merged
   into users the same way an upgrade does ([comms-addressing.md](comms-addressing.md#the-project-roster));
-  user ids are not preserved until the v2 format
+  user ids are not preserved until the v2 format, and a chat service travels as
+  its kind (`discord`), restored onto that kind's connection
 - the **Jam-wide session context**
 
 Import applies the admin API's authoring rules to session context (layer budgets,
