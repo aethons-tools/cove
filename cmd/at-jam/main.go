@@ -1782,7 +1782,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	ml := pglog.Legacy()
-	var intercomLog intercom.LegacyStore = ml // Close is a no-op; the store owns the pool
 	log.Info("Jam message log: postgres (shared control-plane database)")
 	// Every writer (agent send, relay ingress, /me/send, Jam's notices) shares
 	// this one handle, so wrapping it lets live views (/me/events) see each append.
@@ -2018,7 +2017,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 		// relay linear engine: polls the team-scoped comments feed and
-		// appends inbound human replies to the intercomLog opened above
+		// posts inbound replies into the channel log opened above
 		// (ingress), and delivers outbound Log messages to Linear (egress,
 		// COV-176 Task 4) — the Log is the single source of truth for both
 		// directions.
@@ -2115,7 +2114,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
 		// read-only reader.
-		var squawkReader adminui.SquawkReader = intercomLog
+		squawkReader := adminui.NewSquawkReader(st, ic, chlog, ml)
 
 		uiMux := http.NewServeMux()
 		gate := browserauth.Gate{

@@ -110,17 +110,17 @@
   </section>
 
   <section class="card full">
-    <header><h2>Squawks</h2><span class="sub">to or from <span class="mono">actor:{{.ID}}</span>, newest first</span><span class="spacer"></span>
+    <header><h2>Squawks</h2><span class="sub">in its conversations, newest first</span><span class="spacer"></span>
       {{if .SquawksConfigured}}<a class="sub" href="{{.IntercomURL}}">{{if .SquawksMore}}all {{end}}in Intercom</a>{{end}}</header>
     {{if not .SquawksConfigured}}<div class="body unset">Squawk log not configured.</div>
     {{else}}
     <table>
-      <thead><tr><th>Time</th><th>From</th><th>To</th><th>Body</th></tr></thead>
+      <thead><tr><th>Time</th><th>From</th><th>Where</th><th>Body</th></tr></thead>
       <tbody>
         {{range .Squawks}}<tr>
           <td><time>{{.At}}</time></td>
           <td><span class="mono">{{.From}}</span></td>
-          <td>{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
+          <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
           <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</td></tr>
         {{else}}<tr><td colspan="4" class="empty">No squawks.</td></tr>{{end}}
       </tbody>

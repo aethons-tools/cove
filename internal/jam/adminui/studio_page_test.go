@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
@@ -78,7 +79,7 @@ func TestStudioPageSessionAndSquawks(t *testing.T) {
 	for _, want := range []string{
 		fmt.Sprintf(`href="/ui/coves/sess-1/session?stream=%s"`, sessSID), "2 event(s)",
 		"need a decision", "go ahead",
-		`href="/ui/intercom?participant=actor%3Asess-1"`,
+		`href="/ui/intercom?participant=sess-1"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("studio page missing %q", want)
@@ -115,5 +116,37 @@ func TestStudiosTableLinksStudioPage(t *testing.T) {
 	body := get(t, studioFixture(t, nil), "/ui/coves").Body.String()
 	if !strings.Contains(body, `href="/ui/coves/sess-1"`) || !strings.Contains(body, `href="/ui/coves/sess-1/session"`) {
 		t.Errorf("studios row should link the studio page and its timeline")
+	}
+}
+
+// On the channel log, a studio's squawks are those in its conversations: its
+// ticket's, including people's replies there.
+func TestStudioPageChannelLogSquawks(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := store.LookupName(ident.User, "alice")
+	tracker, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := jam.Instance{ActorID: "sess-2", Project: "acme", Unit: "COV-1", Phase: jam.PhaseLive}
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	lg := intercom.NewMemLog(nil)
+	ic := jam.NewIntercom(store, func() (ident.ID, bool) { return tracker.ID, true }, lg, nil, nil)
+	if err := ic.SetUp(inst); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ := ic.DefaultChannel(inst)
+	if _, err := ic.PostTrusted(ticket, intercom.Squawk{From: alice, Body: "a reply on the ticket"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
+	if body := get(t, h, "/ui/coves/sess-2").Body.String(); !strings.Contains(body, "a reply on the ticket") || !strings.Contains(body, "COV-1 · ticket") {
+		t.Errorf("studio page lacks its ticket's squawk:\n%s", body)
 	}
 }

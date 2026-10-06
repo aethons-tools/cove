@@ -6,12 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
 )
 
 // newIntercomLog opens a hermetic Log in a temp dir and appends the given messages.
-func newIntercomLog(t *testing.T, squawks ...intercom.LegacySquawk) *intercom.LegacyLog {
+// newIntercomLog is a reader over a legacy log holding squawks (shown on
+// the Intercom page's Legacy tab, ?log=legacy).
+func newIntercomLog(t *testing.T, squawks ...intercom.LegacySquawk) adminui.SquawkReader {
 	t.Helper()
 	l := intercom.NewLegacyMemLog()
 	for _, m := range squawks {
@@ -19,7 +23,7 @@ func newIntercomLog(t *testing.T, squawks ...intercom.LegacySquawk) *intercom.Le
 			t.Fatalf("Append: %v", err)
 		}
 	}
-	return l
+	return adminui.NewSquawkReader(nil, nil, nil, l)
 }
 
 func squawkHandler(t *testing.T, l adminui.SquawkReader) http.Handler {
@@ -37,7 +41,7 @@ func TestSquawksRendersNewestFirst(t *testing.T) {
 		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "older ping", At: t0, Project: "acme"},
 		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "newer reply", At: t0.Add(time.Hour), Project: "acme"},
 	)
-	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
+	body := get(t, squawkHandler(t, l), "/ui/intercom?log=legacy").Body.String()
 	for _, want := range []string{"<nav", "Intercom", "older ping", "newer reply", "actor:cove-1", "human:alice", "acme"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("messages page missing %q; got:\n%s", want, body)
@@ -52,7 +56,7 @@ func TestSquawksReachBadges(t *testing.T) {
 	l := newIntercomLog(t,
 		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{actor("cove-2"), human("alice")}, Body: "hi"},
 	)
-	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
+	body := get(t, squawkHandler(t, l), "/ui/intercom?log=legacy").Body.String()
 	// actor:cove-2 → internal, human:alice → external (intercom.Classify).
 	if !strings.Contains(body, "internal") || !strings.Contains(body, "external") {
 		t.Errorf("expected internal+external reach badges; got:\n%s", body)
@@ -60,14 +64,14 @@ func TestSquawksReachBadges(t *testing.T) {
 }
 
 func TestSquawksEmptyLog(t *testing.T) {
-	body := get(t, squawkHandler(t, newIntercomLog(t)), "/ui/intercom").Body.String()
+	body := get(t, squawkHandler(t, newIntercomLog(t)), "/ui/intercom?log=legacy").Body.String()
 	if !strings.Contains(body, "No squawks logged yet") {
 		t.Errorf("empty log should say so; got:\n%s", body)
 	}
 }
 
 func TestSquawksNotConfigured(t *testing.T) {
-	rec := get(t, squawkHandler(t, nil), "/ui/intercom")
+	rec := get(t, squawkHandler(t, nil), "/ui/intercom?log=legacy")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/intercom (nil reader) = %d, want 200", rec.Code)
 	}
@@ -83,7 +87,7 @@ func TestSquawksNavLinkPresentOnOtherPages(t *testing.T) {
 	}
 }
 
-func fixtureLog(t *testing.T) *intercom.LegacyLog {
+func fixtureLog(t *testing.T) adminui.SquawkReader {
 	t0 := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	return newIntercomLog(t,
 		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "deploy started", At: t0, Project: "acme"},
@@ -93,7 +97,7 @@ func fixtureLog(t *testing.T) *intercom.LegacyLog {
 }
 
 func TestSquawksFilterProject(t *testing.T) {
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?project=beta").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&project=beta").Body.String()
 	if !strings.Contains(body, "beta status") || strings.Contains(body, "deploy started") {
 		t.Errorf("project=beta should show only beta rows; got:\n%s", body)
 	}
@@ -101,19 +105,19 @@ func TestSquawksFilterProject(t *testing.T) {
 
 func TestSquawksFilterParticipant(t *testing.T) {
 	// channel:eng appears only in the first message's To.
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?participant=channel:eng").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&participant=channel:eng").Body.String()
 	if !strings.Contains(body, "deploy started") || strings.Contains(body, "beta status") || strings.Contains(body, "please HOLD") {
 		t.Errorf("participant=channel:eng should match only the eng-channel message; got:\n%s", body)
 	}
 	// actor:cove-1 is the sender of msg1 and a recipient of msg2 → both match.
-	body = get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?participant=actor:cove-1").Body.String()
+	body = get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&participant=actor:cove-1").Body.String()
 	if !strings.Contains(body, "deploy started") || !strings.Contains(body, "please HOLD") || strings.Contains(body, "beta status") {
 		t.Errorf("participant=actor:cove-1 should match its sent + received messages; got:\n%s", body)
 	}
 }
 
 func TestSquawksFilterBodySubstringCaseInsensitive(t *testing.T) {
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?q=hold").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&q=hold").Body.String()
 	if !strings.Contains(body, "please HOLD") || strings.Contains(body, "deploy started") {
 		t.Errorf("q=hold should case-insensitively match 'please HOLD' only; got:\n%s", body)
 	}
@@ -121,21 +125,21 @@ func TestSquawksFilterBodySubstringCaseInsensitive(t *testing.T) {
 
 func TestSquawksFilterTimeWindow(t *testing.T) {
 	// [2026-09-11, 2026-09-11] inclusive → only the 2026-09-11 message (msg2).
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?since=2026-09-11&until=2026-09-11").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&since=2026-09-11&until=2026-09-11").Body.String()
 	if !strings.Contains(body, "please HOLD") || strings.Contains(body, "deploy started") || strings.Contains(body, "beta status") {
 		t.Errorf("since=until=2026-09-11 should show only that day; got:\n%s", body)
 	}
 }
 
 func TestSquawksFiltersIntersect(t *testing.T) {
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?project=acme&q=deploy").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&project=acme&q=deploy").Body.String()
 	if !strings.Contains(body, "deploy started") || strings.Contains(body, "please HOLD") {
 		t.Errorf("project=acme&q=deploy should intersect to one row; got:\n%s", body)
 	}
 }
 
 func TestSquawksFilterNoMatch(t *testing.T) {
-	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?q=nothingmatchesthis").Body.String()
+	body := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&q=nothingmatchesthis").Body.String()
 	if !strings.Contains(body, "No squawks match") {
 		t.Errorf("a no-match filter should say 'No squawks match'; got:\n%s", body)
 	}
@@ -144,7 +148,7 @@ func TestSquawksFilterNoMatch(t *testing.T) {
 func TestSquawksMalformedDateNotice(t *testing.T) {
 	// A non-empty but unparseable date must be surfaced, not silently dropped —
 	// and the page still renders (unbounded on that side), not errors.
-	rec := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?since=not-a-date")
+	rec := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&since=not-a-date")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET with a bad date = %d, want 200", rec.Code)
 	}
@@ -157,7 +161,7 @@ func TestSquawksMalformedDateNotice(t *testing.T) {
 		t.Errorf("a malformed date should leave that bound unbounded, still showing rows; got:\n%s", body)
 	}
 	// A well-formed date must NOT trip the notice.
-	good := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?since=2026-09-11").Body.String()
+	good := get(t, squawkHandler(t, fixtureLog(t)), "/ui/intercom?log=legacy&since=2026-09-11").Body.String()
 	if strings.Contains(good, "Ignored an unparseable date") {
 		t.Errorf("a valid date should not trip the malformed-date notice; got:\n%s", good)
 	}
@@ -169,7 +173,7 @@ func TestSquawksRenderPerContentType(t *testing.T) {
 		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**bold** <script>x</script>", At: t0, Project: "acme"},
 		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**literal**\nline2", At: t0.Add(time.Minute), Project: "acme", ContentType: intercom.ContentPlain},
 	)
-	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
+	body := get(t, squawkHandler(t, l), "/ui/intercom?log=legacy").Body.String()
 	for _, want := range []string{`class="body md"`, "<strong>bold</strong>", `class="body plain"`, "**literal**\nline2", "text/plain"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("intercom page missing %q:\n%s", want, body)
@@ -177,5 +181,56 @@ func TestSquawksRenderPerContentType(t *testing.T) {
 	}
 	if strings.Contains(body, "<script>x") {
 		t.Errorf("raw HTML must not reach the page:\n%s", body)
+	}
+}
+
+// The default tab is the channel log: each squawk with its author's and its
+// channel's names, filterable by project and by author or channel id.
+func TestSquawksChannelLog(t *testing.T) {
+	store := jam.NewMemStore()
+	for _, p := range []string{"acme", "beta"} {
+		if err := store.CreateProject(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := store.LookupName(ident.User, "alice")
+	acme, _ := store.GetProject("acme")
+	beta, _ := store.GetProject("beta")
+	eng, err := store.CreateChannel(jam.Channel{ProjectID: acme.ID, Kind: jam.SourceRoom, Key: "eng", Label: "eng"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops, err := store.CreateChannel(jam.Channel{ProjectID: beta.ID, Kind: jam.SourceRoom, Key: "ops", Label: "ops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lg := intercom.NewMemLog(nil)
+	ic := jam.NewIntercom(store, func() (ident.ID, bool) { return "", false }, lg, nil, nil)
+	for _, c := range []struct {
+		ch   jam.Channel
+		body string
+	}{{eng, "deploy started"}, {ops, "beta status"}} {
+		if _, err := ic.PostTrusted(c.ch, intercom.Squawk{From: alice, Body: c.body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
+	body := get(t, h, "/ui/intercom").Body.String()
+	for _, want := range []string{"deploy started", "beta status", ">alice<", "eng · room", "ops · room", "Legacy"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("channel log page missing %q", want)
+		}
+	}
+	if body := get(t, h, "/ui/intercom?project=beta").Body.String(); strings.Contains(body, "deploy started") || !strings.Contains(body, "beta status") {
+		t.Errorf("project filter:\n%s", body)
+	}
+	if body := get(t, h, "/ui/intercom?participant="+string(eng.ID)).Body.String(); !strings.Contains(body, "deploy started") || strings.Contains(body, "beta status") {
+		t.Errorf("channel filter:\n%s", body)
+	}
+	if body := get(t, h, "/ui/intercom?participant="+string(alice)).Body.String(); !strings.Contains(body, "deploy started") || !strings.Contains(body, "beta status") {
+		t.Errorf("author filter:\n%s", body)
 	}
 }

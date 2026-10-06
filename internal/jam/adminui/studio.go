@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"sort"
 
-	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
@@ -37,12 +37,28 @@ type studioDetail struct {
 	NotFound bool
 }
 
-// studioSquawks returns participant's squawks newest first, capped, and
-// whether more exist.
-func studioSquawks(msgs SquawkReader, participant string) ([]squawkRow, bool) {
-	var mine []intercom.LegacySquawk
-	for _, m := range msgs.List(intercom.LegacyFilter{}) {
-		if matchesParticipant(m, participant) {
+// studioSquawks returns the session's squawks newest first, capped, and
+// whether more exist: in the channel log, every squawk in a channel it is in
+// or has posted to; in the legacy log, those to or from actor:<id>.
+func studioSquawks(store jam.Store, msgs SquawkReader, id string) ([]squawkRow, bool) {
+	all := msgs.Squawks(false)
+	channels := map[string]bool{}
+	for _, ch := range store.ChannelsOf(ident.ID(id)) {
+		channels[string(ch)] = true
+	}
+	for _, m := range all {
+		if m.FromID == id {
+			channels[m.ChannelID] = true
+		}
+	}
+	var mine []Logged
+	for _, m := range all {
+		if channels[m.ChannelID] {
+			mine = append(mine, m)
+		}
+	}
+	for _, m := range msgs.Squawks(true) {
+		if matchesParticipant(m, "actor:"+id) {
 			mine = append(mine, m)
 		}
 	}
@@ -61,7 +77,7 @@ func studioSquawks(msgs SquawkReader, participant string) ([]squawkRow, bool) {
 // buildStudioDetail gathers a studio's page; false when nothing at all is
 // known about id (not running, no session streams, no squawks).
 func buildStudioDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, id string, canEdit bool) (studioDetail, bool) {
-	participant := "actor:" + id
+	participant := id // the session: its squawks in the channel log, and as actor:<id> in the legacy log
 	d := studioDetail{
 		Title: "Studios", ID: id, CanEdit: canEdit,
 		SessionsEnabled: sess != nil, SquawksConfigured: msgs != nil,
@@ -79,7 +95,7 @@ func buildStudioDetail(store jam.Store, msgs SquawkReader, sess sessionevents.St
 		d.Streams, _ = sess.Streams(id)
 	}
 	if msgs != nil {
-		d.Squawks, d.SquawksMore = studioSquawks(msgs, participant)
+		d.Squawks, d.SquawksMore = studioSquawks(store, msgs, id)
 	}
 	return d, d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
 }
