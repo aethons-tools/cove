@@ -14,17 +14,29 @@ import (
 type DevIdentity struct {
 	Store DevIdentityStore
 	User  string // the user's name or id
+	// LegacyProject/LegacyHuman are the pre-registry {project, human} form:
+	// the user that roster human became (legacy_human_aliases), exactly —
+	// never whoever now holds the name.
+	LegacyProject, LegacyHuman string
 }
 
 // DevIdentityStore is what DevIdentity reads: participant resolution plus the
 // user registry.
 type DevIdentityStore interface {
 	jam.ParticipantStore
-	LookupName(k ident.Kind, name string) (ident.ID, bool)
 	GetUser(id ident.ID) (jam.User, bool)
+	LegacyHumanAlias(project, name string) (ident.ID, bool)
 }
 
 func (d DevIdentity) user() (jam.User, bool) {
+	if d.LegacyHuman != "" {
+		id, ok := d.Store.LegacyHumanAlias(d.LegacyProject, d.LegacyHuman)
+		if !ok {
+			return jam.User{}, false
+		}
+		u, ok := d.Store.GetUser(id)
+		return u, ok && u.Status == jam.StatusLive
+	}
 	id := ident.ID(d.User)
 	if _, err := ident.Parse(d.User); err != nil {
 		var ok bool

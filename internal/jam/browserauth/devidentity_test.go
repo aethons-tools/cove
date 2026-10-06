@@ -85,3 +85,26 @@ func TestDevIdentityParticipantNeedsOIDCIdentity(t *testing.T) {
 		t.Fatal("no participant should be injected for a human without an OIDC identity")
 	}
 }
+
+// The deprecated {project, human} form resolves through the migration's
+// legacy alias, so it acts as exactly the person that roster human became —
+// not whoever now holds the name.
+func TestDevIdentityLegacyAlias(t *testing.T) {
+	s := jam.NewMemStore()
+	err := s.ImportConfig(jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: []jam.Project{
+		{Name: "a", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Login: "login-a"}}}},
+		{Name: "b", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Login: "login-b"}}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := DevIdentity{Store: s, LegacyProject: "b", LegacyHuman: "alice"}
+	g := Gate{LoopbackTrust: d.OperatorLoopbackTrust(), Log: discard()}
+	var got string
+	g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = jam.OperatorID(r)
+	})).ServeHTTP(httptest.NewRecorder(), devReq("127.0.0.1:5000"))
+	if got != "login-b" {
+		t.Fatalf("legacy b/alice acts as %q, want login-b (b's alice, renamed by the migration)", got)
+	}
+}

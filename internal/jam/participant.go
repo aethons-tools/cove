@@ -28,7 +28,7 @@ type Participant struct {
 // is exported so the browser-auth gate can resolve a session to a participant.
 type ParticipantStore interface {
 	ListProjects() []string
-	GetProject(name string) (Project, bool)
+	LookupName(k ident.Kind, name string) (ident.ID, bool)
 	UserByOIDC(issuer, subject string) (User, bool)
 	IsMember(project, user ident.ID) bool
 }
@@ -62,7 +62,7 @@ func ParticipantByIdentity(store ParticipantStore, issuer, subject string) (Part
 	}
 	p := Participant{Issuer: issuer, Subject: subject, UserID: u.ID, Name: u.Name}
 	for _, name := range store.ListProjects() {
-		if pr, ok := store.GetProject(name); ok && store.IsMember(pr.ID, u.ID) {
+		if pid, ok := store.LookupName(ident.Project, name); ok && store.IsMember(pid, u.ID) {
 			p.Projects = append(p.Projects, name)
 		}
 	}

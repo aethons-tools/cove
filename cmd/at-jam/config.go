@@ -655,11 +655,15 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
 	}
 	if d := c.DevIdentity; d != nil {
-		if d.User == "" && d.DeprecatedHuman != "" {
-			d.User, d.DeprecatedHuman, d.DeprecatedProject = d.DeprecatedHuman, "", ""
+		switch {
+		case d.User != "" && (d.DeprecatedHuman != "" || d.DeprecatedProject != ""):
+			return serveConfig{}, fmt.Errorf("dev-identity: both user and project/human are set; project/human is the deprecated form — keep only user")
+		case d.DeprecatedHuman != "":
+			if d.DeprecatedProject == "" {
+				return serveConfig{}, fmt.Errorf("dev-identity: the deprecated human needs its project (or use user)")
+			}
 			c.deprecated = append(c.deprecated, [2]string{"dev-identity.project/human", "dev-identity.user"})
-		}
-		if d.User == "" {
+		case d.User == "":
 			return serveConfig{}, fmt.Errorf("dev-identity: user is required")
 		}
 		if !isLoopbackAddr(c.AdminListen) {
