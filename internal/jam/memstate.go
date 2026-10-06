@@ -335,6 +335,12 @@ func (m *memState) roleReferencingKit(name string) (string, string, bool) {
 	return "", "", false
 }
 
+// newProject is a fresh project record: name plus a newly minted id. Every
+// path that creates a project record uses it.
+func newProject(name string) Project {
+	return Project{ID: ident.New(ident.Project), Name: name}
+}
+
 // requireProject resolves the project a write targets ("" means
 // DefaultProject): the stored record (no copy), or — for DefaultProject only — a
 // fresh record the caller must persist along with its write (created reports
@@ -347,7 +353,7 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 		return p, false, nil
 	}
 	if name == DefaultProject {
-		return Project{Name: name}, true, nil
+		return newProject(name), true, nil
 	}
 	return Project{}, false, fmt.Errorf("%w: %q (create it with `at-jam project create %s`)", ErrProjectNotFound, name, name)
 }
@@ -415,7 +421,7 @@ func (m *memState) backfillProjects() {
 			name = DefaultProject
 		}
 		if _, ok := m.projects[name]; !ok {
-			m.projects[name] = Project{Name: name}
+			m.projects[name] = newProject(name)
 		}
 	}
 	for p := range m.roles {

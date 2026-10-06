@@ -576,7 +576,7 @@ func (s *PostgresStore) CreateProject(name string) error {
 	if err := s.checkCreateProject(name); err != nil {
 		return err
 	}
-	p := Project{Name: name}
+	p := newProject(name)
 	doc, err := json.Marshal(p)
 	if err != nil {
 		return err

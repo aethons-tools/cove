@@ -14,6 +14,10 @@ func (m *memState) Resolve(id ident.ID) (Entry, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	switch id.Kind() {
+	case ident.Project:
+		if p, ok := m.projectByID(id); ok {
+			return Entry{ID: id, Kind: ident.Project, Name: p.Name, Status: StatusLive}, true
+		}
 	case ident.User:
 		if u, ok := m.users[id]; ok {
 			return Entry{ID: id, Kind: ident.User, Name: u.Name, Status: u.Status}, true
@@ -40,6 +44,10 @@ func (m *memState) LookupName(k ident.Kind, name string) (ident.ID, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	switch k {
+	case ident.Project:
+		if p, ok := m.projects[name]; ok && p.ID != "" {
+			return p.ID, true
+		}
 	case ident.User:
 		if u, ok := m.liveUserNamed(name); ok {
 			return u.ID, true
@@ -139,7 +147,18 @@ func (m *memState) idExists(id ident.ID) bool {
 	_, u := m.users[id]
 	_, c := m.connections[id]
 	_, a := m.accounts[id]
-	return u || c || a
+	_, p := m.projectByID(id)
+	return u || c || a || p
+}
+
+// projectByID finds a project record by its id. Caller holds mu.
+func (m *memState) projectByID(id ident.ID) (Project, bool) {
+	for _, p := range m.projects {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return Project{}, false
 }
 
 func (m *memState) checkUserName(name string, self ident.ID) error {

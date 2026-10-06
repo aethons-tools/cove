@@ -393,4 +393,71 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("ListAccounts = %d, %d; want 1, 1", n1, n2)
 		}
 	})
+
+	t.Run("project_has_id_and_resolves", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		p, _ := s.GetProject("acme")
+		if p.ID.Kind() != ident.Project {
+			t.Fatalf("project id = %q", p.ID)
+		}
+		if _, err := ident.Parse(string(p.ID)); err != nil {
+			t.Fatalf("project id does not parse: %v", err)
+		}
+		if id, ok := s.LookupName(ident.Project, "acme"); !ok || id != p.ID {
+			t.Fatalf("LookupName = %q, %v", id, ok)
+		}
+		if e, ok := s.Resolve(p.ID); !ok || e.Kind != ident.Project || e.Label() != "acme" {
+			t.Fatalf("Resolve = %+v, %v", e, ok)
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := s.GetProject("beta"); b.ID == p.ID {
+			t.Fatal("two projects share an id")
+		}
+	})
+
+	t.Run("default_project_materialized_with_id", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.PutRole("", jam.Role{Name: "r"}); err != nil {
+			t.Fatal(err)
+		}
+		if p, ok := s.GetProject(jam.DefaultProject); !ok || p.ID.Kind() != ident.Project {
+			t.Fatalf("default project = %+v, %v", p, ok)
+		}
+	})
+
+	t.Run("project_id_survives_edits", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		before, _ := s.GetProject("acme")
+		if err := s.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		if after, _ := s.GetProject("acme"); after.ID != before.ID {
+			t.Fatalf("id changed on edit: %q → %q", before.ID, after.ID)
+		}
+	})
+
+	t.Run("project_recreated_gets_new_id", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		old, _ := s.GetProject("acme")
+		if err := s.RemoveProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := s.GetProject("acme"); p.ID == old.ID {
+			t.Fatal("a re-created project must get a new id")
+		}
+	})
 }
