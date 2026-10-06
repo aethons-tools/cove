@@ -47,7 +47,7 @@ func seedProjects(t *testing.T) jam.Store {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "discord", Ref: "chan-eng"}); err != nil {
+	if err := putRoom(store, "acme", "eng", "discord", "chan-eng"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetEscalationPolicy("acme", "", []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 30 * time.Minute}}); err != nil {
@@ -193,4 +193,10 @@ func TestProjectLinks(t *testing.T) {
 	if body := get(t, h, "/ui/roles").Body.String(); !strings.Contains(body, `href="/ui/projects/acme"`) {
 		t.Errorf("roles table should link projects")
 	}
+}
+
+// putRoom adds a project's room on the connection of kind service.
+func putRoom(st jam.Store, project, name, service, ref string) error {
+	_, _, err := jam.PutRoom(st, project, jam.RoomBody{Name: name, Connection: service, Ref: ref})
+	return err
 }

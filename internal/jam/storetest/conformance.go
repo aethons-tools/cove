@@ -345,54 +345,6 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
-	t.Run("unread_cursor_per_participant_channel", func(t *testing.T) {
-		s := newStore(t)
-		if _, ok := s.UnreadCursor("human:alice", "studio:ACME-1"); ok {
-			t.Fatal("an uncommitted (participant, channel) cursor must be absent")
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 5); err != nil {
-			t.Fatalf("CommitUnread: %v", err)
-		}
-		if seq, ok := s.UnreadCursor("human:alice", "studio:ACME-1"); !ok || seq != 5 {
-			t.Fatalf("cursor = %d, %v; want 5, true", seq, ok)
-		}
-		// Forward-only: a backward/equal seq is a no-op success.
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 3); err != nil {
-			t.Fatalf("CommitUnread (backward): %v", err)
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 5); err != nil {
-			t.Fatalf("CommitUnread (equal): %v", err)
-		}
-		if seq, _ := s.UnreadCursor("human:alice", "studio:ACME-1"); seq != 5 {
-			t.Fatalf("cursor after non-forward commits = %d, want 5", seq)
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 9); err != nil {
-			t.Fatalf("CommitUnread (forward): %v", err)
-		}
-		// Keyed by (participant, channel): a second channel and a second
-		// participant are independent.
-		if err := s.CommitUnread("human:alice", "dm:x", 2); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.CommitUnread("human:bob", "studio:ACME-1", 7); err != nil {
-			t.Fatal(err)
-		}
-		got := s.UnreadCursors("human:alice")
-		if len(got) != 2 || got["studio:ACME-1"] != 9 || got["dm:x"] != 2 {
-			t.Fatalf("UnreadCursors(alice) = %v; want {studio:ACME-1:9, dm:x:2}", got)
-		}
-		if got := s.UnreadCursors("human:bob"); len(got) != 1 || got["studio:ACME-1"] != 7 {
-			t.Fatalf("UnreadCursors(bob) = %v; want {studio:ACME-1:7}", got)
-		}
-		// Empty participant/channel is rejected.
-		if err := s.CommitUnread("", "c", 1); err == nil {
-			t.Fatal("CommitUnread with an empty participant must error")
-		}
-		if err := s.CommitUnread("p", "", 1); err == nil {
-			t.Fatal("CommitUnread with an empty channel must error")
-		}
-	})
-
 	t.Run("destinations_and_match", func(t *testing.T) {
 		s := newStore(t)
 		if err := s.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}); err != nil {
@@ -583,19 +535,12 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil { // upsert by name
 			t.Fatalf("AddHuman (upsert): %v", err)
 		}
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "eng", Ref: "ACME-1"}); err != nil {
-			t.Fatalf("AddChannel: %v", err)
+		if _, _, err := jam.PutRoom(s, "acme", jam.RoomBody{Name: "eng", Ref: "ACME-1"}); err != nil {
+			t.Fatalf("PutRoom: %v", err)
 		}
 		ros, ok := s.GetRoster("acme")
-		if !ok || len(ros.Humans) != 1 || ros.Humans[0].Handle != "@alice2" || len(ros.Channels) != 1 {
+		if !ok || len(ros.Humans) != 1 || ros.Humans[0].Handle != "@alice2" || len(ros.Channels) != 1 || ros.Channels[0].Service != "linear" {
 			t.Fatalf("GetRoster = %+v, %v", ros, ok)
-		}
-		// AddChannel defaults Service to "linear".
-		if ros.Channels[0].Service != "linear" {
-			// Service is defaulted on write; re-read via GetProject to confirm.
-			if p, _ := s.GetProject("acme"); len(p.Roster.Channels) == 1 && p.Roster.Channels[0].Service != "linear" {
-				t.Fatalf("AddChannel should default Service to linear, got %q", p.Roster.Channels[0].Service)
-			}
 		}
 		tiers := []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: time.Minute}}
 		if err := s.SetEscalationPolicy("acme", "", tiers); err != nil {
@@ -611,8 +556,8 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.RemoveHuman("acme", "alice"); err != nil {
 			t.Fatalf("RemoveHuman: %v", err)
 		}
-		if err := s.RemoveChannel("acme", "eng"); err != nil {
-			t.Fatalf("RemoveChannel: %v", err)
+		if err := jam.RemoveRoom(s, "acme", "eng"); err != nil {
+			t.Fatalf("RemoveRoom: %v", err)
 		}
 		if ros, _ := s.GetRoster("acme"); len(ros.Humans) != 0 || len(ros.Channels) != 0 {
 			t.Fatalf("roster after removals = %+v", ros)
@@ -685,9 +630,12 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		// Every project-scoped write into an unknown project is refused — no
 		// implicit creation.
 		writes := map[string]func() error{
-			"PutRole":             func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
-			"AddHuman":            func() error { return s.AddHuman("ghost", jam.Human{Name: "h"}) },
-			"AddChannel":          func() error { return s.AddChannel("ghost", jam.RosterChannel{Name: "c"}) },
+			"PutRole":  func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
+			"AddHuman": func() error { return s.AddHuman("ghost", jam.Human{Name: "h"}) },
+			"PutRoom": func() error {
+				_, _, err := jam.PutRoom(s, "ghost", jam.RoomBody{Name: "c", Ref: "R"})
+				return err
+			},
 			"SetEscalationPolicy": func() error { return s.SetEscalationPolicy("ghost", "", nil) },
 			"SetChatService":      func() error { return s.SetChatService("ghost", "discord") },
 			"AddActor": func() error {

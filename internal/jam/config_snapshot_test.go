@@ -37,7 +37,7 @@ func populated(t *testing.T) *MemStore {
 	if err := s.PutInstance(Instance{ActorID: "spider-18"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CommitUnread("alice", "eng", 7); err != nil {
+	if err := s.CommitChannelRead("usr_01j9q3aaaaaaaaaaaaaaaaaaaa", "chn_01j9q3aaaaaaaaaaaaaaaaaaaa", 7); err != nil {
 		t.Fatal(err)
 	}
 	return s

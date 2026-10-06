@@ -280,11 +280,11 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := s.CreateProject("acme"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "eng", Ref: "ACME-1"}); err != nil {
-			t.Fatalf("AddChannel: %v", err)
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "eng", Ref: "ACME-1"}); err != nil {
+			t.Fatalf("PutRoom: %v", err)
 		}
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "chat", Service: "discord", Ref: "123"}); err != nil {
-			t.Fatalf("AddChannel discord: %v", err)
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "chat", Connection: "discord", Ref: "123"}); err != nil {
+			t.Fatalf("PutRoom discord: %v", err)
 		}
 		want := []jam.RosterChannel{{Name: "chat", Service: "discord", Ref: "123"}, {Name: "eng", Service: "linear", Ref: "ACME-1"}}
 		if r, _ := s.GetRoster("acme"); !reflect.DeepEqual(r.Channels, want) {
@@ -303,20 +303,20 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			t.Fatalf("the room binds the linear connection (created on demand): %+v, %+v", lin, rooms[1].Bindings)
 		}
 		// An upsert by name rebinds the same room.
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "linear", Ref: "ACME-2"}); err != nil {
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "eng", Connection: "linear", Ref: "ACME-2"}); err != nil {
 			t.Fatal(err)
 		}
 		if got, _ := s.ChannelByKey(p.ID, jam.SourceRoom, "eng"); got.ID != rooms[1].ID || got.Bindings[0].Ref != "ACME-2" {
 			t.Fatalf("upserted room = %+v", got)
 		}
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "x", Service: "carrier-pigeon", Ref: "1"}); err == nil {
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "x", Connection: "carrier-pigeon", Ref: "1"}); err == nil {
 			t.Fatal("a service with no connection kind must be refused")
 		}
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "x", Service: "linear"}); err == nil {
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "x", Connection: "linear"}); err == nil {
 			t.Fatal("a channel needs a ref")
 		}
-		if err := s.RemoveChannel("acme", "eng"); err != nil {
-			t.Fatalf("RemoveChannel: %v", err)
+		if err := jam.RemoveRoom(s, "acme", "eng"); err != nil {
+			t.Fatalf("RemoveRoom: %v", err)
 		}
 		if r, _ := s.GetRoster("acme"); len(r.Channels) != 1 || r.Channels[0].Name != "chat" {
 			t.Fatalf("roster after remove = %+v", r.Channels)
@@ -337,7 +337,7 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			t.Fatalf("roster = %+v: the channel that receives a ref's replies must come first", r.Channels)
 		}
 		// Re-saving the demoted channel unchanged keeps it as it is.
-		if err := s.AddChannel("acme", jam.RosterChannel{Name: "alpha", Service: "linear", Ref: "ACME-1"}); err != nil {
+		if err := putRoom(s, "acme", jam.RoomBody{Name: "alpha", Connection: "linear", Ref: "ACME-1"}); err != nil {
 			t.Fatalf("re-save demoted: %v", err)
 		}
 		if got, _ := s.GetChannel(alpha.ID); got.Bindings[0].Mode != jam.BindEgress {
@@ -431,4 +431,9 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			})
 		}
 	})
+}
+
+func putRoom(s jam.Store, project string, b jam.RoomBody) error {
+	_, _, err := jam.PutRoom(s, project, b)
+	return err
 }

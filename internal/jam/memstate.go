@@ -53,10 +53,6 @@ type memState struct {
 	// reads is the /me unread cursor on the channel log: participant →
 	// channel → last-read seq (forward only).
 	reads map[ident.ID]map[ident.ID]int64
-	// unread is the per-(participant, channel) intercom-UI unread cursor:
-	// participant → channel id → last-seen append Seq. Monotonic forward-only
-	// (applyCommitUnread). Free-form keys — no backing entity is required.
-	unread map[string]map[string]int64
 	// jamContext is the Jam-wide authored session-context layer; zero = none.
 	jamContext sessionctx.Layer
 	// specSchema records which one-time model-spec store migrations have run
@@ -82,7 +78,6 @@ func newMemState() *memState {
 		channels:    map[ident.ID]Channel{},
 		chanMembers: map[ident.ID][]ChannelMember{},
 		reads:       map[ident.ID]map[ident.ID]int64{},
-		unread:      map[string]map[string]int64{},
 	}
 }
 
@@ -299,27 +294,6 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 		Humans:   m.rosterHumans(p.ID),
 		Channels: m.rosterChannels(p.ID),
 	}, true
-}
-
-// UnreadCursor returns the participant's last-seen Seq on channel, and whether
-// a cursor has been committed for that (participant, channel) pair.
-func (m *memState) UnreadCursor(participant, channel string) (int64, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	seq, ok := m.unread[participant][channel]
-	return seq, ok
-}
-
-// UnreadCursors returns a copy of all of the participant's channel cursors
-// (channel id → last-seen Seq), the map ProjectChannels consumes. Never nil.
-func (m *memState) UnreadCursors(participant string) map[string]int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make(map[string]int64, len(m.unread[participant]))
-	for ch, seq := range m.unread[participant] {
-		out[ch] = seq
-	}
-	return out
 }
 
 // ---- lock-free read/validation helpers (caller holds the lock) ----
@@ -561,22 +535,6 @@ func (m *memState) applyAdvanceCommitCursor(actorID, upToID string, upToSeq int6
 		m.instances[actorID] = i
 	}
 	return i, true
-}
-
-// applyCommitUnread moves the (participant, channel) unread cursor forward to
-// seq iff seq is beyond the current value; returns the (possibly unchanged)
-// cursor and whether it moved. Forward-only (a backward/equal seq is a no-op).
-// Caller holds the write lock.
-func (m *memState) applyCommitUnread(participant, channel string, seq int64) (int64, bool) {
-	cur := m.unread[participant][channel]
-	if seq <= cur {
-		return cur, false
-	}
-	if m.unread[participant] == nil {
-		m.unread[participant] = map[string]int64{}
-	}
-	m.unread[participant][channel] = seq
-	return seq, true
 }
 
 func (m *memState) applyPutDestination(d Destination) { m.dests[d.Name] = copyDestination(d) }

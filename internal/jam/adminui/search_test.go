@@ -38,7 +38,7 @@ func searchFixture(t *testing.T) http.Handler {
 	if err := store.AddHuman("acme", jam.Human{Name: "zoe", Handle: "zephyr-zoe"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddChannel("acme", jam.RosterChannel{Name: "ops", Service: "discord", Ref: "zephyr-ops"}); err != nil {
+	if err := putRoom(store, "acme", "ops", "discord", "zephyr-ops"); err != nil {
 		t.Fatal(err)
 	}
 	var squawks []intercom.LegacySquawk

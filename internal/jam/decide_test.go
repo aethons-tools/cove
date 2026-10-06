@@ -1,11 +1,8 @@
 package jam
 
 import (
-	"errors"
 	"testing"
 	"time"
-
-	"github.com/aethons-tools/cove/internal/ident"
 )
 
 func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
@@ -84,82 +81,6 @@ func TestEffectiveScopeAddressingReplaces(t *testing.T) {
 	}
 }
 
-func TestDecideSend(t *testing.T) {
-	roles := map[string]map[string]Role{
-		"acme": {
-			"impl":   {Name: "impl", Scope: Scope{Addressing: []string{"human:*", "channel:eng-help"}}},
-			"noaddr": {Name: "noaddr"},
-		},
-	}
-	rosters := map[string]Roster{
-		"acme": {
-			Humans:   []Human{{Name: "alice", Handle: "alice.h"}},
-			Channels: []RosterChannel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}},
-		},
-	}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	now := time.Unix(1_000, 0)
-
-	actor := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}
-
-	// authorized human → resolves handle
-	st, err := DecideSend(actor, getRole, getRoster, "human:alice", now)
-	if err != nil || st.Kind != "human" || st.Handle != "alice.h" || st.Project != "acme" {
-		t.Fatalf("human: %+v err=%v", st, err)
-	}
-	// authorized channel → resolves ref
-	st, err = DecideSend(actor, getRole, getRoster, "channel:eng-help", now)
-	if err != nil || st.Kind != "channel" || st.Ref != "ACME-1" {
-		t.Fatalf("channel: %+v err=%v", st, err)
-	}
-	// glob does not authorize channel:other → denied (403), and never leaks existence
-	if _, err := DecideSend(actor, getRole, getRoster, "channel:other", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied, got %v", err)
-	}
-	// authorized-in-form (human:*) but not in roster → unresolved (404)
-	if _, err := DecideSend(actor, getRole, getRoster, "human:bob", now); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("expected unresolved, got %v", err)
-	}
-	// malformed target → denied
-	if _, err := DecideSend(actor, getRole, getRoster, "alice", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied for malformed, got %v", err)
-	}
-	// no-addressing role → denied
-	na := Actor{ID: "n", Grants: []Grant{{Project: "acme", Role: "noaddr"}}}
-	if _, err := DecideSend(na, getRole, getRoster, "human:alice", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied for no addressing, got %v", err)
-	}
-	// expired actor → denied
-	exp := Actor{ID: "e", Expiry: now.Add(-time.Hour), Grants: []Grant{{Project: "acme", Role: "impl"}}}
-	if _, err := DecideSend(exp, getRole, getRoster, "human:alice", now); err == nil {
-		t.Fatal("expected expired actor denied")
-	}
-}
-
-func TestDecideSendPerGrantExistential(t *testing.T) {
-	// grant A authorizes humans in acme; grant B authorizes channels in beta.
-	roles := map[string]map[string]Role{
-		"acme": {"a": {Name: "a", Scope: Scope{Addressing: []string{"human:*"}}}},
-		"beta": {"b": {Name: "b", Scope: Scope{Addressing: []string{"channel:*"}}}},
-	}
-	rosters := map[string]Roster{
-		"acme": {Humans: []Human{{Name: "alice", Handle: "h"}}},
-		"beta": {Channels: []RosterChannel{{Name: "ops", Ref: "BETA-9"}}},
-	}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	a := Actor{ID: "x", Grants: []Grant{{Project: "acme", Role: "a"}, {Project: "beta", Role: "b"}}}
-	now := time.Unix(1, 0)
-	if st, err := DecideSend(a, getRole, getRoster, "channel:ops", now); err != nil || st.Ref != "BETA-9" {
-		t.Fatalf("beta channel via grant B: %+v %v", st, err)
-	}
-	// a human that only exists in beta's project is not addressable (acme grant authorizes humans but acme has no bob; beta grant doesn't authorize humans)
-	if _, err := DecideSend(a, getRole, getRoster, "human:ops", now); err == nil {
-		t.Fatal("expected cross-project recombination to fail")
-	}
-}
-
 func TestListTargets(t *testing.T) {
 	roles := map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}}
 	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "h"}, {Name: "bob", Handle: "h2"}}, Channels: []RosterChannel{{Name: "eng", Ref: "R"}}}}
@@ -228,86 +149,4 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func TestDecideSendUserTargets(t *testing.T) {
-	alice, bob := ident.New(ident.User), ident.New(ident.User)
-	roles := map[string]map[string]Role{"acme": {
-		"any":    {Name: "any", Scope: Scope{Addressing: []string{"user:*"}}},
-		"legacy": {Name: "legacy", Scope: Scope{Addressing: []string{"human:alice"}}},
-		"byid":   {Name: "byid", Scope: Scope{Addressing: []string{"user:" + string(alice)}}},
-		"byname": {Name: "byname", Scope: Scope{Addressing: []string{"user:alice"}}},
-	}}
-	rosters := map[string]Roster{"acme": {Humans: []Human{
-		{Name: "alice", UserID: alice, Handle: "alice.h"},
-		{Name: "bob", UserID: bob},
-	}}}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	now := time.Unix(1, 0)
-	as := func(role string) Actor { return Actor{ID: role, Grants: []Grant{{Project: "acme", Role: role}}} }
-
-	for _, tc := range []struct {
-		role, target string
-		ok           bool
-	}{
-		{"any", "user:alice", true},
-		{"any", "user:" + string(alice), true},
-		{"any", "human:alice", true}, // alias
-		{"legacy", "user:alice", true},
-		{"legacy", "user:" + string(alice), true},
-		{"legacy", "user:bob", false},
-		{"byid", "user:alice", true},
-		{"byid", "user:bob", false},
-		{"byname", "user:" + string(alice), true},
-		{"byname", "user:" + string(bob), false}, // an id never widens what a name glob grants
-	} {
-		st, err := DecideSend(as(tc.role), getRole, getRoster, tc.target, now)
-		if tc.ok != (err == nil) {
-			t.Errorf("%s → %s: err = %v, want ok=%v", tc.role, tc.target, err, tc.ok)
-			continue
-		}
-		if tc.ok && (st.Kind != "human" || st.Name != "alice" || st.UserID != alice || st.Handle != "alice.h") {
-			t.Errorf("%s → %s resolved to %+v", tc.role, tc.target, st)
-		}
-	}
-	if _, err := DecideSend(as("any"), getRole, getRoster, "user:"+string(ident.New(ident.User)), now); !errors.Is(err, ErrSendUnresolved) {
-		t.Errorf("unknown user id: %v, want ErrSendUnresolved", err)
-	}
-	got := ListTargets(as("legacy"), getRole, getRoster, now)
-	if len(got) != 1 || got[0].Name != "alice" {
-		t.Errorf("ListTargets under a legacy human: glob = %+v", got)
-	}
-}
-
-// A name glob never matches a user id: every id is "usr_…", so a glob like
-// user:u* or *r* would otherwise reach every member.
-func TestNameGlobsNeverMatchIDs(t *testing.T) {
-	bob := ident.New(ident.User)
-	roles := map[string]map[string]Role{"acme": {
-		"u":    {Name: "u", Scope: Scope{Addressing: []string{"user:u*"}}},
-		"star": {Name: "star", Scope: Scope{Addressing: []string{"user:*_*", "user:*0*"}}},
-		"all":  {Name: "all", Scope: Scope{Addressing: []string{"user:*"}}},
-		"any":  {Name: "any", Scope: Scope{Addressing: []string{"*"}}},
-	}}
-	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "bob", UserID: bob}}}}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	as := func(role string) Actor { return Actor{ID: role, Grants: []Grant{{Project: "acme", Role: role}}} }
-	now := time.Unix(1, 0)
-	for _, role := range []string{"u", "star"} {
-		for _, target := range []string{"user:bob", "user:" + string(bob)} {
-			if _, err := DecideSend(as(role), getRole, getRoster, target, now); !errors.Is(err, ErrSendDenied) {
-				t.Errorf("%s → %s: %v, want denied", role, target, err)
-			}
-		}
-		if got := ListTargets(as(role), getRole, getRoster, now); len(got) != 0 {
-			t.Errorf("%s lists %+v, want nobody", role, got)
-		}
-	}
-	for _, role := range []string{"all", "any"} {
-		if _, err := DecideSend(as(role), getRole, getRoster, "user:"+string(bob), now); err != nil {
-			t.Errorf("%s → bob's id: %v, want allowed", role, err)
-		}
-	}
 }

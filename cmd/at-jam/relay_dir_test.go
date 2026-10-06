@@ -173,7 +173,7 @@ func TestSurfacesChatLinearFallback(t *testing.T) {
 func TestSurfacesRooms(t *testing.T) {
 	k := newRelayKit(t)
 	for _, rc := range []jam.RosterChannel{{Name: "eng", Service: "discord", Ref: "chan-C"}, {Name: "ops", Service: "linear", Ref: "ACME-1"}} {
-		if err := k.st.AddChannel("acme", rc); err != nil {
+		if err := putRoom(k.st, "acme", rc.Name, rc.Service, rc.Ref); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestRouteDiscordAttributesUnboundInbox(t *testing.T) {
 
 func TestRouteDiscordOtherCases(t *testing.T) {
 	k := newRelayKit(t)
-	if err := k.st.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "discord", Ref: "chan-C"}); err != nil {
+	if err := putRoom(k.st, "acme", "eng", "discord", "chan-C"); err != nil {
 		t.Fatal(err)
 	}
 	room, _ := k.st.ChannelByBinding(k.discord.ID, "chan-C")
@@ -326,7 +326,7 @@ func TestSurfacesChatFallbackOnlyForSessions(t *testing.T) {
 // a post into an archived channel is a permanent failure (never retried).
 func TestRouteDiscordArchivedRoom(t *testing.T) {
 	k := newRelayKit(t)
-	if err := k.st.AddChannel("acme", jam.RosterChannel{Name: "eng", Service: "discord", Ref: "chan-C"}); err != nil {
+	if err := putRoom(k.st, "acme", "eng", "discord", "chan-C"); err != nil {
 		t.Fatal(err)
 	}
 	m := k.send(k.std, "channel:eng", "x")
@@ -335,7 +335,7 @@ func TestRouteDiscordArchivedRoom(t *testing.T) {
 	if _, err := s.Deliver(context.Background(), k.dir.Surfaces("discord", m)[0], m); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.st.RemoveChannel("acme", "eng"); err != nil {
+	if err := jam.RemoveRoom(k.st, "acme", "eng"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := k.dir.Route("discord", "acme", relay.Event{ForeignID: "x", Surface: "chan-C", AuthorID: "111", ReplyToForeign: "DR"}); ok {
@@ -345,4 +345,10 @@ func TestRouteDiscordArchivedRoom(t *testing.T) {
 	if !errors.Is(err, relay.ErrPermanent) {
 		t.Fatalf("post into an archived channel: %v, want ErrPermanent", err)
 	}
+}
+
+// putRoom adds a project's room on the connection of kind service.
+func putRoom(st jam.Store, project, name, service, ref string) error {
+	_, _, err := jam.PutRoom(st, project, jam.RoomBody{Name: name, Connection: service, Ref: ref})
+	return err
 }
