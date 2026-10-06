@@ -132,15 +132,16 @@ func writeResult(t *testing.T, dir, body string) {
 	}
 }
 
-// testClaude is a Claude harness whose generated MCP config lands in dir, fed
-// by an empty baked kit mcp-servers file — so Validate passes hermetically.
+// testClaude is a Claude harness whose generated MCP config and settings land
+// in dir, fed by an empty baked kit mcp-servers file — so Validate passes
+// hermetically and never touches the real /dev/shm files (TestMain guards).
 func testClaude(t *testing.T, dir string) Claude {
 	t.Helper()
 	kit := filepath.Join(dir, "kit-mcp-servers.json")
 	if err := os.WriteFile(kit, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return Claude{MCPConfigPath: filepath.Join(dir, "mcp.json"), KitMCPServersPath: kit}
+	return Claude{MCPConfigPath: filepath.Join(dir, "mcp.json"), SettingsPath: filepath.Join(dir, "settings.json"), KitMCPServersPath: kit}
 }
 
 func newWL(t *testing.T, dir string, f *fakeSpawner) (*Workload, *recordHandle) {
