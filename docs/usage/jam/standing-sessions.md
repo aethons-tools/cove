@@ -30,7 +30,8 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
   and sent in the request body. It never goes on argv. Both `--name` and
   `--prompt-file` are required.
 - **list** prints each declared name, the actor id its studio runs under, and that
-  studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs).
+  studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs,
+  or — with a warning on stderr — when Jam can't list studios).
 - **rm** removes the name. Jam then tears its studio down (see
   [Dismissal](#dismissal)).
 

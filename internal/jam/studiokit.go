@@ -77,21 +77,32 @@ func PushStudioKit(store Store, name, config string) (version int, unchanged boo
 // parsed and hashed once. Fails closed (no silent fallback) when name is not
 // tag-safe, is absent, or its stored config is not a valid studio kit.
 func StudioKitDefinition(store Store, name string, h harnessinstall.Install) (KitDefinition, error) {
-	if !studio.TagSafeName(name) {
-		return KitDefinition{}, fmt.Errorf("kit name %q is not tag-safe", name)
+	ref, text, err := studioKitCurrent(store, name)
+	if err != nil {
+		return KitDefinition{}, err
 	}
-	k, ok := store.GetKit(name)
-	if !ok || k.Current == 0 {
-		return KitDefinition{}, fmt.Errorf("studio kit %q not in registry", name)
-	}
-	def, ok, err := ResolveKitDefinition(store, KitRef{ID: name, Version: k.Current}, h)
+	def, err := kitDefinitionFromConfig(ref, text, h)
 	if err != nil {
 		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", name, err)
 	}
-	if !ok {
-		return KitDefinition{}, fmt.Errorf("studio kit %q not in registry", name)
-	}
 	return def, nil
+}
+
+// studioKitCurrent is StudioKitDefinition's registry lookup, without the parse:
+// the current version's ref (no digest) and stored config.
+func studioKitCurrent(store Store, name string) (KitRef, string, error) {
+	if !studio.TagSafeName(name) {
+		return KitRef{}, "", fmt.Errorf("kit name %q is not tag-safe", name)
+	}
+	k, ok := store.GetKit(name)
+	if !ok || k.Current == 0 {
+		return KitRef{}, "", fmt.Errorf("studio kit %q not in registry", name)
+	}
+	text, ok := store.KitConfig(name, k.Current)
+	if !ok {
+		return KitRef{}, "", fmt.Errorf("studio kit %q not in registry", name)
+	}
+	return KitRef{ID: name, Version: k.Current}, text, nil
 }
 
 // EnsureDefaultStudioKit seeds the built-in default studio kit into the registry
@@ -111,10 +122,17 @@ func ResolveKitDefinition(store Store, ref KitRef, h harnessinstall.Install) (Ki
 	if !ok {
 		return KitDefinition{}, false, nil
 	}
+	def, err := kitDefinitionFromConfig(ref, text, h)
+	return def, err == nil, err
+}
+
+// kitDefinitionFromConfig parses a stored studio-kit config and keys ref on the
+// image it builds under h (Digest = studio.BuildDigest(kit, h)).
+func kitDefinitionFromConfig(ref KitRef, text string, h harnessinstall.Install) (KitDefinition, error) {
 	sk, err := studio.ParseStudioKit([]byte(text))
 	if err != nil {
-		return KitDefinition{}, false, fmt.Errorf("resolve kit %s: %w", ref, err)
+		return KitDefinition{}, fmt.Errorf("resolve kit %s: %w", ref, err)
 	}
 	ref.Digest = studio.BuildDigest(sk, h)
-	return KitDefinition{Ref: ref, Kit: sk, Harness: h}, true, nil
+	return KitDefinition{Ref: ref, Kit: sk, Harness: h}, nil
 }

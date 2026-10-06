@@ -209,30 +209,47 @@ type CoveSummary struct {
 	LastSeen    time.Time `json:"last_seen"`
 	// Connector: ok | stale | unknown | error — the cove's reported connector vs its role's current one.
 	Connector string `json:"connector"`
-	// Image: ok | stale | unknown — the image tag the cove was raised on vs the
-	// one a raise for its role would run now (kit, harness, Jam build).
+	// Image: ok | stale | unknown — the image the cove was raised on vs the one a
+	// raise for its role would run now (kit, harness, Jam build); "-" for a
+	// terminating, lost or gone cove.
 	Image string `json:"image"`
 }
 
-// ImageResolver names the image tag a raise for a role would run now. A nil
-// resolver (or a nil *Supervisor) leaves every cove's image status unknown.
+// ImageResolver resolves what a raise for a role would run now. A nil resolver
+// (or a nil *Supervisor) leaves every cove's image status unknown.
 type ImageResolver interface {
-	CurrentImageTag(project, role string) (string, error)
+	CurrentImage(project, role string) (CurrentImage, error)
 }
 
 // CoveSummaries returns the managed-cove runtime registry as scrubbed
 // summaries — never a token, hash, or launch secret. The JSON coves handler
 // and the read-only UI both render from this, so the two cannot drift. img
-// resolves each role's current image tag (once per role per call); nil reports
+// resolves each role's current image (once per role per call); nil reports
 // every image unknown.
 func CoveSummaries(store Store, img ImageResolver) []CoveSummary {
+	return coveSummaries(store, img, func(Instance) bool { return true })
+}
+
+// RoleCoveSummaries is CoveSummaries for one project/role's coves only
+// (project "" = default), filtered before any image is resolved.
+func RoleCoveSummaries(store Store, img ImageResolver, project, role string) []CoveSummary {
+	project = orDefaultProject(project)
+	return coveSummaries(store, img, func(i Instance) bool {
+		return orDefaultProject(i.Project) == project && i.Role == role
+	})
+}
+
+func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []CoveSummary {
 	actors := map[string]Actor{}
 	for _, a := range store.ListActors() {
 		actors[a.ID] = a
 	}
-	current := map[[2]string]string{} // project/role → current tag ("" = unresolvable)
+	current := map[[2]string]currentImage{} // project/role → resolved once per call
 	var out []CoveSummary
 	for _, i := range store.ListInstances() {
+		if !keep(i) {
+			continue
+		}
 		out = append(out, CoveSummary{
 			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
 			Phase: string(i.Phase), Activity: string(i.Activity),
@@ -244,27 +261,53 @@ func CoveSummaries(store Store, img ImageResolver) []CoveSummary {
 	return out
 }
 
-// imageStatus compares the image tag a cove was raised on with the one a raise
-// for its role would run now: ok, stale, or unknown (no recorded tag — an older
-// Jam — or the current tag can't be resolved). Never an error: a listing must
-// not fail on one role's bad kit. current memoizes resolution per role.
-func imageStatus(img ImageResolver, current map[[2]string]string, i Instance) string {
-	if i.ImageTag == "" || img == nil {
+type currentImage struct {
+	CurrentImage
+	err error
+}
+
+// imageStatus compares the image a cove was raised on with the one a raise for
+// its role would run now. With both tags it compares them (ok/stale). Without
+// one — a cove raised before tags were recorded, or a launcher that cannot name
+// images — it falls back to the recorded kit: a different kit or build digest is
+// stale, the same one unknown (Jam's own build inputs can't be compared). A role
+// that no longer raises any kit stales a cove raised from one. Unresolvable
+// (no resolver, a missing role, a bad kit or model-spec) is unknown — never an
+// error: a listing must not fail on one role. Only a cove that is (or is about
+// to be) running has a status; terminating, lost and gone ones report "-".
+// current memoizes resolution per role.
+func imageStatus(img ImageResolver, current map[[2]string]currentImage, i Instance) string {
+	switch i.Phase {
+	case PhaseLive, PhaseIdled, PhaseRaising:
+	default:
+		return "-"
+	}
+	if img == nil || (i.ImageTag == "" && i.Kit.ID == "") {
 		return "unknown"
 	}
 	key := [2]string{i.Project, i.Role}
-	want, seen := current[key]
+	cur, seen := current[key]
 	if !seen {
-		want, _ = img.CurrentImageTag(i.Project, i.Role) // an error leaves "" → unknown
-		current[key] = want
+		cur.CurrentImage, cur.err = img.CurrentImage(i.Project, i.Role)
+		current[key] = cur
 	}
-	switch want {
-	case "":
+	switch {
+	case cur.err != nil:
 		return "unknown"
-	case i.ImageTag:
-		return "ok"
+	case !cur.HasKit:
+		if i.Kit.ID != "" {
+			return "stale"
+		}
+		return "unknown"
+	case i.ImageTag != "" && cur.Tag != "":
+		if i.ImageTag == cur.Tag {
+			return "ok"
+		}
+		return "stale"
+	case i.Kit.ID != "" && (i.Kit.ID != cur.Kit.ID || i.Kit.Digest != cur.Kit.Digest):
+		return "stale"
 	}
-	return "stale"
+	return "unknown"
 }
 
 // connectorStatus compares the connector a cove reported applying with the one
@@ -799,6 +842,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
+		// ?role= (with optional ?project=) lists one role's coves, resolving only
+		// that role's image status (standing list).
+		if role := r.URL.Query().Get("role"); role != "" {
+			writeJSON(w, http.StatusOK, RoleCoveSummaries(store, sup, r.URL.Query().Get("project"), role))
+			return
+		}
 		writeJSON(w, http.StatusOK, CoveSummaries(store, sup))
 	})
 	mux.HandleFunc("POST /admin/coves", func(w http.ResponseWriter, r *http.Request) {

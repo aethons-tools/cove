@@ -1110,7 +1110,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		for _, cv := range coves {
 			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
-				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, cv.Image)
+				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
 		}
 	case "status":
 		if *id == "" || *activity == "" {
@@ -1271,10 +1271,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		coves, err := c.ListCoves()
+		// The running status is best-effort: the declarations still print
+		// without it (phase/image "-").
+		coves, err := c.ListRoleCoves(proj, *role)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
+			fmt.Fprintln(stderr, "at-jam: warning: studio status unavailable:", err)
 		}
 		running := map[string]jam.CoveSummary{}
 		for _, cv := range coves {
@@ -1284,7 +1285,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			id := jam.StandingActorID(proj, *role, s.Name)
 			phase, image := "-", "-" // no studio running for this name
 			if cv, ok := running[id]; ok {
-				phase, image = cv.Phase, cv.Image
+				phase, image = cv.Phase, imageOrUnknown(cv.Image)
 			}
 			fmt.Fprintf(stdout, "%s\tid=%s\tphase=%s\timage=%s\n", s.Name, id, phase, image)
 		}
@@ -1303,6 +1304,15 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// imageOrUnknown is a studio's image status for listings: an older Jam that
+// doesn't report one prints unknown.
+func imageOrUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
 }
 
 // egressState renders a role's egress policy for listings: "kit" (no policy:
