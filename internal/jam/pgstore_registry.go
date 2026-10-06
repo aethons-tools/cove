@@ -283,18 +283,48 @@ func (s *PostgresStore) loadRegistry(ctx context.Context) error {
 func (s *PostgresStore) AddMember(project, user ident.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	added, err := s.prepareAddMember(project, user)
+	ms, added, err := s.prepareAddMember(project, user)
 	if err != nil || !added {
 		return err
 	}
 	if err := s.registryTx("AddMember", func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO memberships (project_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, project, user)
-		return err
+		return putMembershipTx(ctx, tx, ms)
 	}); err != nil {
 		return err
 	}
-	s.applyAddMember(project, user)
+	s.applyPutMembership(ms)
 	return nil
+}
+
+func (s *PostgresStore) PutMembership(ms Membership) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ms, err := s.preparePutMembership(ms)
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx("PutMembership", func(ctx context.Context, tx pgx.Tx) error {
+		return putMembershipTx(ctx, tx, ms)
+	}); err != nil {
+		return err
+	}
+	s.applyPutMembership(ms)
+	return nil
+}
+
+func putMembershipTx(ctx context.Context, tx pgx.Tx, ms Membership) error {
+	delivery, err := json.Marshal(ms.Delivery)
+	if err != nil {
+		return err
+	}
+	if ms.Delivery == nil {
+		delivery = []byte("[]")
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO memberships (project_id, user_id, delivery) VALUES ($1,$2,$3)
+		 ON CONFLICT (project_id, user_id) DO UPDATE SET delivery = EXCLUDED.delivery`,
+		ms.ProjectID, ms.UserID, delivery)
+	return err
 }
 
 func (s *PostgresStore) RemoveMember(project, user ident.ID) error {
@@ -379,17 +409,48 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 		}
 		s.projects[name] = p
 	}
-	rows, err := s.pool.Query(ctx, `SELECT project_id, user_id FROM memberships`)
+	rows, err := s.pool.Query(ctx, `SELECT project_id, user_id, delivery FROM memberships`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load memberships: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var project, user string
-		if err := rows.Scan(&project, &user); err != nil {
+		var delivery []byte
+		if err := rows.Scan(&project, &user, &delivery); err != nil {
 			return err
 		}
-		s.applyAddMember(ident.ID(project), ident.ID(user))
+		ms := Membership{ProjectID: ident.ID(project), UserID: ident.ID(user)}
+		if err := json.Unmarshal(delivery, &ms.Delivery); err != nil {
+			return fmt.Errorf("pgstore: decode membership delivery: %w", err)
+		}
+		if len(ms.Delivery) == 0 {
+			ms.Delivery = nil
+		}
+		s.applyPutMembership(ms)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return s.loadLegacyAliases(ctx)
+}
+
+// loadLegacyAliases fills the frozen legacy_human_aliases map. load's part; no lock.
+func (s *PostgresStore) loadLegacyAliases(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT project_name, human_name, user_id FROM legacy_human_aliases`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load legacy_human_aliases: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var project, name, user string
+		if err := rows.Scan(&project, &name, &user); err != nil {
+			return err
+		}
+		if s.aliases[project] == nil {
+			s.aliases[project] = map[string]ident.ID{}
+		}
+		s.aliases[project][name] = ident.ID(user)
 	}
 	return rows.Err()
 }

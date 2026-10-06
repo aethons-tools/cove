@@ -114,10 +114,22 @@ func (fs *MemStore) LinkAccount(id, userID ident.ID) error {
 func (fs *MemStore) AddMember(project, user ident.ID) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if _, err := fs.prepareAddMember(project, user); err != nil {
+	ms, _, err := fs.prepareAddMember(project, user)
+	if err != nil {
 		return err
 	}
-	fs.applyAddMember(project, user)
+	fs.applyPutMembership(ms)
+	return nil
+}
+
+func (fs *MemStore) PutMembership(ms Membership) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	ms, err := fs.preparePutMembership(ms)
+	if err != nil {
+		return err
+	}
+	fs.applyPutMembership(ms)
 	return nil
 }
 

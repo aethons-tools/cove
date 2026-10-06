@@ -585,4 +585,37 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("RemoveProject after the last member left: %v", err)
 		}
 	})
+
+	t.Run("membership_delivery", func(t *testing.T) {
+		s := newStore(t)
+		acme := mustProject(t, s, "acme")
+		a := mustUser(t, s, "alice")
+		d := []jam.DeliveryProfile{{Service: "discord", Address: "chan-1"}}
+		if err := s.PutMembership(jam.Membership{ProjectID: acme, UserID: a.ID, Delivery: d}); err != nil {
+			t.Fatalf("PutMembership: %v", err)
+		}
+		if err := s.AddMember(acme, a.ID); err != nil { // re-adding keeps the delivery
+			t.Fatal(err)
+		}
+		m, ok := s.GetMembership(acme, a.ID)
+		if !ok || len(m.Delivery) != 1 || m.Delivery[0].Address != "chan-1" {
+			t.Fatalf("GetMembership = %+v, %v", m, ok)
+		}
+		m.Delivery[0].Address = "mutated"
+		if again, _ := s.GetMembership(acme, a.ID); again.Delivery[0].Address != "chan-1" {
+			t.Fatal("store mutated through a returned membership")
+		}
+		if err := s.PutMembership(jam.Membership{ProjectID: acme, UserID: a.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if m, _ := s.GetMembership(acme, a.ID); len(m.Delivery) != 0 {
+			t.Fatalf("PutMembership must replace the delivery: %+v", m)
+		}
+		if _, ok := s.GetMembership(acme, ident.New(ident.User)); ok {
+			t.Fatal("GetMembership of a non-member must be false")
+		}
+		if err := s.PutMembership(jam.Membership{ProjectID: ident.New(ident.Project), UserID: a.ID}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("unknown project: %v, want ErrProjectNotFound", err)
+		}
+	})
 }

@@ -503,7 +503,15 @@ func (m *memState) applyPutConnection(c Connection) { m.connections[c.ID] = c }
 func (m *memState) IsMember(project, user ident.ID) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.members[project][user]
+	_, ok := m.members[project][user]
+	return ok
+}
+
+func (m *memState) GetMembership(project, user ident.ID) (Membership, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ms, ok := m.members[project][user]
+	return copyMembership(ms), ok
 }
 
 func (m *memState) ListMembers(project ident.ID) []ident.ID {
@@ -517,7 +525,7 @@ func (m *memState) ListMemberships(user ident.ID) []ident.ID {
 	defer m.mu.RUnlock()
 	var out []ident.ID
 	for project, users := range m.members {
-		if users[user] {
+		if _, ok := users[user]; ok {
 			out = append(out, project)
 		}
 	}
@@ -525,30 +533,63 @@ func (m *memState) ListMemberships(user ident.ID) []ident.ID {
 	return out
 }
 
+func (m *memState) LegacyHumanAlias(project, name string) (ident.ID, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	id, ok := m.aliases[project][name]
+	return id, ok
+}
+
 // prepareAddMember validates an AddMember: the project exists and the user is
-// live. It reports whether the membership is new.
-func (m *memState) prepareAddMember(project, user ident.ID) (bool, error) {
+// live. It returns the membership to write (the existing one, delivery kept)
+// and whether it is new.
+func (m *memState) prepareAddMember(project, user ident.ID) (Membership, bool, error) {
+	if err := m.checkMember(project, user); err != nil {
+		return Membership{}, false, err
+	}
+	if ms, ok := m.members[project][user]; ok {
+		return copyMembership(ms), false, nil
+	}
+	return Membership{ProjectID: project, UserID: user}, true, nil
+}
+
+// preparePutMembership validates a PutMembership and returns the value to write.
+func (m *memState) preparePutMembership(ms Membership) (Membership, error) {
+	if err := m.checkMember(ms.ProjectID, ms.UserID); err != nil {
+		return Membership{}, err
+	}
+	for _, d := range ms.Delivery {
+		if d.Service == "" || d.Address == "" {
+			return Membership{}, fmt.Errorf("a membership delivery needs a service and an address")
+		}
+	}
+	ms = copyMembership(ms)
+	for i := range ms.Delivery {
+		ms.Delivery[i].UserID = "" // the service account is an Account, not delivery
+	}
+	return ms, nil
+}
+
+func (m *memState) checkMember(project, user ident.ID) error {
 	if _, ok := m.projectByID(project); !ok {
-		return false, fmt.Errorf("%w: %s", ErrProjectNotFound, project)
+		return fmt.Errorf("%w: %s", ErrProjectNotFound, project)
 	}
-	if _, err := m.liveUser(user); err != nil {
-		return false, err
-	}
-	return !m.members[project][user], nil
+	_, err := m.liveUser(user)
+	return err
 }
 
 func (m *memState) prepareRemoveMember(project, user ident.ID) error {
-	if !m.members[project][user] {
+	if _, ok := m.members[project][user]; !ok {
 		return fmt.Errorf("%w: %s in %s", ErrMembershipNotFound, user, project)
 	}
 	return nil
 }
 
-func (m *memState) applyAddMember(project, user ident.ID) {
-	if m.members[project] == nil {
-		m.members[project] = map[ident.ID]bool{}
+func (m *memState) applyPutMembership(ms Membership) {
+	if m.members[ms.ProjectID] == nil {
+		m.members[ms.ProjectID] = map[ident.ID]Membership{}
 	}
-	m.members[project][user] = true
+	m.members[ms.ProjectID][ms.UserID] = copyMembership(ms)
 }
 
 func (m *memState) applyRemoveMember(project, user ident.ID) {
@@ -563,4 +604,9 @@ func (m *memState) applyDropMemberships(user ident.ID) {
 	for project := range m.members {
 		m.applyRemoveMember(project, user)
 	}
+}
+
+func copyMembership(ms Membership) Membership {
+	ms.Delivery = slices.Clone(ms.Delivery)
+	return ms
 }
