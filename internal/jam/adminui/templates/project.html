@@ -116,25 +116,25 @@
   </section>
 
   <section class="card">
-    <header><h2>Roster — channels</h2></header>
+    <header><h2>Rooms</h2></header>
     <table>
       <thead><tr><th>Name</th><th>Service</th><th>Ref</th><th></th></tr></thead>
       <tbody>
         {{range .Project.Roster.Channels}}<tr><td class="mono"><b>{{.Name}}</b></td><td><span class="chip">{{.Service}}</span></td><td class="mono">{{.Ref}}</td>
           <td class="actions"><button class="danger small" hx-delete="/ui/projects/{{$p}}/channels/{{.Name}}" hx-target="#project" hx-swap="outerHTML"
-            hx-confirm="Remove channel {{.Name}} from {{$p}}?">Remove</button></td></tr>
-        {{else}}<tr><td colspan="4" class="empty">No channels.</td></tr>{{end}}
+            hx-confirm="Remove room {{.Name}} from {{$p}}?">Remove</button></td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No rooms.</td></tr>{{end}}
       </tbody>
     </table>
     <details class="edit">
-      <summary>Add channel</summary>
+      <summary>Add room</summary>
       <form hx-post="/ui/projects/{{$p}}/channels" hx-target="#project" hx-swap="outerHTML">
         <div class="grid">
           <label>Name <span class="req">required</span><span class="hint">an existing name is replaced</span><input name="name" required></label>
-          <label>Service <span class="req">required</span><input name="service" data-ta="services" required placeholder="discord" autocomplete="off"></label>
+          <label>Connection <span class="req">required</span><span class="hint">a connection name, or a service (its connection)</span><input name="service" data-ta="services" required placeholder="discord" autocomplete="off"></label>
           <label>Ref <span class="req">required</span><span class="hint">the service's channel id</span><input name="ref" required></label>
         </div>
-        <div class="form-actions"><button type="submit" class="primary">Add channel</button></div>
+        <div class="form-actions"><button type="submit" class="primary">Add room</button></div>
       </form>
     </details>
   </section>

@@ -342,9 +342,9 @@ func TestAdminRosterRoutes(t *testing.T) {
 	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := doJSON(t, h, "POST", "/admin/projects/acme/channels", RosterChannel{Name: "eng-help", Service: "linear", Ref: "ACME-1"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST channel = %d", rec.Code)
+	rec := doJSON(t, h, "POST", "/admin/projects/acme/rooms", RoomBody{Name: "eng-help", Ref: "ACME-1"})
+	if rec.Code != http.StatusCreated { // alice's handle made the linear connection
+		t.Fatalf("POST room = %d %s", rec.Code, rec.Body)
 	}
 	var rr Roster
 	getJSON(t, h, "/admin/projects/acme/roster", &rr)
@@ -354,16 +354,12 @@ func TestAdminRosterRoutes(t *testing.T) {
 	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
 		t.Fatalf("roster channels = %+v", rr.Channels)
 	}
-	// A ref another channel already receives replies from is a conflict.
-	if rec := doJSON(t, h, "POST", "/admin/projects/acme/channels", RosterChannel{Name: "other", Ref: "ACME-1"}); rec.Code != http.StatusConflict {
-		t.Fatalf("POST channel on a taken ref = %d, want 409", rec.Code)
-	}
 	if err := store.RemoveHuman("acme", "alice"); err != nil {
 		t.Fatalf("RemoveHuman = %v", err)
 	}
-	rec = doReq(t, h, "DELETE", "/admin/projects/acme/channels/eng-help", nil)
+	rec = doReq(t, h, "DELETE", "/admin/projects/acme/rooms/eng-help", nil)
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE channel = %d", rec.Code)
+		t.Fatalf("DELETE room = %d", rec.Code)
 	}
 	var after Roster
 	getJSON(t, h, "/admin/projects/acme/roster", &after)

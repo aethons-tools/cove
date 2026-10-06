@@ -204,8 +204,8 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	}
 }
 
-// TestClientRosterAndAddressing exercises users + members, AddChannel/
-// GetRoster/RemoveChannel and role Addressing round-trips against a real Jam
+// TestClientRosterAndAddressing exercises users + members, rooms,
+// GetRoster and role Addressing round-trips against a real Jam
 // admin handler + MemStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
 	ts, store := newServer(t)
@@ -218,8 +218,18 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if err := c.PutMember("acme", "alice", nil); err != nil {
 		t.Fatalf("PutMember: %v", err)
 	}
-	if err := c.AddChannel("acme", jam.RosterChannel{Name: "eng-help", Service: "linear", Ref: "ACME-1"}); err != nil {
-		t.Fatalf("AddChannel: %v", err)
+	if _, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear"}); err != nil {
+		t.Fatalf("CreateConnection: %v", err)
+	}
+	room, err := c.PutRoom("acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"})
+	if err != nil || room.Name != "eng-help" || room.Connection != "linear" {
+		t.Fatalf("PutRoom = %+v, %v", room, err)
+	}
+	if err := c.RenameRoom("acme", string(room.ID), "help"); err != nil {
+		t.Fatalf("RenameRoom: %v", err)
+	}
+	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "help" {
+		t.Fatalf("ListRooms = %+v, %v", rooms, err)
 	}
 	rr, err := c.GetRoster("acme")
 	if err != nil {
@@ -228,15 +238,15 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" {
 		t.Fatalf("roster humans = %+v", rr.Humans)
 	}
-	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
+	if len(rr.Channels) != 1 || rr.Channels[0].Name != "help" || rr.Channels[0].Ref != "ACME-1" {
 		t.Fatalf("roster channels = %+v", rr.Channels)
 	}
 
 	if err := c.RemoveMember("acme", "alice"); err != nil {
 		t.Fatalf("RemoveMember: %v", err)
 	}
-	if err := c.RemoveChannel("acme", "eng-help"); err != nil {
-		t.Fatalf("RemoveChannel: %v", err)
+	if err := c.RemoveRoom("acme", "help"); err != nil {
+		t.Fatalf("RemoveRoom: %v", err)
 	}
 	rr, err = c.GetRoster("acme")
 	if err != nil {

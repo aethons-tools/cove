@@ -442,3 +442,91 @@ func connectionLine(c jam.Connection) string {
 	}
 	return line
 }
+
+// cmdRoom manages a project's rooms: `room add|list|rename|rm`.
+func cmdRoom(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "at-jam room: expected add|list|rename|rm")
+		return 2
+	}
+	sub, rest := args[0], args[1:]
+	fs := flag.NewFlagSet("room "+sub, flag.ContinueOnError)
+	client := clientFlags(fs, stderr)
+	conn := fs.String("connection", "", "the connection the ref is on: a name, id or kind (add; default: the linear connection)")
+	ref := fs.String("ref", "", "the surface the room posts to and hears from: a Linear issue key or a Discord channel id (add)")
+	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	if !ok {
+		return code
+	}
+	usage := func(want string) int {
+		fmt.Fprintf(stderr, "at-jam room %s: expected %s\n", sub, want)
+		return 2
+	}
+	switch sub {
+	case "add":
+		if len(pos) != 2 || *ref == "" {
+			return usage("<project> <name> --ref r [--connection c]")
+		}
+	case "list":
+		if len(pos) != 1 {
+			return usage("<project>")
+		}
+	case "rename":
+		if len(pos) != 3 {
+			return usage("<project> <room> <new-name>")
+		}
+	case "rm":
+		if len(pos) != 2 {
+			return usage("<project> <room>")
+		}
+	default:
+		fmt.Fprintln(stderr, "at-jam room: unknown subcommand", sub)
+		return 2
+	}
+	c, err := client()
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam room:", err)
+		return 2
+	}
+	switch sub {
+	case "add":
+		v, err := c.PutRoom(pos[0], jam.RoomBody{Name: pos[1], Connection: *conn, Ref: *ref})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, roomLine(v))
+	case "list":
+		rooms, err := c.ListRooms(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		for _, v := range rooms {
+			fmt.Fprintln(stdout, roomLine(v))
+		}
+	case "rename":
+		if err := c.RenameRoom(pos[0], pos[1], pos[2]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "renamed room", pos[1], "to", pos[2])
+	case "rm":
+		if err := c.RemoveRoom(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "removed room", pos[1])
+	}
+	return 0
+}
+
+// roomLine renders a room: name, id, connection, ref, and whether it only
+// posts there (another channel receives that ref's replies).
+func roomLine(v jam.RoomView) string {
+	line := fmt.Sprintf("room\t%s\t%s\t%s\tref=%s", v.Name, v.ID, v.Connection, v.Ref)
+	if v.PostOnly {
+		line += "\tpost-only"
+	}
+	return line
+}

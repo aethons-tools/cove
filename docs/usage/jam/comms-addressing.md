@@ -93,23 +93,26 @@ at-jam account add --connection linear --handle alice.h --user <user>     # trac
 at-jam account list [--connection c] | link <account> <user> | unlink <account>
 at-jam connection add --kind linear|discord --name <n> [--cred <credential>]
 at-jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
-at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
-at-jam project roster list        <project>
-at-jam project roster rm-channel  <project> <name>
+at-jam room add <project> <name> --ref ACME-1 [--connection <name|id|kind>]   # adds, or rebinds
+at-jam room list <project> | rename <project> <room> <new> | rm <project> <room>
 ```
 
 A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
 (nothing refers to names). `user rm` tombstones the user and ends their
 memberships; it and `user rename` are refused (409) while the user owns a live
 personal session. The admin API behind
-these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts` and
-`/admin/connections` (the per-project `/humans` routes are gone).
+these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
+`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`
+and `/channels` routes, and `project roster`, are gone).
 
-`--service` defaults to `linear`. `--delivery` and `--oidc` are both repeatable
-(one flag per binding). Because an OIDC issuer is commonly a URL that itself
-contains colons, `--oidc` splits on the **final** colon: the subject is the text
-after it, the issuer everything before. `roster list` shows each binding as
-`oidc=<issuer>:<subject>`. A malformed value (empty issuer or subject) exits `2`
+A room's `--connection` defaults to the linear connection; a `<room>` is a name
+or a `chn_` id, and renaming one changes nothing else but which `channel:`
+addressing globs match it. `room list` marks a room that only posts to its ref
+(another channel receives its replies) `post-only`. `--delivery` and `--oidc`
+are both repeatable (one flag per binding). Because an OIDC issuer is commonly
+a URL that itself contains colons, `--oidc` splits on the **final** colon: the
+subject is the text after it, the issuer everything before. `user list` shows
+each binding as `oidc=<issuer>:<subject>`. A malformed value (empty issuer or subject) exits `2`
 (the admin route answers `400`). All subcommands take the same admin-client flags
 (`--app`/`--admin-url`/`--token`) as every other `at-jam` verb — see
 [operators.md](operators.md).

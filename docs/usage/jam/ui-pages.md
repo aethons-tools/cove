@@ -1,7 +1,7 @@
 ---
 summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a project, user, studio, role, destination, model-spec or kit in the Jam admin UI — a project's members, channels, escalation or chat service; a user's logins, OIDC identities or accounts; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the project, user, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project members/channels/escalation/chat-service editing, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+read_when: You are viewing or editing a project, user, studio, role, destination, model-spec or kit in the Jam admin UI — a project's members, rooms, escalation or chat service; a user's logins, OIDC identities or accounts; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the project, user, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project members/rooms/escalation/chat-service editing, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-06
@@ -21,17 +21,17 @@ Each project name (in the Projects table, a role's breadcrumb, or a table cell)
 links to `/ui/projects/<name>`, the "everything in this project" view: its
 roles (linked, with destinations and kit), the actors holding a grant into it
 and which roles they hold, its members (linked to their user page, with handle
-and delivery) and channels (service, ref), its escalation policy (the default chain and each category's chain, as
+and delivery) and rooms (service, ref), its escalation policy (the default chain and each category's chain, as
 ordered tiers of targets with their wait), its chat service, and its running
 studios.
 
-Members, channels, escalation and chat service are edited in place; each write
+Members, rooms, escalation and chat service are edited in place; each write
 answers with the re-rendered page:
 
 - **Members** — **Add member** (a user, and delivery: one `service:address` per
   line) and, per member, **Edit** delivery and **Remove**.
-- **Channels** — **Add channel** (name, service, ref; an existing name is
-  replaced) and **Remove**.
+- **Rooms** — **Add room** (name; connection: a connection name, or a service
+  for its connection; ref; an existing name is rebound) and **Remove**.
 - **Escalation** — edit the default chain or any category's chain as one
   `targets@timeout` per line (the CLI's `--tier`; the first line is tier 0, the
   timeout a positive duration), add a category chain, or **Clear** one. A target

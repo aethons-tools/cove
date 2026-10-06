@@ -54,6 +54,7 @@
 ### 2a-3: `at-jam room`
 
 - `at-jam room add|list|rename|rm` and `/admin/projects/{p}/rooms` replace `project roster add-channel|list|rm-channel`, and the admin UI project page follows.
+- As built: `PutRoom` (add or rebind; a post-only room keeps its mode on an unchanged ref), `RenameRoom`, `RemoveRoom` (archive), `ListRooms`; a room's connection is a name, id or kind (default: the linear connection). The `/admin/projects/{p}/channels` routes and `project roster` are gone; `Store.AddChannel`/`RemoveChannel` remain for the roster view until 2b deletes it.
 
 ### 2b: log cutover (stacked into an `intercom-2b` integration branch, merged to main together)
 

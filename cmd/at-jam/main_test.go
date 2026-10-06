@@ -231,7 +231,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	}
 }
 
-func TestProjectRosterCommands(t *testing.T) {
+func TestProjectMemberAndRoomCommands(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
@@ -256,48 +256,35 @@ func TestProjectRosterCommands(t *testing.T) {
 		t.Fatalf("user add --login + member add did not link alice: %+v,%v", hu, ok)
 	}
 
-	// project roster add-channel
+	// connection add + room add/list/rename/rm
+	steps := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"connection", "add", "--admin-url", ts.URL, "--kind", "linear", "--name", "linear-acme"}, ""},
+		{[]string{"room", "add", "--admin-url", ts.URL, "--ref", "ACME-1", "acme", "eng-help"}, "room\teng-help\tchn_"},
+		{[]string{"room", "list", "--admin-url", ts.URL, "acme"}, "linear-acme\tref=ACME-1"},
+		{[]string{"room", "rename", "--admin-url", ts.URL, "acme", "eng-help", "help"}, "renamed room eng-help to help"},
+		{[]string{"project", "member", "list", "--admin-url", ts.URL, "acme"}, "member\talice\tusr_"},
+		{[]string{"project", "member", "rm", "--admin-url", ts.URL, "acme", "alice"}, ""},
+		{[]string{"room", "rm", "--admin-url", ts.URL, "acme", "help"}, "removed room help"},
+	}
+	for _, st := range steps {
+		out.Reset()
+		errb.Reset()
+		if code := run(st.argv, getenv, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit=%d stderr=%s", st.argv, code, errb.String())
+		}
+		if !strings.Contains(out.String(), st.want) {
+			t.Fatalf("%v: output %q lacks %q", st.argv, out.String(), st.want)
+		}
+	}
 	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "roster", "add-channel", "--admin-url", ts.URL, "acme",
-		"--name", "eng-help", "--ref", "ACME-1", "--service", "linear",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster add-channel: exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"room", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 || out.Len() != 0 {
+		t.Fatalf("room list after rm: exit=%d out=%q", code, out.String())
 	}
-
-	// project roster list reflects both
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "member\talice\tusr_") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
-		t.Fatalf("project roster list output missing expected fields:\n%s", out.String())
-	}
-
-	// project member rm
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "member", "rm", "--admin-url", ts.URL, "acme", "alice"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project member rm: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// project roster rm-channel
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "rm-channel", "--admin-url", ts.URL, "acme", "eng-help"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster rm-channel: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// project roster list is now empty
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster list (after removal): exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.Contains(out.String(), "alice") || strings.Contains(out.String(), "eng-help") {
-		t.Fatalf("project roster list still shows removed entries:\n%s", out.String())
+	if code := run([]string{"room", "add", "--admin-url", ts.URL, "acme", "x"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("room add without --ref: exit=%d, want 2", code)
 	}
 
 	// role add --addressing plumbs through to the role's Scope.Addressing
