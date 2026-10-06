@@ -1776,12 +1776,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Message Log: opened once (handle held for the serve lifetime) and shared
 	// between the /squawks writer (dual-write shadow, below) and the admin UI's
 	// read-only reader (further down). Postgres (the shared control-plane pool).
-	ml, err := intercompg.New(context.Background(), pgPool, log)
+	ml, err := intercompg.NewLegacy(context.Background(), pgPool, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
-	var intercomLog intercom.Store = ml // Close is a no-op; the store owns the pool
+	var intercomLog intercom.LegacyStore = ml // Close is a no-op; the store owns the pool
 	log.Info("Jam message log: postgres (shared control-plane database)")
 	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
 	// one handle, so wrapping it lets live views (/me/events) see each append.
@@ -2232,7 +2232,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
 // the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailSeq(lg intercom.Store) int64 {
+func logTailSeq(lg intercom.LegacyStore) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
 }

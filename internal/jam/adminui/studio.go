@@ -40,8 +40,8 @@ type studioDetail struct {
 // studioSquawks returns participant's squawks newest first, capped, and
 // whether more exist.
 func studioSquawks(msgs SquawkReader, participant string) ([]squawkRow, bool) {
-	var mine []intercom.Squawk
-	for _, m := range msgs.List(intercom.Filter{}) {
+	var mine []intercom.LegacySquawk
+	for _, m := range msgs.List(intercom.LegacyFilter{}) {
 		if matchesParticipant(m, participant) {
 			mine = append(mine, m)
 		}

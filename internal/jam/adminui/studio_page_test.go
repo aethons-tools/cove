@@ -36,9 +36,9 @@ func studioFixture(t *testing.T, sup *jam.Supervisor) http.Handler {
 	}
 	t0 := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	l := newIntercomLog(t,
-		intercom.Squawk{From: actor("sess-1"), To: []intercom.Target{human("alice")}, Body: "need a decision", At: t0, Project: "acme"},
-		intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("sess-1")}, Body: "go ahead", At: t0.Add(time.Minute), Project: "acme"},
-		intercom.Squawk{From: human("bob"), To: []intercom.Target{channel("eng")}, Body: "unrelated chatter", At: t0, Project: "acme"},
+		intercom.LegacySquawk{From: actor("sess-1"), To: []intercom.Target{human("alice")}, Body: "need a decision", At: t0, Project: "acme"},
+		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("sess-1")}, Body: "go ahead", At: t0.Add(time.Minute), Project: "acme"},
+		intercom.LegacySquawk{From: human("bob"), To: []intercom.Target{channel("eng")}, Body: "unrelated chatter", At: t0, Project: "acme"},
 	)
 	st := sessionevents.NewMemStore()
 	hub := sessionevents.NewHub()
@@ -99,7 +99,7 @@ func TestStudioPageSessionAndSquawks(t *testing.T) {
 // remain as an audit trail.
 func TestStudioPageGoneStillShowsAudit(t *testing.T) {
 	store := newStore(t)
-	l := newIntercomLog(t, intercom.Squawk{From: actor("old-1"), To: []intercom.Target{human("alice")}, Body: "last words", At: time.Now(), Project: "acme"})
+	l := newIntercomLog(t, intercom.LegacySquawk{From: actor("old-1"), To: []intercom.Target{human("alice")}, Body: "last words", At: time.Now(), Project: "acme"})
 	st := sessionevents.NewMemStore()
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, l, adminui.WithSessions(st, sessionevents.NewHub()))
 	rec := get(t, h, "/ui/coves/old-1")

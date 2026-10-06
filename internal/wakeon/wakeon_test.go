@@ -30,7 +30,7 @@ func (s meSendStore) ListInstances() []jam.Instance { return s.instances }
 // jam.ParticipantSendHandler and addressed to a waiting studio's session actor,
 // wakes that studio on the next wake-on tick — exactly as a relayed reply does.
 func TestParticipantSendWakesWaitingStudio(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 
 	const issuer, subject = "https://idp.example", "sub-alice"
 	inst := jam.Instance{
@@ -104,11 +104,11 @@ func (f *fakeIdler) Resume(_ context.Context, a string) error {
 // The Seq > afterSeq filter mirrors the real backend's append-order semantics
 // (Seq, never the id, decides ordering — see extInbound/COV-184).
 type fakeInbox struct {
-	byActor map[string][]intercom.Squawk // actor ref → its inbox
+	byActor map[string][]intercom.LegacySquawk // actor ref → its inbox
 }
 
-func (f *fakeInbox) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
-	var out []intercom.Squawk
+func (f *fakeInbox) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk {
+	var out []intercom.LegacySquawk
 	for _, m := range f.byActor[t.Ref] {
 		if m.Seq <= afterSeq {
 			continue
@@ -126,8 +126,8 @@ func (f *fakeInbox) ReadInboxSince(t intercom.Target, afterSeq int64, limit int)
 // ReadInboxSince) and log id. The id is deliberately NOT required to sort
 // lexically consistent with seq — see the COV-184 regression test below,
 // which exploits exactly that to prove ordering is Seq-based, not id-based.
-func extInbound(coveID string, seq int64, id string) intercom.Squawk {
-	return intercom.Squawk{
+func extInbound(coveID string, seq int64, id string) intercom.LegacySquawk {
+	return intercom.LegacySquawk{
 		Seq:  seq,
 		ID:   id,
 		From: intercom.Target{Kind: "human", Ref: "alice"},
@@ -150,7 +150,7 @@ func TestTick_ExternalReplyAfterWaitSeq_Wakes(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
@@ -191,7 +191,7 @@ func TestTick_COV184_ExternalReplyWakesRegardlessOfLexicalIDOrder(t *testing.T) 
 	if replyID >= baselineID {
 		t.Fatalf("test setup invariant broken: replyID %q must sort lexically BEFORE baselineID %q", replyID, baselineID)
 	}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 6, replyID)},
 	}}
 	wake := &fakeWaker{}
@@ -213,7 +213,7 @@ func TestTick_PreBaselineInbound_NoWake_IdlesPastWarmTimeout(t *testing.T) {
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
 	// inbound at the WaitSeq baseline (Seq == WaitSeq, not >) → not a reply
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 5, "id-5")},
 	}}
 	wake := &fakeWaker{}
@@ -237,14 +237,14 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	internal := intercom.Squawk{
+	internal := intercom.LegacySquawk{
 		Seq:  6,
 		ID:   "id-6",
 		From: intercom.Target{Kind: "actor", Ref: "a2"},
 		To:   []intercom.Target{{Kind: "actor", Ref: "a1"}},
 		Body: "internal",
 	}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {internal}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {internal}}}
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -263,7 +263,7 @@ func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 6, "id-6")},
 	}}
 	wake := &fakeWaker{}
@@ -334,7 +334,7 @@ func TestTick_NonWaitingIgnored(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Activity: jam.ActivityRunning, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 1, "id-1")},
 	}}
 	wake := &fakeWaker{}
@@ -354,7 +354,7 @@ func TestTick_LiveWaiting_PastWarmTimeout_NoReply_Idles(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -381,7 +381,7 @@ func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{}} // no reply
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{}} // no reply
 	wake := &fakeWaker{}
 	reap := &fakeReaper{}
 	idler := &fakeIdler{}
@@ -411,7 +411,7 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 				{ActorID: "a1", Phase: phase, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
 			}}
 			// even with a pending reply, max-wait teardown wins
-			inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+			inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 				"a1": {extInbound("a1", 1, "id-1")},
 			}}
 			wake := &fakeWaker{}
@@ -462,7 +462,7 @@ func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 	})
 
 	t.Run("idled + reply resumes; live + reply wakes", func(t *testing.T) {
-		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+		inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 			"p1": {extInbound("p1", 6, "id-6")},
 			"p2": {extInbound("p2", 6, "id-6")},
 		}}
@@ -706,7 +706,7 @@ func TestIdleLadder_PendingReplyWakesInsteadOfNagging(t *testing.T) {
 	n := &fakeNagger{}
 	reap := &fakeReaper{}
 	e, _, _, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 2 * time.Hour}, n, reap, inst)
-	e.inbox = &fakeInbox{byActor: map[string][]intercom.Squawk{"p1": {extInbound("p1", 6, "id-6")}}}
+	e.inbox = &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"p1": {extInbound("p1", 6, "id-6")}}}
 	wake := &fakeWaker{}
 	e.wake = wake
 	setNow(start.Add(3 * time.Hour))
@@ -849,8 +849,8 @@ func TestTick_StandingSessionResident_NoLadder(t *testing.T) {
 func nagID(actor string) string { return jam.NagMessageID(actor, time.Unix(50_000, 7)) }
 
 // reply is an external reply from `from` to cove, replying to replyTo.
-func reply(cove string, seq int64, from, replyTo, body string) intercom.Squawk {
-	return intercom.Squawk{
+func reply(cove string, seq int64, from, replyTo, body string) intercom.LegacySquawk {
+	return intercom.LegacySquawk{
 		Seq: seq, ID: "in:discord:r" + body, ReplyTo: replyTo, Body: body,
 		From: intercom.Target{Kind: "human", Ref: from},
 		To:   []intercom.Target{{Kind: "actor", Ref: cove}},
@@ -884,11 +884,11 @@ type cmdKit struct {
 	now   time.Time
 }
 
-func newCmdKit(t *testing.T, reap Reaper, inst jam.Instance, msgs ...intercom.Squawk) *cmdKit {
+func newCmdKit(t *testing.T, reap Reaper, inst jam.Instance, msgs ...intercom.LegacySquawk) *cmdKit {
 	t.Helper()
 	k := &cmdKit{n: &fakeNagger{}, wake: &fakeWaker{}, idler: &fakeIdler{}, now: time.Unix(200_000, 0)}
 	k.e, k.reg, k.rec, _ = ladderKit(jam.RoleAllocation{IdleAfter: 2 * time.Hour, NagEvery: time.Hour}, k.n, reap, inst)
-	k.inbox = &fakeInbox{byActor: map[string][]intercom.Squawk{inst.ActorID: msgs}}
+	k.inbox = &fakeInbox{byActor: map[string][]intercom.LegacySquawk{inst.ActorID: msgs}}
 	k.e.inbox, k.e.wake, k.e.idler = k.inbox, k.wake, k.idler
 	k.e.now = func() time.Time { return k.now }
 	return k
@@ -997,7 +997,7 @@ func TestReplyToAct_KeepThenNextNagAfterIdleAfter(t *testing.T) {
 }
 
 func TestReplyToAct_NotACommand_Wakes(t *testing.T) {
-	for name, m := range map[string]intercom.Squawk{
+	for name, m := range map[string]intercom.LegacySquawk{
 		"keep not replying to a nag":      reply("p1", 6, "alice", "00000000-some-cove-msg", "keep"),
 		"keep replying to nothing":        reply("p1", 6, "alice", "", "keep"),
 		"release from a non-owner":        reply("p1", 6, "mallory", nagID("p1"), "release"),
@@ -1124,7 +1124,7 @@ func TestTick_ReplyToRunningCoveWakesOnceAndAdvancesBaseline(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, SessionKind: jam.SessionKindPersonal, Owner: "alice", WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{
 		"a1": {extInbound("a1", 6, "id-6"), extInbound("a1", 8, "id-8")},
 	}}
 	wake, reap, idler := &fakeWaker{}, &fakeReaper{}, &fakeIdler{}
@@ -1157,7 +1157,7 @@ func TestTick_RunningCoveIgnoredWithoutCursor(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {extInbound("a1", 6, "id-6")}}}
 	wake := &fakeWaker{}
 	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
 	e.tick(context.Background())
@@ -1170,7 +1170,7 @@ func TestTick_ReplyToHoldingCoveWakesWithSquawkReason(t *testing.T) {
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityHolding, SessionKind: jam.SessionKindStanding, WaitSeq: 5},
 	}}
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {extInbound("a1", 6, "id-6")}}}
 	wake := &fakeWaker{}
 	cur := &fakeCursor{reg: reg}
 	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Minute, WarmTimeout: time.Second}, nil)
@@ -1233,7 +1233,7 @@ func TestTick_EndRequestedWaitingTornDownAndNotified(t *testing.T) {
 
 func TestTick_EndRequestedNeverWoken(t *testing.T) {
 	for _, act := range []jam.Activity{jam.ActivityRunning, jam.ActivityHolding} {
-		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+		inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {extInbound("a1", 6, "id-6")}}}
 		e, wake, reap, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: act, WaitSeq: 5,
 			EndRequested: &jam.EndRequest{Reason: "x"}}}, inbox, nil)
 		e.tick(context.Background())
@@ -1327,7 +1327,7 @@ func TestTick_IdleWakeRetriedUntilRunning(t *testing.T) {
 // Squawk and idle deadline due together: only squawk wakes, on this tick and
 // the next (the reply is still unread until the cove runs).
 func TestTick_SquawkBeatsIdleAcrossTicks(t *testing.T) {
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {extInbound("a1", 6, "id-6")}}}
 	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
 		SessionKind: jam.SessionKindStanding, WaitSeq: 5, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}}, inbox, nil)
 	e.tick(context.Background())
@@ -1396,7 +1396,7 @@ func TestTick_AlarmHeldWhileRunning(t *testing.T) {
 }
 
 func TestTick_AlarmAndSquawkOneWake(t *testing.T) {
-	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.LegacySquawk{"a1": {extInbound("a1", 6, "id-6")}}}
 	e, wake, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
 		SessionKind: jam.SessionKindStanding, WaitSeq: 5, WaitingSince: time.Unix(9000, 0),
 		Alarms: []jam.Alarm{{Name: "x", Note: "n", Schedule: "@hourly", NextAt: due}}}}, inbox, nil)

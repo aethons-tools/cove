@@ -11,9 +11,9 @@ import (
 )
 
 // newIntercomLog opens a hermetic Log in a temp dir and appends the given messages.
-func newIntercomLog(t *testing.T, squawks ...intercom.Squawk) *intercom.Log {
+func newIntercomLog(t *testing.T, squawks ...intercom.LegacySquawk) *intercom.LegacyLog {
 	t.Helper()
-	l := intercom.NewMemLog()
+	l := intercom.NewLegacyMemLog()
 	for _, m := range squawks {
 		if _, err := l.Append(m); err != nil {
 			t.Fatalf("Append: %v", err)
@@ -34,8 +34,8 @@ func channel(ref string) intercom.Target { return intercom.Target{Kind: "channel
 func TestSquawksRendersNewestFirst(t *testing.T) {
 	t0 := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
 	l := newIntercomLog(t,
-		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "older ping", At: t0, Project: "acme"},
-		intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "newer reply", At: t0.Add(time.Hour), Project: "acme"},
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "older ping", At: t0, Project: "acme"},
+		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "newer reply", At: t0.Add(time.Hour), Project: "acme"},
 	)
 	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
 	for _, want := range []string{"<nav", "Intercom", "older ping", "newer reply", "actor:cove-1", "human:alice", "acme"} {
@@ -50,7 +50,7 @@ func TestSquawksRendersNewestFirst(t *testing.T) {
 
 func TestSquawksReachBadges(t *testing.T) {
 	l := newIntercomLog(t,
-		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{actor("cove-2"), human("alice")}, Body: "hi"},
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{actor("cove-2"), human("alice")}, Body: "hi"},
 	)
 	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
 	// actor:cove-2 → internal, human:alice → external (intercom.Classify).
@@ -83,12 +83,12 @@ func TestSquawksNavLinkPresentOnOtherPages(t *testing.T) {
 	}
 }
 
-func fixtureLog(t *testing.T) *intercom.Log {
+func fixtureLog(t *testing.T) *intercom.LegacyLog {
 	t0 := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	return newIntercomLog(t,
-		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "deploy started", At: t0, Project: "acme"},
-		intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "please HOLD", At: t0.Add(24 * time.Hour), Project: "acme"},
-		intercom.Squawk{From: actor("cove-9"), To: []intercom.Target{human("bob")}, Body: "beta status", At: t0.Add(48 * time.Hour), Project: "beta"},
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "deploy started", At: t0, Project: "acme"},
+		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "please HOLD", At: t0.Add(24 * time.Hour), Project: "acme"},
+		intercom.LegacySquawk{From: actor("cove-9"), To: []intercom.Target{human("bob")}, Body: "beta status", At: t0.Add(48 * time.Hour), Project: "beta"},
 	)
 }
 
@@ -166,8 +166,8 @@ func TestSquawksMalformedDateNotice(t *testing.T) {
 func TestSquawksRenderPerContentType(t *testing.T) {
 	t0 := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
 	l := newIntercomLog(t,
-		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**bold** <script>x</script>", At: t0, Project: "acme"},
-		intercom.Squawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**literal**\nline2", At: t0.Add(time.Minute), Project: "acme", ContentType: intercom.ContentPlain},
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**bold** <script>x</script>", At: t0, Project: "acme"},
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "**literal**\nline2", At: t0.Add(time.Minute), Project: "acme", ContentType: intercom.ContentPlain},
 	)
 	body := get(t, squawkHandler(t, l), "/ui/intercom").Body.String()
 	for _, want := range []string{`class="body md"`, "<strong>bold</strong>", `class="body plain"`, "**literal**\nline2", "text/plain"} {

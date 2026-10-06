@@ -48,7 +48,7 @@ type Surface interface {
 	Service() string
 	// EGRESS: render+deliver one already-resolved message; return the Service-native id (receipt).
 	// m.ID is passed as the Service-side dedup key (Discord nonce / Linear body footer).
-	Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (foreignID string, err error)
+	Deliver(ctx context.Context, d Delivery, m intercom.LegacySquawk) (foreignID string, err error)
 	// INGRESS: foreign events strictly after `since`, plus the opaque watermark to persist next.
 	Poll(ctx context.Context, project, since string) (events []Event, next string, err error)
 	Close() error

@@ -71,10 +71,10 @@ type fakeReader struct {
 	seqs map[string]int64 // id -> seq
 }
 
-func (f *fakeReader) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
+func (f *fakeReader) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk {
 	return nil
 }
-func (f *fakeReader) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.Squawk {
+func (f *fakeReader) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.LegacySquawk {
 	return nil
 }
 func (f *fakeReader) SeqOf(id string) (int64, bool) {
@@ -87,11 +87,11 @@ func (f *fakeReader) SeqOf(id string) (int64, bool) {
 // returned to the caller (but the message is still recorded) so the
 // fail-the-send-on-append-error behavior (502) can be exercised.
 type fakeAppender struct {
-	got []intercom.Squawk
+	got []intercom.LegacySquawk
 	err error
 }
 
-func (f *fakeAppender) Append(m intercom.Squawk) (intercom.Squawk, error) {
+func (f *fakeAppender) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) {
 	f.got = append(f.got, m)
 	return m, f.err
 }
@@ -101,7 +101,7 @@ func (f *fakeAppender) Append(m intercom.Squawk) (intercom.Squawk, error) {
 // production uses — with one actor "cove-AET-7" (bearer "tok-A", ticket
 // "AET-7"). It returns the Log too, so a test can seed the actor's inbox via
 // lg.Append before issuing a GET.
-func newTestSquawksHandler(t *testing.T) (*SquawksHandler, *fakeStore, *intercom.Log, *bytes.Buffer) {
+func newTestSquawksHandler(t *testing.T) (*SquawksHandler, *fakeStore, *intercom.LegacyLog, *bytes.Buffer) {
 	t.Helper()
 	store := &fakeStore{
 		actors: map[string]Actor{
@@ -111,7 +111,7 @@ func newTestSquawksHandler(t *testing.T) (*SquawksHandler, *fakeStore, *intercom
 			"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"},
 		},
 	}
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	var logbuf bytes.Buffer
 	slogger := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h := NewSquawksHandler(store, lg, lg, slogger)
@@ -137,7 +137,7 @@ func newReadTestStore(t *testing.T, actorID, unit, project string) *fakeStore {
 func tokenFor(actorID string) string { return "tok-" + actorID }
 
 // mustAppend appends m to lg, failing the test on error.
-func mustAppend(t *testing.T, lg *intercom.Log, m intercom.Squawk) {
+func mustAppend(t *testing.T, lg *intercom.LegacyLog, m intercom.LegacySquawk) {
 	t.Helper()
 	if _, err := lg.Append(m); err != nil {
 		t.Fatalf("append: %v", err)
@@ -519,7 +519,7 @@ func TestTargetsListsAllowedTargets(t *testing.T) {
 // /squawks must still return the caller's own inbox.
 func TestTargetsGetStillReturnsInboxForBareSquawksPath(t *testing.T) {
 	h, _, lg, _ := newTestSquawksHandler(t)
-	mustAppend(t, lg, intercom.Squawk{
+	mustAppend(t, lg, intercom.LegacySquawk{
 		From: intercom.Target{Kind: "human", Ref: "alice"},
 		To:   []intercom.Target{{Kind: "actor", Ref: "cove-AET-7"}},
 		Body: "hello",
@@ -545,12 +545,12 @@ func TestTargetsGetStillReturnsInboxForBareSquawksPath(t *testing.T) {
 }
 
 func TestReadReturnsInbox(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	// two inbound replies to the cove + one of the cove's OWN outbound (must be excluded)
 	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "first", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: coveActor, To: []intercom.Target{{Kind: "channel", Ref: "ACME-7"}}, Body: "my own send", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "second", Project: "acme"})
+	mustAppend(t, lg, intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "first", Project: "acme"})
+	mustAppend(t, lg, intercom.LegacySquawk{From: coveActor, To: []intercom.Target{{Kind: "channel", Ref: "ACME-7"}}, Body: "my own send", Project: "acme"})
+	mustAppend(t, lg, intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "second", Project: "acme"})
 
 	// store: actor "cove-1" with a token, instance Unit "ACME-7"
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
@@ -583,7 +583,7 @@ func TestReadReturnsInbox(t *testing.T) {
 }
 
 func TestReadEmptyInboxIsEmptyArray(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
 	rec := doGet(t, h, tokenFor("cove-1"))
@@ -605,9 +605,9 @@ func TestReadNilReaderIs503(t *testing.T) {
 }
 
 func TestReadIsSelfScoped(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	// an inbound to a DIFFERENT cove
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-2"}}, Body: "for cove-2", Project: "acme"})
+	mustAppend(t, lg, intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "Bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-2"}}, Body: "for cove-2", Project: "acme"})
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
 	rec := doGet(t, h, tokenFor("cove-1"))
@@ -663,12 +663,12 @@ type readResp struct {
 
 // seedInbox appends n messages (body "m") addressed to actor:coveID,
 // returning the appended messages (id + Seq) in append order.
-func seedInbox(t *testing.T, lg *intercom.Log, coveID string, n int) []intercom.Squawk {
+func seedInbox(t *testing.T, lg *intercom.LegacyLog, coveID string, n int) []intercom.LegacySquawk {
 	t.Helper()
 	coveActor := intercom.Target{Kind: "actor", Ref: coveID}
-	msgs := make([]intercom.Squawk, 0, n)
+	msgs := make([]intercom.LegacySquawk, 0, n)
 	for i := 0; i < n; i++ {
-		m, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "m", Project: "acme"})
+		m, err := lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "m", Project: "acme"})
 		if err != nil {
 			t.Fatalf("append %d: %v", i, err)
 		}
@@ -683,7 +683,7 @@ func seedInbox(t *testing.T, lg *intercom.Log, coveID string, n int) []intercom.
 // committed_cursor/page_first/page_last, and that the read itself never
 // advances the cursor.
 func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -722,7 +722,7 @@ func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
 // TestReadAnchorStartIgnoresCommitCursor asserts anchor=start reads from the
 // beginning of the log regardless of where the cursor sits.
 func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 3)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -746,7 +746,7 @@ func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
 // TestReadAnchorEndIgnoresCommitCursor asserts anchor=end returns the last
 // `limit` messages regardless of the cursor.
 func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := &fakeStore{
 		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
@@ -771,7 +771,7 @@ func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
 // dir selects the window strictly after (forward, default) or strictly
 // before (backward) the given id.
 func TestReadAnchorIDForwardAndBackward(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	msgs := seedInbox(t, lg, "cove-1", 5)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -799,7 +799,7 @@ func TestReadAnchorIDForwardAndBackward(t *testing.T) {
 // recognize is a 400 (SeqOf can't resolve it) — not silently treated as
 // "from the start" or "from the end".
 func TestReadAnchorIDUnknownIs400(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	seedInbox(t, lg, "cove-1", 2)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -842,7 +842,7 @@ func TestReadInvalidLimitIs400(t *testing.T) {
 // TestReadLimitIsCappedAtMax asserts a limit above maxReadLimit is silently
 // capped rather than honored or rejected.
 func TestReadLimitIsCappedAtMax(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	seedInbox(t, lg, "cove-1", maxReadLimit+5)
 	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
 	h := NewSquawksHandler(store, lg, lg, testLogger())
@@ -1170,11 +1170,11 @@ func TestSendCarriesContentType(t *testing.T) {
 }
 
 func TestReadReturnsContentType(t *testing.T) {
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
 	alice := intercom.Target{Kind: "human", Ref: "Alice"}
-	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "**md**", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "a_b_c", Project: "acme", ContentType: intercom.ContentPlain})
+	mustAppend(t, lg, intercom.LegacySquawk{From: alice, To: []intercom.Target{coveActor}, Body: "**md**", Project: "acme"})
+	mustAppend(t, lg, intercom.LegacySquawk{From: alice, To: []intercom.Target{coveActor}, Body: "a_b_c", Project: "acme", ContentType: intercom.ContentPlain})
 	h := NewSquawksHandler(newReadTestStore(t, "cove-1", "ACME-7", "acme"), lg, lg, testLogger())
 	rec := doGet(t, h, tokenFor("cove-1"))
 	var resp struct {

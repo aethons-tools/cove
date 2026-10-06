@@ -66,7 +66,7 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, reportH, broker http.Handler) 
 // the intercom too) or a Requisitioner (whose coves have always had /escalate; with
 // no log their sends fail with a clean 503). With neither, the broker alone —
 // plus GET /connector, which is always mounted.
-func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.Store, requisitioner bool, tickets jam.TicketReporter, log *slog.Logger) http.Handler {
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, lg intercom.LegacyStore, requisitioner bool, tickets jam.TicketReporter, log *slog.Logger) http.Handler {
 	// GET /connector (the identity's client env) and GET /context (its session
 	// context, recompiled live) are always served, ahead of the broker's
 	// destination routes.

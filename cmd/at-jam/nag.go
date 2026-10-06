@@ -13,7 +13,7 @@ import (
 // squawkAppender is the write side of the intercom log the nagger needs.
 // Satisfied by intercom.Store (*intercom.Log, the Postgres store).
 type squawkAppender interface {
-	Append(m intercom.Squawk) (intercom.Squawk, error)
+	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
 }
 
 // intercomNagger is wake-on's Nagger over the intercom log: each nag, and the
@@ -123,7 +123,7 @@ func (n intercomNagger) send(inst jam.Instance, id, body string) error {
 	if inst.Owner == "" {
 		return fmt.Errorf("nag %s: no owner", inst.ActorID)
 	}
-	_, err := n.log.Append(intercom.Squawk{
+	_, err := n.log.Append(intercom.LegacySquawk{
 		ID:      id,
 		From:    intercom.Target{Kind: "actor", Ref: inst.ActorID},
 		To:      []intercom.Target{{Kind: "human", Ref: inst.Owner}},

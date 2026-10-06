@@ -36,7 +36,7 @@ type Reaper interface {
 // replies. Satisfied by *intercom.Log; may be nil (squawk log unconfigured →
 // no reply-waking, teardown/pause still run).
 type Inbox interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk
+	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -569,11 +569,11 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 // from different, non-interleaved namespaces). A nil inbox (squawk log
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
-func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
+func (e *Engine) replies(inst jam.Instance) []intercom.LegacySquawk {
 	if e.inbox == nil {
 		return nil
 	}
-	var out []intercom.Squawk
+	var out []intercom.LegacySquawk
 	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
 		if intercom.Classify(m.From) == intercom.External {
 			out = append(out, m)
@@ -607,7 +607,7 @@ const (
 // only "keep"s — the wait baseline moves past them and the idle ladder restarts
 // (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
 // session is not woken, and an Idled one stays paused.
-func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.Squawk) bool {
+func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.LegacySquawk) bool {
 	if e.nags == nil || inst.Owner == "" {
 		return false // ladder off: there are no nags to answer
 	}

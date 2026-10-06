@@ -26,7 +26,7 @@ type deliverCall struct {
 }
 
 func (f *fakeSurface) Service() string { return f.service }
-func (f *fakeSurface) Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (string, error) {
+func (f *fakeSurface) Deliver(ctx context.Context, d Delivery, m intercom.LegacySquawk) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, Sender: d.SenderName, BodyPrefix: d.BodyPrefix})

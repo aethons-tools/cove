@@ -264,7 +264,7 @@ func TestDiscordReplyJoinsThread(t *testing.T) {
 	client := &fakeDiscordClient{postID: "D-root"}
 	surf := &discordSurface{dial: func([]string) discordClient { return client }, receipts: rec}
 
-	root, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}}, Body: "question?", Project: "acme"})
+	root, err := lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}}, Body: "question?", Project: "acme"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestDiscordReplyJoinsThread(t *testing.T) {
 	if !ok {
 		t.Fatal("reply not routed")
 	}
-	if _, err := lg.Append(intercom.Squawk{ID: "in:discord:D-reply", From: from, To: to, Body: "answer", Project: "acme", ReplyTo: replyTo}); err != nil {
+	if _, err := lg.Append(intercom.LegacySquawk{ID: "in:discord:D-reply", From: from, To: to, Body: "answer", Project: "acme", ReplyTo: replyTo}); err != nil {
 		t.Fatal(err)
 	}
 	th := lg.ReadThread(root.ID)
@@ -395,7 +395,7 @@ func TestEgressGoldenParity(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: Resolve ok=false", c.name)
 		}
-		if _, err := surf.Deliver(context.Background(), d, intercom.Squawk{From: from, To: []intercom.Target{c.to}, Body: c.body, Project: "acme"}); err != nil {
+		if _, err := surf.Deliver(context.Background(), d, intercom.LegacySquawk{From: from, To: []intercom.Target{c.to}, Body: c.body, Project: "acme"}); err != nil {
 			t.Fatalf("%s: Deliver: %v", c.name, err)
 		}
 	}
@@ -534,7 +534,7 @@ func TestResolveOwnTicketSurvivesInstanceGone(t *testing.T) {
 }
 
 func TestDeliverPropagatesErrors(t *testing.T) {
-	m := intercom.Squawk{Body: "x"}
+	m := intercom.LegacySquawk{Body: "x"}
 	d := relay.Delivery{Service: "linear", Address: "ACME-7"}
 	// resolve error
 	s1 := &linearSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
@@ -750,10 +750,10 @@ func TestLinearDeliverEscapesPlainText(t *testing.T) {
 	s := &linearSurface{poster: fp}
 	d := relay.Delivery{Address: "ACME-1", BodyPrefix: "@alice "}
 	from := tgt("actor", "cove-1")
-	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "**bold**", ContentType: intercom.ContentMarkdown}); err != nil {
+	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{From: from, Body: "**bold**", ContentType: intercom.ContentMarkdown}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "2 * 3\n- x", ContentType: intercom.ContentPlain}); err != nil {
+	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{From: from, Body: "2 * 3\n- x", ContentType: intercom.ContentPlain}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fp.posts) != 2 || fp.posts[0].body != "@alice **bold**" || fp.posts[1].body != "@alice 2 \\* 3  \n\\- x" {

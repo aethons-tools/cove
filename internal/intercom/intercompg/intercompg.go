@@ -26,21 +26,21 @@ import (
 // migrators sharing one database never block each other incorrectly.
 const migrateAdvisoryLock = 0x696e746572636f6d // "intercom"
 
-// Store is a Postgres-backed intercom.Store over a shared pool.
-type Store struct {
+// Legacy is a Postgres-backed intercom.Legacy over a shared pool.
+type Legacy struct {
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
 
-var _ intercom.Store = (*Store)(nil)
+var _ intercom.LegacyStore = (*Legacy)(nil)
 
-// New applies the embedded migrations (idempotent, advisory-locked) and returns
+// NewLegacy applies the embedded migrations (idempotent, advisory-locked) and returns
 // a ready store. It does not own the pool; Close is a no-op.
-func New(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Store, error) {
+func NewLegacy(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Legacy, error) {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	s := &Store{pool: pool, log: log}
+	s := &Legacy{pool: pool, log: log}
 	if err := s.migrate(ctx); err != nil {
 		return nil, err
 	}
@@ -48,16 +48,16 @@ func New(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) (*Store, err
 }
 
 // Close is a no-op: the pool is owned by the control-plane store.
-func (s *Store) Close() error { return nil }
+func (s *Legacy) Close() error { return nil }
 
-func (s *Store) Append(m intercom.Squawk) (intercom.Squawk, error) {
-	m, err := intercom.Prepare(m)
+func (s *Legacy) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) {
+	m, err := intercom.PrepareLegacy(m)
 	if err != nil {
-		return intercom.Squawk{}, err
+		return intercom.LegacySquawk{}, err
 	}
 	toJSON, err := json.Marshal(m.To)
 	if err != nil {
-		return intercom.Squawk{}, err
+		return intercom.LegacySquawk{}, err
 	}
 	err = pgx.BeginFunc(context.Background(), s.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
@@ -80,25 +80,25 @@ func (s *Store) Append(m intercom.Squawk) (intercom.Squawk, error) {
 		return nil
 	})
 	if err != nil {
-		return intercom.Squawk{}, fmt.Errorf("intercompg: append: %w", err)
+		return intercom.LegacySquawk{}, fmt.Errorf("intercompg: append: %w", err)
 	}
 	return m, nil
 }
 
-func (s *Store) ReadInbox(t intercom.Target) []intercom.Squawk {
+func (s *Legacy) ReadInbox(t intercom.Target) []intercom.LegacySquawk {
 	return s.query(
 		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 		 FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
 		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.seq`, t.Kind, t.Ref)
 }
 
-func (s *Store) ReadThread(rootID string) []intercom.Squawk {
+func (s *Legacy) ReadThread(rootID string) []intercom.LegacySquawk {
 	return s.query(
 		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
 		 FROM squawks WHERE id = $1 OR reply_to = $1 ORDER BY seq`, rootID)
 }
 
-func (s *Store) List(f intercom.Filter) []intercom.Squawk {
+func (s *Legacy) List(f intercom.LegacyFilter) []intercom.LegacySquawk {
 	// Zero Since/Until are unbounded; pass them as conditional predicates.
 	// ORDER BY seq is the append-order key (see Store.ListSince doc): ids are
 	// opaque identifiers, not comparable across namespaces, so ordering must
@@ -113,7 +113,7 @@ func (s *Store) List(f intercom.Filter) []intercom.Squawk {
 		f.Project, nullTime(f.Since), nullTime(f.Until))
 }
 
-func (s *Store) SeenIDs(prefix string) []string {
+func (s *Legacy) SeenIDs(prefix string) []string {
 	rows, err := s.pool.Query(context.Background(),
 		`SELECT id FROM squawks WHERE id LIKE $1 ORDER BY id`, likePrefix(prefix))
 	if err != nil {
@@ -141,7 +141,7 @@ func (s *Store) SeenIDs(prefix string) []string {
 	return out
 }
 
-func (s *Store) ListSince(afterSeq int64, limit int) []intercom.Squawk {
+func (s *Legacy) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {
 	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
 	        FROM squawks WHERE seq > $1 ORDER BY seq`
 	args := []any{afterSeq}
@@ -152,7 +152,7 @@ func (s *Store) ListSince(afterSeq int64, limit int) []intercom.Squawk {
 	return s.query(sql, args...)
 }
 
-func (s *Store) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
+func (s *Legacy) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk {
 	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2 AND m.seq > $3 ORDER BY m.seq`
@@ -164,7 +164,7 @@ func (s *Store) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []i
 	return s.query(sql, args...)
 }
 
-func (s *Store) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.Squawk {
+func (s *Legacy) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.LegacySquawk {
 	// nearest-below beforeSeq: order DESC + LIMIT, then reverse to ascending.
 	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
 	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
@@ -189,7 +189,7 @@ func (s *Store) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) [
 
 // SeqOf returns the append-order Seq assigned to the message with the given
 // id, or (0, false) if no such message exists.
-func (s *Store) SeqOf(id string) (int64, bool) {
+func (s *Legacy) SeqOf(id string) (int64, bool) {
 	var seq int64
 	err := s.pool.QueryRow(context.Background(),
 		`SELECT seq FROM squawks WHERE id = $1`, id).Scan(&seq)
@@ -205,7 +205,7 @@ func (s *Store) SeqOf(id string) (int64, bool) {
 
 // TailSeq returns the last-appended message's Seq, or (0, false) when the log
 // is empty.
-func (s *Store) TailSeq() (int64, bool) {
+func (s *Legacy) TailSeq() (int64, bool) {
 	var seq int64
 	err := s.pool.QueryRow(context.Background(),
 		`SELECT seq FROM squawks ORDER BY seq DESC LIMIT 1`).Scan(&seq)
@@ -221,7 +221,7 @@ func (s *Store) TailSeq() (int64, bool) {
 
 // query runs a message SELECT (columns in the fixed order below) and
 // reconstructs each Squawk via scanSquawks.
-func (s *Store) query(sql string, args ...any) []intercom.Squawk {
+func (s *Legacy) query(sql string, args ...any) []intercom.LegacySquawk {
 	rows, err := s.pool.Query(context.Background(), sql, args...)
 	if err != nil {
 		s.log.Error("intercompg: query", "error", err.Error())
@@ -238,10 +238,10 @@ func (s *Store) query(sql string, args ...any) []intercom.Squawk {
 // the loop it checks rows.Err(): in pgx v5 a mid-stream failure can end Next()
 // early without a Scan error, surfacing only via rows.Err(), so a truncated
 // read must not be silently returned as a short success.
-func (s *Store) scanSquawks(rows pgx.Rows) []intercom.Squawk {
-	var out []intercom.Squawk
+func (s *Legacy) scanSquawks(rows pgx.Rows) []intercom.LegacySquawk {
+	var out []intercom.LegacySquawk
 	for rows.Next() {
-		var m intercom.Squawk
+		var m intercom.LegacySquawk
 		var toJSON []byte
 		if err := rows.Scan(&m.Seq, &m.ID, &m.From.Kind, &m.From.Ref, &m.Body, &m.At, &m.Project, &m.ReplyTo, &toJSON, &m.ContentType); err != nil {
 			s.log.Error("intercompg: scan", "error", err.Error())
@@ -260,7 +260,7 @@ func (s *Store) scanSquawks(rows pgx.Rows) []intercom.Squawk {
 	return out
 }
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Legacy) migrate(ctx context.Context) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(migrateAdvisoryLock)); err != nil {
 			return fmt.Errorf("intercompg: advisory lock: %w", err)

@@ -38,8 +38,8 @@ type Squawk struct {
 // *intercompg.Store; nil disables reads (GET → 503) and commits (POST
 // /squawks/commit → 503, since it can no longer resolve up_to to a Seq).
 type inboxReader interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk
-	ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.Squawk
+	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk
+	ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.LegacySquawk
 	SeqOf(id string) (int64, bool)
 }
 
@@ -57,7 +57,7 @@ type squawkStore interface {
 // send path for /squawks POST. Satisfied by *intercom.Log; nil means messaging
 // is unconfigured and a send fails with 503.
 type appender interface {
-	Append(m intercom.Squawk) (intercom.Squawk, error)
+	Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error)
 }
 
 // SquawksHandler is Jam's brokered messaging endpoint. Reads, and sends
@@ -202,7 +202,7 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := h.lg.Append(intercom.Squawk{
+	if _, err := h.lg.Append(intercom.LegacySquawk{
 		From:        intercom.Target{Kind: "actor", Ref: actor.ID},
 		To:          []intercom.Target{logicalTo},
 		Body:        req.Body, // raw — @handle rendering is the adapter's job at egress
@@ -283,7 +283,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	}
 	target := intercom.Target{Kind: "actor", Ref: actor.ID}
 
-	var msgs []intercom.Squawk
+	var msgs []intercom.LegacySquawk
 	switch anchor {
 	case "", "cursor":
 		if dir == "backward" {

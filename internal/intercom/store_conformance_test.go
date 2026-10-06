@@ -8,7 +8,7 @@ import (
 )
 
 func TestMemLogConformance(t *testing.T) {
-	intercomtest.RunConformance(t, func(t *testing.T) intercom.Store {
-		return intercom.NewMemLog()
+	intercomtest.RunLegacyConformance(t, func(t *testing.T) intercom.LegacyStore {
+		return intercom.NewLegacyMemLog()
 	})
 }

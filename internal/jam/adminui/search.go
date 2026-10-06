@@ -185,8 +185,8 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 
 	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/ui/intercom?q=" + url.QueryEscape(q)}
 	if msgs != nil {
-		var found []intercom.Squawk
-		for _, s := range msgs.List(intercom.Filter{}) {
+		var found []intercom.LegacySquawk
+		for _, s := range msgs.List(intercom.LegacyFilter{}) {
 			if m.any(s.Body) {
 				found = append(found, s)
 			}

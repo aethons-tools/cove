@@ -69,7 +69,7 @@ func (e *Engine) egressTick(ctx context.Context) {
 }
 
 // owned returns m's External targets that resolve to THIS Service.
-func (e *Engine) owned(service, project string, m intercom.Squawk) []intercom.Target {
+func (e *Engine) owned(service, project string, m intercom.LegacySquawk) []intercom.Target {
 	var out []intercom.Target
 	for _, t := range m.To {
 		if intercom.Classify(t) != intercom.External {
@@ -85,7 +85,7 @@ func (e *Engine) owned(service, project string, m intercom.Squawk) []intercom.Ta
 }
 
 // egressDone reports whether every owned target of m has been delivered.
-func (e *Engine) egressDone(service string, m intercom.Squawk, pending map[string]map[string]bool) bool {
+func (e *Engine) egressDone(service string, m intercom.LegacySquawk, pending map[string]map[string]bool) bool {
 	if intercom.Classify(m.From) != intercom.Internal {
 		return true // echo-guarded: nothing to deliver
 	}

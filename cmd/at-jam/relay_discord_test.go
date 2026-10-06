@@ -54,7 +54,7 @@ func TestDiscordDeliverRecordsReceipt(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.LegacySquawk{ID: "M1", From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
 	if err != nil || id != "D1" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -70,7 +70,7 @@ func TestDiscordDeliverPropagatesPostError(t *testing.T) {
 	fc := &fakeDiscordClient{postErr: errBoom}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{Body: "x"}); err == nil {
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{Body: "x"}); err == nil {
 		t.Fatal("expected post error")
 	}
 }
@@ -81,7 +81,7 @@ func TestDiscordDeliverSwallowsEmptyID(t *testing.T) {
 	fc := &fakeDiscordClient{postID: ""}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
 	if err != nil || id != "" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -107,7 +107,7 @@ func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec, log: log}
 	const secretBody = "top-secret cove message body"
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: secretBody})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: secretBody})
 	if err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
@@ -132,7 +132,7 @@ func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"}); err != nil {
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"}); err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
 }
@@ -346,10 +346,10 @@ func TestDiscordDeliverEscapesPlainText(t *testing.T) {
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: mustReceipts(t)}
 	d := relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}
 	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
-	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
+	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
+	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fc.posts) != 2 || fc.posts[0].content != "cove-1: *hi*" || fc.posts[1].content != `cove-1: a\_b \*c\*` {

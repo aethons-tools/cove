@@ -132,7 +132,7 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
 		return
 	}
-	if _, err := h.lg.Append(intercom.Squawk{
+	if _, err := h.lg.Append(intercom.LegacySquawk{
 		From:        from,
 		To:          []intercom.Target{to},
 		Body:        req.Body,

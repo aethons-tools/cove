@@ -181,7 +181,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	st := jam.NewMemStore()
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
@@ -193,7 +193,7 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name          string
-		lg            intercom.Store
+		lg            intercom.LegacyStore
 		requisitioner bool
 		mounted       bool
 	}{

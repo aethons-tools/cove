@@ -33,10 +33,10 @@ func (f *fakeStore) CommitUnread(participant, channel string, seq int64) error {
 	return nil
 }
 
-type fakeLog struct{ sq []intercom.Squawk }
+type fakeLog struct{ sq []intercom.LegacySquawk }
 
-func (f fakeLog) ListSince(after int64, _ int) []intercom.Squawk {
-	var out []intercom.Squawk
+func (f fakeLog) ListSince(after int64, _ int) []intercom.LegacySquawk {
+	var out []intercom.LegacySquawk
 	for _, m := range f.sq {
 		if m.Seq > after {
 			out = append(out, m)
@@ -54,7 +54,7 @@ func fixture() (*fakeStore, fakeLog, jam.Participant) {
 		Channels: []jam.RosterChannel{{Name: "eng"}},
 	}
 	store := &fakeStore{rosters: map[string]jam.Roster{"proj": roster}}
-	log := fakeLog{sq: []intercom.Squawk{{
+	log := fakeLog{sq: []intercom.LegacySquawk{{
 		Seq:  1,
 		From: intercom.Target{Kind: "human", Ref: "alice"},
 		To:   []intercom.Target{{Kind: "channel", Ref: "eng"}},
@@ -248,7 +248,7 @@ func TestStreamRendersMarkdownAndPlain(t *testing.T) {
 	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
 	alice := intercom.Target{Kind: "human", Ref: "alice"}
 	at := time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC)
-	log := fakeLog{sq: []intercom.Squawk{
+	log := fakeLog{sq: []intercom.LegacySquawk{
 		{Seq: 1, From: alice, To: eng, Body: "**bold** <script>x</script>", At: at, Project: "proj", ContentType: intercom.ContentMarkdown},
 		{Seq: 2, From: alice, To: eng, Body: "**literal** a_b", At: at, Project: "proj", ContentType: intercom.ContentPlain},
 	}}
@@ -382,7 +382,7 @@ func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 	store, _, p := fixture()
 	eng := []intercom.Target{{Kind: "channel", Ref: "eng"}}
 	alice := intercom.Target{Kind: "human", Ref: "alice"}
-	log := fakeLog{sq: []intercom.Squawk{{Seq: 1, From: alice, To: eng, Body: "**bold** & <b>", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj"}}}
+	log := fakeLog{sq: []intercom.LegacySquawk{{Seq: 1, From: alice, To: eng, Body: "**bold** & <b>", At: time.Date(2026, 9, 28, 14, 3, 0, 0, time.UTC), Project: "proj"}}}
 	h := Handler(store, log, nil)
 	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape("named:eng"), nil)
 	req = jam.WithParticipant(req, p)

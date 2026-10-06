@@ -11,9 +11,9 @@ import (
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
-func openTestLog(t *testing.T) *intercom.Log {
+func openTestLog(t *testing.T) *intercom.LegacyLog {
 	t.Helper()
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	return lg
 }
 
@@ -35,7 +35,7 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	if err := n.NotifyReclaimed(ctx, nagInst, 72*time.Hour+30*time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.List(intercom.LegacyFilter{})
 	if len(got) != 2 {
 		t.Fatalf("appended %d squawks, want 2: %+v", len(got), got)
 	}
@@ -67,7 +67,7 @@ func TestNagCarriesNagID(t *testing.T) {
 	if err := n.Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.List(intercom.LegacyFilter{})
 	if len(got) != 1 || got[0].ID != jam.NagMessageID("pers-1", at) || !jam.IsNagReply(got[0].ID, "pers-1") {
 		t.Fatalf("nag = %+v, want id %q", got, jam.NagMessageID("pers-1", at))
 	}
@@ -112,7 +112,7 @@ func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
 			if err := (intercomNagger{log: lg, roster: tc.store}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 				t.Fatal(err)
 			}
-			if got := lg.List(intercom.Filter{})[0].Body; got != tc.want {
+			if got := lg.List(intercom.LegacyFilter{})[0].Body; got != tc.want {
 				t.Fatalf("nag body = %q\nwant       %q", got, tc.want)
 			}
 		})
@@ -130,7 +130,7 @@ func TestNaggerConfirmations(t *testing.T) {
 	if err := n.NotifyReleased(ctx, nagInst); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.List(intercom.LegacyFilter{})
 	if len(got) != 2 {
 		t.Fatalf("appended %d, want 2", len(got))
 	}
@@ -189,7 +189,7 @@ func nagRosterStore(t *testing.T) *jam.MemStore {
 // deliverOverDiscord runs a squawk through the relay's egress steps for the
 // discord engine — Resolve by the squawk's own project, then Deliver — and
 // returns the posted Discord message id.
-func deliverOverDiscord(t *testing.T, dir *directory, surf *discordSurface, m intercom.Squawk) (relay.Delivery, bool) {
+func deliverOverDiscord(t *testing.T, dir *directory, surf *discordSurface, m intercom.LegacySquawk) (relay.Delivery, bool) {
 	t.Helper()
 	d, ok := dir.Resolve("discord", m.Project, m.To[0], m.From)
 	if !ok {
@@ -215,7 +215,7 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	nag := lg.List(intercom.Filter{})[0]
+	nag := lg.List(intercom.LegacyFilter{})[0]
 	d, ok := deliverOverDiscord(t, dir, surf, nag)
 	if !ok || d.Address != "inbox-A" || len(client.posts) != 1 || client.posts[0].channel != "inbox-A" {
 		t.Fatalf("nag not delivered to alice's inbox: %+v %v posts=%+v", d, ok, client.posts)
@@ -231,7 +231,7 @@ func TestNagReplyRoutesBackToCove(t *testing.T) {
 	if from != (intercom.Target{Kind: "human", Ref: "alice"}) || replyTo != nag.ID || !jam.IsNagReply(replyTo, "pers-1") {
 		t.Fatalf("reply from=%+v replyTo=%q, want human:alice replying to nag %q", from, replyTo, nag.ID)
 	}
-	if _, err := lg.Append(intercom.Squawk{From: from, To: to, Body: "still here", Project: "acme", ReplyTo: replyTo}); err != nil {
+	if _, err := lg.Append(intercom.LegacySquawk{From: from, To: to, Body: "still here", Project: "acme", ReplyTo: replyTo}); err != nil {
 		t.Fatal(err)
 	}
 	inbox := lg.ReadInboxSince(intercom.Target{Kind: "actor", Ref: "pers-1"}, nag.Seq, 0)
@@ -270,7 +270,7 @@ func TestBoundOwnerReleaseFromSharedInbox(t *testing.T) {
 	if err := (intercomNagger{log: lg, roster: st}).Nag(context.Background(), nagInst, 5*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	nag := lg.List(intercom.Filter{})[0]
+	nag := lg.List(intercom.LegacyFilter{})[0]
 	if !strings.Contains(nag.Body, `Reply "keep"`) {
 		t.Fatalf("a bound owner's nag should offer keep/release: %q", nag.Body)
 	}
@@ -312,7 +312,7 @@ func TestReclaimNoticeDeliversAfterInstanceRemoved(t *testing.T) {
 	if _, ok := st.GetInstance("pers-1"); ok {
 		t.Fatal("instance still present")
 	}
-	notice := lg.List(intercom.Filter{})[0]
+	notice := lg.List(intercom.LegacyFilter{})[0]
 	d, ok := deliverOverDiscord(t, dir, surf, notice)
 	if !ok || d.Service != "discord" || d.Address != "inbox-A" {
 		t.Fatalf("reclaim notice did not resolve to alice's inbox after teardown: %+v %v", d, ok)
@@ -333,7 +333,7 @@ func TestIntercomNaggerNotifyEnded(t *testing.T) {
 	if err := n.NotifyEnded(context.Background(), jam.Instance{ActorID: "s1", Project: "acme"}, "x"); err != nil {
 		t.Fatal(err)
 	}
-	got := lg.List(intercom.Filter{})
+	got := lg.List(intercom.LegacyFilter{})
 	if len(got) != 1 || got[0].To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) || !strings.Contains(got[0].Body, "wrapped up") {
 		t.Fatalf("sent %+v; want one notice to alice, none for the ownerless session", got)
 	}

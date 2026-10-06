@@ -30,11 +30,11 @@ func (s *meFakeStore) ListInstances() []jam.Instance { return s.instances }
 
 // meFakeAppender records the appended message, and can be scripted to fail.
 type meFakeAppender struct {
-	got []intercom.Squawk
+	got []intercom.LegacySquawk
 	err error
 }
 
-func (a *meFakeAppender) Append(m intercom.Squawk) (intercom.Squawk, error) {
+func (a *meFakeAppender) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) {
 	a.got = append(a.got, m)
 	return m, a.err
 }

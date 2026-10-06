@@ -9,19 +9,19 @@ import "sync"
 // appends coalesces and a slow subscriber never blocks a writer. In-process
 // only — correct while the serve process is the log's sole writer.
 type Notifier struct {
-	Store
+	LegacyStore
 	mu   sync.Mutex
 	subs map[chan struct{}]struct{}
 }
 
 // NewNotifier wraps s.
-func NewNotifier(s Store) *Notifier {
-	return &Notifier{Store: s, subs: map[chan struct{}]struct{}{}}
+func NewNotifier(s LegacyStore) *Notifier {
+	return &Notifier{LegacyStore: s, subs: map[chan struct{}]struct{}{}}
 }
 
 // Append appends through the wrapped store, then signals every subscriber.
-func (n *Notifier) Append(m Squawk) (Squawk, error) {
-	got, err := n.Store.Append(m)
+func (n *Notifier) Append(m LegacySquawk) (LegacySquawk, error) {
+	got, err := n.LegacyStore.Append(m)
 	if err != nil {
 		return got, err
 	}

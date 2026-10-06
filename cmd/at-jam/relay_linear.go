@@ -84,7 +84,7 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 // deliveredBody is m's body as posted to a markdown-rendering surface of
 // flavor f: markdown (the default) passes through byte-for-byte; text/plain is
 // escaped so the surface shows it literally.
-func deliveredBody(m intercom.Squawk, f intercom.Flavor) string {
+func deliveredBody(m intercom.LegacySquawk, f intercom.Flavor) string {
 	if m.ContentType == intercom.ContentPlain {
 		return intercom.EscapeMarkdown(m.Body, f)
 	}
@@ -95,7 +95,7 @@ func deliveredBody(m intercom.Squawk, f intercom.Flavor) string {
 // d.BodyPrefix+m.Body. Linear returns no comment id, so foreignID is ""; the
 // engine's EgressMark provides exactly-once (no idempotency footer — it would
 // break byte-parity with the pre-cutover direct-post path).
-func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squawk) (string, error) {
+func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m intercom.LegacySquawk) (string, error) {
 	if s.poster == nil {
 		return "", fmt.Errorf("linear deliver: no poster configured")
 	}

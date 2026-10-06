@@ -7,12 +7,12 @@ import (
 
 func newNotifier(t *testing.T) *Notifier {
 	t.Helper()
-	l := NewMemLog()
+	l := NewLegacyMemLog()
 	return NewNotifier(l)
 }
 
-func hi() Squawk {
-	return Squawk{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "hi"}
+func hi() LegacySquawk {
+	return LegacySquawk{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "hi"}
 }
 
 // signalled reports whether ch fires within a short wait.
@@ -65,7 +65,7 @@ func TestNotifierCoalescesAndNeverBlocks(t *testing.T) {
 func TestNotifierSkipsFailedAppendAndCancelledSubscribers(t *testing.T) {
 	n := newNotifier(t)
 	ch, cancel := n.Subscribe()
-	if _, err := n.Append(Squawk{From: Target{Kind: "actor", Ref: "a"}}); err == nil {
+	if _, err := n.Append(LegacySquawk{From: Target{Kind: "actor", Ref: "a"}}); err == nil {
 		t.Fatal("invalid squawk should fail")
 	}
 	if signalled(ch) {

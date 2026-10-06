@@ -9,10 +9,10 @@ import (
 
 // fakeLog is the msglog fake the pure projection reads: an ordered, in-memory
 // slice of squawks. It satisfies jam.LogReader without a file, network, or VM.
-type fakeLog []intercom.Squawk
+type fakeLog []intercom.LegacySquawk
 
-func (f fakeLog) ListSince(afterSeq int64, limit int) []intercom.Squawk {
-	var out []intercom.Squawk
+func (f fakeLog) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {
+	var out []intercom.LegacySquawk
 	for _, m := range f {
 		if m.Seq <= afterSeq {
 			continue
@@ -264,8 +264,8 @@ func TestProjectChannelsSessions(t *testing.T) {
 	log, roster, instances := projectionFixture()
 	// cove-3 and cove-1 take part in #eng; a human never counts as a session.
 	log = append(log,
-		intercom.Squawk{Seq: 6, From: actor("cove-3"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
-		intercom.Squawk{Seq: 7, From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+		intercom.LegacySquawk{Seq: 6, From: actor("cove-3"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+		intercom.LegacySquawk{Seq: 7, From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
 	)
 	alice := byID(jam.ProjectChannels(human("alice"), log, roster, instances, nil))
 	if got := alice[jam.StudioChannelID("ACME-1")].Sessions; len(got) != 1 || got[0] != "cove-1" {

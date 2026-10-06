@@ -7,8 +7,8 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-func actorMsg(to ...intercom.Target) intercom.Squawk {
-	return intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: to, Body: "hi", Project: "acme"}
+func actorMsg(to ...intercom.Target) intercom.LegacySquawk {
+	return intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: to, Body: "hi", Project: "acme"}
 }
 
 func newEgressEngine(t *testing.T, surf *fakeSurface, dir *fakeDirectory) (*Engine, *fakeMarkers) {
@@ -36,7 +36,7 @@ func TestEgressEchoGuardSkipsExternalAuthored(t *testing.T) {
 	dir := &fakeDirectory{resolve: map[string]Delivery{"channel:ops": {Service: "linear", Address: "ACME-9"}}}
 	e, _ := newEgressEngine(t, surf, dir)
 	// an ingested human->channel message must NOT be re-egressed
-	_, _ = e.lg.Append(intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
+	_, _ = e.lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
 	e.egressTick(context.Background())
 	if surf.deliverCount() != 0 {
 		t.Fatalf("echo guard: externally-authored message must not egress, got %+v", surf.delivers)
@@ -104,7 +104,7 @@ func TestEgressPassesBodyPrefixToDeliver(t *testing.T) {
 	}}
 	e, _ := newEgressEngine(t, surf, dir)
 	// internal-authored, external target
-	_, _ = e.lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
+	_, _ = e.lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
 	e.egressTick(context.Background())
 	if len(surf.delivers) != 1 || surf.delivers[0].BodyPrefix != "@bob " {
 		t.Fatalf("BodyPrefix not passed through: %+v", surf.delivers)
@@ -132,7 +132,7 @@ func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
 
 	// Append a backlog bigger than one egressBatch.
 	const backlogSize = egressBatch + 50
-	var tail intercom.Squawk
+	var tail intercom.LegacySquawk
 	for i := 0; i < backlogSize; i++ {
 		m, err := e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
 		if err != nil {
@@ -174,9 +174,9 @@ func TestEgressLowWaterUsesSeqNotID(t *testing.T) {
 	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
 	e, mk := newEgressEngine(t, surf, dir)
 
-	_, _ = e.lg.Append(intercom.Squawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
+	_, _ = e.lg.Append(intercom.LegacySquawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
 	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
-	_, _ = e.lg.Append(intercom.Squawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
+	_, _ = e.lg.Append(intercom.LegacySquawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
 	tail, err := e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
 	if err != nil {
 		t.Fatalf("append: %v", err)

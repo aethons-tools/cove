@@ -35,11 +35,11 @@ func TestNewIDTimeSortable(t *testing.T) {
 }
 
 func TestMessageValidate(t *testing.T) {
-	good := Squawk{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "hi"}
+	good := LegacySquawk{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}, Body: "hi"}
 	if err := good.validate(); err != nil {
 		t.Fatalf("good message rejected: %v", err)
 	}
-	bad := []Squawk{
+	bad := []LegacySquawk{
 		{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "human", Ref: "b"}}},             // empty body
 		{From: Target{Kind: "actor", Ref: "a"}, Body: "hi"},                                          // empty To
 		{From: Target{Kind: "actor", Ref: "a"}, To: []Target{{Kind: "bogus", Ref: "b"}}, Body: "hi"}, // bad To kind

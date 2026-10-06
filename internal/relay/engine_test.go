@@ -8,19 +8,19 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-func openLog(t *testing.T) *intercom.Log {
+func openLog(t *testing.T) *intercom.LegacyLog {
 	t.Helper()
-	lg := intercom.NewMemLog()
+	lg := intercom.NewLegacyMemLog()
 	return lg
 }
 
 func TestNewRebuildsSeenForItsService(t *testing.T) {
 	lg := openLog(t)
 	// two inbound-linear ids, one inbound-discord id, one normal outbound id
-	_, _ = lg.Append(intercom.Squawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{ID: "in:discord:c3", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
-	_, _ = lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "x"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "b"})
+	_, _ = lg.Append(intercom.LegacySquawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
+	_, _ = lg.Append(intercom.LegacySquawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
+	_, _ = lg.Append(intercom.LegacySquawk{ID: "in:discord:c3", From: intercom.Target{Kind: "human", Ref: "a"}, To: []intercom.Target{{Kind: "actor", Ref: "x"}}, Body: "b"})
+	_, _ = lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "x"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "b"})
 	e := New(&fakeSurface{service: "linear"}, lg, &fakeMarkers{}, &fakeCursors{}, &fakeDirectory{}, Config{}, nil)
 	if !e.seen["in:linear:c1"] || !e.seen["in:linear:c2"] {
 		t.Fatal("New must seed seen with this Service's inbound ids")
@@ -36,7 +36,7 @@ func TestNewRebuildsSeenForItsService(t *testing.T) {
 func TestRunEgressDisabledOnlyIngress(t *testing.T) {
 	lg := openLog(t)
 	// an outbound (internal-authored, external target) message that egress WOULD deliver if enabled
-	_, _ = lg.Append(intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "x", Project: "acme"})
+	_, _ = lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "x", Project: "acme"})
 	surf := &fakeSurface{service: "linear"}
 	dir := &fakeDirectory{resolve: map[string]Delivery{"human:a": {Service: "linear", Address: "ACME-1"}}}
 	e := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{EgressEnabled: false, EgressPoll: time.Millisecond, IngressPoll: time.Millisecond}, nil)

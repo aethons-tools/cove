@@ -24,7 +24,7 @@ const (
 // write seen from the egress loop or from any other caller.
 type Engine struct {
 	surf Surface
-	lg   intercom.Store
+	lg   intercom.LegacyStore
 	mk   Markers
 	cur  Cursors
 	dir  Directory
@@ -36,7 +36,7 @@ type Engine struct {
 // New constructs an Engine for surf, rebuilding seen from the Log's existing
 // "in:"+surf.Service()+":" prefixed ids so a restart never re-ingests events
 // already recorded. Zero Config fields and a nil logger get defaults.
-func New(surf Surface, lg intercom.Store, mk Markers, cur Cursors, dir Directory, cfg Config, log *slog.Logger) *Engine {
+func New(surf Surface, lg intercom.LegacyStore, mk Markers, cur Cursors, dir Directory, cfg Config, log *slog.Logger) *Engine {
 	if cfg.EgressPoll <= 0 {
 		cfg.EgressPoll = defaultEgressPoll
 	}

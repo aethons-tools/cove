@@ -41,13 +41,13 @@ func searchFixture(t *testing.T) http.Handler {
 	if err := store.AddChannel("acme", jam.RosterChannel{Name: "ops", Service: "discord", Ref: "zephyr-ops"}); err != nil {
 		t.Fatal(err)
 	}
-	var squawks []intercom.Squawk
+	var squawks []intercom.LegacySquawk
 	t0 := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	for i := range 12 {
-		squawks = append(squawks, intercom.Squawk{From: human("zoe"), To: []intercom.Target{actor("studio-7")},
+		squawks = append(squawks, intercom.LegacySquawk{From: human("zoe"), To: []intercom.Target{actor("studio-7")},
 			Body: fmt.Sprintf("zephyr update %d", i), At: t0.Add(time.Duration(i) * time.Minute), Project: "acme"})
 	}
-	squawks = append(squawks, intercom.Squawk{From: human("zoe"), To: []intercom.Target{channel("ops")}, Body: "nothing relevant", At: t0, Project: "acme"})
+	squawks = append(squawks, intercom.LegacySquawk{From: human("zoe"), To: []intercom.Target{channel("ops")}, Body: "nothing relevant", At: t0, Project: "acme"})
 	return adminui.Handler(store, testLogger(), nil, nil, anyCred, newIntercomLog(t, squawks...))
 }
 

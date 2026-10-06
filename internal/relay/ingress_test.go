@@ -36,7 +36,7 @@ func TestIngressIdempotentAcrossRestart(t *testing.T) {
 	// simulate a restart: a fresh engine over the SAME log rebuilds `seen`; the surface replays c1
 	e2 := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil)
 	e2.ingressTick(context.Background())
-	if n := len(lg.List(intercom.Filter{})); n != 1 {
+	if n := len(lg.List(intercom.LegacyFilter{})); n != 1 {
 		t.Fatalf("idempotent ingress: replayed event must not double-append, got %d", n)
 	}
 }
@@ -48,7 +48,7 @@ func TestIngressUnroutedSkipped(t *testing.T) {
 	lg := openLog(t)
 	e := New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil)
 	e.ingressTick(context.Background())
-	if n := len(lg.List(intercom.Filter{})); n != 0 {
+	if n := len(lg.List(intercom.LegacyFilter{})); n != 0 {
 		t.Fatalf("unrouted event must not append, got %d", n)
 	}
 	if cur.c["linear/acme"] != "cur2" {
@@ -67,7 +67,7 @@ func TestIngressAppendErrorHoldsCursor(t *testing.T) {
 	lg := openLog(t)
 	e := New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil)
 	e.ingressTick(context.Background())
-	if n := len(lg.List(intercom.Filter{})); n != 0 {
+	if n := len(lg.List(intercom.LegacyFilter{})); n != 0 {
 		t.Fatalf("failed append must not land in the log, got %d", n)
 	}
 	if _, ok := cur.c["linear/acme"]; ok {

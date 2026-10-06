@@ -27,7 +27,7 @@ func (e *Engine) ingressTick(ctx context.Context) {
 				e.log.Warn("relay: unrouted ingress event", "service", service, "foreign", ev.ForeignID)
 				continue
 			}
-			if _, err := e.lg.Append(intercom.Squawk{ID: id, From: from, To: to, Body: ev.Body, At: ev.At, Project: project, ReplyTo: replyTo, ContentType: ev.ContentType}); err != nil {
+			if _, err := e.lg.Append(intercom.LegacySquawk{ID: id, From: from, To: to, Body: ev.Body, At: ev.At, Project: project, ReplyTo: replyTo, ContentType: ev.ContentType}); err != nil {
 				e.log.Warn("relay: ingress append failed", "service", service, "foreign", ev.ForeignID, "error", err.Error())
 				failed = true
 				continue

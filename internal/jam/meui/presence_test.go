@@ -28,7 +28,7 @@ func presenceFixture() (*fakeStore, fakeLog, jam.Participant, *fakePresence) {
 	store, log, p := fixture()
 	eng := log.sq[0].To
 	for i, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh", "background"} {
-		log.sq = append(log.sq, intercom.Squawk{Seq: int64(i + 2), From: intercom.Target{Kind: "actor", Ref: a}, To: eng, Body: "hi", Project: "proj"})
+		log.sq = append(log.sq, intercom.LegacySquawk{Seq: int64(i + 2), From: intercom.Target{Kind: "actor", Ref: a}, To: eng, Body: "hi", Project: "proj"})
 	}
 	store.insts = []jam.Instance{
 		{ActorID: "busy", Name: "builder", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},

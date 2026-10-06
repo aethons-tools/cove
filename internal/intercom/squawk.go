@@ -29,8 +29,8 @@ func validKind(k string) bool { return k == "actor" || k == "human" || k == "cha
 
 func (t Target) valid() bool { return validKind(t.Kind) && t.Ref != "" }
 
-// Squawk is one immutable Log entry.
-type Squawk struct {
+// LegacySquawk is one immutable Log entry.
+type LegacySquawk struct {
 	Seq     int64     `json:"seq"` // monotonic append order; assigned at Append, 0 before
 	ID      string    `json:"id"`
 	From    Target    `json:"from"`
@@ -58,7 +58,7 @@ func ValidContentType(ct string) bool {
 	return ct == "" || ct == ContentMarkdown || ct == ContentPlain
 }
 
-func (m Squawk) validate() error {
+func (m LegacySquawk) validate() error {
 	if m.Body == "" {
 		return fmt.Errorf("intercom: empty body")
 	}
