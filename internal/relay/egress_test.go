@@ -4,50 +4,50 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-func actorMsg(to ...intercom.Target) intercom.LegacySquawk {
-	return intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: to, Body: "hi", Project: "acme"}
-}
-
-func newEgressEngine(t *testing.T, surf *fakeSurface, dir *fakeDirectory) (*Engine, *fakeMarkers) {
+func newEgressEngine(t *testing.T, surf *fakeSurface, surfaces map[ident.ID][]Delivery) (*Engine, *fakeMarkers) {
 	mk := &fakeMarkers{}
-	e := New(surf, openLog(t), mk, &fakeCursors{}, dir, Config{}, nil)
+	e := New(surf, openLog(t), mk, &fakeCursors{}, &fakeDirectory{surfaces: surfaces}, Config{}, nil)
 	return e, mk
 }
 
-func TestEgressDeliversExternalSkipsInternal(t *testing.T) {
+func TestEgressDeliversEachSurfaceOfTheChannel(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{
-		"human:alice": {Service: "linear", Address: "ACME-1", SenderName: "cove-1"},
-	}}
-	e, _ := newEgressEngine(t, surf, dir)
-	// human:alice is External+owned → delivered; actor:cove-2 is Internal → skipped
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}, intercom.Target{Kind: "actor", Ref: "cove-2"}))
+	e, _ := newEgressEngine(t, surf, map[ident.ID][]Delivery{
+		chOps: {{Service: "linear", Address: "ACME-1"}, {Service: "linear", Address: "ACME-2", BodyPrefix: "@bob "}},
+	})
+	post(t, e.lg, intercom.Squawk{})
+	post(t, e.lg, intercom.Squawk{Channel: chOther}) // a channel with no surface here
 	e.egressTick(context.Background())
-	if surf.deliverCount() != 1 || surf.delivers[0].Address != "ACME-1" {
-		t.Fatalf("expected 1 delivery to ACME-1, got %+v", surf.delivers)
+	if surf.deliverCount() != 2 || surf.delivers[0].Address != "ACME-1" || surf.delivers[1].BodyPrefix != "@bob " {
+		t.Fatalf("delivers = %+v", surf.delivers)
 	}
 }
 
-func TestEgressEchoGuardSkipsExternalAuthored(t *testing.T) {
+// Every author's squawks are rendered — a person's included — but never back
+// onto the surface they came from.
+func TestEgressRendersPeopleButNotBackToOrigin(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"channel:ops": {Service: "linear", Address: "ACME-9"}}}
-	e, _ := newEgressEngine(t, surf, dir)
-	// an ingested human->channel message must NOT be re-egressed
-	_, _ = e.lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
+	e, _ := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}, {Service: "linear", Address: "ACME-9"}}})
+	post(t, e.lg, intercom.Squawk{From: alice, Body: "from /me"})
+	post(t, e.lg, intercom.Squawk{ID: "in:linear:c1", From: alice, Origin: "con_origin", OriginRef: "ACME-1"})
 	e.egressTick(context.Background())
-	if surf.deliverCount() != 0 {
-		t.Fatalf("echo guard: externally-authored message must not egress, got %+v", surf.delivers)
+	var got []string
+	for _, d := range surf.delivers {
+		got = append(got, d.MsgID[:min(len(d.MsgID), 12)]+"→"+d.Address)
+	}
+	if surf.deliverCount() != 3 || surf.delivers[2].Address != "ACME-9" {
+		t.Fatalf("delivers = %v; want the /me post on both, the ingested one only on ACME-9", got)
 	}
 }
 
 func TestEgressExactlyOnceAcrossTicks(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
-	e, _ := newEgressEngine(t, surf, dir)
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
+	e, _ := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}}})
+	post(t, e.lg, intercom.Squawk{})
 	e.egressTick(context.Background())
 	e.egressTick(context.Background())
 	if surf.deliverCount() != 1 {
@@ -57,38 +57,29 @@ func TestEgressExactlyOnceAcrossTicks(t *testing.T) {
 
 func TestEgressCrashReplayRedelivers(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
-	e, mk := newEgressEngine(t, surf, dir)
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
+	e, mk := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}}})
+	post(t, e.lg, intercom.Squawk{})
 	e.egressTick(context.Background()) // delivers + marks
-	mk.m = map[string]EgressMark{}     // simulate a crash: the mark never persisted
-	e.egressTick(context.Background()) // must re-deliver (Service dedups on m.ID)
-	if surf.deliverCount() != 2 {
-		t.Fatalf("crash replay: expected re-delivery, got %d", surf.deliverCount())
-	}
-	// and m.ID is passed to Deliver both times (the Service dedup key)
-	if surf.delivers[0].MsgID == "" || surf.delivers[0].MsgID != surf.delivers[1].MsgID {
-		t.Fatalf("Deliver must carry a stable m.ID as the dedup key: %+v", surf.delivers)
+	mk.m = map[string]EgressMark{}     // a crash: the mark never persisted
+	e.egressTick(context.Background()) // re-delivers (the Service dedups on m.ID)
+	if surf.deliverCount() != 2 || surf.delivers[0].MsgID == "" || surf.delivers[0].MsgID != surf.delivers[1].MsgID {
+		t.Fatalf("crash replay must re-deliver with a stable m.ID: %+v", surf.delivers)
 	}
 }
 
 func TestEgressPartialFailureRetriesOnlyFailed(t *testing.T) {
 	surf := &fakeSurface{service: "linear", deliverErrFor: map[string]bool{"ACME-A": true}}
-	dir := &fakeDirectory{resolve: map[string]Delivery{
-		"human:a": {Service: "linear", Address: "ACME-A"},
-		"human:b": {Service: "linear", Address: "ACME-B"},
-	}}
-	e, _ := newEgressEngine(t, surf, dir)
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "a"}, intercom.Target{Kind: "human", Ref: "b"}))
+	e, _ := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-A"}, {Service: "linear", Address: "ACME-B"}}})
+	post(t, e.lg, intercom.Squawk{})
 	e.egressTick(context.Background()) // A fails, B succeeds
-	surf.deliverErrFor = nil           // A now recovers
+	surf.deliverErrFor = nil           // A recovers
 	e.egressTick(context.Background()) // retries only A
 	var a, b int
 	for _, d := range surf.delivers {
-		if d.Address == "ACME-A" {
+		switch d.Address {
+		case "ACME-A":
 			a++
-		}
-		if d.Address == "ACME-B" {
+		case "ACME-B":
 			b++
 		}
 	}
@@ -97,113 +88,56 @@ func TestEgressPartialFailureRetriesOnlyFailed(t *testing.T) {
 	}
 }
 
-func TestEgressPassesBodyPrefixToDeliver(t *testing.T) {
-	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{
-		"channel:ops": {Service: "linear", Address: "ACME-9", BodyPrefix: "@bob "},
-	}}
-	e, _ := newEgressEngine(t, surf, dir)
-	// internal-authored, external target
-	_, _ = e.lg.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, To: []intercom.Target{{Kind: "channel", Ref: "ops"}}, Body: "x", Project: "acme"})
-	e.egressTick(context.Background())
-	if len(surf.delivers) != 1 || surf.delivers[0].BodyPrefix != "@bob " {
-		t.Fatalf("BodyPrefix not passed through: %+v", surf.delivers)
-	}
-}
-
 func TestEgressBacklogDrainsAcrossTicks(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
-	e, mk := newEgressEngine(t, surf, dir)
-
-	// Seed one message and fully drain it, establishing a non-empty starting
-	// LastSeq — messages at/under this Seq must never be (re-)delivered.
-	first, err := e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
-	if err != nil {
-		t.Fatalf("append: %v", err)
-	}
+	e, mk := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}}})
+	first := post(t, e.lg, intercom.Squawk{})
 	e.egressTick(context.Background())
-	if surf.deliverCount() != 1 {
-		t.Fatalf("setup: expected 1 delivery, got %d", surf.deliverCount())
+	if surf.deliverCount() != 1 || mk.m[surf.service].LastSeq != first.Seq {
+		t.Fatalf("setup: %d deliveries, LastSeq %d", surf.deliverCount(), mk.m[surf.service].LastSeq)
 	}
-	if got := mk.m[surf.service].LastSeq; got != first.Seq {
-		t.Fatalf("setup: LastSeq = %d, want %d", got, first.Seq)
+	const backlog = egressBatch + 50
+	var tail intercom.Squawk
+	for range backlog {
+		tail = post(t, e.lg, intercom.Squawk{})
 	}
-
-	// Append a backlog bigger than one egressBatch.
-	const backlogSize = egressBatch + 50
-	var tail intercom.LegacySquawk
-	for i := 0; i < backlogSize; i++ {
-		m, err := e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
-		if err != nil {
-			t.Fatalf("append %d: %v", i, err)
-		}
-		tail = m
-	}
-
-	// Drain across enough ticks to cover the whole backlog.
-	for i := 0; i < backlogSize/egressBatch+2; i++ {
+	for range backlog/egressBatch + 2 {
 		e.egressTick(context.Background())
 	}
-
-	if surf.deliverCount() != 1+backlogSize {
-		t.Fatalf("backlog drain: delivered %d times, want %d", surf.deliverCount(), 1+backlogSize)
-	}
-	firstDeliveries := 0
-	for _, d := range surf.delivers {
-		if d.MsgID == first.ID {
-			firstDeliveries++
-		}
-	}
-	if firstDeliveries != 1 {
-		t.Fatalf("message at/under starting LastSeq was (re-)delivered %d times, want 1", firstDeliveries)
-	}
-	if got := mk.m[surf.service].LastSeq; got != tail.Seq {
-		t.Fatalf("LastSeq = %d after drain, want tail %d", got, tail.Seq)
+	if surf.deliverCount() != 1+backlog || mk.m[surf.service].LastSeq != tail.Seq {
+		t.Fatalf("drain: %d deliveries (want %d), LastSeq %d (want %d)", surf.deliverCount(), 1+backlog, mk.m[surf.service].LastSeq, tail.Seq)
 	}
 }
 
-// TestEgressLowWaterUsesSeqNotID interleaves externally-authored ingress ids
-// ("in:linear:...", echo-guarded and never egressed) with internal-authored
-// messages carrying ordinary generated ids. The id namespaces are NOT
-// mutually lexically ordered, so a low-water keyed on id would be unsound;
-// this asserts the low-water tracks Seq (append order) instead, and that a
-// re-tick after advancing delivers nothing new (ListSince(LastSeq) is empty).
-func TestEgressLowWaterUsesSeqNotID(t *testing.T) {
+// The low-water tracks seq, not ids (ingress ids aren't ordered against
+// generated ones), and a seeded mark from before the cutover (a legacy seq)
+// never re-delivers anything: the new log's seqs all lie above it.
+func TestEgressLowWaterUsesSeq(t *testing.T) {
+	legacy := intercom.NewLegacyMemLog()
+	for range 3 {
+		if _, err := legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "c"}, To: []intercom.Target{{Kind: "human", Ref: "a"}}, Body: "old"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lg := intercom.NewMemLog(legacy)
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "linear", Address: "ACME-1"}}}
-	e, mk := newEgressEngine(t, surf, dir)
-
-	_, _ = e.lg.Append(intercom.LegacySquawk{ID: "in:linear:c1", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
-	_, _ = e.lg.Append(intercom.LegacySquawk{ID: "in:linear:c2", From: intercom.Target{Kind: "human", Ref: "bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-1"}}, Body: "hi"})
-	tail, err := e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
-	if err != nil {
-		t.Fatalf("append: %v", err)
-	}
-
+	mk := &fakeMarkers{m: map[string]EgressMark{"linear": {LastSeq: 3}}} // seeded at the legacy tail
+	e := New(surf, lg, mk, &fakeCursors{}, &fakeDirectory{surfaces: map[ident.ID][]Delivery{chOps: {{Service: "linear", Address: "ACME-1"}}}}, Config{}, nil)
+	post(t, lg, intercom.Squawk{ID: "in:linear:zzz", From: alice, Origin: "con_origin", OriginRef: "ACME-1"})
+	tail := post(t, lg, intercom.Squawk{ID: "000-first"})
 	e.egressTick(context.Background())
-	if surf.deliverCount() != 2 {
-		t.Fatalf("expected 2 deliveries (echo-guard skips the in:* messages), got %d", surf.deliverCount())
-	}
-	if got := mk.m[surf.service].LastSeq; got != tail.Seq {
-		t.Fatalf("LastSeq = %d, want tail Seq %d", got, tail.Seq)
-	}
-
-	// Re-tick: ListSince(LastSeq) returns nothing new → exactly-once holds.
 	e.egressTick(context.Background())
-	if surf.deliverCount() != 2 {
-		t.Fatalf("re-tick delivered extra messages: %d", surf.deliverCount())
+	if surf.deliverCount() != 1 || mk.m["linear"].LastSeq != tail.Seq {
+		t.Fatalf("delivers = %+v, LastSeq %d (want %d)", surf.delivers, mk.m["linear"].LastSeq, tail.Seq)
 	}
 }
 
 func TestEgressSkipsOtherService(t *testing.T) {
 	surf := &fakeSurface{service: "linear"}
-	dir := &fakeDirectory{resolve: map[string]Delivery{"human:alice": {Service: "discord", Address: "chan-1"}}}
-	e, _ := newEgressEngine(t, surf, dir)
-	_, _ = e.lg.Append(actorMsg(intercom.Target{Kind: "human", Ref: "alice"}))
+	e, _ := newEgressEngine(t, surf, map[ident.ID][]Delivery{chOps: {{Service: "discord", Address: "chan-1"}}})
+	post(t, e.lg, intercom.Squawk{})
 	e.egressTick(context.Background())
 	if surf.deliverCount() != 0 {
-		t.Fatal("a target resolving to another Service must not be delivered by this engine")
+		t.Fatal("a surface on another Service must not be delivered by this engine")
 	}
 }

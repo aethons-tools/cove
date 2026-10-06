@@ -5,81 +5,76 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-func routeTo(coveID string) routed {
-	return routed{from: intercom.Target{Kind: "human", Ref: "alice"}, to: []intercom.Target{{Kind: "actor", Ref: coveID}}}
+func routeTo(ch ident.ID) Routed {
+	return Routed{Channel: ch, From: alice, Origin: "con_origin", OriginRef: "ACME-1"}
 }
 
-func TestIngressAppendsRoutedEvent(t *testing.T) {
-	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "c1", Body: "reply", At: time.Unix(10, 0)}}, next: "cur1"}
-	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{"c1": routeTo("cove-1")}}
+func newIngressEngine(t *testing.T, surf *fakeSurface, route map[string]Routed) (*Engine, *fakeDirectory, *fakeCursors) {
+	lg := openLog(t)
+	dir := &fakeDirectory{projects: []string{"acme"}, route: route, lg: lg, audience: []ident.ID{reader}}
 	cur := &fakeCursors{}
-	e := New(surf, openLog(t), &fakeMarkers{}, cur, dir, Config{}, nil)
+	return New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil), dir, cur
+}
+
+func TestIngressPostsRoutedEvent(t *testing.T) {
+	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "c1", Body: "reply", At: time.Unix(10, 0)}}, next: "cur1"}
+	e, _, cur := newIngressEngine(t, surf, map[string]Routed{"c1": {Channel: chOps, From: alice, ReplyTo: "r0", Origin: "con_origin", OriginRef: "ACME-1"}})
 	e.ingressTick(context.Background())
-	inbox := e.lg.ReadInbox(intercom.Target{Kind: "actor", Ref: "cove-1"})
-	if len(inbox) != 1 || inbox[0].ID != "in:linear:c1" || inbox[0].Body != "reply" || inbox[0].From.Ref != "alice" {
-		t.Fatalf("expected 1 routed inbound message, got %+v", inbox)
+	inbox := e.lg.InboxSince(reader, 0, 0)
+	if len(inbox) != 1 {
+		t.Fatalf("inbox = %+v", inbox)
+	}
+	m := inbox[0]
+	if m.ID != "in:linear:c1" || m.Channel != chOps || m.From != alice || m.Body != "reply" || m.ReplyTo != "r0" || m.Origin != "con_origin" || m.OriginRef != "ACME-1" {
+		t.Fatalf("posted = %+v", m)
 	}
 	if cur.c["linear/acme"] != "cur1" {
-		t.Fatalf("cursor must advance to next: %v", cur.c)
+		t.Fatalf("cursor must advance: %v", cur.c)
 	}
 }
 
 func TestIngressIdempotentAcrossRestart(t *testing.T) {
 	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "c1", Body: "r", At: time.Unix(1, 0)}}}
-	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{"c1": routeTo("cove-1")}}
-	lg := openLog(t)
-	e := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil)
-	e.ingressTick(context.Background()) // appends in:linear:c1
-	// simulate a restart: a fresh engine over the SAME log rebuilds `seen`; the surface replays c1
-	e2 := New(surf, lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil)
+	e, dir, _ := newIngressEngine(t, surf, map[string]Routed{"c1": routeTo(chOps)})
+	e.ingressTick(context.Background())
+	e2 := New(surf, e.lg, &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil) // a restart over the same log
 	e2.ingressTick(context.Background())
-	if n := len(lg.List(intercom.LegacyFilter{})); n != 1 {
-		t.Fatalf("idempotent ingress: replayed event must not double-append, got %d", n)
+	if n := len(e.lg.ListSince(0, 0)); n != 1 {
+		t.Fatalf("a replayed event must not post twice, got %d", n)
 	}
 }
 
 func TestIngressUnroutedSkipped(t *testing.T) {
 	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "c9", Body: "r"}}, next: "cur2"}
-	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{}} // no route for c9
-	cur := &fakeCursors{}
-	lg := openLog(t)
-	e := New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil)
+	e, _, cur := newIngressEngine(t, surf, map[string]Routed{})
 	e.ingressTick(context.Background())
-	if n := len(lg.List(intercom.LegacyFilter{})); n != 0 {
-		t.Fatalf("unrouted event must not append, got %d", n)
-	}
-	if cur.c["linear/acme"] != "cur2" {
-		t.Fatal("cursor still advances past an unrouted event")
+	if n := len(e.lg.ListSince(0, 0)); n != 0 || cur.c["linear/acme"] != "cur2" {
+		t.Fatalf("unrouted: %d posted, cursor %v", n, cur.c)
 	}
 }
 
-func TestIngressAppendErrorHoldsCursor(t *testing.T) {
+func TestIngressPostErrorHoldsCursor(t *testing.T) {
 	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "bad1", Body: "r", At: time.Unix(5, 0)}}, next: "cur3"}
-	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{
-		// to has an invalid Target (empty Ref), so the built intercom.Squawk
-		// fails validate() and Append returns an error.
-		"bad1": {from: intercom.Target{Kind: "human", Ref: "alice"}, to: []intercom.Target{{Kind: "actor", Ref: ""}}},
-	}}
-	cur := &fakeCursors{}
-	lg := openLog(t)
-	e := New(surf, lg, &fakeMarkers{}, cur, dir, Config{}, nil)
+	e, dir, cur := newIngressEngine(t, surf, map[string]Routed{"bad1": routeTo(chOps)})
+	dir.postErr = true
 	e.ingressTick(context.Background())
-	if n := len(lg.List(intercom.LegacyFilter{})); n != 0 {
-		t.Fatalf("failed append must not land in the log, got %d", n)
-	}
 	if _, ok := cur.c["linear/acme"]; ok {
-		t.Fatal("an append failure must not advance the cursor")
+		t.Fatal("a post failure must not advance the cursor")
+	}
+	dir.postErr = false
+	e.ingressTick(context.Background()) // retried: not marked seen
+	if n := len(e.lg.ListSince(0, 0)); n != 1 {
+		t.Fatalf("retry posted %d", n)
 	}
 }
 
 func TestIngressPollErrorSkipsProject(t *testing.T) {
 	surf := &fakeSurface{service: "linear", pollErr: context.DeadlineExceeded}
-	dir := &fakeDirectory{projects: []string{"acme"}}
-	cur := &fakeCursors{}
-	e := New(surf, openLog(t), &fakeMarkers{}, cur, dir, Config{}, nil)
+	e, _, cur := newIngressEngine(t, surf, nil)
 	e.ingressTick(context.Background())
 	if _, ok := cur.c["linear/acme"]; ok {
 		t.Fatal("a Poll error must not advance the cursor")
@@ -87,17 +82,14 @@ func TestIngressPollErrorSkipsProject(t *testing.T) {
 }
 
 func TestIngressCarriesContentType(t *testing.T) {
-	// An event's content type is appended as-is; unset is the Log's default
-	// (markdown).
 	surf := &fakeSurface{service: "linear", events: []Event{
 		{ForeignID: "c1", Body: "**md**", At: time.Unix(10, 0)},
 		{ForeignID: "c2", Body: "a_b", At: time.Unix(11, 0), ContentType: intercom.ContentPlain},
-	}, next: "cur1"}
-	dir := &fakeDirectory{projects: []string{"acme"}, route: map[string]routed{"c1": routeTo("cove-1"), "c2": routeTo("cove-1")}}
-	e := New(surf, openLog(t), &fakeMarkers{}, &fakeCursors{}, dir, Config{}, nil)
+	}}
+	e, _, _ := newIngressEngine(t, surf, map[string]Routed{"c1": routeTo(chOps), "c2": routeTo(chOps)})
 	e.ingressTick(context.Background())
-	inbox := e.lg.ReadInbox(intercom.Target{Kind: "actor", Ref: "cove-1"})
+	inbox := e.lg.InboxSince(reader, 0, 0)
 	if len(inbox) != 2 || inbox[0].ContentType != intercom.ContentMarkdown || inbox[1].ContentType != intercom.ContentPlain {
-		t.Fatalf("content types = %+v, want [markdown plain]", inbox)
+		t.Fatalf("content types = %+v", inbox)
 	}
 }

@@ -22,12 +22,14 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			if e.seen[id] {
 				continue
 			}
-			from, to, replyTo, ok := e.dir.Route(service, project, ev)
+			r, ok := e.dir.Route(service, project, ev)
 			if !ok {
 				e.log.Warn("relay: unrouted ingress event", "service", service, "foreign", ev.ForeignID)
 				continue
 			}
-			if _, err := e.lg.Append(intercom.LegacySquawk{ID: id, From: from, To: to, Body: ev.Body, At: ev.At, Project: project, ReplyTo: replyTo, ContentType: ev.ContentType}); err != nil {
+			m := intercom.Squawk{ID: id, From: r.From, Body: ev.Body, At: ev.At, ReplyTo: r.ReplyTo, ContentType: ev.ContentType,
+				Origin: r.Origin, OriginRef: r.OriginRef}
+			if err := e.dir.Post(r, m); err != nil {
 				e.log.Warn("relay: ingress append failed", "service", service, "foreign", ev.ForeignID, "error", err.Error())
 				failed = true
 				continue

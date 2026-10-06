@@ -14,6 +14,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
@@ -22,7 +23,7 @@ import (
 type Delivery struct {
 	Service      string // "linear" | "discord" — the owning Service
 	Address      string // the surface to post onto (a Linear ticket identifier, a Discord channel id)
-	BodyPrefix   string // literal string prepended to m.Body at delivery ("" = none); Resolve sets it, Deliver renders it
+	BodyPrefix   string // literal string prepended to m.Body at delivery ("" = none); Surfaces sets it, Deliver renders it
 	SenderName   string // the From actor's display identity (Discord webhook username override; a "<name>:" prefix on Linear)
 	SenderAvatar string
 }
@@ -48,7 +49,7 @@ type Surface interface {
 	Service() string
 	// EGRESS: render+deliver one already-resolved message; return the Service-native id (receipt).
 	// m.ID is passed as the Service-side dedup key (Discord nonce / Linear body footer).
-	Deliver(ctx context.Context, d Delivery, m intercom.LegacySquawk) (foreignID string, err error)
+	Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (foreignID string, err error)
 	// INGRESS: foreign events strictly after `since`, plus the opaque watermark to persist next.
 	Poll(ctx context.Context, project, since string) (events []Event, next string, err error)
 	Close() error
@@ -58,7 +59,7 @@ type Surface interface {
 // intercom — it stays pure).
 type EgressMark struct {
 	LastSeq int64                      // low-water: every Log squawk with Seq <= this is fully delivered for this Service
-	Pending map[string]map[string]bool // msgID → set of delivered target.String() (the draining in-flight window)
+	Pending map[string]map[string]bool // msgID → set of delivered surfaces (Delivery.Address; the draining in-flight window)
 }
 
 // Markers persists EgressMark per Service. In-memory in tests; a cmd-layer
@@ -77,19 +78,31 @@ type Cursors interface {
 	SetIngress(service, project, cursor string) error
 }
 
-// Directory does all actor<->Service mapping (the concrete impl, over
-// jam.Roster/Instance, is at cmd).
+// Routed is where a foreign event goes in the channel log: its channel, its
+// author (a user, or the account they post as), the squawk it replies to,
+// and the surface it came from (so egress never renders it back there).
+type Routed struct {
+	Channel   ident.ID
+	From      ident.ID
+	ReplyTo   string
+	Origin    ident.ID // the connection
+	OriginRef string   // the ref on it (a ticket key, a Discord channel id)
+}
+
+// Directory maps between the channel log and Services (the concrete impl,
+// over the jam channel registry, is at cmd).
 type Directory interface {
-	// Projects this Service should egress/ingress for.
+	// Projects this Service polls.
 	Projects(service string) []string
-	// Resolve maps an External Log target (+ the sender) to a concrete
-	// Delivery ON THIS SERVICE; ok=false when this Service doesn't
-	// own/can't reach the target (another Service handles it).
-	Resolve(service, project string, to, from intercom.Target) (Delivery, bool)
-	// Route maps a polled foreign Event to an inbound Log squawk's
-	// From/To/ReplyTo; ok=false when unroutable (logged as an unrouted
-	// event, never silently appended).
-	Route(service, project string, e Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool)
+	// Surfaces lists where m goes on this Service: its channel's surfaces
+	// there, minus the one it came from. Deterministic for a given m.
+	Surfaces(service string, m intercom.Squawk) []Delivery
+	// Route maps a polled foreign event into the log; ok=false when it
+	// belongs nowhere (logged, never silently appended).
+	Route(service, project string, e Event) (Routed, bool)
+	// Post appends a routed foreign event (m carries id, author, body, …) to
+	// its channel, with the channel's audience.
+	Post(r Routed, m intercom.Squawk) error
 }
 
 // Config tunes the Engine's two poll loops; zero values pick defaults (e.g.

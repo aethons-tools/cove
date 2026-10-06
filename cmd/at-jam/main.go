@@ -1793,13 +1793,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// channels key on the requisitioner's tracker connection, resolved below
 	// (until then, or with no requisitioner, the linear connection if any).
 	var trackerConn atomic.Value // ident.ID
-	ic := jam.NewIntercom(st, func() (ident.ID, bool) {
+	icTracker := func() (ident.ID, bool) {
 		if id, ok := trackerConn.Load().(ident.ID); ok {
 			return id, true
 		}
 		c, ok := st.ConnectionOfKind("linear")
 		return c.ID, ok
-	}, chlog, nil, log)
+	}
+	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
 	if err := ic.Reconcile(); err != nil {
 		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
@@ -1923,7 +1924,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st, log: log, accounts: st}
+	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker}
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord {
@@ -1960,6 +1961,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		discordTok = tokEnv[dcred]
 		log.Info("Jam relay (discord): connection", "connection", dconn.Name, "id", dconn.ID)
+		dir.discord = dconn.ID
 		if discordReceipts, err = newFileReceipts(receiptsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
@@ -2036,12 +2038,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// low-water as LastMsg, a string) upgrading in place — see
 		// fileMarkers.needsSeed.
 		if relayMarkers.needsSeed("linear") {
-			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
 				return 1
 			}
 		}
-		eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go eng.Run(context.Background())
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
@@ -2063,12 +2065,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log:         log,
 		}
 		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: discord egress seed:", err)
 				return 1
 			}
 		}
-		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		deng := relay.New(dsurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go deng.Run(context.Background())
 		log.Info("Jam relay (discord): resident, egress ON")
 	}
@@ -2237,7 +2239,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
 // the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailSeq(lg intercom.LegacyStore) int64 {
+func logTailSeq(lg interface{ TailSeq() (int64, bool) }) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
 }

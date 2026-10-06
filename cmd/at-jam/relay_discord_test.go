@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -54,7 +55,7 @@ func TestDiscordDeliverRecordsReceipt(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.LegacySquawk{ID: "M1", From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: "cove-1", Body: "hi"})
 	if err != nil || id != "D1" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -70,7 +71,7 @@ func TestDiscordDeliverPropagatesPostError(t *testing.T) {
 	fc := &fakeDiscordClient{postErr: errBoom}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{Body: "x"}); err == nil {
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{Body: "x"}); err == nil {
 		t.Fatal("expected post error")
 	}
 }
@@ -81,7 +82,7 @@ func TestDiscordDeliverSwallowsEmptyID(t *testing.T) {
 	fc := &fakeDiscordClient{postID: ""}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"})
 	if err != nil || id != "" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -107,7 +108,7 @@ func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec, log: log}
 	const secretBody = "top-secret cove message body"
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: secretBody})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: secretBody})
 	if err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
@@ -132,7 +133,7 @@ func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"}); err != nil {
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"}); err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
 }
@@ -221,10 +222,10 @@ func TestFileReceiptsRoundTrip(t *testing.T) {
 	if _, ok := r.Lookup("D1"); ok {
 		t.Fatal("empty lookup should miss")
 	}
-	if err := r.Record("D1", "cove-1", "M1"); err != nil {
+	if err := r.Record("D1", "cove-1", "M1", "chn_1"); err != nil {
 		t.Fatal(err)
 	}
-	want := receipt{Actor: "cove-1", Message: "M1"}
+	want := receipt{Actor: "cove-1", Message: "M1", Channel: "chn_1"}
 	if a, ok := r.Lookup("D1"); !ok || a != want {
 		t.Fatalf("lookup = %+v,%v", a, ok)
 	}
@@ -252,7 +253,7 @@ func TestFileReceiptsLegacyFormat(t *testing.T) {
 		t.Fatalf("legacy lookup = %+v,%v", a, ok)
 	}
 	// a new Record alongside the legacy entry persists both in the new shape
-	if err := r.Record("D2", "actor-y", "M2"); err != nil {
+	if err := r.Record("D2", "actor-y", "M2", "chn_2"); err != nil {
 		t.Fatal(err)
 	}
 	r2, err := newFileReceipts(p)
@@ -262,7 +263,7 @@ func TestFileReceiptsLegacyFormat(t *testing.T) {
 	if a, ok := r2.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
 		t.Fatalf("legacy after rewrite = %+v,%v", a, ok)
 	}
-	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2"}) {
+	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2", Channel: "chn_2"}) {
 		t.Fatalf("new after rewrite = %+v,%v", a, ok)
 	}
 }
@@ -295,7 +296,7 @@ func TestFileReceiptsMissingFile(t *testing.T) {
 }
 
 func TestDiscordPolledChannels(t *testing.T) {
-	store := &fakeStore{
+	store := &fakeRoster{
 		roster: map[string]jam.Roster{
 			"acme": {
 				Humans: []jam.Human{
@@ -329,7 +330,7 @@ func TestDiscordPolledChannels(t *testing.T) {
 }
 
 func TestDiscordPolledChannelsNoRoster(t *testing.T) {
-	store := &fakeStore{roster: map[string]jam.Roster{}}
+	store := &fakeRoster{roster: map[string]jam.Roster{}}
 	if got := discordPolledChannels(store, "nope"); got != nil {
 		t.Fatalf("channels = %v, want nil", got)
 	}
@@ -345,11 +346,11 @@ func TestDiscordDeliverEscapesPlainText(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: mustReceipts(t)}
 	d := relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}
-	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
-	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
+	from := ident.ID("cove-1")
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Deliver(context.Background(), d, intercom.LegacySquawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fc.posts) != 2 || fc.posts[0].content != "cove-1: *hi*" || fc.posts[1].content != `cove-1: a\_b \*c\*` {
