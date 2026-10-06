@@ -4,7 +4,7 @@ read_when: You want a raised studio's Waiting state to actively nudge humans ins
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), the auto-on-Waiting behavior (immediate tier-0 ping, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.requisitioner.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model escalation pings into, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project roster (Human) and handle model tiers resolve against
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Escalation (human tiers)
@@ -22,7 +22,7 @@ which waits on its owner instead.
 ## The policy: ordered tiers + per-tier timeout
 
 A Project's `Escalation` is an ordered list of tiers, each `{Targets, Timeout}`.
-`Targets` are kind-prefixed **human** names (`human:<name>`), resolved against the
+`Targets` name people (`user:<name>` or `user:<usr_id>`; `human:<name>` is read as `user:`), resolved against the
 same Project [Roster](comms-addressing.md#the-project-roster) used for addressed
 `send(to=…)` — the roster's `Handle` is what gets `@`-mentioned. C2 v1 is
 **human-only**: a `channel:` target (or anything malformed) in a tier is skipped
@@ -92,7 +92,7 @@ handling of its own; the two engines share only the `Activity == Waiting` gate.
 
 ## Delivery: an `@`-mention on the studio's own ticket
 
-A ping resolves the tier's `human:<name>` targets to `@<handle>` (via the
+A ping resolves the tier's `user:` targets to `@<handle>` (via the
 Project's [Roster](comms-addressing.md#the-project-roster)) and posts a single
 comment on the **studio's own ticket** — not a separate thread. Because the ping
 lands where wake-on is already watching, a reply needs no new routing; see
@@ -127,7 +127,7 @@ that has an escalation policy set — leaving policies unset costs nothing.
 ## Operator commands: `at-jam project escalation`
 
 ```
-at-jam project escalation set   <project> [--category <name>] --tier 'human:alice,human:bob@15m' [--tier 'human:carol@1h' …]
+at-jam project escalation set   <project> [--category <name>] --tier 'user:alice,user:bob@15m' [--tier 'user:carol@1h' …]
 at-jam project escalation list  <project>
 at-jam project escalation clear <project> [--category <name>]
 ```
@@ -135,7 +135,7 @@ at-jam project escalation clear <project> [--category <name>]
 The admin UI's project page edits the same chains ([ui-pages.md](ui-pages.md#project-pages)).
 
 - `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
-  `comma,separated,targets@duration` — a comma-separated list of `human:<name>`
+  `comma,separated,targets@duration` — a comma-separated list of `user:<name>`
   targets, an `@`, then a positive `time.ParseDuration` timeout (e.g. `15m`,
   `1h`); a tier with no targets is refused. Repeat
   `--tier` in order; the first is tier 0.
@@ -147,7 +147,7 @@ The admin UI's project page edits the same chains ([ui-pages.md](ui-pages.md#pro
 - `--category <name>` on `set`/`clear` targets that category's chain (see
   [Categories](#categories-routing-by-block-kind) above) instead of the
   default; omitted on either, it's the default chain. Example:
-  `at-jam project escalation set acme --category infra --tier 'human:sre@10m'`.
+  `at-jam project escalation set acme --category infra --tier 'user:sre@10m'`.
 
 All three take the same admin-client flags (`--app`/`--admin-url`/`--token`) as
 every other `at-jam` verb — see [operators.md](operators.md).

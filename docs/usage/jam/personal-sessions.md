@@ -23,7 +23,7 @@ profile for the owner.
 2. **The studio speaks first.** When it has results or needs input, it `send`s with
    no `to`, which goes to its owner — you — as a message in your Discord inbox
    channel. It may message **only** you: Jam enrolls it with an addressing
-   override of exactly `human:<owner>`.
+   override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
    the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
    there is no time limit). While it waits past the `warm-timeout` it is paused

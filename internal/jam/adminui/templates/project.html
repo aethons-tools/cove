@@ -159,7 +159,7 @@
       <form hx-post="/ui/projects/{{$p}}/escalation" hx-target="#project" hx-swap="outerHTML">
         <div class="grid">
           <label>Category <span class="req">required</span><input name="category" required></label>
-          <label class="wide">Tiers <span class="hint">one per line, <code>human:alice,channel:eng@15m</code> — first line is tier 0</span><textarea name="tiers" data-ta="targets" data-ta-list data-ta-project="{{$p}}" required spellcheck="false"></textarea></label>
+          <label class="wide">Tiers <span class="hint">one per line, <code>user:alice,channel:eng@15m</code> — first line is tier 0</span><textarea name="tiers" data-ta="targets" data-ta-list data-ta-project="{{$p}}" required spellcheck="false"></textarea></label>
         </div>
         <div class="form-actions"><button type="submit" class="primary">Add chain</button></div>
       </form>
@@ -191,7 +191,7 @@
 {{define "chain-form"}}
 <form hx-post="/ui/projects/{{.Project}}/escalation" hx-target="#project" hx-swap="outerHTML">
   <input type="hidden" name="category" value="{{.Chain.Category}}">
-  <label>Tiers <span class="hint">one per line, <code>human:alice,channel:eng@15m</code> — first line is tier 0</span>
+  <label>Tiers <span class="hint">one per line, <code>user:alice,channel:eng@15m</code> — first line is tier 0</span>
     <textarea name="tiers" data-ta="targets" data-ta-list data-ta-project="{{.Project}}" required spellcheck="false">{{.Chain.Spec}}</textarea></label>
   <div class="form-actions">
     {{if .Chain.Tiers}}<button type="button" class="danger left" hx-delete="/ui/projects/{{.Project}}/escalation?category={{.Chain.Category}}" hx-target="#project" hx-swap="outerHTML"

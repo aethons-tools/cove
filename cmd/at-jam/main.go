@@ -440,7 +440,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names, each optionally name=credential (the credential the broker injects; default: the destination's cred-name)")
-	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
+	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. user:*,channel:eng-help (user:<name> or user:<usr_id>; human: is read as user:)")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
 	modelSpec := fs.String("model-spec", "", "bind a model-spec (name); empty = "+jam.DefaultModelSpec)

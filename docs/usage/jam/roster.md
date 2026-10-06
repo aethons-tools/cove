@@ -19,7 +19,7 @@ Jam authorizes every brokered request against a **role-based** model:
   **credential** the broker injects for each (`credentials`; a destination
   without one uses its own default `cred-name` — see
   [serve.md](serve.md#destinations)), which comms `addressing` targets it may
-  message (globs, e.g. `human:*`; comms plane — see
+  message (globs, e.g. `user:*`; comms plane — see
   [comms-addressing.md](comms-addressing.md)), a default token `ttl`, and
   optionally a bound **kit** (see [kits.md](kits.md)).
 - **Grant** — assigns a Role (within a Project) to an Actor. An Actor may hold
@@ -60,7 +60,7 @@ at-jam role rm   [--project acme] guest
   grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
   Writes are rejected (400) when a mapping names a destination the scope
   doesn't allow, or a credential the serve config doesn't declare.
-- `--addressing` (comma-separated comms target globs, e.g. `human:*,channel:eng-help`)
+- `--addressing` (comma-separated comms target globs, e.g. `user:*,channel:eng-help`)
   scopes which comms targets the role's actors may `send(to=…)`. This is a
   separate plane from `destinations`; see
   [comms-addressing.md](comms-addressing.md) for the target space and the

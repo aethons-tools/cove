@@ -50,10 +50,10 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 		"credentials": func(string) []string { return credNames },
 		// targets: a project's addressable roster, plus the per-kind globs.
 		"targets": func(p string) []string {
-			out := []string{"human:*", "channel:*"}
+			out := []string{"user:*", "channel:*"}
 			if r, ok := store.GetRoster(orDefaultProject(p)); ok {
 				for _, h := range r.Humans {
-					out = append(out, "human:"+h.Name)
+					out = append(out, "user:"+h.Name)
 				}
 				for _, c := range r.Channels {
 					out = append(out, "channel:"+c.Name)

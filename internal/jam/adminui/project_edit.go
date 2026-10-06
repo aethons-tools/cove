@@ -51,8 +51,8 @@ func lines[T any](xs []T, f func(T) string) string {
 func targetKnown(target string, r jam.Roster) bool {
 	kind, name, _ := strings.Cut(target, ":")
 	switch kind {
-	case "human":
-		return slices.ContainsFunc(r.Humans, func(h jam.Human) bool { return h.Name == name })
+	case "user", "human": // human: is the pre-registry alias
+		return slices.ContainsFunc(r.Humans, func(h jam.Human) bool { return h.Name == name || string(h.UserID) == name })
 	case "channel":
 		return slices.ContainsFunc(r.Channels, func(c jam.Channel) bool { return c.Name == name })
 	}

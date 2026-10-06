@@ -1,7 +1,7 @@
 ---
-summary: The comms target space and access-graph — kind-prefixed human:/channel: targets, a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
+summary: The comms target space and access-graph — kind-prefixed user:/channel: targets (human: alias), a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
-owns: the target space (human:<name>/channel:<name> + globs), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (user:<name|usr_id>/channel:<name> + globs; the human: alias), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-10-06
@@ -16,15 +16,20 @@ escalation slice — the addressing foundation C2 (escalation policy) builds on.
 
 ## The target space
 
-A target is a **kind-prefixed name**: `human:<name>` or `channel:<name>` (e.g.
-`human:alice`, `channel:eng-help`). A bare name with no known prefix is
-**malformed** and always denied.
+A target is **kind-prefixed**: `user:<name>` or `user:<usr_id>` for a person,
+`channel:<name>` for a channel (e.g. `user:alice`, `channel:eng-help`).
+`human:<name>` — the pre-registry form — is still accepted and read as `user:`
+(for one release). A bare name with no known prefix is **malformed** and always
+denied.
 
 Addressing allow-lists (`Scope.Addressing`, below) are **glob-capable**, matched
-with `path.Match`: `human:*` (any human), `channel:eng-*`
-(channels by prefix), `*` (everything). Globs match only within their kind — a
-glob never crosses `human:`/`channel:` implicitly; write both prefixes if you mean
-both.
+with `path.Match`: `user:*` (any member), `channel:eng-*`
+(channels by prefix), `*` (everything). A person matches a glob by either form —
+`user:<name>` or `user:<usr_id>` — so policy can name someone by id (rename-proof;
+what Jam itself writes, e.g. a personal session's grant and migrated policy) or
+by name; an id never widens what a name glob grants. Globs match only within
+their kind — a glob never crosses `user:`/`channel:` implicitly; write both
+prefixes if you mean both.
 
 ## The Project roster
 
@@ -32,7 +37,7 @@ A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.m
 owns a **Roster** of addressable members:
 
 - **Human** — `{Name, Handle, Login, Identity}`. `Name` is the roster-local target
-  name (`human:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver
+  name (`user:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver
   to them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
   `local` on loopback), so Jam knows who is behind an admin request, e.g. to
   own a [personal session](personal-sessions.md).
@@ -55,7 +60,8 @@ managed on the **user**; their per-project delivery addresses on the
 humans were merged into users once: same login/OIDC/Discord id → one user, else
 same name → one user; two different people sharing a name keep it for the
 first and the other becomes `<name>-<project>` (logged at startup, with that
-project's exact `human:<name>` tiers, addressing and session owners rewritten).
+project's exact `human:<name>` tiers, addressing and session owners rewritten; a later
+upgrade step moved stored policy to `user:<usr_id>`).
 
 A Project's roster of humans also backs its **escalation policy** — ordered tiers
 that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
@@ -109,7 +115,7 @@ alongside `Destinations`. A `Grant`'s `Override.Addressing`, when set,
 Set it at role-creation with `role add --addressing`:
 
 ```
-at-jam role add --project acme --name impl --addressing 'human:*,channel:eng-help'
+at-jam role add --project acme --name impl --addressing 'user:*,channel:eng-help'
 ```
 
 `--addressing` is a comma-separated list of globs, mirroring `--destinations`.
@@ -125,7 +131,7 @@ the access-graph — it is always allowed, unchanged from before addressing exis
 **Authz is checked before existence.** A target whose form no grant's addressing
 allows returns **403** — the send is denied without ever asking whether the target
 exists. A target that *is* authorized in form but isn't in the resolving grant's
-roster (e.g. `human:*` is allowed but no `bob` exists) returns **404**. This
+roster (e.g. `user:*` is allowed but no `bob` exists) returns **404**. This
 ordering means a 403 never reveals whether a target would otherwise exist.
 
 ## `send(text, to=…)` — delivery and reply semantics
@@ -133,7 +139,7 @@ ordering means a 403 never reveals whether a target would otherwise exist.
 | `to` | Delivery | Reply |
 |---|---|---|
 | *(empty)* | own ticket (unchanged self-scoped `send`) | own ticket → existing wake-on |
-| `human:<name>` | `@<handle>` mention posted on the studio's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
+| `user:<name or id>` | `@<handle>` mention posted on the studio's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
 | `channel:<name>` | comment posted on the channel's own thread (`Channel.Ref`) | **none in C1 — post-only** |
 
 A human target is delivered as an `@`-mention so the reply lands where the studio is
@@ -148,11 +154,12 @@ An agent doesn't need to know its addressing in advance. `GET /squawks/targets`
 actor's authorized-**and**-resolvable targets:
 
 ```json
-{"targets": [{"target": "human:alice", "kind": "human", "name": "alice"}]}
+{"targets": [{"target": "user:alice", "kind": "user", "name": "alice"}]}
 ```
 
-Handles are deliberately omitted — the agent addresses by `human:<name>`, not by
-handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
+Handles are deliberately omitted — the agent addresses by `user:<name>`, not by
+handle. (The message log still records a person as `human:<name>` until the
+channel-centric log replaces it.) The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
 taken at raise, appears in the session's [session context](session-context.md).
