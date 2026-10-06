@@ -165,16 +165,20 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 
 	// Resolve the logical target (authz via the comms access-graph). No `to` →
 	// the cove's default recipient: its own ticket (channel:<Unit>) when it has
-	// one, else its owner (a personal session → human:<Owner>, authorized like
+	// one, else its owner (a personal session → user:<OwnerID>, authorized like
 	// any explicit target), else there is no one to send to. A human/channel
 	// target is authorized here; rendering + ticket resolution happen at egress.
 	logicalTo := intercom.Target{Kind: "channel", Ref: inst.Unit}
 	if req.To == "" && inst.Unit == "" {
-		if inst.Owner == "" {
+		switch {
+		case inst.OwnerID != "":
+			req.To = "user:" + string(inst.OwnerID)
+		case inst.Owner != "":
+			req.To = "user:" + inst.Owner
+		default:
 			http.Error(w, `no default recipient: pass "to"`, http.StatusBadRequest)
 			return
 		}
-		req.To = "human:" + inst.Owner
 	}
 	if req.To != "" {
 		st, err := DecideSend(actor, h.store.GetRole, h.store.GetRoster, req.To, time.Now())

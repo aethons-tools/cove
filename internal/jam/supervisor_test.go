@@ -1152,8 +1152,8 @@ func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
 		grants[a.ID] = a.Grants
 	}
 	p := grants["p1"]
-	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "human:alice" {
-		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
+	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "user:alice" {
+		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [user:alice] (a name-only owner; ids are user:<usr_id>)", p)
 	}
 	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
 		t.Fatalf("Requisitioner cove grant = %+v; want no override", w)

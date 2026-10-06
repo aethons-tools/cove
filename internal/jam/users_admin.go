@@ -160,12 +160,12 @@ func NewAccountView(store Store, a Account) AccountView {
 	return v
 }
 
-// ownedPersonalSession is a live personal session owned by the user named
-// name. Instance.Owner still holds a name (until owners move to user ids), so
-// renaming or removing that user would orphan the session.
-func ownedPersonalSession(store Store, name string) (string, bool) {
+// ownedPersonalSession is a live personal session owned by u. Its nags and
+// keep/release replies still travel the name-keyed log (until slice 2), so
+// renaming or removing u would orphan the session.
+func ownedPersonalSession(store Store, u User) (string, bool) {
 	for _, inst := range store.ListInstances() {
-		if inst.Owner == name {
+		if inst.OwnerID == u.ID || (inst.OwnerID == "" && inst.Owner != "" && inst.Owner == u.Name) {
 			return inst.ActorID, true
 		}
 	}
@@ -192,7 +192,7 @@ func RemoveUserChecked(store Store, id ident.ID) error {
 
 func checkNotOwningSession(store Store, id ident.ID) error {
 	if u, _ := store.GetUser(id); u.Status == StatusLive {
-		if sid, owns := ownedPersonalSession(store, u.Name); owns {
+		if sid, owns := ownedPersonalSession(store, u); owns {
 			return fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid)
 		}
 	}

@@ -1,6 +1,10 @@
 package jam
 
-import "time"
+import (
+	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
+)
 
 // Phase is the supervisor-owned lifecycle of a managed cove. Only the supervisor
 // writes it (via raise/teardown/reconcile); it is never set from a cove-reported
@@ -46,7 +50,8 @@ type Instance struct {
 	Project            string        `json:"project"`
 	Role               string        `json:"role"`
 	Unit               string        `json:"unit,omitempty"`
-	Owner              string        `json:"owner,omitempty"`        // personal session: the owning roster Human's name; "" otherwise
+	Owner              string        `json:"owner,omitempty"`        // personal session: the owning user's name; "" otherwise
+	OwnerID            ident.ID      `json:"owner_id,omitempty"`     // personal session: the owning user; "" otherwise (or a pre-registry instance)
 	Name               string        `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
 	SessionKind        string        `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: Jam does not import allocator)
 	Backend            string        `json:"backend,omitempty"`      // populated by the real launcher (later slice)

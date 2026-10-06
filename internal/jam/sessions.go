@@ -111,7 +111,7 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 		}
 		out := []PersonalSessionSummary{}
 		for _, i := range store.ListInstances() {
-			if i.SessionKind != SessionKindPersonal || i.Project != project || i.Owner != human.Name {
+			if i.SessionKind != SessionKindPersonal || i.Project != project || !ownedBy(i, human) {
 				continue
 			}
 			out = append(out, PersonalSessionSummary{
@@ -134,7 +134,7 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 			return
 		}
 		human, ok := HumanByLogin(store, inst.Project, OperatorID(r))
-		if !ok || human.Name != inst.Owner {
+		if !ok || !ownedBy(inst, human) {
 			http.Error(w, "only the session's owner may release it", http.StatusForbidden)
 			return
 		}
@@ -213,7 +213,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	}
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
 		ActorID: id, Project: project, Role: b.Role, Prompt: b.Prompt,
-		Owner: human.Name, SessionKind: SessionKindPersonal,
+		Owner: human.Name, OwnerID: human.UserID, SessionKind: SessionKindPersonal,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.
@@ -266,4 +266,13 @@ func safeIDPart(s string) string {
 			return '-'
 		}
 	}, s)
+}
+
+// ownedBy reports whether a personal session belongs to the roster person h:
+// by user id, or by name for an instance raised before owners had ids.
+func ownedBy(inst Instance, h Human) bool {
+	if inst.OwnerID != "" {
+		return inst.OwnerID == h.UserID
+	}
+	return inst.Owner != "" && inst.Owner == h.Name
 }

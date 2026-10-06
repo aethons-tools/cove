@@ -16,10 +16,8 @@
   - `Instance.OwnerID` and `RaiseSpec.OwnerID` are set at request.
   - The grant override becomes `user:<usr_id>`, and the default `to` becomes `user:<usr_id>`.
   - List and release compare `OwnerID`.
-  - The nag and wake-on keep/release paths use `OwnerName` (the current name).
-  - The allocator counts per-owner caps by `OwnerID`.
-  - `Instance.Owner` stays as a label.
-  - Renaming a user who owns a session is now allowed. Removing one is still refused.
+  - `Instance.Owner` stays the owner's name: the nag and wake-on keep/release paths match `human:<name>` log rows, and so does the allocator's per-owner count.
+  - So renaming (and removing) a user who owns a live session stays refused until the slice-2 log cutover. Lifting the guard now would need current-name plumbing through wake-on and the nag path, for no gain under option B.
 - **Escalation tiers:** targets accept `user:<name|id>` (and `human:<name>`). The engine resolves the handle through the roster view, i.e. through accounts.
 - **Migration step 3** (`roster_schema` 3), run at Postgres load and on import:
   - Backfill `Instance.OwnerID` from the legacy alias for (project, Owner), else from the name.
