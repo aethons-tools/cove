@@ -1,0 +1,275 @@
+package jam
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/jackc/pgx/v5"
+)
+
+// ---- registry mutators: Lock; prepare via memState; SQL (one tx); apply ----
+
+func (s *PostgresStore) CreateUser(u User) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, err := s.prepareCreateUser(u)
+	if err != nil {
+		return User{}, err
+	}
+	if err := s.registryTx("CreateUser", func(ctx context.Context, tx pgx.Tx) error {
+		return putUserTx(ctx, tx, u, nil)
+	}); err != nil {
+		return User{}, err
+	}
+	s.applyPutUser(u)
+	return copyUser(u), nil
+}
+
+func (s *PostgresStore) RenameUser(id ident.ID, name string) error {
+	return s.putUserWith("RenameUser", func() (User, error) { return s.prepareRenameUser(id, name) })
+}
+
+func (s *PostgresStore) SetUserLogins(id ident.ID, logins []string) error {
+	return s.putUserWith("SetUserLogins", func() (User, error) { return s.prepareSetUserLogins(id, logins) })
+}
+
+func (s *PostgresStore) SetUserOIDC(id ident.ID, ids []OIDCIdentity) error {
+	return s.putUserWith("SetUserOIDC", func() (User, error) { return s.prepareSetUserOIDC(id, ids) })
+}
+
+func (s *PostgresStore) RemoveUser(id ident.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, unlinked, err := s.prepareRemoveUser(id)
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx("RemoveUser", func(ctx context.Context, tx pgx.Tx) error {
+		return putUserTx(ctx, tx, u, unlinked)
+	}); err != nil {
+		return err
+	}
+	s.applyPutUser(u)
+	for _, a := range unlinked {
+		s.applyPutAccount(a)
+	}
+	return nil
+}
+
+func (s *PostgresStore) putUserWith(op string, prepare func() (User, error)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, err := prepare()
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx(op, func(ctx context.Context, tx pgx.Tx) error {
+		return putUserTx(ctx, tx, u, nil)
+	}); err != nil {
+		return err
+	}
+	s.applyPutUser(u)
+	return nil
+}
+
+func (s *PostgresStore) CreateConnection(c Connection) (Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.prepareCreateConnection(c)
+	if err != nil {
+		return Connection{}, err
+	}
+	if err := s.registryTx("CreateConnection", func(ctx context.Context, tx pgx.Tx) error {
+		return putConnectionTx(ctx, tx, c)
+	}); err != nil {
+		return Connection{}, err
+	}
+	s.applyPutConnection(c)
+	return c, nil
+}
+
+func (s *PostgresStore) RenameConnection(id ident.ID, name string) error {
+	return s.putConnectionWith("RenameConnection", func() (Connection, error) { return s.prepareRenameConnection(id, name) })
+}
+
+func (s *PostgresStore) RemoveConnection(id ident.ID) error {
+	return s.putConnectionWith("RemoveConnection", func() (Connection, error) { return s.prepareRemoveConnection(id) })
+}
+
+func (s *PostgresStore) putConnectionWith(op string, prepare func() (Connection, error)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := prepare()
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx(op, func(ctx context.Context, tx pgx.Tx) error {
+		return putConnectionTx(ctx, tx, c)
+	}); err != nil {
+		return err
+	}
+	s.applyPutConnection(c)
+	return nil
+}
+
+func (s *PostgresStore) UpsertAccount(a Account) (Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, displaced, err := s.prepareUpsertAccount(a)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := s.registryTx("UpsertAccount", func(ctx context.Context, tx pgx.Tx) error {
+		// The stale holder gives up the handle first: live handles are unique.
+		for _, d := range displaced {
+			if err := putAccountTx(ctx, tx, d); err != nil {
+				return err
+			}
+		}
+		return putAccountTx(ctx, tx, a)
+	}); err != nil {
+		return Account{}, err
+	}
+	for _, d := range displaced {
+		s.applyPutAccount(d)
+	}
+	s.applyPutAccount(a)
+	return a, nil
+}
+
+func (s *PostgresStore) LinkAccount(id, userID ident.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.prepareLinkAccount(id, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx("LinkAccount", func(ctx context.Context, tx pgx.Tx) error {
+		return putAccountTx(ctx, tx, a)
+	}); err != nil {
+		return err
+	}
+	s.applyPutAccount(a)
+	return nil
+}
+
+// ---- SQL ----
+
+func (s *PostgresStore) registryTx(op string, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	ctx := context.Background()
+	if err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error { return fn(ctx, tx) }); err != nil {
+		return fmt.Errorf("pgstore: %s: %w", op, err)
+	}
+	return nil
+}
+
+func insertParticipantTx(ctx context.Context, tx pgx.Tx, id ident.ID) error {
+	_, err := tx.Exec(ctx, `INSERT INTO participants (id, kind) VALUES ($1,$2) ON CONFLICT (id) DO NOTHING`, id, string(id.Kind()))
+	return err
+}
+
+// putUserTx upserts u, replaces its login and OIDC rows (a removed user has
+// none), and writes the accounts the change unlinked.
+func putUserTx(ctx context.Context, tx pgx.Tx, u User, unlinked []Account) error {
+	if err := insertParticipantTx(ctx, tx, u.ID); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(u)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO users (id, name, status, doc) VALUES ($1,$2,$3,$4)
+		 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, doc = EXCLUDED.doc, updated_at = now()`,
+		u.ID, u.Name, string(u.Status), doc); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM user_logins WHERE user_id = $1`, u.ID); err != nil {
+		return err
+	}
+	for _, l := range u.Logins {
+		if _, err := tx.Exec(ctx, `INSERT INTO user_logins (login, user_id) VALUES ($1,$2)`, l, u.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM user_oidc WHERE user_id = $1`, u.ID); err != nil {
+		return err
+	}
+	for _, o := range u.OIDC {
+		if _, err := tx.Exec(ctx, `INSERT INTO user_oidc (issuer, subject, user_id) VALUES ($1,$2,$3)`, o.Issuer, o.Subject, u.ID); err != nil {
+			return err
+		}
+	}
+	for _, a := range unlinked {
+		if err := putAccountTx(ctx, tx, a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func putConnectionTx(ctx context.Context, tx pgx.Tx, c Connection) error {
+	if err := insertParticipantTx(ctx, tx, c.ID); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO connections (id, kind, name, status, doc) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status, doc = EXCLUDED.doc, updated_at = now()`,
+		c.ID, c.Kind, c.Name, string(c.Status), doc)
+	return err
+}
+
+func putAccountTx(ctx context.Context, tx pgx.Tx, a Account) error {
+	if err := insertParticipantTx(ctx, tx, a.ID); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO accounts (id, connection_id, service_uid, handle, user_id, status, doc)
+		 VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,''),$6,$7)
+		 ON CONFLICT (id) DO UPDATE SET service_uid = EXCLUDED.service_uid, handle = EXCLUDED.handle,
+		   user_id = EXCLUDED.user_id, status = EXCLUDED.status, doc = EXCLUDED.doc, updated_at = now()`,
+		a.ID, a.ConnectionID, a.ServiceUID, a.Handle, string(a.UserID), string(a.Status), doc)
+	return err
+}
+
+// loadRegistry fills the registry maps from their docs (load's registry part).
+func (s *PostgresStore) loadRegistry(ctx context.Context) error {
+	if err := s.loadDocs(ctx, "users", func(doc []byte) error {
+		var u User
+		if err := json.Unmarshal(doc, &u); err != nil {
+			return err
+		}
+		s.users[u.ID] = u
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := s.loadDocs(ctx, "connections", func(doc []byte) error {
+		var c Connection
+		if err := json.Unmarshal(doc, &c); err != nil {
+			return err
+		}
+		s.connections[c.ID] = c
+		return nil
+	}); err != nil {
+		return err
+	}
+	return s.loadDocs(ctx, "accounts", func(doc []byte) error {
+		var a Account
+		if err := json.Unmarshal(doc, &a); err != nil {
+			return err
+		}
+		s.accounts[a.ID] = a
+		return nil
+	})
+}

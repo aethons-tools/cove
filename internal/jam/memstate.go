@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -32,6 +33,11 @@ type memState struct {
 	kits      map[string]Kit         // keyed by Name
 	instances map[string]Instance    // keyed by ActorID
 	projects  map[string]Project     // keyed by Name
+	// users, connections and accounts are the identity registry, keyed by id;
+	// removed entities stay (tombstones). See registry_state.go.
+	users       map[ident.ID]User
+	connections map[ident.ID]Connection
+	accounts    map[ident.ID]Account
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -45,14 +51,17 @@ type memState struct {
 
 func newMemState() *memState {
 	return &memState{
-		roles:     map[string]map[string]Role{},
-		actors:    map[string]Actor{},
-		dests:     map[string]Destination{},
-		specs:     map[string]ModelSpec{},
-		kits:      map[string]Kit{},
-		instances: map[string]Instance{},
-		projects:  map[string]Project{},
-		unread:    map[string]map[string]int64{},
+		roles:       map[string]map[string]Role{},
+		actors:      map[string]Actor{},
+		dests:       map[string]Destination{},
+		specs:       map[string]ModelSpec{},
+		kits:        map[string]Kit{},
+		instances:   map[string]Instance{},
+		projects:    map[string]Project{},
+		users:       map[ident.ID]User{},
+		connections: map[ident.ID]Connection{},
+		accounts:    map[ident.ID]Account{},
+		unread:      map[string]map[string]int64{},
 	}
 }
 

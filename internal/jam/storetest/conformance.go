@@ -17,6 +17,8 @@ import (
 // RunConformance exercises the full jam.Store contract. newStore must return
 // a fresh, empty store on each call.
 func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
+	runRegistryConformance(t, newStore)
+
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
 	// which most subtests write into.
 	newStoreWithAcme := func(t *testing.T) jam.Store {

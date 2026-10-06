@@ -5,6 +5,8 @@ import "github.com/aethons-tools/cove/internal/jam/sessionctx"
 // Store records enrolled actors (by token hash), roles (by project+name), and the
 // destination table, and the model-spec table.
 type Store interface {
+	RegistryStore
+
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)
 	RemoveActor(id string) error

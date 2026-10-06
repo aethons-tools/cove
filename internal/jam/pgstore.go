@@ -238,6 +238,9 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.loadRegistry(ctx); err != nil {
+		return err
+	}
 	var jc []byte
 	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'context'`).Scan(&jc); {
 	case errors.Is(err, pgx.ErrNoRows):
