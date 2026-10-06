@@ -1,7 +1,7 @@
 ---
-summary: The comms target space and access-graph — kind-prefixed user:/channel: targets (human: alias), a Project's Roster, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
+summary: The comms target space and access-graph — kind-prefixed user:/chat:/channel:/ticket: targets (human: alias), each naming a channel of the channel log; a Project's members and rooms, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
-owns: the target space (user:<name|usr_id>/channel:<name> + globs; the human: alias), Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-10-06
@@ -9,18 +9,26 @@ updated: 2026-10-06
 
 # Comms addressing (target space & access-graph)
 
-A studio's `send` can reach more than its own ticket: a named **human** or a shared
-**channel**, drawn from its Project's **Roster**, gated by a **comms access-graph**
-that mirrors the broker's `Scope`/`Grant` model. This is C1 of the comms-hub
-escalation slice — the addressing foundation C2 (escalation policy) builds on.
+A studio's `send` can reach more than its default channel: a **person** or a
+group of them (a chat), a **room**, or another **ticket**'s conversation —
+each a channel of the [channel log](intercom.md#enabling-it) — gated by a **comms
+access-graph** that mirrors the broker's `Scope`/`Grant` model.
 
 ## The target space
 
-A target is **kind-prefixed**: `user:<name>` or `user:<usr_id>` for a person,
-`channel:<name>` for a channel (e.g. `user:alice`, `channel:eng-help`).
-`human:<name>` — the pre-registry form — is still accepted and read as `user:`
-(for one release). A bare name with no known prefix is **malformed** and always
-denied.
+A target is **kind-prefixed**, and names a channel:
+
+| Target | Channel |
+|---|---|
+| `user:<name>` / `user:<usr_id>` | a chat between the session and that person |
+| `chat:user:<a>,user:<b>…` | a chat between the session and those people |
+| `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
+| `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only) |
+
+A person must be a member of the session's project. The same members are the
+same chat, however they're listed. `human:<name>` — the pre-registry form — is
+still accepted and read as `user:`. A bare name with no known prefix is
+**malformed** and always denied.
 
 Addressing allow-lists (`Scope.Addressing`, below) are **glob-capable**, matched
 with `path.Match`: `user:*` (any member), `channel:eng-*`
@@ -43,26 +51,20 @@ owns a **Roster** of addressable members:
   `local` on loopback), so Jam knows who is behind an admin request, e.g. to
   own a [personal session](personal-sessions.md).
   `Identity` (optional) is a list of **OIDC identity bindings** `{Issuer, Subject}`
-  — a browser OIDC subject, so a login authenticated at a provider can later map to
-  this roster actor. Both parts are opaque identifiers, never secrets; both must be
-  non-empty. (Data-model + CLI only for now; the auth/session mapping is a later
-  slice.)
+  (a browser login, e.g. for [`/me`](intercom-ui.md)); opaque, never secrets,
+  both parts non-empty.
 - **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
   (`channel:<Name>`); `Service` is the transport (`linear` or `discord`); `Ref` is
   the surface it posts to (a tracker issue identifier like `ACME-1`, or a Discord
   channel id).
 
-**Roster channels are rooms.** Since intercom slice 2a, a project's channels are
-*rooms* in Jam's channel registry, each with an id and a **binding** of its `Ref`
-on the connection of its `Service` (the default connection of that kind, created
-if there is none). On upgrade, each project's channels became rooms once. A ref
-receives replies for at most one channel: adding a channel on a ref another
-channel already holds is refused (`409`). If two existing channels shared a ref,
-the first kept it and the other now only posts there (re-saving it unchanged
-keeps it so); the upgrade logs which. A channel whose service isn't `linear` or
-`discord` stays in the project's stored record, unused, and is logged. A
-channel needs a `Ref`. Removing a channel archives its room. An older Jam
-doesn't see rooms, so don't roll back past this upgrade.
+**Roster channels are rooms** in Jam's channel registry, each with an id and a
+**binding** of its `Ref` on a connection. A ref receives replies for at most one
+channel: binding a taken ref is refused (`409`). On upgrade, each project's
+channels became rooms once; if two shared a ref, the first kept it and the other
+only posts there (re-saving it unchanged keeps it so; the upgrade logs which); a
+channel whose service isn't `linear` or `discord` stays unused in the project's
+record, logged. Removing a room archives it. Don't roll back past this upgrade.
 
 **Roster humans are Jam-wide users.** Since intercom slice 1a-3a, a human is
 a user in the [identity registry](roster.md) plus a project membership: the
@@ -70,12 +72,9 @@ same name in two projects is one person, and a login, OIDC binding, tracker
 handle or Discord user id belongs to one person Jam-wide (claiming another
 person's is **400**). A person's logins, OIDC bindings and service accounts are
 managed on the **user**; their per-project delivery addresses on the
-**membership**. On upgrade, existing per-project
-humans were merged into users once: same login/OIDC/Discord id → one user, else
-same name → one user; two different people sharing a name keep it for the
-first and the other becomes `<name>-<project>` (logged at startup, with that
-project's exact `human:<name>` tiers, addressing and session owners rewritten; a later
-upgrade step moved stored policy to `user:<usr_id>`).
+**membership**. On upgrade, per-project humans were merged into users once
+(same login/OIDC/Discord id, else same name; a clash keeps the name for the
+first and renames the other `<name>-<project>`, logged).
 
 A Project's roster of humans also backs its **escalation policy** — ordered tiers
 that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
@@ -140,31 +139,34 @@ at-jam role add --project acme --name impl --addressing 'user:*,channel:eng-help
 `--addressing` is a comma-separated list of globs, mirroring `--destinations`.
 
 **Authorization mirrors the broker's `Decide`:** resolved live at send time,
-**additive across an actor's grants**, **per-grant existential** — a target must
-be authorized *and resolvable* by some single grant's project (one grant's
-addressing never recombines with another grant's roster). Everything is
+**additive across the actor's grants in the session's project**. Everything is
 **fail-closed**: an unknown actor, an expired token, a role with no addressing, or
-a malformed target all deny. The studio's **own ticket** (`to` empty) never consults
-the access-graph — it is always allowed, unchanged from before addressing existed.
+a malformed target all deny. A chat needs every person in it allowed; a ticket
+other than the studio's own needs a `ticket:<glob>` (e.g. `ticket:*`). The
+studio's **default channel** (`to` empty) never consults the access-graph — only
+its expiry.
 
 **Authz is checked before existence.** A target whose form no grant's addressing
 allows returns **403** — the send is denied without ever asking whether the target
 exists. A target that *is* authorized in form but isn't in the resolving grant's
-roster (e.g. `user:*` is allowed but no `bob` exists) returns **404**. This
+project (e.g. `user:*` is allowed but no member `bob` exists) returns **404**. This
 ordering means a 403 never reveals whether a target would otherwise exist.
 
 ## `send(text, to=…)` — delivery and reply semantics
 
-| `to` | Delivery | Reply |
-|---|---|---|
-| *(empty)* | own ticket (unchanged self-scoped `send`) | own ticket → existing wake-on |
-| `user:<name or id>` | `@<handle>` mention posted on the studio's **own ticket** | own ticket → existing [wake-on](intercom.md#waiting-for-a-reply-wake-on) — **two-way, free** |
-| `channel:<name>` | comment posted on the channel's own thread (`Channel.Ref`) | **none in C1 — post-only** |
+A squawk reaches its channel's members (in Jam: their inboxes, waking a waiting
+session) and is rendered onto the channel's surfaces by the relays
+([intercom.md](intercom.md#enabling-it)):
 
-A human target is delivered as an `@`-mention so the reply lands where the studio is
-already listening — no new tracker method or wake-on wiring needed. A channel
-target posts to a different ticket than the studio's own; C1 does not route replies
-back (that's a later comms slice — see below).
+| Channel | Rendered | Replies come back |
+|---|---|---|
+| ticket | a comment on its Linear issue | comments on the issue → the ticket's conversation |
+| chat | each person's Discord inbox (a Discord-chat project); a person with none is `@<handle>`-mentioned on the ticket of a session in the chat | a Discord reply to the post → the chat; a Linear reply lands in the ticket's conversation, which the session is in too |
+| room | its bound surface (a Linear issue or a Discord channel) | from that surface → the room |
+
+A person posting in a ticket or room (from `/me`, or a linked account on the
+tracker) joins it and hears what follows; a person sees a project's tickets and
+rooms while they are a member of it.
 
 ## Discovering targets: `GET /squawks/targets` / `list_targets`
 
@@ -173,24 +175,24 @@ An agent doesn't need to know its addressing in advance. `GET /squawks/targets`
 actor's authorized-**and**-resolvable targets:
 
 ```json
-{"targets": [{"target": "user:alice", "kind": "user", "name": "alice"}]}
+{"targets": [{"target": "ticket:ACME-7", "kind": "ticket", "name": "ACME-7"},
+             {"target": "user:alice", "kind": "user", "name": "alice"}]}
 ```
 
-Handles are deliberately omitted — the agent addresses by `user:<name>`, not by
-handle. (The message log still records a person as `human:<name>` until the
-channel-centric log replaces it.) The `cove-master mcp` server exposes this as the `list_targets` tool,
+The studio's own ticket comes first (when it has one); then the people and rooms
+its addressing allows. Handles are deliberately omitted — the agent addresses by
+`user:<name>`, not by handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
 taken at raise, appears in the session's [session context](session-context.md).
 
 ## Not yet (later comms slices)
 
-- **Cross-thread reply-routing + merged inbox (Linear):** making Linear
-  channel-sends two-way, and generalizing `read` into a merged, tagged
-  multi-source inbox. (Discord already routes replies regardless of target
-  kind — see [discord.md](discord.md#egress-the-reply-loop).)
-- **Actor/role-to-actor addressing:** addressing another managed studio or Manager
-  directly (waits on the Manager pillar).
+- **Session channels and call-in:** a channel per session, joined by those
+  called in; addressing another session directly (intercom slice 3).
+- **Escalation as call-in** (slice 4): today tiers are `@`-mentioned on the ticket.
 
 Design rationale lives in
-[`../../superpowers/specs/2026-09-14-harbor-comms-addressing.md`](../../superpowers/specs/2026-09-14-harbor-comms-addressing.md).
+[`../../superpowers/specs/2026-09-14-harbor-comms-addressing.md`](../../superpowers/specs/2026-09-14-harbor-comms-addressing.md)
+and, for channels,
+[`../../superpowers/specs/2026-10-06-intercom-slice2-channels-design.md`](../../superpowers/specs/2026-10-06-intercom-slice2-channels-design.md).

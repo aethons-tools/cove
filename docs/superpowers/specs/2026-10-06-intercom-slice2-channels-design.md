@@ -1,6 +1,6 @@
 # intercom slice 2: channel-centric intercom — design
 
-**Status:** approved (2026-10-06); §9 questions decided as recommended.
+**Status:** approved (2026-10-06); §9 questions decided as recommended. Built: 2a (#368–#370), 2b (the cutover; see its plan for deviations: no log→registry foreign keys, project removal still drops its channels).
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 2 of 4. The parent holds the vocabulary, the decisions record and the source interface sketch. Slice 1 ([`…-slice1-identity-registry-design.md`](2026-10-06-intercom-slice1-identity-registry-design.md)) gave every participant a surrogate id.
 **Delivers:**
 - a channel registry;
