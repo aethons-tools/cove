@@ -1,7 +1,7 @@
 ---
 summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
 read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after an at-jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (its idle-only guard), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the per-name actor id, the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-10-06
@@ -39,8 +39,8 @@ Like every admin verb they take `--app`/`--admin-url`/`--token`
   (see [Dismissal](#dismissal)).
 - **reset** keeps the name but deletes its studio and state, so Jam raises it
   fresh (see [Reset](#reset)).
-- **upgrade** restarts the studio on the current image, keeping its state (see
-  [Upgrading a standing session](#upgrading-a-standing-session)).
+- **upgrade** queues a restart on the current image, keeping its state
+  (`--force`, `--wait`; see [Upgrading a standing session](#upgrading-a-standing-session)).
 
 The declarations live on the role (`allocation.standing`, a list of
 `{name, prompt}`). Each write reads the role, changes only that list, and writes it
@@ -60,9 +60,9 @@ declaration on any role or project (for example, `a b` and `a/b` both become
 | Route | Result |
 |---|---|
 | `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared, or its actor id is already in use. **404** for an unknown role. |
-| `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included. **404** for an unknown role. |
+| `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included, each with its pending `upgrade` state (omitted when none). **404** for an unknown role. |
 | `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
-| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **200** upgraded or already current; **202** pending; **409** mid-episode (unless forced) or the actor id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
+| `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current. **409** a reset is pending or the actor id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
 | `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the actor id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
 The role page in the admin UI has **Upgrade** and **Reset** buttons (with a
@@ -132,25 +132,32 @@ state remains.
 A standing studio keeps the image it was raised on. When `standing list` or the
 role page shows [`image=stale`](coves.md#the-studio-verbs) — after a new at-jam
 build, a build-changing kit edit, or a [model-spec](model-specs.md) change —
-run `standing upgrade` (or the role page's **Upgrade** button, highlighted when
-stale). Jam tears the studio down with a plain teardown, **keeping its
-volumes**, and raises it again under the same actor id on whatever image a raise
-picks now; it **resumes its conversation and workspace** like any restart. It
-runs inside the reconciler (one pass at a time) and clears the name's backoff.
+queue an upgrade with `standing upgrade` (or the role page's **Upgrade** button,
+highlighted when stale). The request only records intent and answers at once:
+**202** `{"pending":true,"state":"queued"}`, or **200**
+`{"pending":false,"reason":"already current"}` when the studio's image is `ok`
+(unless `--force`; `unknown` is queued). The reconciler's passes then:
 
-- **Idle only.** The session must be between episodes: `idled`, or live and
-  `waiting`. Otherwise it is refused (**409**, naming the state) — including
-  [`holding`](turn-end.md#holding), whose background tasks a teardown would
-  kill. `--force` (`?force=true`) restarts it anyway; the UI never forces.
-- **Already current.** An `ok` image is left running (**200**
-  `{"upgraded":false,"reason":"already current"}`) unless forced; `unknown` is upgraded.
-- **Not running.** A name with no studio is raised now.
-- **Result.** **200** `{"upgraded":true,"image":…}` when the re-raise finished
-  within the call; **202** `{"pending":true,"reason":…}` when it didn't (a
-  failed grant or raise) — the reconciler raises it on a later pass.
+1. **Prepare** (`preparing`): it builds the image a raise would run now, off its
+   lock, and waits until that image is ready. Nothing is torn down meanwhile,
+   and a slow or failed build doesn't count as a raise failure (no backoff).
+2. **Wait for idle** (`waiting-for-idle: <state>`): right before the teardown
+   it re-checks that the session is between episodes — `idled`, or live and
+   `waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,
+   and [`holding`](turn-end.md#holding) (background tasks a teardown would kill)
+   are busy: the upgrade waits, it is never refused. `--force` skips the wait.
+3. **Restart**: a plain teardown — **its volumes are kept** — then a raise under
+   the same actor id, which **resumes its conversation and workspace** like any
+   restart. A failed teardown stays pending (`teardown-failed: <reason>`) and
+   is retried every pass; a failed raise backs the name off as usual. A name
+   with no studio is just raised, its backoff cleared.
 
-Jam does **not** upgrade standing sessions on its own: a restart interrupts a
-long-lived teammate, so the operator chooses when.
+`standing list` shows a pending upgrade as `upgrade=<state>` (and the role page
+row as an **upgrade:** pill); `standing upgrade --wait` polls it until done
+(`--wait-timeout`, default 15m) and exits 0 once the studio runs an `ok` (or `unknown`) image.
+A pending reset refuses an upgrade (**409**; the reset raises it fresh anyway).
+Pending upgrades are **in memory**: re-run `standing upgrade` after a Jam
+restart. Jam never upgrades on its own — a restart interrupts a teammate.
 
 ## Dismissal
 

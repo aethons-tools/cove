@@ -106,7 +106,7 @@ only that section:
   Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
   the page says what applies when unset.
 - **Standing sessions** — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
-  each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted).
+  each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
 - **Holders** and **Studios** — the actors granted the role (marked where the
   grant overrides the scope; grants are managed on the Roster) and the role's
   running studios.

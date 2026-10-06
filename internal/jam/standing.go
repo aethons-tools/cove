@@ -2,6 +2,7 @@ package jam
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -25,115 +26,134 @@ type StandingResetResult struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// StandingStatus is one declared standing session as the list route reports
+// it: the declaration plus its pending upgrade state ("" none; see
+// StandingUpgrader.UpgradeState).
+type StandingStatus struct {
+	StandingSession
+	Upgrade string `json:"upgrade,omitempty"`
+}
+
+// standingTarget is the shared prologue of the per-name standing operations:
+// 404 for an unknown role or name, 503 when the operation's reconciler hook
+// isn't wired, and 409 when the name's actor id is held by a live cove that is
+// not this session. It returns the actor id.
+func standingTarget(store Store, project, roleName, name string, wired bool) (string, error) {
+	role, ok := store.GetRole(project, roleName)
+	if !ok {
+		return "", writeErr(http.StatusNotFound, "role %s/%s does not exist", project, roleName)
+	}
+	if !slices.ContainsFunc(role.Allocation.Standing, func(s StandingSession) bool { return s.Name == name }) {
+		return "", writeErr(http.StatusNotFound, "no standing session %q on role %s/%s", name, project, roleName)
+	}
+	if !wired {
+		return "", writeErr(http.StatusServiceUnavailable, "standing reconciler not running")
+	}
+	id := StandingActorID(project, roleName, name)
+	if inst, ok := store.GetInstance(id); ok && inst.Phase != PhaseGone &&
+		(inst.SessionKind != SessionKindStanding || inst.Project != project || inst.Role != roleName || inst.Name != name) {
+		return "", writeErr(http.StatusConflict, "actor id %s is held by another cove; not touching it", id)
+	}
+	return id, nil
+}
+
 // ResetStanding resets the declared standing session name of project's role
 // through the standing reconciler (sup's StandingResetter): its cove is torn
 // down and its state deleted, the declaration kept, so the reconciler raises it
-// fresh. A name that is down has its state deleted all the same. Errors are
-// *WriteError: 404 for an unknown role or name, 503 with no supervisor or
-// reconciler, 409 for an actor id held by a cove that is not this session, and
-// 202 when the reset is pending (the reconciler retries it every pass).
-func ResetStanding(ctx context.Context, store Store, sup *Supervisor, project, roleName, name string) error {
-	role, ok := store.GetRole(project, roleName)
-	if !ok {
-		return writeErr(http.StatusNotFound, "role %s/%s does not exist", project, roleName)
-	}
-	if !slices.ContainsFunc(role.Allocation.Standing, func(s StandingSession) bool { return s.Name == name }) {
-		return writeErr(http.StatusNotFound, "no standing session %q on role %s/%s", name, project, roleName)
-	}
-	if sup == nil || sup.resetter == nil {
-		return writeErr(http.StatusServiceUnavailable, "standing reconciler not running")
-	}
-	id := StandingActorID(project, roleName, name)
-	if inst, ok := store.GetInstance(id); ok && (inst.SessionKind != SessionKindStanding || inst.Project != project || inst.Role != roleName || inst.Name != name) {
-		return writeErr(http.StatusConflict, "actor id %s is held by another cove; not resetting it", id)
+// fresh. A name that is down has its state deleted all the same. Pending in
+// the result: the teardown or purge failed and the reconciler retries it every
+// pass (the reset is accepted and will happen). Errors are *WriteError (see
+// standingTarget).
+func ResetStanding(ctx context.Context, store Store, sup *Supervisor, project, roleName, name string) (StandingResetResult, error) {
+	id, err := standingTarget(store, project, roleName, name, sup != nil && sup.resetter != nil)
+	if err != nil {
+		return StandingResetResult{}, err
 	}
 	if err := sup.resetter.ResetStanding(ctx, project, roleName, name); err != nil {
-		return writeErr(http.StatusAccepted, "reset of %s pending (Jam retries it every standing pass): %s", id, err.Error())
+		return StandingResetResult{Pending: true, Reason: fmt.Sprintf("reset of %s pending (Jam retries it every standing pass): %s", id, err)}, nil
 	}
-	return nil
+	return StandingResetResult{}, nil
 }
 
-// StandingUpgradeResult is the upgrade route's body. Upgraded: the session was
-// torn down (state kept) and re-raised within the call, on Image. Not
-// upgraded and not pending: it already ran the current image (Reason says
-// so) and was left running. Pending: the re-raise did not complete within the
-// call (Reason says why); the standing reconciler raises it on a later pass.
+// StandingUpgradeResult is the upgrade route's body. Pending: the upgrade is
+// queued with the standing reconciler, State its current pending state (watch
+// it in the standing list). Not pending: the session already runs the current
+// image (Image) and was left alone (Reason "already current").
 type StandingUpgradeResult struct {
-	Upgraded bool   `json:"upgraded"`
-	Pending  bool   `json:"pending"`
-	Image    string `json:"image,omitempty"` // the session's image tag after the call ("" unknown)
-	Reason   string `json:"reason,omitempty"`
+	Pending bool   `json:"pending"`
+	State   string `json:"state,omitempty"`
+	Image   string `json:"image,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
-// upgradeBusy names the state that puts inst mid-episode, or "" when it is
-// between episodes and safe to restart: idled (paused), or live and waiting.
-// holding is busy — its turn ended but background tasks are still running,
-// and a teardown would kill them. A terminating or lost cove is going away
-// anyway, so it is not busy.
-func upgradeBusy(inst Instance) string {
+// UpgradeBusy names the state that puts inst mid-episode, or "" when it may be
+// restarted: idled (paused), or live and waiting, blocked or done; a
+// terminating or lost cove is going away anyway. holding is busy — its turn
+// ended but background tasks still run, which a teardown would kill — as are
+// running, raising and a live cove that hasn't reported an activity yet.
+func UpgradeBusy(inst Instance) string {
 	switch inst.Phase {
 	case PhaseIdled, PhaseTerminating, PhaseLost, PhaseGone:
 		return ""
 	case PhaseLive:
-		if inst.Activity == ActivityWaiting {
+		switch inst.Activity {
+		case ActivityWaiting, ActivityBlocked, ActivityDone:
 			return ""
+		case "":
+			return "live, activity unreported"
 		}
-		a := string(inst.Activity)
-		if a == "" {
-			a = "unreported"
-		}
-		return "live, activity " + a
+		return "live, activity " + string(inst.Activity)
 	}
 	return string(inst.Phase)
 }
 
-// UpgradeStanding re-raises the declared standing session name of project's
-// role on the image a raise would run now, keeping its state (COV-251),
-// through the standing reconciler (sup's StandingUpgrader): its cove is torn
-// down — a plain teardown, its volumes kept — and raised again under the same
-// id, resuming its conversation and workspace. A session already on the
-// current image (status ok) is left running and reported not upgraded; one
-// mid-episode (see upgradeBusy) is refused 409 naming its state. force skips
-// both checks. A name with no cove is simply raised now (its backoff
-// cleared). Errors are *WriteError: 404 for an unknown role or name, 503 with
-// no supervisor or reconciler, 409 for a busy session or an actor id held by
-// a cove that is not this session, and 202 when the re-raise did not complete
-// (the reconciler raises it on a later pass).
-func UpgradeStanding(ctx context.Context, store Store, sup *Supervisor, project, roleName, name string, force bool) (StandingUpgradeResult, error) {
-	role, ok := store.GetRole(project, roleName)
-	if !ok {
-		return StandingUpgradeResult{}, writeErr(http.StatusNotFound, "role %s/%s does not exist", project, roleName)
+// UpgradeStanding queues an upgrade of the declared standing session name of
+// project's role with the standing reconciler (sup's StandingUpgrader,
+// COV-251): on its next passes the reconciler prepares the image a raise would
+// run now, waits until the session is idle (UpgradeBusy; force skips the
+// wait), tears its cove down keeping its state, and raises it again on that
+// image, resuming its conversation and workspace. A session already on the
+// current image (status ok) is left alone unless force. Nothing slow happens
+// here. Errors are *WriteError: standingTarget's 404/503/409, 409 while a
+// reset of the name is pending, 404 if the name was dismissed meanwhile.
+func UpgradeStanding(store Store, sup *Supervisor, project, roleName, name string, force bool) (StandingUpgradeResult, error) {
+	id, err := standingTarget(store, project, roleName, name, sup != nil && sup.upgrader != nil)
+	if err != nil {
+		return StandingUpgradeResult{}, err
 	}
-	if !slices.ContainsFunc(role.Allocation.Standing, func(s StandingSession) bool { return s.Name == name }) {
-		return StandingUpgradeResult{}, writeErr(http.StatusNotFound, "no standing session %q on role %s/%s", name, project, roleName)
+	if inst, ok := store.GetInstance(id); ok && !force &&
+		imageStatus(sup, map[[2]string]currentImage{}, inst) == "ok" {
+		return StandingUpgradeResult{Image: inst.ImageTag, Reason: "already current"}, nil
 	}
-	if sup == nil || sup.upgrader == nil {
-		return StandingUpgradeResult{}, writeErr(http.StatusServiceUnavailable, "standing reconciler not running")
-	}
-	id := StandingActorID(project, roleName, name)
-	if inst, ok := store.GetInstance(id); ok && inst.Phase != PhaseGone {
-		if inst.SessionKind != SessionKindStanding || inst.Project != project || inst.Role != roleName || inst.Name != name {
-			return StandingUpgradeResult{}, writeErr(http.StatusConflict, "actor id %s is held by another cove; not upgrading it", id)
+	if err := sup.upgrader.QueueUpgrade(project, roleName, name, force); err != nil {
+		switch {
+		case errors.Is(err, ErrStandingNotDeclared):
+			return StandingUpgradeResult{}, writeErr(http.StatusNotFound, "%s", err.Error())
+		case errors.Is(err, ErrStandingResetPending):
+			return StandingUpgradeResult{}, writeErr(http.StatusConflict, "%s; it raises the session fresh on the current image once done", err.Error())
 		}
-		if !force {
-			if imageStatus(sup, map[[2]string]currentImage{}, inst) == "ok" {
-				return StandingUpgradeResult{Image: inst.ImageTag, Reason: "already current"}, nil
-			}
-			if busy := upgradeBusy(inst); busy != "" {
-				return StandingUpgradeResult{}, writeErr(http.StatusConflict,
-					"standing session %s is mid-episode (%s); upgrade it once it is waiting or idled, or force it", name, busy)
-			}
-		}
+		return StandingUpgradeResult{}, err
 	}
-	if err := sup.upgrader.UpgradeStanding(ctx, project, roleName, name); err != nil {
-		return StandingUpgradeResult{Pending: true, Reason: err.Error()},
-			writeErr(http.StatusAccepted, "upgrade of %s pending (Jam raises it on a later standing pass): %s", id, err.Error())
+	st := sup.upgrader.UpgradeState(project, roleName, name)
+	if st == "" {
+		st = UpgradeQueued
 	}
-	res := StandingUpgradeResult{Upgraded: true}
-	if inst, ok := store.GetInstance(id); ok {
-		res.Image = inst.ImageTag
+	return StandingUpgradeResult{Pending: true, State: st}, nil
+}
+
+// writeStandingResult answers a per-name standing operation: its error with
+// its status (a store failure 500), else body — 202 when pending (accepted,
+// the reconciler finishes it), 200 when done.
+func writeStandingResult(w http.ResponseWriter, body any, pending bool, err error) {
+	if err != nil {
+		http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+		return
 	}
-	return res, nil
+	code := http.StatusOK
+	if pending {
+		code = http.StatusAccepted
+	}
+	writeJSON(w, code, body)
 }
 
 // standingIDHolder returns "project/role/name" of the declared standing session
@@ -162,9 +182,9 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 			http.Error(w, fmt.Sprintf("role %s/%s does not exist", r.PathValue("project"), r.PathValue("role")), http.StatusNotFound)
 			return
 		}
-		out := role.Allocation.Standing
-		if out == nil {
-			out = []StandingSession{}
+		out := []StandingStatus{}
+		for _, s := range role.Allocation.Standing {
+			out = append(out, StandingStatus{StandingSession: s, Upgrade: sup.StandingUpgradeState(r.PathValue("project"), role.Name, s.Name)})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -197,35 +217,24 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 	// {pending:true, reason} when the reconciler is still finishing it.
 	mux.HandleFunc("POST /admin/roles/{project}/{role}/standing/{name}/reset", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName, name := r.PathValue("project"), r.PathValue("role"), r.PathValue("name")
-		err := ResetStanding(r.Context(), store, sup, project, roleName, name)
-		if status := WriteStatus(err, http.StatusInternalServerError); err != nil && status != http.StatusAccepted {
-			http.Error(w, err.Error(), status)
-			return
+		res, err := ResetStanding(r.Context(), store, sup, project, roleName, name)
+		if err == nil {
+			log.Info("admin standing session reset", "operator", OperatorID(r), "project", project, "role", roleName, "name", name, "pending", res.Pending)
 		}
-		res, code := StandingResetResult{}, http.StatusOK
-		if err != nil {
-			res, code = StandingResetResult{Pending: true, Reason: err.Error()}, http.StatusAccepted
-		}
-		log.Info("admin standing session reset", "operator", OperatorID(r), "project", project, "role", roleName, "name", name, "pending", res.Pending)
-		writeJSON(w, code, res)
+		writeStandingResult(w, res, res.Pending, err)
 	})
 
-	// Upgrade: see UpgradeStanding. ?force=true skips the already-current and
-	// mid-episode checks. 200 when upgraded (or already current), 202 when the
-	// re-raise is pending.
+	// Upgrade: see UpgradeStanding. ?force=true skips the already-current
+	// check and the idle wait. 202 {pending:true, state} when queued, 200
+	// {pending:false, reason:"already current"} when there's nothing to do.
 	mux.HandleFunc("POST /admin/roles/{project}/{role}/standing/{name}/upgrade", func(w http.ResponseWriter, r *http.Request) {
 		project, roleName, name := r.PathValue("project"), r.PathValue("role"), r.PathValue("name")
 		force := r.URL.Query().Get("force") == "true"
-		res, err := UpgradeStanding(r.Context(), store, sup, project, roleName, name, force)
-		code := http.StatusOK
-		if err != nil {
-			if code = WriteStatus(err, http.StatusInternalServerError); code != http.StatusAccepted {
-				http.Error(w, err.Error(), code)
-				return
-			}
+		res, err := UpgradeStanding(store, sup, project, roleName, name, force)
+		if err == nil {
+			log.Info("admin standing session upgrade", "operator", OperatorID(r), "project", project, "role", roleName, "name", name,
+				"force", force, "pending", res.Pending, "state", res.State, "reason", res.Reason)
 		}
-		log.Info("admin standing session upgrade", "operator", OperatorID(r), "project", project, "role", roleName, "name", name,
-			"force", force, "upgraded", res.Upgraded, "pending", res.Pending, "image", res.Image)
-		writeJSON(w, code, res)
+		writeStandingResult(w, res, res.Pending, err)
 	})
 }

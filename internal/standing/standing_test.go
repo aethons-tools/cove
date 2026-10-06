@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,25 @@ type fakeWorld struct {
 	failTear  map[string]bool // Teardown of these ids fails
 	failRaise map[string]bool
 	tag       string // the image tag Raise records (the "current" image)
+	notReady  bool   // PrepareImage reports the current image still preparing
+	prepErr   error  // PrepareImage fails
+	prepares  int    // PrepareImage calls
+}
+
+func (w *fakeWorld) CurrentImage(string, string) (jam.CurrentImage, error) {
+	return jam.CurrentImage{Kit: jam.KitRef{ID: "web", Digest: w.tag}, HasKit: true, Tag: w.tag}, nil
+}
+
+func (w *fakeWorld) PrepareImage(_ context.Context, p, r string) (jam.CurrentImage, jam.KitStatus, error) {
+	w.prepares++
+	cur, _ := w.CurrentImage(p, r)
+	if w.prepErr != nil {
+		return cur, jam.KitStatus{State: jam.KitPreparing, Err: w.prepErr.Error()}, w.prepErr
+	}
+	if w.notReady {
+		return cur, jam.KitStatus{State: jam.KitPreparing}, nil
+	}
+	return cur, jam.KitStatus{State: jam.KitReady}, nil
 }
 
 func newWorld() *fakeWorld {
@@ -125,6 +145,7 @@ func kit() (*Reconciler, *fakeWorld, *fakeGranter, func(time.Duration)) {
 	r := New(w, w, g, w, 0, nil)
 	now := time.Unix(1_000_000, 0)
 	r.now = func() time.Time { return now }
+	r.spawn = func(f func()) { f() } // prepares run inline: deterministic
 	return r, w, g, func(d time.Duration) { now = now.Add(d) }
 }
 
@@ -496,96 +517,221 @@ func TestTick_LiveCoveActorKept(t *testing.T) {
 	}
 }
 
-// Upgrade (COV-251) tears the live cove down — keeping its state, no purge —
-// and raises it again in the same call, on whatever image a raise picks now.
-func TestUpgrade_TeardownThenRaiseKeepsState(t *testing.T) {
-	r, w, g, _ := kit()
-	ctx := context.Background()
+// setActivity sets the live standing cove's activity.
+func (w *fakeWorld) setActivity(id string, a jam.Activity) {
+	inst := w.insts[id]
+	inst.Activity = a
+	w.insts[id] = inst
+}
+
+// upgradeKit: alice-bot declared and raised on img:old, now waiting; the
+// current image is img:new.
+func upgradeKit(t *testing.T) (*Reconciler, *fakeWorld, *fakeGranter, func(time.Duration)) {
+	t.Helper()
+	r, w, g, advance := kit()
 	w.declare("acme", "reviewer", bot)
 	w.tag = "img:old"
-	r.Tick(ctx)
+	r.Tick(context.Background())
+	w.setActivity(botID, jam.ActivityWaiting)
 	w.tag = "img:new"
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
+	return r, w, g, advance
+}
+
+func (r *Reconciler) state() string { return r.UpgradeState("acme", "reviewer", "alice-bot") }
+
+// An idle session's upgrade (COV-251) completes on the reconciler's passes:
+// the first prepares the current image, the next tears the cove down —
+// keeping its state, no purge — and raises it again on the new image.
+func TestUpgrade_IdleCompletesOnTick(t *testing.T) {
+	r, w, g, _ := upgradeKit(t)
+	ctx := context.Background()
+	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(w.torn, []string{botID}) {
-		t.Fatalf("torn = %v, want [%s]", w.torn, botID)
+	if got := r.state(); got != "queued" {
+		t.Fatalf("state = %q, want queued", got)
+	}
+	r.Tick(ctx) // prepares (inline here)
+	if w.prepares != 1 || len(w.torn) != 0 {
+		t.Fatalf("first pass must prepare before any teardown; prepares=%d torn=%v", w.prepares, w.torn)
+	}
+	r.Tick(ctx)
+	if !slices.Equal(w.torn, []string{botID}) || len(w.raised) != 2 || len(g.grants) != 2 {
+		t.Fatalf("torn=%v raised=%d grants=%d; want one teardown and a re-raise", w.torn, len(w.raised), len(g.grants))
 	}
 	if len(w.purged) != 0 || !w.state[botID] {
 		t.Fatalf("upgrade must keep the state; purged %v", w.purged)
 	}
-	if len(w.raised) != 2 || w.raised[1].ActorID != botID || w.raised[1].Prompt != bot.Prompt || len(g.grants) != 2 {
-		t.Fatalf("want a second raise under %s within the call; raised=%+v grants=%d", botID, w.raised, len(g.grants))
-	}
 	if got := w.insts[botID].ImageTag; got != "img:new" {
 		t.Fatalf("re-raised on %q, want img:new", got)
 	}
-}
-
-// Upgrading a name with no cove raises it now, clearing its backoff.
-func TestUpgrade_NoInstanceRaisesNowClearingBackoff(t *testing.T) {
-	r, w, _, _ := kit()
-	ctx := context.Background()
-	w.declare("acme", "reviewer", bot)
-	w.failRaise[botID] = true
-	r.Tick(ctx) // fails → backing off
-	w.failRaise[botID] = false
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err != nil {
-		t.Fatal(err)
+	if got := r.state(); got != "" {
+		t.Fatalf("state after the upgrade = %q, want none", got)
 	}
-	if _, ok := w.insts[botID]; !ok {
-		t.Fatal("upgrade of a down name must raise it now, despite its backoff")
-	}
-}
-
-// A re-raise that fails is reported (pending); the name backs off and a later
-// pass raises it as usual. A failed teardown leaves the cove alone.
-func TestUpgrade_FailuresArePending(t *testing.T) {
-	r, w, g, advance := kit()
-	ctx := context.Background()
-	w.declare("acme", "reviewer", bot)
 	r.Tick(ctx)
-
-	w.failTear[botID] = true
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
-		t.Fatal("a failed teardown must be reported")
+	if len(w.raised) != 2 {
+		t.Fatalf("a done upgrade must not repeat; raised=%d", len(w.raised))
 	}
-	if len(w.raised) != 1 {
-		t.Fatalf("a failed teardown must not re-raise; raised=%d", len(w.raised))
+}
+
+// Idle is idled, or live and waiting, blocked or done; a busy session's
+// upgrade waits (never refused) and completes once it is idle.
+func TestUpgrade_BusyWaitsThenCompletes(t *testing.T) {
+	for _, busy := range []jam.Activity{jam.ActivityRunning, jam.ActivityHolding, ""} {
+		r, w, _, _ := upgradeKit(t)
+		ctx := context.Background()
+		w.setActivity(botID, busy)
+		_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+		r.Tick(ctx)
+		r.Tick(ctx)
+		r.Tick(ctx)
+		if len(w.torn) != 0 || !strings.HasPrefix(r.state(), "waiting-for-idle") {
+			t.Fatalf("%q: torn=%v state=%q; want waiting-for-idle", busy, w.torn, r.state())
+		}
+		w.setActivity(botID, jam.ActivityBlocked)
+		r.Tick(ctx)
+		if !slices.Equal(w.torn, []string{botID}) || w.insts[botID].ImageTag != "img:new" || r.state() != "" {
+			t.Fatalf("%q: once idle: torn=%v tag=%q state=%q", busy, w.torn, w.insts[botID].ImageTag, r.state())
+		}
+	}
+	for _, idle := range []struct {
+		p jam.Phase
+		a jam.Activity
+	}{{jam.PhaseIdled, jam.ActivityWaiting}, {jam.PhaseLive, jam.ActivityDone}} {
+		r, w, _, _ := upgradeKit(t)
+		inst := w.insts[botID]
+		inst.Phase, inst.Activity = idle.p, idle.a
+		w.insts[botID] = inst
+		_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+		r.Tick(context.Background())
+		r.Tick(context.Background())
+		if len(w.torn) != 1 {
+			t.Fatalf("%s/%s must count as idle; torn=%v", idle.p, idle.a, w.torn)
+		}
+	}
+}
+
+// A forced upgrade proceeds while the session is busy.
+func TestUpgrade_ForceProceedsWhileBusy(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	w.setActivity(botID, jam.ActivityRunning)
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", true)
+	r.Tick(context.Background())
+	r.Tick(context.Background())
+	if !slices.Equal(w.torn, []string{botID}) || w.insts[botID].ImageTag != "img:new" {
+		t.Fatalf("forced: torn=%v tag=%q", w.torn, w.insts[botID].ImageTag)
+	}
+}
+
+// While the current image is not ready the upgrade stays "preparing": no
+// teardown, no raise, and the name's backoff is untouched; each pass
+// re-checks it, and once ready the upgrade goes ahead.
+func TestUpgrade_PreparingNoTeardownNoBackoff(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	w.notReady = true
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if len(w.torn) != 0 || len(w.raised) != 1 || !strings.HasPrefix(r.state(), "preparing") || w.prepares != 2 {
+		t.Fatalf("not ready: torn=%v raised=%d state=%q prepares=%d", w.torn, len(w.raised), r.state(), w.prepares)
+	}
+	if _, ok := r.backoff[botID]; ok {
+		t.Fatal("preparing must not count as a raise failure")
+	}
+	w.notReady, w.prepErr = false, errors.New("build: base not verified")
+	r.Tick(ctx)
+	if !strings.Contains(r.state(), "base not verified") || len(w.torn) != 0 {
+		t.Fatalf("prepare error: state=%q torn=%v", r.state(), w.torn)
+	}
+	if _, ok := r.backoff[botID]; ok {
+		t.Fatal("a failed prepare must not back the name off")
+	}
+	w.prepErr = nil
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if !slices.Equal(w.torn, []string{botID}) || w.insts[botID].ImageTag != "img:new" {
+		t.Fatalf("once ready: torn=%v tag=%q", w.torn, w.insts[botID].ImageTag)
+	}
+}
+
+// A failed teardown keeps the upgrade pending with its reason, and the next
+// pass retries it.
+func TestUpgrade_TeardownFailureStaysPending(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	w.failTear[botID] = true
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if st := r.state(); !strings.HasPrefix(st, "teardown-failed") || !strings.Contains(st, "teardown failed") || len(w.raised) != 1 {
+		t.Fatalf("state=%q raised=%d; want teardown-failed, no re-raise", st, len(w.raised))
 	}
 	w.failTear[botID] = false
-
-	w.failRaise[botID] = true
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
-		t.Fatal("a failed re-raise must be reported")
+	r.Tick(ctx)
+	if w.insts[botID].ImageTag != "img:new" || r.state() != "" {
+		t.Fatalf("retry: tag=%q state=%q", w.insts[botID].ImageTag, r.state())
 	}
-	if len(g.releases) == 0 || len(w.purged) != 0 {
-		t.Fatalf("a failed re-raise releases its grant and keeps state; releases=%v purged=%v", g.releases, w.purged)
+}
+
+// A raise that fails once the image is ready clears the upgrade and backs the
+// name off as usual (ensure's backoff); a later pass raises it.
+func TestUpgrade_RaiseFailureBacksOff(t *testing.T) {
+	r, w, g, advance := upgradeKit(t)
+	ctx := context.Background()
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	w.failRaise[botID] = true
+	r.Tick(ctx)
+	if r.state() != "" {
+		t.Fatalf("state = %q; a failed raise clears the upgrade", r.state())
+	}
+	if _, ok := r.backoff[botID]; !ok || len(g.releases) == 0 || len(w.purged) != 0 {
+		t.Fatalf("want backoff + released grant + kept state; backoff=%v releases=%v purged=%v", r.backoff, g.releases, w.purged)
 	}
 	w.failRaise[botID] = false
 	advance(BackoffInitial)
 	r.Tick(ctx)
-	if _, ok := w.insts[botID]; !ok {
-		t.Fatal("a later pass must raise the name")
+	if w.insts[botID].ImageTag != "img:new" {
+		t.Fatal("a later pass must raise it on the current image")
 	}
 }
 
-// An undeclared name is refused, and a name whose reset is pending is not
-// raised on its old state.
-func TestUpgrade_RefusesUndeclaredAndPendingReset(t *testing.T) {
+// A name with no studio is raised by its upgrade at once, despite its backoff.
+func TestUpgrade_NoInstanceRaisesClearingBackoff(t *testing.T) {
 	r, w, _, _ := kit()
 	ctx := context.Background()
 	w.declare("acme", "reviewer", bot)
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "nobody"); err == nil {
-		t.Fatal("upgrade of an undeclared name must fail")
-	}
+	w.tag = "img:new"
+	w.failRaise[botID] = true
+	r.Tick(ctx) // fails → backing off
+	w.failRaise[botID] = false
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
 	r.Tick(ctx)
-	w.failPurge[botID] = true
-	_ = r.ResetStanding(ctx, "acme", "reviewer", "alice-bot") // pending
-	if err := r.UpgradeStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
-		t.Fatal("upgrade during a pending reset must fail")
+	r.Tick(ctx)
+	if _, ok := w.insts[botID]; !ok || r.state() != "" {
+		t.Fatalf("upgrade of a down name must raise it despite its backoff; state=%q", r.state())
 	}
-	if _, ok := w.insts[botID]; ok || len(w.raised) != 1 {
-		t.Fatalf("a pending reset's name must not be raised; raised=%d", len(w.raised))
+}
+
+// Queueing refuses an undeclared name and a name whose reset is pending; a
+// re-queue keeps one upgrade, a force sticks.
+func TestUpgrade_QueueRefusals(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	if err := r.QueueUpgrade("acme", "reviewer", "nobody", false); !errors.Is(err, jam.ErrStandingNotDeclared) {
+		t.Fatalf("undeclared = %v", err)
+	}
+	w.setActivity(botID, jam.ActivityRunning)
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", true)
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(context.Background())
+	r.Tick(context.Background())
+	if len(w.torn) != 1 {
+		t.Fatalf("a re-queue must keep the earlier force; torn=%v", w.torn)
+	}
+	w.failPurge[botID] = true
+	_ = r.ResetStanding(context.Background(), "acme", "reviewer", "alice-bot") // pending
+	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); !errors.Is(err, jam.ErrStandingResetPending) {
+		t.Fatalf("during a pending reset = %v", err)
 	}
 }

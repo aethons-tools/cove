@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -588,7 +589,7 @@ func TestClientStandingRoundTrip(t *testing.T) {
 		t.Fatal("a duplicate name must error (400)")
 	}
 	list, err := c.ListStanding(jam.DefaultProject, "guest")
-	if err != nil || len(list) != 1 || list[0] != (jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}) {
+	if err != nil || len(list) != 1 || list[0] != (jam.StandingStatus{StandingSession: jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}}) {
 		t.Fatalf("ListStanding = %+v, %v", list, err)
 	}
 	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
@@ -640,14 +641,27 @@ func TestClientResetStanding(t *testing.T) {
 	}
 }
 
-// upgraderFunc adapts a func to jam.StandingUpgrader.
-type upgraderFunc func() error
+// queueUpgrader is a jam.StandingUpgrader queue that records the last force,
+// fails with err, and reports state for every name.
+type queueUpgrader struct {
+	force *bool
+	err   error
+	state string
+}
 
-func (f upgraderFunc) UpgradeStanding(context.Context, string, string, string) error { return f() }
+func (q *queueUpgrader) QueueUpgrade(_, _, _ string, force bool) error {
+	if q.err != nil {
+		return q.err
+	}
+	q.force, q.state = &force, jam.UpgradeQueued
+	return nil
+}
 
-// TestClientUpgradeStanding: a busy session is ErrConflict unless forced (the
-// force query reaches the server); a re-raise the reconciler is still
-// finishing is Pending with its reason; an undeclared name is ErrNotFound.
+func (q *queueUpgrader) UpgradeState(string, string, string) string { return q.state }
+
+// TestClientUpgradeStanding: an upgrade is queued (Pending, State queued) with
+// the force flag reaching the server; a pending reset is ErrConflict; an
+// undeclared name is ErrNotFound; ListStanding carries the upgrade state.
 func TestClientUpgradeStanding(t *testing.T) {
 	store := jam.NewMemStore()
 	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "guest", Allocation: jam.RoleAllocation{Standing: []jam.StandingSession{{Name: "bot", Prompt: "p"}}}}); err != nil {
@@ -655,27 +669,24 @@ func TestClientUpgradeStanding(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
-	var upErr error
-	calls := 0
-	sup.SetStandingUpgrader(upgraderFunc(func() error { calls++; return upErr }))
-	id := jam.StandingActorID(jam.DefaultProject, "guest", "bot")
-	if err := store.PutInstance(jam.Instance{ActorID: id, Project: jam.DefaultProject, Role: "guest", Name: "bot",
-		SessionKind: jam.SessionKindStanding, Phase: jam.PhaseLive, Activity: jam.ActivityRunning}); err != nil {
-		t.Fatal(err)
-	}
+	q := &queueUpgrader{}
+	sup.SetStandingUpgrader(q)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 
-	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", false); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "running") {
-		t.Fatalf("busy UpgradeStanding = %v, want ErrConflict naming running", err)
+	if res, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", false); err != nil || !res.Pending || res.State != jam.UpgradeQueued || q.force == nil || *q.force {
+		t.Fatalf("UpgradeStanding = %+v, %v", res, err)
 	}
-	if res, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", true); err != nil || !res.Upgraded || calls != 1 {
-		t.Fatalf("forced UpgradeStanding = %+v, %v (calls %d)", res, err, calls)
+	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", true); err != nil || !*q.force {
+		t.Fatalf("forced UpgradeStanding: %v (force reached server: %v)", err, *q.force)
 	}
-	upErr = errors.New("grant denied")
-	if res, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", true); err != nil || !res.Pending || !strings.Contains(res.Reason, "grant denied") {
-		t.Fatalf("pending UpgradeStanding = %+v, %v", res, err)
+	if list, err := c.ListStanding(jam.DefaultProject, "guest"); err != nil || len(list) != 1 || list[0].Upgrade != jam.UpgradeQueued {
+		t.Fatalf("ListStanding = %+v, %v", list, err)
+	}
+	q.err = fmt.Errorf("%w: x", jam.ErrStandingResetPending)
+	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "bot", false); !errors.Is(err, ErrConflict) {
+		t.Fatalf("during a pending reset = %v, want ErrConflict", err)
 	}
 	if _, err := c.UpgradeStanding(jam.DefaultProject, "guest", "nobody", false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("undeclared UpgradeStanding = %v, want ErrNotFound", err)

@@ -1236,7 +1236,9 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role the standing session belongs to")
 	name := fs.String("name", "", "standing session name, unique within the role (add only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
-	force := fs.Bool("force", false, "upgrade only: restart even a mid-episode or already-current session")
+	force := fs.Bool("force", false, "upgrade only: don't wait for the session to be idle, and restart it even if already current")
+	wait := fs.Bool("wait", false, "upgrade only: poll `standing list` until the upgrade is done")
+	waitTimeout := fs.Duration("wait-timeout", 15*time.Minute, "upgrade --wait only: give up after this long")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1290,7 +1292,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if cv, ok := running[id]; ok {
 				phase, image = cv.Phase, imageOrUnknown(cv.Image)
 			}
-			fmt.Fprintf(stdout, "%s\tid=%s\tphase=%s\timage=%s\n", s.Name, id, phase, image)
+			line := fmt.Sprintf("%s\tid=%s\tphase=%s\timage=%s", s.Name, id, phase, image)
+			if s.Upgrade != "" {
+				line += "\tupgrade=" + s.Upgrade
+			}
+			fmt.Fprintln(stdout, line)
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -1327,19 +1333,75 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		switch {
-		case res.Pending:
-			fmt.Fprintf(stdout, "upgrade of standing session %s pending: %s\n", pos[0], res.Reason)
-		case !res.Upgraded:
+		if !res.Pending {
 			fmt.Fprintf(stdout, "standing session %s already runs the current image (%s); nothing restarted (--force restarts it anyway)\n", pos[0], imageOrUnknown(res.Image))
-		default:
-			fmt.Fprintf(stdout, "upgraded standing session %s: re-raised on image %s, conversation and workspace kept\n", pos[0], imageOrUnknown(res.Image))
+			break
 		}
+		if !*wait {
+			fmt.Fprintf(stdout, "upgrade of standing session %s queued (%s); watch `at-jam standing list --project %s --role %s`\n", pos[0], res.State, proj, *role)
+			break
+		}
+		return waitStandingUpgrade(c, proj, *role, pos[0], *waitTimeout, stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, "at-jam standing: unknown subcommand", sub)
 		return 2
 	}
 	return 0
+}
+
+// standingWaitPoll is how often `standing upgrade --wait` polls (tests shorten it).
+var standingWaitPoll = 2 * time.Second
+
+// waitStandingUpgrade polls the standing list until name's pending upgrade is
+// gone (printing each state change), then reports its studio's phase and
+// image: exit 0 when it runs with image ok (or unknown, when Jam can't name
+// images), 1 when it isn't running on a current image or the wait timed out.
+func waitStandingUpgrade(c *adminclient.Client, proj, role, name string, timeout time.Duration, stdout, stderr io.Writer) int {
+	deadline := time.Now().Add(timeout)
+	last := ""
+	for {
+		list, err := c.ListStanding(proj, role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		state := ""
+		for _, s := range list {
+			if s.Name == name {
+				state = s.Upgrade
+			}
+		}
+		if state == "" {
+			break
+		}
+		if state != last {
+			fmt.Fprintf(stdout, "upgrade of %s: %s\n", name, state)
+			last = state
+		}
+		if time.Now().After(deadline) {
+			fmt.Fprintf(stderr, "at-jam: timed out after %s waiting for the upgrade of %s (still %s); it stays queued\n", timeout, name, state)
+			return 1
+		}
+		time.Sleep(standingWaitPoll)
+	}
+	coves, err := c.ListRoleCoves(proj, role)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	id := jam.StandingActorID(proj, role, name)
+	phase, image := "-", "-"
+	for _, cv := range coves {
+		if cv.ID == id {
+			phase, image = cv.Phase, imageOrUnknown(cv.Image)
+		}
+	}
+	if phase != "-" && (image == "ok" || image == "unknown") {
+		fmt.Fprintf(stdout, "upgraded standing session %s: phase=%s image=%s (conversation and workspace kept)\n", name, phase, image)
+		return 0
+	}
+	fmt.Fprintf(stderr, "at-jam: upgrade of %s finished but its studio is phase=%s image=%s; see `at-jam standing list` and Jam's log\n", name, phase, image)
+	return 1
 }
 
 // imageOrUnknown is a studio's image status for listings: an older Jam that
@@ -1874,7 +1936,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
 	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
 	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
-	sup.SetStandingUpgrader(stdg) // so does `standing upgrade`
+	sup.SetStandingUpgrader(stdg) // `standing upgrade` queues into it; its passes carry it out
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 
