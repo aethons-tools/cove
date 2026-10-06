@@ -370,7 +370,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	scratch.users, scratch.connections, scratch.accounts = s.users, s.connections, s.accounts
 	scratch.members, scratch.aliases = s.members, s.aliases
 	applyImport(scratch, snap)
-	plan := scratch.planHumanMigration()
+	plan := scratch.planRegistryMigration(0)
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
@@ -954,14 +954,28 @@ func (s *PostgresStore) SetJamContext(l sessionctx.Layer) error {
 	return nil
 }
 
-func (s *PostgresStore) SetChatService(project, service string) error {
+func (s *PostgresStore) SetChatService(project, ref string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
+	p, created, err := s.prepareSetChatService(project, ref)
 	if err != nil {
 		return err
 	}
-	return s.putProject(setChatService(copyProject(p), service))
+	if err := s.registryTx("SetChatService", func(ctx context.Context, tx pgx.Tx) error {
+		for _, c := range created {
+			if err := putConnectionTx(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return upsertProjectTx(ctx, tx, p)
+	}); err != nil {
+		return err
+	}
+	for _, c := range created {
+		s.applyPutConnection(c)
+	}
+	s.applyPutProject(p)
+	return nil
 }
 
 // putProject upserts a project's row and, on success, updates the cache.

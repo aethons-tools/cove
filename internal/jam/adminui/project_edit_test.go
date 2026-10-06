@@ -102,7 +102,7 @@ func TestSetChatService(t *testing.T) {
 	if rec := post(t, h, "/ui/projects/acme/chat-service", url.Values{"service": {"discord"}}); rec.Code != http.StatusOK {
 		t.Fatalf("set chat service = %d", rec.Code)
 	}
-	if p, _ := store.GetProject("acme"); p.ChatService != "discord" {
+	if p, _ := store.GetProject("acme"); jam.ChatKind(store, p) != "discord" {
 		t.Fatalf("chat service = %q", p.ChatService)
 	}
 }

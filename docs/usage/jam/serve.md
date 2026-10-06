@@ -71,9 +71,9 @@ runtime:                            # optional — supervisor lease/reconcile ti
     dns: []
     docker: false
   discord:
-    bot-token-cred: discord-bot     # a name in `credentials:`
+    connection: discord-main        # an `at-jam connection` of kind discord
   requisitioner:
-    tracker-token-cred: linear-bot  # a name in `credentials:`
+    connection: linear-acme         # an `at-jam connection` of kind linear
   wake:                             # optional — wake-on engine timing (see intercom.md)
     wait-max: 24h
 ```
@@ -104,8 +104,8 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
-| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), a `linear` block, and `tracker-token-cred` (a demanded credential name). Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `bot-token-cred` (a demanded name in `credentials:`, resolved on the host — never logged/injected); no Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), a `linear` block, and `connection`: a **connection** of kind `linear` (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`), whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated `tracker-token-cred: <credential>` still works (with a warning) by binding the implicit connection named `linear`. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` binds the implicit connection named `discord`. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`. Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 
 ### Postgres store (`store-postgres`)

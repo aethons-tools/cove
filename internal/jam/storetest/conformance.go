@@ -649,8 +649,8 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.SetChatService("acme", "discord"); err != nil {
 			t.Fatalf("SetChatService: %v", err)
 		}
-		if p, ok := s.GetProject("acme"); !ok || p.ChatService != "discord" {
-			t.Fatalf("ChatService = %q (ok=%v), want discord", p.ChatService, ok)
+		if p, ok := s.GetProject("acme"); !ok || jam.ChatKind(s, p) != "discord" {
+			t.Fatalf("ChatService = %q (ok=%v), want a discord connection", p.ChatService, ok)
 		}
 		if err := s.SetChatService("acme", ""); err != nil {
 			t.Fatalf("SetChatService clear: %v", err)

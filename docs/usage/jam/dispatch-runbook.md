@@ -4,7 +4,7 @@ read_when: You are bringing up a real Jam dispatch loop for the first time (or r
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
 prereqs: serve.md, roster.md, requisitioner.md, coves.md, ../at-cove-config.md#jam — this runbook orders them, it does not replace them
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Runbook: Jam dispatch, end to end
@@ -39,7 +39,8 @@ doc that owns the detail; this runbook only owns the **order** and the
    --ttl 24h`. The git credential's own scope bounds which repos it reaches. A role with **no `--ttl` mints non-expiring
    tokens** — always set one for ephemeral studios. [roster.md](roster.md).
 5. **Requisitioner** — add `runtime.requisitioner` (`role`, `max-concurrent`,
-   `tracker-token-cred`, `linear.team` + `states`). Restart serve. It polls the
+   `connection` — a linear connection, `at-jam connection add --kind linear
+   --name linear --cred <credential>` — `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one studio per **dispatch-labeled** ticket, bounded by
    the cap. [requisitioner.md](requisitioner.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and

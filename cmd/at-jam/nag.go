@@ -40,6 +40,7 @@ type intercomNagger struct {
 type nagRoster interface {
 	GetRoster(project string) (jam.Roster, bool)
 	GetProject(name string) (jam.Project, bool)
+	jam.ConnectionGetter
 }
 
 func (n intercomNagger) Nag(_ context.Context, inst jam.Instance, idle time.Duration) error {
@@ -89,7 +90,7 @@ func (n intercomNagger) ownerAttributable(inst jam.Instance) bool {
 	if n.roster == nil {
 		return false
 	}
-	if p, ok := n.roster.GetProject(inst.Project); !ok || p.ChatService != "discord" {
+	if p, ok := n.roster.GetProject(inst.Project); !ok || jam.ChatKind(n.roster, p) != "discord" {
 		return false
 	}
 	r, ok := n.roster.GetRoster(inst.Project)

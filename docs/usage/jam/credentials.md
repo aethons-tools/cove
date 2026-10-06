@@ -64,8 +64,7 @@ credential:
 | Reference | Where |
 |---|---|
 | `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-store-postgres)) |
-| `runtime.discord.bot-token-cred` | the Discord bot token ([discord.md](discord.md)) |
-| `runtime.requisitioner.tracker-token-cred` | the tracker token ([requisitioner.md](requisitioner.md)) |
+| a connection's credential (`at-jam connection add --cred` / `connection cred`), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
 | a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
 
@@ -93,4 +92,5 @@ An inline strategy is a **hard parse error**, not a silent alias (unlike the
 `runtime.requisitioner.tracker-token`. The error names the field and points at
 this file. To migrate, move each strategy into `credentials.yml` under the same
 name, leave only the bare name under `credentials:`, and replace the inline
-token with `bot-token-cred` / `tracker-token-cred`.
+token with a connection whose credential names it (or the deprecated
+`bot-token-cred` / `tracker-token-cred`).

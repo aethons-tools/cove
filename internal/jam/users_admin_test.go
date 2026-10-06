@@ -222,3 +222,53 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 		t.Fatalf("decode %s: %v", rec.Body.String(), err)
 	}
 }
+
+func TestAdminConnectionsLifecycle(t *testing.T) {
+	h, store := newTestAdmin(t)
+	rec := doJSON(t, h, "POST", "/admin/connections", ConnectionBody{Kind: "discord", Name: "discord-main", Cred: "bot-tok"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST connection = %d %s", rec.Code, rec.Body.String())
+	}
+	var c Connection
+	decodeBody(t, rec, &c)
+	if c.ID.Kind() != ident.Connection || c.CredName != "bot-tok" {
+		t.Fatalf("created = %+v", c)
+	}
+	for name, b := range map[string]ConnectionBody{
+		"duplicate":    {Kind: "discord", Name: "discord-main"},
+		"unknown kind": {Kind: "slack", Name: "s"},
+		"bad name":     {Kind: "linear", Name: "a b"},
+	} {
+		if rec := doJSON(t, h, "POST", "/admin/connections", b); rec.Code < 400 {
+			t.Errorf("%s = %d, want a refusal", name, rec.Code)
+		}
+	}
+	if rec := doJSON(t, h, "PUT", "/admin/connections/discord-main/name", RenameBody{Name: "discord-acme"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("rename = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(t, h, "PUT", "/admin/connections/discord-acme/cred", CredBody{Cred: "bot-tok-2"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("set cred = %d %s", rec.Code, rec.Body.String())
+	}
+	if got, _ := store.GetConnection(c.ID); got.Name != "discord-acme" || got.CredName != "bot-tok-2" {
+		t.Fatalf("stored = %+v", got)
+	}
+	mustCreateProject(t, store, "acme")
+	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord-acme"}); rec.Code != http.StatusNoContent {
+		t.Fatalf("chat service by connection name = %d %s", rec.Code, rec.Body.String())
+	}
+	var cs ChatServiceView
+	getJSON(t, h, "/admin/projects/acme/chat-service", &cs)
+	if cs.Service != "discord-acme" {
+		t.Fatalf("chat service view = %+v", cs)
+	}
+	if rec := doReq(t, h, "DELETE", "/admin/connections/discord-acme", nil); rec.Code != http.StatusConflict {
+		t.Fatalf("remove a chat service's connection = %d, want 409", rec.Code)
+	}
+	doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: ""})
+	if rec := doReq(t, h, "DELETE", "/admin/connections/"+string(c.ID), nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("remove = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doReq(t, h, "DELETE", "/admin/connections/discord-acme", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("remove again by name = %d, want 404", rec.Code)
+	}
+}

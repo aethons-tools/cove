@@ -159,3 +159,44 @@ func TestPostgresHumansMigration(t *testing.T) {
 		t.Fatalf("after AddHuman + reload: beta roster = %+v", r.Humans)
 	}
 }
+
+// TestPostgresChatServiceMigration: a store already at roster_schema 1 (humans
+// migrated) whose project still names its chat service by kind is moved to
+// the discord connection's id at load, once.
+func TestPostgresChatServiceMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO jam_settings (key, doc) VALUES ('roster_schema', '1') ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc`,
+		`INSERT INTO projects (name, doc) VALUES ('acme', '{"name":"acme","roster":{},"chat_service":"discord"}')`,
+	} {
+		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	m := open()
+	p, _ := m.GetProject("acme")
+	if jam.ChatKind(m, p) != "discord" {
+		t.Fatalf("chat service = %q, want the discord connection", p.ChatService)
+	}
+	again := open()
+	if q, _ := again.GetProject("acme"); q.ChatService != p.ChatService || len(again.ListConnections()) != 1 {
+		t.Fatalf("reload: chat service %q, connections %+v", q.ChatService, again.ListConnections())
+	}
+}

@@ -142,3 +142,14 @@ func (fs *MemStore) RemoveMember(project, user ident.ID) error {
 	fs.applyRemoveMember(project, user)
 	return nil
 }
+
+func (fs *MemStore) SetConnectionCred(id ident.ID, cred string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	c, err := fs.prepareSetConnectionCred(id, cred)
+	if err != nil {
+		return err
+	}
+	fs.applyPutConnection(c)
+	return nil
+}

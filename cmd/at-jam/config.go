@@ -188,8 +188,11 @@ func (c serveConfig) validateWake() error {
 
 // discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
-	// BotTokenCred names a demanded credential; the token is supplied by the
-	// at-jam credentials file, never inline here.
+	// Connection names the discord connection the relay uses (its credential
+	// is the connection's). Exclusive with the deprecated BotTokenCred.
+	Connection string `yaml:"connection"`
+	// BotTokenCred (deprecated: use connection) names a demanded credential;
+	// it binds the implicit connection named "discord".
 	BotTokenCred string `yaml:"bot-token-cred"`
 	// DeprecatedBotToken detects the removed inline form; a set value is a hard
 	// error pointing at the credentials file.
@@ -299,10 +302,14 @@ func (c serveConfig) validateLauncher() error {
 // requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
-	Role             string `yaml:"role"`
-	Project          string `yaml:"project"`
-	MaxConcurrent    int    `yaml:"max-concurrent"`
-	PollInterval     string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	Role          string `yaml:"role"`
+	Project       string `yaml:"project"`
+	MaxConcurrent int    `yaml:"max-concurrent"`
+	PollInterval  string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	// Connection names the linear connection the Requisitioner, escalation and
+	// Linear relay use. Exclusive with the deprecated TrackerTokenCred, which
+	// binds the implicit connection named "linear".
+	Connection       string `yaml:"connection"`
 	TrackerTokenCred string `yaml:"tracker-token-cred"`
 	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
 	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
@@ -431,11 +438,21 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.DeprecatedTrackerToken != nil {
 		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
 	}
-	if d.TrackerTokenCred == "" {
-		return fmt.Errorf("runtime.requisitioner.tracker-token-cred is required")
-	}
-	if _, ok := c.Credentials[d.TrackerTokenCred]; !ok {
-		return fmt.Errorf("runtime.requisitioner.tracker-token-cred %q is not a demanded credential", d.TrackerTokenCred)
+	return checkConnectionOrCred(c, "runtime.requisitioner", d.Connection, "tracker-token-cred", d.TrackerTokenCred)
+}
+
+// checkConnectionOrCred checks a block's exactly-one-of `connection` / its
+// deprecated credential key (which must name a demanded credential).
+func checkConnectionOrCred(c serveConfig, field, conn, credKey, cred string) error {
+	switch {
+	case conn != "" && cred != "":
+		return fmt.Errorf("%s: both connection and %s are set; %s is deprecated — keep only connection", field, credKey, credKey)
+	case conn == "" && cred == "":
+		return fmt.Errorf("%s.connection is required", field)
+	case cred != "":
+		if _, ok := c.Credentials[cred]; !ok {
+			return fmt.Errorf("%s.%s %q is not a demanded credential", field, credKey, cred)
+		}
 	}
 	return nil
 }
@@ -451,13 +468,7 @@ func (c serveConfig) validateDiscord() error {
 	if d.DeprecatedBotToken != nil {
 		return fmt.Errorf("runtime.discord.bot-token is no longer inline — set runtime.discord.bot-token-cred: <name> and %s", credentialsFileHint)
 	}
-	if d.BotTokenCred == "" {
-		return fmt.Errorf("runtime.discord.bot-token-cred is required")
-	}
-	if _, ok := c.Credentials[d.BotTokenCred]; !ok {
-		return fmt.Errorf("runtime.discord.bot-token-cred %q is not a demanded credential", d.BotTokenCred)
-	}
-	return nil
+	return checkConnectionOrCred(c, "runtime.discord", d.Connection, "bot-token-cred", d.BotTokenCred)
 }
 
 // atCoveConfigDir mirrors at-cove's own configDir() (cmd/at-cove/main.go):
@@ -653,6 +664,12 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		}
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
+	}
+	if d := c.Runtime.Requisitioner; d != nil && d.TrackerTokenCred != "" && d.Connection == "" {
+		c.deprecated = append(c.deprecated, [2]string{"runtime.requisitioner.tracker-token-cred", "runtime.requisitioner.connection"})
+	}
+	if d := c.Runtime.Discord; d != nil && d.BotTokenCred != "" && d.Connection == "" {
+		c.deprecated = append(c.deprecated, [2]string{"runtime.discord.bot-token-cred", "runtime.discord.connection"})
 	}
 	if d := c.DevIdentity; d != nil {
 		switch {

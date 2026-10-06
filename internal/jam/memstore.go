@@ -334,13 +334,16 @@ func (fs *MemStore) SetJamContext(l sessionctx.Layer) error {
 	return nil
 }
 
-func (fs *MemStore) SetChatService(project, service string) error {
+func (fs *MemStore) SetChatService(project, ref string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p, _, err := fs.requireProject(project)
+	p, created, err := fs.prepareSetChatService(project, ref)
 	if err != nil {
 		return err
 	}
-	fs.applyPutProject(setChatService(p, service))
+	for _, c := range created {
+		fs.applyPutConnection(c)
+	}
+	fs.applyPutProject(p)
 	return nil
 }

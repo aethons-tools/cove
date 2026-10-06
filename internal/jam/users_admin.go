@@ -51,6 +51,18 @@ type AccountBody struct {
 	User       string `json:"user,omitempty"`
 }
 
+// ConnectionBody creates a connection.
+type ConnectionBody struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Cred string `json:"cred,omitempty"`
+}
+
+// CredBody names a connection's credential.
+type CredBody struct {
+	Cred string `json:"cred"`
+}
+
 // LinkBody links an account to a user.
 type LinkBody struct {
 	User string `json:"user"`
@@ -372,6 +384,64 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
+	mux.HandleFunc("POST /admin/connections", func(w http.ResponseWriter, r *http.Request) {
+		var b ConnectionBody
+		if !decode(w, r, &b) {
+			return
+		}
+		c, err := store.CreateConnection(Connection{Kind: b.Kind, Name: b.Name, CredName: b.Cred})
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		log.Info("admin connection created", "operator", OperatorID(r), "connection", c.ID, "kind", c.Kind, "name", c.Name, "cred", c.CredName)
+		writeJSON(w, http.StatusCreated, c)
+	})
+	conn := func(w http.ResponseWriter, r *http.Request) (ident.ID, bool) {
+		id, err := ResolveRegistryRef(store, ident.Connection, r.PathValue("connection"))
+		if err != nil {
+			fail(w, err)
+			return "", false
+		}
+		return id, true
+	}
+	connWrite := func(op string, apply func(id ident.ID, r *http.Request) (bool, error)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			id, ok := conn(w, r)
+			if !ok {
+				return
+			}
+			if decoded, err := apply(id, r); !decoded {
+				return
+			} else if err != nil {
+				fail(w, err)
+				return
+			}
+			log.Info("admin connection "+op, "operator", OperatorID(r), "connection", id)
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+	mux.HandleFunc("PUT /admin/connections/{connection}/name", func(w http.ResponseWriter, r *http.Request) {
+		connWrite("renamed", func(id ident.ID, r *http.Request) (bool, error) {
+			var b RenameBody
+			if !decode(w, r, &b) {
+				return false, nil
+			}
+			return true, store.RenameConnection(id, b.Name)
+		})(w, r)
+	})
+	mux.HandleFunc("PUT /admin/connections/{connection}/cred", func(w http.ResponseWriter, r *http.Request) {
+		connWrite("cred set", func(id ident.ID, r *http.Request) (bool, error) {
+			var b CredBody
+			if !decode(w, r, &b) {
+				return false, nil
+			}
+			return true, store.SetConnectionCred(id, b.Cred)
+		})(w, r)
+	})
+	mux.HandleFunc("DELETE /admin/connections/{connection}", connWrite("removed", func(id ident.ID, r *http.Request) (bool, error) {
+		return true, store.RemoveConnection(id)
+	}))
 	mux.HandleFunc("GET /admin/accounts", func(w http.ResponseWriter, r *http.Request) {
 		conns := store.ListConnections()
 		if ref := r.URL.Query().Get("connection"); ref != "" {

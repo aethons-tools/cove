@@ -716,4 +716,91 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("acme handle = %q, want @alice2", r.Humans[0].Handle)
 		}
 	})
+
+	t.Run("connection_cred_and_chat_service_refs", func(t *testing.T) {
+		s := newStore(t)
+		c := mustConn(t, s, "discord", "discord-main")
+		if err := s.SetConnectionCred(c.ID, "bot-tok"); err != nil {
+			t.Fatalf("SetConnectionCred: %v", err)
+		}
+		if got, _ := s.GetConnection(c.ID); got.CredName != "bot-tok" {
+			t.Fatalf("cred = %q", got.CredName)
+		}
+		if err := s.SetConnectionCred(ident.New(ident.Connection), "x"); !errors.Is(err, jam.ErrConnectionNotFound) {
+			t.Fatalf("unknown connection: %v, want ErrConnectionNotFound", err)
+		}
+		mustProject(t, s, "acme")
+		if err := s.SetChatService("acme", "discord-main"); err != nil {
+			t.Fatalf("SetChatService by name: %v", err)
+		}
+		if p, _ := s.GetProject("acme"); p.ChatService != string(c.ID) {
+			t.Fatalf("chat service = %q, want the connection id %q", p.ChatService, c.ID)
+		}
+		if err := s.RemoveConnection(c.ID); !errors.Is(err, jam.ErrConnectionInUse) {
+			t.Fatalf("remove a project's chat service: %v, want ErrConnectionInUse", err)
+		}
+		lin := mustConn(t, s, "linear", "linear-main")
+		if err := s.SetChatService("acme", string(lin.ID)); err == nil {
+			t.Fatal("a linear connection is not a chat service")
+		}
+		if err := s.SetChatService("acme", "nope"); !errors.Is(err, jam.ErrConnectionNotFound) {
+			t.Fatalf("unknown chat service: %v, want ErrConnectionNotFound", err)
+		}
+		if err := s.SetChatService("acme", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveConnection(c.ID); err != nil {
+			t.Fatalf("remove once unreferenced: %v", err)
+		}
+	})
+
+	t.Run("roster_view_follows_connection_of_kind", func(t *testing.T) {
+		s := newStore(t)
+		mustProject(t, s, "acme")
+		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
+			t.Fatal(err)
+		}
+		lin, ok := s.LookupName(ident.Connection, "linear")
+		if !ok {
+			t.Fatal("AddHuman with a handle must create the implicit linear connection")
+		}
+		if err := s.RenameConnection(lin, "linear-acme"); err != nil {
+			t.Fatal(err)
+		}
+		if r, _ := s.GetRoster("acme"); len(r.Humans) != 1 || r.Humans[0].Handle != "@alice" {
+			t.Fatalf("after renaming the linear connection, roster = %+v", r.Humans)
+		}
+		// A new handle binds on the same (renamed) connection, not a new implicit one.
+		if err := s.AddHuman("acme", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(s.ListConnections()); n != 1 {
+			t.Fatalf("connections = %+v, want only linear-acme", s.ListConnections())
+		}
+	})
+
+	t.Run("chat_service_survives_export_import", func(t *testing.T) {
+		s := newStore(t)
+		mustProject(t, s, "acme")
+		if err := s.SetChatService("acme", "discord"); err != nil {
+			t.Fatal(err)
+		}
+		s2 := newStore(t)
+		if err := s2.ImportConfig(s.ExportConfig()); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		if p, _ := s2.GetProject("acme"); jam.ChatKind(s2, p) != "discord" {
+			t.Fatalf("restored chat service = %q, want a discord connection", p.ChatService)
+		}
+		// A snapshot naming a connection id this Jam doesn't have is cleared,
+		// never left dangling.
+		s3 := newStore(t)
+		snap := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: []jam.Project{{Name: "beta", ChatService: string(ident.New(ident.Connection))}}}
+		if err := s3.ImportConfig(snap); err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := s3.GetProject("beta"); p.ChatService != "" {
+			t.Fatalf("dangling chat service kept: %q", p.ChatService)
+		}
+	})
 }

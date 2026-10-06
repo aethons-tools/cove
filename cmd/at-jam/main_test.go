@@ -1623,6 +1623,14 @@ func TestUserMemberAccountCommands(t *testing.T) {
 	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tdiscord") {
 		t.Fatalf("connection list:\n%s", conns)
 	}
+	exec(0, "connection", "add", "--kind", "linear", "--name", "linear-acme", "--cred", "lin-tok")
+	exec(0, "connection", "rename", "linear-acme", "linear-main")
+	exec(0, "connection", "cred", "linear-main", "lin-tok-2")
+	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tlinear-main") || !strings.Contains(conns, "cred=lin-tok-2") {
+		t.Fatalf("connection list after add/rename/cred:\n%s", conns)
+	}
+	exec(0, "connection", "rm", "linear-main")
+	exec(2, "connection", "add", "--kind", "linear")
 
 	exec(2, "user", "add", "--oidc", "no-colon", "erin")
 	exec(2, "user", "login", "--login", "x", "david")    // --login is add's; the set is positional

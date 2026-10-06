@@ -624,3 +624,25 @@ func (c *Client) LinkAccount(account, user string) error {
 func (c *Client) UnlinkAccount(account string) error {
 	return c.do("DELETE", "/admin/accounts/"+url.PathEscape(account)+"/user", nil, nil)
 }
+
+// CreateConnection creates a connection (an external service instance).
+func (c *Client) CreateConnection(b jam.ConnectionBody) (jam.Connection, error) {
+	var out jam.Connection
+	err := c.do("POST", "/admin/connections", b, &out)
+	return out, err
+}
+
+// RenameConnection renames a connection (by name or id).
+func (c *Client) RenameConnection(conn, name string) error {
+	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/name", jam.RenameBody{Name: name}, nil)
+}
+
+// SetConnectionCred names the credential a connection uses.
+func (c *Client) SetConnectionCred(conn, cred string) error {
+	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/cred", jam.CredBody{Cred: cred}, nil)
+}
+
+// RemoveConnection removes (tombstones) a connection.
+func (c *Client) RemoveConnection(conn string) error {
+	return c.do("DELETE", "/admin/connections/"+url.PathEscape(conn), nil, nil)
+}

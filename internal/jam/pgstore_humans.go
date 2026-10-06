@@ -9,31 +9,28 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// rosterSchemaVersion marks, in jam_settings 'roster_schema', that the stored
-// project docs' roster humans have been migrated into the registry.
-const rosterSchemaVersion = 1
-
-// errHumansMigratedElsewhere: another Jam process ran the humans migration
+// errHumansMigratedElsewhere: another Jam process ran the registry migration
 // between this load and its migration transaction.
 var errHumansMigratedElsewhere = errors.New("pgstore: humans migrated by another process")
 
-// migrateHumans runs the one-time humans → users migration at load (spec §6,
-// plan 1a-3a): plan from the loaded cache, write in one transaction under the
-// migration advisory lock (re-checking the marker there), then apply. load's
-// part; no lock.
+// migrateHumans runs the registry migration steps the store's roster_schema
+// marker hasn't recorded (planRegistryMigration: humans → users, chat
+// services → connections) at load: plan from the loaded cache, write in one
+// transaction under the migration advisory lock (re-checking the marker
+// there), then apply. load's part; no lock.
 func (s *PostgresStore) migrateHumans(ctx context.Context) error {
-	done, err := rosterSchemaDone(ctx, s.pool)
-	if err != nil || done {
+	from, err := rosterSchema(ctx, s.pool)
+	if err != nil || from >= rosterSchemaVersion {
 		return err
 	}
-	plan := s.planHumanMigration()
+	plan := s.planRegistryMigration(from)
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(migrateAdvisoryLock)); err != nil {
 			return err
 		}
-		if done, err := rosterSchemaDone(ctx, tx); err != nil {
+		if v, err := rosterSchema(ctx, tx); err != nil {
 			return err
-		} else if done {
+		} else if v != from {
 			return errHumansMigratedElsewhere
 		}
 		if err := writeHumanPlanTx(ctx, tx, plan); err != nil {
@@ -54,7 +51,7 @@ func (s *PostgresStore) migrateHumans(ctx context.Context) error {
 	s.applyHumanPlan(plan)
 	r := plan.report
 	if r.Users+r.Memberships+r.Accounts > 0 || len(r.Notes) > 0 {
-		s.log.Info("pgstore: migrated roster humans to users", "users", r.Users, "memberships", r.Memberships, "accounts", r.Accounts, "notes", r.Notes)
+		s.log.Info("pgstore: migrated the identity registry", "users", r.Users, "memberships", r.Memberships, "accounts", r.Accounts, "notes", r.Notes)
 	}
 	return nil
 }
@@ -63,15 +60,16 @@ type queryRower interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func rosterSchemaDone(ctx context.Context, q queryRower) (bool, error) {
+// rosterSchema reads the jam_settings 'roster_schema' marker (0 = none).
+func rosterSchema(ctx context.Context, q queryRower) (int, error) {
 	var v int
 	switch err := q.QueryRow(ctx, `SELECT (doc #>> '{}')::int FROM jam_settings WHERE key = 'roster_schema'`).Scan(&v); {
 	case errors.Is(err, pgx.ErrNoRows):
-		return false, nil
+		return 0, nil
 	case err != nil:
-		return false, fmt.Errorf("pgstore: read roster_schema: %w", err)
+		return 0, fmt.Errorf("pgstore: read roster_schema: %w", err)
 	}
-	return v >= rosterSchemaVersion, nil
+	return v, nil
 }
 
 // writeHumanPlanTx writes a humans plan: registry rows, aliases, and the

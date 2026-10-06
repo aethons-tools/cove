@@ -832,3 +832,24 @@ func TestClientContextRoundTrip(t *testing.T) {
 		t.Fatalf("over-budget err = %v", err)
 	}
 }
+
+func TestClientConnections(t *testing.T) {
+	ts, _ := newServer(t)
+	c := New(ts.URL, "")
+	conn, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear-acme", Cred: "lin-tok"})
+	if err != nil || conn.CredName != "lin-tok" {
+		t.Fatalf("CreateConnection = %+v, %v", conn, err)
+	}
+	if err := c.RenameConnection("linear-acme", "linear-main"); err != nil {
+		t.Fatalf("RenameConnection: %v", err)
+	}
+	if err := c.SetConnectionCred("linear-main", "lin-tok-2"); err != nil {
+		t.Fatalf("SetConnectionCred: %v", err)
+	}
+	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].Name != "linear-main" || list[0].CredName != "lin-tok-2" {
+		t.Fatalf("ListConnections = %+v, %v", list, err)
+	}
+	if err := c.RemoveConnection(string(conn.ID)); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+}

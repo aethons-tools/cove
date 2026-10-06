@@ -67,7 +67,7 @@ func (m *memState) humanView(u User, ms Membership) Human {
 // linkedAccount is the user's live account (lowest id, for determinism) on
 // the implicit connection named conn that satisfies match. Caller holds mu.
 func (m *memState) linkedAccount(conn string, user ident.ID, match func(Account) bool) (Account, bool) {
-	c, ok := m.liveConnectionNamed(conn)
+	c, ok := m.connectionOfKind(conn)
 	if !ok {
 		return Account{}, false
 	}
@@ -157,7 +157,7 @@ func (m *memState) prepareAddHuman(project string, h Human) (humanPlan, error) {
 // tmpl) or the connection if absent, and unlinks the user's other accounts on
 // that connection. ErrAccountLinked when the identity belongs to another user.
 func (m *memState) planUserAccount(plan *humanPlan, kind string, user ident.ID, match func(Account) bool, tmpl Account) error {
-	c, ok := m.liveConnectionNamed(kind)
+	c, ok := m.connectionOfKind(kind)
 	if !ok {
 		c = Connection{ID: ident.New(ident.Connection), Kind: kind, Name: kind, Status: StatusLive}
 		plan.connections = append(plan.connections, c)

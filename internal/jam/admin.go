@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -714,7 +715,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 
 	mux.HandleFunc("GET /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
-		writeJSON(w, http.StatusOK, ChatServiceView{Service: p.ChatService})
+		v := ChatServiceView{}
+		if c, ok := store.GetConnection(ident.ID(p.ChatService)); ok && p.ChatService != "" {
+			v.Service = c.Name
+		}
+		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("PUT /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		var b ChatServiceBody

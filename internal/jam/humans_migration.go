@@ -275,7 +275,7 @@ func (m *memState) planHumanMigration() humanPlan {
 		if c, ok := conns[kind]; ok {
 			return c
 		}
-		c, ok := m.liveConnectionNamed(kind)
+		c, ok := m.connectionOfKind(kind)
 		if !ok {
 			c = Connection{ID: ident.New(ident.Connection), Kind: kind, Name: kind, Status: StatusLive}
 			plan.connections = append(plan.connections, c)
@@ -435,7 +435,7 @@ func (m *memState) existingUserFor(keys []string, name string) (User, bool) {
 				return copyUser(m.users[id]), true
 			}
 		case "discord":
-			if c, ok := m.liveConnectionNamed("discord"); ok {
+			if c, ok := m.connectionOfKind("discord"); ok {
 				if a, ok := m.accountBy(c.ID, func(a Account) bool { return a.ServiceUID == parts[1] }); ok && a.UserID != "" {
 					if u, ok := m.users[a.UserID]; ok && u.Status == StatusLive {
 						return copyUser(u), true
@@ -458,7 +458,7 @@ func (m *memState) hasStrongIdentity(u User) bool {
 	if len(u.Logins) > 0 || len(u.OIDC) > 0 {
 		return true
 	}
-	if c, ok := m.liveConnectionNamed("discord"); ok {
+	if c, ok := m.connectionOfKind("discord"); ok {
 		_, linked := m.accountBy(c.ID, func(a Account) bool { return a.UserID == u.ID && a.ServiceUID != "" })
 		return linked
 	}
@@ -576,6 +576,81 @@ func mapsKeys[V any](mm map[string]V) func(func(string) bool) {
 			if !yield(k) {
 				return
 			}
+		}
+	}
+}
+
+// rosterSchemaVersion is the registry migration level this binary brings a
+// store to: 1 = roster humans are users (1a-3a); 2 = a project's chat service
+// is a connection id, not a kind name (1a-4).
+const rosterSchemaVersion = 2
+
+// planRegistryMigration plans every registry migration step above level from
+// (a store's roster_schema; 0 for an import, whose snapshot may predate them
+// all). Caller holds mu; it reads but never mutates memState.
+func (m *memState) planRegistryMigration(from int) humanPlan {
+	var plan humanPlan
+	if from < 1 {
+		plan = m.planHumanMigration()
+	}
+	if from < 2 {
+		m.planChatServices(&plan)
+	}
+	return plan
+}
+
+// planChatServices turns every project's chat service still stored as a kind
+// name ("discord") into the id of the connection of that kind, created when
+// absent (or already planned by an earlier step). A value naming no chat kind
+// never delivered anything; it is cleared, and reported.
+func (m *memState) planChatServices(plan *humanPlan) {
+	planned := map[string]int{} // project name → index in plan.projects
+	for i, p := range plan.projects {
+		planned[p.Name] = i
+	}
+	connOfKind := func(kind string) Connection {
+		for _, c := range plan.connections {
+			if c.Kind == kind && c.Name == kind {
+				return c
+			}
+		}
+		if c, ok := m.connectionOfKind(kind); ok {
+			return c
+		}
+		c := Connection{ID: ident.New(ident.Connection), Kind: kind, Name: kind, Status: StatusLive}
+		plan.connections = append(plan.connections, c)
+		return c
+	}
+	for _, name := range slices.Sorted(mapsKeys(m.projects)) {
+		p := m.projects[name]
+		if i, ok := planned[name]; ok {
+			p = plan.projects[i]
+		}
+		cs := p.ChatService
+		if cs == "" {
+			continue
+		}
+		id, perr := ident.Parse(cs)
+		if perr == nil && id.Kind() == ident.Connection {
+			if _, ok := m.connections[id]; ok {
+				continue
+			}
+		}
+		p = copyProject(p)
+		if perr == nil {
+			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("project %q: chat service connection %s does not exist here; cleared", name, cs))
+			p.ChatService = ""
+		} else if slices.Contains(ChatKinds, cs) {
+			p.ChatService = string(connOfKind(cs).ID)
+		} else {
+			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("project %q: chat service %q is not a chat kind %v; cleared", name, cs, ChatKinds))
+			p.ChatService = ""
+		}
+		if i, ok := planned[name]; ok {
+			plan.projects[i] = p
+		} else {
+			planned[name] = len(plan.projects)
+			plan.projects = append(plan.projects, p)
 		}
 	}
 }
