@@ -607,21 +607,16 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 
 // planPolicyRefs moves stored policy to user ids: every "human:<name>" in a
 // role's addressing, a grant override and an escalation tier becomes
-// "user:<usr_id>" when the name is a user of that project (its legacy alias,
-// else the live user of that name) and "user:<name>" otherwise, and a
+// "user:<usr_id>" when the name is a user (the live user of that name, else
+// that project's legacy alias) and "user:<name>" otherwise, and a
 // "human:<glob>" becomes "user:<glob>"; a personal session's instance gains
 // its owner's id. It reads earlier steps' writes (users, aliases, rewritten
 // docs) from plan, so a fresh migration resolves the users it is creating.
 func (m *memState) planPolicyRefs(plan *humanPlan) {
+	// A name means the live user of that name now (step 1 already rewrote a
+	// collision-renamed human's refs); the legacy alias is only the fallback
+	// for a name no live user has.
 	userOf := func(project, name string) (ident.ID, bool) {
-		for _, al := range plan.aliases {
-			if al.Project == project && al.Name == name {
-				return al.UserID, true
-			}
-		}
-		if id, ok := m.aliases[project][name]; ok {
-			return id, true
-		}
 		for _, u := range plan.users {
 			if u.Name == name && u.Status == StatusLive {
 				return u.ID, true
@@ -629,6 +624,14 @@ func (m *memState) planPolicyRefs(plan *humanPlan) {
 		}
 		if u, ok := m.liveUserNamed(name); ok {
 			return u.ID, true
+		}
+		for _, al := range plan.aliases {
+			if al.Project == project && al.Name == name {
+				return al.UserID, true
+			}
+		}
+		if id, ok := m.aliases[project][name]; ok {
+			return id, true
 		}
 		return "", false
 	}

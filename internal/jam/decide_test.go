@@ -279,3 +279,35 @@ func TestDecideSendUserTargets(t *testing.T) {
 		t.Errorf("ListTargets under a legacy human: glob = %+v", got)
 	}
 }
+
+// A name glob never matches a user id: every id is "usr_…", so a glob like
+// user:u* or *r* would otherwise reach every member.
+func TestNameGlobsNeverMatchIDs(t *testing.T) {
+	bob := ident.New(ident.User)
+	roles := map[string]map[string]Role{"acme": {
+		"u":    {Name: "u", Scope: Scope{Addressing: []string{"user:u*"}}},
+		"star": {Name: "star", Scope: Scope{Addressing: []string{"user:*_*", "user:*0*"}}},
+		"all":  {Name: "all", Scope: Scope{Addressing: []string{"user:*"}}},
+		"any":  {Name: "any", Scope: Scope{Addressing: []string{"*"}}},
+	}}
+	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "bob", UserID: bob}}}}
+	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
+	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
+	as := func(role string) Actor { return Actor{ID: role, Grants: []Grant{{Project: "acme", Role: role}}} }
+	now := time.Unix(1, 0)
+	for _, role := range []string{"u", "star"} {
+		for _, target := range []string{"user:bob", "user:" + string(bob)} {
+			if _, err := DecideSend(as(role), getRole, getRoster, target, now); !errors.Is(err, ErrSendDenied) {
+				t.Errorf("%s → %s: %v, want denied", role, target, err)
+			}
+		}
+		if got := ListTargets(as(role), getRole, getRoster, now); len(got) != 0 {
+			t.Errorf("%s lists %+v, want nobody", role, got)
+		}
+	}
+	for _, role := range []string{"all", "any"} {
+		if _, err := DecideSend(as(role), getRole, getRoster, "user:"+string(bob), now); err != nil {
+			t.Errorf("%s → bob's id: %v, want allowed", role, err)
+		}
+	}
+}

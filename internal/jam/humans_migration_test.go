@@ -354,3 +354,17 @@ func TestPlanRegistryMigrationPolicyRefs(t *testing.T) {
 		t.Fatalf("from 3 must plan nothing: %+v", again)
 	}
 }
+
+// Past step 1, a "human:<name>" names the live user of that name now; the
+// legacy alias is only the fallback for a name no live user has.
+func TestPlanPolicyRefsPrefersLiveNameOverAlias(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	alice := User{ID: ident.New(ident.User), Name: "alice", Status: StatusLive}
+	renamed := User{ID: ident.New(ident.User), Name: "alice-acme", Status: StatusLive}
+	m.users[alice.ID], m.users[renamed.ID] = alice, renamed
+	m.aliases["acme"] = map[string]ident.ID{"alice": renamed.ID}
+	m.instances["p1"] = Instance{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: SessionKindPersonal}
+	if plan := m.planRegistryMigration(2); len(plan.instances) != 1 || plan.instances[0].OwnerID != alice.ID {
+		t.Fatalf("owner = %+v, want the live alice", plan.instances)
+	}
+}

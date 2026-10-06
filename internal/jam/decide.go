@@ -121,16 +121,34 @@ func normalizeGlob(g string) string {
 
 // anyAllowed reports whether some glob matches some of a target's forms (a
 // person is "user:<name>" and "user:<usr_id>"; a channel "channel:<name>").
+// An id form is matched only by that exact id, "user:*" or "*": a name glob
+// never matches an id ("usr_…"), so it can't reach every member.
 func anyAllowed(forms []string, globs []string) bool {
 	for _, g := range globs {
 		g = normalizeGlob(g)
 		for _, f := range forms {
+			if isIDForm(f) {
+				if g == f || g == "user:*" || g == "*" {
+					return true
+				}
+				continue
+			}
 			if ok, _ := path.Match(g, f); ok {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// isIDForm reports whether a target form names a person by user id.
+func isIDForm(f string) bool {
+	ref, ok := strings.CutPrefix(f, "user:")
+	if !ok {
+		return false
+	}
+	id, err := ident.Parse(ref)
+	return err == nil && id.Kind() == ident.User
 }
 
 // humanForms are the addressable forms of a roster person.

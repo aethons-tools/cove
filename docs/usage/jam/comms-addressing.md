@@ -27,7 +27,8 @@ with `path.Match`: `user:*` (any member), `channel:eng-*`
 (channels by prefix), `*` (everything). A person matches a glob by either form —
 `user:<name>` or `user:<usr_id>` — so policy can name someone by id (rename-proof;
 what Jam itself writes, e.g. a personal session's grant and migrated policy) or
-by name; an id never widens what a name glob grants. Globs match only within
+by name. An id is matched only by that exact id, `user:*` or `*` — a name
+pattern like `user:a*` never matches an id — so ids never widen a name glob. Globs match only within
 their kind — a glob never crosses `user:`/`channel:` implicitly; write both
 prefixes if you mean both.
 

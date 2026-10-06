@@ -10,7 +10,7 @@
   - `user:<name|usr_id>` is the target kind for people.
   - `human:<name>` is still accepted as an alias, for one release.
   - Addressing globs `human:<pat>` are read as `user:<pat>`.
-  - A person matches a glob through either form: `user:<name>` or `user:<usr_id>`.
+  - A person matches a glob through either form: `user:<name>` or `user:<usr_id>`. An id form is matched only by that exact id, `user:*` or `*`, never by a name pattern (every id is `usr_…`).
 - **Resolution:** `DecideSend` resolves a user target to the member in the authorizing grant's project. The log still records `human:<current name>`, which is option B. `list_targets` and the session context offer `user:<name>`.
 - **Personal-session owner by id:**
   - `Instance.OwnerID` and `RaiseSpec.OwnerID` are set at request.
@@ -21,7 +21,7 @@
 - **Escalation tiers:** targets accept `user:<name|id>` (and `human:<name>`). The engine resolves the handle through the roster view, i.e. through accounts.
 - **Migration step 3** (`roster_schema` 3), run at Postgres load and on import:
   - Backfill `Instance.OwnerID` from the legacy alias for (project, Owner), else from the name.
-  - Rewrite stored addressing: role scopes, grant overrides and escalation tiers. Exact `human:<name>` becomes `user:<usr_id>` when the name resolves to a user in that project (alias, then name), else `user:<name>`. A `human:<glob>` becomes `user:<glob>`.
+  - Rewrite stored addressing: role scopes, grant overrides and escalation tiers. Exact `human:<name>` becomes `user:<usr_id>` when the name resolves to a user (the live user of that name, then the project's legacy alias), else `user:<name>`. A `human:<glob>` becomes `user:<glob>`.
 
 ## Tasks
 1. `Human.UserID` in the view; target matching and resolution (decide.go) with tests: name, id, alias and glob forms; ids never widen authz.
