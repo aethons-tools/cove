@@ -61,7 +61,7 @@ func (s *Legacy) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) 
 	}
 	err = pgx.BeginFunc(context.Background(), s.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
-			`INSERT INTO squawks (id, from_kind, from_ref, body, at, project, reply_to, "to", content_type)
+			`INSERT INTO legacy_squawks (id, from_kind, from_ref, body, at, project, reply_to, "to", content_type)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING seq`,
 			m.ID, m.From.Kind, m.From.Ref, m.Body, m.At, m.Project, m.ReplyTo, toJSON, m.ContentType).Scan(&m.Seq); err != nil {
 			return err
@@ -71,7 +71,7 @@ func (s *Legacy) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) 
 			// file backend); the full To, duplicates included, is still preserved
 			// in the "to" JSONB column above.
 			if _, err := tx.Exec(context.Background(),
-				`INSERT INTO squawk_recipients (squawk_id, kind, ref) VALUES ($1,$2,$3)
+				`INSERT INTO legacy_squawk_recipients (squawk_id, kind, ref) VALUES ($1,$2,$3)
 				 ON CONFLICT (squawk_id, kind, ref) DO NOTHING`,
 				m.ID, t.Kind, t.Ref); err != nil {
 				return err
@@ -88,14 +88,14 @@ func (s *Legacy) Append(m intercom.LegacySquawk) (intercom.LegacySquawk, error) 
 func (s *Legacy) ReadInbox(t intercom.Target) []intercom.LegacySquawk {
 	return s.query(
 		`SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
-		 FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
+		 FROM legacy_squawks m JOIN legacy_squawk_recipients r ON r.squawk_id = m.id
 		 WHERE r.kind = $1 AND r.ref = $2 ORDER BY m.seq`, t.Kind, t.Ref)
 }
 
 func (s *Legacy) ReadThread(rootID string) []intercom.LegacySquawk {
 	return s.query(
 		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
-		 FROM squawks WHERE id = $1 OR reply_to = $1 ORDER BY seq`, rootID)
+		 FROM legacy_squawks WHERE id = $1 OR reply_to = $1 ORDER BY seq`, rootID)
 }
 
 func (s *Legacy) List(f intercom.LegacyFilter) []intercom.LegacySquawk {
@@ -105,7 +105,7 @@ func (s *Legacy) List(f intercom.LegacyFilter) []intercom.LegacySquawk {
 	// never rely on lexical id order.
 	return s.query(
 		`SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
-		 FROM squawks
+		 FROM legacy_squawks
 		 WHERE ($1 = '' OR project = $1)
 		   AND ($2::timestamptz IS NULL OR at >= $2)
 		   AND ($3::timestamptz IS NULL OR at < $3)
@@ -115,7 +115,7 @@ func (s *Legacy) List(f intercom.LegacyFilter) []intercom.LegacySquawk {
 
 func (s *Legacy) SeenIDs(prefix string) []string {
 	rows, err := s.pool.Query(context.Background(),
-		`SELECT id FROM squawks WHERE id LIKE $1 ORDER BY id`, likePrefix(prefix))
+		`SELECT id FROM legacy_squawks WHERE id LIKE $1 ORDER BY id`, likePrefix(prefix))
 	if err != nil {
 		s.log.Error("intercompg: SeenIDs query", "error", err.Error())
 		return nil
@@ -143,7 +143,7 @@ func (s *Legacy) SeenIDs(prefix string) []string {
 
 func (s *Legacy) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {
 	sql := `SELECT seq, id, from_kind, from_ref, body, at, project, reply_to, "to", content_type
-	        FROM squawks WHERE seq > $1 ORDER BY seq`
+	        FROM legacy_squawks WHERE seq > $1 ORDER BY seq`
 	args := []any{afterSeq}
 	if limit > 0 {
 		sql += ` LIMIT $2`
@@ -154,7 +154,7 @@ func (s *Legacy) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {
 
 func (s *Legacy) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.LegacySquawk {
 	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
-	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
+	        FROM legacy_squawks m JOIN legacy_squawk_recipients r ON r.squawk_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2 AND m.seq > $3 ORDER BY m.seq`
 	args := []any{t.Kind, t.Ref, afterSeq}
 	if limit > 0 {
@@ -167,7 +167,7 @@ func (s *Legacy) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []
 func (s *Legacy) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.LegacySquawk {
 	// nearest-below beforeSeq: order DESC + LIMIT, then reverse to ascending.
 	sql := `SELECT m.seq, m.id, m.from_kind, m.from_ref, m.body, m.at, m.project, m.reply_to, m."to", m.content_type
-	        FROM squawks m JOIN squawk_recipients r ON r.squawk_id = m.id
+	        FROM legacy_squawks m JOIN legacy_squawk_recipients r ON r.squawk_id = m.id
 	        WHERE r.kind = $1 AND r.ref = $2`
 	args := []any{t.Kind, t.Ref}
 	if beforeSeq > 0 {
@@ -192,7 +192,7 @@ func (s *Legacy) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) 
 func (s *Legacy) SeqOf(id string) (int64, bool) {
 	var seq int64
 	err := s.pool.QueryRow(context.Background(),
-		`SELECT seq FROM squawks WHERE id = $1`, id).Scan(&seq)
+		`SELECT seq FROM legacy_squawks WHERE id = $1`, id).Scan(&seq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, false
@@ -208,7 +208,7 @@ func (s *Legacy) SeqOf(id string) (int64, bool) {
 func (s *Legacy) TailSeq() (int64, bool) {
 	var seq int64
 	err := s.pool.QueryRow(context.Background(),
-		`SELECT seq FROM squawks ORDER BY seq DESC LIMIT 1`).Scan(&seq)
+		`SELECT seq FROM legacy_squawks ORDER BY seq DESC LIMIT 1`).Scan(&seq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, false
@@ -260,7 +260,10 @@ func (s *Legacy) scanSquawks(rows pgx.Rows) []intercom.LegacySquawk {
 	return out
 }
 
-func (s *Legacy) migrate(ctx context.Context) error {
+func (s *Legacy) migrate(ctx context.Context) error { return s.migrateUpTo(ctx, 0) }
+
+// migrateUpTo applies the migrations up to version upTo (0 = all).
+func (s *Legacy) migrateUpTo(ctx context.Context, upTo int) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(migrateAdvisoryLock)); err != nil {
 			return fmt.Errorf("intercompg: advisory lock: %w", err)
@@ -305,7 +308,7 @@ func (s *Legacy) migrate(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("intercompg: bad migration version in %q: %w", name, err)
 			}
-			if applied[ver] {
+			if applied[ver] || (upTo > 0 && ver > upTo) {
 				continue
 			}
 			sqlText, err := migrationFiles.ReadFile("migrations/" + name)
