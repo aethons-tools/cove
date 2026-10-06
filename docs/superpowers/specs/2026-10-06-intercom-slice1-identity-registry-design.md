@@ -129,8 +129,11 @@ names in this slice except where a touched identifier would otherwise mislead.
 - `Actor.ID` and `Instance.ActorID` hold the session id; `Instance.Project` →
   `ProjectID`, `Instance.Owner` → `StartedBy` (a `usr_` id; comms meaning unchanged
   until slice 3).
-- **Volumes belong to the session; the container to the studio.** Both names
-  derive from the session id (a session has at most one studio at a time)
+- **The agent-data and workspace volumes belong to the session; the container
+  and the `-docker` volume (in-studio Docker storage, a cache) belong to the
+  studio** — so a new studio (restart, upgrade) starts with a clean Docker store,
+  a change from today where it survives upgrades. Names derive from the session
+  id (a session has at most one studio at a time)
   (`naming.CoveContainer(sessionID)`), labelled `harbor.cove.state=<sessionID>`.
   The standing reconciler's liveness, reset, upgrade, backoff, 409-holder check and
   `sweep` purge set key on `standing_sessions`, not on `StandingActorID`, which is
@@ -253,7 +256,10 @@ rule is unchanged.
 `intercom.md` (ids on the wire), `escalation.md`, `operators.md` (CLI),
 config export/import docs.
 
-## Open for review
+## Decided in review (2026-10-06)
+
+All four were accepted with the spec; the `-docker` volume is studio-side.
+
 
 1. **Session vs studio** (§4) — upgrade/restart sets the same session up in a new studio; reset ends it.
 2. **Merge heuristic** (§6) — group by strong identity, then by name; rename
