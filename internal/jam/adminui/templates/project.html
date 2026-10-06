@@ -118,9 +118,9 @@
   <section class="card">
     <header><h2>Rooms</h2></header>
     <table>
-      <thead><tr><th>Name</th><th>Service</th><th>Ref</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Connection</th><th>Ref</th><th></th></tr></thead>
       <tbody>
-        {{range .Project.Roster.Channels}}<tr><td class="mono"><b>{{.Name}}</b></td><td><span class="chip">{{.Service}}</span></td><td class="mono">{{.Ref}}</td>
+        {{range .Rooms}}<tr><td class="mono"><b>{{.Name}}</b></td><td>{{.Connection}} <span class="chip">{{.Kind}}</span></td><td class="mono">{{.Ref}}{{if .PostOnly}} <span class="chip" title="another channel receives this ref's replies">post-only</span>{{end}}</td>
           <td class="actions"><button class="danger small" hx-delete="/ui/projects/{{$p}}/channels/{{.Name}}" hx-target="#project" hx-swap="outerHTML"
             hx-confirm="Remove room {{.Name}} from {{$p}}?">Remove</button></td></tr>
         {{else}}<tr><td colspan="4" class="empty">No rooms.</td></tr>{{end}}
@@ -130,7 +130,7 @@
       <summary>Add room</summary>
       <form hx-post="/ui/projects/{{$p}}/channels" hx-target="#project" hx-swap="outerHTML">
         <div class="grid">
-          <label>Name <span class="req">required</span><span class="hint">an existing name is replaced</span><input name="name" required></label>
+          <label>Name <span class="req">required</span><span class="hint">an existing name is rebound</span><input name="name" required></label>
           <label>Connection <span class="req">required</span><span class="hint">a connection name, or a service (its connection)</span><input name="service" data-ta="services" required placeholder="discord" autocomplete="off"></label>
           <label>Ref <span class="req">required</span><span class="hint">the service's channel id</span><input name="ref" required></label>
         </div>

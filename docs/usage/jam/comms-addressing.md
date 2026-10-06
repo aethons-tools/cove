@@ -105,7 +105,9 @@ these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
 `/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`
 and `/channels` routes, and `project roster`, are gone).
 
-A room's `--connection` defaults to the linear connection; a `<room>` is a name
+A room's `--connection` is a connection name or id, or a kind (`linear`,
+`discord`: that kind's connection, created if there is none); it defaults to
+`linear`. A `<room>` is a name
 or a `chn_` id, and renaming one changes nothing else but which `channel:`
 addressing globs match it. `room list` marks a room that only posts to its ref
 (another channel receives its replies) `post-only`. `--delivery` and `--oidc`

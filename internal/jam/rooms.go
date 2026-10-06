@@ -146,7 +146,11 @@ func (m *memState) planConnectionOfKind(plan *humanPlan, k string) Connection {
 	if i := slices.IndexFunc(plan.connections, func(c Connection) bool { return c.Kind == k && c.Status == StatusLive }); i >= 0 {
 		return plan.connections[i]
 	}
-	c := Connection{ID: ident.New(ident.Connection), Kind: k, Name: k, Status: StatusLive}
+	name := k
+	for i := 2; m.checkConnectionName(name, "") != nil; i++ { // another kind's connection may hold the name
+		name = fmt.Sprintf("%s-%d", k, i)
+	}
+	c := Connection{ID: ident.New(ident.Connection), Kind: k, Name: name, Status: StatusLive}
 	plan.connections = append(plan.connections, c)
 	return c
 }

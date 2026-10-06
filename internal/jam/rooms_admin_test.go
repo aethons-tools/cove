@@ -139,3 +139,45 @@ func TestAdminRoomRoutes(t *testing.T) {
 		t.Fatalf("GET unknown project = %d", rec.Code)
 	}
 }
+
+// A kind names its connection of that kind, never another kind's connection
+// that happens to carry the kind's name; with none, one is created (as the
+// roster's channels always did).
+func TestRoomConnectionByKind(t *testing.T) {
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateConnection(Connection{Kind: "discord", Name: "linear"}); err != nil {
+		t.Fatal(err)
+	}
+	v, _, err := PutRoom(s, "acme", RoomBody{Name: "eng", Ref: "ACME-1"})
+	if err != nil || v.Kind != "linear" {
+		t.Fatalf("default = %+v, %v; want a linear connection", v, err)
+	}
+	w, _, err := PutRoom(s, "acme", RoomBody{Name: "chat", Connection: " Discord ", Ref: "42"})
+	if err != nil || w.Kind != "discord" {
+		t.Fatalf("by kind = %+v, %v", w, err)
+	}
+}
+
+// A post-only room is promoted once no other channel holds its ref.
+func TestPutRoomPromotesPostOnly(t *testing.T) {
+	s, p, c := roomsFixture(t)
+	a, err := s.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceRoom, Key: "a", Label: "a", Bindings: []Binding{{ConnectionID: c.ID, Ref: "ACME-1", Mode: BindBoth}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceRoom, Key: "b", Label: "b", Bindings: []Binding{{ConnectionID: c.ID, Ref: "ACME-1", Mode: BindEgress}}}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := PutRoom(s, "acme", RoomBody{Name: "b", Ref: "ACME-1"}); err != nil || !v.PostOnly {
+		t.Fatalf("while a holds the ref: %+v, %v", v, err)
+	}
+	if err := s.ArchiveChannel(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, err := PutRoom(s, "acme", RoomBody{Name: "b", Ref: "ACME-1"}); err != nil || v.PostOnly {
+		t.Fatalf("after a is gone: %+v, %v", v, err)
+	}
+}

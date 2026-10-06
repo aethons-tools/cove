@@ -1,10 +1,13 @@
 package jam
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
@@ -72,8 +75,9 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	}
 	bind := Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindBoth}
 	if ch, ok := store.ChannelByKey(p.ID, SourceRoom, b.Name); ok {
-		if slices.Contains(ch.Bindings, Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindEgress}) {
-			bind.Mode = BindEgress
+		holder, taken := store.ChannelByBinding(conn.ID, b.Ref)
+		if taken && holder.ID != ch.ID && slices.Contains(ch.Bindings, Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindEgress}) {
+			bind.Mode = BindEgress // still post-only while another channel holds the ref
 		}
 		if err := store.SetChannelBindings(ch.ID, []Binding{bind}); err != nil {
 			return RoomView{}, false, err
@@ -91,22 +95,36 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	return NewRoomView(store, ch), true, nil
 }
 
-// roomConnection resolves a room's connection: a connection name or id, a
-// kind (its connection of that kind), or "" (the linear connection).
+// roomConnection resolves a room's connection: a kind (in any case; its
+// connection of that kind, created when there is none, as roster channels
+// always were), "" (the linear kind), or a connection name or id.
 func roomConnection(store Store, ref string) (Connection, error) {
-	if ref == "" {
-		ref = "linear"
+	if kind := strings.ToLower(strings.TrimSpace(cmp.Or(ref, "linear"))); slices.Contains(ConnectionKinds, kind) {
+		if c, ok := store.ConnectionOfKind(kind); ok {
+			return c, nil
+		}
+		return createConnectionOfKind(store, kind)
 	}
 	if id, err := ResolveRegistryRef(store, ident.Connection, ref); err == nil {
 		c, _ := store.GetConnection(id)
 		return c, nil
 	}
-	if slices.Contains(ConnectionKinds, ref) {
-		if c, ok := store.ConnectionOfKind(ref); ok {
-			return c, nil
+	return Connection{}, fmt.Errorf("%w: %q", ErrConnectionNotFound, ref)
+}
+
+// createConnectionOfKind creates a connection of kind k named k (or k-2, k-3…
+// while another connection holds the name).
+func createConnectionOfKind(store Store, k string) (Connection, error) {
+	for i := 1; ; i++ {
+		name := k
+		if i > 1 {
+			name = fmt.Sprintf("%s-%d", k, i)
+		}
+		c, err := store.CreateConnection(Connection{Kind: k, Name: name})
+		if !errors.Is(err, ErrNameTaken) || i == 9 {
+			return c, err
 		}
 	}
-	return Connection{}, fmt.Errorf("%w: %q", ErrConnectionNotFound, ref)
 }
 
 // resolveRoom finds project's live room ref names (a name or a channel id).
