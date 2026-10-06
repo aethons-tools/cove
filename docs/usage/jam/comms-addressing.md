@@ -71,7 +71,8 @@ at-jam project member add  <project> <user> [--delivery discord:<inbox-channel>]
 at-jam project member list <project> | rm <project> <user>
 at-jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
 at-jam account list [--connection c] | link <account> <user> | unlink <account>
-at-jam connection list
+at-jam connection add --kind linear|discord --name <n> [--cred <credential>]
+at-jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
 at-jam project roster add-channel <project> --name eng-help --ref ACME-1 [--service linear]
 at-jam project roster list        <project>
 at-jam project roster rm-channel  <project> <name>

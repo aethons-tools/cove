@@ -32,3 +32,7 @@ updated: 2026-10-03
   first; a timer or idle wake is a natural seam to start a fresh episode.
 * Session context: a Postgres restart test for `jam_settings` (the Jam-wide layer
   survives a store reopen), in the store-integration suite.
+* Connections: more than one connection of a kind (two Linear workspaces, two Discord
+  bots). Serve config names one connection per block today, the relay runs one engine
+  per service, and its cursor/marker state files are keyed by service: re-key them by
+  connection id (spec slice 1 §7) when relays run per connection.
