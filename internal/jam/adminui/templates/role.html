@@ -155,8 +155,10 @@
           <td><span class="mono">{{.Name}}</span></td>
           <td class="prompt">{{.Prompt}}</td>
           <td>{{if .Phase}}{{template "phase" .Phase}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
-          <td class="actions"><button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Dismiss standing session {{.Name}}? Its studio is torn down.">Dismiss</button></td>
+          <td class="actions">{{if $.CanRequest}}<button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Reset standing session {{.Name}}? Its studio, conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
+            <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Dismiss standing session {{.Name}}? Its studio, conversation and workspace are deleted.">Dismiss</button></td>
         </tr>
         {{else}}
         <tr><td colspan="4" class="empty">No standing sessions.</td></tr>

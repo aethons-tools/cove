@@ -38,9 +38,13 @@ type idleTracker struct {
 	// resumeOwed: a resume prompt was written but the agent has not started the
 	// turn it asked for (no TurnStart/TurnEnd seen since).
 	resumeOwed bool
-	changed    chan struct{} // cap 1; signalled on every state change from Observe
-	parse      func(line []byte) (Event, error)
-	warn       func(msg string, args ...any)
+	// replied: the agent has produced a reply this episode (Event.Reply);
+	// onReply, if set, runs once when it first does (on the stdout goroutine).
+	replied bool
+	onReply func()
+	changed chan struct{} // cap 1; signalled on every state change from Observe
+	parse   func(line []byte) (Event, error)
+	warn    func(msg string, args ...any)
 }
 
 // newIdleTracker builds a tracker that maps stdout lines to Events with parse
@@ -64,6 +68,12 @@ func (t *idleTracker) Observe(line []byte) {
 		return
 	}
 	t.mu.Lock()
+	if ev.Reply && !t.replied {
+		t.replied = true
+		if t.onReply != nil {
+			defer t.onReply() // after the unlock below (defers run last)
+		}
+	}
 	switch ev.Kind {
 	case EventTurnEnd:
 		t.resumeOwed = false
@@ -162,6 +172,13 @@ func (t *idleTracker) WakeOwed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.pendingWake || t.resumeOwed
+}
+
+// Replied reports whether the agent produced a reply this episode.
+func (t *idleTracker) Replied() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.replied
 }
 
 // ResumeOwed reports whether a resume prompt was written that the agent never

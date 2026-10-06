@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -369,7 +370,9 @@ func eventually(cond func() bool) bool {
 func TestEpisodeMergesWakeReasons(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
-	w := streamWL(t, dir, s, func(c *Config) { c.Resident, c.SessionKind = true, "standing" })
+	w := streamWL(t, dir, s, func(c *Config) {
+		c.Resident, c.SessionKind, c.ConversationMarker = true, "standing", filepath.Join(dir, ".cove-conversation")
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := runAsync(ctx, w, &recordHandle{})
@@ -419,7 +422,9 @@ func TestEpisodeReportsHoldingThenRunning(t *testing.T) {
 func TestEpisodeUnansweredWakeKeepsReasons(t *testing.T) {
 	dir := t.TempDir()
 	s := newStreamSpawner()
-	w := streamWL(t, dir, s, func(c *Config) { c.Resident, c.SessionKind = true, "standing" })
+	w := streamWL(t, dir, s, func(c *Config) {
+		c.Resident, c.SessionKind, c.ConversationMarker = true, "standing", filepath.Join(dir, ".cove-conversation")
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := runAsync(ctx, w, &recordHandle{})

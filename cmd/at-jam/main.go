@@ -89,7 +89,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
-			{Name: "standing", Brief: "declare, list or dismiss a role's named standing sessions (add|list|rm) via the admin API", Run: cmdStanding},
+			{Name: "standing", Brief: "declare, list, dismiss or reset a role's named standing sessions (add|list|rm|reset) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
@@ -1218,11 +1218,12 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // cmdStanding manages a role's standing-session declarations: Jam keeps one
-// cove running per declared name, restarts it if it dies, and tears it down once
-// the name is removed.
+// cove running per declared name, restarts it (state kept) if it dies, and
+// tears it down with its state once the name is removed. reset deletes a
+// declared name's cove and state so Jam raises it afresh.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam standing: expected add|list|rm")
+		fmt.Fprintln(stderr, "at-jam standing: expected add|list|rm|reset")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -1242,7 +1243,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam standing:", err)
 		return 2
 	}
-	if *role == "" && (sub == "add" || sub == "list" || sub == "rm") {
+	if *role == "" && (sub == "add" || sub == "list" || sub == "rm" || sub == "reset") {
 		fmt.Fprintf(stderr, "at-jam standing %s: --role is required\n", sub)
 		return 2
 	}
@@ -1299,6 +1300,21 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
+	case "reset":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam standing reset: expected one standing session name")
+			return 2
+		}
+		res, err := c.ResetStanding(proj, *role, pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		if res.Pending {
+			fmt.Fprintf(stdout, "reset of standing session %s pending: %s\n", pos[0], res.Reason)
+			break
+		}
+		fmt.Fprintf(stdout, "reset standing session %s (cove and state deleted; Jam raises it fresh)\n", pos[0])
 	default:
 		fmt.Fprintln(stderr, "at-jam standing: unknown subcommand", sub)
 		return 2
@@ -1836,7 +1852,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever Jam serves; with no declarations a tick does nothing.
 	stdg := standing.New(st /*Roster*/, st /*Registry*/, alloc /*Granter*/, sup /*Supervisor*/, standing.DefaultInterval, log)
-	stdg.SetActors(st) // clear a standing identity left over from an interrupted raise
+	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
+	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 

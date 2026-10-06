@@ -109,6 +109,26 @@ type CurrentImage struct {
 	Tag    string // the launcher's image tag for Kit; "" when it cannot name images
 }
 
+// StateKeeper is the optional launcher surface over sessions' persisted state
+// (a standing session's labeled volumes, COV-249). Only the standing
+// reconciler drives it — sweeping the state of undeclared names and purging a
+// reset one — never a teardown, so a restart or a Lost cove keeps its state. A
+// launcher without it persists no state.
+type StateKeeper interface {
+	// PurgeState deletes actorID's state; state still in use errors.
+	PurgeState(ctx context.Context, actorID string) error
+	// StateOwners lists the actor ids that have persisted state.
+	StateOwners(ctx context.Context) ([]string, error)
+}
+
+// StandingResetter resets a declared standing session — tears its cove down
+// and deletes its state, the declaration kept — serialized with the standing
+// reconciler so it can't re-raise the session on the old state mid-reset.
+// An error means the reset is still pending: the reconciler finishes it.
+type StandingResetter interface {
+	ResetStanding(ctx context.Context, project, role, name string) error
+}
+
 // ControlSink pushes lifecycle control to a connected cove (implemented by the
 // Attach server). Best-effort and non-blocking; no connected stream is a no-op.
 // nil when no stream server runs (slice-1 behavior).
@@ -160,6 +180,9 @@ type Supervisor struct {
 	kitRefs   kitRefCache          // CurrentImage's resolved kit refs
 	imgLogMu  sync.Mutex           // guards imgLogged
 	imgLogged map[string]time.Time // project/role → last CurrentImage error logged
+	// resetter is the standing reconciler (SetStandingResetter); nil → a
+	// standing reset is unavailable (503).
+	resetter StandingResetter
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -1090,6 +1113,31 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	return nil
 }
+
+// PurgeState deletes actorID's persisted state via the launcher's
+// StateKeeper; a launcher without one has none. State still in use (a live
+// container) errors: the caller retries later.
+func (s *Supervisor) PurgeState(ctx context.Context, actorID string) error {
+	k, ok := s.launcher.(StateKeeper)
+	if !ok {
+		return nil
+	}
+	return k.PurgeState(ctx, actorID)
+}
+
+// StateOwners lists the actor ids with persisted state (none without a
+// StateKeeper launcher).
+func (s *Supervisor) StateOwners(ctx context.Context) ([]string, error) {
+	k, ok := s.launcher.(StateKeeper)
+	if !ok {
+		return nil, nil
+	}
+	return k.StateOwners(ctx)
+}
+
+// SetStandingResetter wires the standing reconciler in as the reset path for
+// the admin API and UI (jam.ResetStanding). Call before serving.
+func (s *Supervisor) SetStandingResetter(r StandingResetter) { s.resetter = r }
 
 // Reconcile is the self-healing + restart-re-adoption pass. For each non-Gone
 // Instance: renew our own unexpired lease; for an expired lease, Probe the cove —

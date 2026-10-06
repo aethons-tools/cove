@@ -201,7 +201,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
-	registerRoleEdits(mux, store, sup, log, credExists, canEdit, guardWrite)
+	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)
 	registerJamContext(mux, store, log, guardWrite)
 
 	return mux

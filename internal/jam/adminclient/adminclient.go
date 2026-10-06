@@ -433,9 +433,20 @@ func (c *Client) ListStanding(project, role string) ([]jam.StandingSession, erro
 	return out, err
 }
 
-// RemoveStanding dismisses a standing session; Jam tears its cove down.
+// RemoveStanding dismisses a standing session; Jam tears its cove down and
+// deletes its persisted state.
 func (c *Client) RemoveStanding(project, role, name string) error {
 	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
+}
+
+// ResetStanding tears a declared standing session's cove down and deletes its
+// persisted state, keeping the declaration: Jam raises a fresh session on its
+// next standing pass. Pending in the result means Jam is still finishing it
+// (it retries every pass). An undeclared name is ErrNotFound.
+func (c *Client) ResetStanding(project, role, name string) (jam.StandingResetResult, error) {
+	var out jam.StandingResetResult
+	err := c.do("POST", standingPath(project, role)+"/"+url.PathEscape(name)+"/reset", nil, &out)
+	return out, err
 }
 
 func egressPath(project, role string) string {

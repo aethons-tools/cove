@@ -52,6 +52,9 @@ type Event struct {
 	QueuedEmpty bool             // EventTurnEnd
 	Tasks       []BackgroundTask // EventBackgroundTasks
 	TaskID      string           // EventBackgroundDone
+	// Reply marks the agent's own output (a model reply): its conversation
+	// exists and can be continued.
+	Reply bool
 }
 
 // BackgroundTask is one outstanding background task.

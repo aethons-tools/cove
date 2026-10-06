@@ -36,6 +36,9 @@ type fakeLauncher struct {
 	egressErr   error
 	gotSpec     RaiseSpec
 	gotCreds    LaunchCreds
+	purged      []string // PurgeState calls (actor ids), in order
+	purgeErr    error
+	owners      []string // StateOwners result
 
 	// onProbe / onEgress run inside Probe / ApplyEgress, simulating a concurrent
 	// write (e.g. a cove's connector report) landing mid-Reconcile.
@@ -76,6 +79,11 @@ func (f *fakeLauncher) Teardown(_ context.Context, inst Instance) error {
 	f.tornDown = append(f.tornDown, inst.ActorID)
 	return f.teardownErr
 }
+func (f *fakeLauncher) PurgeState(_ context.Context, id string) error {
+	f.purged = append(f.purged, id)
+	return f.purgeErr
+}
+func (f *fakeLauncher) StateOwners(context.Context) ([]string, error) { return f.owners, nil }
 func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error) {
 	f.probed = append(f.probed, inst.ActorID)
 	if f.onProbe != nil {
@@ -616,6 +624,43 @@ func TestTeardownPropagatesRevokeFailure(t *testing.T) {
 	}
 	if len(store.ListActors()) != 0 {
 		t.Fatal("actor should be revoked after the successful retry")
+	}
+}
+
+// TestTeardownKeepsState: no teardown purges a session's persisted state;
+// PurgeState and StateOwners pass through to the launcher's StateKeeper
+// (COV-249).
+func TestTeardownKeepsStateStateKeeperPassThrough(t *testing.T) {
+	f := &fakeLauncher{owners: []string{"a", "b"}}
+	sup, _, _ := supTestKit(t, f)
+	ctx := context.Background()
+	sup.Raise(ctx, RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.Teardown(ctx, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.purged) != 0 {
+		t.Fatalf("Teardown must keep state; purged %v", f.purged)
+	}
+	if err := sup.PurgeState(ctx, "w1"); err != nil || !slices.Equal(f.purged, []string{"w1"}) {
+		t.Fatalf("PurgeState: err=%v purged=%v", err, f.purged)
+	}
+	if got, err := sup.StateOwners(ctx); err != nil || !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("StateOwners = %v, %v", got, err)
+	}
+}
+
+// TestReconcileLostKeepsState: a Lost cove is torn down without purging its
+// state — the standing reconciler's re-raise resumes from it.
+func TestReconcileLostKeepsState(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessDead}
+	sup, _, clk := supTestKit(t, f)
+	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	*clk = clk.Add(2 * time.Minute)
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.tornDown) != 1 || len(f.purged) != 0 {
+		t.Fatalf("tornDown=%v purged=%v; want torn down, state kept", f.tornDown, f.purged)
 	}
 }
 

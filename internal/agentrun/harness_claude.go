@@ -347,7 +347,7 @@ type claudeEvent struct {
 //   - system/background_tasks_changed → BackgroundTasks (the full list).
 //     claude empties the list BEFORE the task's task_notification arrives.
 //   - system/task_notification → BackgroundDone (the notification starts a turn)
-//   - system/init, assistant, user → TurnStart
+//   - system/init, assistant, user → TurnStart (assistant also sets Reply)
 //   - anything else → Other
 func (Claude) ParseEvent(line []byte) (Event, error) {
 	var ev claudeEvent
@@ -365,8 +365,9 @@ func (Claude) ParseEvent(line []byte) (Event, error) {
 		return Event{Kind: EventBackgroundTasks, Tasks: tasks}, nil
 	case ev.Type == "system" && ev.Subtype == "task_notification":
 		return Event{Kind: EventBackgroundDone, TaskID: ev.TaskID}, nil
-	case ev.Type == "system" && ev.Subtype == "init",
-		ev.Type == "assistant", ev.Type == "user":
+	case ev.Type == "assistant":
+		return Event{Kind: EventTurnStart, Reply: true}, nil
+	case ev.Type == "system" && ev.Subtype == "init", ev.Type == "user":
 		return Event{Kind: EventTurnStart}, nil
 	}
 	return Event{Kind: EventOther}, nil

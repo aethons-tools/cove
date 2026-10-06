@@ -906,7 +906,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
-	registerStanding(mux, store, log)
+	registerStanding(mux, store, sup, log)
 	registerEgress(mux, store, log)
 	registerContext(mux, store, log)
 

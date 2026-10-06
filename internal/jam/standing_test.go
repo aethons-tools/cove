@@ -1,8 +1,12 @@
 package jam
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -142,5 +146,76 @@ func TestAdminStandingRejectsCrossRoleIDCollision(t *testing.T) {
 	}
 	if rec := doJSON(t, h, "POST", "/admin/roles/acme/a/standing", StandingSession{Name: "b-c", Prompt: "p"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("colliding id standing-acme-a-b-c = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// fakeResetter records resets and fails them with err (pending).
+type fakeResetter struct {
+	got []string
+	err error
+}
+
+func (f *fakeResetter) ResetStanding(_ context.Context, project, role, name string) error {
+	f.got = append(f.got, project+"/"+role+"/"+name)
+	return f.err
+}
+
+// Reset goes through the standing reconciler (the supervisor's
+// StandingResetter): 200 {pending:false} when done, 202 {pending:true} when
+// the reconciler is still finishing it; 404 for an unknown name or role, 409
+// for an actor id held by another cove, 503 without a reconciler (COV-249).
+func TestAdminStandingReset(t *testing.T) {
+	h, store, sup, _ := newTestAdminWithSupervisorAndLauncher(t)
+	putStandingRole(t, store)
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+		t.Fatal(err)
+	}
+	const path = "/admin/roles/acme/reviewer/standing/alice-bot/reset"
+	if rec := doReq(t, h, "POST", path, nil); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("no reconciler = %d, want 503", rec.Code)
+	}
+	rs := &fakeResetter{}
+	sup.SetStandingResetter(rs)
+
+	rec := doReq(t, h, "POST", path, nil)
+	var res StandingResetResult
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &res) != nil || res.Pending {
+		t.Fatalf("reset = %d %s", rec.Code, rec.Body.String())
+	}
+	if !reflect.DeepEqual(rs.got, []string{"acme/reviewer/alice-bot"}) {
+		t.Fatalf("resetter got %v", rs.got)
+	}
+
+	rs.err = errors.New("volume in use")
+	rec = doReq(t, h, "POST", path, nil)
+	if rec.Code != http.StatusAccepted || json.Unmarshal(rec.Body.Bytes(), &res) != nil || !res.Pending || !strings.Contains(res.Reason, "volume in use") {
+		t.Fatalf("pending reset = %d %s", rec.Code, rec.Body.String())
+	}
+
+	for _, p := range []string{"/admin/roles/acme/reviewer/standing/nobody/reset", "/admin/roles/acme/ghost/standing/alice-bot/reset"} {
+		if rec := doReq(t, h, "POST", p, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want 404", p, rec.Code)
+		}
+	}
+
+	// The actor id held by a non-standing cove: refused.
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: StandingActorID("acme", "reviewer", "alice-bot"), Project: "acme", Role: "reviewer"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doReq(t, h, "POST", path, nil); rec.Code != http.StatusConflict {
+		t.Fatalf("held id = %d, want 409", rec.Code)
+	}
+}
+
+// A declaration whose actor id collides with another on the same role is
+// refused too (names that differ only outside [A-Za-z0-9._-]).
+func TestAdminStandingRejectsSameRoleIDCollision(t *testing.T) {
+	h, store := newTestAdmin(t)
+	putStandingRole(t, store)
+	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "a b", Prompt: "p"}); rec.Code != http.StatusCreated {
+		t.Fatalf("seed = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "a/b", Prompt: "p"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("colliding id = %d, want 400", rec.Code)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
@@ -117,6 +118,75 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	}
 	if dockerCall(f.Calls, "run") != nil {
 		t.Fatalf("preflight must fail before running the container: %+v", f.Calls)
+	}
+}
+
+// TestRunEphemeralMounts: each Mount becomes `-v <volume>:<target>` on the
+// --rm run — named volumes survive --rm, so a re-run re-attaches them (COV-249).
+func TestRunEphemeralMounts(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if _, err := c.RunEphemeral("img:tag", "", "atcove-cove-s1", "harbor.cove", nil, nil, false,
+		backend.Mount{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
+		backend.Mount{Volume: "atcove-cove-s1-workspace", Target: "/home/agent/workspace"},
+	); err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	got := strings.Join(dockerCall(f.Calls, "run"), " ")
+	for _, want := range []string{"--rm", "-v atcove-cove-s1-agent-data:/agent-data", "-v atcove-cove-s1-workspace:/home/agent/workspace"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("run args missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.HasSuffix(got, " img:tag") {
+		t.Errorf("image must stay the last run arg:\n%s", got)
+	}
+}
+
+// TestRemoveVolumes: `docker volume rm -f <names...>` (absent = no-op); no
+// names runs nothing.
+func TestRemoveVolumes(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if err := c.RemoveVolumes(); err != nil || len(f.Calls) != 0 {
+		t.Fatalf("no names: err=%v calls=%v; want a no-op", err, f.Calls)
+	}
+	if err := c.RemoveVolumes("a-agent-data", "a-workspace"); err != nil {
+		t.Fatalf("RemoveVolumes: %v", err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume rm -f a-agent-data a-workspace" {
+		t.Errorf("args = %q", got)
+	}
+}
+
+// TestCreateVolumeLabels: `docker volume create --label k=v <name>`, so a
+// state volume carries its owner from the moment it exists (COV-249).
+func TestCreateVolumeLabels(t *testing.T) {
+	f := &runner.Fake{}
+	c := New(f).(*Colima)
+	if err := c.CreateVolume("v1", "harbor.cove.state=standing-a-b-c"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label harbor.cove.state=standing-a-b-c v1" {
+		t.Errorf("args = %q", got)
+	}
+}
+
+// TestListVolumes: lists the volumes carrying a label key (and every match
+// label=value), name → the key's value.
+func TestListVolumes(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
+	c := New(f).(*Colima)
+	got, err := c.ListVolumes("harbor.cove.state", "harbor.cove.jam=j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["v1"] != "id-1" || got["v2"] != "id-2" {
+		t.Fatalf("got %v", got)
+	}
+	args := strings.Join(dockerCall(f.Calls, "volume"), " ")
+	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --filter label=harbor.cove.jam=j1 --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
+		t.Errorf("args = %q", args)
 	}
 }
 

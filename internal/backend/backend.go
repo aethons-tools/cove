@@ -157,7 +157,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117)
+	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...Mount) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117); mounts attaches named volumes, which --rm never removes (COV-249)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
@@ -165,6 +165,32 @@ type DispatchOps interface {
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
 	// exceeds olderThan. Returns the count removed.
 	ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error)
+}
+
+// Mount is a named docker volume mounted into an ephemeral container at
+// Target. Named volumes outlive the container: `--rm` removes only anonymous
+// volumes and `docker rm -f` (no -v) none, so a later run with the same Mount
+// re-attaches the same state (a Jam standing session's /agent-data and
+// workspace, COV-249). Only VolumeRemover deletes them.
+type Mount struct {
+	Volume string // docker volume name (created on first use)
+	Target string // absolute mount path in the container
+}
+
+// VolumeOps manages labeled named volumes. Kept its own interface so the
+// DispatchOps surface (at-cove work, whose containers mount no named state)
+// doesn't grow it; Jam's launcher requires it for standing sessions' state
+// volumes (COV-249), and Destroy removes an instance's volumes through it.
+type VolumeOps interface {
+	// CreateVolume creates the named volume with labels ("key=value" each);
+	// creating an existing volume is a no-op.
+	CreateVolume(name string, labels ...string) error
+	// RemoveVolumes deletes the named volumes; an absent volume is not an
+	// error, an in-use one is.
+	RemoveVolumes(names ...string) error
+	// ListVolumes returns the volumes carrying label key, name → its value,
+	// narrowed to those also carrying every match label ("key=value").
+	ListVolumes(key string, match ...string) (map[string]string, error)
 }
 
 // SessionEgress applies a session's per-class egress delta to a running

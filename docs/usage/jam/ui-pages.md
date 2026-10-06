@@ -105,9 +105,8 @@ only that section:
 - **Allocation** — session caps and the personal-session idle ladder.
   Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
   the page says what applies when unset.
-- **Standing sessions** — declare (name + prompt) and dismiss; each shows its
-  studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs).
-  Dismissing tears the studio down ([standing-sessions.md](standing-sessions.md)).
+- **Standing sessions** — declare, [reset](standing-sessions.md#reset) and dismiss;
+  each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs).
 - **Holders** and **Studios** — the actors granted the role (marked where the
   grant overrides the scope; grants are managed on the Roster) and the role's
   running studios.
