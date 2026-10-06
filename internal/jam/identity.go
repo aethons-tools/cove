@@ -200,12 +200,18 @@ func ValidateIdentity(ids []OIDCIdentity) error {
 // rosterReader is the slice of Store HumanByLogin reads.
 type rosterReader interface {
 	GetRoster(project string) (Roster, bool)
+	UserByLogin(login string) (User, bool)
 }
 
-// HumanByLogin returns the roster Human in project whose Login matches login.
-// The empty login never matches, so an unlinked human is never an owner.
+// HumanByLogin returns the roster Human in project who is the user holding
+// login (any of the user's logins). The empty login never matches, so an
+// unlinked human is never an owner.
 func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
 	if login == "" {
+		return Human{}, false
+	}
+	u, ok := store.UserByLogin(login)
+	if !ok {
 		return Human{}, false
 	}
 	rr, ok := store.GetRoster(project)
@@ -213,7 +219,7 @@ func HumanByLogin(store rosterReader, project, login string) (Human, bool) {
 		return Human{}, false
 	}
 	for _, h := range rr.Humans {
-		if h.Login == login {
+		if h.Name == u.Name {
 			return h, true
 		}
 	}

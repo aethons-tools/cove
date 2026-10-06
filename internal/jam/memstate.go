@@ -38,8 +38,11 @@ type memState struct {
 	users       map[ident.ID]User
 	connections map[ident.ID]Connection
 	accounts    map[ident.ID]Account
-	// members is the project membership set: project id → user id → true.
-	members map[ident.ID]map[ident.ID]bool
+	// members is the project memberships: project id → user id → membership.
+	members map[ident.ID]map[ident.ID]Membership
+	// aliases maps a pre-registry roster human (project name → human name) to
+	// the user it became (legacy_human_aliases); written only by the migration.
+	aliases map[string]map[string]ident.ID
 	// unread is the per-(participant, channel) intercom-UI unread cursor:
 	// participant → channel id → last-seen append Seq. Monotonic forward-only
 	// (applyCommitUnread). Free-form keys — no backing entity is required.
@@ -63,7 +66,8 @@ func newMemState() *memState {
 		users:       map[ident.ID]User{},
 		connections: map[ident.ID]Connection{},
 		accounts:    map[ident.ID]Account{},
-		members:     map[ident.ID]map[ident.ID]bool{},
+		members:     map[ident.ID]map[ident.ID]Membership{},
+		aliases:     map[string]map[string]ident.ID{},
 		unread:      map[string]map[string]int64{},
 	}
 }
@@ -267,7 +271,7 @@ func (m *memState) GetProject(name string) (Project, bool) {
 	if !ok {
 		return Project{}, false
 	}
-	return copyProject(p), true
+	return m.viewProject(p), true
 }
 
 func (m *memState) GetRoster(project string) (Roster, bool) {
@@ -278,7 +282,7 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 		return Roster{}, false
 	}
 	return Roster{
-		Humans:   copyHumans(p.Roster.Humans),
+		Humans:   m.rosterHumans(p.ID),
 		Channels: append([]Channel(nil), p.Roster.Channels...),
 	}, true
 }

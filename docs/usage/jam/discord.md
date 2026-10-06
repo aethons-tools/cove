@@ -1,10 +1,10 @@
 ---
 summary: Discord delivery for a Project — a Human's delivery profiles (inbox channel + optional Discord user-id binding), the per-project chat service, the Discord egress and reply loop, and who a Discord reply is attributed to.
 read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>[:<user-id>]`), setting a project's chat service, or a Discord reply was routed or attributed (to a roster human vs a display name) differently than you expected.
-owns: Human.Delivery profiles and the `--delivery service:address[:user-id]` syntax, the Discord user-id binding and its per-project uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bot / bound id / unbound owner's inbox / display name)
+owns: Human.Delivery profiles and the `--delivery service:address[:user-id]` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bot / bound id / unbound owner's inbox / display name)
 prereqs: comms-addressing.md for the Project roster and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-06
 ---
 
 # Discord delivery & reply attribution
@@ -38,8 +38,9 @@ at-jam project roster add-human <project> --name alice --handle alice.h \
 The service and address must be non-empty. The optional user id is
 **discord-only** and all digits (a Discord snowflake); any other shape, or a user
 id on another service, exits `2` (the admin route answers **400**). A Discord
-user id binds **at most one human per project** — binding it to a second is
-**400**, like a duplicate login; another project may bind the same id.
+user id binds **one person Jam-wide** (their Discord account in the
+[identity registry](roster.md)) — binding it to anyone else, in any project, is
+**400**, like a duplicate login.
 `roster list` shows a binding as `discord-user=<id>`. To find your id: Discord
 → Settings → Advanced → **Developer Mode** on, then right-click yourself →
 **Copy User ID**.

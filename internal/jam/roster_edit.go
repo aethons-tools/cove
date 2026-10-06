@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -135,5 +136,13 @@ func PutRosterHuman(store Store, project string, h Human) error {
 			}
 		}
 	}
-	return store.AddHuman(project, h)
+	if err := store.AddHuman(project, h); err != nil {
+		for _, refusal := range []error{ErrInvalidName, ErrLoginTaken, ErrIdentityTaken, ErrAccountLinked} {
+			if errors.Is(err, refusal) {
+				return writeErr(http.StatusBadRequest, "%s", err.Error())
+			}
+		}
+		return err
+	}
+	return nil
 }

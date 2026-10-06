@@ -244,6 +244,14 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	if err := s.ensureProjectIDs(ctx); err != nil {
 		return err
 	}
+	if err := s.migrateHumans(ctx); err != nil {
+		if errors.Is(err, errHumansMigratedElsewhere) {
+			// Another Jam migrated first: reload what it wrote.
+			s.memState = newMemState()
+			return s.load(ctx)
+		}
+		return err
+	}
 	var jc []byte
 	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'context'`).Scan(&jc); {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -355,6 +363,14 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	}
 	ctx := context.Background()
 	snap = withReferencedProjects(snap)
+	// Plan the snapshot's roster humans into the registry first, so they are
+	// written in the same transaction (a scratch state: the snapshot's config
+	// over this store's registry, which the planner only reads).
+	scratch := newMemState()
+	scratch.users, scratch.connections, scratch.accounts = s.users, s.connections, s.accounts
+	scratch.members, scratch.aliases = s.members, s.aliases
+	applyImport(scratch, snap)
+	plan := scratch.planHumanMigration()
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
@@ -432,12 +448,13 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 		}
-		return nil
+		return writeHumanPlanTx(ctx, tx, plan)
 	})
 	if err != nil {
 		return fmt.Errorf("pgstore: ImportConfig: %w", err)
 	}
 	applyImport(s.memState, snap)
+	s.applyHumanPlan(plan)
 	return nil
 }
 
@@ -818,11 +835,17 @@ func (s *PostgresStore) AddHuman(project string, h Human) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
+	plan, err := s.prepareAddHuman(project, h)
 	if err != nil {
 		return err
 	}
-	return s.putProject(upsertHuman(copyProject(p), h))
+	if err := s.registryTx("AddHuman", func(ctx context.Context, tx pgx.Tx) error {
+		return writeHumanPlanTx(ctx, tx, plan)
+	}); err != nil {
+		return err
+	}
+	s.applyHumanPlan(plan)
+	return nil
 }
 
 func (s *PostgresStore) AddChannel(project string, c Channel) error {
@@ -841,11 +864,18 @@ func (s *PostgresStore) AddChannel(project string, c Channel) error {
 func (s *PostgresStore) RemoveHuman(project, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
+	ms, ok, err := s.prepareRemoveHuman(project, name)
+	if err != nil || !ok {
+		return err
 	}
-	return s.putProject(removeHumanFrom(copyProject(p), name))
+	if err := s.registryTx("RemoveHuman", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM memberships WHERE project_id = $1 AND user_id = $2`, ms.ProjectID, ms.UserID)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveMember(ms.ProjectID, ms.UserID)
+	return nil
 }
 
 func (s *PostgresStore) RemoveChannel(project, name string) error {

@@ -798,7 +798,9 @@ func mustJSON(t *testing.T, v any) []byte {
 }
 
 // A roster human's login (the admin operator identity) round-trips through the
-// roster routes, and a login may link at most one human per project.
+// roster routes. Roster humans are Jam-wide users (1a-3a), so a login links
+// one person everywhere: that person may join another project, nobody else
+// may claim the login.
 func TestAdminRosterHumanLogin(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme", "beta")
@@ -818,14 +820,19 @@ func TestAdminRosterHumanLogin(t *testing.T) {
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("duplicate login = %d, want 400", rec.Code)
 	}
-	// ...but the same login may link a human in another project.
-	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
-		t.Fatalf("same login in another project = %d %s", rec.Code, rec.Body.String())
+	// ...nor in another project: the login is alice's everywhere.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", Human{Name: "bob", Handle: "bob.h", Login: "auth0|abc"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("same login, another person, another project = %d, want 400", rec.Code)
+	}
+	// alice herself joins another project with her login.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", Human{Name: "alice", Handle: "alice2", Login: "auth0|abc"}); rec.Code != http.StatusCreated {
+		t.Fatalf("alice joins beta = %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-// A roster human's Discord user id binds at most one human per project, must be
-// a snowflake (all digits), and only a discord profile may carry one.
+// A roster human's Discord user id binds one person Jam-wide (their discord
+// account), must be a snowflake (all digits), and only a discord profile may
+// carry one.
 func TestAdminRosterHumanDiscordUser(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme", "beta")
@@ -849,9 +856,13 @@ func TestAdminRosterHumanDiscordUser(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"alice"`) {
 		t.Fatalf("duplicate discord user = %d %s, want 400 naming alice", rec.Code, rec.Body.String())
 	}
-	// ...but the same id may bind a human in another project.
-	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", bound("bob", "inbox-b", "111")); rec.Code != http.StatusCreated {
-		t.Fatalf("same id in another project = %d %s", rec.Code, rec.Body.String())
+	// ...nor in another project: the Discord account is alice's.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", bound("bob", "inbox-b", "111")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("same id, another person, another project = %d, want 400", rec.Code)
+	}
+	// alice joins beta with her own inbox there.
+	if rec := doJSON(t, h, "POST", "/admin/projects/beta/humans", bound("alice", "inbox-beta", "111")); rec.Code != http.StatusCreated {
+		t.Fatalf("alice joins beta = %d %s", rec.Code, rec.Body.String())
 	}
 	// A non-snowflake id is rejected.
 	if rec := doJSON(t, h, "POST", "/admin/projects/acme/humans", bound("carol", "inbox-c", "abc")); rec.Code != http.StatusBadRequest {

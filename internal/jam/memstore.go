@@ -254,11 +254,11 @@ func (fs *MemStore) AddHuman(project string, h Human) error {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p, _, err := fs.requireProject(project)
+	plan, err := fs.prepareAddHuman(project, h)
 	if err != nil {
 		return err
 	}
-	fs.applyPutProject(upsertHuman(p, h))
+	fs.applyHumanPlan(plan)
 	return nil
 }
 
@@ -279,11 +279,11 @@ func (fs *MemStore) AddChannel(project string, c Channel) error {
 func (fs *MemStore) RemoveHuman(project, name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p, ok := fs.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
+	ms, ok, err := fs.prepareRemoveHuman(project, name)
+	if err != nil || !ok {
+		return err
 	}
-	fs.applyPutProject(removeHumanFrom(p, name))
+	fs.applyRemoveMember(ms.ProjectID, ms.UserID)
 	return nil
 }
 

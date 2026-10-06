@@ -585,4 +585,135 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("RemoveProject after the last member left: %v", err)
 		}
 	})
+
+	t.Run("membership_delivery", func(t *testing.T) {
+		s := newStore(t)
+		acme := mustProject(t, s, "acme")
+		a := mustUser(t, s, "alice")
+		d := []jam.DeliveryProfile{{Service: "discord", Address: "chan-1"}}
+		if err := s.PutMembership(jam.Membership{ProjectID: acme, UserID: a.ID, Delivery: d}); err != nil {
+			t.Fatalf("PutMembership: %v", err)
+		}
+		if err := s.AddMember(acme, a.ID); err != nil { // re-adding keeps the delivery
+			t.Fatal(err)
+		}
+		m, ok := s.GetMembership(acme, a.ID)
+		if !ok || len(m.Delivery) != 1 || m.Delivery[0].Address != "chan-1" {
+			t.Fatalf("GetMembership = %+v, %v", m, ok)
+		}
+		m.Delivery[0].Address = "mutated"
+		if again, _ := s.GetMembership(acme, a.ID); again.Delivery[0].Address != "chan-1" {
+			t.Fatal("store mutated through a returned membership")
+		}
+		if err := s.PutMembership(jam.Membership{ProjectID: acme, UserID: a.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if m, _ := s.GetMembership(acme, a.ID); len(m.Delivery) != 0 {
+			t.Fatalf("PutMembership must replace the delivery: %+v", m)
+		}
+		if _, ok := s.GetMembership(acme, ident.New(ident.User)); ok {
+			t.Fatal("GetMembership of a non-member must be false")
+		}
+		if err := s.PutMembership(jam.Membership{ProjectID: ident.New(ident.Project), UserID: a.ID}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("unknown project: %v, want ErrProjectNotFound", err)
+		}
+	})
+
+	t.Run("roster_humans_are_jam_wide_users", func(t *testing.T) {
+		s := newStore(t)
+		acme, beta := mustProject(t, s, "acme"), mustProject(t, s, "beta")
+		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
+			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-b"}}}); err != nil {
+			t.Fatal(err)
+		}
+		id, ok := s.LookupName(ident.User, "alice")
+		if !ok || !s.IsMember(acme, id) || !s.IsMember(beta, id) || len(s.ListUsers()) != 1 {
+			t.Fatalf("alice = %q, %v; users %+v", id, ok, s.ListUsers())
+		}
+		if ms, _ := s.GetMembership(beta, id); len(ms.Delivery) != 1 || ms.Delivery[0].Address != "inbox-b" {
+			t.Fatalf("beta membership = %+v", ms)
+		}
+		if p, _ := s.GetProject("beta"); len(p.Roster.Humans) != 1 || p.Roster.Humans[0].Handle != "@alice" {
+			t.Fatalf("beta roster view = %+v", p.Roster.Humans)
+		}
+		if err := s.RemoveHuman("acme", "alice"); err != nil {
+			t.Fatal(err)
+		}
+		if s.IsMember(acme, id) || !s.IsMember(beta, id) {
+			t.Fatal("RemoveHuman ends only that project's membership")
+		}
+		if _, ok := s.GetUser(id); !ok {
+			t.Fatal("the user outlives a membership")
+		}
+	})
+
+	t.Run("import_migrates_roster_humans", func(t *testing.T) {
+		s := newStore(t)
+		snap := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: []jam.Project{
+			{Name: "acme", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "@a", Login: "auth0|a",
+				Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}}}}},
+			{Name: "beta", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice"}}}},
+		}}
+		if err := s.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		id, ok := s.LookupName(ident.User, "alice")
+		if !ok {
+			t.Fatalf("users = %+v", s.ListUsers())
+		}
+		for _, project := range []string{"acme", "beta"} {
+			if got, ok := s.LegacyHumanAlias(project, "alice"); !ok || got != id {
+				t.Fatalf("alias %s/alice = %q, %v", project, got, ok)
+			}
+		}
+		r, _ := s.GetRoster("acme")
+		if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|a" || r.Humans[0].Handle != "@a" {
+			t.Fatalf("acme roster = %+v", r.Humans)
+		}
+		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
+			t.Fatalf("acme delivery = %+v, %v", d, ok)
+		}
+		// The export carries the view, so a v1 backup still restores its roster.
+		var exported int
+		for _, p := range s.ExportConfig().Projects {
+			exported += len(p.Roster.Humans)
+		}
+		if exported != 2 {
+			t.Fatalf("exported humans = %d, want 2", exported)
+		}
+	})
+
+	t.Run("add_human_never_strips_identity_elsewhere", func(t *testing.T) {
+		s := newStore(t)
+		mustProject(t, s, "acme")
+		mustProject(t, s, "beta")
+		full := jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
+			Identity: []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}},
+			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}}
+		if err := s.AddHuman("acme", full); err != nil {
+			t.Fatal(err)
+		}
+		// alice joins beta with nothing but her name: acme's view must not change.
+		if err := s.AddHuman("beta", jam.Human{Name: "alice"}); err != nil {
+			t.Fatal(err)
+		}
+		r, _ := s.GetRoster("acme")
+		h := r.Humans[0]
+		if h.Login != "auth0|a" || h.Handle != "@alice" || len(h.Identity) != 1 {
+			t.Fatalf("acme alice after a bare add in beta = %+v", h)
+		}
+		if d, _ := h.DeliveryFor("discord"); d.UserID != "111" || d.Address != "inbox-a" {
+			t.Fatalf("acme delivery = %+v", d)
+		}
+		// A new handle given anywhere is the person's handle everywhere.
+		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil {
+			t.Fatal(err)
+		}
+		if r, _ := s.GetRoster("acme"); r.Humans[0].Handle != "@alice2" {
+			t.Fatalf("acme handle = %q, want @alice2", r.Humans[0].Handle)
+		}
+	})
 }

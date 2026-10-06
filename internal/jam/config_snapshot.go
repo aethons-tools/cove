@@ -91,6 +91,7 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 	sort.Slice(snap.ModelSpecs, func(i, j int) bool { return snap.ModelSpecs[i].Name < snap.ModelSpecs[j].Name })
 
 	for name, p := range m.projects {
+		p = m.viewProject(p) // roster humans travel in the snapshot until v2 (1a-5)
 		p.Name = name
 		snap.Projects = append(snap.Projects, p)
 	}
@@ -326,5 +327,7 @@ func (fs *MemStore) ImportConfig(s ConfigSnapshot) error {
 		return err
 	}
 	applyImport(fs.memState, s)
+	// A snapshot carries roster humans (v1): migrate them into the registry.
+	fs.applyHumanPlan(fs.planHumanMigration())
 	return nil
 }

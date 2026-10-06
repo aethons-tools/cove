@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Backing up and restoring Jam config
@@ -17,7 +17,10 @@ control-plane aggregates:
 - **kits** (all versions **and** the pin)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
-- **projects** (roster, escalation policy, chat service, session context and resources)
+- **projects** (roster, escalation policy, chat service, session context and resources).
+  Roster humans are exported from the identity registry and, on import, merged
+  into users the same way an upgrade does ([comms-addressing.md](comms-addressing.md#the-project-roster));
+  user ids are not preserved until the v2 format
 - the **Jam-wide session context**
 
 Import applies the admin API's authoring rules to session context (layer budgets,
