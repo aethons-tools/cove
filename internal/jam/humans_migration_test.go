@@ -307,3 +307,50 @@ func TestPlanRegistryMigrationChatServices(t *testing.T) {
 		t.Fatalf("from 2 must plan nothing: %+v", again)
 	}
 }
+
+func TestPlanRegistryMigrationPolicyRefs(t *testing.T) {
+	// A fresh migration: step 1 creates the users, step 3 must see them.
+	m := legacyState(t, map[string][]Human{"acme": {{Name: "alice", Login: "a"}, {Name: "bob"}}})
+	acme := m.projects["acme"]
+	acme.Escalation = []EscalationTier{{Targets: []string{"human:alice", "human:ghost", "channel:eng"}}}
+	m.projects["acme"] = acme
+	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*", "human:bob", "channel:eng", "user:carol"}}}}
+	m.actors["h1"] = Actor{ID: "personal-alice-1", TokenHash: "h1", Grants: []Grant{{Project: "acme", Role: "impl", Overrides: &Override{Addressing: []string{"human:alice"}}}}}
+	m.instances["personal-alice-1"] = Instance{ActorID: "personal-alice-1", Project: "acme", Owner: "alice", SessionKind: SessionKindPersonal}
+
+	plan := m.planRegistryMigration(0)
+	alice, _ := planUserNamed(plan, "alice")
+	bob, _ := planUserNamed(plan, "bob")
+	if len(plan.instances) != 1 || plan.instances[0].OwnerID != alice.ID {
+		t.Fatalf("instances = %+v, want alice's session to carry her id", plan.instances)
+	}
+	if len(plan.roles) != 1 || !slices.Equal(plan.roles[0].Role.Scope.Addressing, []string{"user:*", "user:" + string(bob.ID), "channel:eng", "user:carol"}) {
+		t.Fatalf("roles = %+v", plan.roles)
+	}
+	if len(plan.actors) != 1 || !slices.Equal(plan.actors[0].Grants[0].Overrides.Addressing, []string{"user:" + string(alice.ID)}) {
+		t.Fatalf("actors = %+v", plan.actors)
+	}
+	var tiers []string
+	for _, p := range plan.projects {
+		if p.Name == "acme" {
+			tiers = p.Escalation[0].Targets
+		}
+	}
+	if !slices.Equal(tiers, []string{"user:" + string(alice.ID), "user:ghost", "channel:eng"}) {
+		t.Fatalf("tiers = %v", tiers)
+	}
+
+	// From roster_schema 2 (users exist): owners resolve through the legacy
+	// alias first, so a collision-renamed human maps to the right user.
+	m2 := legacyState(t, map[string][]Human{"beta": nil})
+	u := User{ID: ident.New(ident.User), Name: "alice-beta", Status: StatusLive}
+	m2.users[u.ID] = u
+	m2.aliases["beta"] = map[string]ident.ID{"alice": u.ID}
+	m2.instances["p2"] = Instance{ActorID: "p2", Project: "beta", Owner: "alice", SessionKind: SessionKindPersonal}
+	if plan := m2.planRegistryMigration(2); len(plan.instances) != 1 || plan.instances[0].OwnerID != u.ID {
+		t.Fatalf("from 2 = %+v", plan.instances)
+	}
+	if again := m2.planRegistryMigration(3); len(again.instances)+len(again.roles)+len(again.projects) != 0 {
+		t.Fatalf("from 3 must plan nothing: %+v", again)
+	}
+}
