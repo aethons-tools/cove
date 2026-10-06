@@ -125,6 +125,10 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 			"ticket", inst.Unit, "holder", string(holder.ID))
 	}
 	created, err := ic.store.CreateChannel(ch)
+	if errors.Is(err, ErrBindingTaken) { // a room took the issue meanwhile: it keeps it
+		ch.Bindings = nil
+		created, err = ic.store.CreateChannel(ch)
+	}
 	if errors.Is(err, ErrChannelExists) { // created meanwhile
 		created, ok = ic.store.ChannelByKey(p.ID, SourceTicket, key)
 		return created, ok, nil
@@ -144,15 +148,15 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	if p.Session == nil || p.Actor == nil {
 		return Planned{}, fmt.Errorf("intercom: Plan needs a session poster")
 	}
+	if !p.Actor.Expiry.IsZero() && now.After(p.Actor.Expiry) {
+		return Planned{}, ErrSendDenied
+	}
 	if addr == "" {
 		ch, err := ic.defaultChannel(*p.Session)
 		if err != nil {
 			return Planned{}, err
 		}
 		return ic.planIn(p, ch, true)
-	}
-	if !p.Actor.Expiry.IsZero() && now.After(p.Actor.Expiry) {
-		return Planned{}, ErrSendDenied
 	}
 	project, ok := ic.store.GetProject(orDefaultProject(p.Session.Project))
 	if !ok {
@@ -188,12 +192,18 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	return ic.planIn(p, ch, true)
 }
 
-// PlanChannel decides a post into an existing channel (a user replying in a
-// conversation): the source's CanPost, with no addressing.
+// PlanChannel decides a person's post into an existing channel (replying in
+// a conversation): the source's CanPost. A channel that doesn't exist or that
+// they may not post in is ErrSendDenied alike, so a refusal never tells
+// whether a channel exists. Sessions post by address (Plan), where their
+// addressing applies.
 func (ic *Intercom) PlanChannel(p Poster, chID ident.ID) (Planned, error) {
+	if p.Session != nil || isSessionID(p.ID) {
+		return Planned{}, fmt.Errorf("intercom: a session posts by address, not into a channel id")
+	}
 	ch, ok := ic.store.GetChannel(chID)
 	if !ok {
-		return Planned{}, fmt.Errorf("%w: %s", ErrChannelNotFound, chID)
+		return Planned{}, ErrSendDenied
 	}
 	return ic.planIn(p, ch, false)
 }
@@ -206,27 +216,48 @@ func (ic *Intercom) CanSee(p ident.ID, ch Channel) bool {
 }
 
 func (ic *Intercom) planIn(p Poster, ch Channel, allowed bool) (Planned, error) {
-	if ch.Status != StatusLive {
-		return Planned{}, fmt.Errorf("%w: channel %s", ErrRemoved, ch.ID)
-	}
 	src, ok := ic.sources[ch.Kind]
 	if !ok || !src.CanPost(p, ch, allowed) {
 		return Planned{}, ErrSendDenied
 	}
+	if ch.Status != StatusLive {
+		return Planned{}, fmt.Errorf("%w: channel %s", ErrRemoved, ch.ID)
+	}
 	return Planned{Channel: ch, Audience: ic.audience(ch, p.ID)}, nil
 }
 
-// audience is ch's current members but from, skipping sessions that ended.
+// audience is ch's current members but from, skipping sessions that ended
+// and users who are no longer live members of the channel's project.
 func (ic *Intercom) audience(ch Channel, from ident.ID) []ident.ID {
 	var out []ident.ID
 	for _, m := range ic.store.ChannelMembers(ch.ID) {
-		if m.ParticipantID == from || (isSessionID(m.ParticipantID) && !ic.sessionLive(m.ParticipantID)) {
+		if m.ParticipantID == from || !ic.reachable(ch, m.ParticipantID) {
 			continue
 		}
 		out = append(out, m.ParticipantID)
 	}
 	slices.Sort(out)
 	return out
+}
+
+// reachable reports whether a member still takes part: a session while it
+// lives, a user while they are a live member of ch's project (checked live,
+// so leaving a project ends their access at once); anyone else (an account)
+// as long as they are listed.
+func (ic *Intercom) reachable(ch Channel, p ident.ID) bool {
+	switch {
+	case isSessionID(p):
+		return ic.sessionLive(p)
+	case p.Kind() == ident.User:
+		return ic.projectUser(ch.ProjectID, p)
+	}
+	return true
+}
+
+// projectUser reports whether user u is live and a member of project.
+func (ic *Intercom) projectUser(project, u ident.ID) bool {
+	usr, ok := ic.store.GetUser(u)
+	return ok && usr.Status == StatusLive && ic.store.IsMember(project, u)
 }
 
 func (ic *Intercom) sessionLive(id ident.ID) bool {
@@ -238,9 +269,11 @@ func (ic *Intercom) sessionLive(id ident.ID) bool {
 // a grandfathered pre-registry one (the only ids that don't parse).
 func isSessionID(id ident.ID) bool { return participantKind(id) == string(ident.Session) }
 
-// isMemberOf reports whether p is a current member of ch.
-func (ic *Intercom) isMemberOf(ch ident.ID, p ident.ID) bool {
-	return slices.ContainsFunc(ic.store.ChannelMembers(ch), func(m ChannelMember) bool { return m.ParticipantID == p })
+// isMemberOf reports whether p is a current member of ch who still takes
+// part (reachable).
+func (ic *Intercom) isMemberOf(ch Channel, p ident.ID) bool {
+	listed := slices.ContainsFunc(ic.store.ChannelMembers(ch.ID), func(m ChannelMember) bool { return m.ParticipantID == p })
+	return listed && ic.reachable(ch, p)
 }
 
 // defaultChannel is a session's channel when it gives no address: its
@@ -256,15 +289,13 @@ func (ic *Intercom) defaultChannel(inst Instance) (Channel, error) {
 		if !ok {
 			return Channel{}, ErrNoDefaultChannel
 		}
-		if !ic.isMemberOf(ch.ID, ident.ID(inst.ActorID)) {
-			if err := ic.store.JoinChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
-				return Channel{}, err
-			}
+		if err := ic.store.JoinChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil { // a no-op while it is one
+			return Channel{}, err
 		}
 		return ch, nil
 	case inst.OwnerID != "":
 		p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
-		if !ok {
+		if !ok || !ic.projectUser(p.ID, inst.OwnerID) {
 			return Channel{}, ErrSendUnresolved
 		}
 		return ic.chat(p, []ident.ID{ident.ID(inst.ActorID), inst.OwnerID})
@@ -344,18 +375,21 @@ func (ic *Intercom) chat(project Project, members []ident.ID) (Channel, error) {
 		labels[i] = ic.label(m)
 	}
 	key := strings.Join(parts, ",")
-	if ch, ok := ic.store.ChannelByKey(project.ID, SourceChat, key); ok {
-		return ch, nil
-	}
-	ch, err := ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: SourceChat, Key: key, Label: strings.Join(labels, ", ")})
-	if errors.Is(err, ErrChannelExists) {
-		if ch, ok := ic.store.ChannelByKey(project.ID, SourceChat, key); ok {
-			return ch, nil
+	ch, ok := ic.store.ChannelByKey(project.ID, SourceChat, key)
+	if !ok {
+		var err error
+		ch, err = ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: SourceChat, Key: key, Label: strings.Join(labels, ", ")})
+		if errors.Is(err, ErrChannelExists) { // created meanwhile
+			ch, ok = ic.store.ChannelByKey(project.ID, SourceChat, key)
+			if !ok {
+				return Channel{}, err
+			}
+		} else if err != nil {
+			return Channel{}, err
 		}
 	}
-	if err != nil {
-		return Channel{}, err
-	}
+	// Every member is in (joining is a no-op for one who is), so a chat whose
+	// creation was cut short or raced is completed here, not left half-joined.
 	seq := ic.tail()
 	for _, m := range members {
 		if err := ic.store.JoinChannel(ch.ID, m, seq); err != nil {
@@ -432,9 +466,9 @@ type chatSource struct{ ic *Intercom }
 
 func (chatSource) Kind() SourceKind { return SourceChat }
 func (s chatSource) CanPost(p Poster, ch Channel, _ bool) bool {
-	return s.ic.isMemberOf(ch.ID, p.ID)
+	return s.ic.isMemberOf(ch, p.ID)
 }
-func (s chatSource) CanSee(p ident.ID, ch Channel) bool { return s.ic.isMemberOf(ch.ID, p) }
+func (s chatSource) CanSee(p ident.ID, ch Channel) bool { return s.ic.isMemberOf(ch, p) }
 
 // ticketSource: a ticket's conversation belongs to its project. Members (the
 // sessions working it, people who joined) and the project's members post and
@@ -446,7 +480,7 @@ func (s ticketSource) CanPost(p Poster, ch Channel, allowed bool) bool {
 	return allowed || s.CanSee(p.ID, ch)
 }
 func (s ticketSource) CanSee(p ident.ID, ch Channel) bool {
-	return s.ic.isMemberOf(ch.ID, p) || s.ic.store.IsMember(ch.ProjectID, p)
+	return s.ic.isMemberOf(ch, p) || s.ic.projectUser(ch.ProjectID, p)
 }
 
 // roomSource: a room is open to its project's members; a session posts to it
@@ -458,5 +492,5 @@ func (s roomSource) CanPost(p Poster, ch Channel, allowed bool) bool {
 	return allowed || s.CanSee(p.ID, ch)
 }
 func (s roomSource) CanSee(p ident.ID, ch Channel) bool {
-	return s.ic.isMemberOf(ch.ID, p) || s.ic.store.IsMember(ch.ProjectID, p)
+	return s.ic.isMemberOf(ch, p) || s.ic.projectUser(ch.ProjectID, p)
 }

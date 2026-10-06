@@ -3,6 +3,7 @@ package jam
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -346,8 +347,16 @@ func TestIntercomPlanChannelForUsers(t *testing.T) {
 	if _, err := f.ic.PlanChannel(Poster{ID: f.bob.ID}, f.room.ID); !errors.Is(err, ErrRemoved) {
 		t.Fatalf("archived room: %v", err)
 	}
-	if _, err := f.ic.PlanChannel(Poster{ID: f.bob.ID}, "chn_01j9q3zzzzzzzzzzzzzzzzzzzz"); !errors.Is(err, ErrChannelNotFound) {
+	// Existence is never told apart from refusal.
+	if _, err := f.ic.PlanChannel(Poster{ID: f.bob.ID}, "chn_01j9q3zzzzzzzzzzzzzzzzzzzz"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("unknown channel: %v", err)
+	}
+	if _, err := f.ic.PlanChannel(Poster{ID: f.carol.ID}, f.room.ID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("an archived room someone can't see: %v", err)
+	}
+	// Sessions post by address, where their addressing applies.
+	if _, err := f.ic.PlanChannel(f.poster(f.personal), chat.ID); err == nil {
+		t.Fatal("PlanChannel must refuse a session poster")
 	}
 }
 
@@ -374,6 +383,73 @@ func TestIntercomCanSee(t *testing.T) {
 	} {
 		if got := f.ic.CanSee(c.who, c.ch); got != c.want {
 			t.Errorf("CanSee(%s, %s %s) = %v, want %v", c.who, c.ch.Kind, c.ch.Label, got, c.want)
+		}
+	}
+}
+
+// The default channel is still a send: an expired actor can't make one, and
+// a personal session's starter must still be a live member of its project.
+func TestIntercomDefaultIsAuthorized(t *testing.T) {
+	f := newICFixture(t)
+	expired := f.poster(f.ticket)
+	expired.Actor.Expiry = f.now.Add(-time.Minute)
+	if _, err := f.ic.Plan(expired, "", f.now); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("expired default: %v", err)
+	}
+	if err := f.store.RemoveMember(f.project.ID, f.alice.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.plan(f.personal, ""); !errors.Is(err, ErrSendUnresolved) {
+		t.Fatalf("personal default after its starter left the project: %v", err)
+	}
+}
+
+// A chat whose members weren't all joined (a crash or a racing create) is
+// completed by the next post rather than delivering to no one.
+func TestIntercomChatCompletesMembership(t *testing.T) {
+	f := newICFixture(t, "user:*")
+	members := []string{f.standing.ActorID, string(f.alice.ID)}
+	slices.Sort(members)
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: strings.Join(members, ","), Label: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.JoinChannel(ch.ID, ident.ID(f.standing.ActorID), 1); err != nil {
+		t.Fatal(err)
+	}
+	p := f.mustPlan(f.standing, "user:alice")
+	if p.Channel.ID != ch.ID || !slices.Equal(p.Audience, ids(f.alice)) {
+		t.Fatalf("plan = %+v", p)
+	}
+}
+
+// Leaving the project ends a user's access to its channels, live.
+func TestIntercomProjectMembershipGatesUsers(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	ticket := f.mustPlan(f.ticket, "").Channel
+	for _, ch := range []ident.ID{ticket.ID, f.room.ID} {
+		if err := f.store.JoinChannel(ch, f.bob.ID, 12); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := f.mustPlan(f.ticket, "").Audience; !slices.Equal(got, ids(f.bob)) {
+		t.Fatalf("audience = %v", got)
+	}
+	if err := f.store.RemoveMember(f.project.ID, f.bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.mustPlan(f.ticket, "").Audience; len(got) != 0 {
+		t.Fatalf("audience after bob left = %v", got)
+	}
+	for _, ch := range []Channel{ticket, f.room} {
+		if f.ic.CanSee(f.bob.ID, ch) {
+			t.Errorf("bob still sees %s %s", ch.Kind, ch.Label)
+		}
+		if _, err := f.ic.PlanChannel(Poster{ID: f.bob.ID}, ch.ID); !errors.Is(err, ErrSendDenied) {
+			t.Errorf("bob still posts to %s %s: %v", ch.Kind, ch.Label, err)
 		}
 	}
 }

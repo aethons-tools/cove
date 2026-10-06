@@ -1855,11 +1855,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	intercomLog = logChanges
 	sup.SetTailReader(intercomLog)
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
-	// channels key on the requisitioner's tracker connection, resolved below.
-	var trackerConn atomic.Value // ident.ID; unset = no tracker, no ticket channels
+	// channels key on the requisitioner's tracker connection, resolved below
+	// (until then, or with no requisitioner, the linear connection if any).
+	var trackerConn atomic.Value // ident.ID
 	sup.SetSessionChannels(jam.NewIntercom(st, func() (ident.ID, bool) {
-		id, ok := trackerConn.Load().(ident.ID)
-		return id, ok
+		if id, ok := trackerConn.Load().(ident.ID); ok {
+			return id, true
+		}
+		c, ok := st.ConnectionOfKind("linear")
+		return c.ID, ok
 	}, func() int64 { seq, _ := intercomLog.TailSeq(); return seq }, log))
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared

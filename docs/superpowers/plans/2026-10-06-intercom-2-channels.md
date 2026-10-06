@@ -62,4 +62,6 @@
 3. Relays: binding-driven egress and ingress, receipts v2 with legacy fallback.
 4. `/me` on channels (`channel_reads`, rail, picker, History tab); admin intercom view, studio page, search, suggestions.
 5. **Project removal:** once channels carry history, `RemoveProject` can no longer cascade. Pull in 1b-3's project tombstones here, or refuse removal while channels exist. Decide when writing 2b's plan.
-6. Delete the `Roster.Channels` view, `RosterChannel`, the `Human` view (1a-3e) and the synthetic channel projection (kept only for the History tab).
+6. **Ticket bindings across projects:** an issue's binding goes to the first project that sets a session up on it (a manual raise with another project's issue key would take its replies). Bind only when the issue belongs to the project's tracker, or refuse the raise.
+7. **No tracker:** the default send of a ticket session needs a tracker connection (the requisitioner's, else the linear one); decide the fallback when there is none.
+8. Delete the `Roster.Channels` view, `RosterChannel`, the `Human` view (1a-3e) and the synthetic channel projection (kept only for the History tab).
