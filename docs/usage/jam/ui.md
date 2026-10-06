@@ -27,8 +27,8 @@ It renders:
   page's objects at once: studios (id, unit, owner, standing name,
   project/role), roles (project/name, kit, destinations), projects, kits (name,
   current prompt and egress), destinations (name, route, upstream, env keys),
-  actors (id, grants), roster humans (name, handle, login, delivery, identity)
-  and channels, and squawk bodies (newest 10; the rest via Intercom's `q=`).
+  actors (id, grants), users (name, logins, OIDC subject, account handles and
+  ids) and channels, and squawk bodies (newest 10; the rest via Intercom's `q=`).
   Matching is case-insensitive substring, at least 2 characters; results are
   grouped and link to each object's page. **Enter** jumps straight to the page
   when exactly one object's name is the whole query (e.g. a studio id or
@@ -54,7 +54,7 @@ It renders:
   refresh (not a live tail); each recipient carries an internal/external reach
   badge. Empty until the log has writers, and absent-config renders a
   "not configured" notice. See [Intercom](#intercom) below.
-- **Roster / Roles / Kits / Destinations / Model-specs** — the control-plane objects as
+- **Users / Actors / Roles / Kits / Destinations / Model-specs** — the control-plane objects as
   tables, all editable from here — see [Editing](#editing-day-job-mutations)
   below.
 
@@ -205,7 +205,7 @@ verbs in [roster.md](roster.md):
   snippet (env vars / git config), use the CLI `at-jam enroll`.
 - **Revoke** an actor, **create/delete** a role (and edit it on its
   [role page](ui-pages.md#role-pages)), and **add/remove** a grant.
-  On the Roster page each actor's grants are chips (`project/role`, with a ×
+  On the Actors page each actor's grants are chips (`project/role`, with a ×
   to remove; hover for the effective destinations), and **+ Grant** on the
   actor's row opens its add-grant form.
 - Destination fields (role, enroll/grant overrides) take the CLI's

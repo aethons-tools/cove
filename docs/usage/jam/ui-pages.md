@@ -1,7 +1,7 @@
 ---
 summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
 read_when: You are viewing or editing a project, studio, role, destination, model-spec or kit in the Jam admin UI — a project's roster, escalation or chat service; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the project, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project roster/escalation/chat-service editing, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+owns: the project, user, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project members/channels/escalation/chat-service editing, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-06
@@ -20,21 +20,16 @@ a field the form didn't show.
 Each project name (in the Projects table, a role's breadcrumb, or a table cell)
 links to `/ui/projects/<name>`, the "everything in this project" view: its
 roles (linked, with destinations and kit), the actors holding a grant into it
-and which roles they hold, its roster — humans (handle, linked login, delivery
-per service with address and user id, OIDC identities) and channels (service,
-ref) — its escalation policy (the default chain and each category's chain, as
+and which roles they hold, its members (linked to their user page, with handle
+and delivery) and channels (service, ref), its escalation policy (the default chain and each category's chain, as
 ordered tiers of targets with their wait), its chat service, and its running
 studios.
 
-The roster, escalation and chat service are edited in place; each write answers
-with the re-rendered page:
+Members, channels, escalation and chat service are edited in place; each write
+answers with the re-rendered page:
 
-- **Humans** — **Add human** (name, handle, login, delivery and OIDC identity)
-  and, per human, **Edit** (pre-filled; every field comes from the form, so a
-  removed line is removed) and **Remove**. Delivery is one
-  `service:address[:user-id]` per line (a user id is discord-only) and identity
-  one `issuer:subject` per line — the CLI's `--delivery`/`--oidc` syntax. A login,
-  OIDC binding or Discord id is one person's Jam-wide; the form never removes one.
+- **Members** — **Add member** (a user, and delivery: one `service:address` per
+  line) and, per member, **Edit** delivery and **Remove**.
 - **Channels** — **Add channel** (name, service, ref; an existing name is
   replaced) and **Remove**.
 - **Escalation** — edit the default chain or any category's chain as one
@@ -47,6 +42,12 @@ with the re-rendered page:
 **Delete** (here and in the table) is disabled while a role or an actor's grant
 still references the project, and names what does — the same rule as
 `project rm` ([projects.md](projects.md)).
+
+## User pages
+
+`/ui/users` lists and creates users; `/ui/users/<id>` renames one, replaces its
+logins and OIDC identities, adds or unlinks accounts, and removes it (rename and
+remove are refused while the user owns a live personal session).
 
 ## Studio pages
 
@@ -107,7 +108,7 @@ only that section:
 - **Standing sessions** — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
   each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
 - **Holders** and **Studios** — the actors granted the role (marked where the
-  grant overrides the scope; grants are managed on the Roster) and the role's
+  grant overrides the scope; grants are managed on the Actors page) and the role's
   running studios.
 
 **Request session** and **Delete** are on the page header. These writes share
