@@ -77,6 +77,10 @@ type MemberView struct {
 	Delivery []DeliveryProfile `json:"delivery,omitempty"`
 }
 
+// ErrUserBusy refuses renaming or removing a user who owns a live personal
+// session.
+var ErrUserBusy = errors.New("user owns a live personal session")
+
 // registryErrStatus maps registry and project errors to HTTP statuses.
 func registryErrStatus(err error) int {
 	for _, nf := range []error{ErrUserNotFound, ErrConnectionNotFound, ErrAccountNotFound, ErrMembershipNotFound, ErrProjectNotFound} {
@@ -84,7 +88,7 @@ func registryErrStatus(err error) int {
 			return http.StatusNotFound
 		}
 	}
-	for _, c := range []error{ErrNameTaken, ErrRemoved, ErrConnectionInUse, ErrProjectInUse} {
+	for _, c := range []error{ErrNameTaken, ErrRemoved, ErrConnectionInUse, ErrProjectInUse, ErrUserBusy} {
 		if errors.Is(err, c) {
 			return http.StatusConflict
 		}
@@ -142,6 +146,18 @@ func accountView(store Store, a Account) AccountView {
 		}
 	}
 	return v
+}
+
+// ownedPersonalSession is a live personal session owned by the user named
+// name. Instance.Owner still holds a name (until owners move to user ids), so
+// renaming or removing that user would orphan the session.
+func ownedPersonalSession(store Store, name string) (string, bool) {
+	for _, inst := range store.ListInstances() {
+		if inst.Owner == name {
+			return inst.ActorID, true
+		}
+	}
+	return "", false
 }
 
 func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
@@ -205,6 +221,11 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 			if !decode(w, r, &b) {
 				return false, nil
 			}
+			if u, _ := store.GetUser(id); u.Status == StatusLive {
+				if sid, owns := ownedPersonalSession(store, u.Name); owns {
+					return true, fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid)
+				}
+			}
 			return true, store.RenameUser(id, b.Name)
 		})(w, r)
 	})
@@ -231,10 +252,9 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		if !ok {
 			return
 		}
-		u, _ := store.GetUser(id)
-		for _, inst := range store.ListInstances() {
-			if u.Status == StatusLive && inst.Owner == u.Name {
-				http.Error(w, fmt.Sprintf("user %q owns the live personal session %s; release it first", u.Name, inst.ActorID), http.StatusConflict)
+		if u, _ := store.GetUser(id); u.Status == StatusLive {
+			if sid, owns := ownedPersonalSession(store, u.Name); owns {
+				fail(w, fmt.Errorf("%w: user %q owns the live personal session %s; release it first", ErrUserBusy, u.Name, sid))
 				return
 			}
 		}
@@ -339,6 +359,10 @@ func registerUsers(mux *http.ServeMux, store Store, log *slog.Logger) {
 		if b.User != "" {
 			if uid, err = resolveRef(store, ident.User, b.User); err != nil {
 				fail(w, err)
+				return
+			}
+			if u, _ := store.GetUser(uid); u.Status != StatusLive {
+				fail(w, fmt.Errorf("%w: user %s", ErrRemoved, uid))
 				return
 			}
 		}

@@ -178,7 +178,7 @@ func TestAdminHandlerMountsUI(t *testing.T) {
 	badReq.RemoteAddr = "203.0.113.9:1000"
 	h.ServeHTTP(rec, badReq)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("off-loopback GET /admin/roster = %d, want 403", rec.Code)
+		t.Fatalf("off-loopback GET /admin/actors = %d, want 403", rec.Code)
 	}
 }
 

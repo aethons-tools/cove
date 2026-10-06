@@ -214,7 +214,7 @@ func (c *Client) RemoveProject(name string) error {
 	return c.do("DELETE", "/admin/projects/"+url.PathEscape(name), nil, nil)
 }
 
-// Roster lists every enrolled actor with its resolved effective grants — never
+// Actors lists every enrolled actor with its resolved effective grants — never
 // a token or hash.
 func (c *Client) Actors() ([]jam.ActorSummary, error) {
 	var out []jam.ActorSummary

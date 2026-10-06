@@ -45,6 +45,10 @@ func cmdUser(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if !ok {
 		return code
 	}
+	if sub != "add" && (len(logins) > 0 || len(oidc) > 0) {
+		fmt.Fprintf(stderr, "at-jam user %s: --login/--oidc are for add; give the set as arguments\n", sub)
+		return 2
+	}
 	c, err := client()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam user:", err)
@@ -197,7 +201,7 @@ func cmdProjectMember(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("project member "+sub, flag.ContinueOnError)
 	client := clientFlags(fs, stderr)
 	var delivery multiFlag
-	fs.Var(&delivery, "delivery", "per-project delivery target `service:address` (repeatable, add), e.g. discord:<inbox-channel-id>")
+	fs.Var(&delivery, "delivery", "per-project delivery target `service:address` (repeatable, add; replaces the member's set, none keeps it), e.g. discord:<inbox-channel-id>")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -214,6 +218,18 @@ func cmdProjectMember(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		var profiles []jam.DeliveryProfile
+		if len(delivery) == 0 { // keep an existing member's delivery
+			ms, err := c.ListMembers(pos[0])
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam:", err)
+				return 1
+			}
+			for _, m := range ms {
+				if m.User == pos[1] || string(m.UserID) == pos[1] {
+					profiles = m.Delivery
+				}
+			}
+		}
 		for _, d := range delivery {
 			p, err := jam.ParseDeliverySpec(d)
 			if err != nil || p.UserID != "" {

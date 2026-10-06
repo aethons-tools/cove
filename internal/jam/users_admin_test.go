@@ -88,6 +88,29 @@ func TestAdminUserRemoveRefusedWhileOwningPersonalSession(t *testing.T) {
 	if rec := doReq(t, h, "DELETE", "/admin/users/alice", nil); rec.Code != http.StatusConflict {
 		t.Fatalf("delete with a live personal session = %d, want 409", rec.Code)
 	}
+	// A session's owner is still a name (until 1a-3c): renaming would orphan it.
+	if rec := doJSON(t, h, "PUT", "/admin/users/alice/name", RenameBody{Name: "alicia"}); rec.Code != http.StatusConflict {
+		t.Fatalf("rename with a live personal session = %d, want 409", rec.Code)
+	}
+}
+
+func TestAdminAccountLinkToRemovedUserWritesNothing(t *testing.T) {
+	h, store := newTestAdmin(t)
+	if _, err := store.CreateConnection(Connection{Kind: "discord", Name: "discord"}); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := store.CreateUser(User{Name: "gone"})
+	if err := store.RemoveUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, h, "POST", "/admin/accounts", AccountBody{Connection: "discord", ServiceUID: "9", User: string(u.ID)}); rec.Code != http.StatusConflict {
+		t.Fatalf("link to a removed user = %d, want 409", rec.Code)
+	}
+	var accs []AccountView
+	getJSON(t, h, "/admin/accounts", &accs)
+	if len(accs) != 0 {
+		t.Fatalf("a refused POST left accounts behind: %+v", accs)
+	}
 }
 
 func TestAdminProjectMembers(t *testing.T) {

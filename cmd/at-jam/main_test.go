@@ -1625,6 +1625,11 @@ func TestUserMemberAccountCommands(t *testing.T) {
 	}
 
 	exec(2, "user", "add", "--oidc", "no-colon", "erin")
+	exec(2, "user", "login", "--login", "x", "david")    // --login is add's; the set is positional
+	exec(0, "project", "member", "add", "acme", "david") // no --delivery: keeps the inbox
+	if list := exec(0, "project", "member", "list", "acme"); !strings.Contains(list, "delivery=discord:chan-9") {
+		t.Fatalf("member add without --delivery dropped the inbox:\n%s", list)
+	}
 	exec(2, "project", "member", "add", "--delivery", "discord:chan:123", "acme", "david")
 	exec(2, "account", "add", "--connection", "discord")
 	exec(1, "user", "add", "david")
