@@ -36,34 +36,57 @@ func cmdColima(getenv func(string) string, r runner.Runner) func([]string, cli.G
 }
 
 // colimaConfigPath is the default profile's colima.yaml — the only profile a cove
-// uses, since the colima backend pins docker to the `colima` context.
-func colimaConfigPath(getenv func(string) string) (string, error) {
-	home := getenv("COLIMA_HOME")
-	if home == "" {
-		h := getenv("HOME")
-		if h == "" {
-			return "", fmt.Errorf("cannot locate the colima config: neither COLIMA_HOME nor HOME is set")
-		}
-		home = filepath.Join(h, ".colima")
+// uses, since the colima backend pins docker to the `colima` context. It mirrors
+// colima's own lookup: $COLIMA_HOME; else ~/.colima when that dir exists; else
+// $XDG_CONFIG_HOME/colima (XDG_CONFIG_HOME defaulting to ~/.config). dirExists is
+// injected so the lookup is hermetic in tests.
+func colimaConfigPath(getenv func(string) string, dirExists func(string) bool) (string, error) {
+	const file = "colima.yaml"
+	if h := getenv("COLIMA_HOME"); h != "" {
+		return filepath.Join(h, "default", file), nil
 	}
-	return filepath.Join(home, "default", "colima.yaml"), nil
+	home := getenv("HOME")
+	if home == "" {
+		return "", fmt.Errorf("cannot locate the colima config: neither COLIMA_HOME nor HOME is set")
+	}
+	if legacy := filepath.Join(home, ".colima"); dirExists(legacy) {
+		return filepath.Join(legacy, "default", file), nil
+	}
+	xdg := getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdg, "colima", "default", file), nil
+}
+
+func isDir(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
 }
 
 func colimaSetupDocker(args []string, g cli.Globals, getenv func(string) string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("colima setup-docker", flag.ContinueOnError)
 	version := fs.String("sysbox-version", colimacfg.MinSysboxVersion, "Sysbox CE release the provision hook installs (≥ "+colimacfg.MinSysboxVersion+")")
 	dry := fs.Bool("dry-run", false, "print the change as a diff and write nothing")
-	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
+	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
+	if !ok {
 		return code
+	}
+	if len(pos) > 0 {
+		fmt.Fprintf(stderr, "at-jam colima setup-docker: unexpected argument %q\n", pos[0])
+		return 2
 	}
 	if err := colimacfg.ValidateVersion(*version); err != nil {
 		fmt.Fprintln(stderr, "at-jam colima setup-docker:", err)
 		return 2
 	}
-	path, err := colimaConfigPath(getenv)
+	path, err := colimaConfigPath(getenv, isDir)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam colima setup-docker:", err)
 		return 1
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real // edit a dotfile-managed symlink's target, keeping the link
 	}
 	in, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -102,7 +125,8 @@ next:
   at-jam colima check-docker      # confirm sysbox-runc is registered
 
 note: the hook skips the install when sysbox-runc is already present, so it
-won't upgrade an older Sysbox in an existing VM — upgrade that once by hand:
+won't upgrade an older Sysbox in an existing VM — upgrade that once by hand
+(stop running coves first — the install restarts docker in the VM):
   colima ssh -- sudo sh -c 'curl -fsSL -o /tmp/sysbox.deb https://github.com/nestybox/sysbox/releases/download/v%[1]s/sysbox-ce_%[1]s.linux_$(dpkg --print-architecture).deb && apt-get install -y /tmp/sysbox.deb'
 `, *version)
 	return 0
@@ -145,8 +169,13 @@ func writeColimaConfig(path string, orig, next []byte) error {
 
 func colimaCheckDocker(args []string, r runner.Runner, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("colima check-docker", flag.ContinueOnError)
-	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
+	pos, code, parsed := cli.ParseFlags(fs, args, stdout, stderr)
+	if !parsed {
 		return code
+	}
+	if len(pos) > 0 {
+		fmt.Fprintf(stderr, "at-jam colima check-docker: unexpected argument %q\n", pos[0])
+		return 2
 	}
 	ok, err := colima.HasSysboxRuntime(r)
 	if err != nil {

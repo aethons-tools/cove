@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,15 +43,27 @@ func runColima(getenv func(string) string, r runner.Runner, args ...string) (int
 }
 
 func TestColimaConfigPath(t *testing.T) {
-	got, err := colimaConfigPath(func(k string) string { return map[string]string{"HOME": "/h"}[k] })
-	if err != nil || got != "/h/.colima/default/colima.yaml" {
-		t.Fatalf("HOME fallback = %q, %v", got, err)
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	never := func(string) bool { return false }
+	always := func(string) bool { return true }
+	cases := []struct {
+		name   string
+		env    map[string]string
+		exists func(string) bool
+		want   string
+	}{
+		{"COLIMA_HOME wins", map[string]string{"HOME": "/h", "COLIMA_HOME": "/c", "XDG_CONFIG_HOME": "/x"}, always, "/c/default/colima.yaml"},
+		{"~/.colima when it exists", map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"}, func(p string) bool { return p == "/h/.colima" }, "/h/.colima/default/colima.yaml"},
+		{"XDG default", map[string]string{"HOME": "/h"}, never, "/h/.config/colima/default/colima.yaml"},
+		{"XDG_CONFIG_HOME override", map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"}, never, "/x/colima/default/colima.yaml"},
 	}
-	got, _ = colimaConfigPath(func(k string) string { return map[string]string{"HOME": "/h", "COLIMA_HOME": "/c"}[k] })
-	if got != "/c/default/colima.yaml" {
-		t.Fatalf("COLIMA_HOME = %q", got)
+	for _, c := range cases {
+		got, err := colimaConfigPath(env(c.env), c.exists)
+		if err != nil || got != c.want {
+			t.Errorf("%s: got %q, %v; want %q", c.name, got, err, c.want)
+		}
 	}
-	if _, err := colimaConfigPath(func(string) string { return "" }); err == nil {
+	if _, err := colimaConfigPath(env(nil), always); err == nil {
 		t.Fatal("no HOME/COLIMA_HOME must error")
 	}
 }
@@ -83,7 +96,7 @@ func TestColimaSetupDockerDryRunWritesNothing(t *testing.T) {
 func TestColimaSetupDockerWritesThenNoOps(t *testing.T) {
 	getenv, path := colimaHome(t, freshColima)
 	code, out, errs := runColima(getenv, &runner.Fake{}, "setup-docker")
-	if code != 0 || !strings.Contains(out, "colima restart") || !strings.Contains(out, "won't upgrade") {
+	if code != 0 || !strings.Contains(out, "colima restart") || !strings.Contains(out, "won't upgrade") || !strings.Contains(out, "stop running coves first") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
 	}
 	b, _ := os.ReadFile(path)
@@ -128,5 +141,83 @@ func TestColimaCheckDocker(t *testing.T) {
 func TestColimaUnknownSubcommand(t *testing.T) {
 	if code, _, _ := runColima(func(string) string { return "" }, &runner.Fake{}, "bogus"); code != 2 {
 		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestColimaRejectsStrayArgs(t *testing.T) {
+	getenv, _ := colimaHome(t, freshColima)
+	for _, sub := range []string{"setup-docker", "check-docker"} {
+		code, _, errs := runColima(getenv, &runner.Fake{}, sub, "extra")
+		if code != 2 || !strings.Contains(errs, "unexpected argument") {
+			t.Errorf("%s: code=%d stderr=%q", sub, code, errs)
+		}
+	}
+}
+
+func TestColimaNoSubcommand(t *testing.T) {
+	if code, _, errs := runColima(func(string) string { return "" }, &runner.Fake{}); code != 2 || errs == "" {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+}
+
+func TestColimaGlobalDryRunWritesNothing(t *testing.T) {
+	getenv, path := colimaHome(t, freshColima)
+	var out, errb bytes.Buffer
+	code := cmdColima(getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
+	if code != 0 || !strings.Contains(out.String(), "would change") {
+		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+	if b, _ := os.ReadFile(path); string(b) != freshColima {
+		t.Fatalf("global --dry-run wrote the config:\n%s", b)
+	}
+	if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("global --dry-run wrote a backup: %v", err)
+	}
+}
+
+func TestColimaCheckDockerUnreachable(t *testing.T) {
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Err: errors.New("cannot connect")}}}
+	code, _, errs := runColima(func(string) string { return "" }, r, "check-docker")
+	if code != 1 || !strings.Contains(errs, "colima start") {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+}
+
+func TestColimaSetupDockerLeavesNoTempFiles(t *testing.T) {
+	getenv, path := colimaHome(t, freshColima)
+	if code, _, errs := runColima(getenv, &runner.Fake{}, "setup-docker"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".colima.yaml.") {
+			t.Fatalf("temp file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestColimaSetupDockerKeepsSymlink(t *testing.T) {
+	getenv, path := colimaHome(t, "")
+	target := filepath.Join(t.TempDir(), "dotfiles-colima.yaml")
+	if err := os.WriteFile(target, []byte(freshColima), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := runColima(getenv, &runner.Fake{}, "setup-docker"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced by a regular file: %v %v", info, err)
+	}
+	if b, _ := os.ReadFile(target); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("target not updated:\n%s", b)
+	}
+	if bak, _ := os.ReadFile(target + ".bak"); string(bak) != freshColima {
+		t.Fatalf("backup next to target = %q", bak)
 	}
 }
