@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	_ "time/tzdata" // IANA zones for role time zones, whatever the image ships
 
@@ -35,6 +36,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/intercom/intercompg"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -1852,6 +1854,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	logChanges := intercom.NewNotifier(intercomLog)
 	intercomLog = logChanges
 	sup.SetTailReader(intercomLog)
+	// Sessions follow their tickets' channels (intercom slice 2a); ticket
+	// channels key on the requisitioner's tracker connection, resolved below
+	// (until then, or with no requisitioner, the linear connection if any).
+	var trackerConn atomic.Value // ident.ID
+	sup.SetSessionChannels(jam.NewIntercom(st, func() (ident.ID, bool) {
+		if id, ok := trackerConn.Load().(ident.ID); ok {
+			return id, true
+		}
+		c, ok := st.ConnectionOfKind("linear")
+		return c.ID, ok
+	}, func() int64 { seq, _ := intercomLog.TailSeq(); return seq }, log))
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
@@ -2022,6 +2035,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		trackerConn.Store(lconn.ID)
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[lcred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: requisitioner connection credential:", err)

@@ -2014,3 +2014,31 @@ func TestSetReport(t *testing.T) {
 		t.Fatalf("report = %+v", inst.Report)
 	}
 }
+
+type fakeSessionChannels struct{ calls []string }
+
+func (f *fakeSessionChannels) SetUp(inst Instance) error {
+	f.calls = append(f.calls, "setup "+inst.ActorID+" "+inst.Unit)
+	return nil
+}
+
+func (f *fakeSessionChannels) Ended(inst Instance) error {
+	f.calls = append(f.calls, "ended "+inst.ActorID+" "+inst.Unit)
+	return errors.New("best effort: a failure doesn't fail the teardown")
+}
+
+// A session joins its channels when set up and leaves them when it ends.
+func TestSupervisorFollowsSessionChannels(t *testing.T) {
+	sup, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	fc := &fakeSessionChannels{}
+	sup.SetSessionChannels(fc)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatalf("Teardown: %v", err)
+	}
+	if want := []string{"setup w1 AET-1", "ended w1 AET-1"}; !slices.Equal(fc.calls, want) {
+		t.Fatalf("calls = %q, want %q", fc.calls, want)
+	}
+}
