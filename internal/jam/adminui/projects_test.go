@@ -148,7 +148,8 @@ func TestProjectPage(t *testing.T) {
 			t.Errorf("project page missing %q", want)
 		}
 	}
-	for _, gone := range []string{"a3", "studio-solo", "/ui/roles/default/solo"} {
+	// ">a3<", not "a3": the page carries random ids (user links) that may contain it.
+	for _, gone := range []string{">a3<", "studio-solo", "/ui/roles/default/solo"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("acme page shows %q from another project", gone)
 		}

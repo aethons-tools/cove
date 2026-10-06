@@ -253,3 +253,57 @@ func TestPlanHumanMigrationNotesSeveralHandles(t *testing.T) {
 		t.Fatalf("notes = %v; a user with two handles must be reported", plan.report.Notes)
 	}
 }
+
+func TestPlanRegistryMigrationChatServices(t *testing.T) {
+	m := legacyState(t, map[string][]Human{
+		"acme": {{Name: "alice", Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox", UserID: "111"}}}},
+		"beta": nil,
+	})
+	for name, cs := range map[string]string{"acme": "discord", "beta": "slack"} {
+		p := m.projects[name]
+		p.ChatService = cs
+		m.projects[name] = p
+	}
+	plan := m.planRegistryMigration(0)
+	var discord []Connection
+	for _, c := range plan.connections {
+		if c.Kind == "discord" {
+			discord = append(discord, c)
+		}
+	}
+	if len(discord) != 1 {
+		t.Fatalf("connections = %+v, want one discord connection shared by the account and the chat service", plan.connections)
+	}
+	docs := map[string]Project{}
+	for _, p := range plan.projects {
+		docs[p.Name] = p
+	}
+	if docs["acme"].ChatService != string(discord[0].ID) || len(docs["acme"].Roster.Humans) != 0 {
+		t.Fatalf("acme = %+v", docs["acme"])
+	}
+	if docs["beta"].ChatService != "" {
+		t.Fatalf("beta's chat service %q is no chat kind and must be cleared", docs["beta"].ChatService)
+	}
+	var noted bool
+	for _, n := range plan.report.Notes {
+		noted = noted || strings.Contains(n, `"slack"`)
+	}
+	if !noted {
+		t.Fatalf("notes = %v; clearing slack must be reported", plan.report.Notes)
+	}
+
+	// From roster_schema 1 (humans already migrated): only chat services move.
+	m2 := legacyState(t, map[string][]Human{"acme": nil})
+	p := m2.projects["acme"]
+	p.ChatService = "discord"
+	m2.projects["acme"] = p
+	c := Connection{ID: ident.New(ident.Connection), Kind: "discord", Name: "discord", Status: StatusLive}
+	m2.connections[c.ID] = c
+	plan = m2.planRegistryMigration(1)
+	if len(plan.connections) != 0 || len(plan.users) != 0 || len(plan.projects) != 1 || plan.projects[0].ChatService != string(c.ID) {
+		t.Fatalf("from 1 = %+v", plan)
+	}
+	if again := m2.planRegistryMigration(2); len(again.projects) != 0 {
+		t.Fatalf("from 2 must plan nothing: %+v", again)
+	}
+}

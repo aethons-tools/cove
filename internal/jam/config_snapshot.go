@@ -327,7 +327,8 @@ func (fs *MemStore) ImportConfig(s ConfigSnapshot) error {
 		return err
 	}
 	applyImport(fs.memState, s)
-	// A snapshot carries roster humans (v1): migrate them into the registry.
-	fs.applyHumanPlan(fs.planHumanMigration())
+	// A snapshot may predate the registry (roster humans, kind-named chat
+	// services): migrate it.
+	fs.applyHumanPlan(fs.planRegistryMigration(0))
 	return nil
 }

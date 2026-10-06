@@ -370,7 +370,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	scratch.users, scratch.connections, scratch.accounts = s.users, s.connections, s.accounts
 	scratch.members, scratch.aliases = s.members, s.aliases
 	applyImport(scratch, snap)
-	plan := scratch.planHumanMigration()
+	plan := scratch.planRegistryMigration(0)
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
