@@ -1,6 +1,6 @@
 # intercom slice 2: channel-centric intercom — design
 
-**Status:** draft for review (2026-10-06).
+**Status:** approved (2026-10-06); §9 questions decided as recommended.
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 2 of 4. The parent holds the vocabulary, the decisions record and the source interface sketch. Slice 1 ([`…-slice1-identity-registry-design.md`](2026-10-06-intercom-slice1-identity-registry-design.md)) gave every participant a surrogate id.
 **Delivers:**
 - a channel registry;
@@ -208,7 +208,7 @@ The bound is fixed, and the union disappears once no grandfathered session is li
   - **Participant suggestions:** emit ids with labels.
 - **Session context** (`studiofacts`): lists the default channel and the targets in the new grammar.
 
-## 9. Open questions (my recommendation first)
+## 9. Decided in review (2026-10-06): each as recommended
 
 1. **`user:alice` in a project with no chat service.** Do we keep rendering it as an `@`-mention on the session's ticket, via an `egress` binding on the chat (rec.)? Or should we refuse it, because there is no surface to reach alice on?
    - With the rec., alice's reply on Linear lands in the **ticket** channel, not the chat. The session still gets it, because it is a member of the ticket channel.
