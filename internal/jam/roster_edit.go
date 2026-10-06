@@ -1,12 +1,8 @@
 package jam
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -100,49 +96,4 @@ func FormatDuration(d time.Duration) string {
 		s = strings.TrimSuffix(s, "0m")
 	}
 	return s
-}
-
-// rosterMu makes PutRosterHuman's uniqueness checks and its write one step, so
-// two concurrent adds can't both claim one login or Discord user id.
-var rosterMu sync.Mutex
-
-// PutRosterHuman adds h to project's roster, or replaces the human of the same
-// name — the one roster-human write for the JSON admin API and the UI. A login
-// links at most one human per project (so ownership, e.g. of a personal
-// session, is unambiguous) and a Discord user id binds at most one (so a
-// Discord reply's author is unambiguous); delivery and identity must validate.
-// Refusals are 400 WriteErrors; an unknown project is ErrProjectNotFound.
-func PutRosterHuman(store Store, project string, h Human) error {
-	if h.Name == "" {
-		return writeErr(http.StatusBadRequest, "human name required")
-	}
-	if err := ValidateDelivery(h.Delivery); err != nil {
-		return writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	if err := ValidateIdentity(h.Identity); err != nil {
-		return writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	rosterMu.Lock()
-	defer rosterMu.Unlock()
-	if other, ok := HumanByLogin(store, project, h.Login); ok && other.Name != h.Name {
-		return writeErr(http.StatusBadRequest, "login is already linked to roster human %q in this project", other.Name)
-	}
-	if r, ok := store.GetRoster(project); ok {
-		for _, id := range h.discordUserIDs() {
-			for _, other := range r.Humans {
-				if other.Name != h.Name && slices.Contains(other.discordUserIDs(), id) {
-					return writeErr(http.StatusBadRequest, "discord user id is already bound to roster human %q in this project", other.Name)
-				}
-			}
-		}
-	}
-	if err := store.AddHuman(project, h); err != nil {
-		for _, refusal := range []error{ErrInvalidName, ErrLoginTaken, ErrIdentityTaken, ErrAccountLinked} {
-			if errors.Is(err, refusal) {
-				return writeErr(http.StatusBadRequest, "%s", err.Error())
-			}
-		}
-		return err
-	}
-	return nil
 }

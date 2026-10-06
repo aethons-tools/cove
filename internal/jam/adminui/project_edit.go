@@ -6,14 +6,18 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// humanRow is a roster human plus their delivery and identity in the edit
-// form's line syntax.
-type humanRow struct {
-	jam.Human
-	DeliverySpec, IdentitySpec string
+// memberRow is a project member: their user, the handle the roster view shows,
+// and their delivery here in the edit form's line syntax.
+type memberRow struct {
+	UserID       ident.ID
+	Name         string
+	Handle       string
+	Delivery     []jam.DeliveryProfile
+	DeliverySpec string
 }
 
 // targetView is one escalation target; Unknown marks one that names nobody on
@@ -81,27 +85,21 @@ func splitSpecLines(s string) []string {
 	return out
 }
 
-func humanFromForm(r *http.Request) (jam.Human, error) {
-	h := jam.Human{
-		Name:   strings.TrimSpace(r.FormValue("name")),
-		Handle: strings.TrimSpace(r.FormValue("handle")),
-		Login:  strings.TrimSpace(r.FormValue("login")),
-	}
+// memberDeliveryFromForm parses a member's delivery lines (service:address;
+// a Discord user id is an account, bound on the user's page).
+func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
+	var out []jam.DeliveryProfile
 	for _, l := range splitSpecLines(r.FormValue("delivery")) {
 		p, err := jam.ParseDeliverySpec(l)
 		if err != nil {
-			return jam.Human{}, badRequest("delivery " + `"` + l + `": ` + err.Error())
+			return nil, badRequest("delivery " + `"` + l + `": ` + err.Error())
 		}
-		h.Delivery = append(h.Delivery, p)
-	}
-	for _, l := range splitSpecLines(r.FormValue("identity")) {
-		id, err := jam.ParseOIDCSpec(l)
-		if err != nil {
-			return jam.Human{}, badRequest("identity " + `"` + l + `": ` + err.Error())
+		if p.UserID != "" {
+			return nil, badRequest("delivery " + `"` + l + `": a Discord user id is an account — add it on the user's page`)
 		}
-		h.Identity = append(h.Identity, id)
+		out = append(out, p)
 	}
-	return h, nil
+	return out, nil
 }
 
 // registerProjectEdits mounts the project page's section writes. Each answers
@@ -146,15 +144,25 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/humans", edit("human put", func(r *http.Request, project string) error {
-		h, err := humanFromForm(r)
+	mux.HandleFunc("POST /ui/projects/{project}/members", edit("member put", func(r *http.Request, project string) error {
+		uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(r.FormValue("user")))
+		if err != nil {
+			return registryErr(err)
+		}
+		delivery, err := memberDeliveryFromForm(r)
 		if err != nil {
 			return err
 		}
-		return jam.PutRosterHuman(store, project, h)
+		p, _ := store.GetProject(project)
+		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/humans/{name}", edit("human removed", func(r *http.Request, project string) error {
-		return store.RemoveHuman(project, r.PathValue("name"))
+	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", func(r *http.Request, project string) error {
+		uid, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
+		if err != nil {
+			return registryErr(err)
+		}
+		p, _ := store.GetProject(project)
+		return registryErr(store.RemoveMember(p.ID, uid))
 	}))
 
 	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("channel put", func(r *http.Request, project string) error {

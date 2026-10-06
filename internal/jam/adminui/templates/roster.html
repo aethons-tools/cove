@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-head"><h1>Roster</h1><span class="sub">Actors and the role grants they hold</span></div>
+<div class="page-head"><h1>Actors</h1><span class="sub">Actors and the role grants they hold</span></div>
 <details class="panel">
   <summary>Enroll actor</summary>
   <form hx-post="/ui/enrollments" hx-target="#roster-panel" hx-swap="innerHTML" data-reset>
@@ -69,5 +69,5 @@
   </div>
   <button type="button" class="primary small" data-copy="#enroll-token">Copy</button>
 </div>
-<div hx-get="/ui/roster" hx-trigger="load" hx-select="#roster" hx-target="#roster" hx-swap="outerHTML"></div>
+<div hx-get="/ui/actors" hx-trigger="load" hx-select="#roster" hx-target="#roster" hx-swap="outerHTML"></div>
 {{end}}

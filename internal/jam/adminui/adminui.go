@@ -26,6 +26,8 @@ var pages = map[string]*template.Template{
 	"dashboard":    mustParse("coves.html", "context_panel.html", "dashboard.html"),
 	"coves":        mustParse("coves.html"),
 	"roster":       mustParse("roster.html"),
+	"users":        mustParse("users.html"),
+	"user":         mustParse("user.html"),
 	"roles":        mustParse("roles.html"),
 	"kits":         mustParse("kits.html"),
 	"destinations": mustParse("dest_fields.html", "destinations.html"),
@@ -106,7 +108,7 @@ var funcs = template.FuncMap{
 	"specURL":    specURL,
 	"kitURL":     kitURL,
 	"projectURL": projectURL,
-	"blankHuman": func() humanRow { return humanRow{} },
+	"userURL":    userURL,
 	"chainForm": func(project string, c chainView) map[string]any {
 		return map[string]any{"Project": project, "Chain": c}
 	},
@@ -172,9 +174,9 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		render(w, "coves", data)
 	})
 
-	mux.HandleFunc("GET /ui/roster", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /ui/actors", func(w http.ResponseWriter, r *http.Request) {
 		data := rosterData(store)
-		data["Title"] = "Roster"
+		data["Title"] = "Actors"
 		render(w, "roster", data)
 	})
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +205,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)
 	registerJamContext(mux, store, log, guardWrite)
+	registerUsers(mux, store, log, guardWrite)
 
 	return mux
 }

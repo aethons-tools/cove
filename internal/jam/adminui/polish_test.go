@@ -14,7 +14,7 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
 	for path, href := range map[string]string{
 		"/ui/":             `href="/ui/"`,
-		"/ui/roster":       `href="/ui/roster"`,
+		"/ui/actors":       `href="/ui/actors"`,
 		"/ui/kits":         `href="/ui/kits"`,
 		"/ui/destinations": `href="/ui/destinations"`,
 	} {
@@ -72,7 +72,7 @@ func TestRosterPerActorGrantForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roster").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String()
 	if n := strings.Count(body, `hx-post="/ui/actors/`); n != 2 {
 		t.Errorf("want one add-grant form per actor (2), got %d", n)
 	}

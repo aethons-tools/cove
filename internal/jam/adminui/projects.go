@@ -31,7 +31,7 @@ func projectChoices(store jam.Store) []string {
 type projectRow struct {
 	Name                   string
 	Roles, Actors, Studios int
-	Humans, Channels       int
+	Members, Channels      int
 	ChatService            string
 	InUseBy                string // what blocks removal; "" when removable
 }
@@ -63,7 +63,7 @@ func projectRows(store jam.Store) []projectRow {
 		p, _ := store.GetProject(name)
 		out = append(out, projectRow{
 			Name: name, Roles: len(store.ListRoles(name)), Actors: len(projectHolders(store, name)),
-			Studios: studios[name], Humans: len(p.Roster.Humans), Channels: len(p.Roster.Channels),
+			Studios: studios[name], Members: len(store.ListMembers(p.ID)), Channels: len(p.Roster.Channels),
 			ChatService: p.ChatService, InUseBy: projectRef(store, name),
 		})
 	}
@@ -100,7 +100,7 @@ type projectDetail struct {
 	Holders      []projectHolder
 	Coves        []jam.CoveSummary
 	CanEdit      bool // always false: the page's studio table is read-only
-	Humans       []humanRow
+	Members      []memberRow
 	Escalation   []chainView // chains with at least one tier
 	DefaultChain chainView   // the default chain, possibly empty (its editor is always offered)
 	ChatServices []string
@@ -127,11 +127,17 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 			d.Coves = append(d.Coves, c)
 		}
 	}
+	handles := map[string]string{}
 	for _, h := range p.Roster.Humans {
-		d.Humans = append(d.Humans, humanRow{Human: h,
-			DeliverySpec: lines(h.Delivery, jam.FormatDeliverySpec),
-			IdentitySpec: lines(h.Identity, jam.FormatOIDCSpec)})
+		handles[h.Name] = h.Handle
 	}
+	for _, uid := range store.ListMembers(p.ID) {
+		u, _ := store.GetUser(uid)
+		ms, _ := store.GetMembership(p.ID, uid)
+		d.Members = append(d.Members, memberRow{UserID: uid, Name: u.Name, Handle: handles[u.Name],
+			Delivery: ms.Delivery, DeliverySpec: lines(ms.Delivery, jam.FormatDeliverySpec)})
+	}
+	slices.SortFunc(d.Members, func(a, b memberRow) int { return strings.Compare(a.Name, b.Name) })
 	d.DefaultChain = chain("", p.Escalation, p.Roster)
 	if len(p.Escalation) > 0 {
 		d.Escalation = append(d.Escalation, d.DefaultChain)

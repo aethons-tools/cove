@@ -79,6 +79,13 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			}
 			return out
 		},
+		"users": func(string) []string {
+			var out []string
+			for _, u := range store.ListUsers() {
+				out = append(out, u.Name)
+			}
+			return out
+		},
 		"services": func(string) []string {
 			return slices.DeleteFunc(slices.Clone(chatServices), func(s string) bool { return s == "" })
 		},

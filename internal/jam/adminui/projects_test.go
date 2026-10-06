@@ -139,7 +139,7 @@ func TestProjectPage(t *testing.T) {
 		"<h1>acme</h1>", `aria-current="page">Projects`,
 		`href="/ui/roles/acme/dev"`, `href="/ui/roles/acme/ops"`,
 		"a1", "a2", "studio-acme",
-		"alice", "alice-h", "sub-alice", "dm-alice", "123456789", "https://idp.example", "oidc-alice",
+		"alice", "alice-h", "dm-alice", `href="/ui/users/usr_`,
 		"eng", "chan-eng",
 		"human:alice", "30m", "deploy", "channel:eng", "10m",
 		"discord",
@@ -167,7 +167,7 @@ func TestProjectPageNotFound(t *testing.T) {
 // project, so a typo can't land anything.
 func TestProjectPickers(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	for _, path := range []string{"/ui/roles", "/ui/roster", "/ui/coves"} {
+	for _, path := range []string{"/ui/roles", "/ui/actors", "/ui/coves"} {
 		body := get(t, h, path).Body.String()
 		if !strings.Contains(body, `<input name="project" data-ta="projects" value="default"`) || strings.Contains(body, `<select name="project"`) {
 			t.Errorf("%s: project should be a type-ahead prefilled with default", path)

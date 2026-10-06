@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="page-head"><h1>Users</h1><span class="sub">The people agents talk to — open one to edit their logins, OIDC bindings and accounts; add them to a project on its page</span></div>
+<details class="panel">
+  <summary>New user</summary>
+  <form hx-post="/ui/users" hx-target="#users" hx-swap="outerHTML">
+    <div class="grid">
+      <label>Name <span class="req">required</span><span class="hint">Jam-wide; addressed as <code>human:&lt;name&gt;</code></span><input name="name" required></label>
+      <label class="wide">Logins <span class="hint">one per line — operator identities (OIDC sub, or <code>local</code>) this person signs in as</span><textarea name="logins" spellcheck="false"></textarea></label>
+      <label class="wide">OIDC identities <span class="hint">one per line, <code>issuer:subject</code></span><textarea name="oidc" spellcheck="false"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Create user</button></div>
+  </form>
+</details>
+{{template "users-table" .}}
+{{end}}
+
+{{define "users-table"}}
+<div class="card" id="users">
+<table>
+  <thead><tr><th>Name</th><th>Logins</th><th>Accounts</th><th>Projects</th></tr></thead>
+  <tbody>
+    {{range .Users}}
+    <tr data-id="{{.ID}}">
+      <td><a class="mono" href="{{userURL .ID}}"><b>{{.Name}}</b></a></td>
+      <td>{{range .Logins}}<div class="mono">{{.}}</div>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{range .Accounts}}<div><span class="chip">{{.Connection}}</span> <span class="mono">{{if .Handle}}@{{.Handle}}{{else}}{{.ServiceUID}}{{end}}</span></div>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{range .Projects}}<a class="chip" href="{{projectURL .}}">{{.}}</a>{{else}}<span class="none">—</span>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4" class="empty">No users.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

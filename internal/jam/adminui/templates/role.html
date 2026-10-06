@@ -180,7 +180,7 @@
   </section>
 
   <section class="card">
-    <header><h2>Holders</h2><span class="sub">actors granted this role — manage grants on the <a href="/ui/roster">Roster</a></span></header>
+    <header><h2>Holders</h2><span class="sub">actors granted this role — manage grants on the <a href="/ui/actors">Actors</a> page</span></header>
     <div class="body">
       {{range .Holders}}<span class="chip">{{.ID}}{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No actors hold this role.</span>{{end}}
     </div>
