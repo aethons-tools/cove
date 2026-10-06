@@ -22,8 +22,10 @@ raise (run → report → teardown).
    matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
    explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
    alone. Presence-only — the value after the prefix is unused.
-3. **Dedup** — skip any issue that already has a live Instance in the registry
-   (its studio is `cove-<identifier>`), so a ticket is never raised twice.
+3. **Dedup** — skip any issue that already has a live session on it (an Instance
+   whose unit is the ticket), so a ticket is never raised twice. Each dispatch
+   starts a new session (a minted `ses_…` id): a re-dispatch after the earlier
+   one ended does not inherit its inbox.
 4. **Cap** — ask Jam's Allocator for an ephemeral reservation; stop raising
    once it denies (the role's ephemeral cap is reached); the rest wait for the
    next poll. The cap is the role's roster `max-ephemeral`
