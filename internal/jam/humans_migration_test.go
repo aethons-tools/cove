@@ -427,8 +427,8 @@ func TestPlanRegistryMigrationRosterChannelsToRooms(t *testing.T) {
 	if len(plan.report.Notes) != 2 {
 		t.Fatalf("notes = %q, want the shared ref and the unknown service", plan.report.Notes)
 	}
-	if len(plan.projects) != 2 || len(plan.projects[0].Roster.Channels)+len(plan.projects[1].Roster.Channels) != 0 {
-		t.Fatalf("projects = %+v", plan.projects)
+	if len(plan.projects) != 2 || len(plan.projects[0].Roster.Channels) != 0 || len(plan.projects[1].Roster.Channels) != 1 {
+		t.Fatalf("projects = %+v, want acme's doc cleared and zeta's keeping its unplaceable channel", plan.projects)
 	}
 
 	m.applyHumanPlan(plan)
@@ -437,6 +437,33 @@ func TestPlanRegistryMigrationRosterChannelsToRooms(t *testing.T) {
 	}
 	if got := m.rosterChannels(acme.ID); len(got) != 2 || got[0] != (RosterChannel{Name: "chat", Service: "discord", Ref: "42"}) {
 		t.Fatalf("roster view = %+v", got)
+	}
+}
+
+// Step 5 is lenient about what older Jams stored: a service in any case maps
+// to its kind, a name given twice is one room (the last wins, as the doc's
+// upsert did), and a channel it can't place stays in the doc rather than
+// being lost.
+func TestPlanRoomsKeepsWhatItCannotPlace(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil})
+	p := m.projects["acme"]
+	p.Roster.Channels = []RosterChannel{
+		{Name: "chat", Service: " Discord ", Ref: "42"},
+		{Name: "eng", Ref: "ACME-1"}, {Name: "eng", Ref: "ACME-2"},
+		{Name: "pigeon", Service: "carrier-pigeon", Ref: "x"},
+	}
+	m.projects["acme"] = p
+	plan := m.planRegistryMigration(4)
+	if len(plan.channels) != 2 {
+		t.Fatalf("channels = %+v, want chat and one eng", plan.channels)
+	}
+	m.applyHumanPlan(plan)
+	want := []RosterChannel{{Name: "chat", Service: "discord", Ref: "42"}, {Name: "eng", Service: "linear", Ref: "ACME-2"}}
+	if got := m.rosterChannels(p.ID); !slices.Equal(got, want) {
+		t.Fatalf("rooms = %+v, want %+v", got, want)
+	}
+	if kept := m.projects["acme"].Roster.Channels; len(kept) != 1 || kept[0].Name != "pigeon" {
+		t.Fatalf("doc channels = %+v, want the unplaceable one kept", kept)
 	}
 }
 

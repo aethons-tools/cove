@@ -151,7 +151,7 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 		return err
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT channel_id, participant_id, joined_seq, COALESCE(left_seq, 0) FROM channel_members ORDER BY channel_id, joined_seq`)
+		`SELECT channel_id, participant_id, joined_seq, left_seq FROM channel_members ORDER BY channel_id, joined_seq`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load channel_members: %w", err)
 	}
@@ -159,8 +159,12 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 	for rows.Next() {
 		var ch string
 		var ms ChannelMember
-		if err := rows.Scan(&ch, &ms.ParticipantID, &ms.JoinedSeq, &ms.LeftSeq); err != nil {
+		var left *int64
+		if err := rows.Scan(&ch, &ms.ParticipantID, &ms.JoinedSeq, &left); err != nil {
 			return err
+		}
+		if left != nil {
+			ms.Left, ms.LeftSeq = true, *left
 		}
 		s.chanMembers[ident.ID(ch)] = append(s.chanMembers[ident.ID(ch)], ms)
 	}

@@ -310,6 +310,13 @@ func TestPostgresRoomsMigration(t *testing.T) {
 	if got := open().ChannelMembers(rooms[0].ID); len(got) != 1 {
 		t.Fatalf("reload: members = %+v", got)
 	}
+	// A membership that ended at seq 0 stays ended across a reload.
+	if err := again.LeaveChannel(rooms[0].ID, "standing-acme-impl-spider", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := open().ChannelMembers(rooms[0].ID); len(got) != 0 {
+		t.Fatalf("reload after leave: members = %+v", got)
+	}
 	if err := again.RemoveProject("acme"); err != nil {
 		t.Fatalf("RemoveProject with rooms: %v", err)
 	}

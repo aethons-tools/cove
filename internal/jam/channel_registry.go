@@ -64,10 +64,12 @@ type Channel struct {
 
 // ChannelMember is one membership of a participant (a session, user or
 // account id; grandfathered session ids included) in a channel, from the log
-// position it joined at. LeftSeq 0 = still a member.
+// position it joined at. Left reports that it ended, at LeftSeq (a seq of 0
+// is a real position: the start of an empty log).
 type ChannelMember struct {
 	ParticipantID ident.ID `json:"participant_id"`
 	JoinedSeq     int64    `json:"joined_seq"`
+	Left          bool     `json:"left,omitempty"`
 	LeftSeq       int64    `json:"left_seq,omitempty"`
 }
 
@@ -145,7 +147,7 @@ func (m *memState) ChannelMembers(ch ident.ID) []ChannelMember {
 	defer m.mu.RUnlock()
 	var out []ChannelMember
 	for _, ms := range m.chanMembers[ch] {
-		if ms.LeftSeq == 0 {
+		if !ms.Left {
 			out = append(out, ms)
 		}
 	}
@@ -196,7 +198,7 @@ func (m *memState) ingressHolder(b Binding) (Channel, bool) {
 // currentMember is p's open membership row in ch (its index). Caller holds mu.
 func (m *memState) currentMember(ch, p ident.ID) (int, bool) {
 	for i, ms := range m.chanMembers[ch] {
-		if ms.ParticipantID == p && ms.LeftSeq == 0 {
+		if ms.ParticipantID == p && !ms.Left {
 			return i, true
 		}
 	}
@@ -263,14 +265,14 @@ func (m *memState) checkBindings(bs []Binding, self ident.ID) error {
 		if _, err := m.liveConnection(b.ConnectionID); err != nil {
 			return err
 		}
+		if slices.ContainsFunc(bs[:i], func(x Binding) bool { return x.ConnectionID == b.ConnectionID && x.Ref == b.Ref }) {
+			return fmt.Errorf("channel: binding %s on %s given twice", b.Ref, b.ConnectionID)
+		}
 		if b.Mode != BindBoth {
 			continue
 		}
 		if o, ok := m.ingressHolder(b); ok && o.ID != self {
 			return fmt.Errorf("%w: %s on %s is %s %q's", ErrBindingTaken, b.Ref, b.ConnectionID, o.Kind, o.Key)
-		}
-		if slices.ContainsFunc(bs[:i], func(x Binding) bool { return x == b }) {
-			return fmt.Errorf("channel: binding %s on %s given twice", b.Ref, b.ConnectionID)
 		}
 	}
 	return nil
@@ -352,7 +354,7 @@ func (m *memState) applyPutChannel(c Channel) { m.channels[c.ID] = copyChannel(c
 func (m *memState) applyJoinChannel(ch, p ident.ID, seq int64) {
 	for i, ms := range m.chanMembers[ch] {
 		if ms.ParticipantID == p && ms.JoinedSeq == seq {
-			m.chanMembers[ch][i].LeftSeq = 0
+			m.chanMembers[ch][i].Left, m.chanMembers[ch][i].LeftSeq = false, 0
 			return
 		}
 	}
@@ -361,6 +363,7 @@ func (m *memState) applyJoinChannel(ch, p ident.ID, seq int64) {
 
 func (m *memState) applyLeaveChannel(ch, p ident.ID, seq int64) {
 	if i, ok := m.currentMember(ch, p); ok {
+		m.chanMembers[ch][i].Left = true
 		m.chanMembers[ch][i].LeftSeq = max(seq, m.chanMembers[ch][i].JoinedSeq)
 	}
 }

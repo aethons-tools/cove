@@ -58,8 +58,11 @@ on the connection of its `Service` (the default connection of that kind, created
 if there is none). On upgrade, each project's channels became rooms once. A ref
 receives replies for at most one channel: adding a channel on a ref another
 channel already holds is refused (`409`). If two existing channels shared a ref,
-the first kept it and the other now only posts there; the upgrade logs which.
-Removing a channel archives its room.
+the first kept it and the other now only posts there (re-saving it unchanged
+keeps it so); the upgrade logs which. A channel whose service isn't `linear` or
+`discord` stays in the project's stored record, unused, and is logged. A
+channel needs a `Ref`. Removing a channel archives its room. An older Jam
+doesn't see rooms, so don't roll back past this upgrade.
 
 **Roster humans are Jam-wide users.** Since intercom slice 1a-3a, a human is
 a user in the [identity registry](roster.md) plus a project membership: the

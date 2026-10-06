@@ -32,5 +32,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.members = map[ident.ID]map[ident.ID]Membership{}
 	s.aliases = map[string]map[string]ident.ID{}
 	s.standing = map[standingKey]string{}
+	s.channels = map[ident.ID]Channel{}
+	s.chanMembers = map[ident.ID][]ChannelMember{}
 	return nil
 }

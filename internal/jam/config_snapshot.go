@@ -532,6 +532,9 @@ func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *
 		plan.standing = append(plan.standing, ss)
 	}
 	for _, c := range s.Channels {
+		if c.Status != StatusLive && c.Status != StatusArchived {
+			return bad("channel %q: status %q", c.Key, c.Status)
+		}
 		if c.Status == StatusArchived {
 			if err := checkID(c.ID, ident.Channel); err != nil {
 				return bad("channel %q: %v", c.Key, err)

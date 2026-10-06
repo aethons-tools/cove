@@ -78,6 +78,9 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			room(p, "x", jam.Binding{ConnectionID: "con_01j9q3zzzzzzzzzzzzzzzzzzzz", Ref: "R", Mode: jam.BindBoth}),
 			room(p, "x", jam.Binding{ConnectionID: c.ID, Ref: "", Mode: jam.BindBoth}),
 			room(p, "x", jam.Binding{ConnectionID: c.ID, Ref: "R", Mode: "sideways"}),
+			// A surface is bound once per channel, whatever the modes.
+			room(p, "x", jam.Binding{ConnectionID: c.ID, Ref: "R", Mode: jam.BindEgress}, jam.Binding{ConnectionID: c.ID, Ref: "R", Mode: jam.BindEgress}),
+			room(p, "x", jam.Binding{ConnectionID: c.ID, Ref: "R", Mode: jam.BindBoth}, jam.Binding{ConnectionID: c.ID, Ref: "R", Mode: jam.BindEgress}),
 		}
 		for _, b := range bad {
 			if _, err := s.CreateChannel(b); err == nil {
@@ -201,6 +204,16 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if got := s.ChannelMembers(ch.ID); len(got) != 2 || got[1] != (jam.ChannelMember{ParticipantID: u.ID, JoinedSeq: 12}) {
 			t.Fatalf("members after rejoin = %+v", got)
 		}
+		// Joining and leaving at the start of the log (seq 0) ends the membership.
+		if err := s.JoinChannel(ch.ID, "usr_01j9q3zzzzzzzzzzzzzzzzzzzz", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LeaveChannel(ch.ID, "usr_01j9q3zzzzzzzzzzzzzzzzzzzz", 0); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.ChannelMembers(ch.ID); len(got) != 2 {
+			t.Fatalf("members after a seq-0 join and leave = %+v", got)
+		}
 		if err := s.ArchiveChannel(ch.ID); err != nil {
 			t.Fatal(err)
 		}
@@ -277,6 +290,9 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := s.AddChannel("acme", jam.RosterChannel{Name: "x", Service: "carrier-pigeon", Ref: "1"}); err == nil {
 			t.Fatal("a service with no connection kind must be refused")
 		}
+		if err := s.AddChannel("acme", jam.RosterChannel{Name: "x", Service: "linear"}); err == nil {
+			t.Fatal("a channel needs a ref")
+		}
 		if err := s.RemoveChannel("acme", "eng"); err != nil {
 			t.Fatalf("RemoveChannel: %v", err)
 		}
@@ -285,6 +301,25 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		}
 		if got, _ := s.GetChannel(rooms[1].ID); got.Status != jam.StatusArchived {
 			t.Fatalf("a removed roster channel's room is archived: %+v", got)
+		}
+	})
+
+	t.Run("roster_view_and_demoted_rooms", func(t *testing.T) {
+		s, p, c := setup(t)
+		// As the migration leaves two channels that shared a ref: the first
+		// keeps ingress, the other only posts there.
+		mustChannel(t, s, room(p, "zeta", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
+		alpha := mustChannel(t, s, room(p, "alpha", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindEgress}))
+		r, _ := s.GetRoster("acme")
+		if len(r.Channels) != 2 || r.Channels[0].Name != "zeta" {
+			t.Fatalf("roster = %+v: the channel that receives a ref's replies must come first", r.Channels)
+		}
+		// Re-saving the demoted channel unchanged keeps it as it is.
+		if err := s.AddChannel("acme", jam.RosterChannel{Name: "alpha", Service: "linear", Ref: "ACME-1"}); err != nil {
+			t.Fatalf("re-save demoted: %v", err)
+		}
+		if got, _ := s.GetChannel(alpha.ID); got.Bindings[0].Mode != jam.BindEgress {
+			t.Fatalf("re-saved = %+v", got)
 		}
 	})
 
@@ -357,6 +392,7 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			"bad id":             func(s *jam.ConfigSnapshot) { s.Channels[0].ID = "usr_01j9q3zzzzzzzzzzzzzzzzzzzz" },
 			"unknown project":    func(s *jam.ConfigSnapshot) { s.Channels[0].ProjectID = "prj_01j9q3zzzzzzzzzzzzzzzzzzzz" },
 			"unknown connection": func(s *jam.ConfigSnapshot) { s.Channels[0].Bindings[0].ConnectionID = "con_01j9q3zzzzzzzzzzzzzzzzzzzz" },
+			"bad status":         func(s *jam.ConfigSnapshot) { s.Channels[0].Status = jam.StatusRemoved },
 			"duplicate key": func(s *jam.ConfigSnapshot) {
 				dup := s.Channels[0]
 				dup.ID, dup.Bindings = ident.New(ident.Channel), nil
