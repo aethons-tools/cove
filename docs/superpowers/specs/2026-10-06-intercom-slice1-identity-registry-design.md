@@ -129,7 +129,8 @@ names in this slice except where a touched identifier would otherwise mislead.
 - `Actor.ID` and `Instance.ActorID` hold the session id; `Instance.Project` →
   `ProjectID`, `Instance.Owner` → `StartedBy` (a `usr_` id; comms meaning unchanged
   until slice 3).
-- **Container and volume names** derive from the session id
+- **Volumes belong to the session; the container to the studio.** Both names
+  derive from the session id (a session has at most one studio at a time)
   (`naming.CoveContainer(sessionID)`), labelled `harbor.cove.state=<sessionID>`.
   The standing reconciler's liveness, reset, upgrade, backoff, 409-holder check and
   `sweep` purge set key on `standing_sessions`, not on `StandingActorID`, which is

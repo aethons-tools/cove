@@ -27,8 +27,8 @@ them as it is touched.
 
 | Term | Meaning | Verbs |
 |---|---|---|
-| **Session** | the collaborator: identity (`ses_`), conversation, intercom participant, persisted state | **start** / **end** — never restarted; a new one is unrelated |
-| **Studio** | the sandbox a session currently runs in (container, volumes, token). A session has at most one studio at a time and may have several over its life (restart, upgrade). In `at-cove` and in existing code this is a *cove*. | **set up** / **tear down** (nouns: *setup*, *teardown*). Code still says *raise*; move toward *set up* opportunistically |
+| **Session** | the collaborator: identity (`ses_`), conversation, intercom participant, and its persisted state — the **agent-data and workspace volumes** belong to the session | **start** / **end** — never restarted; a new one is unrelated |
+| **Studio** | the sandbox a session currently runs in: the container and its credential; it mounts the session's volumes. A session has at most one studio at a time and may have several over its life (restart, upgrade). In `at-cove` and in existing code this is a *cove*. | **set up** / **tear down** (nouns: *setup*, *teardown*). Code still says *raise*; move toward *set up* opportunistically |
 | **Episode** | one execution of the harness (`claude -p`) in the studio; with streaming input an episode usually spans several turns | — |
 | **Turn** | one assistant turn; it may end while the episode waits on child processes | **wake**: unpause the studio (between episodes) or deliver a message (between turns) |
 
