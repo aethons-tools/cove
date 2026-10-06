@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -506,5 +507,59 @@ func TestClaudeDefaultSettingsFile(t *testing.T) {
 	wj, _ := json.Marshal(want)
 	if string(gj) != string(wj) {
 		t.Fatalf("claude-default settings file:\n got %s\nwant %s", gj, wj)
+	}
+}
+
+// clobberSpawner records whether the harness's generated files exist at each
+// spawn, then deletes them — as an agent running arbitrary code in the cove
+// might (e.g. this package's own tests, once, against the real /dev/shm).
+type clobberSpawner struct {
+	scriptedSpawner
+	paths   []string
+	present [][]bool
+}
+
+func (f *clobberSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
+	var seen []bool
+	for _, p := range f.paths {
+		_, err := os.Stat(p)
+		seen = append(seen, err == nil)
+		_ = os.Remove(p)
+	}
+	f.mu.Lock()
+	f.present = append(f.present, seen)
+	f.mu.Unlock()
+	return f.scriptedSpawner.Spawn(ctx, bin, args, dir, env, stdout)
+}
+
+// The files a spawn's argv names (--settings, --mcp-config) are regenerated
+// before every episode, not only when the spec changes: one deleted mid-session
+// would otherwise fail every later `claude --continue` at startup.
+func TestRunRegeneratesHarnessFilesEachEpisode(t *testing.T) {
+	dir := t.TempDir()
+	conn := specConnector(specWith(func(s *modelspec.Spec) { s.Claude.Settings = map[string]any{"theme": "dark"} }))
+	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
+	f := &clobberSpawner{scriptedSpawner: scriptedSpawner{dir: dir}, paths: []string{c.SettingsPath, c.MCPConfigPath}}
+	w := specWL(t, dir, c, f, conn, &fakeSource{c: conn}, true)
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, h)
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.present) != 2 {
+		t.Fatalf("want 2 episodes, got %d", len(f.present))
+	}
+	for i, seen := range f.present {
+		for j, ok := range seen {
+			if !ok {
+				t.Errorf("episode %d spawned without %s", i+1, f.paths[j])
+			}
+		}
 	}
 }

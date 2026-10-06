@@ -210,9 +210,11 @@ outstanding, so backgrounding works. A turn that ends with tasks still running
 holds stdin open for at most `BackgroundWait` (30m), then closes it and claude
 stops the stragglers (logged at WARN). When the process exits, its turn is over — no result file is read on the Jam path. Every
 episode also passes `--mcp-config /dev/shm/cove-agent-mcp.json --strict-mcp-config`:
-before the first spawn the harness **generates** that one config — the guaranteed
+before **every** spawn the harness **(re)generates** that one config — the guaranteed
 `messaging` server plus the kit's [`mcp-servers`](kits.md#mcp-servers-cov-240) —
-and **fails loud** if it can't (the baked kit file is missing — a stale image —
+and the spec's `--settings` file, since the agent shares the cove's filesystem and may
+have deleted them (a missing `--settings` file fails every later `claude` at startup);
+it **fails loud** if it can't (the baked kit file is missing — a stale image —
 or invalid, or the config can't be written) rather than launch a silently
 toolless agent (COV-190). The same pre-flight checks `claude --version` against
 the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds

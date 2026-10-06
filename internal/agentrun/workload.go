@@ -288,6 +288,13 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 				h.ConnectorApplied(fp)
 			}
 		}
+		// The files the argv names are rewritten every episode, not only on a
+		// spec change: the agent may have deleted them (a missing --settings
+		// file fails every later claude at startup).
+		if err := w.cfg.Harness.Prepare(w.spec); err != nil {
+			w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
+			return err
+		}
 		bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
 		env = w.overlayEnv(env, extra)
 		w.gateMu.Lock()

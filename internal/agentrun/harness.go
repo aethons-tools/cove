@@ -14,6 +14,11 @@ type Harness interface {
 	// starts. spec nil = none delivered (a Jam predating model-specs, or no
 	// default seeded): the harness's built-in defaults.
 	Validate(spec *modelspec.Spec) error
+	// Prepare (re)writes the per-run files Command's argv names for spec (the
+	// one in effect, already Validated). Run before every spawn: the agent
+	// shares the cove's filesystem and may have removed them since. An error
+	// stops Run before that agent process starts.
+	Prepare(spec *modelspec.Spec) error
 	// Command returns the binary, argv and the extra env (set over the spawn
 	// env; never over a key the connector owns) for one episode.
 	Command(ep Episode) (bin string, args []string, env map[string]string)

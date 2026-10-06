@@ -112,6 +112,8 @@ func (c Claude) kitMCPServers() string {
 //   - spec's claude.settings and its plugins' enablement (claudeSettings),
 //     when either is non-empty, are written to the per-run settings file
 //     Command passes as --settings (removed otherwise).
+//
+// The last two are Prepare, which Run repeats before every episode.
 func (c Claude) Validate(spec *modelspec.Spec) error {
 	if spec != nil {
 		if spec.Type != modelspec.HarnessClaude {
@@ -124,6 +126,11 @@ func (c Claude) Validate(spec *modelspec.Spec) error {
 			return err
 		}
 	}
+	return c.Prepare(spec)
+}
+
+// Prepare writes the run's MCP config and spec's settings file (see Validate).
+func (c Claude) Prepare(spec *modelspec.Spec) error {
 	if err := c.writeMCPConfig(); err != nil {
 		return err
 	}

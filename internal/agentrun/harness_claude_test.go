@@ -48,6 +48,7 @@ func TestClaudeValidateWritesMessagingPlusKitServers(t *testing.T) {
 	dir := t.TempDir()
 	c := Claude{
 		MCPConfigPath:     filepath.Join(dir, "out.json"),
+		SettingsPath:      filepath.Join(dir, "settings.json"),
 		KitMCPServersPath: kitServersFile(t, dir, `{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}}}`),
 	}
 	if err := c.Validate(nil); err != nil {
@@ -65,7 +66,7 @@ func TestClaudeValidateWritesMessagingPlusKitServers(t *testing.T) {
 
 func TestClaudeValidateNoKitServersIsMessagingOnly(t *testing.T) {
 	dir := t.TempDir()
-	c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: kitServersFile(t, dir, "{}\n")}
+	c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), SettingsPath: filepath.Join(dir, "settings.json"), KitMCPServersPath: kitServersFile(t, dir, "{}\n")}
 	if err := c.Validate(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestClaudeValidateRejectsBadKitServers(t *testing.T) {
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: kitServersFile(t, dir, body)}
+			c := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), SettingsPath: filepath.Join(dir, "settings.json"), KitMCPServersPath: kitServersFile(t, dir, body)}
 			if err := c.Validate(nil); err == nil {
 				t.Fatal("want error")
 			}
@@ -103,12 +104,12 @@ func TestClaudeValidateRejectsBadKitServers(t *testing.T) {
 func TestClaudeValidateFailsLoud(t *testing.T) {
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "nope.json")
-	err := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), KitMCPServersPath: missing}.Validate(nil)
+	err := Claude{MCPConfigPath: filepath.Join(dir, "out.json"), SettingsPath: filepath.Join(dir, "settings.json"), KitMCPServersPath: missing}.Validate(nil)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), missing) {
 		t.Fatalf("missing kit file: want a not-exist error naming the path, got %v", err)
 	}
 	unwritable := filepath.Join(dir, "no-such-dir", "out.json")
-	err = Claude{MCPConfigPath: unwritable, KitMCPServersPath: kitServersFile(t, dir, "{}")}.Validate(nil)
+	err = Claude{MCPConfigPath: unwritable, SettingsPath: filepath.Join(dir, "settings.json"), KitMCPServersPath: kitServersFile(t, dir, "{}")}.Validate(nil)
 	if err == nil || !strings.Contains(err.Error(), unwritable) {
 		t.Fatalf("unwritable config: want an error naming the path, got %v", err)
 	}

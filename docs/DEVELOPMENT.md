@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Development notes
@@ -92,6 +92,10 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   every test drives `internal/runner.Fake`,
   so no Docker, network, or live VM is required.
   Keep new tests this way.
+  Tests also never touch a real cove path: agents run this suite *inside* coves,
+  so a test using a production path (e.g. the agentrun harness's `/dev/shm` files)
+  clobbers the live agent. Give every harness test paths (`testClaude`);
+  `internal/agentrun`'s `TestMain` fails the run if a real harness file changed.
 - `just integration` (`go test -tags integration ./internal/connect/ -v`) runs the **real-ssh** suite:
   it boots an unprivileged throwaway `sshd` on loopback with a fake `claude`
   and exercises the transports and TOFU end-to-end with the real `ssh` client.
