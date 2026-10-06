@@ -344,24 +344,35 @@ func upsertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
 	return err
 }
 
-// ensureProjectIDs gives every loaded project written before projects had ids
-// a fresh one and persists it, so later loads see the same id. It then loads
-// the memberships, which reference those ids. load's project part; no lock.
+// ensureProjectIDs gives every loaded project whose doc lacks an id one and
+// persists it, so later loads see the same id. The row is locked and an id
+// already in its column wins (a concurrent start backfilled it, or an older
+// binary rewrote the doc without it), so every process converges on one id.
+// It then loads the memberships, which reference those ids. load's project
+// part; no lock.
 func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	for name, p := range s.projects {
 		if p.ID != "" {
 			continue
 		}
-		p.ID = newProject(name).ID
-		doc, err := json.Marshal(p)
-		if err != nil {
-			return err
-		}
 		if err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-			if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
+			var have *string
+			if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE name = $1 FOR UPDATE`, name).Scan(&have); err != nil {
 				return err
 			}
-			_, err := tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3`, p.ID, doc, name)
+			if have != nil {
+				p.ID = ident.ID(*have)
+			} else {
+				p.ID = newProject(name).ID
+				if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
+					return err
+				}
+			}
+			doc, err := json.Marshal(p)
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3`, p.ID, doc, name)
 			return err
 		}); err != nil {
 			return fmt.Errorf("pgstore: backfill project id for %q: %w", name, err)

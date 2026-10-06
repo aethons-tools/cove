@@ -80,4 +80,12 @@ func TestPostgresProjectIDBackfill(t *testing.T) {
 	if e, ok := again.Resolve(p.ID); !ok || e.Name != "legacy" {
 		t.Fatalf("Resolve = %+v, %v", e, ok)
 	}
+
+	// An older binary rewrote the doc without "id": the column's id wins.
+	if _, err := again.Pool().Exec(ctx, `UPDATE projects SET doc = doc - 'id' WHERE name = 'legacy'`); err != nil {
+		t.Fatalf("strip doc id: %v", err)
+	}
+	if q, _ := open().GetProject("legacy"); q.ID != p.ID {
+		t.Fatalf("doc without id re-minted: %q, want the column's %q", q.ID, p.ID)
+	}
 }
