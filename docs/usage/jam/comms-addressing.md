@@ -78,8 +78,9 @@ at-jam project roster rm-channel  <project> <name>
 ```
 
 A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
-(nothing refers to names). `user rm` tombstones the user (refused while they
-own a live personal session) and ends their memberships. The admin API behind
+(nothing refers to names). `user rm` tombstones the user and ends their
+memberships; it and `user rename` are refused (409) while the user owns a live
+personal session. The admin API behind
 these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts` and
 `/admin/connections` (the per-project `/humans` routes are gone).
 
