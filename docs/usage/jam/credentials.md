@@ -1,10 +1,10 @@
 ---
 summary: The protected Jam credentials file (`~/.config/at-jam/credentials.yml`) that supplies the real secrets a Jam brokers/uses, and the demand/supply split between it and the serve config's name-only `credentials:` list.
 read_when: You are supplying the real secrets a Jam brokers or uses — writing ~/.config/at-jam/credentials.yml, choosing value/command/global/mint per credential, wiring `credentials-file`, or migrating an inline `credentials:`/`bot-token`/`tracker-token` strategy out of a serve config.
-owns: the at-jam credentials-file format and location, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
+owns: the at-jam credentials-file format and location, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
 prereqs: serve.md for the serve config that demands credentials; ../at-cove-secrets.md for the shared Source/minters vocabulary
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-06
 ---
 
 # The Jam credentials file
@@ -68,6 +68,16 @@ credential:
 | `runtime.requisitioner.tracker-token-cred` | the tracker token ([requisitioner.md](requisitioner.md)) |
 | a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
+
+A demand may carry one non-secret setting, **`exchange: gcp`**:
+`vertex-gcp: { exchange: gcp }`. The supplied value is then a Google credentials
+JSON (`service_account`, `authorized_user`, `external_account` or
+`impersonated_service_account`). The broker swaps it for short-lived
+`cloud-platform` access tokens and caches each one, refreshing it 5 minutes
+before it expires. If a refresh fails, the broker re-reads the supply (at most
+every 10 seconds), so a re-login or a rotated key needs no restart. A destination naming the credential injects the current token,
+and the JSON never leaves the host. `serve` refuses an unknown `exchange`, a JSON
+of another type, or the pool's credential. See [vertex.md](vertex.md) for its use.
 
 At `serve` startup Jam loads the file, resolves each demanded name on the host in
 memory, and **fails closed**: a demanded name with no entry in the file aborts

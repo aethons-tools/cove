@@ -68,26 +68,34 @@ func validatePrincipalHeaders(rules []ModelHeaderRule, bad func(string, ...any) 
 	return nil
 }
 
-// servesAnthropicAPI reports whether d is a destination a claude harness on
-// the anthropic provider talks to: its client env (what the connector hands
-// the cove) sets ANTHROPIC_BASE_URL — the legacy /anthropic/ route, or any
-// destination whose env sets it. The broker checks the destination that
-// matched the request, so a more specific sub-route (or any other route) is
-// never mistaken for it.
-func servesAnthropicAPI(d Destination) bool {
-	_, ok := d.ClientEnv()["ANTHROPIC_BASE_URL"]
-	return ok
+// servedProvider names the claude provider whose API d serves, by its client
+// env (what the connector hands the cove): "anthropic" when it sets
+// ANTHROPIC_BASE_URL (the legacy /anthropic/ route, or any destination whose
+// env sets it), "vertex" when it sets ANTHROPIC_VERTEX_BASE_URL; "" for any
+// other destination. The broker checks the destination that matched the
+// request, so a more specific sub-route (or any other route) is never mistaken
+// for it.
+func servedProvider(d Destination) string {
+	env := d.ClientEnv()
+	if _, ok := env["ANTHROPIC_BASE_URL"]; ok {
+		return "anthropic"
+	}
+	if _, ok := env["ANTHROPIC_VERTEX_BASE_URL"]; ok {
+		return "vertex"
+	}
+	return ""
 }
 
 // principalHeaderRules returns the header rules to apply to a request the
 // actor made on dest, which presents identities per in: the rules of the
 // actor's model-spec (resolved as the connector resolves it) when it is claude
-// on the anthropic provider and dest serves the Anthropic API. Rules failing
+// on the provider dest serves (servedProvider: anthropic or vertex). Rules failing
 // the static checks or naming a header the destination's identity or apply
 // spec uses are dropped. Warnings name the header only — rule values are not
 // secrets but are never logged — and are deduplicated (b.warns).
 func (b *Broker) principalHeaderRules(actor Actor, dest Destination, in InboundSpec) []ModelHeaderRule {
-	if !servesAnthropicAPI(dest) {
+	served := servedProvider(dest)
+	if served == "" {
 		return nil
 	}
 	resolveKey := "resolve\x00" + actor.ID
@@ -107,7 +115,7 @@ func (b *Broker) principalHeaderRules(actor Actor, dest Destination, in InboundS
 		return nil
 	}
 	b.warns.forget(resolveKey)
-	if provider != "anthropic" || len(rules) == 0 {
+	if provider != served || len(rules) == 0 {
 		return nil
 	}
 	owned := []string{http.CanonicalHeaderKey(in.Header)}

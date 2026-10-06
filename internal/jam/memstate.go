@@ -706,7 +706,7 @@ func setProjectContext(p Project, l sessionctx.Layer, rs []sessionctx.Resource) 
 
 // ---- copy helpers (defensive copies for reads) ----
 
-// copyDestination deep-copies d's header specs and Env, so a store's copy
+// copyDestination deep-copies d's header specs, Env and AllowPaths, so a store's copy
 // never aliases a caller's.
 func copyDestination(d Destination) Destination {
 	if d.IdentityInSpec != nil {
@@ -719,6 +719,7 @@ func copyDestination(d Destination) Destination {
 		d.ApplySpec = &out
 	}
 	d.Env = maps.Clone(d.Env)
+	d.AllowPaths = slices.Clone(d.AllowPaths)
 	return d
 }
 

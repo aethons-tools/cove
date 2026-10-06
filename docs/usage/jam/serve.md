@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-06
 ---
 
 # Running Jam (`at-jam serve`)
@@ -259,6 +259,12 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
 - `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
   to use the destination — see [connector.md](connector.md), which also covers
   the `gh` (GitHub API) destinations.
+- `--allow-path PATTERN` (repeatable) limits what the broker forwards: a
+  [`path.Match`](https://pkg.go.dev/path#Match) pattern over the path *after* the
+  route (`*` never crosses `/`; a path with `..` or `//` never matches). Any other
+  path is refused **403** before the credential is resolved. No patterns means
+  any path. Use it when the injected credential reaches more than the cove
+  needs. [vertex.md](vertex.md) uses it to limit a GCP token to Claude model calls.
 - `--note` (≤ 300 bytes) is a usage hint shown to sessions granted the destination —
   see [connector.md](connector.md#notes-for-sessions).
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —

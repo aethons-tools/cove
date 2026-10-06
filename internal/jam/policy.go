@@ -2,6 +2,7 @@ package jam
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
@@ -35,6 +36,13 @@ type Destination struct {
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// Git routes a studio's https://github.com/ through this destination's route.
 	Git bool `json:"git,omitempty" yaml:"git,omitempty"`
+	// AllowPaths, when set, is the only request paths the broker forwards on
+	// this destination: path.Match patterns over the path after the route
+	// prefix (so "*" never crosses a "/"). Anything else is refused 403 before
+	// the credential is resolved. Empty = any path (the default). It bounds what
+	// a broad upstream credential (e.g. a GCP cloud-platform token) can be used
+	// for; see ValidateAllowPaths.
+	AllowPaths []string `json:"allow_paths,omitempty" yaml:"allow_paths,omitempty"`
 	// Note is an optional human-written usage hint shown to sessions granted
 	// this destination (the Studio layer of their session context), e.g. how a
 	// tool must be pointed at the route. Not a secret; ≤ MaxDestinationNote bytes.
@@ -96,6 +104,45 @@ func (d Destination) ValidateEnv() error {
 		}
 	}
 	return nil
+}
+
+// MaxAllowPaths bounds Destination.AllowPaths.
+const MaxAllowPaths = 32
+
+// ValidateAllowPaths checks AllowPaths at write time: at most MaxAllowPaths
+// patterns, each a clean absolute path and a valid path.Match pattern.
+func (d Destination) ValidateAllowPaths() error {
+	if len(d.AllowPaths) > MaxAllowPaths {
+		return fmt.Errorf("allow_paths has %d patterns; at most %d", len(d.AllowPaths), MaxAllowPaths)
+	}
+	for _, p := range d.AllowPaths {
+		if !strings.HasPrefix(p, "/") || path.Clean(p) != p {
+			return fmt.Errorf("allow_paths %q must be a clean absolute path (the path after the route, e.g. /v1/...)", p)
+		}
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("allow_paths %q is not a valid pattern: %v", p, err)
+		}
+	}
+	return nil
+}
+
+// PathAllowed reports whether the broker may forward p — the request path
+// after the route prefix — on d: always when AllowPaths is empty, else only a
+// clean path matching one of the patterns (a path with "..", "//" or a
+// trailing "/" segment never matches, so a pattern can't be escaped).
+func (d Destination) PathAllowed(p string) bool {
+	if len(d.AllowPaths) == 0 {
+		return true
+	}
+	if path.Clean(p) != p {
+		return false
+	}
+	for _, pat := range d.AllowPaths {
+		if ok, _ := path.Match(pat, p); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Config is the broker's destination table.
