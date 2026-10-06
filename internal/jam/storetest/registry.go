@@ -618,4 +618,71 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 			t.Fatalf("unknown project: %v, want ErrProjectNotFound", err)
 		}
 	})
+
+	t.Run("roster_humans_are_jam_wide_users", func(t *testing.T) {
+		s := newStore(t)
+		acme, beta := mustProject(t, s, "acme"), mustProject(t, s, "beta")
+		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddHuman("beta", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|a",
+			Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-b"}}}); err != nil {
+			t.Fatal(err)
+		}
+		id, ok := s.LookupName(ident.User, "alice")
+		if !ok || !s.IsMember(acme, id) || !s.IsMember(beta, id) || len(s.ListUsers()) != 1 {
+			t.Fatalf("alice = %q, %v; users %+v", id, ok, s.ListUsers())
+		}
+		if ms, _ := s.GetMembership(beta, id); len(ms.Delivery) != 1 || ms.Delivery[0].Address != "inbox-b" {
+			t.Fatalf("beta membership = %+v", ms)
+		}
+		if p, _ := s.GetProject("beta"); len(p.Roster.Humans) != 1 || p.Roster.Humans[0].Handle != "@alice" {
+			t.Fatalf("beta roster view = %+v", p.Roster.Humans)
+		}
+		if err := s.RemoveHuman("acme", "alice"); err != nil {
+			t.Fatal(err)
+		}
+		if s.IsMember(acme, id) || !s.IsMember(beta, id) {
+			t.Fatal("RemoveHuman ends only that project's membership")
+		}
+		if _, ok := s.GetUser(id); !ok {
+			t.Fatal("the user outlives a membership")
+		}
+	})
+
+	t.Run("import_migrates_roster_humans", func(t *testing.T) {
+		s := newStore(t)
+		snap := jam.ConfigSnapshot{Version: jam.ConfigSnapshotVersion, Projects: []jam.Project{
+			{Name: "acme", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "@a", Login: "auth0|a",
+				Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-a", UserID: "111"}}}}}},
+			{Name: "beta", Roster: jam.Roster{Humans: []jam.Human{{Name: "alice"}}}},
+		}}
+		if err := s.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		id, ok := s.LookupName(ident.User, "alice")
+		if !ok {
+			t.Fatalf("users = %+v", s.ListUsers())
+		}
+		for _, project := range []string{"acme", "beta"} {
+			if got, ok := s.LegacyHumanAlias(project, "alice"); !ok || got != id {
+				t.Fatalf("alias %s/alice = %q, %v", project, got, ok)
+			}
+		}
+		r, _ := s.GetRoster("acme")
+		if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|a" || r.Humans[0].Handle != "@a" {
+			t.Fatalf("acme roster = %+v", r.Humans)
+		}
+		if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
+			t.Fatalf("acme delivery = %+v, %v", d, ok)
+		}
+		// The export carries the view, so a v1 backup still restores its roster.
+		var exported int
+		for _, p := range s.ExportConfig().Projects {
+			exported += len(p.Roster.Humans)
+		}
+		if exported != 2 {
+			t.Fatalf("exported humans = %d, want 2", exported)
+		}
+	})
 }

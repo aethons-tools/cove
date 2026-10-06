@@ -271,7 +271,7 @@ func (m *memState) GetProject(name string) (Project, bool) {
 	if !ok {
 		return Project{}, false
 	}
-	return copyProject(p), true
+	return m.viewProject(p), true
 }
 
 func (m *memState) GetRoster(project string) (Roster, bool) {
@@ -282,7 +282,7 @@ func (m *memState) GetRoster(project string) (Roster, bool) {
 		return Roster{}, false
 	}
 	return Roster{
-		Humans:   copyHumans(p.Roster.Humans),
+		Humans:   m.rosterHumans(p.ID),
 		Channels: append([]Channel(nil), p.Roster.Channels...),
 	}, true
 }

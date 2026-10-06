@@ -89,3 +89,73 @@ func TestPostgresProjectIDBackfill(t *testing.T) {
 		t.Fatalf("doc without id re-minted: %q, want the column's %q", q.ID, p.ID)
 	}
 }
+
+// TestPostgresHumansMigration: project docs written before the registry carry
+// roster humans; the first load migrates them into users, memberships,
+// accounts and legacy aliases, clears the docs, and marks it done — so a
+// later load changes nothing and serves the same roster view.
+func TestPostgresHumansMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	for _, stmt := range []string{
+		`DELETE FROM jam_settings WHERE key = 'roster_schema'`,
+		`INSERT INTO projects (name, doc) VALUES ('acme', '{"name":"acme","roster":{"humans":[
+			{"name":"alice","handle":"@alice","login":"auth0|a","delivery":[{"service":"discord","address":"inbox-a","user_id":"111"}]}]}}')`,
+		`INSERT INTO projects (name, doc) VALUES ('beta', '{"name":"beta","roster":{"humans":[{"name":"alice"}]}}')`,
+	} {
+		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+
+	m := open()
+	id, ok := m.LookupName(ident.User, "alice")
+	if !ok || len(m.ListUsers()) != 1 {
+		t.Fatalf("users = %+v", m.ListUsers())
+	}
+	r, _ := m.GetRoster("acme")
+	if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|a" || r.Humans[0].Handle != "@alice" {
+		t.Fatalf("acme roster = %+v", r.Humans)
+	}
+	if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
+		t.Fatalf("acme delivery = %+v, %v", d, ok)
+	}
+	if got, ok := m.LegacyHumanAlias("beta", "alice"); !ok || got != id {
+		t.Fatalf("beta alias = %q, %v", got, ok)
+	}
+	var stored int
+	if err := m.Pool().QueryRow(ctx, `SELECT count(*) FROM projects WHERE jsonb_array_length(coalesce(doc->'roster'->'humans', '[]')) > 0`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("project docs still holding humans = %d, %v", stored, err)
+	}
+
+	again := open()
+	if got, _ := again.LookupName(ident.User, "alice"); got != id || len(again.ListUsers()) != 1 {
+		t.Fatalf("reload: alice = %q, users %+v", got, again.ListUsers())
+	}
+	if r, _ := again.GetRoster("beta"); len(r.Humans) != 1 || r.Humans[0].Name != "alice" {
+		t.Fatalf("reload: beta roster = %+v", r.Humans)
+	}
+	// AddHuman through the reloaded store persists to the registry, not the doc.
+	if err := again.AddHuman("beta", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := open().GetRoster("beta"); len(r.Humans) != 2 {
+		t.Fatalf("after AddHuman + reload: beta roster = %+v", r.Humans)
+	}
+}
