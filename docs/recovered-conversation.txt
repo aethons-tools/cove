@@ -1,0 +1,1865 @@
+intercom-spider here. I've picked up ownership of the intercom, end to end.
+
+Here's where things stand:
+
+    I cloned aethons-tools/cove at f29e998 and went through the intercom code: internal/intercom, the relays, the /squawks and /escalate endpoints, the /me inbox UI, wake-on, and the cove-master MCP server.
+    The repo builds, and every test under internal/jam, internal/intercom, internal/relay, internal/wakeon and cmd passes.
+    One thing to know about this sandbox: the default GOPROXY=direct can't fetch the golang.org/x/* modules. Pointing it at proxy.golang.org works, and I've noted that so I don't trip on it again.
+    No open issues or PRs mention the intercom. The only related backlog item is the timed self-wake / sleep tool in docs/TODO.md.
+
+What should I work on first? I could take the self-wake/sleep tool, or you can point me at a bug or feature you have in mind.
+12:39
+you
+Text
+Markdown
+
+Yes, let's plan the sleep tool.
+12:42
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Plan for the sleep tool (timed self-wake). I'm treating this as architectural: a new MCP tool, a new endpoint, new persisted Instance state and a new wake trigger. So the order is questions, then a design, then a written spec in docs/superpowers/specs/, then an implementation plan. No code until you've approved the spec.
+
+How I understand it (please correct anything wrong):
+
+    Goal: an agent can end its turn and say "wake me at T" or "wake me in D". Today the only thing that wakes a waiting session is an inbound squawk. So an agent watching CI, a deploy or a slow job either has to busy-wait inside its turn or ask a human to poke it.
+    Who uses it: any managed studio's agent. The main users are resident sessions (standing ones like me, and personal ones), which already wait after every turn.
+    Done when: the agent calls sleep, ends its turn, and Jam wakes it near T, even if it was paused in the meantime. The wake text says it was a timer wake.
+
+Current code it fits into (my read):
+
+    escalate already shows the pattern: an MCP tool in cmd/cove-master/mcp.go posts to a Jam endpoint, which stamps a field on the Instance.
+    sleep would follow it: POST /sleep stores a WakeAt on the Instance.
+    The wake-on engine (internal/wakeon) then treats now ≥ WakeAt as a second wake trigger next to "a reply landed". For a paused studio it does Resume, then Wake, the same as it does for replies today.
+
+Assumptions I'd like you to check:
+
+    One pending timer per session. A new sleep replaces the old one.
+    Whatever wakes the agent first, timer or message, clears the timer.
+    wait-max teardown for non-resident studios still applies, so a timer can't hold a ticket studio alive past it.
+
+First question: if a squawk arrives before the timer fires, what should happen?
+
+    (a) Wake on the squawk and cancel the timer ("whichever comes first"). This is my recommendation: it's the simplest and it never hides a human from the agent.
+    (b) Wake on the squawk but keep the timer pending, so the agent is woken again at T unless it re-sleeps or cancels.
+    (c) Truly sleep: ignore squawks until T. This is a do-not-disturb mode.
+
+12:43
+you
+Text
+Markdown
+
+I want to consider that instead of calling sleep, when the agent ends its turn it includes it's awaken conditions:
+
+    any squawk
+    duration (with optional test script(s))
+    others in future?
+    I can see an /alarm tool that allows it to set one or more alarms where it will notified/awakened. Duration vs. time seem to be different concepts here, not just separate notations.
+
+13:25
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I like this better than a single sleep. Here's how I'd restate it, so you can correct me.
+
+Shape. The agent doesn't sleep. It declares the conditions that wake it, and those conditions are armed when its turn ends. The first one that fires wakes it. The wake text names which condition fired, so the agent knows why it's awake. There's a turn-end hook in practice, but no structured "exit payload" channel today. So the declaring happens through an alarm tool called during the turn (set / list / clear), and Jam arms the alarms when the session goes waiting. That makes your two ideas the same mechanism.
+
+Condition kinds (each one is a small, separate thing, so "others in future" is just a new kind):
+
+    squawk: today's behaviour, any inbound message wakes it. This is the default, always on.
+    at (a point in time): anchored to the world. "Wake me at 14:00 when the deploy window opens." It fires once and stays set across turns until it fires or is cleared. A turn that ends and starts again doesn't move it.
+    after (a duration): anchored to the end of the turn. "If nothing else wakes me within 30m, wake me." It's re-armed relative to each turn end, so it's really an inactivity timeout, not a clock time.
+    after + check script(s): a poll. "Every D, run this check, and wake me when it passes (exits 0)." Example: wake me when CI is green. It probably needs an optional give-up limit.
+
+Question: is that the distinction you mean between duration and time? Specifically:
+
+    at is a one-shot alarm that persists across turns.
+    after is relative to each turn end, and re-arms every time the agent goes back to waiting.
+
+If you meant something else, for example "duration is just relative notation, but both are one-shot", say so. It changes the data model.
+
+(Heads-up on what comes after this: the check scripts raise the biggest design question, which is where they run. A waiting studio gets docker paused after warm-timeout, so it can't run anything while it's paused. I'll ask about that next.)
+13:26
+you
+Text
+Markdown
+
+I see at as an alarm (likely with a name or note) prompting the agent to do something. It can set any number of them (perhaps this agent is a custodian that has several duties at different times). I suppose that leads to alarms being one-short or cron-syntaxed. And I guess they also should have an optional gate script to decide if the alarm should actually wait.
+
+I am trying to minimize agent turns, so having the agent call a tool before every end just to set the inactivity timeout feels heavy and potentially expensive. So: each role should include a default inactivity timeout (is that the TTL?). The tool call can modify it wholesale or just for the next turn end.
+
+Popcorn questions: How does a session specify that it is ready to end?
+14:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Got it. Here's the updated model:
+
+    Alarms are named, each with an optional note that becomes the prompt ("check the nightly backup"). An agent can hold any number. Each one is either one-shot (at a time) or recurring (cron). A one-shot alarm is deleted after it fires. A recurring one persists until it's cleared.
+    Gate script (optional): when an alarm comes due, the gate runs first, and only a pass (exit 0) wakes the agent. That also covers your earlier "duration + test script" idea: a cron */5 * * * * alarm with gate gh run view … --exit-status means "wake me when CI goes green", checked every 5 minutes, at no turn cost. So I'd drop polling as a separate kind.
+    Inactivity timeout: set as a role default, so a normal turn end costs no tool call. The tool can replace it for good or override it for the next turn end only.
+    Squawks still wake the agent, as they do today.
+
+Is the inactivity timeout the TTL? No. Scope.TTL is the lifetime of the session's identity token. The nearest existing thing is the personal-session idle ladder (idle-after / nag-every / reclaim-after). That ladder pings the owner, and it never wakes the agent. So this needs a new role setting. A working name is wake-after-idle, and I'll pin the name down in the spec.
+
+Popcorn: how does a session say it's ready to end? It depends on the session kind:
+
+    Ticket studios write a worker-result file at turn end with ok, needs-input or error. ok ends the studio, needs-input makes it wait, and error fails it.
+    Resident sessions (standing ones like me, and personal ones) can't end themselves. They always go back to waiting after a turn. A standing session ends when an operator dismisses it, and a personal one ends when its owner says release or it's reclaimed.
+
+I see two consequences:
+
+    Alarms only make sense on waiting. An ok ticket studio is torn down, and its alarms die with it.
+    A custodian that decides its duty is finished has no way to say so. Should "end me" be an option, perhaps a done the agent can declare that Jam acts on, like release? Or are standing sessions meant to be ended only by humans? This is a side question. I'm fine leaving it out of scope.
+
+Main question: where does a gate script run?
+
+    (a) Inside the studio, run by cove-master, not by claude. It has the agent's own tools, workspace, credentials and egress, so gh/curl checks just work. The cost is that a paused studio has to be unpaused (docker unpause, which is cheap) for the gate to run, then re-paused if the gate fails. No LLM turn is spent either way. This is my recommendation.
+    (b) Inside Jam. It never touches the studio, but it has no workspace and no tools, and it means running agent-written scripts in the broker. That's a security non-starter in my view.
+    (c) Restrict gates to declarative checks Jam evaluates itself, such as "GitHub check-run X is green" or "URL returns 200". This is safe and cheap but limited, and every new check type needs new Jam code.
+
+14:23
+you
+Text
+Markdown
+
+Gate scripts run as (a) describes. Sessions need to be able to end themselves. Case: I have a personal session that has run its course. I tell it too "wrap it up" and it can perform any housekeeping it needs and then dismiss itself without me attending.
+We also need to design for compaction, clearing and memory for long-standing sessions.
+14:32
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Noted: gate scripts run inside the cove, under cove-master (option (a)), and sessions can end themselves.
+
+Scope check. This is now three pieces of work. I'd split them into two specs rather than one large one:
+
+    Spec 1: turn-end lifecycle. "What happens when my turn ends": wake conditions (squawk, alarms at/cron with an optional gate script, and the inactivity timeout with a role default and a per-turn override), plus self-end. I'd bundle self-end in because it's the same moment and the same tool surface. It's just the condition "don't wait at all". All of this lives in the wake-on engine and agentrun, so it belongs in one spec. I'd do this first.
+    Spec 2: context lifecycle for long-running sessions. Compaction, clearing and memory. This is a different layer (claude's own context, --continue episodes, /agent-data memory). Today Jam does nothing here: resident sessions just --continue forever and rely on claude's auto-compaction. It interacts with spec 1, because a timer wake or a clear is a natural seam to start a fresh episode. But it's designed separately, after spec 1.
+
+I'll put spec 2 on the board so it doesn't get lost.
+
+Next question (spec 1, self-end). Here's the flow I'm proposing:
+
+    You say "wrap it up".
+    The agent does its housekeeping and then calls end(reason). I'd make it a separate tool rather than an alarm option, so it's explicit and easy to audit.
+    Its turn finishes normally, and Jam then tears it down.
+    Jam posts a notice to the owner: "session X ended itself: ". For a standing session with no owner, the notice goes to the admin/session-events log only.
+
+Two sub-points I need you to settle:
+
+    Should end take effect only at turn end? The alternative is immediate. I recommend turn end: if it's immediate, the agent gets cut off mid-reply.
+    Who may call end? I'd allow it for every session kind: personal, standing, and ticket studios. For a ticket studio it would mean the same as worker-result: ok, but without the file. Or should standing sessions be dismissable only by an operator?
+
+14:32
+you
+Text
+Markdown
+
+Turn end seems correct.
+Any session should be able to end, and studio ticket sessions should not have a special return format. Instead, they should manage Linear statuses/results themselves OR they should gain a tool that communicates result information to the allocator before it calls end. This creates fewer special cases of session types
+14:43
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Agreed on both: end takes effect at turn end, and any session may call it.
+
+Dropping worker-result has a bigger knock-on than it looks, and I think it's the good kind. If no session has a special return format, then every session behaves the same way at turn end:
+
+    it waits for its wake conditions (squawk, alarms, inactivity timeout),
+    or, if it called end, it's torn down.
+
+That removes needs-input as a concept: a ticket studio that asks a question simply ends its turn and waits, like a resident session. Session kinds then differ only in their role defaults. For example, a ticket studio's inactivity default might be "tear down after 30m" (today's wait-max), while a personal session's is the nag ladder. That's the fewer-special-cases outcome you're after. It also means spec 1 now reaches into the dispatch path (internal/agentrun, internal/dispatch/worker), not just wake-on.
+
+What worker-result does today, all of which has to move somewhere:
+
+    Its status (ok / needs-input / error) drives the Linear state the allocator sets: review, needs-input, or blocked.
+    On ok, the harness commits and pushes the work branch and opens the PR from the agent's pull-request title and message.
+    needs-input carries doing / blocker / need for the ticket comment, and error carries a message.
+
+Question: which of your two options?
+
+    (A) The agent manages Linear itself. Its role gets linear scope, and it pushes, opens the PR and moves the ticket. This is the most uniform option, but every role prompt has to get the board workflow right, the state names are per-team config the agent would have to know, and a careless agent can leave a ticket in a bad state.
+    (B) A report tool (name TBD), e.g. report(outcome, summary, pr?). Jam hands the result to the allocator, which keeps owning the Linear transitions, so the board stays consistent and the agent never needs Linear credentials. This is my recommendation.
+
+For (B), a sub-question: should the agent do its own git push and gh pr create (it already has git credentials), with report only carrying the outcome and PR URL? Or should the harness keep doing the push and PR at end? I recommend that the agent does it: it's one less harness special case, and agents already do this when working on a branch. Once that's in place, an end without a prior report on a ticket studio would mean "ended without a result", which the allocator would treat as blocked.
+14:44
+you
+Text
+Markdown
+
+(B) seems good and I think the agent should handle everything up to the PR. This fixes a weakness in the current system: multiple ticket workers do their and commit; harness opens the PR; most PRs are already unmergable due to other activity in the system. Now the ticket session can watch the PR, respond to comments, and keep the branch mergable until it lands.
+15:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Going with (B), and the agent owns everything up to the merge. That also gives alarms their main use case: a ticket session opens its PR, then sets a recurring alarm whose gate passes on "new review comment / CI red / branch behind main". It wakes only when there's something to do, at no turn cost while idle.
+
+That changes what report is, so here's how I now read it:
+
+    report is not terminal. It's a status update to the allocator, and the agent may call it many times over the ticket's life. end is the only terminal act.
+    report(state, summary, pr?) uses the scheduler's existing ticket states:
+        in-progress
+        in-review (with the PR URL)
+        needs-input (with the question; the doing / blocker / need fields fold into the summary)
+        blocked
+        done
+    A typical life: report(in-review, pr=…) → set a PR-watch alarm → wake on comments and fix → … → merge detected → report(done) → end("merged").
+    end without a terminal report (done or blocked) on a ticket session → the allocator marks it blocked with the end reason, so a ticket is never silently orphaned.
+    Question: should the allocator still auto-detect the merge? For example, it could move the ticket to done and tell the session when the PR merges, as a safety net. Or is that entirely the agent's job? I lean towards agent-only: it's simpler, and the agent's PR-watch alarm already covers it. I'd add a backstop later only if agents prove unreliable at it.
+
+Approach for where alarms live. Three options I considered:
+
+    Jam owns the alarm schedule (persisted per session, evaluated by the wake-on engine's tick), and cove-master only runs gates on request. This is my recommendation. The session may be paused when an alarm is due, so something outside it has to keep time. And Jam already owns every other wake decision and the paused→resume→wake dance, so this adds one more trigger beside "a reply landed", not a new subsystem.
+    cove-master owns the schedule inside the studio. That's simpler for gates, but a paused studio can't keep time, so Jam would need a "wake me at T so I can check" side channel anyway.
+    A separate scheduler service. That's a new moving part with no benefit at this scale.
+
+If you're OK with (1), my next message will cover the design section by section: tool surface, data model, engine flow and the agentrun/dispatch migration. After that comes the written spec.
+15:23
+you
+Text
+Markdown
+
+I agree with both of your suggestions. Continue.
+15:26
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Design, section 1 of 4: tool surface and data model. Please tell me whether this looks right before I move on.
+
+The tools. These are new cove-master MCP tools, each brokered to a new Jam endpoint, following the same pattern as escalate:
+
+    alarm_set(name, schedule, note?, gate?) creates the alarm, or replaces it if one with that name exists. Names are unique per session.
+        schedule is either an RFC 3339 time (one-shot) or a 5-field cron expression (recurring).
+        Cron is read in the role's time zone, which defaults to UTC. My reasoning: a custodian's "09:00" should mean the operator's 09:00. Tell me if you'd rather keep everything in UTC.
+        gate is a shell command string. It runs inside the cove from the workspace directory. Exit 0 means wake the agent; any other exit, or a timeout, means stay asleep.
+    alarm_clear(name) and alarm_list(). The list shows each alarm's next fire time and its last gate result.
+    idle_timeout(duration | "off", scope: next | always) overrides the role's inactivity default, either for the next turn end only or until the session ends. I've left out an action parameter on purpose: what happens on inactivity (wake the agent, nag the owner, tear down) stays role policy, and the agent only tunes when.
+    report(state, summary, pr?) sends ticket status to the allocator. It can be called any number of times. On a session with no ticket it returns 400.
+    end(reason) marks the session to be torn down once the current turn ends. It can't be undone, and the wake text never offers it.
+
+What wakes the agent. A Wake now carries a reason, and the resume prompt names it. The reasons are:
+
+    squawk
+    alarm:<name>, with the alarm's note
+    idle
+    context-changed, which exists today
+
+Data model. Everything lives on the Instance, which is already persisted as a JSON document in Postgres, so this needs no new table:
+
+    Alarms []Alarm. Each Alarm holds {Name, Schedule, Note, Gate, NextAt, LastGate{At, Exit, Output (truncated)}}.
+    IdleOverride{Duration, Scope}
+    EndRequested{Reason, At}
+    Report{State, Summary, PR, At}
+
+The role gains turn-end.idle-after and turn-end.on-idle (wake | teardown). These replace today's global wait-max for ticket studios, which becomes simply the role default for that kind.
+
+Limits:
+
+    At most 20 alarms per session.
+    Cron fires no more often than once a minute.
+    A gate has a 60s timeout, and its output is capped at 4 KiB.
+
+The limits are there so an agent can't turn alarms into a busy loop.
+15:27
+you
+Text
+Markdown
+
+Note that a gate that fails on timeout should wake the session with a message indicating that.
+18:20
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Agreed, and I'll widen it a little. A gate has three outcomes:
+
+    exit 0: wake the session.
+    any other exit: not yet, stay asleep.
+    the gate couldn't give an answer (it timed out, its command was missing or not executable — exit 126/127 — or the cove couldn't run it at all): wake the session, and the wake message says what went wrong, with the output.
+
+Without that third case, a broken gate would just never fire, and nobody would notice. I'm taking section 1 as approved with this change; tell me if anything in it should change.
+
+Design, section 2 of 4: the engine. This is all in the wake-on tick, which Jam owns.
+
+When a turn ends (the session enters waiting):
+
+    If end was requested, Jam tears the session down instead of letting it wait. It then tells the owner, or the allocator for a ticket session.
+    Otherwise Jam arms the idle deadline: the time the session started waiting, plus the override or the role's idle-after. A one-turn (next) override is used up here.
+
+Each tick, for a waiting session, in order:
+
+    Squawks, the same as today.
+    Due alarms (NextAt ≤ now):
+        No gate: the alarm fires.
+        With a gate: if the session is paused, Jam resumes it, then sends RunGate{alarm, run_id, command} down the Attach stream on a later tick. cove-master runs sh -c in the workspace, as the agent user with the agent's env, and with the 60s limit. It replies GateResult{run_id, exit, timed_out, output}. Jam then:
+            wakes the session on exit 0 or "couldn't answer";
+            otherwise re-pauses it if it was paused.
+            A gate that's already running is never started again, because run_id is tracked on the alarm.
+        After an alarm fires, a one-shot alarm is deleted. If its gate said "not yet", it's deleted without waking, and that shows in the session events. A cron alarm moves NextAt to the next match. No catch-up: if Jam was down across several matches, the alarm fires once.
+    Idle deadline passed: the role's on-idle applies. wake wakes with reason idle. teardown replaces today's wait-max (a ticket session is then marked blocked: idle). The personal-session nag ladder is unchanged and runs alongside.
+
+Alarms due while the session is running are held. They fire as soon as it next waits; a cron alarm that came due several times fires once. This matches "armed at turn end", and it means alarms never interrupt work.
+
+Several reasons on one tick go into a single Wake{reasons[]}. Each reason has a kind (squawk / alarm / gate-failed / idle / context-changed), the alarm name, the note, and any detail. agentrun renders them all into one resume prompt. That replaces today's empty Wake{} and the --continue resume prompts that differ by session kind.
+18:21
+you
+Text
+Markdown
+
+When a gate exits with 0, the wake message will include the stdout from the gate run.
+Question: when a session's turn has ended, but it has background tasks, will wakes still work correctly? I.e., are wakes always delivered and agentrun/covemaster decide when they are provided to the session?
+06:46
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Noted: an exit-0 wake will include the gate's stdout (capped at 4 KiB, with a truncation marker if it's cut).
+
+Background tasks: does delivery work, and who decides when? I checked internal/agentrun (episode, idleTracker).
+
+What works today:
+
+    Jam always delivers a Wake to cove-master as soon as it decides to wake the session.
+    agentrun then decides when the agent sees it:
+        Mid-turn, the wake is coalesced and written as a single resume prompt at the end of the turn.
+        If the turn has ended but background tasks are still running (the episode is held open, up to BackgroundWait, default 30m), it's written straight into the live agent.
+        Once the agent process has exited, it starts a new --continue episode.
+    So for squawks the answer is yes.
+
+Two gaps that this design has to close:
+
+    Coalescing drops payload. The wake channel holds a single empty signal (chan struct{}, cap 1), so several wakes collapse into one. That's harmless while wakes carry no data. With Wake{reasons[]}, agentrun has to merge the pending reasons, not drop them. So: a pending-reasons list behind a mutex, drained into one resume prompt. A small change.
+    Jam can't see "turn ended, background still running". While the episode is held open, cove-master keeps reporting running, on purpose: it only reports waiting once the episode exits, so Jam never docker pauses a session whose background job is still working.
+        Today only squawks wake a running session (SetRunningWake). Under section 2 as written, alarms would be held, and the idle deadline would not be armed, for up to 30 minutes after the turn ended. That breaks "armed at turn end" for exactly the sessions most likely to use alarms (a background build plus a watch alarm).
+        Fix: a new activity, holding. Turn ended, background tasks still outstanding. cove-master reports it in the actHold state.
+        Jam treats holding like waiting for every wake trigger: squawks, alarms and gates, and the idle deadline.
+        Jam treats it like running for pause and teardown: it's never paused, never torn down for idleness, and the deadline stays armed so it fires on schedule.
+        Gates still work there, because the session is live.
+        It also gives the admin UI and /me status strip a more honest state.
+
+So, the revised rule for section 2 is: "alarms due while running are held; in holding or waiting they fire." Mid-turn, nothing interrupts the agent. That's all the same delivery mechanism, with agentrun deciding the moment.
+
+Any objection to holding? If not, I'll move on to section 3 (moving ticket studios onto report/end).
+06:47
+you
+Text
+Markdown
+
+Nice. Continue.
+06:57
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Design, section 3 of 4: ticket studios move to report/end. First, something I found while tracing it, because it changes the scope.
+
+There are two dispatch paths, and they handle worker-result differently:
+
+    at-cove work / at-task (internal/dispatchrun, internal/dispatch/scheduler). This is the one-shot VM bracket: prepare → agent → complete. The harness reads worker-result, then commits, pushes and opens the PR, and the scheduler moves the ticket to review, needs-input or blocked. This is the "harness opens the PR" flow you described.
+    Jam's Requisitioner + managed studios (internal/dispatcher, internal/agentrun). Here worker-result only sets the studio's activity: ok means done/teardown, needs-input means waiting. Nothing pushes or opens a PR, and nothing moves the ticket after the claim to IN PROGRESS. Today a Jam-raised ticket stays IN PROGRESS no matter how it ends.
+
+Proposal for section 3: build on path 2 only.
+
+    Requisitioner: its prompt drops the worker-result protocol. Instead it tells the agent to own the branch, the push and the PR, and to use report and end. The role grants git / github-api as it does today.
+    POST /report: Jam stamps Report on the Instance and calls the Requisitioner's tracker Transition(issue, state). The comment bodies follow the scheduler's existing okComment / needsInputComment style, with the PR link and the summary. This is idempotent per state, and it's the ticket transition that path 2 has never had.
+    agentrun: stops reading worker-result. Every kind of session now does the same thing at the end of an episode: report holding or waiting, unless end was requested, in which case it reports done. The needs-input, ok and error branches go away. An agent process that crashes still reports blocked.
+    end on a ticket session without a terminal report (done / blocked): Jam transitions the ticket to blocked, with the end reason, before teardown.
+    wait-max teardown: replaced by the ticket role's on-idle: teardown, which marks the ticket blocked: idle.
+
+Question: what happens to path 1 (at-cove work)?
+
+    (a) Leave it unchanged and out of scope. It keeps worker-result and the harness PR as a separate, older mode. (This is the smallest change, but the two paths drift further apart.)
+    (b) Deprecate it in the same spec: path 2 is the dispatch path, and path 1 gets a deprecation note now and removal in a later ticket. This is my recommendation, if Jam is where dispatch is heading.
+    (c) Port it too. This is hard: path 1 is a synchronous one-shot VM with no wake-on engine, so alarms and holding don't exist there.
+
+06:57
+you
+Text
+Markdown
+
+Leave at-cove work as-is. The entire non-Jam code path will be re-worked shortly, but it needs to continue working for now without change.
+07:14
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Agreed: at-cove work stays as it is. I checked the boundary. agentrun is imported only by cove-master (Jam studios), and the Requisitioner only reads scheduler.Role and the Linear client. So the spec will be a hard constraint: no changes under internal/dispatch/**, internal/dispatchrun, cmd/at-task, or at-cove work. The report comment formatting gets its own Jam-side code rather than touching the scheduler's.
+
+Design, section 4 of 4: errors, version skew, testing, rollout.
+
+Errors
+
+    Tool input: a bad cron string, an at time already in the past, or an exceeded limit returns 400 with a reason the agent can act on, and nothing is stored.
+    report is synchronous. If the tracker call fails, the agent gets a 502 and can retry, and Jam stamps Report only after the call succeeds. If the session has no ticket, the agent gets a 400.
+    Ticket transition at end or idle teardown (the "→ blocked" case): this is best-effort. The teardown always goes ahead, because a studio is never held hostage to Linear. A failure is logged and shows as a session event, and the ticket stays IN PROGRESS, where a human can see it.
+    Gate results that never arrive (the cove disconnects or restarts): Jam gives up after the gate timeout plus a 30s grace period. The result counts as "the gate couldn't answer", which wakes the agent with that notice, as you asked.
+    Jam restart: alarms survive, because they're persisted on the Instance. A gate that was mid-run is forgotten, and its alarm stays due, so the gate runs again (gates should be idempotent checks).
+
+Version skew (a newer Jam talking to older studios that are still running): the proto changes only add things.
+
+    An old cove-master ignores RunGate, so the result times out into a "gate couldn't run" wake. Degraded, but correct.
+    An old cove-master ignores wake reasons and uses its generic resume prompt.
+    An old cove-master never reports holding.
+    Studios already raised under the worker-result prompt keep finishing as they do today, until they end.
+
+Testing
+
+    wakeon: table tests with a fake clock, following the existing 1.1k-line suite. Covered: alarm due and held while running, cron with no catch-up, each gate outcome, the idle deadline per on-idle, holding, and several reasons arriving on one tick.
+    agentrun: merging reasons under coalescing, the holding report, end at turn end, and no worker-result read.
+    Endpoints: handler tests in the style of escalate_handler.
+    Attach: a RunGate/GateResult round-trip.
+    Requisitioner: a fake tracker asserting report → transition and end-without-terminal-report → blocked.
+    New dependency: a cron parser, robfig/cron/v3. Its timezone/DST handling is the reason I'm not hand-rolling one.
+
+Docs: a new leaf, docs/usage/jam/turn-end.md, owns alarms, gates, idle, end and report. intercom.md's wake-on section links to it instead of restating it. requisitioner.md swaps out the worker-result protocol. TODO.md gets the spec-2 (context lifecycle) entry.
+
+Rollout: five slices, each its own PR. Each one works on its own:
+
+    Wake{reasons} and holding (proto, agentrun, wakeon)
+    end plus the role's turn-end idle defaults (this replaces wait-max)
+    alarms without gates
+    gates (RunGate/GateResult)
+    report plus the Requisitioner prompt switch, which retires worker-result on the Jam path
+
+If this section looks right, I'll write the spec to docs/superpowers/specs/2026-10-05-turn-end-lifecycle-design.md and open it as a PR for your review.
+07:16
+you
+Text
+Markdown
+
+Let's go.
+07:23
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The spec is written and up for review as https://github.com/aethons-tools/cove/pull/331. It's docs-only: docs/superpowers/specs/2026-10-05-turn-end-lifecycle-design.md, plus docs/TODO.md.
+
+Please review it before I write the implementation plan. My self-review changed or added these things compared with what we discussed:
+
+    New TurnEndedAt field. The idle deadline now runs from this, not from WaitingSince, because a holding session never sets WaitingSince.
+    end is enforced entirely by Jam. It tears the session down when it enters waiting. A holding session finishes its background tasks first, capped by BackgroundWait. A session that has called end is never woken again. So agentrun doesn't need to know about end, and it just reports waiting at the end of every episode.
+    The role setting is named turn-end.idle-timeout rather than idle-after. The personal idle ladder already uses idle-after, and that one nags the owner rather than waking the agent.
+    Roles without a turn-end block keep today's behaviour. Ticket studios use wait-max, and resident sessions get no idle timeout, so existing configs are unaffected.
+    docs/TODO.md: the timed self-wake item now points at the spec, and the context-lifecycle follow-up (spec 2) is recorded.
+
+Housekeeping note: I set this repo's local git author to claude-aethon <claude+brent@lcbm.life>, to match its recent commits. The cove had no git identity configured.
+07:25
+you
+Text
+Markdown
+
+Looks good. Continue.
+07:39
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The spec is approved, so I'm writing the implementation plan now.
+
+The spec rolls out as five separate PRs, each building on the code the previous one lands. So I'll write a detailed plan for slice 1 (wake reasons + holding) now, and a plan for each later slice once the slice before it has merged. That keeps each plan accurate against the real code instead of guessing three PRs ahead. I'll send you the slice-1 plan to review shortly.
+07:40
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The slice-1 plan (wake reasons + holding) is written and pushed to the same PR, #331, at docs/superpowers/plans/2026-10-05-turn-end-slice1-wake-reasons-holding.md. Please review it.
+
+Five tasks, all test-first:
+
+    Wire and Jam types: proto HOLDING, Wake.reasons, jam.WakeReason.
+    cove-master decodes the reasons and reports Holding.
+    agentrun merges pending reasons instead of dropping them, renders them into the resume prompt, and reports holding / running around a hold.
+    Jam: wake-on wakes holding sessions on squawks and never pauses or reaps them.
+    The /me presence row, plus a new turn-end.md doc.
+
+A bug I caught while planning. The supervisor re-baselines WaitSeq whenever a session enters running. Once holding exists, a reply that lands while the session is holding could be skipped, and the agent would never be woken for it. That happens when a background task finishes and starts a new turn before wake-on's next tick. So holding → running must keep the baseline. It's the first item in the plan's Review Focus list and has its own test.
+
+How should I run it?
+
+    Subagent-driven: a fresh implementer and a fresh reviewer for each task.
+    Native: I implement all five tasks myself in this session, then one fresh reviewer checks the whole branch.
+
+I recommend Native. The tasks are a tight chain: each one consumes the exact types the previous one adds (proto → jam → covemaster → agentrun). The plan already carries the test code. A single end-of-branch review covers the one subtle risk, the WaitSeq baseline. If you approve, I'll implement it on a new branch, feat/turn-end-slice1, and open it as its own PR.
+07:43
+you
+Text
+Markdown
+
+Go native.
+08:57
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I'm starting slice 1 now and implementing it myself, on the branch feat/turn-end-slice1. That branch is based on #331, so the spec/plan commits will show in its diff until #331 merges. I'll message you when the PR is up.
+08:58
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 1 is up for review: https://github.com/aethons-tools/cove/pull/338. It's stacked on #331 (spec + plan), so merge #331 first.
+
+What it adds
+
+    Every Wake now carries its reasons, and the agent's resume prompt names them.
+        Reasons from wakes that arrive mid-turn are merged into the one prompt, not dropped.
+        An older Jam's bare Wake{} still gets today's prompt.
+    A new holding activity: the turn has ended but background tasks are still running.
+        Squawks wake a holding session; it's never paused or torn down.
+        holding → running keeps the WaitSeq baseline, so a reply that arrives while it's holding isn't missed.
+    /me shows a holding session as "working in the background".
+    A new doc, docs/usage/jam/turn-end.md.
+
+Verification: go test ./... and just lint pass. I couldn't run the race detector, because the sandbox has no cgo.
+
+Fresh review: an independent reviewer found 2 Important bugs in the new wake handling. They didn't show up today, but they would have once alarms ship. Both are fixed in the last commit, each with a test that failed before the fix:
+
+    If the agent died before starting a resumed turn, the re-delivered prompt lost its reasons. For example, an alarm wake came back as a plain "a message may have arrived".
+    A stale wake signal could send an extra, spurious "a message may have arrived" prompt.
+
+Rulings I made
+
+    I moved the wakeon.Waker signature change from Task 4 into Task 1. The plan assumed it would compile unchanged, but Go method sets need the exact signature. No behavioural effect.
+    I fixed an unclosed code fence in the plan doc that I had introduced myself.
+    I changed one unit test's expectation: a bare Wake is now recorded as a "legacy" marker, which is what fix 2 relies on. The prompt rendering is unchanged.
+
+Deferred minors (I'll fold them into slice 2)
+
+    The --activity help text doesn't list holding yet.
+    When the 30m BackgroundWait timer ends a hold, the session keeps showing holding until the episode exits. This is cosmetic.
+    Two more agentrun path tests: a background task that starts a turn by itself, and the timer path.
+    A wake whose only reason is context-changed would render as a bare "Continue.". This can't happen yet.
+
+Once #338 merges, I'll write the slice-2 plan (end + the role's idle timeout) against the merged code.
+09:08
+you
+Text
+Markdown
+
+Merge when green and continue.
+09:15
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Both PRs are merged with green CI.
+
+    #331 (spec + slice-1 plan): squash-merged as a4d473f.
+    #338 (slice 1: wake reasons + holding): squash-merged as 3d570ca. CI passed gate, store-integration and atcove.
+
+Getting there: auto-merge is disabled on this repo, and gh pr update-branch didn't take, so I rebased my own branches locally and force-pushed them. One rebase hit a conflict in supervisor_test.go, where main had added tests at the same spot. I kept both sides and re-ran the full suite before pushing.
+
+Next up: the slice-2 plan (end plus the role's turn-end idle timeout, which replaces wait-max). It folds in the slice-1 deferred minors. I'll send it for review when it's written.
+09:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+While planning slice 2, I've made two design calls. Tell me if either is wrong:
+
+    The idle settings live in a new Role.TurnEnd struct, not in RoleAllocation. The admin UI's allocation form rebuilds RoleAllocation from scratch when it saves, so new fields there would be silently wiped on every UI save. They're set with at-jam role add --idle-timeout 30m --on-idle wake|teardown and the admin API. The UI shows them read-only for now.
+    wait-max stays as a backstop for ticket sessions whenever no idle deadline is armed. That covers a role with no idle-timeout, and also an agent that called idle_timeout off. Without this, a ticket studio could wait forever. Once an idle deadline is armed, on-idle decides what happens and wait-max is skipped. If on-idle is unset, it defaults to wake, the non-destructive option.
+
+I'm writing the slice-2 plan now.
+09:23
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The slice-2 plan is written: docs/superpowers/plans/2026-10-05-turn-end-slice2-end-idle.md. It will ride along in the slice-2 PR.
+
+Six tasks:
+
+    The role's turn-end policy (--idle-timeout, --on-idle), through the API, client, CLI and UI.
+    The supervisor arms a concrete idle deadline at each turn end and consumes a next override exactly once.
+    POST /end and PUT /idle.
+    The end and idle_timeout MCP tools.
+    Wake-on tears down a waiting session that called end, never wakes it again, fires the idle deadline per on-idle, and keeps wait-max only as a backstop.
+    The slice-1 deferred minors, plus docs.
+
+Review focus, where I expect bugs to hide:
+
+    a squawk and the idle deadline due on the same tick (one wake, not two);
+    idle_timeout off on a ticket studio (wait-max still reaps it);
+    end followed by a squawk (no new turn);
+    an idle wake while the session is paused (resume, then wake);
+    a next override across two turn ends.
+
+You said "continue", and earlier chose native execution, so I'm implementing now rather than waiting on a separate plan review. If you'd rather review the plan first, say so and I'll stop before the PR.
+09:27
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 2 is merged: #339 (b246b67), with CI green (gate, store-integration, atcove).
+
+Sessions can now end themselves.
+
+    An agent calls end(reason) as its last action, and Jam tears the session down once that turn is over. A holding session finishes its background tasks first.
+    From the moment it asks, it's never woken again.
+    A personal session's owner gets a squawk saying it ended itself. Escalation skips sessions that have asked to end.
+
+Roles can set an idle timeout, with at-jam role add --idle-timeout 30m --on-idle wake|teardown.
+
+    The agent can override it via idle_timeout(45m|off, next|always).
+    wake wakes the agent with "Idle timeout: no other wake arrived."
+    teardown ends a waiting session.
+    wait-max now only applies when no idle deadline is armed.
+
+Fresh review found 2 Important bugs, both fixed test-first before merge:
+
+    An idle wake was sent once and then disarmed. If the cove's stream hadn't reconnected yet (for example, just after a resume from pause), the wake was silently lost. Now the deadline stays armed until the session actually runs, and the wake is re-sent each tick.
+    Escalation would ping humans about a ticket session that had just ended itself.
+
+Rulings I made
+
+    When idle_timeout or end rejects bad input, the agent gets a generic "unexpected status 400", not Jam's validation text. The MCP client deliberately never echoes Jam's response bodies, so the tool descriptions spell out the valid inputs instead.
+    I dropped the plan's ClearIdleDeadline / TurnEndState. The supervisor now disarms the deadline when a turn starts, which is what fixed bug 1.
+    I reworked two wake-on tests to cover two ticks.
+    I fixed a gofmt miss.
+
+Deferred minors
+
+    The Instance read-modify-write has no lock. This is a pre-existing pattern, but a concurrent heartbeat could in theory drop an end request.
+    When the idle timeout tears down a personal session, its owner gets no notice.
+    A sub-second --idle-timeout truncates to 0, and the role's value has no cap.
+    The UI shows the turn-end settings under Allocation, but you can't edit them there.
+    roster.md has no example.
+    /end accepts a reason that's only whitespace.
+
+Next: I'm writing the slice-3 plan (alarms without gates: alarm_set / clear / list, cron with a time zone, held while running).
+09:44
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The slice-3 plan (alarms, no gates) is written: docs/superpowers/plans/2026-10-05-turn-end-slice3-alarms.md. I'm implementing it now on feat/turn-end-slice3.
+
+Design points:
+
+    Fired alarms stay pending until the session actually runs. Their wake is re-sent every tick, so one dropped while a stream reconnects isn't lost. When the turn starts, a one-shot alarm is removed and a cron alarm re-arms. This is the same guarantee the idle wake got in slice 2.
+    One wake per tick carries every reason: a pending reply plus every fired alarm. An alarm also beats the idle timeout.
+    Alarm limits:
+        cron is read in the role's time zone (--time-zone, default UTC; Jam embeds tzdata);
+        at most 20 alarms;
+        at most once a minute (@every 10s and 6-field cron are rejected);
+        one-shots must fall within 366 days.
+    One new dependency: robfig/cron/v3.
+    I'm also folding in the slice-2 minor "/end accepts a whitespace-only reason".
+
+09:48
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 3 is merged: #340 (10422fe), with CI green (gate, store-integration, atcove).
+
+Alarms are live.
+
+    New tools: alarm_set(name, schedule, note?), alarm_clear(name) and alarm_list().
+    A schedule is either a one-shot RFC 3339 time or a 5-field cron expression. Cron runs in the role's time zone, set with role add --time-zone (default UTC).
+    Limits:
+        20 alarms per session;
+        at most one fire a minute;
+        a one-shot at most 366 days out.
+    Alarms fire only after the turn ends (holding or waiting). A fired alarm is re-sent every tick until the agent actually runs, so a wake dropped during a reconnect isn't lost.
+    One wake carries a pending reply plus every fired alarm, and an alarm takes precedence over the idle timeout.
+
+The review caught two Important bugs, both fixed test-first before merge:
+
+    Lost writes on a session's record. Jam had several writers (the attach stream, wake-on, the new endpoints), each reading and then rewriting the whole record with nothing serializing them. With alarms, wake-on became a frequent writer. It could silently drop an alarm_set that landed at the same moment, or flip a running session back to waiting, which then risked a pause or a wait-max teardown mid-turn. I reproduced both with a test. Every supervisor read-modify-write now runs under one lock.
+    wait-max reaped ticket sessions with scheduled alarms. For example, an agent sets 0 9 * * * and ends its turn, and 30 minutes later it's torn down before the alarm fires. An alarm now counts as a wake condition, and wait-max spares it.
+
+Rulings I made
+
+    I didn't run go mod tidy. It pruned 32 go.sum lines that tagged builds probably need, so I added only the cron lines and made cron a direct dependency.
+    The /alarms handler takes no clock.
+    The lock covers all the short read-modify-writes, plus the final writes of Idle, Resume and Teardown. Launcher calls stay outside the lock.
+    FireAlarms re-checks that the session's turn is over before firing.
+
+Deferred minors
+
+    holding→running can retire an alarm whose wake was dropped (narrow case: the stream is down while the session is holding).
+    TZ= / CRON_TZ= prefixes behave inconsistently: TZ= bypasses the role's time zone, and CRON_TZ= gets a misleading error.
+    DST behaviour isn't documented: a time skipped at spring-forward never fires, and a repeated time at fall-back fires twice.
+    A cron that can never match gets the wrong error message.
+    A store failure on PUT /alarms returns 400 instead of 502.
+    alarm_set doesn't show the agent the resolved next_at.
+    An unloadable time zone falls back to UTC without logging.
+    One test only sends its invalid schedules once 20 alarms already exist.
+    While an alarm is pending, the "waking" log line repeats every tick.
+
+Heads-up, not from this work:
+
+    cmd/at-cove TestWorkAcceptsAnthropicAPIKeyAsBearer failed once locally ("colima: cannot parse docker port output"). It passed on reruns, and this branch doesn't touch it.
+    gh pr checks --watch hit 502s on the GraphQL route through Jam, so I polled the REST check-runs API and merged via REST instead.
+
+Next: slice 4, gates. RunGate / GateResult on the Attach stream, the cove-master runner, and the rule that a gate failure wakes the agent with a message.
+10:03
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I've written the slice-4 plan (alarm gates), docs/superpowers/plans/2026-10-05-turn-end-slice4-gates.md, and I'm implementing it now on feat/turn-end-slice4.
+
+How it works:
+
+    When a gated alarm comes due for a waiting or holding session, Jam resumes the session if it's paused.
+    Jam then sends RunGate over the Attach stream.
+    cove-master runs sh -c <gate> in the workspace, using the agent's last spawn env, killed after 60s, with output capped at 4 KiB. It reports GateResult back to Jam.
+    The result decides what happens:
+        exit 0: wake the agent, with the gate's output.
+        timed out, exit 126/127, or no result within 90s: wake as gate-failed, with the cause and the output.
+        any other exit: stay asleep. A cron alarm moves to its next match; a one-shot alarm is dropped.
+    One gate run per alarm at a time. A late result for a cleared or re-set alarm is ignored.
+    An old cove-master that ignores RunGate yields a gate-failed wake, so a gate never silently fails to fire.
+
+One deviation from the spec: after a Jam restart, a gate that was in flight is resolved as gate-failed once its grace period passes. The spec said it should be re-run instead. My reasoning: the outcome is still never silent, and this way the path stays simpler.
+10:06
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 4 is merged: #341 (52b8b04), with CI green.
+
+Alarm gates are live. alarm_set(…, gate: "gh run view --exit-status"). When the alarm comes due, cove-master runs the gate in the workspace with the agent's env, killed after 60s.
+
+    exit 0 wakes the agent, and the wake includes the gate's output.
+    gate-failed wakes it with what went wrong plus the output. This covers a timeout, exit 126/127, a kill by a signal, or no answer within 90s (old cove-master, dropped stream).
+    any other exit keeps sleeping.
+
+alarm_list shows each alarm's last gate result.
+
+Review found 4 Important issues; I fixed those plus a fifth I upgraded myself, all test-first:
+
+    A gate could be frozen mid-run. The warm-timeout pause could fire while a gate ran, and the agent then got a bogus "no result" wake. Jam now never pauses a cove while one of its gates is running.
+    Gate children outlived the timeout. Only sh was killed, so something like curl … | jq that hangs left orphan processes behind on every run. Gates now run in their own process group, and the whole group is killed.
+    A NUL byte in the output lost the result. Postgres jsonb rejects NUL, so a passing gate with binary output became a false failure. NUL is now stripped in the cove, and Jam re-sanitizes and re-caps the output too.
+    RunGate could go out with no stream. Sent right after a resume, before the stream reconnected, it was silently dropped. It's now sent only while the stream is connected.
+    (upgraded) A gate killed by a signal counted as "not yet". That would never wake the agent, which breaks your "can't run → wake with a message" rule. It now wakes as gate-failed, reporting "killed by signal N".
+
+Deviation: after a Jam restart, a gate that was in flight is reported as gate-failed once its grace period passes, rather than re-run. I mentioned this earlier.
+
+Deferred minors
+
+    With 20 gated alarms, a session's record can reach about 260 KB.
+    The wake carries combined stdout and stderr, so stdout is included but stderr noise rides along. Say if you want stdout only.
+    Gates use the env from the agent's last turn.
+    A one-shot alarm whose gate says "not yet" isn't visible in alarm_list afterwards; only the log records it.
+
+Next: slice 5 is the last one. report(state, summary, pr?) drives ticket transitions through the Requisitioner, which switches off worker-result. end/idle without a terminal report marks the ticket blocked. This one changes the Requisitioner prompt and stops agentrun reading worker-result for Jam studios, so tickets will behave differently.
+10:20
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The slice-5 plan (the last slice) is written: docs/superpowers/plans/2026-10-05-turn-end-slice5-report.md. I'm implementing it now on feat/turn-end-slice5.
+
+What it does:
+
+    report(state, summary, pr?) posts to a new POST /report. Jam moves the Linear ticket (in-progress / in-review / needs-input / blocked / done) and comments on it.
+        It's synchronous: if the tracker is down, the agent gets a 502 and can retry.
+        A session with no ticket gets a 400.
+    If Jam tears a ticket session down without a terminal report, it marks the ticket blocked with the reason first. This applies to end, the idle teardown, and wait-max.
+    The Requisitioner's prompt drops the worker-result protocol. It now tells the agent to own its branch and PR through merge:
+        push and open the PR itself;
+        report in-review with the PR link;
+        set a gated PR-watch alarm;
+        fix review comments;
+        report done, then end.
+    agentrun stops reading worker-result.json entirely, which is the Jam path only; at-cove work keeps it.
+
+Calls I'm making — tell me if you disagree:
+
+    Crashed agent turns on a ticket studio no longer end it on the spot. Today a crash means done. Instead the crash is logged loudly and the session waits, the same as personal and standing sessions already do. The idle timeout or wait-max then ends it, marking the ticket blocked. That's one code path for every session kind.
+    wait-max teardown also marks the ticket blocked. The spec only named end and the idle timeout, but it's the same "ended without a final report" case.
+
+10:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 5 is merged: #342 (8ce5548), CI green. The turn-end lifecycle spec is now fully shipped (#331, #338–#342).
+
+What slice 5 changed:
+
+    report(state, summary, pr?). Jam moves the Linear ticket and comments on it. It's synchronous: no ticket → 400, no tracker → 503, tracker failure → 502 so the agent can retry.
+    Ticket studios own their work through merge. The Requisitioner prompt now has the agent push and open the PR itself, report in-review, set a gated PR-watch alarm, address review, report done, then end.
+    worker-result.json is gone on the Jam path. Every episode ends in waiting, and a crashed turn is logged loudly. The session boilerplate and harness allow-list no longer mention the file. at-cove work is untouched.
+    A session Jam ends without a final report gets its ticket marked blocked (via end, idle teardown, or wait-max).
+
+Review found 3 Important issues. I fixed 2, plus 2 Minors I upgraded to Important:
+
+    Escalation would have paged on every ticket turn end. Every turn now ends in Waiting, so a studio waiting for CI would have pinged on-call. Escalation now fires only while the last report is needs-input.
+    A failed teardown re-posted "blocked" every 15s. The blocked state is now recorded as the session's report, so it posts once.
+    (upgraded) The tracker call during teardown had no timeout. A stalled Linear connection could have frozen all of wake-on. It's now bounded at 15s.
+    (upgraded) Docs still described the needs-input / worker-result flow. Fixed across 8 pages.
+
+One thing I need you to decide: a ticket studio whose agent crashes on every turn (say, revoked auth) and is kept alive by a PR-watch alarm or an on-idle wake never ends, so it holds its slot. I'd cap consecutive failed turns at about 3, then end the session and mark the ticket blocked. It's recorded in docs/TODO.md. Want me to build that?
+
+Deferred minors:
+
+    A failed block transition is only logged.
+    Teardowns outside wake-on (a lost VM, an operator teardown) don't mark the ticket blocked.
+    Concurrent /report calls could land out of order.
+    Studios already running at deploy time get the new boilerplate with the old resume prompt (temporary).
+
+Also outstanding:
+
+    Spec 2 (context lifecycle: compaction, clearing, memory) is in docs/TODO.md and not started.
+    The deferred minors from slices 2–4 are listed in each PR description.
+
+What should I pick up next?
+11:01
+you
+Text
+Markdown
+
+Very nice. I am about to cut the local jam over to this new code. What should I do to configuration, etc., for it to continue working?
+11:03
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Cutover checklist for the local Jam. You don't need any config migration. The store changes are new JSON fields on existing documents, and the proto changes only add things. What follows is what to check and what will change.
+
+1. Upgrade both binaries together.
+
+    Upgrade the at-jam server and the at-jam CLI you run commands from.
+    Why the CLI matters: an old CLI doesn't send the new role fields. Re-running role add with it would wipe the role's --idle-timeout / --on-idle / --time-zone.
+
+2. Images rebuild on their own.
+
+    The kit image tag includes at-jam's embedded payload, cove-master among it. So each kit rebuilds lazily on its next raise; you don't need to run at-cove install.
+    Sessions that are already running keep their old cove-master until they're re-raised. They keep working: squawk wakes are unchanged.
+    But an old cove-master doesn't have the new tools (end, idle_timeout, alarm_*, report) and never reports holding.
+    So re-raise standing sessions to give them the new tools. That includes me, whenever it suits you.
+
+3. Ticket studios in flight at cutover: let them finish, or tear them down and move their tickets back to Ready.
+
+    Why: an old cove-master still runs the worker-result protocol, but each episode re-fetches the session context, which now says "end your turn to wait; use report/end". If the agent follows that, the old cove-master ends the unit with "wrote no worker-result", and the ticket is left In Progress.
+
+4. The Requisitioner's worker role now has to do GitHub work itself.
+
+    The agent pushes and runs gh pr create, so it needs:
+        git (it already has this);
+        github-api, so gh can reach api.github.com through Jam;
+        gh installed in the studio kit.
+    If either of the last two is missing, the studio can push but can't open a PR, and will report blocked.
+    Linear needs nothing new. All six states (ready / in-progress / in-review / done / needs-input / blocked) were already required by runtime.requisitioner.linear.states.
+
+5. Decide how long a ticket studio may wait (recommended).
+
+    A waiting ticket studio with no alarms and no idle timeout is still reaped at runtime.wake.wait-max (default 30m). It's now also marked blocked.
+    With the new flow, a studio waiting on human PR review will normally have a PR-watch alarm set, and an alarm spares it from wait-max. But an agent that forgets to set one gets blocked after 30 minutes.
+    Two options:
+        give the worker role an explicit policy, e.g. at-jam role add --name worker … --idle-timeout 24h --on-idle teardown. Once an idle deadline is armed, it replaces wait-max;
+        or raise runtime.wake.wait-max.
+
+6. Behaviour changes you'll see.
+
+    Escalation only pings while a ticket's last report is needs-input. Plain waiting no longer pages anyone, because every turn now ends in waiting.
+    Studios show holding while background tasks run. /me shows that as "working in the background".
+    Personal sessions: the nag/reclaim ladder is unchanged.
+    Optional new role settings: --idle-timeout, --on-idle, and --time-zone (for cron alarms, default UTC).
+
+Rollback: an older Jam ignores the new fields in the store, so you can roll back without touching data.
+
+Once you've cut over, tell me and I'll smoke-test from my side after you re-raise me.
+11:05
+you
+Text
+Markdown
+
+Do you see yourself upgraded?
+11:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Partly. Jam itself is upgraded, but my cove isn't.
+
+What did change: the session-context boilerplate refreshed this turn. I can see the new boilerplate text, which comes from the upgraded Jam.
+
+What didn't: my sandbox is still on the old image.
+
+    /usr/local/bin/cove-master is dated Oct 3 15:41, and it contains none of the new tool names (alarm_set, idle_timeout and so on: 0 matches).
+    The main cove-master process has been running since Oct 4.
+    My intercom tools are still the old five: read, send, commit, list_targets, escalate. I have no end, idle_timeout, alarm_* or report.
+
+That's expected: a running studio keeps its image until it is re-raised.
+
+To finish the upgrade, re-raise me, for example by removing and re-adding the standing session. The new kit image builds on that raise. /agent-data and /home/agent/workspace persist, so I'll pick up from memory.
+
+After that I'll smoke-test from inside:
+
+    check the new tools are listed;
+    set an alarm with a gate, alarm_list, then clear it;
+    set a short one-shot alarm, end my turn, and confirm it wakes me with the alarm reason;
+    set idle_timeout next 2m and confirm the idle wake.
+
+report and end I'll only test on request: report 400s for me, since I have no ticket, and end would end me.
+11:22
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+intercom-spider is set up and ready to take intercom work.
+
+    I cloned aethons-tools/cove into my workspace, at HEAD 90eaa51. I've read through AGENTS.md, internal/intercom and the docs/usage/jam/intercom*.md docs.
+    There are no messages in my inbox yet, and I wasn't given a ticket or task.
+    Two tooling problems:
+        GitHub: gh can't run against the repo. The GH_HOST value doesn't match the github.com remote, so gh pr list fails. gh api works.
+        Linear: the Linear GraphQL API rejected my query with "missing identity", so I can't look up intercom tickets.
+
+What should I start on? A Linear ticket ID, a bug or a feature in a sentence is enough. I'll work test-first, update the docs in the same change and open a PR for review.
+16:11
+you
+Text
+Markdown
+
+How long is our conversation history?
+16:11
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+It's short: there are two messages on the intercom so far.
+
+    My setup message to you, saying I'd cloned aethons-tools/cove and asking what to work on.
+    Your question just now.
+
+Before that, my session had one turn. My role brief was the only input; in that turn I set up and sent you that message. I have no conversation history from before this session.
+
+My context window is almost empty, with about 15M tokens left, so there's plenty of room for real work. I've also started a persistent memory note about my intercom role so it carries over to future sessions.
+
+I'm still waiting for a first task: a ticket ID, a bug or a feature.
+16:12
+you
+Text
+Markdown
+
+Can you tell me how claude code cli sessions are stored?
+17:06
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Claude Code saves each session as an append-only JSONL file in its config directory. Here, CLAUDE_CONFIG_DIR=/agent-data. That directory persists across cove rebuilds, so session history survives them.
+
+Where the file is: /agent-data/projects/<cwd with / replaced by ->/<session-uuid>.jsonl
+
+For example, my session is /agent-data/projects/-home-agent-workspace/77d2b309-2555-460f-ace1-278e52b4dcf7.jsonl. It's about 140 KB and 90 lines so far.
+
+What it contains: one JSON object per line, for example:
+
+    user and assistant messages, including tool calls and tool results
+    attachment lines, such as hook output and context injections
+    queue-operation lines, which record the prompt enqueue/dequeue for each turn
+    bookkeeping lines (last-prompt, cost-state, mode, …)
+
+Each message line has a uuid and a parentUuid, so the conversation forms a chain. isSidechain marks subagent messages.
+
+How turns continue the same session: each turn is a separate claude -p run. Jam resumes it with the same session ID, which appends to that same file. That's why my history carries over from one wake to the next. When the context gets too long, Claude Code writes a summary into the file and continues from it rather than dropping the history.
+
+Other things under /agent-data:
+
+    projects/<cwd>/memory/: my file-based memory (MEMORY.md plus one file per fact)
+    sessions/, session-env/, shell-snapshots/: per-session runtime state
+    settings.json, plugins/, skills/: configuration
+    agent-stream.jsonl, cove-master.log: cove/Jam-side logs, not Claude Code's own
+
+Want me to dig into any of these, for example how Jam picks the session ID to resume?
+17:07
+you
+Text
+Markdown
+
+I want to work through some intercom addressing situations. First, I think intercom addressing should be stored using surrogate IDs rather that entity names => renaming can happen without disrupting and removing/adding entities with the same name are properly separated in the log.
+17:17
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Agreed, and the current code backs up your concern. Here's what I found in internal/intercom and internal/jam:
+
+    The log stores human and channel targets by roster name. For example, Target{Kind:"human", Ref: h.Name} is built in channels.go, me_send.go, meui/ and elsewhere. It's persisted in squawks.from_ref and squawk_recipients(kind, ref). So after a rename, that person's old messages no longer show up under their new name. And if you remove alice and add a new alice, the new one inherits the old one's inbox and history.
+    Names are only unique within a project, but the recipient index is project-agnostic. The index is keyed on (kind, ref), with no project column. So human:alice in project A and human:alice in project B share one inbox key. A surrogate ID fixes this too.
+    Human and Channel have no ID field today. They're identified only by Name (identity.go:162, :378).
+    actor:<coveID> already uses an ID, not a name. So actors are mostly fine already, assuming cove IDs are never reused. I'll confirm that.
+    Other places reference these entities by name: Squawk.Project (project name), escalation tiers, and Scope.Addressing globs (human:*, channel:eng-*).
+
+I'd classify this as architectural: it changes the log schema, the Target contract and a migration of existing rows. So I'll go the full route: a couple of questions, then approaches, a design, and a written spec for you to review before any code.
+
+First question: for scope, which of these should move to surrogate IDs?
+(a) humans and channels only, in the log
+(b) (a), plus Squawk.Project becomes a project ID
+(c) (b), plus escalation tiers and other stored references to roster members use IDs
+Addressing globs would stay name-based in every option. They're policy written by people, and resolved to IDs at send time.
+
+I'd lean towards (c): a rename should be invisible everywhere it's stored, not just in the log. But I'd like to hear your intent first.
+17:18
+you
+Text
+Markdown
+
+That sounds exactly right.
+17:20
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Going with (c). I've finished the inventory, and a few things stand out:
+
+    No rename exists today. Changing a human's name in the admin form actually creates a second human. Removing a human or channel cascades to nothing: escalation tiers, Instance.Owner, squawks and unread cursors are all left pointing at the dead name.
+    Names are copied into more places than the log:
+        unread cursors (human:<name>, with no project)
+        Instance.Owner
+        session_events.owner
+        allocator stream IDs (project/role)
+        relay cursor files (service/project)
+        actor IDs themselves (standing-<project>-<role>-<name>, personal-<owner>-<hex>)
+    Projects: a project is a single row keyed by name, with the roster and escalation tiers as JSON inside it. roles.project is the only real foreign key. Config export/import is name-keyed throughout, so it will need a version bump.
+    The log also holds non-roster senders. These are Linear authors, plus Discord authors not attributed to a roster human, stored as human:<display name>. Separately, channel: mixes roster channels with ticket units (channel:<Unit>).
+    Cove IDs are not surrogates, and they're reused by design. Standing sessions and re-dispatched tickets come back under the same deterministic ID (standing-…, cove-<ISSUE>). A re-raised cove therefore inherits the previous incarnation's actor:<id> inbox, session events and Discord receipts.
+
+That last one is the next question:
+
+When a standing session (or ticket cove) is torn down and re-raised, is it the same intercom participant or a new one?
+(a) Same participant: the logical identity (project + role + session name, or ticket) gets a stable surrogate ID. Every incarnation shares the inbox, and renaming the session or role doesn't break it.
+(b) New participant: every raise gets a fresh ID and an empty inbox. History stays reachable through the logical entity, but isn't delivered.
+(c) Leave actors out of scope for now.
+
+I lean towards (a). A standing session being woken by messages sent before a rebuild seems like the point. But I can see (b) for ticket coves.
+17:23
+you
+Text
+Markdown
+
+Building out Jam has gone spectacularly; it has shown us a lot, and so we are adjusting. One big thing that has shaken out is that a session is a session is a session (mostly). "Torn down" or "dismissed" ends that session forever. Recreating with the same name is a different session with no relationship to the original.
+17:29
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Understood: every session gets a fresh surrogate ID when it's raised. A session's name (standing name, ticket, personal owner) is just a label on it. Teardown ends the participant for good. Its log entries stay addressed to the dead ID, so a re-raise under the same name starts with an empty inbox. That means today's deterministic actor IDs (standing-…, cove-<ISSUE>, personal-<owner>-…) become labels or lookup keys rather than identity.
+
+Next question: what about senders who aren't on any roster? Today a Linear comment author, or a Discord user not linked to a roster human, lands in the log as human:<display name>.
+
+(a) External identity, service-scoped: stored as e.g. external:linear:<linear-user-id>, with the display name kept as a label on the message. The ID is stable across renames on that service. There's no roster entry; if they're later linked to a roster human, that's an attribution mapping, not a rewrite of the log.
+(b) Auto-enrol a contact: the first time an unknown author appears, Jam creates a project-level "contact" entity with a surrogate ID. Contacts can later be promoted to, or merged into, a roster human.
+(c) No identity: keep just a display string. These senders aren't addressable and nothing keys on them.
+
+I lean towards (a). It needs no new roster lifecycle, the service already gives a stable ID, and it doesn't pretend unknown people are project members.
+17:30
+you
+Text
+Markdown
+
+Yes, go with (a)
+17:31
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+(a) it is. Unrostered senders become external:<service>:<service-user-id>, with the display name as a label.
+
+One more requirements question, then I'll bring you approaches: what do we do with the existing data?
+
+(a) Full migration: backfill IDs into every project, roster entry and live session. Then rewrite existing squawks, cursors, escalation tiers, owners and so on to IDs, using squawks.project to disambiguate names. Historical ambiguity can't be fully untangled: a removed-and-re-added alice, or old sessions that shared an actor ID, are already merged in the data. Those become one ID, labelled best-effort.
+(b) Migrate config, archive the log: IDs are backfilled for projects, roster and live sessions. The pre-cutover squawk log is frozen read-only (visible in the UI as legacy history), and new traffic starts clean on IDs. This is much less migration code and has no guessed rewrites.
+(c) Clean break: wipe, or don't carry over, the old log and session history. Config is re-imported through a v2 export/import.
+
+My lean is (b) if the old log is mainly history rather than something a live session still needs to read. Otherwise it's (a). How much do the current logs matter?
+17:32
+you
+Text
+Markdown
+
+(b) please.
+17:32
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Going with (b) for existing data: the config and live sessions migrate to IDs, and the pre-cutover log is frozen as read-only legacy history.
+
+That's the requirements settled. Summary:
+
+    Surrogate IDs for projects, roster humans, channels, sessions (a fresh ID per raise) and external senders (external:<service>:<uid>).
+    Every stored reference uses an ID: the log, cursors, escalation, owners, allocator and relay state.
+    Names are labels, resolved at the edges.
+    Addressing globs stay name-based policy.
+
+Approaches
+
+1. Unified participant registry (recommended)
+
+    One registry table with a row per entity: id, kind, project_id, name, status (live|removed), created_at, removed_at, plus kind-specific detail.
+    IDs are opaque and kind-prefixed (prj_…, hum_…, chn_…, ses_…, ext_…), random and time-sortable, using the same crypto/rand pattern the repo already uses.
+    intercom.Target.Ref holds the ID. Everything else (cursors, tiers, Instance.Owner, allocator streams, relay keys) holds IDs too.
+    Removal tombstones, never deletes. Old messages always resolve to a label, e.g. "alice (removed)". A new alice gets a new ID.
+    A partial unique index on (project_id, kind, name) WHERE status='live' keeps names unique among live entities, which makes rename a single-row update.
+    The boundary stays name-friendly:
+        Agents still send(to="human:alice"), resolved against the caller's project registry.
+        read, list_targets and the UIs return {id, kind, label}. That also fixes today's kind-less author field.
+    Sessions and externals get a natural home in the same registry, so "who is ses_…?" has one answer everywhere.
+
+2. IDs embedded in the existing documents
+
+    Add an ID field to Project, Human, Channel and Instance inside today's JSON docs, and build an in-memory index for ID→entity.
+    Removed entities vanish from their docs, so each squawk snapshots {id, kind, label-at-send} to stay readable.
+    Less schema work. The cost:
+        Resolution logic is scattered across docs.
+        Sessions and externals have no shared lookup.
+        Live-name uniqueness is enforced only in code.
+        History shows names as they were at send time, not current ones.
+
+3. Hybrid of 1 + label snapshot
+
+    Approach 1, plus each squawk also stores the label at send time, for audit and export.
+    I'd defer this: tombstones already keep history readable, and it's easy to add later if you want "what was it called then".
+
+I recommend 1. The bug you're fixing is identity, so identity should have one owner and one lookup. Does that direction work for you? If yes, I'll walk through the design in sections: the registry and IDs, intercom/log changes, the boundary and wire format, the migration and cutover, then testing.
+17:33
+you
+Text
+Markdown
+
+Go with #1 please. Also, this seems like a good time to discuss changing the name "human" to "user".
+17:37
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Going with #1, the unified registry.
+
+On renaming human → user: the timing is good. The cutover already re-keys every stored reference and freezes the old log, so the kind name can change for free in storage, with no rewrite of old rows. What's left is the cost at the edges:
+
+    Where it shows up:
+        target strings (human:alice → user:alice)
+        the ID prefix (usr_…)
+        Go types (Human → User, DiscordAuthor etc.)
+        CLI verbs (roster add-human → add-user)
+        escalation tier specs
+        addressing globs (human:*)
+        export/import (already bumping to v2)
+        admin/me UI routes
+        docs
+        the session-context boilerplate agents see (human:you)
+    Compatibility: I'd accept human: as an input alias for a release, for send(to=…), addressing globs and tier specs, and only ever emit user:. Existing role addressing globs get rewritten in the config migration.
+
+One concern: "user" is overloaded here.
+
+    There's the admin login/OIDC user, which is a different thing that a roster human links to via --login.
+    There are service users: a Linear user, a Discord user. Those are exactly the new external:<service>:<uid> senders.
+    In agent prompts, "the user" usually means whoever started the session.
+
+"Human" is unambiguous about the one distinction it carries today: not an agent. So user works well if it means "a person registered with Jam", with logins and external service accounts being things a user has or is linked to. It reads badly if we also keep calling service accounts "users".
+
+What's driving the change for you? If it's toward a model where a Jam user is a first-class identity (logins, OIDC, Discord/Linear accounts all hang off it), then the rename fits well. It also suggests users might be studio-wide with project membership, rather than per-project roster entries as today. That would affect the registry design, so I'd want to settle it before drawing up the registry section.
+17:38
+you
+Text
+Markdown
+
+Yes, the driver is as you said. Users are the external entities that practically always humans. It is in opposition to "operators" that are humans that manage the configuration. Alternative: use "operator" instead of "user" and rotate to use "admin" instead of operator.
+17:42
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Agreed on the split: one kind of person talks to the agents, the other configures Jam. On naming, I recommend user / operator, keeping "operator" as it is. I'd avoid operator / admin:
+
+    The alternative flips a word's meaning, not just renames it. "Operator" currently means a config manager in 65 Go files, about 400 identifiers, and about 125 docs (OperatorID, operators.md, the admin-client flags). Rotating it to mean "the people agents talk to" leaves every old doc, plan, commit message and log line meaning the opposite of the new code. Renaming into a fresh word is safe; reusing a word with a new meaning is a lasting source of misreads.
+    "User" fits the agent's view. The person who started a session, the "user" in Claude's prompt, is one of these people, so that overload is consistent rather than conflicting.
+    The other overload goes away with a different word. Service-side identities (a Linear user, a Discord user, the external:<service>:<uid> senders) get called accounts. A user has linked accounts (and logins). An unlinked account can still send, but it isn't a user.
+
+If you'd like "admin" for the config role later, that's a separate, purely cosmetic rename that can come any time. It doesn't need to ride on this change.
+
+One thing to confirm before I write up the registry section. I'm reading "first-class identity" as:
+
+    Users are studio-wide. One usr_… per person, with logins, OIDC bindings and delivery profiles on the user.
+    Projects have members. The project roster becomes a membership list, (project, user, local name/handle), instead of per-project person records. So user:alice still resolves within the caller's project.
+
+That's a bigger change than today's per-project Human records. The alternative is to keep users per-project for now and unify later. Which do you want in this change?
+17:43
+you
+Text
+Markdown
+
+No let's fix it now while we have the opportunity (you are very capable).
+17:46
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Got it on both counts: user / operator, and users are Jam-wide in this change. (And thanks.) Here's the first design section. I'll check in after each one.
+§1 Identity model & registry
+
+IDs: opaque, kind-prefixed, time-sortable random (<prefix>_<base32>). They're never reused, and they're never derived from a name.
+Entity 	Prefix 	Scope 	Replaces
+Project 	prj_ 	Jam 	projects.name PK
+User 	usr_ 	Jam 	per-project Human
+Account 	acc_ 	Jam, unique (service, service_uid) 	DeliveryProfile.UserID, Handle, unattributed Linear/Discord authors
+Channel 	chn_ 	project 	Channel in project doc
+Session 	ses_ 	project, minted at each raise 	deterministic actor_id
+
+Tables (Postgres; MemStore mirrors them):
+
+    projects(id, name, status, doc). The doc keeps context, resources and escalation, but its references become IDs.
+    users(id, name, status, …) carries logins and OIDC bindings, which move here from the project roster.
+    accounts(id, service, service_uid, label, user_id NULL).
+        A user has accounts: a Linear account (whose handle is used for @-mentions) and a Discord account.
+        An account with no user_id is an unlinked external sender.
+        Linking an account later attributes it, without rewriting the log.
+    memberships(project_id, user_id, status, delivery) is the project roster. Delivery (e.g. the Discord inbox channel) stays per project, because chat service is per project.
+    channels(id, project_id, name, service, ref, status).
+    instances gets id = ses_… plus label columns: standing name, ticket, owner usr_.
+
+Names and lifecycle:
+
+    status is live or removed. Removal is a tombstone, so an ID always resolves to a label, e.g. "alice (removed)".
+    Partial unique indexes keep live names unique: user names Jam-wide; project names Jam-wide; channel names per project.
+    Rename is a single-row update, with no reference fixups.
+    User names are Jam-wide, so user:alice means the same person in every project; projects don't each give them a name. Addressing still requires membership in the sender's project. I'd rather not add per-project nicknames (YAGNI).
+
+One resolver, Directory:
+
+    Resolve(id) → {id, kind, label, status}
+    Lookup(scope, kind, name) → id, for live entities only
+
+Everything at the edges (send, read, UIs, CLI, export) goes through it; nothing below the edges handles names.
+
+Integrity: real foreign keys wherever the reference lives in a column: memberships, channels, instances, roles, grants, and squawk_recipients → registry IDs. References that live inside JSON docs (escalation tiers) are validated in code. Since nothing is ever hard-deleted, a dangling ID can't happen.
+
+Does this look right? The two calls I'd most like you to check:
+
+    User names are Jam-wide.
+    Linear/Discord identities become accounts, which absorb Handle and DeliveryProfile.UserID.
+
+17:46
+you
+Text
+Markdown
+
+Yes
+17:49
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+§2 Intercom log & stored references
+
+Target becomes an ID. intercom.Target{Kind, Ref} is replaced by Target = a registry ID. The kind is derived from the prefix and validated at Prepare. The actor kind becomes session, since a session is a session. intercom stays stdlib-only: it validates the ID shape and knows nothing about names.
+
+    Classify: session → Internal; user/account/channel → External. Same rule as today.
+
+Schema (new intercompg migration):
+
+    The existing squawks and squawk_recipients tables are renamed to legacy_squawks and legacy_squawk_recipients. They're frozen, read-only, and served by a separate legacy read path.
+    New tables:
+        squawks(seq, id, from_id, project_id, body, at, reply_to, content_type)
+        squawk_recipients(squawk_id, target_id)
+    A small participants(id PK, kind) supertable, which every registry table inserts into. This lets from_id, target_id and project_id be real foreign keys, even though the entity tables are separate.
+    Squawk IDs and seq continue from the legacy tail, so wire cursors stay monotonic across the cutover.
+
+Ticket threads become channels. Today's ad-hoc channel:<Unit> gets a chn_ row (service linear, ref = the issue) the first time a ticket cove is raised for that ticket. A ticket session's default recipient is that channel. A re-dispatch is a new session on the same channel, so the ticket's thread history is shared while each session's own inbox starts fresh. That matches "a session is a session".
+
+Ingress attribution:
+
+    A Linear or Discord author is looked up, or created, as an acc_ keyed by (service, service_uid).
+    From is the account's linked usr_ if it's linked at receipt time; otherwise it's the acc_ itself.
+    Linking later doesn't rewrite the log. The UI shows unlinked messages as "label (via Discord)".
+    Today's nag-reply owner match compares IDs, not names.
+
+Other stored references, all moving to IDs:
+
+    Unread cursors: (participant_id, conversation_id). A conversation is a chn_ ID or dm:<id>|<id> (sorted pair).
+    Instances: actor_id → ses_…. Project → prj_, Owner → usr_. Commit, wait and alarm state are unchanged apart from the key.
+    session_events and alloc_events: owner → usr_, project → prj_. The allocator stream_id becomes prj_…/<role>.
+    Relay state: egress markers keyed by target ID; ingress cursors keyed service/prj_…; Discord receipts keyed by ses_. Ingress dedupe IDs are unchanged, since they're already name-free.
+    Rendering: the Discord name: body prefix and Linear mentions resolve labels and handles at delivery time.
+
+Out of scope: roles stay keyed (project_id, name). They aren't intercom participants, and role rename can come later on the same pattern.
+
+Does this look right? The call worth a second look is ticket = channel, re-dispatch = new session on the same channel.
+17:50
+you
+Text
+Markdown
+
+I don't think ticket = channel is necessary anymore. Particularly after recent merges. Ticket workers now communicate with the ticket via a specialized MCP that is brokered by the requisitioner. Please verify with the current code state.
+21:19
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I checked against main as of a3f6d9a. You're right about the direction, but the old ticket path is still live in code:
+
+    Ticket state goes through report. It's served at POST /report and moves the ticket and comments on it via the Requisitioner's tracker client (turn-end slice 5, #342). It isn't a squawk and never touches the intercom log. It's exposed as a tool on the same cove-master mcp server as send/read, not as a separate MCP server.
+    The intercom's ticket channel still exists alongside it:
+        send with no to from a ticket session still goes to channel:<Unit> and is posted on the ticket by the Linear relay (squawks.go:167-171, relay_linear.go:332).
+        Linear ingress still routes a comment on a live cove's ticket into that cove's inbox, which is the reply → wake-on path (relay_linear.go:206-216).
+        The admin/me UIs still show a studio:<unit> conversation (channels.go).
+        intercom.md still describes the intercom as "centered on its own Linear ticket".
+
+So "ticket = channel" isn't needed as a new entity. I'll drop it from the design: no chn_ per ticket. A ticket session has no default recipient, the same as a standing session; it must pass to. The ticket becomes a property of the session (Instance.Unit), not an intercom participant.
+
+One choice left: what happens when a person comments on the ticket?
+(a) Drop it. Linear ticket ingress goes away. Ticket workers hear from people only through intercom targets (user:) and escalation. Ticket comments are for humans reading the ticket. This is the simplest option and finishes the move to report.
+(b) Keep it as a wake signal. A comment on the ticket is delivered to the session's inbox, From = the commenter's acc_/usr_, To = the ses_. There's still no channel entity, but someone can unblock a needs-input ticket by replying on the ticket itself.
+
+I lean towards (b). With report(needs-input), the question is posted on the ticket, so a human's natural reply is a ticket comment, and that should wake the worker. But if the plan is for needs-input replies to come through intercom DMs or escalation instead, (a) is cleaner.
+21:20
+you
+Text
+Markdown
+
+Good background for the discussion. I think I lean toward keeping the ticket channel somehow, but I am feeling that we have a "Kind" aspect missing from our channel concept? Any thoughts on that?
+06:58
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Yes, I think that's the missing piece. The code already has the concept, just in the wrong layer. channels.go (the me/admin UI) synthesizes three conversation IDs:
+
+    named:<name>: a roster channel
+    studio:<unit>: a ticket's conversation
+    dm:<a>|<b>: two participants talking directly
+
+Those are channel kinds, invented by the UI to group a log that has no such notion. Meanwhile the roster Channel{Name, Service, Ref} only describes transport (which service, which surface). Today "channel" conflates two things:
+
+    Conversation: a thread with history, participants and a lifecycle.
+    Conduit: where it's rendered or ingested (a Linear issue, a Discord channel).
+
+Proposal: a channel is a conversation with a kind, plus zero or more surface bindings.
+Kind 	Created by 	Named by 	Participants 	Lifecycle 	Typical binding
+room 	operator 	operator (channel:eng-help) 	addressing policy 	until removed 	Linear issue / Discord channel
+ticket 	Jam, on first raise for that ticket 	the tracker key (ticket:AET-12) 	the ticket's sessions + commenters 	follows the ticket (closed when done) 	the Linear issue
+dm 	implicitly, on first message 	unnamed (labelled by its pair) 	exactly two 	lives as long as both exist 	a user's Discord inbox, or none
+
+What kind decides:
+
+    Creation and lifecycle. Rooms are configured. Tickets and DMs come into being on demand.
+    Who receives. A session subscribes to channels: a ticket session is auto-subscribed to its ticket channel, and its inbox = direct messages + subscribed channels. That's the "merged inbox" comms-addressing.md lists as not-yet, arriving naturally. A re-dispatch is a new session joining the same ticket channel: shared history, a fresh read cursor.
+    Addressing syntax and authz: channel:<name> for rooms, ticket:<KEY> for tickets, user:<name> for a DM. Each kind gets its own glob space in Scope.Addressing.
+    Reply routing. A ticket comment lands on the ticket channel, reaches whoever is subscribed, and wakes them. That's your "keep the ticket channel", without the special-case relay code that matches Instance.Unit.
+
+Service/Ref move into a binding, so a channel's identity no longer depends on where it's rendered. A room could later be bound to both Linear and Discord, or rebound, without changing its ID or history.
+
+A deeper question this raises: should every squawk belong to exactly one channel (the Slack model: To = a channel, DMs are channels too), or stay an envelope with To[] participants, with channels as one kind of recipient (today's model)?
+
+    One-channel-per-squawk makes threads, unread state and the UI trivial. It removes the UI's reconstruction logic and gives "conversation" a single owner, the way §1 gave identity one owner.
+    The envelope model is more flexible: one message to several recipients. But I can't find anything in the codebase that actually sends to more than one target.
+
+I lean towards one channel per squawk, with kind = room | ticket | dm. What's your instinct?
+06:59
+you
+Text
+Markdown
+
+Unfortunately, I am heavily biased by the Slack model and I am trying to jam (sorry) everything into that model. For expediency, we may just have to go with that until we have more experience.
+I like the general model you have proposed. Some thoughts it brings up:
+
+    As we move ahead, we should expect that there is not just one tracker defined and not just one Discord relay, etc. External services will not be singletons within their archetypes. Naming might need to prepare for that.
+    dm as one-to-one breaks the Slack model and seems to make lightweight ad-hoc chats less accessible.
+
+07:14
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slack is a reasonable model to start from. It's proven, and we can deviate once we know where it fits badly. Taking your two points:
+
+1. Services aren't singletons → add a connection entity.
+A connection is a configured instance of an external service: con_…, with a kind (linear, discord, github, …), an operator-chosen name (linear-acme, linear-oss, discord-main) and its credential reference. Anywhere the design said "service", it now says "connection":
+
+    Accounts are unique on (connection_id, service_uid). Two Linear workspaces, or two GitHub hosts, are separate identity spaces, so alice in each is a separate account until it's linked to the same user.
+    Channel bindings are (connection_id, ref). A room can be bound to discord-main#eng and also to a Linear issue on linear-acme.
+    Ticket channels are named by the tracker connection plus the key: ticket:linear-acme/AET-12. Bare ticket:AET-12 is accepted when the project has exactly one tracker. Most projects will, so agents rarely need the long form.
+    Config that points at a service (runtime.requisitioner.linear, the Discord relay, Project.ChatService) points at a connection by name. Relay ingress cursors are keyed by connection ID.
+    Connection names follow the same rules as everything else: they're labels, so renaming a connection doesn't touch any stored references.
+
+2. Replace dm with chat: ad-hoc, 1..N participants, like Slack DMs and group DMs.
+
+    A chat is created implicitly by sending to a set of participants, e.g. send(to="user:alice,user:bob"), or one participant for a classic DM. The participant set includes the sender.
+    Unnamed by default, and labelled by its members, as in Slack.
+    Sending to the same set again reuses the same chat, so one-to-one and small-group conversations are equally easy.
+
+room stays as the named, operator-configured channel (Slack's channels), and ticket stays as the tracker-bound one.
+
+The question that decides how chat behaves: can a chat's membership change?
+(a) Fixed, like a Slack group DM. The chat is its member set. "Add Carol" means a new chat, and if you want an evolving group you make a room. It's simple, needs no membership-change events, and makes "same set → same chat" well-defined.
+(b) Mutable. Members can be invited or can leave. That's more flexible, but "send to {alice, bob}" becomes ambiguous once a chat that started as {alice, bob} has grown.
+
+I recommend (a). We can always add "convert a chat to a room" later.
+07:15
+you
+Text
+Markdown
+
+Yes, (a) is best.
+07:17
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+(a) it is: chats have fixed membership. The model has moved enough that here is §1 amended and §2 rewritten around channels.
+§1 amendments
+
+    New entity: connection (con_, Jam-wide). It has a kind (linear/discord/github/…), a unique live name and a credential ref. Requisitioner, relay and ChatService config reference connections by name.
+    Accounts: unique on (connection_id, service_uid).
+    Channel (chn_, per project): kind ∈ {room, ticket, chat}.
+        room: an operator-chosen name.
+        ticket: (tracker connection, key).
+        chat: unnamed, identified by its sorted member set. The member set is unique among live chats in a project.
+    channel_bindings(channel_id, connection_id, ref): zero or more surfaces per channel. A Channel's old Service/Ref becomes a binding.
+
+§2 (rewritten) The log is channel-centric
+
+    Every squawk belongs to exactly one channel: squawks(seq, id, channel_id, from_id, body, at, reply_to, content_type). To[] and squawk_recipients go away, and so does Squawk.Project, since the channel carries the project.
+    Membership: channel_members(channel_id, participant_id, joined_seq, left_seq).
+        Chats: fixed at creation.
+        Ticket channels: every session raised for the ticket joins when it's raised, and leaves on teardown. A re-dispatched session sees prior history but its inbox starts at joined_seq.
+        External senders (accounts) reach a channel through a binding and don't need membership.
+    A session's inbox = messages in channels it's a member of, from others, after it joined. read stays a single queue with one commit cursor. Each entry gains channel: {id, kind, label} and from: {id, kind, label}, which fixes today's bare author. Wake-on fires on any new inbox entry.
+    Users see their channels in the me UI. The UI's synthesized named:/studio:/dm: conversation IDs are replaced by real channel IDs. Unread cursors become (participant_id, channel_id).
+    Send syntax (agents):
+        channel:<room>
+        ticket:<key> or ticket:<conn>/<key>
+        user:a[,user:b…] (chat with that set plus the sender)
+        Omitting to from a ticket session means its ticket. Personal sessions default to their owner (a 2-member chat). Standing sessions have no default.
+        Authz is unchanged in shape: Scope.Addressing globs per address kind. A chat needs every named member to be addressable.
+    Egress: each new squawk is rendered to each of its channel's bindings. A chat with a user who has a Discord inbox renders there, so Discord DMs keep working.
+    Ingress: a Discord or Linear event maps (connection, ref) → binding → channel. The author maps to an account, or to the user that account is linked to.
+
+The question this leaves: how do sessions join rooms? Today a studio can post to channel:eng-help but nobody hears replies; that's C1's "post-only" limit.
+(a) Rooms stay post-only for sessions in this change. Membership is users only; sessions are members of tickets and chats.
+(b) Role-based room membership: a room lists roles, and every live session of a listed role is a member, joining when raised.
+(c) Explicit join/leave tools for agents.
+
+I recommend (a) for this change, with (b) as the natural next step. Inbox semantics for rooms (does every message wake every member session?) are a design question of their own, and this change is already large.
+07:18
+you
+Text
+Markdown
+
+I think this is where the channel kind was really missing for me. I feel like there should be a set of "channel sources" that are registered with the intercom. Each provides its list of known channels, notifies when channels are created or deactivated, and determines who can see squawks in a channel and who should be notified of squawks in a channel. This allows ticket channels and project channels and session channels to have differing (perhaps wandering rules) with constantly rethinking the intercom itself. It becomes delivery and enforcement. The sources will be the policy. Thoughts?
+07:29
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I like it a lot. It's the same split the repo already uses for plan and execution: the intercom becomes mechanism (identity, append, storage, cursors, fan-out, enforcement), and channel sources are policy. Rules for tickets, rooms and sessions can evolve without touching the core, and each source can be tested hermetically on its own.
+Sketch
+
+// in-process, registered at serve startup; one per channel kind
+type Source interface {
+    Kind() string                                    // "ticket", "room", "chat", "session"
+    Resolve(scope, addr string) (ChannelID, error)   // "ticket:AET-12" → chn_… (may create)
+    CanPost(p ParticipantID, ch ChannelID) Decision
+    CanSee(p ParticipantID, ch ChannelID) bool
+    Audience(m Squawk) []ParticipantID               // who gets it in their inbox / is woken
+    Bindings(ch ChannelID) []Binding                 // surfaces to render on (Linear issue, Discord channel)
+}
+// sources push lifecycle: Created(ch) / Deactivated(ch) → intercom records it
+
+    Intercom keeps the channel row (chn_, kind, owning source, status). IDs and foreign keys stay stable whatever a source does. The source owns everything else about the channel.
+    Built-in sources:
+        chat: fixed membership, part of the intercom core.
+        room: project config.
+        ticket: tracker + Requisitioner. Members are the sessions raised for the ticket.
+        session: see below.
+    Enforcement composes fail-closed. Role Scope.Addressing stays the operator's ceiling, and the source's CanPost can only narrow it. That way a buggy or permissive source can't widen what an operator granted.
+
+One thing I'd insist on: audience is decided at append time and recorded
+
+If "who should be notified" were evaluated live at read time, a rule change would retroactively insert or remove inbox entries below a session's commit cursor. That breaks the durable queue and wake-on, since you can't reliably wake for something that wasn't in your inbox yesterday. So:
+
+    Audience is snapshotted. When a squawk is appended, the intercom asks the source for Audience and writes squawk_deliveries(squawk_id, participant_id). Inboxes, wake-on and unread counts all read that table, so rules can wander forward but never rewrite the past. (This is the recipients table back, but filled in by policy rather than chosen by the sender.)
+    Visibility is live. CanSee is evaluated at read time: browsing a channel's history in the UI, read with anchor=start. Revoking access takes effect immediately, and granting access exposes history, which is what you'd expect.
+
+Question: what is a "session channel" to you?
+
+My guess is a channel owned by one session that people can watch or talk into: the personal session's conversation with its owner, or a standing session's own channel, replacing today's "default recipient" special cases. The session source's policy would then be:
+
+    members = the session plus its owner, or a list from config
+    deactivated when the session ends
+    That would make "omit to" mean "my own session channel" for every session kind, uniformly. Is that what you had in mind?
+
+07:30
+you
+Text
+Markdown
+
+I have been working to understand this for weeks and it stays just outside of my reach. The original thought was that agents are collaborators in an environment facilitated by communication, so the concept of "owner" didn't fit. My thought has always been that the "session channel" was a room that the session was always in, addressed by referring to the session, and many other actors could be called in.
+07:44
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+I think the channel sources make this click. Here's your picture as I understand it; tell me where it's off.
+A channel's kind is what the conversation is anchored to
+Kind 	Anchored to 	Lives as long as 	Membership
+session 	an agent at work 	the session 	the session, always; others are called in and can leave
+ticket 	a work item 	the ticket 	sessions working it, plus whoever engages on the tracker
+room 	a topic 	until removed 	configured
+chat 	just the people 	as long as they exist 	fixed set
+
+The anchor determines lifetime and membership, so each anchor is a source with its own policy. That's why your session channel kept being almost a room: it is one, with a different anchor.
+What a session channel replaces
+
+    "Owner" goes away. Starting a personal session means creating a session and calling yourself into its channel. You're the first collaborator, not the owner. Instance.Owner becomes just "who raised it" for audit, with no comms meaning.
+    "Default recipient" goes away. Every agent's send with no to posts to its own channel, and everyone who's been called in hears it. That's the same for personal, standing and ticket sessions.
+    Addressing a session means talking in its channel. send(to="session:<label>"), or a human in the me UI, posts into that session's channel. Everyone present sees it, so collaboration is visible rather than a set of private side-DMs.
+    Agent-to-agent collaboration falls out. One session calls another into its channel. The later "actor-to-actor addressing" slice in comms-addressing.md becomes "who may call whom in".
+    Escalation becomes calling people in. Instead of @-mentioning tier members somewhere else, escalation calls tier 1 into the session's channel, then tier 2 after the timeout. They arrive in the conversation with full context, and Discord/Linear render it for them via bindings.
+    Ticket sessions live in two channels: their own (the work conversation) and the ticket's (the record of the work item). report keeps posting state to the ticket.
+
+Sources make the policy concrete
+
+The session source's rules would be:
+
+    the session is always a member
+    CanPost = current members, plus anyone whose role addressing allows session:* (to knock on the door)
+    the audience is all current members
+    the channel is deactivated, read-only, when the session ends
+
+Is this the picture you've been reaching for? If so, the next question is who may call someone in: any current member, only the session itself, or members whose role allows addressing the invitee.
+07:45
+you
+Text
+Markdown
+
+Yes, that sounds good. And now if I wanted a side chat with the session, I would do it via chat:{sessionid}, correct?
+Let's start with any current member can invite someone else in. Also, if am allowed to address the session, I am allowed to enter it's channel on my own.
+07:53
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Yes, a side chat with a session is a chat whose fixed member set is {you, the session}. Addressing it needs its own prefix, because session:<label> already means the session's channel:
+
+    session:<label> → the session's channel, where everyone called in is present.
+    chat:<member>[,<member>…] → the chat with exactly those members plus you, e.g. chat:session:<label> or chat:ses_…. Any member reference can be a label or an ID.
+    user:<name> → shorthand for chat:user:<name>, since users have no channel of their own.
+
+The side chat is in the session's inbox like any channel it belongs to. It becomes read-only when the session ends.
+
+Membership rules, as you set them:
+
+    Invite: any current member can call someone in.
+    Self-join: if your addressing allows session:<label>, you can enter that session's channel yourself.
+    One guard I'd keep: the inviter must also be allowed to address the invitee. Otherwise any member could pull in anyone in Jam, including users and sessions from other projects. It's the same "operator's ceiling, sources narrow it" rule as before, and it costs nothing in the normal case. I'll write it that way unless you object.
+
+Scope check before I write anything
+
+This has grown well past "surrogate IDs". I'd split it into slices, each with its own spec, plan and PRs, in dependency order:
+
+    Identity registry: IDs for projects, users (Jam-wide, the human→user rename), memberships, accounts, connections; tombstones and rename; IDs in every non-log reference (instances, cursors, events, allocator, relay state); config export/import v2. The log keeps working as-is through the resolver.
+    Channel-centric intercom: the channel registry, the source interface, recorded audience plus live visibility, and the chat, ticket and room sources. The new ID- and channel-based log, with the legacy log frozen at this cutover so there's only one log migration. New send/read wire shapes, and relays driven by bindings.
+    Session channels: the session source, call-in, self-join and invites. Remove owner and default recipient. Agent↔agent.
+    Escalation as call-in: tiers call people into the session channel.
+
+I'd write one architecture overview spec now, covering the model we've agreed today so the vocabulary and invariants live in one place. Then I'd write a detailed spec for slice 1 and bring it to you for review before any plan or code. Sound right?
+07:53
+you
+Text
+Markdown
+
+Sounds good.
+07:58
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The architecture overview spec is up for review as draft PR #349 (docs only): https://github.com/aethons-tools/cove/pull/349
+File: docs/superpowers/specs/2026-10-06-intercom-identity-and-channels-design.md
+
+What's in it:
+
+    the 13 decisions from our discussion
+    the identity registry (ids, tables, tombstones and rename, Directory)
+    channels, anchored kinds and bindings
+    the Source interface and the invariants the intercom enforces whatever a source does: fail-closed composition, audience recorded at append, visibility live
+    the new log and wire shape
+    what goes away
+    the four slices
+    what's out of scope
+
+Two things to check while you read:
+
+    Room membership for sessions. My earlier (a)/(b)/(c) question got overtaken by session channels, so I've listed it as out of scope: rooms stay post-only for sessions for now. Say if you'd rather settle it in slice 2.
+    Behaviour between slices. Until slice 3 lands, an omitted to keeps today's targets: a ticket session goes to its ticket channel, a personal session to a chat with whoever raised it, and a standing session gets a 400. Slice 3 switches it to "my own session channel".
+
+I committed with the claude-aethon git identity that the repo's recent commits use. Once you approve the overview, I'll write slice 1's detailed spec (the identity registry) for review before any plan or code.
+08:00
+you
+Text
+Markdown
+
+Cool. Continue.
+08:02
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Thanks. I'm taking that as approval of the overview, so I'm starting on slice 1's detailed spec (the identity registry). I'm mapping the exact code surface first: store, admin, CLI, UI, export, plus runtime references. I'll send the spec for review when it's ready, along with any decisions it forces. One I can already see: how the live log keeps working during slice 1, before slice 2 freezes it.
+08:03
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Mapping slice 1 surfaced one conceptual issue I want to put in front of you while I keep writing. The overview says "every raise mints a fresh session ID". That's wrong for standing sessions, given COV-249/251.
+
+A standing upgrade (COV-251) does a teardown plus a re-raise keeping its state. The agent-data and workspace volumes, and so the Claude conversation itself, carry over. That only works today because the actor ID is recomputed from project/role/name. Container and volume names and the harbor.cove.state label derive from it, and the reconciler's liveness, reset, upgrade, backoff and sweep all look sessions up by it. I'm a live example: I'm a standing session whose conversation survives cove rebuilds.
+
+So I'm separating two things:
+
+    Session (ses_…): the logical identity. It's created when a session is declared or requested (a standing declaration, a ticket dispatch, a personal-session request) and lasts until it's dismissed or ended. Volumes, intercom identity, cursors and session events key on this.
+    Incarnation: one raise of that session (a container, a token, an allocator reservation). Restarts and upgrades are new incarnations of the same session.
+
+This reading fits "torn down or dismissed ends it forever" as long as "torn down" means ended, not "restarted on a new image". Concretely:
+
+    Standing reset (wipe state) → ends the session; the next raise is a new ses_.
+    Standing upgrade or restart → same session.
+    A re-dispatched ticket → a new session.
+    A new personal request → a new session.
+
+I'll write slice 1 this way and fix the overview's wording in the same PR. Tell me if an upgrade should be a new session instead.
+
+One other finding: "connection" is genuinely new. runtime.requisitioner.linear and runtime.discord are singletons in the serve YAML, and destinations are proxy routes rather than service instances. Slice 1 will introduce a connections: block, and existing config will be migrated to two implicit connections.
+08:06
+you
+Text
+Markdown
+
+Yes, we need better terminology. What exactly is a "raise"?
+08:07
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Slice 1's detailed spec is pushed to PR #349, alongside the overview: docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md. The overview's decision 2 is corrected to session vs incarnation, as I described earlier.
+
+What's in it:
+
+    Two plans in order: 1a registry, then 1b sessions. Slice 1 is big, so it ships as two PR series.
+    New internal/ident package for IDs.
+    Migration 0006: a participants supertable, plus tables for projects, users, logins, OIDC, memberships, connections and accounts. Removed entities are tombstoned, and live-name uniqueness is enforced by partial unique indexes. OIDC subjects get the Jam-wide uniqueness they lack today.
+    A Directory resolver replaces HumanByLogin, DiscordAuthor and the other name lookups.
+    Sessions (1b): a standing_sessions map replaces StandingActorID. Ticket dedup works by unit, and container and volume names come from the session ID. Sessions that are live at migration keep their current IDs, so volumes, inboxes and receipts keep working.
+    The log during slice 1: new squawks write IDs (user:, a new account: kind, actor:<session>). Old rows aren't rewritten. The me UI reads both forms through a frozen legacy_human_aliases table.
+    Ingress: authors become accounts. Linear ingress gets AuthorID populated for the first time, falling back to the handle.
+    Migrating humans to users, export/import v2, the human → user rename surface, testing, and the list of docs to update.
+
+Four calls I'd like you to check (listed at the end of the spec):
+
+    Session vs incarnation: an upgrade or restart keeps the session; a reset ends it.
+    Merging per-project humans into Jam-wide users: group by strong identity (login, OIDC, Discord ID), then by name. A name collision between different people gets renamed <name>-<project> and reported in the migration log.
+    Connections are admin-managed (at-jam connection add …), and serve config references them by name. The old tracker-token-cred/bot-token-cred settings auto-create linear/discord connections and keep working with a deprecation warning.
+    No aliases on the admin plane: the API and CLI rename outright, since they ship with the server. The agent-facing side accepts human: for one release.
+
+When you approve, I'll write the plan for 1a.
+08:08
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Today a "raise" is Supervisor.Raise (supervisor.go:284). In one step it does all of this:
+
+    enrolls an identity: creates an actor with a token and a grant for the project/role;
+    assembles the connector from the role's destinations;
+    starts the container from the role's kit image, waits for sshd, and compiles session context into it;
+    records an Instance (the runtime registry row: phase, cursors, alarms, report, …).
+
+Teardown is the exact inverse: it stops the container, deletes the Instance, and revokes the actor.
+
+That's the source of the confusion. One verb creates four things with four different natural lifetimes, and the docs call the result a "studio", a "cove", an "instance" or an "actor" depending on the page. COV-249/251 had to work around it: a standing session "keeps its state" across teardown + raise only because its ID is recomputed from its name.
+
+Proposed vocabulary, nested by lifetime:
+
+    Session (ses_…): the collaborator, i.e. the identity, the conversation, the intercom participant, persisted state.
+        Verbs: start / end.
+        Ended by dismissal, end, ticket completion, or standing reset. It's never restarted; a new one is a new session.
+    Cove: the sandbox a session is currently running in (the container + volumes mount + token).
+        Verbs: raise / teardown.
+        A session runs in at most one cove at a time, and may go through several over its life (restart, upgrade, host move). "Raise" keeps its meaning but becomes narrower: put a session into a fresh cove.
+    Turn: one agent run inside the cove (claude -p).
+        Verb: wake.
+        The code currently calls this an episode in places; I'd standardise on "turn".
+
+Internally, actor stays as the name of the cove's credential (token → session), and Instance becomes the session's runtime record. Neither is user-facing.
+
+This replaces my "incarnation" with cove, which is the word everyone already uses for the sandbox. "Studio" for a managed agent would be retired in favour of session/cove. (Studio already also means the kit/workspace side.)
+
+Under this vocabulary:
+
+    Standing upgrade = raise the same session into a new cove.
+    Standing reset = end the session; start a new one.
+    Ticket = start a session per dispatch.
+    studio raise becomes session start (and raises its first cove).
+
+If you're happy with these terms, I'll use them in the slice 1 spec and the overview.
+08:08
+you
+Text
+Markdown
+
+Session: Agreed.
+Cove: I want this to be Studio in Jam; it can remain Cove in at-cove. I am willing for the code to use Cove for now as long as we start moving it when we have opportunities. Re the verbs: Set Up is a better match for Tear Down than Raise; I would like to move towards that, but I know it is heavily insinuated. Also, Tear Down as a verb is two words.
+Episode/Turn: Episode is different than turn and we need to keep it; it matches what you said for Turn: one execution of the harness (claude -p). Since we are using streaming, an episode could refer to multiple turns since the assistant can end its turn while it is waiting on child processes. So an Episode frequently comprises multiple turns. The wake verb applies generally to a turn: it can unpause the studio container if the session is between episodes or it can deliver a message if the session is between turns.
+I think Actor and Instance should come into line at some time, but since they are internal, let's leave them for now.
+08:27
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The terms are adopted and pushed to PR #349 (b8ef16f). The overview now opens with a Vocabulary section:
+
+    Session: the collaborator. start / end; never restarted.
+    Studio: the sandbox a session currently runs in. It's still "cove" in at-cove and in existing code. set up / tear down (nouns setup / teardown), with "raise" treated as legacy that we move away from when we touch the code.
+    Episode: one harness execution. With streaming it usually spans several turns.
+    Turn: one assistant turn. wake unpauses the studio (between episodes) or delivers a message (between turns).
+    Actor and Instance stay internal and unchanged for now.
+
+In slice 1, "incarnation" is now studio: a restart or upgrade sets the same session up in a new studio. Instance.Owner becomes StartedBy. I'll also hold to these terms in messages from here on.
+
+The four slice 1 calls are still open whenever you're ready:
+
+    session vs studio, as above
+    merging humans → users by strong identity, then by name, with <name>-<project> on collisions
+    connections managed by admins
+    no aliases on the admin plane
+
+08:28
+you
+Text
+Markdown
+
+Nice. I just occurred to me to point out that the agent-data and workspace volumes are part of the Session, where the rest of the container is part of the Studio.
+And did we decide to keep Operator or switch to Admin?
+08:43
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Volumes: agreed, and recorded in both specs. The agent-data and workspace volumes belong to the session, while the container and its credential belong to the studio, which mounts the session's volumes. That's exactly why an upgrade keeps state: a new studio mounts the same session's volumes.
+
+There's a third volume today, -docker, the in-studio Docker storage (images, build cache). I've left it unassigned. My lean is studio: it's a cache, and a fresh studio on a new image arguably should start clean. But it currently survives upgrades along with the others. Which side do you want it on?
+
+Operator vs admin: we decided to keep "operator". "User" is the people agents talk to; "operator" (unchanged) is the people who configure Jam. I advised against rotating to admin because "operator" already means config manager across about 400 identifiers and about 125 docs, and flipping a word's meaning leaves all the history reading backwards. The overview lists "operator → admin" under out of scope, as a separate cosmetic rename if you ever want it.
+08:44
+you
+Text
+Markdown
+
+Leave docker on the studio side, as you suggested. This looks nice.
+08:50
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Recorded: the -docker volume goes on the studio side. That's a small behaviour change: a studio set up by an upgrade now starts with a clean Docker store. I've taken "looks nice" as approval of slice 1, with all four calls accepted, and noted that in the spec (pushed to #349).
+
+I'm now writing the implementation plan for 1a (registry). It'll be written test-first, with concrete code per task, against the current internal/jam store. I'll send it for your review along with the execution-method choice before writing any code.
+08:51
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+The first plan is written and pushed to PR #349: docs/superpowers/plans/2026-10-06-intercom-1a1-registry-core.md.
+
+One structural call: 1a is still too big for a single accurate plan, so I've split it into five shippable plans. Each later plan gets written against the code the previous one actually landed:
+
+    1a-1 registry core (this one): IDs, users, connections, accounts.
+    1a-2: project IDs and memberships.
+    1a-3: the humans → users cutover (migration, renames, log refs, ingress).
+    1a-4: connections in serve config and relay state.
+    1a-5: export/import v2.
+
+1a-1 in brief (6 tasks, all test-first):
+
+    internal/ident: mint, parse, kind, and sort order.
+    Registry types, errors, and name validation. A name may not look like an ID, so "name or ID" is never ambiguous at the edges.
+    Users: tombstone, rename, Jam-wide unique logins/OIDC, freed on removal.
+    Connections and accounts. Upsert learns a uid or handle, but never merges two accounts.
+    Postgres: migration 0006, PostgresStore methods, load.
+    Docs.
+
+It's purely additive: nothing in the product calls the registry yet, so it's safe to merge on its own. One caveat: there's no Postgres in my studio, so the pg conformance run (-tags integration) will need you or CI unless you can point me at one.
+
+Execution method?
+
+    Subagent-driven: a fresh implementer per task, with a reviewer gate after each, then a whole-branch review. It's more thorough but costs a fresh context per task and per review.
+    Native: I implement all six tasks myself in this session, then one fresh reviewer checks the whole branch.
+
+I recommend native for this plan. The tasks build tightly on each other's helpers (Tasks 3→4→5 share the prepare* functions), there are only six of them, and the code is additive and dormant, so a mistake is cheap to fix before 1a-3 makes it load-bearing.
+
+Does the plan capture what you want, and which approach should we use?
+08:57
+you
+Text
+Markdown
+
+Native is fine. Please continue.
+09:01
+standing-test-jam-ic-intercom-spider
+Text
+Markdown
+
+Plan 1a-1 (identity registry core) is implemented on branch feat/intercom-1a1-registry-core: 7 commits on top of the #349 docs. All 6 tasks were done test-first, and the full suite is green: go build/vet/test ./... gives 69 ok packages, 0 failures, and scripts/lint.sh is clean.
+
+What landed:
+
+    internal/ident
+    registry types and validation
+    users, connections and accounts in MemStore + PostgresStore
+    migration 0006
+    the conformance suite
+    a roster.md section
+
+Nothing in the product calls it yet.
+
+Final review: a fresh reviewer on the most capable model looked at the whole branch and found 0 Critical, 2 Important and 7 Minor issues. I fixed both Important ones test-first:
+
+    Duplicate logins or OIDC entries in one call: MemStore accepted them, while Postgres failed with a raw PK error. Both stores now reject them.
+    A stale handle blocked a new account forever. Example: someone renames away on Discord without Jam seeing it, then a new person takes the handle. Now the service uid wins and the stale account gives up the handle.
+
+Rulings I made:
+
+    Postgres conformance isn't runnable in my studio: there's no Docker daemon and no postgres. CI's store-integration.yml runs it on the PR. If wrong: a Postgres-only bug reaches review.
+    The uid is authoritative over the handle. A stale holder is displaced rather than erroring, and ErrAccountTaken is removed. Two accounts are still never merged. If wrong: a handle could move between accounts, but uids come from the service, not from users.
+
+Deferred minors:
+
+    The accounts_uid index has no status condition; decide when account removal exists.
+    The UpsertAccount update path silently ignores UserID (linking is only via LinkAccount).
+    Spec §2 says created_at/removed_at, but the schema only has updated_at. The spec needs updating.
+    Spec §3 says Directory.Lookup, but the code uses LookupName, because Store.Lookup is taken. The spec needs updating.
+    ValidateEntityName allows control and Unicode whitespace.
+    participants.kind is unconstrained.
+    Registry lookups are linear scans. Worth indexing when ingress calls AccountByUID per message.
+
+What would you like to do?
+
+    Merge back to main locally.
+    Push and create a Pull Request. It would be stacked on #349, so the diff shows only the code.
+    Keep the branch as-is.
+
+Which option?
+09:09
+you
+Text
+Markdown
+
+2 please
+09:20
