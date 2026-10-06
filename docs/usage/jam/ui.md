@@ -87,7 +87,7 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
   knows *who* you are (the [role Request](#runtime-studios) action needs this).
   A missing or expired session falls back to `local` without a login redirect.
   For UI development, [`dev-identity`](serve.md) makes loopback requests act as
-  a chosen roster human on `/ui` and `/me` with no login at all.
+  a chosen user on `/ui` and `/me` with no login at all.
 - **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
   browser is redirected through an OIDC **Authorization Code + PKCE** login
   (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie
@@ -128,12 +128,11 @@ Auth differs from the operator UI in two deliberate ways:
   browser login (`operator-auth.oidc.browser-client-id`) is configured.
 
 The session (cookie `jam_participant`, Path `/me`) is the ID token, verified
-against the browser client id; its `(issuer, subject)` is matched to a roster
-OIDC binding of a project member's user (bind one with `at-jam user oidc <user>
-<issuer>:<subject>`; see [comms-addressing.md](comms-addressing.md)). A **global
-person**: the same subject bound in several projects is one participant whose
-view spans them. An unbound subject — one that authenticates at the IdP but is
-not bound to any roster human — is refused with **403** (fail closed), not
+against the browser client id; its `(issuer, subject)` is matched to a user's
+OIDC binding (bind one with `at-jam user oidc <user> <issuer>:<subject>`; see
+[comms-addressing.md](comms-addressing.md)). Users are Jam-wide, so the
+participant's view spans every project they are a member of. An unbound
+subject — or a user who is a member of no project — is refused with **403** (fail closed), not
 redirected back to login (which would loop); the operator adds the binding to
 let them in.
 

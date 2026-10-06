@@ -3,23 +3,24 @@ package jam
 import (
 	"context"
 	"net/http"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // Participant is the identity behind a /me (participant intercom) request: the
-// person authenticated by a browser OIDC session and matched to the roster by
-// (Issuer, Subject). A participant is a *global* person — the same subject bound
-// in several projects is the same person — so Projects lists every project whose
-// roster binds this identity. This is a separate plane from Operator (admin
+// person authenticated by a browser OIDC session, i.e. the user bound to
+// (Issuer, Subject). Users are Jam-wide, so Projects lists every project the
+// user is a member of. This is a separate plane from Operator (admin
 // identity); the two never mix.
 type Participant struct {
 	Issuer  string
 	Subject string
-	// Projects are the projects whose roster binds (Issuer, Subject), in
-	// ListProjects order. Never empty for a resolved participant.
+	// UserID is the user bound to (Issuer, Subject).
+	UserID ident.ID
+	// Projects are the projects the user is a member of, in ListProjects
+	// order. Never empty for a resolved participant.
 	Projects []string
-	// Name is a display name from the first matched roster Human (best-effort).
-	// Handles may differ per project; the send path resolves the outgoing ref
-	// per target rather than trusting this.
+	// Name is the user's name.
 	Name string
 }
 
@@ -27,7 +28,9 @@ type Participant struct {
 // is exported so the browser-auth gate can resolve a session to a participant.
 type ParticipantStore interface {
 	ListProjects() []string
-	GetRoster(project string) (Roster, bool)
+	GetProject(name string) (Project, bool)
+	UserByOIDC(issuer, subject string) (User, bool)
+	IsMember(project, user ident.ID) bool
 }
 
 // HasIdentity reports whether h is bound to the browser OIDC identity
@@ -44,30 +47,23 @@ func (h Human) HasIdentity(issuer, subject string) bool {
 	return false
 }
 
-// ParticipantByIdentity resolves the person bound to the browser OIDC identity
-// (issuer, subject) across all projects. A participant is authenticated if the
-// identity is bound in ANY project roster; Projects lists every such project in
-// ListProjects order (global person). The empty issuer or subject never matches,
-// and an identity bound in no roster resolves to nobody — fail closed, never
-// guess an identity.
+// ParticipantByIdentity resolves the user bound to the browser OIDC identity
+// (issuer, subject). Projects lists every project the user is a member of, in
+// ListProjects order. The empty issuer or subject never matches, and an
+// identity bound to no user, or to one who is a member of no project, resolves
+// to nobody — fail closed, never guess an identity.
 func ParticipantByIdentity(store ParticipantStore, issuer, subject string) (Participant, bool) {
 	if issuer == "" || subject == "" {
 		return Participant{}, false
 	}
-	p := Participant{Issuer: issuer, Subject: subject}
-	for _, project := range store.ListProjects() {
-		rr, ok := store.GetRoster(project)
-		if !ok {
-			continue
-		}
-		for _, h := range rr.Humans {
-			if h.HasIdentity(issuer, subject) {
-				p.Projects = append(p.Projects, project)
-				if p.Name == "" {
-					p.Name = h.Name
-				}
-				break // count each project once
-			}
+	u, ok := store.UserByOIDC(issuer, subject)
+	if !ok {
+		return Participant{}, false
+	}
+	p := Participant{Issuer: issuer, Subject: subject, UserID: u.ID, Name: u.Name}
+	for _, name := range store.ListProjects() {
+		if pr, ok := store.GetProject(name); ok && store.IsMember(pr.ID, u.ID) {
+			p.Projects = append(p.Projects, name)
 		}
 	}
 	if len(p.Projects) == 0 {

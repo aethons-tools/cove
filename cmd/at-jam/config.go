@@ -37,10 +37,12 @@ type credSpec struct {
 // (jam.GCPTokenResolver), and that token is what a destination applies.
 const credExchangeGCP = "gcp"
 
-// devIdentityConfig names the roster human dev-identity impersonates.
+// devIdentityConfig names the user dev-identity impersonates. The
+// pre-registry form {project, human} is accepted as the user named human.
 type devIdentityConfig struct {
-	Project string `yaml:"project"`
-	Human   string `yaml:"human"`
+	User              string `yaml:"user"`
+	DeprecatedProject string `yaml:"project"`
+	DeprecatedHuman   string `yaml:"human"`
 }
 
 // serveConfig is the on-disk config for `at-jam serve`.
@@ -57,7 +59,7 @@ type serveConfig struct {
 	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
 	UIOrigins []string `yaml:"ui-origins"`
 	// DevIdentity — DEV ONLY: loopback browser requests to /ui and /me act as
-	// this roster human with no login (see browserauth.DevIdentity). serve
+	// this user with no login (see browserauth.DevIdentity). serve
 	// refuses it unless admin-listen is loopback.
 	DevIdentity *devIdentityConfig `yaml:"dev-identity"`
 	TLS         struct {
@@ -653,8 +655,12 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
 	}
 	if d := c.DevIdentity; d != nil {
-		if d.Project == "" || d.Human == "" {
-			return serveConfig{}, fmt.Errorf("dev-identity: project and human are both required")
+		if d.User == "" && d.DeprecatedHuman != "" {
+			d.User, d.DeprecatedHuman, d.DeprecatedProject = d.DeprecatedHuman, "", ""
+			c.deprecated = append(c.deprecated, [2]string{"dev-identity.project/human", "dev-identity.user"})
+		}
+		if d.User == "" {
+			return serveConfig{}, fmt.Errorf("dev-identity: user is required")
 		}
 		if !isLoopbackAddr(c.AdminListen) {
 			return serveConfig{}, fmt.Errorf("dev-identity: admin-listen %q is off-loopback; dev-identity skips login and is only allowed on a loopback admin listener", c.AdminListen)

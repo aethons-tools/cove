@@ -244,15 +244,19 @@ func TestGateLoopbackAllowsLoopbackLiterals(t *testing.T) {
 
 // --- Participant plane (/me): no loopback trust; session maps to a roster human ---
 
-// fakeParticipantStore is a jam.ParticipantStore over one project's roster.
-type fakeParticipantStore struct{ humans []jam.Human }
-
-func (f fakeParticipantStore) ListProjects() []string { return []string{"proj"} }
-func (f fakeParticipantStore) GetRoster(p string) (jam.Roster, bool) {
-	if p != "proj" {
-		return jam.Roster{}, false
+// participantStore is a store whose project "proj" has humans as members.
+func participantStore(t *testing.T, humans ...jam.Human) jam.Store {
+	t.Helper()
+	s := jam.NewMemStore()
+	if err := s.CreateProject("proj"); err != nil {
+		t.Fatal(err)
 	}
-	return jam.Roster{Humans: f.humans}, true
+	for _, h := range humans {
+		if err := s.AddHuman("proj", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
 }
 
 // TestParticipantGateNoLoopbackBypass is the key boundary property: with no
@@ -296,9 +300,7 @@ func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
 			return "", fmt.Errorf("bad token")
 		}
 	}
-	store := fakeParticipantStore{humans: []jam.Human{
-		{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}},
-	}}
+	store := participantStore(t, jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}})
 	sess := svc.ParticipantSession(store)
 
 	cases := []struct {
