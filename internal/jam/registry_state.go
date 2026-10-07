@@ -589,7 +589,7 @@ func (m *memState) preparePutMembership(ms Membership) (Membership, error) {
 }
 
 func (m *memState) checkMember(project, user ident.ID) error {
-	if _, ok := m.projectByID(project); !ok {
+	if _, ok := m.liveProjectByID(project); !ok {
 		return fmt.Errorf("%w: %s", ErrProjectNotFound, project)
 	}
 	_, err := m.liveUser(user)

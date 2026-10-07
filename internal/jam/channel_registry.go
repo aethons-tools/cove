@@ -266,7 +266,7 @@ func (m *memState) prepareCreateChannel(c Channel) (Channel, error) {
 		return Channel{}, fmt.Errorf("%w: id %s", ErrChannelExists, id)
 	}
 	c.ID, c.Status = id, StatusLive
-	if _, ok := m.projectByID(c.ProjectID); !ok {
+	if _, ok := m.liveProjectByID(c.ProjectID); !ok {
 		return Channel{}, fmt.Errorf("%w: %s", ErrProjectNotFound, c.ProjectID)
 	}
 	if !slices.Contains(sourceKinds, c.Kind) {
@@ -366,6 +366,9 @@ func (m *memState) prepareReopenChannel(id ident.ID) (Channel, error) {
 		return Channel{}, fmt.Errorf("%w: %s", ErrChannelNotFound, id)
 	}
 	c = copyChannel(c)
+	if _, live := m.liveProjectByID(c.ProjectID); !live {
+		return Channel{}, fmt.Errorf("%w: %s", ErrProjectNotFound, c.ProjectID)
+	}
 	if err := m.checkChannelKey(c.ProjectID, c.Kind, c.Key, c.ID); err != nil {
 		return Channel{}, err
 	}

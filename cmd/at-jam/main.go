@@ -1855,7 +1855,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		ledger = as
 	}
-	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner), ledger)
+	var reqProject string // the Requisitioner's project, by id
+	if cfg.Runtime.Requisitioner != nil {
+		reqProject = resolveRequisitionerProject(st, cfg.Runtime.Requisitioner, log)
+	}
+	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner, reqProject), ledger)
 	alloc.SetProjectKey(func(ref string) string {
 		if id, ok := jam.ProjectIDOf(st, ref); ok {
 			return string(id)
@@ -2037,7 +2041,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → Requisitioner default
 		// The Requisitioner's (project, role), normalized the same way as the
 		// Allocator's fallback (see requisitionerProject).
-		project := requisitionerProject(dc)
+		project := reqProject
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
 			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
@@ -2058,7 +2062,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if err != nil {
 			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 		}
-		dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
+		dir.project = reqProject // by id: the relays' cursors and polling outlive a rename
 		dir.selfIdentity = self
 		surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 		// Seed once: skip everything the 1a dual-write already delivered live,

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -30,7 +31,14 @@ var _ allocator.PolicySource = rosterPolicy{}
 
 // Policy implements allocator.PolicySource.
 func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
-	fb, hasFallback := p.fallback.Policy(jam.ProjectName(p.store, project), role) // the fallback is keyed by name
+	// The fallback is keyed by the Requisitioner project's id (by name in a
+	// hand-built table).
+	fb, hasFallback := p.fallback.Policy(project, role)
+	if id, ok := jam.ProjectIDOf(p.store, project); ok && !hasFallback {
+		if fb, hasFallback = p.fallback.Policy(string(id), role); !hasFallback {
+			fb, hasFallback = p.fallback.Policy(jam.ProjectName(p.store, project), role)
+		}
+	}
 	r, hasRole := p.store.GetRole(project, role)
 	if !hasRole {
 		return fb, hasFallback
@@ -58,12 +66,40 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 // when a Requisitioner is configured (dc != nil); without one the roster alone
 // decides. The Requisitioner project is normalized (see requisitionerProject) so
 // grants and releases land on the same (project, role) stream.
-func newRosterPolicy(store roleReader, dc *requisitionerConfig) rosterPolicy {
+// project is the Requisitioner's project as resolveRequisitionerProject
+// returns it.
+func newRosterPolicy(store roleReader, dc *requisitionerConfig, project string) rosterPolicy {
 	p := rosterPolicy{store: store}
 	if dc != nil {
-		p.fallback = allocator.StaticPolicy{{Project: requisitionerProject(dc), Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
+		p.fallback = allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
 	}
 	return p
+}
+
+// projectCreator is the slice of jam.Store resolveRequisitionerProject uses.
+type projectCreator interface {
+	GetProject(ref string) (jam.Project, bool)
+	CreateProject(name string) error
+}
+
+// resolveRequisitionerProject is the Requisitioner's project as its id —
+// stable across a rename while serve runs — creating the default project if
+// the config names it (or none) and it doesn't exist yet. A named project
+// that doesn't exist stays as named (its raises fail until it is created).
+func resolveRequisitionerProject(st projectCreator, dc *requisitionerConfig, log *slog.Logger) string {
+	name := requisitionerProject(dc)
+	if _, ok := st.GetProject(name); !ok && name == jam.DefaultProject {
+		if err := st.CreateProject(name); err != nil && log != nil {
+			log.Warn("requisitioner: creating the default project failed", "err", err.Error())
+		}
+	}
+	if id, ok := jam.ProjectIDOf(st, name); ok {
+		return string(id)
+	}
+	if log != nil {
+		log.Warn("requisitioner: its project doesn't exist; raises fail until it is created", "project", name)
+	}
+	return name
 }
 
 // requisitionerProject is the Requisitioner's project by name, normalized

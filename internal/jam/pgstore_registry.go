@@ -414,7 +414,7 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 		}
 		if err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 			var have *string
-			if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE name = $1 FOR UPDATE`, name).Scan(&have); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE name = $1 AND status = 'live' FOR UPDATE`, name).Scan(&have); err != nil {
 				return err
 			}
 			if have != nil {
@@ -429,7 +429,7 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			_, err = tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3`, p.ID, doc, name)
+			_, err = tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3 AND status = 'live'`, p.ID, doc, name)
 			return err
 		}); err != nil {
 			return fmt.Errorf("pgstore: backfill project id for %q: %w", name, err)

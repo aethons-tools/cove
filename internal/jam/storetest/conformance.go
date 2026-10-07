@@ -574,9 +574,23 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if err := s.RenameProject("beta", "beta"); err != nil {
 			t.Fatalf("renaming to its own name is a no-op: %v", err)
 		}
-		// Tombstone: the id resolves as removed, the name is free.
-		if err := s.RemoveProject("beta"); err != nil {
+		// A live session keeps its project from being removed.
+		if err := s.PutInstance(jam.Instance{ActorID: "i-beta", Project: "beta", Phase: jam.PhaseLive}); err != nil {
 			t.Fatal(err)
+		}
+		if err := s.RemoveProject("beta"); !errors.Is(err, jam.ErrProjectInUse) {
+			t.Fatalf("removing a project with a live session: %v", err)
+		}
+		if err := s.RemoveInstance("i-beta"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CreateProject("prj_01j9q3zzzzzzzzzzzzzzzzzzzz"); err == nil {
+			t.Fatal("a project name shaped like a project id must be refused")
+		}
+		// Tombstone: the id resolves as removed, the name is free.
+		betaID, _ := jam.ProjectIDOf(s, "beta")
+		if err := s.RemoveProject(string(betaID)); err != nil {
+			t.Fatalf("removing a project by id: %v", err)
 		}
 		beta := func() ident.ID {
 			for _, ref := range s.ExportConfig().Projects {
@@ -600,6 +614,19 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 		if err := s.RenameProject(string(beta), "gamma"); !errors.Is(err, jam.ErrProjectNotFound) {
 			t.Fatalf("renaming a removed project: %v", err)
+		}
+		u, _ := s.CreateUser(jam.User{Name: "tomb-u"})
+		if err := s.PutMembership(jam.Membership{ProjectID: beta, UserID: u.ID}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a membership in a removed project: %v", err)
+		}
+		if _, err := s.CreateChannel(jam.Channel{ProjectID: beta, Kind: jam.SourceRoom, Key: "r", Label: "r"}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a channel in a removed project: %v", err)
+		}
+		if err := s.PutStandingSession(beta, "impl", "x", "ses-x"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a standing session in a removed project: %v", err)
+		}
+		if err := s.RemoveProject(string(beta)); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("removing a removed project: %v", err)
 		}
 		if err := s.CreateProject("beta"); err != nil {
 			t.Fatalf("reusing a removed project's name: %v", err)

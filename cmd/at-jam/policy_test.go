@@ -83,10 +83,11 @@ func TestRosterPolicy_NoRoleNoFallback(t *testing.T) {
 // the default so grants and releases share one stream.
 func TestNewRosterPolicy_FallbackOnlyWithRequisitioner(t *testing.T) {
 	st := newPolicyStore(t)
-	if p := newRosterPolicy(st, nil); len(p.fallback) != 0 {
+	if p := newRosterPolicy(st, nil, ""); len(p.fallback) != 0 {
 		t.Fatalf("no Requisitioner: fallback = %+v, want empty", p.fallback)
 	}
-	p := newRosterPolicy(st, &requisitionerConfig{Role: "worker", MaxConcurrent: 2})
+	dc := &requisitionerConfig{Role: "worker", MaxConcurrent: 2}
+	p := newRosterPolicy(st, dc, resolveRequisitionerProject(st, dc, nil))
 	if pol, ok := p.Policy(jam.DefaultProject, "worker"); !ok || pol.MaxEphemeral != 2 {
 		t.Fatalf("Requisitioner fallback = %+v,%v; want max-ephemeral 2 on %s/worker", pol, ok, jam.DefaultProject)
 	}
@@ -104,5 +105,29 @@ func TestRosterPolicy_StandingNames(t *testing.T) {
 	want := allocator.Policy{StandingNames: []string{"alice-bot", "bob-bot"}}
 	if pol, ok := p.Policy("acme", "reviewer"); !ok || !reflect.DeepEqual(pol, want) {
 		t.Fatalf("Policy = %+v,%v; want %+v", pol, ok, want)
+	}
+}
+
+// The Requisitioner's project is resolved to its id at startup (the default
+// one created if missing), so its fallback and its dispatch survive a rename.
+func TestRequisitionerProjectByID(t *testing.T) {
+	st := newPolicyStore(t)
+	dc := &requisitionerConfig{Role: "worker", MaxConcurrent: 2}
+	id := resolveRequisitionerProject(st, dc, nil)
+	def, ok := st.GetProject(jam.DefaultProject)
+	if !ok || id != string(def.ID) {
+		t.Fatalf("resolved = %q, default = %+v %v", id, def, ok)
+	}
+	mustCreateProject(t, st, "acme")
+	dc.Project = "acme"
+	id = resolveRequisitionerProject(st, dc, nil)
+	p := newRosterPolicy(st, dc, id)
+	if err := st.RenameProject("acme", "apex"); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"apex", id} {
+		if pol, ok := p.Policy(ref, "worker"); !ok || pol.MaxEphemeral != 2 {
+			t.Fatalf("fallback after rename via %q = %+v, %v", ref, pol, ok)
+		}
 	}
 }

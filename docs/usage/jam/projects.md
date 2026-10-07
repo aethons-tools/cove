@@ -44,8 +44,9 @@ is created as a side effect.
 `--project` means) is created by the first write that names it. That way a
 zero-config, single-project Jam keeps working without a `project create` step.
 
-**Removal.** `project rm` refuses (HTTP **409**) while any role in the project
-or any actor's grant into it still exists, and names one such reference.
+**Removal.** `project rm` (by name or id) refuses (HTTP **409**) while any
+role in the project, any actor's grant into it, or any session not yet gone
+still exists, and names one such reference.
 Remove those first (`role rm`, `ungrant`/`revoke`). The project's escalation
 and chat service go with it, and its rooms and other channels are archived
 (their history stays readable). A removed project is a **tombstone**: its id
@@ -55,10 +56,14 @@ created under it later is a new project that inherits nothing.
 **Rename.** `project rename <project> <new-name>` (also on the project's UI
 page) changes the name only: roles, grants, sessions, members, channels and
 the allocation ledger refer to the project by id, so nothing else changes.
-The new name must be free; `default` is never renamed, nor is another project
-renamed to it. **Update anything that names the project by name**: a serve
-config's `runtime.requisitioner.project`, and scripts. The read-only History
-of the pre-channel-log intercom keeps the old name.
+The new name must be free and must not look like a project id (`prj_…`);
+`default` is never renamed, nor is another project renamed to it. A running
+serve keeps dispatching for its Requisitioner's project (resolved to its id at
+startup), but **update anything that names the project by name** before the
+next restart: a serve config's `runtime.requisitioner.project`, a
+`dev-identity`'s deprecated `{project, human}` form, and scripts. Some things
+keep the old name: a running session's context until it is next raised, and
+the read-only History of the pre-channel-log intercom.
 
 ## Admin API
 

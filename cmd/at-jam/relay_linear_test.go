@@ -14,6 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -295,7 +296,14 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sorted := func(ss []string) []string { out := append([]string(nil), ss...); sort.Strings(out); return out }
+	sorted := func(ss []string) []string { // by name, for reading
+		var out []string
+		for _, s := range ss {
+			out = append(out, jam.ProjectName(st, s))
+		}
+		sort.Strings(out)
+		return out
+	}
 
 	noRequisitioner := &directory{store: st}
 	if got := sorted(noRequisitioner.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta"}) {
@@ -305,7 +313,8 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 	if got := sorted(withRequisitioner.Projects("discord")); !reflect.DeepEqual(got, []string{"acme", "beta", "gamma"}) {
 		t.Fatalf("discord projects (Requisitioner on gamma) = %v, want [acme beta gamma]", got)
 	}
-	if got := (&directory{store: st, project: "acme"}).Projects("discord"); len(got) != 2 {
+	acme, _ := jam.ProjectIDOf(st, "acme")
+	if got := (&directory{store: st, project: string(acme)}).Projects("discord"); len(got) != 2 {
 		t.Fatalf("Requisitioner project already discord must not repeat: %v", got)
 	}
 	if got := withRequisitioner.Projects("linear"); !reflect.DeepEqual(got, []string{"gamma"}) {

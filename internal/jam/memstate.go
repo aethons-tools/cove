@@ -429,6 +429,11 @@ func (m *memState) projectReference(project string) (string, bool) {
 	for name := range m.roles[id] {
 		return fmt.Sprintf("role %s/%s", project, name), true
 	}
+	for _, inst := range m.instances {
+		if inst.Phase != PhaseGone && m.canonicalProject(inst.Project) == string(id) {
+			return fmt.Sprintf("live session %s", inst.ActorID), true
+		}
+	}
 	for _, a := range m.actors {
 		for _, g := range a.Grants {
 			if m.canonicalProject(g.Project) == string(id) {
@@ -451,14 +456,27 @@ func (m *memState) checkCreateProject(name string) error {
 }
 
 // checkRemoveProject validates a RemoveProject. Caller holds the lock.
-func (m *memState) checkRemoveProject(name string) error {
-	if _, ok := m.projects[name]; !ok {
-		return fmt.Errorf("%w: %q", ErrProjectNotFound, name)
+// checkRemoveProject validates a RemoveProject of a live project by name or
+// id, returning its name. Caller holds the lock.
+func (m *memState) checkRemoveProject(ref string) (string, error) {
+	p, ok := m.resolveProject(ref)
+	if !ok || p.Status == StatusRemoved || ref == "" {
+		return "", fmt.Errorf("%w: %q", ErrProjectNotFound, ref)
 	}
-	if ref, ok := m.projectReference(name); ok {
-		return fmt.Errorf("%w: %q is referenced by %s", ErrProjectInUse, name, ref)
+	if ref, ok := m.projectReference(p.Name); ok {
+		return "", fmt.Errorf("%w: %q is referenced by %s", ErrProjectInUse, p.Name, ref)
 	}
-	return nil
+	return p.Name, nil
+}
+
+// liveProjectByID finds a live project by id (never a tombstone): what a
+// write into a project requires. Caller holds mu.
+func (m *memState) liveProjectByID(id ident.ID) (Project, bool) {
+	p, ok := m.projectByID(id)
+	if !ok || p.Status == StatusRemoved {
+		return Project{}, false
+	}
+	return p, true
 }
 
 // backfillProjects gives every project named by a role or grant a record, so a
@@ -792,6 +810,9 @@ func actorNotFoundErr(id string) error { return fmt.Errorf("actor %q not found",
 func checkProjectName(name string) error {
 	if name == "" {
 		return fmt.Errorf("project name is required")
+	}
+	if id, err := ident.Parse(name); err == nil && id.Kind() == ident.Project {
+		return fmt.Errorf("%w: project name %q looks like a project id", ErrInvalidName, name)
 	}
 	if strings.Contains(name, "/") {
 		return fmt.Errorf("%w: project name %q may not contain \"/\"", ErrInvalidName, name)

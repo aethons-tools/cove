@@ -38,11 +38,16 @@ type projectRow struct {
 }
 
 // projectRef is the first thing (deterministically) that keeps project from
-// being removed: a role in it, else an actor's grant into it. Mirrors the
-// store's refusal, which only roles and grants trigger.
+// being removed: a role in it, else a session not yet gone, else an actor's
+// grant into it. Mirrors the store's refusal.
 func projectRef(store jam.Store, project string) string {
 	if roles := store.ListRoles(project); len(roles) > 0 {
 		return fmt.Sprintf("role %s/%s", project, roles[0].Name)
+	}
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != jam.PhaseGone && jam.SameProject(store, inst.Project, project) {
+			return "live session " + inst.ActorID
+		}
 	}
 	for _, a := range store.ListActors() {
 		for _, g := range a.Grants {
@@ -115,7 +120,7 @@ type projectDetail struct {
 
 func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (projectDetail, bool) {
 	p, ok := store.GetProject(name)
-	if !ok {
+	if !ok || p.Status == jam.StatusRemoved {
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: "Projects", Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}

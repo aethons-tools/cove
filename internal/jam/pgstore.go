@@ -576,7 +576,8 @@ func (s *PostgresStore) CreateProject(name string) error {
 func (s *PostgresStore) RemoveProject(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.checkRemoveProject(name); err != nil {
+	name, err := s.checkRemoveProject(name)
+	if err != nil {
 		return err
 	}
 	p := s.projects[name]
