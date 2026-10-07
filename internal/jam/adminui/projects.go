@@ -41,7 +41,7 @@ func projectRef(store jam.Store, project string) string {
 	}
 	for _, e := range store.ListStandingSessions() {
 		if e.ProjectID == p.ID {
-			return fmt.Sprintf("standing session %s/%s", e.Role, e.Name)
+			return fmt.Sprintf("standing agent %s/%s", e.Role, e.Name)
 		}
 	}
 	if roles := store.ListRoles(project); len(roles) > 0 {
@@ -49,7 +49,7 @@ func projectRef(store jam.Store, project string) string {
 	}
 	for _, inst := range store.ListInstances() {
 		if inst.Phase != jam.PhaseGone && jam.SameProject(store, inst.Project, project) {
-			return "live session " + inst.ActorID
+			return "running agent " + inst.ActorID
 		}
 	}
 	for _, a := range store.ListActors() {

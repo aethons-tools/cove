@@ -36,8 +36,8 @@ re-rendered.
 
 - **Overview** — the project's **Needs attention** card; counts (members,
   agents live of all, roles, rooms, escalation chains), each linking to its tab; the **chat service** (none — tracker
-  @-mentions only — or `discord`); the project's **Session context** card
-  ([ui-pages.md](ui-pages.md#session-context-cards)). **Rename** (except
+  @-mentions only — or `discord`); the project's **Agent context** card
+  ([ui-pages.md](ui-pages.md#agent-context-cards)). **Rename** (except
   `default`) renames the project and opens its new URL; **Delete** is disabled
   while a member, a role, a session not yet gone or an actor's grant still
   references the project, and names what does — the same rule as `project rm`
@@ -45,7 +45,7 @@ re-rendered.
 - **Members** — the users agents here can address (linked to their user page,
   with handle and delivery). **Add member** (a user, and delivery: one
   `service:address` per line); per member, **Edit** delivery and **Remove**.
-- **Agents** — the project's studios (the shared studio table) and the actors
+- **Agents** — the project's running agents and the identities
   holding a grant into it, with the roles they hold.
 - **Roles** — the project's roles (linked, with destinations, TTL and kit) and,
   with a runtime supervisor, a **Request** per role
@@ -84,12 +84,12 @@ only that section:
 - **Allocation** — session caps and the personal-session idle ladder.
   Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
   the page says what applies when unset.
-- **Standing sessions** — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
+- **Standing agents** ([standing sessions](standing-sessions.md)) — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
   each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
-- **Holders** and **Studios** — the agents granted the role (linked; marked where the
+- **Holders** and **Running** — the agents granted the role (linked; marked where the
   grant overrides the scope; grants are managed on the agent's page) and the role's
-  running studios.
+  running agents.
 
-**Request session** and **Delete** (which returns to the project's Roles) are on the page header. These writes share
+**Request agent** and **Delete** (which returns to the project's Roles) are on the page header. These writes share
 one lock with the JSON admin API's role, egress and standing routes, so an edit
 here and a CLI change can't overwrite each other.

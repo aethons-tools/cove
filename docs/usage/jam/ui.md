@@ -32,8 +32,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
   idled agents, each opening the Agents list filtered to that phase, and counts
   of projects, agents, users and specs (kits + destinations + model-specs) —
-  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Session context** card
-  ([ui-pages.md](ui-pages.md#session-context-cards)), above the studio table.
+  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
+  ([ui-pages.md](ui-pages.md#agent-context-cards)), above the running agents.
 - **Search** — the box in the top bar (press `/` from anywhere) searches every
   page's objects at once: agents (id, unit, owner, standing name,
   project/role, grants — one hit per id), roles (project/name, kit,
@@ -183,7 +183,7 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 
-`/ui/agents/{id}/session` (linked from studio tables and the agent's page) shows a managed
+`/ui/agents/{id}/session` (linked from running-agents tables and the agent's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation

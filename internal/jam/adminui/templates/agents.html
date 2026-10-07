@@ -1,11 +1,11 @@
 {{define "content"}}
-<div class="page-head"><h1>Agents</h1><span class="sub">every agent identity and its studio — refreshes every 3s</span></div>
+<div class="page-head"><h1>Agents</h1><span class="sub">every agent, running or not — refreshes every 3s</span></div>
 {{if .CanEdit}}
 <details class="panel">
   <summary>Raise agent</summary>
   <form hx-post="/ui/coves" hx-target="#agents" hx-swap="outerHTML" data-reset>
     <div class="grid">
-      <label>Label <span class="req">required</span><span class="hint">its name; the agent gets a session id</span><input name="id" required autocomplete="off"></label>
+      <label>Label <span class="req">required</span><span class="hint">its name; the agent gets its own id</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
       <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
       <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>

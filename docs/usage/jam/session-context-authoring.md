@@ -4,7 +4,7 @@ read_when: You want sessions of a role or project (or every session on the Jam) 
 owns: the `at-jam context show|set|clear` command, the context YAML format, authored-layer limits, and the role/project/jam context admin routes
 prereqs: session-context.md for how layers are compiled and delivered
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-07
 ---
 
 # Authoring session context
@@ -48,7 +48,7 @@ at-jam context show  --role acme/reviewer      # prints the same YAML (bodies in
 at-jam context clear --jam
 ```
 
-Or edit the **Session context** card on the role page, the project page, or (for
+Or edit the **Agent context** card on the role page, the project page, or (for
 the Jam-wide layer) the dashboard in the [admin UI](ui-pages.md): the same YAML in
 one box, bodies inline (`file:` isn't available there), with a byte counter against
 the budget and a Clear button.

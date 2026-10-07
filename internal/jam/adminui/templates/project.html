@@ -60,7 +60,7 @@
   {{if .ChatService}}<span class="chip">chat: {{.ChatService}}</span>{{else}}<span class="sub">tracker @-mentions only</span>{{end}}
   <span class="spacer"></span>
   {{if ne $p "default"}}<form class="inline" hx-post="/ui/projects/{{$p}}/rename" hx-swap="none"><input name="name" value="{{$p}}" aria-label="New name" required size="12"><button type="submit">Rename</button></form>{{end}}
-  {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles, sessions and grants first">Delete</button>
+  {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles, agents and grants first">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/projects/{{$p}}" hx-swap="none"
       hx-confirm="Delete project {{$p}}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed."
       hx-on::after-request="if(event.detail.successful) location.href='/ui/'">Delete</button>{{end}}
@@ -95,7 +95,7 @@
 <div id="project">
 <div class="page-head"><h1>Members</h1><span class="sub">the users agents in {{$p}} can address, and where they get DMs here</span></div>
 <section class="card">
-    <header><h2>Members</h2><span class="sub">the <a href="/ui/users">users</a> studios in this project can address, and where they get DMs here</span></header>
+    <header><h2>Members</h2><span class="sub">the <a href="/ui/users">users</a> agents in this project can address, and where they get DMs here</span></header>
     <table>
       <thead><tr><th>User</th><th>Handle</th><th>Delivery</th><th></th></tr></thead>
       <tbody>
@@ -136,10 +136,10 @@
 
 {{define "project-agents"}}
 <div id="project">
-<div class="page-head"><h1>Agents</h1><span class="sub">studios raised in {{.Project.Name}}, and the actors holding a grant into it</span></div>
+<div class="page-head"><h1>Agents</h1><span class="sub">agents running in {{.Project.Name}}, and the identities holding a grant into it</span></div>
 <div class="sections">
 <section class="card full">
-    <header><h2>Studios</h2><span class="sub">this project's agents and their studios</span></header>
+    <header><h2>Running</h2><span class="sub">this project's running agents</span></header>
     {{template "coves-tbl" .}}
   </section>
 <section class="card">
@@ -183,7 +183,7 @@
       <td>{{ttl .TTL}}</td>
       <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td>
       <td class="actions">{{if $.CanRequest}}<button class="primary small" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
-          title="Raise a personal session of this role for you">Request</button>{{end}}</td></tr>
+          title="Raise a personal agent of this role for you">Request</button>{{end}}</td></tr>
     {{else}}<tr><td colspan="5" class="empty">No roles.</td></tr>{{end}}
   </tbody>
 </table>

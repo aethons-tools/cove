@@ -115,7 +115,7 @@ func TestEditStandingUpgrade(t *testing.T) {
 	const path = "/ui/roles/acme/review/standing/nightly/upgrade"
 
 	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
-	if !strings.Contains(body, `<button class="small" `+btn) || !strings.Contains(body, `hx-confirm="Upgrade standing session nightly?`) {
+	if !strings.Contains(body, `<button class="small" `+btn) || !strings.Contains(body, `hx-confirm="Upgrade standing agent nightly?`) {
 		t.Fatalf("role page lacks a confirmed upgrade button:\n%s", body)
 	}
 	if rec := post(t, h, path, url.Values{}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), flash) ||

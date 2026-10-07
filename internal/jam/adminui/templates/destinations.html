@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-head"><h1>Destinations</h1><span class="sub">Upstreams the broker routes studio traffic to — open one to edit it</span></div>
+<div class="page-head"><h1>Destinations</h1><span class="sub">Upstreams the broker routes agent traffic to — open one to edit it</span></div>
 <details class="panel">
   <summary>New destination</summary>
   <form hx-post="/ui/destinations" hx-target="#destinations" hx-swap="outerHTML">
@@ -13,7 +13,7 @@
 {{define "destinations-table"}}
 <div class="card" id="destinations">
 <table>
-  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Auth</th><th>Credential</th><th>Studio connector</th><th>Roles</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Route</th><th>Upstream</th><th>Auth</th><th>Credential</th><th>Agent connector</th><th>Roles</th><th></th></tr></thead>
   <tbody>
     {{range .Destinations}}
     <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">

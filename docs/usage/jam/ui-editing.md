@@ -70,8 +70,8 @@ config — see [coves.md](coves.md)), the Agents list can also:
   manual wiring).
 - **Tear down a studio** (confirmed) — from its row or its agent's page.
 
-A project's Roles section and each role page gain a **Request** action: it raises a
-[personal session](personal-sessions.md) of that role **for you**, with the
+A project's Roles section and each role page (**Request agent**) gain a **Request** action: it raises a
+[personal session](personal-sessions.md) — a personal agent — of that role **for you**, with the
 prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 session opens the conversation with you on the intercom. You must be signed in
 (`/ui/auth/login`) as a login linked to a member of the role's project.

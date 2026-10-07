@@ -6,7 +6,7 @@
   {{if not .Dest.Name}}<label>Name <span class="req">required</span><input name="name" required autocomplete="off"></label>{{end}}
   <label>Route <span class="req">required</span><input name="route" value="{{.Dest.Route}}" required placeholder="/anthropic/"></label>
   <label class="wide">Upstream URL <span class="req">required</span><input name="upstream" value="{{.Dest.Upstream}}" required placeholder="https://api.example.com"></label>
-  <label>Identity in <span class="hint">how a studio presents its identity token</span>
+  <label>Identity in <span class="hint">how an agent presents its identity token</span>
     <select name="identity-in">{{$v := .Dest.IdentityIn}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}{{if eq $v "custom"}}<option value="custom" selected>custom (spec shown in Broker section; edit via import/API)</option>{{end}}</select></label>
   <label>Apply as <span class="hint">how the credential is sent upstream</span>
     <select name="apply">{{$v := .Dest.Apply}}{{range .Methods}}<option value="{{.}}"{{if eq . $v}} selected{{end}}>{{.}}</option>{{end}}{{if eq $v "custom"}}<option value="custom" selected>custom (spec shown in Broker section; edit via import/API)</option>{{end}}</select></label>
@@ -15,8 +15,8 @@
     <textarea name="env" spellcheck="false" placeholder="GH_HOST={host}">{{.Form.Env}}</textarea></label>
   <label class="wide">Allowed paths <span class="hint">one <code>path.Match</code> pattern per line, matched against the path after the route (<code>*</code> never crosses <code>/</code>); anything else is refused 403. Leave empty to allow any path.</span>
     <textarea name="allow-paths" spellcheck="false" placeholder="/v1/projects/my-project/locations/us-east5/publishers/anthropic/models/*:streamRawPredict">{{.Form.AllowPaths}}</textarea></label>
-  <label class="wide">Note <span class="hint">shown to sessions granted this destination — how to use it (≤ 300 bytes)</span><input name="note" value="{{.Dest.Note}}" maxlength="300" spellcheck="false"></label>
-  <label class="check"><input type="checkbox" name="git"{{if .Dest.Git}} checked{{end}}> Route git <span class="hint">studios send <code>https://github.com/</code> through this route</span></label>
+  <label class="wide">Note <span class="hint">shown to agents granted this destination — how to use it (≤ 300 bytes)</span><input name="note" value="{{.Dest.Note}}" maxlength="300" spellcheck="false"></label>
+  <label class="check"><input type="checkbox" name="git"{{if .Dest.Git}} checked{{end}}> Route git <span class="hint">agents send <code>https://github.com/</code> through this route</span></label>
 </div>
 <style>label.check{flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}label.check input{width:auto}</style>
 {{end}}

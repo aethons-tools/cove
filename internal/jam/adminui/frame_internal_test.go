@@ -307,3 +307,19 @@ func TestDisplayName(t *testing.T) {
 		}
 	}
 }
+
+// The UI talks about agents; studios and sessions only where a page addresses
+// one directly. These labels must not come back.
+func TestAgentWording(t *testing.T) {
+	h := frameHandler(t)
+	for _, path := range []string{"/ui/", "/ui/agents", "/ui/projects/acme", "/ui/projects/acme/agents", "/ui/projects/acme/roles/dev",
+		"/ui/destinations", "/ui/destinations/git-a", "/ui/model-specs", "/ui/projects/acme/members"} {
+		body := frameGet(t, h, path)
+		for _, old := range []string{"Session context", "Standing sessions", "Request session", "No studios.", "Studio connector",
+			"<h2>Studios</h2>", "<th>Studio</th>", "studio traffic", "How a studio runs", "personal session of this role"} {
+			if strings.Contains(body, old) {
+				t.Errorf("%s still says %q", path, old)
+			}
+		}
+	}
+}

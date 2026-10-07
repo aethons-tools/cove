@@ -28,7 +28,7 @@ remove are refused while the user owns a live personal session).
 
 ## Agent pages
 
-Each agent id (in the Agents list, a studio table, a role's holders, a
+Each agent id (in the Agents list, a running-agents table, a role's holders, a
 project's identities, or search) opens `/ui/agents/<id>`, the page for one
 agent identity. It sits under Jam's Agents tab, or — linked from a project's
 pages (`?project=<name>`) — under that project's. The header shows its kind, phase and activity, standing name or
@@ -58,12 +58,12 @@ A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,
 session or squawks is a 404.
 
-## Session context cards
+## Agent context cards
 
-The [role page, the project Overview](ui-projects.md) and the dashboard each carry a **Session context**
-card for that layer (role, project, Jam-wide): the core, its size as a session
+The [role page, the project Overview](ui-projects.md) and the dashboard each carry an **Agent context**
+card — the [session context](session-context.md) for that layer (role, project, Jam-wide): the core, its size as an agent
 receives it against the budget (a project's includes the resources pointer), the
-leaves and, for projects, the resources. **Edit session context** is one YAML box in
+leaves and, for projects, the resources. **Edit agent context** is one YAML box in
 the [`at-jam context` format](session-context-authoring.md) with bodies inline;
 saving runs the same checks as the API, and **Clear** removes the layer.
 
@@ -78,7 +78,7 @@ The page shows:
 
 - **Broker** — route, upstream, identity-in, apply (any custom [header spec](header-specs.md)
   read-only) and default credential.
-- **Studio connector** — the client env a studio sets (`{url}` already resolved
+- **Agent connector** — the client env an agent's studio sets (`{url}` already resolved
   to `{base}<route>`) and git routing. A destination with no declared env shows
   its route's legacy default, labeled as implied (see
   [connector.md](connector.md)).

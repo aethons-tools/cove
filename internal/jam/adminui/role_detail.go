@@ -87,8 +87,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 
 	a := role.Allocation
 	d.Allocation = []setting{
-		count("Max ephemeral sessions", a.MaxEphemeral, "unset (requisitioner limit)"),
-		count("Max personal sessions", a.MaxPersonal, "0 (no personal sessions)"),
+		count("Max ephemeral agents", a.MaxEphemeral, "unset (requisitioner limit)"),
+		count("Max personal agents", a.MaxPersonal, "0 (no personal agents)"),
 		count("Max personal per owner", a.MaxPersonalPerOwner, "unset (pool cap only)"),
 		duration("Idle after", a.IdleAfter, "default ("+fmtDur(jam.DefaultIdleAfter)+")"),
 		duration("Nag every", a.NagEvery, "default ("+fmtDur(jam.DefaultNagEvery)+")"),

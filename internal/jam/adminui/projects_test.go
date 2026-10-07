@@ -151,7 +151,7 @@ func TestProjectPage(t *testing.T) {
 	for path, wants := range map[string][]string{
 		"/ui/projects/acme":            {"<h1>acme</h1>", "discord"},
 		"/ui/projects/acme/members":    {"<h1>Members</h1>", "alice", "alice-h", "dm-alice", `href="/ui/users/usr_`},
-		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", ">a1<", ">a2<", "<h2>Studios</h2>"},
+		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", ">a1<", ">a2<", "<h2>Running</h2>"},
 		"/ui/projects/acme/roles":      {"<h1>Roles</h1>", `<input type="hidden" name="project" value="acme">`},
 		"/ui/projects/acme/intercom":   {"<h1>Intercom</h1>", "chan-eng"},
 		"/ui/projects/acme/escalation": {"<h1>Escalation</h1>", "human:alice", "30m", "deploy", "channel:eng", "10m"},

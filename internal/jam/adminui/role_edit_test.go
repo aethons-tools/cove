@@ -188,7 +188,7 @@ func TestEditStandingReset(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), sup, nil, credKnown, nil)
 	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
-	if !strings.Contains(body, `hx-post="/ui/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing session nightly?`) {
+	if !strings.Contains(body, `hx-post="/ui/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing agent nightly?`) {
 		t.Fatalf("role page lacks a confirmed reset button:\n%s", body)
 	}
 	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK {

@@ -26,7 +26,7 @@ func TestRoleContextPanelShowsAndEdits(t *testing.T) {
 	store := roleStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
 	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
-	for _, want := range []string{"Session context", `hx-post="/ui/roles/acme/review/context"`, "0 / 1200 bytes"} {
+	for _, want := range []string{"Agent context", `hx-post="/ui/roles/acme/review/context"`, "0 / 1200 bytes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role page missing %q", want)
 		}

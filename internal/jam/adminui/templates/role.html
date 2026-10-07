@@ -51,7 +51,7 @@
   </div>
   <span class="spacer"></span>
   {{if .CanRequest}}<button class="primary" hx-post="{{$base}}/request" hx-target="#flash" hx-swap="innerHTML"
-      title="Raise a personal session of this role for you">Request session</button>{{end}}
+      title="Raise a personal agent of this role for you">Request agent</button>{{end}}
   <button class="danger" hx-delete="{{$base}}" hx-swap="none"
       hx-confirm="Delete role {{.Name}} from {{.Project}}?"
       hx-on::after-request="if(event.detail.successful) location.href='{{.RolesHref}}'">Delete</button>
@@ -122,7 +122,7 @@
   {{template "context-panel" .Context}}
 
   <section class="card">
-    <header><h2>Allocation</h2><span class="sub">session caps and the personal-session idle ladder</span></header>
+    <header><h2>Allocation</h2><span class="sub">agent caps and the personal-agent idle ladder</span></header>
     <div class="body">
       <dl class="kv">
         {{range .Allocation}}<dt>{{.Label}}</dt><dd{{if .Unset}} class="unset"{{end}}>{{.Value}}</dd>{{end}}
@@ -146,9 +146,9 @@
   </section>
 
   <section class="card full">
-    <header><h2>Standing sessions</h2><span class="sub">kept running, one studio per name</span></header>
+    <header><h2>Standing agents</h2><span class="sub">kept running, one per name</span></header>
     <table>
-      <thead><tr><th>Name</th><th>Prompt</th><th>Studio</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Prompt</th><th>Agent</th><th></th></tr></thead>
       <tbody>
         {{range .Standing}}
         <tr data-id="{{.Name}}">
@@ -156,19 +156,19 @@
           <td class="prompt">{{.Prompt}}</td>
           <td>{{if .Phase}}{{template "phase" .Phase}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}}{{if .Upgrade}} <span class="pill phase-raising" title="pending upgrade (Jam restarts it on the current image once ready and idle)">upgrade: {{.Upgrade}}</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
           <td class="actions">{{if $.CanRequest}}<button class="small{{if eq .Image "stale"}} primary{{end}}" hx-post="{{$base}}/standing/{{.Name}}/upgrade" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Upgrade standing session {{.Name}}? Its studio is restarted on the current image; its conversation and workspace are kept.">Upgrade</button>
+              hx-confirm="Upgrade standing agent {{.Name}}? Its studio is restarted on the current image; its conversation and workspace are kept.">Upgrade</button>
             <button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Reset standing session {{.Name}}? Its studio, conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
+              hx-confirm="Reset standing agent {{.Name}}? Its studio, conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
             <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Dismiss standing session {{.Name}}? Its studio, conversation and workspace are deleted.">Dismiss</button></td>
+              hx-confirm="Dismiss standing agent {{.Name}}? Its studio, conversation and workspace are deleted.">Dismiss</button></td>
         </tr>
         {{else}}
-        <tr><td colspan="4" class="empty">No standing sessions.</td></tr>
+        <tr><td colspan="4" class="empty">No standing agents.</td></tr>
         {{end}}
       </tbody>
     </table>
     <details class="edit">
-      <summary>Declare standing session</summary>
+      <summary>Declare standing agent</summary>
       <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML">
         <div class="grid">
           <label>Name <span class="req">required</span><input name="name" required></label>
@@ -187,7 +187,7 @@
   </section>
 
   <section class="card full">
-    <header><h2>Studios</h2><span class="sub">running studios of this role</span></header>
+    <header><h2>Running</h2><span class="sub">this role's running agents</span></header>
     {{template "coves-tbl" .}}
   </section>
 </div>

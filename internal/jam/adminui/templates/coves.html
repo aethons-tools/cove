@@ -13,7 +13,7 @@
 {{define "coves-tbl"}}
 <table>
   <thead>
-    <tr><th>Studio</th><th>Phase</th><th>Activity</th><th>Connector</th><th>Image</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
+    <tr><th>Agent</th><th>Phase</th><th>Activity</th><th>Connector</th><th>Image</th><th>Project</th><th>Role</th><th>Unit</th><th>Lease</th><th>Raised</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr>
   </thead>
   <tbody>
     {{range .Coves}}
@@ -32,7 +32,7 @@
           hx-confirm="Tear down {{.ID}}?" hx-on::after-request="if(event.detail.successful) location.reload()">Teardown</button></td>{{end}}
     </tr>
     {{else}}
-    <tr><td colspan="{{if .CanEdit}}12{{else}}11{{end}}" class="empty">No studios.</td></tr>
+    <tr><td colspan="{{if .CanEdit}}12{{else}}11{{end}}" class="empty">No agents running.</td></tr>
     {{end}}
   </tbody>
 </table>
