@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,12 +110,77 @@ func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m interco
 func (s *linearSurface) Close() error { return nil }
 
 // fileCursors is a small file-backed relay.Cursors: a JSON
-// map["service/project"]→cursor, mutex-guarded, loaded at open, saved on
-// every SetIngress.
+// map["service/<project id>"]→cursor, mutex-guarded, loaded at open, saved on
+// every SetIngress. key maps a project reference to the id it is stored
+// under (nil: as given).
 type fileCursors struct {
 	path string
 	mu   sync.Mutex
 	m    map[string]string
+	key  func(string) string
+}
+
+// keyedBy sets how projects are keyed, and re-keys entries an older Jam
+// stored by project name (once, keeping the old file as <path>.bak).
+func (c *fileCursors) keyedBy(key func(string) string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.key = key
+	rekeyed := map[string]string{}
+	changed := false
+	for k, v := range c.m { // keys already by id first: they win over a re-keyed name
+		if _, project, ok := strings.Cut(k, "/"); !ok || key(project) == project {
+			rekeyed[k] = v
+		}
+	}
+	for k, v := range c.m {
+		service, project, ok := strings.Cut(k, "/")
+		if !ok || key(project) == project {
+			continue
+		}
+		changed = true
+		if nk := cursorKey(service, key(project)); rekeyed[nk] == "" {
+			rekeyed[nk] = v
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if _, err := os.Stat(c.path + ".bak"); os.IsNotExist(err) { // keep the first
+		if old, err := os.ReadFile(c.path); err == nil {
+			if err := writeFileAtomic(c.path+".bak", old); err != nil {
+				return err
+			}
+		}
+	}
+	c.m = rekeyed
+	return c.save()
+}
+
+// writeFileAtomic writes data to path by a temp file renamed over it, so a
+// crash never leaves a torn file.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func (c *fileCursors) projectKey(project string) string {
+	if c.key == nil {
+		return project
+	}
+	return c.key(project)
+}
+
+// save writes the map (atomically). Caller holds mu.
+func (c *fileCursors) save() error {
+	data, err := json.MarshalIndent(c.m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(c.path, data)
 }
 
 // newFileCursors loads path (tolerating a missing or corrupt/torn file —
@@ -133,7 +199,10 @@ func newFileCursors(path string) (*fileCursors, error) {
 	}
 	var m map[string]string
 	if err := json.Unmarshal(data, &m); err != nil {
-		// torn/corrupt file: tolerate, start empty.
+		// torn/corrupt file: fall back to the re-key's backup, else start empty.
+		if bak, berr := os.ReadFile(path + ".bak"); berr == nil && json.Unmarshal(bak, &m) == nil {
+			c.m = m
+		}
 		return c, nil
 	}
 	c.m = m
@@ -145,18 +214,14 @@ func cursorKey(service, project string) string { return service + "/" + project 
 func (c *fileCursors) Ingress(service, project string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.m[cursorKey(service, project)]
+	return c.m[cursorKey(service, c.projectKey(project))]
 }
 
 func (c *fileCursors) SetIngress(service, project, cursor string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.m[cursorKey(service, project)] = cursor
-	data, err := json.MarshalIndent(c.m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(c.path, data, 0o600)
+	c.m[cursorKey(service, c.projectKey(project))] = cursor
+	return c.save()
 }
 
 // fileMarkers is a file-backed relay.Markers: a JSON map[service]EgressMark,

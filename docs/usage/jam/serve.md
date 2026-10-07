@@ -124,7 +124,9 @@ auto-created), so the intercom and session events are always on.
 The release with intercom 1b-2a keys roles by project id (jam migration
 `0013`) and, at first start, rewrites grants, sessions and allocation-ledger
 events that name a project (or a personal session's owner) by name to name it
-by id. A Jam that skipped the 2026-10-06 releases must start one of them first
+by id; session events gain `project_id`/`owner_id`, and `relay-cursors.json`
+is re-keyed by project id (the old file is kept as `relay-cursors.json.bak`).
+A Jam that skipped the 2026-10-06 releases must start one of them first
 (they mint project ids): `0013` refuses to run while a project has none. Back
 up the database first: an older Jam can't read it (roles lose their name
 column), so the only way back is restoring that backup.

@@ -154,3 +154,57 @@ func TestPostgresAppendSanitizesIndexText(t *testing.T) {
 		}
 	})
 }
+
+// Events carry project and owner ids; BackfillIDs fills those recorded
+// before from their name labels, once.
+func TestSessionpgProjectOwnerIDs(t *testing.T) {
+	s := newIntegrationStore(t)
+	at := time.Unix(1000, 0).UTC()
+	withID := sessionevents.Event{ActorID: "a1", StreamID: "s1", Seq: 1, Kind: "line", ObservedAt: at, ReceivedAt: at,
+		Stamp: sessionevents.Stamp{Project: "acme", ProjectID: "prj_a", Owner: "alice", OwnerID: "usr_a", RaisedAt: at}}
+	old := withID
+	old.Seq, old.Stamp.ProjectID, old.Stamp.OwnerID = 2, "", ""
+	for _, ev := range []sessionevents.Event{withID, old} {
+		if err := s.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.BackfillIDs(context.Background(), map[string]string{"acme": "prj_a"}, map[string]string{"alice": "usr_a"})
+	if err != nil || n != 2 {
+		t.Fatalf("BackfillIDs = %d, %v; want 2 (one row, two columns)", n, err)
+	}
+	got, err := s.List(sessionevents.Filter{ActorID: "a1", StreamID: "s1"})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("List = %+v, %v", got, err)
+	}
+	for _, e := range got {
+		if e.Stamp.ProjectID != "prj_a" || e.Stamp.OwnerID != "usr_a" {
+			t.Fatalf("event %d stamp = %+v", e.Seq, e.Stamp)
+		}
+	}
+	if n, _ := s.BackfillIDs(context.Background(), map[string]string{"acme": "prj_a"}, nil); n != 0 {
+		t.Fatalf("again = %d", n)
+	}
+}
+
+func newIntegrationStore(t *testing.T) *sessionpg.Store {
+	t.Helper()
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the session-events Postgres integration tests")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	s, err := sessionpg.New(ctx, pool, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `TRUNCATE session_events`); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}

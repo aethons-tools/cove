@@ -72,7 +72,8 @@ func (a *ackState) drain() map[string]uint64 {
 // stampOf labels a session's events; the project by name (the instance holds
 // its id).
 func stampOf(store jam.Store, inst jam.Instance) sessionevents.Stamp {
-	return sessionevents.Stamp{Project: jam.ProjectName(store, inst.Project), Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner,
+	pid, _ := jam.ProjectIDOf(store, inst.Project)
+	return sessionevents.Stamp{Project: jam.ProjectName(store, inst.Project), ProjectID: string(pid), OwnerID: string(inst.OwnerID), Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner,
 		SessionKind: inst.SessionKind, RaisedAt: inst.RaisedAt}
 }
 

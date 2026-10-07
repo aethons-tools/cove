@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,5 +369,76 @@ func TestFileMarkersSettleCutover(t *testing.T) {
 	}
 	if skipped, _ := fm.settleCutover("discord", 11, seqOf); skipped != 0 || fm.has("discord") {
 		t.Fatal("an unseeded mark stays unseeded")
+	}
+}
+
+// Cursors are kept by project id: one an older Jam stored by name is
+// re-keyed once (the old file kept as .bak), and either reference reads it.
+func TestFileCursorsKeyedByProjectID(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cursors.json")
+	if err := os.WriteFile(p, []byte(`{"linear/acme":"c1","discord/ghost":"c2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := newFileCursors(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(ref string) string {
+		if ref == "acme" || ref == "prj_a" {
+			return "prj_a"
+		}
+		return ref
+	}
+	if err := c.keyedBy(key); err != nil {
+		t.Fatal(err)
+	}
+	if c.Ingress("linear", "acme") != "c1" || c.Ingress("linear", "prj_a") != "c1" || c.Ingress("discord", "ghost") != "c2" {
+		t.Fatalf("cursors = %v", c.m)
+	}
+	if _, err := os.Stat(p + ".bak"); err != nil {
+		t.Fatalf("no .bak: %v", err)
+	}
+	data, _ := os.ReadFile(p)
+	if !strings.Contains(string(data), `"linear/prj_a"`) || strings.Contains(string(data), `"linear/acme"`) {
+		t.Fatalf("file = %s", data)
+	}
+}
+
+// A torn cursors file falls back to the .bak a re-key left; an id key that
+// already exists wins over a name key re-keyed onto it; a later re-key keeps
+// the first .bak.
+func TestFileCursorsRecoveryAndPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cursors.json")
+	if err := os.WriteFile(p, []byte(`{"linear/acme":"old","linear/prj_a":"new"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := newFileCursors(p)
+	key := func(ref string) string {
+		if ref == "acme" {
+			return "prj_a"
+		}
+		return ref
+	}
+	if err := c.keyedBy(key); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Ingress("linear", "prj_a"); got != "new" {
+		t.Fatalf("the existing id key must win: %q", got)
+	}
+	first, _ := os.ReadFile(p + ".bak")
+	// A torn main file: the .bak is read instead of starting empty.
+	if err := os.WriteFile(p, []byte(`{"linear/prj_a":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c2, _ := newFileCursors(p)
+	if got := c2.Ingress("linear", "acme"); got != "old" {
+		t.Fatalf("torn file: cursor = %q, want the .bak's", got)
+	}
+	if err := c2.keyedBy(key); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(p + ".bak"); string(again) != string(first) {
+		t.Fatalf("the first .bak was overwritten: %s", again)
 	}
 }
