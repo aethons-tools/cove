@@ -301,6 +301,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if spec.ActorID == "" {
 		return Instance{}, "", "", fmt.Errorf("actor id is required")
 	}
+	if id, ok := ProjectIDOf(s.store, spec.Project); ok {
+		spec.Project = string(id) // stored references name the project by id
+	}
 	// A personal session's cove may message its owner and nobody else: the
 	// override REPLACES the role's addressing (least privilege).
 	var ov *Override
@@ -1474,7 +1477,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
-		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+		Kind: spec.SessionKind, Name: spec.Name, Project: ProjectName(s.store, spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
 	}}
 	var kitEgress []string
 	haveKit := false

@@ -67,7 +67,7 @@ func standingTarget(store Store, project, roleName, name string, wired bool) (st
 	}
 	id := StandingSessionOf(store, project, roleName, name)
 	if inst, ok := store.GetInstance(id); id != "" && ok && inst.Phase != PhaseGone &&
-		(inst.SessionKind != SessionKindStanding || inst.Project != project || inst.Role != roleName || inst.Name != name) {
+		(inst.SessionKind != SessionKindStanding || !SameProject(store, inst.Project, project) || inst.Role != roleName || inst.Name != name) {
 		return "", writeErr(http.StatusConflict, "actor id %s is held by another cove; not touching it", id)
 	}
 	return id, nil

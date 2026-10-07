@@ -18,8 +18,9 @@ import (
 // backup this build writes. 2 carries the identity registry (users,
 // connections, accounts, memberships, legacy aliases) with their ids; import
 // also reads 1, whose roster humans and kind-named chat services it migrates.
-// Import rejects any other value rather than mis-loading.
-const ConfigSnapshotVersion = 3
+// 4 names projects by id in roles (the map's key) and grants; import also
+// reads 1–3's names. Import rejects any other value rather than mis-loading.
+const ConfigSnapshotVersion = 4
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
@@ -92,7 +93,7 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		for n, r := range rs {
 			inner[n] = r
 		}
-		snap.Roles[p] = inner
+		snap.Roles[string(p)] = inner
 	}
 
 	for _, k := range m.kits {
@@ -156,6 +157,9 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	if err := validateSnapshotProjectIDs(m, s); err != nil {
 		return err
 	}
+	if err := validateSnapshotProjectRefs(s); err != nil {
+		return err
+	}
 	return validateSnapshotContext(s)
 }
 
@@ -175,6 +179,33 @@ func validateSnapshotProjectIDs(m *memState, s ConfigSnapshot) error {
 			return fmt.Errorf("%w: project %q reuses id %q", ErrInvalidConfig, p.Name, p.ID)
 		}
 		seen[p.ID] = true
+	}
+	return nil
+}
+
+// validateSnapshotProjectRefs checks that every role key and grant naming a
+// project by id names one of the snapshot's projects (a name is resolved, or
+// recorded, by withReferencedProjects).
+func validateSnapshotProjectRefs(s ConfigSnapshot) error {
+	have := map[string]bool{}
+	for _, p := range s.Projects {
+		have[string(p.ID)] = true
+	}
+	known := func(ref string) bool {
+		id, err := ident.Parse(ref)
+		return err != nil || id.Kind() != ident.Project || have[ref]
+	}
+	for p := range s.Roles {
+		if !known(p) {
+			return fmt.Errorf("%w: roles name project %q, which the snapshot lacks", ErrInvalidConfig, p)
+		}
+	}
+	for _, a := range s.Actors {
+		for _, g := range a.Grants {
+			if !known(g.Project) {
+				return fmt.Errorf("%w: actor %q's grant names project %q, which the snapshot lacks", ErrInvalidConfig, a.ID, g.Project)
+			}
+		}
 	}
 	return nil
 }
@@ -293,15 +324,55 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 			projects = append(projects, newProject(name))
 		}
 	}
+	isID := func(ref string) bool {
+		id, err := ident.Parse(ref)
+		return err == nil && id.Kind() == ident.Project
+	}
 	for p := range s.Roles {
-		add(p)
+		if !isID(p) {
+			add(p)
+		}
 	}
 	for _, a := range s.Actors {
 		for _, g := range a.Grants {
-			add(g.Project)
+			if !isID(g.Project) {
+				add(g.Project)
+			}
 		}
 	}
 	s.Projects = projects
+	// Name every project by id (a snapshot before version 4 names them).
+	idOf := map[string]string{}
+	for _, p := range projects {
+		idOf[p.Name] = string(p.ID)
+	}
+	canon := func(ref string) string {
+		if ref == "" {
+			ref = DefaultProject
+		}
+		if id, ok := idOf[ref]; ok && !isID(ref) {
+			return id
+		}
+		return ref
+	}
+	if len(s.Roles) > 0 {
+		roles := make(map[string]map[string]Role, len(s.Roles))
+		for p, rs := range s.Roles {
+			key := canon(p)
+			if roles[key] == nil {
+				roles[key] = map[string]Role{}
+			}
+			for n, r := range rs {
+				roles[key][n] = r
+			}
+		}
+		s.Roles = roles
+	}
+	for i := range s.Actors {
+		for j := range s.Actors[i].Grants {
+			s.Actors[i].Grants[j].Project = canon(s.Actors[i].Grants[j].Project)
+		}
+	}
 	return s
 }
 
@@ -314,13 +385,13 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	for _, a := range s.Actors {
 		m.actors[a.TokenHash] = a
 	}
-	m.roles = map[string]map[string]Role{}
+	m.roles = map[ident.ID]map[string]Role{}
 	for p, rs := range s.Roles {
 		inner := map[string]Role{}
 		for n, r := range rs {
 			inner[n] = r
 		}
-		m.roles[p] = inner
+		m.roles[ident.ID(p)] = inner
 	}
 	m.kits = map[string]Kit{}
 	for _, k := range s.Kits {

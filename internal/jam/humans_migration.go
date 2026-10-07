@@ -3,6 +3,7 @@ package jam
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -32,7 +33,7 @@ type LegacyAlias struct {
 // roleWrite is a role rewritten by the migration (a renamed human's exact
 // addressing entries).
 type roleWrite struct {
-	Project string
+	Project ident.ID
 	Role    Role
 }
 
@@ -378,13 +379,14 @@ func (m *memState) planHumanMigration() humanPlan {
 	}
 	for _, project := range slices.Sorted(mapsKeys(renames)) {
 		rn := renames[project]
-		for _, name := range slices.Sorted(mapsKeys(m.roles[project])) {
-			r := m.roles[project][name]
+		pid := m.projects[project].ID
+		for _, name := range slices.Sorted(mapsKeys(m.roles[pid])) {
+			r := m.roles[pid][name]
 			if addr, changed := renameTargets(r.Scope.Addressing, rn, func(glob string) {
 				note("role %s/%s addressing glob %q matched a renamed human; not rewritten", project, name, glob)
 			}); changed {
 				r.Scope.Addressing = addr
-				plan.roles = append(plan.roles, roleWrite{Project: project, Role: r})
+				plan.roles = append(plan.roles, roleWrite{Project: pid, Role: r})
 			}
 		}
 		for _, h := range slices.Sorted(mapsKeys(m.actors)) {
@@ -392,7 +394,7 @@ func (m *memState) planHumanMigration() humanPlan {
 			changed := false
 			grants := slices.Clone(a.Grants)
 			for gi, g := range grants {
-				if orDefaultProject(g.Project) != project || g.Overrides == nil {
+				if m.projectNameOf(g.Project) != project || g.Overrides == nil {
 					continue
 				}
 				if addr, ch := renameTargets(g.Overrides.Addressing, rn, func(glob string) {
@@ -411,7 +413,7 @@ func (m *memState) planHumanMigration() humanPlan {
 		}
 		for _, id := range slices.Sorted(mapsKeys(m.instances)) {
 			inst := m.instances[id]
-			if orDefaultProject(inst.Project) != project {
+			if m.projectNameOf(inst.Project) != project {
 				continue
 			}
 			if to, ok := rn[inst.Owner]; ok && inst.Owner != "" {
@@ -595,8 +597,9 @@ func mapsKeys[V any](mm map[string]V) func(func(string) bool) {
 // is a connection id, not a kind name (1a-4); 3 = stored policy names people
 // as user:<usr_id> and personal sessions carry their owner's id (1a-3d); 4 =
 // declared standing sessions are in the standing-session map (1b); 5 = roster
-// channels are rooms in the channel registry (2a).
-const rosterSchemaVersion = 5
+// channels are rooms in the channel registry (2a); 6 = grants and instances
+// name their project by id (1b-2a).
+const rosterSchemaVersion = 6
 
 // planRegistryMigration plans every registry migration step above level from
 // (a store's roster_schema; 0 for an import, whose snapshot may predate them
@@ -618,7 +621,81 @@ func (m *memState) planRegistryMigration(from int) humanPlan {
 	if from < 5 {
 		m.planRooms(&plan)
 	}
+	if from < 6 {
+		m.planProjectRefs(&plan)
+	}
 	return plan
+}
+
+// planProjectRefs rewrites every grant and instance that names its project by
+// name to name it by id, on top of what earlier steps wrote (plan). A name no
+// project has is left as it is (and noted).
+func (m *memState) planProjectRefs(plan *humanPlan) {
+	idOf := func(ref string) (string, bool) {
+		if id, err := ident.Parse(ref); err == nil && id.Kind() == ident.Project {
+			return ref, false // already an id
+		}
+		name := orDefaultProject(ref)
+		for _, p := range plan.projects {
+			if p.Name == name && p.ID != "" {
+				return string(p.ID), true
+			}
+		}
+		if p, ok := m.projects[name]; ok && p.ID != "" {
+			return string(p.ID), true
+		}
+		plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("project %q has no record; references to it kept by name", name))
+		return ref, false
+	}
+	actorIdx := map[string]int{}
+	for i, a := range plan.actors {
+		actorIdx[a.TokenHash] = i
+	}
+	for _, h := range slices.Sorted(mapsKeys(m.actors)) {
+		a := m.actors[h]
+		if i, ok := actorIdx[h]; ok {
+			a = plan.actors[i]
+		}
+		grants := slices.Clone(a.Grants)
+		changed := false
+		for gi, g := range grants {
+			if id, ok := idOf(g.Project); ok {
+				grants[gi].Project = id
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		a.Grants = grants
+		if i, ok := actorIdx[h]; ok {
+			plan.actors[i] = a
+		} else {
+			actorIdx[h] = len(plan.actors)
+			plan.actors = append(plan.actors, a)
+		}
+	}
+	instIdx := map[string]int{}
+	for i, inst := range plan.instances {
+		instIdx[inst.ActorID] = i
+	}
+	for _, aid := range slices.Sorted(mapsKeys(m.instances)) {
+		inst := m.instances[aid]
+		if i, ok := instIdx[aid]; ok {
+			inst = plan.instances[i]
+		}
+		id, ok := idOf(inst.Project)
+		if !ok {
+			continue
+		}
+		inst.Project = id
+		if i, ok := instIdx[aid]; ok {
+			plan.instances[i] = inst
+		} else {
+			instIdx[aid] = len(plan.instances)
+			plan.instances = append(plan.instances, inst)
+		}
+	}
 }
 
 // planStandingSessions maps every declared standing session without an entry
@@ -630,17 +707,17 @@ func (m *memState) planStandingSessions(plan *humanPlan) {
 	for _, id := range m.standing {
 		used[id] = true
 	}
-	for _, project := range slices.Sorted(mapsKeys(m.roles)) {
-		p, ok := m.projects[project]
+	for _, pid := range slices.Sorted(maps.Keys(m.roles)) {
+		p, ok := m.projectByID(pid)
 		if !ok || p.ID == "" {
 			continue
 		}
-		for _, role := range slices.Sorted(mapsKeys(m.roles[project])) {
-			for _, s := range m.roles[project][role].Allocation.Standing {
+		for _, role := range slices.Sorted(mapsKeys(m.roles[pid])) {
+			for _, s := range m.roles[pid][role].Allocation.Standing {
 				if _, ok := m.standing[standingKey{p.ID, role, s.Name}]; ok {
 					continue
 				}
-				id := StandingActorID(project, role, s.Name)
+				id := StandingActorID(p.Name, role, s.Name)
 				if used[id] {
 					continue // another declaration's (names differing only in mapped characters): the reconciler mints this one
 				}
@@ -738,16 +815,16 @@ func (m *memState) planPolicyRefs(plan *humanPlan) {
 	// Roles' addressing.
 	roleIdx := map[[2]string]int{}
 	for i, rw := range plan.roles {
-		roleIdx[[2]string{rw.Project, rw.Role.Name}] = i
+		roleIdx[[2]string{string(rw.Project), rw.Role.Name}] = i
 	}
-	for _, project := range slices.Sorted(mapsKeys(m.roles)) {
-		for _, name := range slices.Sorted(mapsKeys(m.roles[project])) {
-			key := [2]string{project, name}
-			r := m.roles[project][name]
+	for _, pid := range slices.Sorted(maps.Keys(m.roles)) {
+		for _, name := range slices.Sorted(mapsKeys(m.roles[pid])) {
+			key := [2]string{string(pid), name}
+			r := m.roles[pid][name]
 			if i, ok := roleIdx[key]; ok {
 				r = plan.roles[i].Role
 			}
-			addr, changed := rewrite(project, r.Scope.Addressing)
+			addr, changed := rewrite(m.projectLabel(pid), r.Scope.Addressing)
 			if !changed {
 				continue
 			}
@@ -756,7 +833,7 @@ func (m *memState) planPolicyRefs(plan *humanPlan) {
 				plan.roles[i].Role = r
 			} else {
 				roleIdx[key] = len(plan.roles)
-				plan.roles = append(plan.roles, roleWrite{Project: project, Role: r})
+				plan.roles = append(plan.roles, roleWrite{Project: pid, Role: r})
 			}
 		}
 	}
@@ -777,7 +854,7 @@ func (m *memState) planPolicyRefs(plan *humanPlan) {
 			if g.Overrides == nil {
 				continue
 			}
-			if addr, ch := rewrite(orDefaultProject(g.Project), g.Overrides.Addressing); ch {
+			if addr, ch := rewrite(m.projectNameOf(g.Project), g.Overrides.Addressing); ch {
 				o := *g.Overrides
 				o.Addressing = addr
 				grants[gi].Overrides = &o
@@ -809,7 +886,7 @@ func (m *memState) planPolicyRefs(plan *humanPlan) {
 		if inst.Owner == "" || inst.OwnerID != "" {
 			continue
 		}
-		uid, ok := userOf(orDefaultProject(inst.Project), inst.Owner)
+		uid, ok := userOf(m.projectNameOf(inst.Project), inst.Owner)
 		if !ok {
 			plan.report.Notes = append(plan.report.Notes, fmt.Sprintf("personal session %s: owner %q is no user; left by name", id, inst.Owner))
 			continue

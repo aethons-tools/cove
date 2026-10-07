@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -56,7 +57,8 @@ func TestExportConfigIncludesConfigExcludesState(t *testing.T) {
 	if snap.Actors[0].TokenHash != HashToken("tok") {
 		t.Fatalf("token hash not exported: %q", snap.Actors[0].TokenHash)
 	}
-	if _, ok := snap.Roles[DefaultProject]["guest"]; !ok {
+	def, _ := s.GetProject(DefaultProject)
+	if _, ok := snap.Roles[string(def.ID)]["guest"]; !ok {
 		t.Fatalf("roles = %+v", snap.Roles)
 	}
 	if len(snap.Kits) != 1 || snap.Kits[0].Versions[1] != "image: x" {
@@ -73,7 +75,8 @@ func TestExportConfigIsDeepCopied(t *testing.T) {
 	s := populated(t)
 	snap := s.ExportConfig()
 	// Mutating the snapshot must not reach the store.
-	snap.Roles[DefaultProject]["guest"] = Role{Name: "hacked"}
+	def, _ := s.GetProject(DefaultProject)
+	snap.Roles[string(def.ID)]["guest"] = Role{Name: "hacked"}
 	snap.Kits[0].Versions[1] = "tampered"
 	if r, _ := s.GetRole(DefaultProject, "guest"); r.Name != "guest" {
 		t.Fatalf("store role mutated via snapshot: %+v", r)
@@ -236,5 +239,19 @@ func TestConfigSnapshotDestinationHeaderSpecsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(dst.ListDestinations(), src.ListDestinations()) {
 		t.Fatalf("round trip:\n got %+v\nwant %+v", dst.ListDestinations(), src.ListDestinations())
+	}
+}
+
+// A v4 snapshot naming a project by an id it doesn't carry is refused rather
+// than leaving roles or grants pointing nowhere.
+func TestImportRefusesUnknownProjectIDs(t *testing.T) {
+	ghost := string(ident.New(ident.Project))
+	for name, snap := range map[string]ConfigSnapshot{
+		"role":  {Version: ConfigSnapshotVersion, Roles: map[string]map[string]Role{ghost: {"r": {Name: "r"}}}},
+		"grant": {Version: ConfigSnapshotVersion, Actors: []Actor{{ID: "a", TokenHash: "h", Grants: []Grant{{Project: ghost, Role: "r"}}}}},
+	} {
+		if err := NewMemStore().ImportConfig(snap); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
+		}
 	}
 }

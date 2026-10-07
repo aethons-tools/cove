@@ -1826,9 +1826,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		// Streams are keyed by project id and personal owners by user id
+		// (1b-2a): re-key what an older Jam recorded by name, before any grant.
+		projects, owners := ledgerRefs(st)
+		if n, err := as.RewriteRefs(context.Background(), projects, owners, personalOwners(st)); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		} else if n > 0 {
+			log.Info("allocator: re-keyed ledger events by project and user id", "rows", n)
+		}
 		ledger = as
 	}
 	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner), ledger)
+	alloc.SetProjectKey(func(ref string) string {
+		if id, ok := jam.ProjectIDOf(st, ref); ok {
+			return string(id)
+		}
+		return ref
+	})
 	alloc.SetLogger(log)
 	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a

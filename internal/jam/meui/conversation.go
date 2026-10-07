@@ -115,11 +115,7 @@ func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 		if !d.Intercom.MayReach(p.UserID, inst) {
 			continue // someone else's personal session isn't theirs to call in
 		}
-		project := inst.Project
-		if project == "" {
-			project = jam.DefaultProject
-		}
-		if pr, ok := d.Store.GetProject(project); ok && pr.ID == ch.ProjectID {
+		if pr, ok := d.Store.GetProject(inst.Project); ok && pr.ID == ch.ProjectID {
 			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "session:" + inst.ActorID, Label: d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label, Kind: "session"})
 		}
 	}
@@ -189,7 +185,7 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			}
 		}
 		for _, inst := range instances {
-			if inst.Project != name || (inst.Phase != jam.PhaseLive && inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseIdled) {
+			if !jam.SameProject(d.Store, inst.Project, name) || (inst.Phase != jam.PhaseLive && inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseIdled) {
 				continue
 			}
 			waiting := inst.Activity == jam.ActivityWaiting || inst.Phase == jam.PhaseIdled

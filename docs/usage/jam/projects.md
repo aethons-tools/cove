@@ -4,7 +4,7 @@ read_when: You are starting a new project on a Jam, a role/grant/roster/escalati
 owns: the Project lifecycle — create/list/rm, existence enforcement, the default-project exception, the in-use refusal, and the upgrade backfill
 prereqs: roster.md for what Roles and Grants are; operators.md for the admin-client flags
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Projects
@@ -13,7 +13,10 @@ A **Project** is a first-class record on a Jam: you create it before anything
 can live in it, and you can remove it only once nothing references it. It is
 the top of the config tree: it owns its [roster](comms-addressing.md),
 [escalation policy](escalation.md) and [chat service](discord.md), and every
-[Role and Grant](roster.md) is keyed by it.
+[Role and Grant](roster.md) is keyed by it. Each project has an id (`prj_…`):
+roles, grants, sessions and the allocation ledger refer to it by that id, so
+renaming a project leaves them alone; you name it by name everywhere you type
+it (CLI, admin API, UI), and those show names back.
 
 ## Verbs
 

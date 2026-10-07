@@ -324,3 +324,64 @@ func (s *Store) migrate(ctx context.Context) error {
 		return nil
 	})
 }
+
+// RewriteRefs re-keys events recorded under a project's or an owner's name
+// to its id (Jam 1b-2a: streams are keyed by project id, personal owners by
+// user id): category and the stream_id prefix by projects (name → id), and
+// session_owner by owners (name → id) and, for personal reservations, by
+// reservations (reservation id → owner id). A name stream merges into an id
+// stream that already exists: its revisions move above that stream's head.
+// Rows already keyed by id are left, so it is idempotent; it runs at startup
+// before any grant. It returns how many rows changed.
+func (s *Store) RewriteRefs(ctx context.Context, projects, owners, reservations map[string]string) (int64, error) {
+	var n int64
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('alloc_events_rewrite'))`); err != nil {
+			return err
+		}
+		for name, id := range projects {
+			if name == id {
+				continue
+			}
+			tag, err := tx.Exec(ctx,
+				`WITH moved AS (
+				   SELECT global_seq, $2 || substr(stream_id, length($1) + 1) AS target, stream_revision FROM alloc_events
+				   WHERE category = $1 AND starts_with(stream_id, $1 || '/')
+				 ), heads AS (
+				   SELECT m.target, COALESCE((SELECT MAX(e.stream_revision) FROM alloc_events e WHERE e.stream_id = m.target), 0) AS head
+				   FROM (SELECT DISTINCT target FROM moved) m
+				 )
+				 UPDATE alloc_events a SET category = $2, stream_id = m.target, stream_revision = m.stream_revision + h.head
+				 FROM moved m JOIN heads h ON h.target = m.target
+				 WHERE a.global_seq = m.global_seq`, name, id)
+			if err != nil {
+				return err
+			}
+			n += tag.RowsAffected()
+		}
+		for name, id := range owners {
+			if name == id {
+				continue
+			}
+			tag, err := tx.Exec(ctx, `UPDATE alloc_events SET session_owner = $2 WHERE session_owner = $1`, name, id)
+			if err != nil {
+				return err
+			}
+			n += tag.RowsAffected()
+		}
+		for res, id := range reservations {
+			tag, err := tx.Exec(ctx,
+				`UPDATE alloc_events SET session_owner = $2 WHERE reservation_id = $1 AND session_kind = $3 AND session_owner <> $2`,
+				res, id, string(allocator.SessionPersonal))
+			if err != nil {
+				return err
+			}
+			n += tag.RowsAffected()
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("allocpg: rewrite refs: %w", err)
+	}
+	return n, nil
+}

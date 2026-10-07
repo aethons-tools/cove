@@ -119,7 +119,7 @@ func modelSpecNameFor(store Store, a Actor) (name string, explicit bool, by stri
 		}
 		n := r.ModelSpecName()
 		if _, seen := byName[n]; !seen {
-			byName[n] = orDefaultProject(g.Project) + "/" + r.Name
+			byName[n] = ProjectName(store, g.Project) + "/" + r.Name
 		}
 		if r.ModelSpec != "" {
 			explicitly[n] = true

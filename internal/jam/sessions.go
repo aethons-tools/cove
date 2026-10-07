@@ -111,11 +111,11 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 		}
 		out := []PersonalSessionSummary{}
 		for _, i := range store.ListInstances() {
-			if i.SessionKind != SessionKindPersonal || i.Project != project || !ownedBy(i, human) {
+			if i.SessionKind != SessionKindPersonal || !SameProject(store, i.Project, project) || !ownedBy(i, human) {
 				continue
 			}
 			out = append(out, PersonalSessionSummary{
-				ID: i.ActorID, Owner: i.Owner, Project: i.Project, Role: i.Role,
+				ID: i.ActorID, Owner: i.Owner, Project: ProjectName(store, i.Project), Role: i.Role,
 				Phase: string(i.Phase), Activity: string(i.Activity), RaisedAt: i.RaisedAt,
 			})
 		}
@@ -198,7 +198,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		return refuse(http.StatusBadRequest, "%s", msg)
 	}
 	id := string(ident.New(ident.Session)) // each request starts a new session
-	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, human.User.Name)
+	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, string(human.User.ID))
 	switch {
 	case errors.Is(err, ErrNeedsLedger):
 		return refuse(http.StatusConflict, "%s", ErrNeedsLedger.Error())

@@ -119,6 +119,16 @@ migrate, or load. The intercom's channel log ([ui.md#intercom](ui.md#intercom)),
 events, and the allocation ledger live in the same database and pool (tables
 auto-created), so the intercom and session events are always on.
 
+### Upgrading to project ids
+
+The release with intercom 1b-2a keys roles by project id (jam migration
+`0013`) and, at first start, rewrites grants, sessions and allocation-ledger
+events that name a project (or a personal session's owner) by name to name it
+by id. A Jam that skipped the 2026-10-06 releases must start one of them first
+(they mint project ids): `0013` refuses to run while a project has none. Back
+up the database first: an older Jam can't read it (roles lose their name
+column), so the only way back is restoring that backup.
+
 ### Upgrading to the channel log
 
 The release with intercom slice 2b moves the intercom onto the channel log

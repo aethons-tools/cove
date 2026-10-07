@@ -22,7 +22,7 @@ func TestEnrollStoresHashedIdentity(t *testing.T) {
 	if !ok || a.ID != "spider-18" || a.TokenHash == tok {
 		t.Fatalf("stored actor = %+v, ok=%v (hash must not equal raw token)", a, ok)
 	}
-	if len(a.Grants) != 1 || a.Grants[0].Project != DefaultProject || a.Grants[0].Role != "guest" {
+	if len(a.Grants) != 1 || ProjectName(store, a.Grants[0].Project) != DefaultProject || a.Grants[0].Role != "guest" {
 		t.Fatalf("actor grants = %+v, want one (default,guest) grant", a.Grants)
 	}
 }

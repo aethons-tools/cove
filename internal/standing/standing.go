@@ -182,6 +182,16 @@ func (r *Reconciler) Run(ctx context.Context) {
 // (Project, Role, Name).
 type declKey struct{ project, role, name string }
 
+// sameProject reports whether an instance's project reference (its project's
+// id; a name on an instance from before 1b-2a) is the project named name.
+func (r *Reconciler) sameProject(ref, name string) bool {
+	if ref == name {
+		return true
+	}
+	pid, ok := r.roster.LookupName(ident.Project, name)
+	return ok && string(pid) == ref
+}
+
 // sessionID is the session the declaration (project, role, name) currently
 // is, from the standing-session map; when it has none and mint is set, a new
 // session is started (minted and recorded). Restarts and upgrades keep the
@@ -268,7 +278,7 @@ func (r *Reconciler) Tick(ctx context.Context) {
 		if !teardownable(declaredIDs, id) {
 			continue // the declaration's current session (re-declared while dismissed)
 		}
-		if declared[declKey{inst.Project, inst.Role, inst.Name}] {
+		if name, ok := pids[ident.ID(inst.Project)]; ok && declared[declKey{name, inst.Role, inst.Name}] || declared[declKey{inst.Project, inst.Role, inst.Name}] {
 			continue
 		}
 		if err := r.sup.Teardown(ctx, inst.ActorID); err != nil {
@@ -450,7 +460,7 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 		return
 	}
 	if inst, live := insts[id]; live {
-		if inst.SessionKind != jam.SessionKindStanding || inst.Project != u.project || inst.Role != u.role || inst.Name != u.name {
+		if inst.SessionKind != jam.SessionKindStanding || !r.sameProject(inst.Project, u.project) || inst.Role != u.role || inst.Name != u.name {
 			r.setUpgrade(id, jam.UpgradeError, "actor id held by another cove")
 			return
 		}
@@ -560,7 +570,7 @@ func (r *Reconciler) ensure(ctx context.Context, id, project, role string, s jam
 		return fmt.Errorf("reset pending") // its old state isn't purged yet: raising would re-attach it
 	}
 	if inst, ok := byID[id]; ok {
-		if inst.SessionKind != jam.SessionKindStanding || inst.Project != project || inst.Role != role || inst.Name != s.Name {
+		if inst.SessionKind != jam.SessionKindStanding || !r.sameProject(inst.Project, project) || inst.Role != role || inst.Name != s.Name {
 			r.log.Warn("standing: actor id held by another cove; not raising", "id", id, "project", project, "role", role, "name", s.Name)
 			return fmt.Errorf("actor id %s held by another cove", id)
 		}

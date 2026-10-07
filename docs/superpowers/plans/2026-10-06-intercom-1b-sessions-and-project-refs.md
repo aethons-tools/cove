@@ -57,6 +57,18 @@
 - **Relay cursor keys:** `service/<project_id>`, with a one-time state-file rewrite and a `.bak`.
 - **Size:** this is the large mechanical part (about 200 call sites, about 300 test sites). It splits further into 1b-2a (the store and its callers) and 1b-2b (allocator, events, relay) if the diff gets unwieldy.
 
+**As built (1b-2a, 2026-10-07; chosen over a rename-rewrite design):**
+- Roles are keyed by `(project_id, name)` (migration `0013`). `Grant.Project` and `Instance.Project` hold ids, rewritten by registry step 6.
+- Store methods accept a name or an id and store ids. Admin API responses, the UI and session context show names.
+- The allocator keys streams by project id through a project-key hook. Personal owners are keyed by user id. `allocpg.RewriteRefs` re-keys the old ledger at startup.
+- Config snapshot version 4 names projects by id.
+- **Review fixes:**
+  - `RewriteRefs` merges a ledger stream split between a project's name and its id by moving the name rows' revisions above the id stream's head.
+  - The sweep releases on a reservation's own stream.
+  - Personal reservations are re-keyed to their session's owner id by reservation.
+  - A v4 snapshot that names an unknown project id is refused.
+- Session-event labels stay as names, and relay cursors are 1b-2b.
+
 ### 1b-3: project tombstones and rename
 
 - **`RemoveProject` tombstones.** The id keeps resolving as "name (removed)", and the name is freed.

@@ -18,7 +18,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.roles = map[string]map[string]Role{}
+	s.roles = map[ident.ID]map[string]Role{}
 	s.actors = map[string]Actor{}
 	s.dests = map[string]Destination{}
 	s.specs = map[string]ModelSpec{}
