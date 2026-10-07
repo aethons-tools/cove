@@ -126,7 +126,8 @@ The release with intercom 1b-2a keys roles by project id (jam migration
 events that name a project (or a personal session's owner) by name to name it
 by id. A Jam that skipped the 2026-10-06 releases must start one of them first
 (they mint project ids): `0013` refuses to run while a project has none. Back
-up the database first; there is no way back.
+up the database first: an older Jam can't read it (roles lose their name
+column), so the only way back is restoring that backup.
 
 ### Upgrading to the channel log
 

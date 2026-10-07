@@ -157,6 +157,9 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	if err := validateSnapshotProjectIDs(m, s); err != nil {
 		return err
 	}
+	if err := validateSnapshotProjectRefs(s); err != nil {
+		return err
+	}
 	return validateSnapshotContext(s)
 }
 
@@ -176,6 +179,33 @@ func validateSnapshotProjectIDs(m *memState, s ConfigSnapshot) error {
 			return fmt.Errorf("%w: project %q reuses id %q", ErrInvalidConfig, p.Name, p.ID)
 		}
 		seen[p.ID] = true
+	}
+	return nil
+}
+
+// validateSnapshotProjectRefs checks that every role key and grant naming a
+// project by id names one of the snapshot's projects (a name is resolved, or
+// recorded, by withReferencedProjects).
+func validateSnapshotProjectRefs(s ConfigSnapshot) error {
+	have := map[string]bool{}
+	for _, p := range s.Projects {
+		have[string(p.ID)] = true
+	}
+	known := func(ref string) bool {
+		id, err := ident.Parse(ref)
+		return err != nil || id.Kind() != ident.Project || have[ref]
+	}
+	for p := range s.Roles {
+		if !known(p) {
+			return fmt.Errorf("%w: roles name project %q, which the snapshot lacks", ErrInvalidConfig, p)
+		}
+	}
+	for _, a := range s.Actors {
+		for _, g := range a.Grants {
+			if !known(g.Project) {
+				return fmt.Errorf("%w: actor %q's grant names project %q, which the snapshot lacks", ErrInvalidConfig, a.ID, g.Project)
+			}
+		}
 	}
 	return nil
 }

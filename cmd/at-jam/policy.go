@@ -118,3 +118,16 @@ func ledgerRefs(st jam.Store) (projects, owners map[string]string) {
 	}
 	return projects, owners
 }
+
+// personalOwners maps each personal session's reservation (its actor id) to
+// its owner's user id, so the ledger counts it against the right owner
+// whatever name it was recorded under.
+func personalOwners(st jam.Store) map[string]string {
+	out := map[string]string{}
+	for _, inst := range st.ListInstances() {
+		if inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID != "" {
+			out[inst.ActorID] = string(inst.OwnerID)
+		}
+	}
+	return out
+}

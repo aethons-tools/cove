@@ -301,7 +301,8 @@ func (a *Allocator) Sweep(ctx context.Context, grace time.Duration) (int, error)
 		if a.counter.IsLive(r.ReservationID) {
 			continue // a real session — leave it
 		}
-		if err := a.RecordRelease(ctx, r.Project, r.Role, r.ReservationID); err != nil {
+		// Release on the reservation's own stream (as the ledger keyed it).
+		if err := a.ledger.Record(ctx, Event{Category: r.Project, Project: r.Project, Role: r.Role, Kind: KindReservationReleased, ReservationID: r.ReservationID}); err != nil {
 			a.log.Warn("allocator: sweep release failed", "reservation", r.ReservationID, "err", err.Error())
 			continue
 		}

@@ -424,7 +424,7 @@ func TestAllocpg_RewriteRefs(t *testing.T) {
 	}
 	projects := map[string]string{"acme": "prj_a", "acme-two": "prj_b"}
 	owners := map[string]string{"alice": "usr_a"}
-	n, err := st.RewriteRefs(ctx, projects, owners)
+	n, err := st.RewriteRefs(ctx, projects, owners, nil)
 	if err != nil || n != 4 {
 		t.Fatalf("RewriteRefs = %d, %v; want 4 rows (3 projects + 1 owner)", n, err)
 	}
@@ -443,7 +443,48 @@ func TestAllocpg_RewriteRefs(t *testing.T) {
 			t.Fatalf("r2 = %+v", r)
 		}
 	}
-	if n, err := st.RewriteRefs(ctx, projects, owners); err != nil || n != 0 {
+	if n, err := st.RewriteRefs(ctx, projects, owners, nil); err != nil || n != 0 {
 		t.Fatalf("again = %d, %v", n, err)
+	}
+}
+
+// A stream split between a project's name and its id (a grant keyed before
+// the project existed) merges cleanly: moved revisions go above the id
+// stream's head, and the counts add up.
+func TestAllocpg_RewriteRefsMergesSplitStream(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, ev := range []allocator.Event{
+		{Category: "default", Project: "default", Role: "w", Kind: allocator.KindReservationGranted, ReservationID: "r1"},
+		{Category: "prj_d", Project: "prj_d", Role: "w", Kind: allocator.KindReservationGranted, ReservationID: "r2"},
+		{Category: "prj_d", Project: "prj_d", Role: "w", Kind: allocator.KindReservationReleased, ReservationID: "r1"},
+	} {
+		if err := st.Record(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.RewriteRefs(ctx, map[string]string{"default": "prj_d"}, nil, nil); err != nil {
+		t.Fatalf("merging a split stream: %v", err)
+	}
+	if got, _ := st.Outstanding(ctx, "prj_d", "w"); got != 1 {
+		t.Fatalf("outstanding = %d, want 1 (r2)", got)
+	}
+}
+
+// Personal reservations are re-keyed by reservation to their session's owner
+// id, whatever name the ledger recorded.
+func TestAllocpg_RewriteRefsOwnersByReservation(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Record(ctx, allocator.Event{Category: "p", Project: "p", Role: "w", Kind: allocator.KindReservationGranted,
+		ReservationID: "r1", SessionKind: allocator.SessionPersonal, Owner: "alice-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RewriteRefs(ctx, nil, nil, map[string]string{"r1": "usr_a"}); err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := st.OutstandingReservations(ctx, time.Now().Add(time.Hour))
+	if len(rs) != 1 || rs[0].Owner != "usr_a" {
+		t.Fatalf("reservations = %+v", rs)
 	}
 }

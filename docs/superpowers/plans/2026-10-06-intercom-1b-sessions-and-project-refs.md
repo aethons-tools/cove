@@ -62,6 +62,11 @@
 - Store methods accept a name or an id and store ids. Admin API responses, the UI and session context show names.
 - The allocator keys streams by project id through a project-key hook. Personal owners are keyed by user id. `allocpg.RewriteRefs` re-keys the old ledger at startup.
 - Config snapshot version 4 names projects by id.
+- **Review fixes:**
+  - `RewriteRefs` merges a ledger stream split between a project's name and its id by moving the name rows' revisions above the id stream's head.
+  - The sweep releases on a reservation's own stream.
+  - Personal reservations are re-keyed to their session's owner id by reservation.
+  - A v4 snapshot that names an unknown project id is refused.
 - Session-event labels stay as names, and relay cursors are 1b-2b.
 
 ### 1b-3: project tombstones and rename
