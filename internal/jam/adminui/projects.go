@@ -38,9 +38,21 @@ type projectRow struct {
 }
 
 // projectRef is the first thing (deterministically) that keeps project from
-// being removed: a role in it, else a session not yet gone, else an actor's
-// grant into it. Mirrors the store's refusal.
+// being removed: a member, a standing-session entry, a role in it, a session
+// not yet gone, or an actor's grant into it. Mirrors the store's refusal.
 func projectRef(store jam.Store, project string) string {
+	p, ok := store.GetProject(project)
+	if !ok {
+		return ""
+	}
+	if n := len(store.ListMembers(p.ID)); n > 0 {
+		return fmt.Sprintf("%d member(s)", n)
+	}
+	for _, e := range store.ListStandingSessions() {
+		if e.ProjectID == p.ID {
+			return fmt.Sprintf("standing session %s/%s", e.Role, e.Name)
+		}
+	}
 	if roles := store.ListRoles(project); len(roles) > 0 {
 		return fmt.Sprintf("role %s/%s", project, roles[0].Name)
 	}

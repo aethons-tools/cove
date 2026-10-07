@@ -39,8 +39,8 @@ answers with the re-rendered page:
   flagged red — flagged, not blocked.
 - **Chat service** — none (tracker @-mentions only) or `discord`.
 
-**Delete** (here and in the table) is disabled while a role, a session not yet gone or an actor's grant
-still references the project, and names what does — the same rule as
+**Delete** (here and in the table) is disabled while a member, a role, a session not yet gone or an actor's
+grant still references the project, and names what does — the same rule as
 `project rm` ([projects.md](projects.md)).
 **Rename** (the page head, except for `default`) renames the project in place
 and opens its new URL ([projects.md](projects.md)).

@@ -44,10 +44,10 @@ is created as a side effect.
 `--project` means) is created by the first write that names it. That way a
 zero-config, single-project Jam keeps working without a `project create` step.
 
-**Removal.** `project rm` (by name or id) refuses (HTTP **409**) while any
-role in the project, any actor's grant into it, or any session not yet gone
-still exists, and names one such reference.
-Remove those first (`role rm`, `ungrant`/`revoke`). The project's escalation
+**Removal.** `project rm` (by name or id) refuses (HTTP **409**) while the
+project still has a member, a standing session being ended, a role, a session
+not yet gone, or an actor's grant into it, and names one such reference.
+Remove those first (`project member rm`, `role rm`, `ungrant`/`revoke`). The project's escalation
 and chat service go with it, and its rooms and other channels are archived
 (their history stays readable). A removed project is a **tombstone**: its id
 still resolves (shown as "acme (removed)") and its name is free — a project

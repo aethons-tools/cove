@@ -92,7 +92,7 @@ func TestProjectsList(t *testing.T) {
 	if strings.Contains(body, `hx-delete="/ui/projects/acme"`) {
 		t.Errorf("acme is referenced; its delete should be disabled")
 	}
-	if !strings.Contains(body, "role acme/dev") {
+	if !strings.Contains(body, "member(s)") {
 		t.Errorf("a disabled delete should say what still references the project")
 	}
 }
