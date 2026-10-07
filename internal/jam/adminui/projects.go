@@ -110,14 +110,38 @@ func projectHolders(store jam.Store, project string) []projectHolder {
 	return out
 }
 
-// projectDetail is the project page payload.
+// crumb is one breadcrumb segment.
+type crumb struct{ Label, Href string }
+
+// projectCrumbs is the trail to a project section (and, on a role page, the
+// role): Projects / acme / Roles / dev.
+func projectCrumbs(project string, section projectSection, role string) []crumb {
+	out := []crumb{{"Projects", "/ui/projects"}, {project, projectURL(project)}}
+	for _, s := range projectSections {
+		if s.Section == section && section != sectionOverview {
+			out = append(out, crumb{s.Label, projectSectionURL(project, section)})
+		}
+	}
+	if role != "" {
+		out = append(out, crumb{role, roleURL(project, role)})
+	}
+	return out
+}
+
+// projectDetail is the payload of every project page: Section picks which
+// section's content renders inside the tree frame.
 type projectDetail struct {
 	Title        string
+	Section      projectSection
+	Tree         projectTree
+	Crumbs       []crumb
 	Project      jam.Project
 	Roles        []roleRow
 	Holders      []projectHolder
 	Coves        []jam.CoveSummary
+	LiveCoves    int
 	CanEdit      bool // always false: the page's studio table is read-only
+	CanRequest   bool // the Roles section offers Request (a supervisor runs)
 	Members      []memberRow
 	Rooms        []jam.RoomView
 	Escalation   []chainView // chains with at least one tier
@@ -128,14 +152,23 @@ type projectDetail struct {
 	NotFound     bool
 	NotFoundFor  string
 	Context      contextPanel // the project's session-context card
+	// The Intercom section's recent log: the newest squawks in this project.
+	LogConfigured bool
+	Squawks       squawkTable
 }
 
-func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (projectDetail, bool) {
+// recentProjectSquawks caps the Intercom section's log; the full, filterable
+// log is the Intercom page.
+const recentProjectSquawks = 50
+
+func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReader, name string, section projectSection) (projectDetail, bool) {
 	p, ok := store.GetProject(name)
 	if !ok || p.Status == jam.StatusRemoved {
 		return projectDetail{}, false
 	}
-	d := projectDetail{Title: "Projects", Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
+	d := projectDetail{Title: name, Section: section, Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
+	d.Tree = buildProjectTree(store, img, name, section, "")
+	d.Crumbs = projectCrumbs(name, section, "")
 	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
 		if r.Project == name {
@@ -145,6 +178,9 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 	for _, c := range jam.CoveSummaries(store, img) {
 		if orDefaultProject(c.Project) == name {
 			d.Coves = append(d.Coves, c)
+			if ph := jam.Phase(c.Phase); ph == jam.PhaseLive || ph == jam.PhaseRaising {
+				d.LiveCoves++
+			}
 		}
 	}
 	members := jam.MembersOf(store, p.ID)
@@ -165,6 +201,10 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (pr
 	}
 	d.ChatService = chatServiceName(store, p)
 	d.ChatServices = chatServiceChoices(store, d.ChatService)
+	if section == sectionIntercom && msgs != nil {
+		d.LogConfigured = true
+		d.Squawks = filterSquawks(msgs, squawkFilter{Project: name}, recentProjectSquawks)
+	}
 	return d, true
 }
 
@@ -172,21 +212,29 @@ func projectTableData(store jam.Store) map[string]any {
 	return map[string]any{"Projects": projectRows(store)}
 }
 
-func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, canRequest bool, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("GET /ui/projects", func(w http.ResponseWriter, r *http.Request) {
 		data := projectTableData(store)
 		data["Title"] = "Projects"
 		render(w, "projects", data)
 	})
 
-	mux.HandleFunc("GET /ui/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildProjectDetail(store, img, r.PathValue("name"))
-		if !ok {
-			renderStatus(w, http.StatusNotFound, "project", projectDetail{Title: "Projects", NotFound: true, NotFoundFor: r.PathValue("name")})
-			return
+	page := func(section projectSection) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			name := r.PathValue("name")
+			d, ok := buildProjectDetail(store, img, msgs, name, section)
+			if !ok {
+				renderStatus(w, http.StatusNotFound, "project", projectDetail{Title: "Project not found", NotFound: true, NotFoundFor: name})
+				return
+			}
+			d.CanRequest = canRequest
+			render(w, "project", d)
 		}
-		render(w, "project", d)
-	})
+	}
+	mux.HandleFunc("GET /ui/projects/{name}", page(sectionOverview))
+	for _, s := range projectSections[1:] {
+		mux.HandleFunc("GET /ui/projects/{name}/"+string(s.Section), page(s.Section))
+	}
 
 	mux.HandleFunc("POST /ui/projects", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {

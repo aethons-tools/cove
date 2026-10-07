@@ -29,7 +29,7 @@ func del(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 func credKnown(n string) bool { return n == "git-pat" || n == "other-pat" }
 
 func TestRolePagePrefillsEditForms(t *testing.T) {
-	body := get(t, adminui.Handler(seedRichRole(t), testLogger(), nil, nil, credKnown, nil), "/ui/roles/acme/review").Body.String()
+	body := get(t, adminui.Handler(seedRichRole(t), testLogger(), nil, nil, credKnown, nil), "/ui/projects/acme/roles/review").Body.String()
 	for _, want := range []string{
 		`hx-post="/ui/roles/acme/review/scope"`,
 		`value="git=git-pat,anthropic"`,
@@ -180,7 +180,7 @@ func TestEditStandingReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), sup, nil, credKnown, nil)
-	body := get(t, h, "/ui/roles/acme/review").Body.String()
+	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
 	if !strings.Contains(body, `hx-post="/ui/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing session nightly?`) {
 		t.Fatalf("role page lacks a confirmed reset button:\n%s", body)
 	}
@@ -206,7 +206,7 @@ func TestEditStandingReset(t *testing.T) {
 	}
 
 	ro := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	if strings.Contains(get(t, ro, "/ui/roles/acme/review").Body.String(), "/standing/nightly/reset") {
+	if strings.Contains(get(t, ro, "/ui/projects/acme/roles/review").Body.String(), "/standing/nightly/reset") {
 		t.Error("no supervisor: the reset button must be hidden")
 	}
 	if rec := post(t, ro, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusServiceUnavailable {
@@ -220,7 +220,7 @@ func TestCreateRoleRedirectsAndRefusesExisting(t *testing.T) {
 	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/roles/acme/w" {
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/projects/acme/roles/w" {
 		t.Fatalf("create = %d redirect=%q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
 	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}}); rec.Code != http.StatusConflict {
@@ -269,7 +269,7 @@ func TestEditScopeBindsModelSpec(t *testing.T) {
 		!strings.Contains(rec.Body.String(), "does not exist") {
 		t.Fatalf("unknown model-spec = %d %s", rec.Code, rec.Body)
 	}
-	body := get(t, h, "/ui/roles/acme/review").Body.String()
+	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
 	if !strings.Contains(body, `href="/ui/model-specs/claude-default"`) || !strings.Contains(body, `placeholder="blank = claude-default"`) {
 		t.Errorf("unbound role page should show the claude-default resolution")
 	}
@@ -283,7 +283,7 @@ func TestEditScopeBindsModelSpec(t *testing.T) {
 	if r, _ := store.GetRole("acme", "review"); r.ModelSpec != "opus" {
 		t.Fatalf("binding = %q", r.ModelSpec)
 	}
-	body = get(t, h, "/ui/roles/acme/review").Body.String()
+	body = get(t, h, "/ui/projects/acme/roles/review").Body.String()
 	if !strings.Contains(body, `name="model-spec" data-ta="model-specs" value="opus"`) {
 		t.Errorf("role page should prefill the binding")
 	}

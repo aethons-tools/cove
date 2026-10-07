@@ -270,6 +270,10 @@
     window.addEventListener('scroll', taClose, true);
     window.addEventListener('resize', taClose);
 
+    // On a narrow screen a project's tree starts collapsed to its summary.
+    if (window.matchMedia && matchMedia('(max-width:720px)').matches) {
+      document.querySelectorAll('details.ptree-wrap').forEach(function(d){ d.open = false; });
+    }
     // "/" focuses search from anywhere except a text field.
     document.addEventListener('keydown', function(e){
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;

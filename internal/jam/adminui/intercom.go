@@ -119,16 +119,59 @@ type squawkRow struct {
 	Plain     bool          // text/plain: shown literally, badged
 }
 
+// squawkFilter selects log entries; a zero field matches everything. Until
+// is exclusive.
+type squawkFilter struct {
+	Legacy       bool
+	Project      string
+	Participant  string
+	Q            string
+	Since, Until time.Time
+}
+
+// squawkTable is what the squawk-table template renders.
+type squawkTable struct {
+	Legacy   bool
+	Filtered bool
+	Rows     []squawkRow
+}
+
+// filterSquawks returns the log entries f selects, newest first, at most
+// limit of them (0 = all).
+func filterSquawks(msgs SquawkReader, f squawkFilter, limit int) squawkTable {
+	t := squawkTable{Legacy: f.Legacy, Filtered: f.Project != "" || f.Participant != "" || f.Q != "" || !f.Since.IsZero() || !f.Until.IsZero()}
+	needle := strings.ToLower(f.Q)
+	var kept []Logged
+	for _, m := range msgs.Squawks(f.Legacy) {
+		switch {
+		case f.Project != "" && m.Project != f.Project,
+			!f.Since.IsZero() && m.At.Before(f.Since),
+			!f.Until.IsZero() && !m.At.Before(f.Until),
+			f.Participant != "" && !matchesParticipant(m, f.Participant),
+			needle != "" && !strings.Contains(strings.ToLower(m.Body), needle):
+			continue
+		}
+		kept = append(kept, m)
+	}
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].At.After(kept[j].At) })
+	if limit > 0 && len(kept) > limit {
+		kept = kept[:limit]
+	}
+	t.Rows = make([]squawkRow, 0, len(kept))
+	for _, m := range kept {
+		t.Rows = append(t.Rows, toRow(m))
+	}
+	return t
+}
+
 // squawksData is the Intercom page payload. The filter fields are echoed back
 // into the form so a filtered view round-trips; RawQuery drives the Refresh
-// link; Filtered distinguishes the two empty states; Legacy selects the
-// frozen legacy log's tab.
+// link; the embedded table's Filtered distinguishes the two empty states and
+// Legacy selects the frozen legacy log's tab.
 type squawksData struct {
-	Title       string
-	Configured  bool
-	Legacy      bool
-	Filtered    bool
-	Rows        []squawkRow
+	Title      string
+	Configured bool
+	squawkTable
 	Project     string
 	Participant string
 	Q           string
@@ -144,7 +187,8 @@ type squawksData struct {
 // recipient). A nil reader means no log is configured.
 func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	q := r.URL.Query()
-	data := squawksData{Title: "Intercom", Configured: msgs != nil, Legacy: q.Get("log") == "legacy"}
+	data := squawksData{Title: "Intercom", Configured: msgs != nil}
+	data.Legacy = q.Get("log") == "legacy"
 	if msgs == nil {
 		render(w, "intercom", data)
 		return
@@ -155,44 +199,28 @@ func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	data.Since = strings.TrimSpace(q.Get("since"))
 	data.Until = strings.TrimSpace(q.Get("until"))
 	data.RawQuery = r.URL.RawQuery
-	data.Filtered = data.Project != "" || data.Participant != "" || data.Q != "" || data.Since != "" || data.Until != ""
 
 	// Date bounds are UTC day boundaries; an unparseable one is surfaced and
 	// left unbounded.
-	var since, until time.Time
+	f := squawkFilter{Legacy: data.Legacy, Project: data.Project, Participant: data.Participant, Q: data.Q}
 	if data.Since != "" {
 		if t, err := time.Parse(dateLayout, data.Since); err == nil {
-			since = t
+			f.Since = t
 		} else {
 			data.BadDate = true
 		}
 	}
 	if data.Until != "" {
 		if t, err := time.Parse(dateLayout, data.Until); err == nil {
-			until = t.AddDate(0, 0, 1) // inclusive day → exclusive next midnight
+			f.Until = t.AddDate(0, 0, 1) // inclusive day → exclusive next midnight
 		} else {
 			data.BadDate = true
 		}
 	}
-
-	needle := strings.ToLower(data.Q)
-	var kept []Logged
-	for _, m := range msgs.Squawks(data.Legacy) {
-		switch {
-		case data.Project != "" && m.Project != data.Project,
-			!since.IsZero() && m.At.Before(since),
-			!until.IsZero() && !m.At.Before(until),
-			data.Participant != "" && !matchesParticipant(m, data.Participant),
-			needle != "" && !strings.Contains(strings.ToLower(m.Body), needle):
-			continue
-		}
-		kept = append(kept, m)
-	}
-	sort.SliceStable(kept, func(i, j int) bool { return kept[i].At.After(kept[j].At) })
-	data.Rows = make([]squawkRow, 0, len(kept))
-	for _, m := range kept {
-		data.Rows = append(data.Rows, toRow(m))
-	}
+	data.squawkTable = filterSquawks(msgs, f, 0)
+	// A bad date still counts as filtering (the old view did): the "no
+	// match" empty state.
+	data.Filtered = data.Filtered || data.Since != "" || data.Until != ""
 	render(w, "intercom", data)
 }
 

@@ -119,7 +119,7 @@ func TestProjectMembersSection(t *testing.T) {
 	store := seedProjects(t)
 	h := projHandler(store)
 	alice := userID(t, store, "alice")
-	body := get(t, h, "/ui/projects/acme").Body.String()
+	body := get(t, h, "/ui/projects/acme/members").Body.String()
 	for _, want := range []string{
 		`hx-post="/ui/projects/acme/members"`, `href="/ui/users/` + string(alice) + `"`,
 		"discord:dm-alice", `hx-delete="/ui/projects/acme/members/` + string(alice) + `"`,

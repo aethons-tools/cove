@@ -33,7 +33,7 @@ func TestNavMarksCurrentPage(t *testing.T) {
 // Every page carries the flash region and the htmx error hook, so a 4xx/5xx
 // write response is shown to the operator instead of silently dropped.
 func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
-	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/roles").Body.String()
+	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/projects").Body.String()
 	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/ui/static/jam.css`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing %q", want)
@@ -126,7 +126,7 @@ func TestRoleRequestTargetsFlash(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/roles").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/projects/acme/roles").Body.String()
 	if !strings.Contains(body, `hx-target="#flash"`) || strings.Contains(body, "role-request-msg") {
 		t.Errorf("Request should target #flash; got:\n%s", body)
 	}

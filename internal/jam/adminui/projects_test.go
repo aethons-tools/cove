@@ -129,29 +129,41 @@ func TestCreateAndDeleteProject(t *testing.T) {
 	}
 }
 
+// Every project page shows the tree; each section shows its own content and
+// nothing from another project.
 func TestProjectPage(t *testing.T) {
-	rec := get(t, projHandler(seedProjects(t)), "/ui/projects/acme")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("project page = %d", rec.Code)
+	h := projHandler(seedProjects(t))
+	tree := []string{
+		`aria-current="page">Projects`, `class="ptree"`,
+		`href="/ui/projects/acme/members"`, `href="/ui/projects/acme/agents"`, `href="/ui/projects/acme/roles"`,
+		`href="/ui/projects/acme/intercom"`, `href="/ui/projects/acme/escalation"`,
+		`href="/ui/projects/acme/roles/dev"`, `href="/ui/projects/acme/roles/ops"`, // roles under Roles
+		"studio-acme", // its live agent under Agents
+		">eng<",       // its room under Intercom
 	}
-	body := rec.Body.String()
-	for _, want := range []string{
-		"<h1>acme</h1>", `aria-current="page">Projects`,
-		`href="/ui/roles/acme/dev"`, `href="/ui/roles/acme/ops"`,
-		"a1", "a2", "studio-acme",
-		"alice", "alice-h", "dm-alice", `href="/ui/users/usr_`,
-		"eng", "chan-eng",
-		"human:alice", "30m", "deploy", "channel:eng", "10m",
-		"discord",
+	for path, wants := range map[string][]string{
+		"/ui/projects/acme":            {"<h1>acme</h1>", "discord"},
+		"/ui/projects/acme/members":    {"<h1>Members</h1>", "alice", "alice-h", "dm-alice", `href="/ui/users/usr_`},
+		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", ">a1<", ">a2<", "studio-acme"},
+		"/ui/projects/acme/roles":      {"<h1>Roles</h1>", `<input type="hidden" name="project" value="acme">`},
+		"/ui/projects/acme/intercom":   {"<h1>Intercom</h1>", "chan-eng"},
+		"/ui/projects/acme/escalation": {"<h1>Escalation</h1>", "human:alice", "30m", "deploy", "channel:eng", "10m"},
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("project page missing %q", want)
+		rec := get(t, h, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d", path, rec.Code)
 		}
-	}
-	// ">a3<", not "a3": the page carries random ids (user links) that may contain it.
-	for _, gone := range []string{">a3<", "studio-solo", "/ui/roles/default/solo"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("acme page shows %q from another project", gone)
+		body := rec.Body.String()
+		for _, want := range append(wants, tree...) {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %q", path, want)
+			}
+		}
+		// ">a3<", not "a3": the page carries random ids (user links) that may contain it.
+		for _, gone := range []string{">a3<", "studio-solo", "/ui/projects/default/roles/solo"} {
+			if strings.Contains(body, gone) {
+				t.Errorf("%s shows %q from another project", path, gone)
+			}
 		}
 	}
 }
@@ -168,7 +180,7 @@ func TestProjectPageNotFound(t *testing.T) {
 // project, so a typo can't land anything.
 func TestProjectPickers(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	for _, path := range []string{"/ui/roles", "/ui/actors", "/ui/coves"} {
+	for _, path := range []string{"/ui/actors", "/ui/coves"} {
 		body := get(t, h, path).Body.String()
 		if !strings.Contains(body, `<input name="project" data-ta="projects" value="default"`) || strings.Contains(body, `<select name="project"`) {
 			t.Errorf("%s: project should be a type-ahead prefilled with default", path)
@@ -187,11 +199,11 @@ func TestProjectPickers(t *testing.T) {
 
 func TestProjectLinks(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	if body := get(t, h, "/ui/roles/acme/dev").Body.String(); !strings.Contains(body, `href="/ui/projects/acme"`) {
+	if body := get(t, h, "/ui/projects/acme/roles/dev").Body.String(); !strings.Contains(body, `href="/ui/projects/acme"`) {
 		t.Errorf("role page should link its project")
 	}
-	if body := get(t, h, "/ui/roles").Body.String(); !strings.Contains(body, `href="/ui/projects/acme"`) {
-		t.Errorf("roles table should link projects")
+	if body := get(t, h, "/ui/projects/acme/roles").Body.String(); !strings.Contains(body, `href="/ui/projects/acme/roles/dev"`) {
+		t.Errorf("a project's roles should link their pages")
 	}
 }
 

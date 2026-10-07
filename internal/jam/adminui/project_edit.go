@@ -104,8 +104,10 @@ func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
 
 // registerProjectEdits mounts the project page's section writes. Each answers
 // with the re-rendered project body.
-func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	edit := func(what string, apply func(r *http.Request, project string) error) http.HandlerFunc {
+func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+	// edit applies one project write and answers with the section it belongs
+	// to re-rendered, for the page's #project swap.
+	edit := func(what string, section projectSection, apply func(r *http.Request, project string) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !guardWrite(w, r) {
 				return
@@ -124,27 +126,27 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 				return
 			}
 			log.Info("ui project "+what, "operator", jam.OperatorID(r), "project", project)
-			d, ok := buildProjectDetail(store, img, project)
+			d, ok := buildProjectDetail(store, img, msgs, project, section)
 			if !ok {
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
 			}
-			renderFragment(w, "project", "project-body", d)
+			renderFragment(w, "project", "project-"+string(section), d)
 		}
 	}
 
-	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", sectionOverview, func(r *http.Request, project string) error {
 		b, err := parseContextForm(r)
 		if err != nil {
 			return err
 		}
 		return jam.SetProjectContextChecked(store, project, b)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", sectionOverview, func(r *http.Request, project string) error {
 		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/members", edit("member put", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
 		uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(r.FormValue("user")))
 		if err != nil {
 			return registryErr(err)
@@ -163,7 +165,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
 		uid, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
 		if err != nil {
 			return registryErr(err)
@@ -172,7 +174,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		return registryErr(store.RemoveMember(p.ID, uid))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("room put", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
 		b := jam.RoomBody{
 			Name:       strings.TrimSpace(r.FormValue("name")),
 			Connection: strings.TrimSpace(r.FormValue("service")),
@@ -184,11 +186,11 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		_, _, err := jam.PutRoom(store, project, b)
 		return registryErr(err)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("room removed", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
 		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
 		var tiers []jam.EscalationTier
 		for _, l := range splitSpecLines(r.FormValue("tiers")) {
 			t, err := jam.ParseEscalationTierSpec(l)
@@ -202,11 +204,11 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 		return store.SetEscalationPolicy(project, strings.TrimSpace(r.FormValue("category")), tiers)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/escalation", edit("escalation cleared", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
 		return store.SetEscalationPolicy(project, r.URL.Query().Get("category"), nil)
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/chat-service", edit("chat service set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/chat-service", edit("chat service set", sectionOverview, func(r *http.Request, project string) error {
 		return store.SetChatService(project, strings.TrimSpace(r.FormValue("service")))
 	}))
 }

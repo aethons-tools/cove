@@ -44,6 +44,10 @@ type setting struct {
 // roleDetail is the role page's payload.
 type roleDetail struct {
 	Title, Project, Name string
+	Tree                 projectTree
+	Crumbs               []crumb
+	WriteBase            string // the role's write endpoints (roleWriteBase)
+	RolesHref            string // the project's Roles section (where a delete lands)
 	Role                 jam.Role
 	Dests                []destRow
 	EgressManaged        bool
@@ -65,7 +69,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 		return roleDetail{}, false
 	}
 	project = orDefaultProject(project)
-	d := roleDetail{Title: "Roles", Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role)}
+	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
+		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionRoles)}
 	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
 
 	dests := map[string]jam.Destination{}
@@ -138,17 +143,27 @@ func duration(label string, v time.Duration, unset string) setting {
 }
 
 // roleURL is the detail page path for a role.
+// roleURL is a role's page, under its project.
 func roleURL(project, name string) string {
+	return projectSectionURL(project, sectionRoles) + "/" + url.PathEscape(name)
+}
+
+// roleWriteBase is the prefix of a role's write endpoints, which keep their
+// pre-tree paths.
+func roleWriteBase(project, name string) string {
 	return "/ui/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
 }
 
 func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest bool) {
-	d, ok := buildRoleDetail(store, img, r.PathValue("project"), r.PathValue("name"))
+	project, name := r.PathValue("project"), r.PathValue("name")
+	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
-		renderStatus(w, http.StatusNotFound, "role", roleDetail{Title: "Roles", NotFound: true,
-			Project: r.PathValue("project"), Name: r.PathValue("name")})
+		renderStatus(w, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
+			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionRoles)})
 		return
 	}
+	d.Tree = buildProjectTree(store, img, project, sectionRoles, name)
+	d.Crumbs = projectCrumbs(project, sectionRoles, name)
 	d.CanRequest = canRequest
 	render(w, "role", d)
 }

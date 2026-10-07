@@ -189,9 +189,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
 			return
 		}
+		// The new role's page is where it is edited; htmx follows the redirect.
 		w.Header().Set("HX-Redirect", roleURL(project, name))
 		log.Info("ui role created", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +245,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role removed", "operator", jam.OperatorID(r), "project", project, "role", name)
-		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
+		// The role page navigates to its project's roles on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {

@@ -58,17 +58,17 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`href="/ui/projects/zephyr-labs"`,      // project by name
-		`href="/ui/roles/acme/zephyr-dev"`,     // role by name
-		`href="/ui/coves/studio-7"`,            // studio by role
-		"bot-<mark>zephyr</mark>",              // actor by id
-		"human:zoe",                            // human by handle
-		"channel:ops",                          // channel by ref
-		`href="/ui/kits/web"`,                  // kit by prompt
-		`href="/ui/destinations/gh"`,           // destination by upstream
-		"<mark>zephyr</mark> update 11",        // newest squawk, highlighted
-		`href="/ui/intercom?q=ZEPHYR"`,         // the rest of the squawks
-		`data-group="squawks" data-count="12"`, // full count, 10 shown
+		`href="/ui/projects/zephyr-labs"`,           // project by name
+		`href="/ui/projects/acme/roles/zephyr-dev"`, // role by name
+		`href="/ui/coves/studio-7"`,                 // studio by role
+		"bot-<mark>zephyr</mark>",                   // actor by id
+		"human:zoe",                                 // human by handle
+		"channel:ops",                               // channel by ref
+		`href="/ui/kits/web"`,                       // kit by prompt
+		`href="/ui/destinations/gh"`,                // destination by upstream
+		"<mark>zephyr</mark> update 11",             // newest squawk, highlighted
+		`href="/ui/intercom?q=ZEPHYR"`,              // the rest of the squawks
+		`data-group="squawks" data-count="12"`,      // full count, 10 shown
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("search results missing %q", want)
@@ -96,7 +96,7 @@ func TestSearchExactMatchJumps(t *testing.T) {
 	for q, want := range map[string]string{
 		"studio-7":        "/ui/coves/studio-7",
 		"web":             "/ui/kits/web",
-		"acme/zephyr-dev": "/ui/roles/acme/zephyr-dev",
+		"acme/zephyr-dev": "/ui/projects/acme/roles/zephyr-dev",
 	} {
 		rec := get(t, h, "/ui/search?go=1&q="+q)
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
@@ -120,7 +120,7 @@ func TestSearchShortQueryAndNoMatches(t *testing.T) {
 }
 
 func TestSearchBoxOnEveryPage(t *testing.T) {
-	body := get(t, searchFixture(t), "/ui/roles").Body.String()
+	body := get(t, searchFixture(t), "/ui/projects").Body.String()
 	for _, want := range []string{`action="/ui/search"`, `id="q-top"`, `name="go" value="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("topbar search missing %q", want)

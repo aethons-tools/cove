@@ -30,18 +30,17 @@ var pages = map[string]*template.Template{
 	"roster":       mustParse(navAgents, "roster.html"),
 	"users":        mustParse(navUsers, "users.html"),
 	"user":         mustParse(navUsers, "user.html"),
-	"roles":        mustParse(navProjects, "roles.html"),
 	"kits":         mustParse(navSpecs, "kits.html"),
 	"destinations": mustParse(navSpecs, "dest_fields.html", "destinations.html"),
-	"intercom":     mustParse(navIntercom, "intercom.html"),
+	"intercom":     mustParse(navIntercom, "squawks.html", "intercom.html"),
 	"session":      mustParse(navAgents, "session.html"),
-	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "role.html"),
+	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "projtree.html", "role.html"),
 	"destination":  mustParse(navSpecs, "dest_fields.html", "destination.html"),
 	"model-specs":  mustParse(navSpecs, "model_spec_fields.html", "model_specs.html"),
 	"model-spec":   mustParse(navSpecs, "model_spec_fields.html", "model_spec.html"),
 	"kit":          mustParse(navSpecs, "kit.html"),
 	"projects":     mustParse(navProjects, "projects.html"),
-	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "project.html"),
+	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "squawks.html", "projtree.html", "project.html"),
 	"studio":       mustParse(navAgents, "studio.html"),
 	"search":       mustParse(navNone, "search.html"),
 }
@@ -82,7 +81,7 @@ func mustParse(section navSection, names ...string) *template.Template {
 	}).ParseFS(files, paths...))
 }
 
-// covesData, rosterData and rolesData are the payloads of those pages and
+// covesData and rosterData are the payloads of those pages and
 // their swapped tables.
 func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]any {
 	return map[string]any{"Coves": jam.CoveSummaries(store, img), "CanEdit": canEdit}
@@ -90,10 +89,6 @@ func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]
 
 func rosterData(store jam.Store) map[string]any {
 	return map[string]any{"Actors": jam.RosterSummaries(store)}
-}
-
-func rolesData(store jam.Store, canRequest bool) map[string]any {
-	return map[string]any{"Roles": roleRows(store), "CanRequest": canRequest}
 }
 
 // funcs are the template helpers shared by every page.
@@ -184,12 +179,14 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		data["Title"] = "Actors"
 		render(w, "roster", data)
 	})
+	// The global roles list and role pages moved into the project tree.
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		data := rolesData(store, canEdit)
-		data["Title"] = "Roles"
-		render(w, "roles", data)
+		redirect(w, r, "/ui/projects")
 	})
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
+	})
+	mux.HandleFunc("GET /ui/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoleDetail(w, r, store, sup, canEdit)
 	})
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
@@ -203,8 +200,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
-	registerProjects(mux, store, sup, log, guardWrite)
-	registerProjectEdits(mux, store, sup, log, guardWrite)
+	registerProjects(mux, store, sup, msgs, canEdit, log, guardWrite)
+	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)

@@ -7,7 +7,7 @@
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
   .crumbs a{color:var(--muted);text-decoration:none}
   .page-head .spacer{flex:1}
-  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;align-items:start}
   .sections .full{grid-column:1/-1}
   section.card{overflow:visible}
   section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
@@ -32,14 +32,32 @@
   details.row-edit form{padding:10px 0 0}
   .chip.unknown-target{background:var(--bad-soft);color:var(--bad)}
   .form-actions .left{margin-right:auto}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+  .tile{display:block;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink)}
+  .tile:hover{border-color:var(--faint)}
+  .tile b{display:block;font-size:22px;font-weight:600}
+  .tile span{color:var(--muted);font-size:12px}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/projects">Projects</a></div>
-{{template "project-body" .}}
+<div class="pframe">
+{{template "project-tree" .Tree}}
+<div>
+{{template "crumbs" .Crumbs}}
+{{if eq .Section "members"}}{{template "project-members" .}}
+{{else if eq .Section "agents"}}{{template "project-agents" .}}
+{{else if eq .Section "roles"}}{{template "project-roles" .}}
+{{else if eq .Section "intercom"}}{{template "project-intercom" .}}
+{{else if eq .Section "escalation"}}{{template "project-escalation" .}}
+{{else}}{{template "project-overview" .}}{{end}}
+</div>
+</div>
 {{end}}
 {{end}}
 
-{{define "project-body"}}
+{{/* Each project-<section> template is one section's page body, wrapped in
+     #project: the section's writes answer with it re-rendered. */}}
+
+{{define "project-overview"}}
 {{$p := .Project.Name}}
 <div id="project">
 <div class="page-head">
@@ -53,32 +71,35 @@
       hx-on::after-request="if(event.detail.successful) location.href='/ui/projects'">Delete</button>{{end}}
 </div>
 
+<div class="tiles">
+  <a class="tile" href="{{.Tree.Href}}/members"><b>{{len .Members}}</b><span>members</span></a>
+  <a class="tile" href="{{.Tree.Href}}/agents"><b>{{.LiveCoves}}</b><span>agents live of {{len .Coves}}</span></a>
+  <a class="tile" href="{{.Tree.Href}}/roles"><b>{{len .Roles}}</b><span>roles</span></a>
+  <a class="tile" href="{{.Tree.Href}}/intercom"><b>{{len .Rooms}}</b><span>rooms</span></a>
+  <a class="tile" href="{{.Tree.Href}}/escalation"><b>{{len .Escalation}}</b><span>escalation chains</span></a>
+</div>
 <div class="sections">
   <section class="card">
-    <header><h2>Roles</h2><span class="sub"><a href="/ui/roles">add one on Roles</a></span></header>
-    <table>
-      <thead><tr><th>Role</th><th>Destinations</th><th>Kit</th></tr></thead>
-      <tbody>
-        {{range .Roles}}<tr><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a></td>
-          <td>{{range .Destinations}}<span class="chip">{{.}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
-          <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td></tr>
-        {{else}}<tr><td colspan="3" class="empty">No roles.</td></tr>{{end}}
-      </tbody>
-    </table>
+    <header><h2>Chat service</h2><span class="sub">what backs human DMs</span></header>
+    <div class="body">
+      <form class="inline" hx-post="/ui/projects/{{$p}}/chat-service" hx-target="#project" hx-swap="outerHTML">
+        {{$cs := .ChatService}}
+        <select name="service" aria-label="Chat service">{{range .ChatServices}}<option value="{{.}}"{{if eq . $cs}} selected{{end}}>{{if .}}{{.}}{{else}}none — tracker @-mentions only{{end}}</option>{{end}}</select>
+        <button type="submit" class="small">Save</button>
+      </form>
+    </div>
   </section>
 
-  <section class="card">
-    <header><h2>Actors</h2><span class="sub">holding a grant into this project — manage on the <a href="/ui/actors">Actors</a> page</span></header>
-    <table>
-      <thead><tr><th>Actor</th><th>Roles</th></tr></thead>
-      <tbody>
-        {{range .Holders}}<tr><td class="mono">{{.ID}}</td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
-        {{else}}<tr><td colspan="2" class="empty">No actors hold a grant here.</td></tr>{{end}}
-      </tbody>
-    </table>
-  </section>
+  {{template "context-panel" .Context}}
+</div>
+</div>
+{{end}}
 
-  <section class="card full">
+{{define "project-members"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Members</h1><span class="sub">the users agents in {{$p}} can address, and where they get DMs here</span></div>
+<section class="card">
     <header><h2>Members</h2><span class="sub">the <a href="/ui/users">users</a> studios in this project can address, and where they get DMs here</span></header>
     <table>
       <thead><tr><th>User</th><th>Handle</th><th>Delivery</th><th></th></tr></thead>
@@ -115,8 +136,71 @@
       </form>
     </details>
   </section>
+</div>
+{{end}}
 
-  <section class="card">
+{{define "project-agents"}}
+<div id="project">
+<div class="page-head"><h1>Agents</h1><span class="sub">studios raised in {{.Project.Name}}, and the actors holding a grant into it</span></div>
+<div class="sections">
+<section class="card full">
+    <header><h2>Studios</h2><span class="sub">this project's agents and their studios</span></header>
+    {{template "coves-tbl" .}}
+  </section>
+<section class="card">
+    <header><h2>Actors</h2><span class="sub">holding a grant into this project — manage on the <a href="/ui/actors">Actors</a> page</span></header>
+    <table>
+      <thead><tr><th>Actor</th><th>Roles</th></tr></thead>
+      <tbody>
+        {{range .Holders}}<tr><td class="mono">{{.ID}}</td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
+        {{else}}<tr><td colspan="2" class="empty">No actors hold a grant here.</td></tr>{{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+</div>
+{{end}}
+
+{{define "project-roles"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Roles</h1><span class="sub">what a grant of each role lets an agent reach — open a role to edit it</span></div>
+<details class="panel">
+  <summary>New role</summary>
+  <form hx-post="/ui/roles" hx-swap="none">
+    <input type="hidden" name="project" value="{{$p}}">
+    <div class="grid">
+      <label>Role name <span class="req">required</span><input name="name" required></label>
+      <label>Destinations <span class="hint">comma-separated, e.g. git=git-pat,anthropic</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
+      <label>TTL <span class="hint">seconds, optional</span><input name="ttl-seconds" type="number" min="0" inputmode="numeric"></label>
+      <label>Kit <span class="hint">optional</span><input name="kit" data-ta="kits" autocomplete="off" spellcheck="false"></label>
+      <label>Model-spec <span class="hint">optional; blank = claude-default</span><input name="model-spec" data-ta="model-specs" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Create role</button></div>
+  </form>
+</details>
+<div class="card">
+<table>
+  <thead><tr><th>Role</th><th>Destinations</th><th>TTL</th><th>Kit</th><th></th></tr></thead>
+  <tbody>
+    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a></td>
+      <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
+      <td>{{ttl .TTL}}</td>
+      <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td>
+      <td class="actions">{{if $.CanRequest}}<button class="primary small" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
+          title="Raise a personal session of this role for you">Request</button>{{end}}</td></tr>
+    {{else}}<tr><td colspan="5" class="empty">No roles.</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+</div>
+{{end}}
+
+{{define "project-intercom"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Intercom</h1><span class="sub">{{$p}}'s rooms and its recent messages</span><span class="spacer"></span><a class="btn" href="/ui/intercom?project={{$p}}">Full log</a></div>
+<section class="card">
     <header><h2>Rooms</h2></header>
     <table>
       <thead><tr><th>Name</th><th>Connection</th><th>Ref</th><th></th></tr></thead>
@@ -139,10 +223,17 @@
       </form>
     </details>
   </section>
+<h2>Recent messages</h2>
+{{if .LogConfigured}}{{template "squawk-table" .Squawks}}{{else}}<div class="banner">The message log is unavailable.</div>{{end}}
+</div>
+{{end}}
 
-  <section class="card">
-    <header><h2>Escalation</h2><span class="sub">who is pinged, in order, when a studio is waiting</span></header>
-    <div class="body">
+{{define "project-escalation"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Escalation</h1><span class="sub">who is pinged, in order, when an agent in {{$p}} is waiting</span></div>
+<section class="card">
+        <div class="body">
       {{range .Escalation}}
       <div class="chain">
         <h3>{{if .Category}}category <span class="mono">{{.Category}}</span>{{else}}default chain{{end}}</h3>
@@ -166,25 +257,6 @@
       </form>
     </details>
   </section>
-
-  <section class="card">
-    <header><h2>Chat service</h2><span class="sub">what backs human DMs</span></header>
-    <div class="body">
-      <form class="inline" hx-post="/ui/projects/{{$p}}/chat-service" hx-target="#project" hx-swap="outerHTML">
-        {{$cs := .ChatService}}
-        <select name="service" aria-label="Chat service">{{range .ChatServices}}<option value="{{.}}"{{if eq . $cs}} selected{{end}}>{{if .}}{{.}}{{else}}none — tracker @-mentions only{{end}}</option>{{end}}</select>
-        <button type="submit" class="small">Save</button>
-      </form>
-    </div>
-  </section>
-
-  {{template "context-panel" .Context}}
-
-  <section class="card full">
-    <header><h2>Studios</h2><span class="sub">running studios in this project</span></header>
-    {{template "coves-tbl" .}}
-  </section>
-</div>
 </div>
 {{end}}
 

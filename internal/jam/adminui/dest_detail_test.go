@@ -66,7 +66,7 @@ func TestDestinationDetailEnvRolesAndConflicts(t *testing.T) {
 	for _, want := range []string{
 		"<h1>github-api</h1>", "/api/v3/", "https://api.github.com",
 		"GH_HOST", "{host}", "GH_ENTERPRISE_TOKEN", "{token}",
-		`href="/ui/roles/acme/dev"`, `href="/ui/roles/acme/ops"`,
+		`href="/ui/projects/acme/roles/dev"`, `href="/ui/projects/acme/roles/ops"`,
 		"gh-pat-acme", // dev's own mapping
 		`class="banner error conflict"`, "gh-alt",
 		`aria-current="page">Specs`,

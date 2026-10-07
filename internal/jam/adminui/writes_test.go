@@ -267,8 +267,8 @@ func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 		t.Fatalf("stored role = %+v", r)
 	}
 	// Credential names are references, not secret values: the table shows the mapping.
-	if !strings.Contains(rec.Body.String(), "known-cred") {
-		t.Errorf("roles table should show the credential mapping; got:\n%s", rec.Body.String())
+	if body := get(t, h, "/ui/projects/acme/roles").Body.String(); !strings.Contains(body, "known-cred") {
+		t.Errorf("roles table should show the credential mapping; got:\n%s", body)
 	}
 	for _, bad := range []string{"git=unknown-cred", "git="} {
 		if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {
