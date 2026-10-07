@@ -66,7 +66,7 @@ func TestAgentsListMergesAndKinds(t *testing.T) {
 	if n := strings.Count(body, `<tr data-id="s-ticket">`); n != 1 {
 		t.Errorf("an enrolled studio is one row, got %d", n)
 	}
-	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "no studio") || !strings.Contains(row, `href="/ui/projects/acme/roles/ops"`) {
+	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "not running") || !strings.Contains(row, `href="/ui/projects/acme/roles/ops"`) {
 		t.Errorf("enrolled-only row: %s", row)
 	}
 	last := -1
@@ -139,7 +139,7 @@ func TestAgentPageIdentity(t *testing.T) {
 		}
 	}
 	rec := get(t, h, "/ui/agents/e-only")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No studio is running for this agent.") || !strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "This agent isn't running.") || !strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {
 		t.Errorf("enrolled-only agent = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), `hx-delete="/ui/coves/e-only"`) {

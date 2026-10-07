@@ -61,9 +61,10 @@ session or squawks is a 404.
 ## Agent context cards
 
 The [role page, the project Overview](ui-projects.md) and the dashboard each carry an **Agent context**
-card — the [session context](session-context.md) for that layer (role, project, Jam-wide): the core, its size as an agent
-receives it against the budget (a project's includes the resources pointer), the
-leaves and, for projects, the resources. **Edit agent context** is one YAML box in
+card for that layer (role, project, Jam-wide; the concept is [session
+context](session-context.md)): the core, its size as an agent receives it
+against the budget (a project's includes the resources pointer), the leaves and,
+for projects, the resources. **Edit agent context** is one YAML box in
 the [`at-jam context` format](session-context-authoring.md) with bodies inline;
 saving runs the same checks as the API, and **Clear** removes the layer.
 
@@ -86,7 +87,7 @@ The page shows:
   injects there (the role's mapping or this default), linked to the role page.
 - **Connector conflicts** — flagged, never blocked: if a role using this
   destination also lists one that sets an env variable differently, or that
-  also routes git, the page names the role and the other destination. Studios
+  also routes git, the page names the role and the other destination. Agents
   holding that role can't assemble a connector (Jam fails closed with 409)
   until one side changes. The check is over each role's own scope; a grant
   override can still differ.

@@ -1,6 +1,6 @@
 ---
-summary: What the Jam admin UI can change — enroll/revoke agents, roles and grants, raising and tearing down studios and requesting a personal session, and the kit/destination/model-spec registry — with the type-ahead fields, the write banner, and the gate/CSRF/audit rules every write obeys.
-read_when: You want to change something from the Jam admin UI instead of the CLI — enroll or revoke an agent, add a grant, create a role, raise or tear down a studio, request a personal session, edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
+summary: What the Jam admin UI can change — enroll/revoke agents, roles and grants, raising and tearing down agents and requesting a personal agent, and the kit/destination/model-spec registry — with the type-ahead fields, the write banner, and the gate/CSRF/audit rules every write obeys.
+read_when: You want to change something from the Jam admin UI instead of the CLI — enroll or revoke an agent, add a grant, create a role, raise or tear down an agent, request a personal agent, edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
 owns: the admin UI's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels and the write banner, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
 prereqs: ui.md for reaching the UI and its sections; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
 tier: leaf
@@ -70,14 +70,14 @@ config — see [coves.md](coves.md)), the Agents list can also:
   manual wiring).
 - **Tear down a studio** (confirmed) — from its row or its agent's page.
 
-A project's Roles section and each role page (**Request agent**) gain a **Request** action: it raises a
-[personal session](personal-sessions.md) — a personal agent — of that role **for you**, with the
+A project's Roles section (**Request**) and each role page (**Request agent**) raise a
+personal agent — a [personal session](personal-sessions.md) — of that role **for you**, with the
 prompt `Squawk me (user:<your name>) and we will get to work.`, so the
-session opens the conversation with you on the intercom. You must be signed in
+agent opens the conversation with you on the intercom. You must be signed in
 (`/ui/auth/login`) as a login linked to a member of the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
-the outcome (the new session id, or the refusal) shows in the page's banner.
+the outcome (the new agent id, or the refusal) shows in the page's banner.
 
 Without a runtime supervisor, studios are view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions

@@ -60,7 +60,7 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
 
-Every table has a fixed order — agents and studios by id; roles by project, then
+Every table has a fixed order — agents by id; roles by project, then
 name; kits and destinations by name; squawks newest-first — so rows don't shuffle
 across a poll or an edit, and the JSON admin API and CLI lists match it.
 

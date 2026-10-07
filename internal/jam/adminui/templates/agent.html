@@ -54,7 +54,7 @@
 </div>
 
 {{if not .Running}}
-<div class="banner">{{if .HasActor}}No studio is running for this agent.{{else}}This agent's studio is not running — it was torn down and left the registry.{{end}} Its session and squawks, if any, remain below as an audit trail.</div>
+<div class="banner">{{if .HasActor}}This agent isn't running.{{else}}This agent is no longer running — it was torn down and left the registry.{{end}} Its session and squawks, if any, remain below as an audit trail.</div>
 {{end}}
 
 <div class="sections">
@@ -87,7 +87,7 @@
   details.grant-add form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   details.grant-add input,details.grant-add select{width:auto;flex:1 1 140px;padding:5px 8px}
 </style>
-    {{else}}<span class="unset">Not enrolled — no identity token or grants (its studio's token was released, or it was revoked).</span>{{end}}
+    {{else}}<span class="unset">Not enrolled — no identity token or grants (its token was released, or it was revoked).</span>{{end}}
     </div>
   </section>
   {{if .Running}}{{with .Inst}}
@@ -116,11 +116,11 @@
   </section>
 
   <section class="card">
-    <header><h2>Egress</h2><span class="sub">the role policy this studio runs under</span></header>
+    <header><h2>Egress</h2><span class="sub">the role policy this agent runs under</span></header>
     <div class="body">
       <dl class="kv">
         <dt>Policy</dt><dd>{{if .Egress}}<span class="mono" title="{{.Egress}}">{{$.EgressID}}</span>{{else}}<span class="unset">unknown — re-applied on the next reconcile</span>{{end}}</dd>
-        <dt>Re-apply</dt><dd>{{if .EgressFailures}}<span class="pill phase-lost">{{.EgressFailures}} failure(s)</span> <span class="unset">the supervisor tears the studio down at its limit</span>{{else}}<span class="unset">ok</span>{{end}}</dd>
+        <dt>Re-apply</dt><dd>{{if .EgressFailures}}<span class="pill phase-lost">{{.EgressFailures}} failure(s)</span> <span class="unset">the supervisor tears the agent down at its limit</span>{{else}}<span class="unset">ok</span>{{end}}</dd>
       </dl>
     </div>
   </section>
