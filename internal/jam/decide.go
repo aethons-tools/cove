@@ -96,11 +96,16 @@ func normalizeGlob(g string) string {
 // anyAllowed reports whether some glob matches some of a target's forms (a
 // person is "user:<name>" and "user:<usr_id>"; a channel "channel:<name>").
 // An id form is matched only by that exact id, "user:*" or "*": a name glob
-// never matches an id ("usr_…"), so it can't reach every member.
+// never matches an id ("usr_…"), so it can't reach every member. A session
+// ("session:<label|id>") is matched only by a session: glob — "*" predates
+// session addressing and never reaches one.
 func anyAllowed(forms []string, globs []string) bool {
 	for _, g := range globs {
 		g = normalizeGlob(g)
 		for _, f := range forms {
+			if strings.HasPrefix(f, "session:") && !strings.HasPrefix(g, "session:") {
+				continue // sessions are reached only by an explicit session: glob, never "*"
+			}
 			if isIDForm(f) {
 				if g == f || g == "user:*" || g == "*" {
 					return true
@@ -125,17 +130,18 @@ func isIDForm(f string) bool {
 	return err == nil && id.Kind() == ident.User
 }
 
-// Target is one address a session may send to: a person ("user", by name)
-// or a room ("channel"), in the project of the grant that allows it.
+// Target is one address a session may send to: a person ("user", by name),
+// a room ("channel") or a session ("session", by label, or by id when its
+// label is shared), in the project of the grant that allows it.
 type Target struct {
-	Kind    string // "user" | "channel"
+	Kind    string // "user" | "channel" | "session"
 	Name    string
 	Project string
 }
 
-// ListTargets returns the actor's allowed-and-resolvable targets: the members
-// and rooms of each grant's project its addressing allows (dedup by
-// kind:name, grant then name order). An expired actor has none.
+// ListTargets returns the actor's allowed-and-resolvable targets: the members,
+// rooms and other live sessions of each grant's project its addressing allows
+// (dedup by kind:name, grant then name order). An expired actor has none.
 func ListTargets(store Store, a Actor, now time.Time) []Target {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return nil
@@ -166,6 +172,58 @@ func ListTargets(store Store, a Actor, now time.Time) []Target {
 				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
 			}
 		}
+		tracker, hasTracker := store.ConnectionOfKind("linear")
+		self, _ := store.GetInstance(a.ID)
+		for _, inst := range liveSessionsOf(store, p.Name) {
+			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, tracker.ID, self, inst, globs) {
+				continue
+			}
+			name := sessionAddressName(store, inst)
+			key := "session:" + name
+			if !seen[key] && anyAllowed([]string{"session:" + sessionLabel(inst), "session:" + inst.ActorID}, globs) {
+				seen[key] = true
+				out = append(out, Target{Kind: "session", Name: name, Project: g.Project})
+			}
+		}
 	}
 	return out
+}
+
+// sessionTicketAllowed reports whether a session whose addressing is globs
+// may reach target where target's home is its ticket (on tracker): no ticket,
+// the poster's own ticket, or a ticket: glob in any form resolveTicket takes
+// — the bare key, or scoped to the tracker connection by name or id.
+func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
+	if target.Unit == "" || target.Unit == poster.Unit {
+		return true
+	}
+	forms := []string{"ticket:" + target.Unit, "ticket:" + string(tracker) + "/" + target.Unit}
+	if c, ok := store.GetConnection(tracker); ok {
+		forms = append(forms, "ticket:"+c.Name+"/"+target.Unit)
+	}
+	return anyAllowed(forms, globs)
+}
+
+// liveSessionsOf lists the live sessions of the project named project, by id.
+func liveSessionsOf(store Store, project string) []Instance {
+	var out []Instance
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != PhaseGone && orDefaultProject(inst.Project) == project {
+			out = append(out, inst)
+		}
+	}
+	slices.SortFunc(out, func(a, b Instance) int { return strings.Compare(a.ActorID, b.ActorID) })
+	return out
+}
+
+// sessionAddressName is how a session:<name> address names inst: its label
+// when no other live session of its project shares it, else its id.
+func sessionAddressName(store Store, inst Instance) string {
+	label := sessionLabel(inst)
+	for _, other := range liveSessionsOf(store, orDefaultProject(inst.Project)) {
+		if other.ActorID != inst.ActorID && sessionLabel(other) == label {
+			return inst.ActorID
+		}
+	}
+	return label
 }

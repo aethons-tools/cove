@@ -128,7 +128,7 @@ func TestSurfacesTicket(t *testing.T) {
 	wantSurfaces(t, "session on its ticket", k.dir.Surfaces("linear", m), map[string]string{"linear:ACME-7": ""})
 	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m), nil)
 
-	ch, _ := k.ic.DefaultChannel(k.ticket)
+	ch, _ := k.ic.HomeChannel(k.ticket)
 	byAlice, err := k.ic.PostTrusted(ch, intercom.Squawk{From: k.alice.ID, Body: "from /me"})
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +158,32 @@ func TestSurfacesChatOverDiscord(t *testing.T) {
 	wantSurfaces(t, "alice's reply reaches bob, not back to her", k.dir.Surfaces("discord", reply), map[string]string{"discord:inbox-B": "alice: "})
 }
 
+// A session channel reaches its people like a chat: a person who joined a
+// standing session's channel from /me gets its posts in their inbox.
+func TestSurfacesSessionChannel(t *testing.T) {
+	k := newRelayKit(t)
+	pl, err := k.ic.PlanHome(k.bob.ID, ident.ID(k.std.ActorID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.ic.Post(pl, intercom.Squawk{From: k.bob.ID, Body: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	m := k.send(k.std, "", "hi bob")
+	wantSurfaces(t, "standing session to bob", k.dir.Surfaces("discord", m), map[string]string{"discord:inbox-B": k.ic.PartyOf(ident.ID(k.std.ActorID)).Label + ": "})
+	wantSurfaces(t, "no linear surface", k.dir.Surfaces("linear", m), nil)
+
+	// A ticket session and a person with no inbox in the channel never turn
+	// its posts into public comments on that ticket.
+	ch, _ := k.st.GetChannel(m.Channel)
+	for _, who := range []ident.ID{ident.ID(k.ticket.ActorID), k.carol.ID} {
+		if err := k.st.JoinChannel(ch.ID, who, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantSurfaces(t, "no linear fallback for a session channel", k.dir.Surfaces("linear", k.send(k.std, "", "private")), nil)
+}
+
 // A person with no Discord inbox is @-mentioned on the ticket of a session in
 // the chat — the pre-channel "user:x from a ticket session" delivery.
 func TestSurfacesChatLinearFallback(t *testing.T) {
@@ -184,7 +210,7 @@ func TestSurfacesRooms(t *testing.T) {
 
 func TestRouteLinear(t *testing.T) {
 	k := newRelayKit(t)
-	ticket, _ := k.ic.DefaultChannel(k.ticket)
+	ticket, _ := k.ic.HomeChannel(k.ticket)
 	ev := relay.Event{ForeignID: "c1", Surface: "ACME-7", Author: "Stranger", AuthorID: "lin-9", Body: "hi", ReplyToForeign: "c0"}
 	r, ok := k.dir.Route("linear", "acme", ev)
 	if !ok || r.Channel != ticket.ID || r.From.Kind() != ident.Account || r.ReplyTo != "in:linear:c0" || r.Origin != k.linear.ID || r.OriginRef != "ACME-7" {
@@ -273,7 +299,7 @@ func TestRouteDiscordOtherCases(t *testing.T) {
 	if err := k.dir.receipts.Record("OLD", k.personal.ActorID, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	chat, _ := k.ic.DefaultChannel(k.personal)
+	chat, _ := k.ic.HomeChannel(k.personal)
 	if r, ok := k.dir.Route("discord", "acme", relay.Event{ForeignID: "2", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "OLD"}); !ok || r.Channel != chat.ID || r.ReplyTo != "in:discord:OLD" {
 		t.Fatalf("legacy receipt = %+v, %v", r, ok)
 	}

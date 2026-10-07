@@ -385,6 +385,9 @@ func (m *memState) exportRegistry(snap *ConfigSnapshot) {
 	}
 	slices.SortFunc(snap.StandingSessions, func(a, b StandingSessionRef) int { return strings.Compare(a.SessionID, b.SessionID) })
 	for _, id := range slices.Sorted(maps.Keys(m.channels)) {
+		if m.channels[id].Kind == SourceSession {
+			continue // runtime state, made again for live sessions (Reconcile); an older Jam can't import the kind
+		}
 		snap.Channels = append(snap.Channels, copyChannel(m.channels[id]))
 	}
 }

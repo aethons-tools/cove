@@ -12,10 +12,10 @@ func TestBoilerplatePerKind(t *testing.T) {
 		mustNot []string
 	}{
 		{SessionFacts{Kind: KindStanding, Name: "alice-bot", Project: "acme", Role: "reviewer"},
-			[]string{`the standing session "alice-bot" for role reviewer in project acme`, "always pass `to`", "until an operator removes you"},
+			[]string{`the standing session "alice-bot" for role reviewer in project acme`, "`send` without `to` posts to your own channel", "until an operator removes you"},
 			[]string{"owner"}},
 		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "pair"},
-			[]string{"a personal session for alice", "`send` without `to` reaches alice", "until alice releases"},
+			[]string{"a personal session for alice", "`send` without `to` posts to your own channel, which alice is in", "until alice releases"},
 			nil},
 		{SessionFacts{Kind: "", Project: "acme", Role: "worker", Unit: "AET-9"},
 			[]string{"an ephemeral worker session for role worker in project acme", "without `to` posts to your ticket"},
@@ -74,11 +74,12 @@ func TestBoilerplateTicketTurnContract(t *testing.T) {
 	}
 }
 
-// Without a unit there is no ticket: `send` without `to` is rejected.
-func TestBoilerplateEphemeralWithoutUnitNeedsTo(t *testing.T) {
+// Without a unit there is no ticket: `send` without `to` posts to the
+// session's own channel.
+func TestBoilerplateEphemeralWithoutUnitHasOwnChannel(t *testing.T) {
 	c := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r"}).Core
-	if strings.Contains(c, "ticket") || !strings.Contains(c, "always pass `to`") {
-		t.Fatalf("unit-less ephemeral must be told to always pass `to`:\n%s", c)
+	if strings.Contains(c, "ticket") || !strings.Contains(c, "posts to your own channel") {
+		t.Fatalf("unit-less ephemeral must be told about its own channel:\n%s", c)
 	}
 }
 

@@ -104,7 +104,8 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// plan resolves a /me send: a channel id, or a person or session to chat with.
+// plan resolves a /me send: a channel id, a person to chat with, or a
+// session to reach in its home channel.
 func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
@@ -122,7 +123,7 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 		}
 		return h.ic.PlanPersonChat(p.UserID, id)
 	case kind == "session":
-		return h.ic.PlanPersonChat(p.UserID, ident.ID(ref))
+		return h.ic.PlanHome(p.UserID, ident.ID(ref))
 	}
 	return Planned{}, ErrSendUnresolved
 }

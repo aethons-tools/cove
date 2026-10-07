@@ -13,11 +13,11 @@ import (
 // projection in channels.go now only serves the legacy log (the History).
 
 // viewKind maps a channel kind onto the rail's kinds: a chat is a
-// conversation with its people and sessions (DM), a ticket is a studio's
-// conversation, a room a named channel.
+// conversation with its people and sessions (DM), a ticket or a session's
+// own channel is a studio's conversation, a room a named channel.
 func viewKind(k SourceKind) ChannelKind {
 	switch k {
-	case SourceTicket:
+	case SourceTicket, SourceSession:
 		return ChannelStudio
 	case SourceRoom:
 		return ChannelNamed

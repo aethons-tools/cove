@@ -12,18 +12,18 @@ import (
 // from the image's SANDBOX.md (COV-246). That file's guard tells a Jam session
 // (CORE.md present) to ignore it, so these are the rules the session follows.
 func Boilerplate(f SessionFacts) Layer {
-	const noDefault = "You have no default recipient: always pass `to` (`list_targets` shows who you may message). "
+	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
 	var who, comms, turns string
 	turns = "- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn."
 	switch f.Kind {
 	case KindStanding:
 		who = fmt.Sprintf("the standing session %q for role %s in project %s", f.Name, f.Role, f.Project)
-		comms = noDefault + "A message to you wakes you. You run until an operator removes you."
+		comms = ownChannel + "A message to you wakes you. You run until an operator removes you."
 		turns += " Ending your turn is how you wait."
 	case KindPersonal:
 		who = fmt.Sprintf("a personal session for %s (role %s, project %s)", f.Owner, f.Role, f.Project)
-		comms = fmt.Sprintf("Your owner is %[1]s: `send` without `to` reaches %[1]s, and their reply wakes you. "+
-			"You stay open until %[1]s releases you.", f.Owner)
+		comms = fmt.Sprintf("You were started by %[1]s: `send` without `to` posts to your own channel, which %[1]s is in, and their reply wakes you. "+
+			"Pass `to` to reach anyone else (`list_targets`). You stay open until %[1]s releases you.", f.Owner)
 		turns += " Ending your turn is how you wait."
 	default:
 		who = fmt.Sprintf("an ephemeral worker session for role %s in project %s", f.Role, f.Project)
@@ -32,7 +32,7 @@ func Boilerplate(f SessionFacts) Layer {
 			comms = "`send` without `to` posts to your ticket."
 			turns += "\n- Your ticket: keep its state current with `report` (in-review with the PR link, needs-input, blocked, done), and call `end` as your last action once it is finished."
 		} else {
-			comms = strings.TrimSpace(noDefault)
+			comms = strings.TrimSpace(ownChannel)
 		}
 	}
 	core := strings.Join([]string{
@@ -58,7 +58,7 @@ const changingTheKit = `# Changing the kit
 You cannot rebuild your own cove or widen its access. When you need something the sandbox lacks:
 
 1. Work out the exact change: an egress domain, a tool and version, an env var.
-2. Message a human (your owner, or a project contact) with the change and why. Name where it goes: the role's studio kit ` + "`kit.yml`" + ` (` + "`egress:`" + `, ` + "`build-args:`" + `, ` + "`base:`" + `), or the role's egress policy (` + "`at-jam egress set`" + `), which an operator manages.
+2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit ` + "`kit.yml`" + ` (` + "`egress:`" + `, ` + "`build-args:`" + `, ` + "`base:`" + `), or the role's egress policy (` + "`at-jam egress set`" + `), which an operator manages.
 3. It takes effect after the kit is pushed (` + "`at-jam kit push`" + `) and the cove is re-raised; an egress-policy change applies at the next raise.
 
 A one-off install or ` + "`export`" + ` in this session is fine for now but will not survive a rebuild.`

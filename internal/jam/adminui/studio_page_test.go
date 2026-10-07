@@ -141,7 +141,7 @@ func TestStudioPageChannelLogSquawks(t *testing.T) {
 	if err := ic.SetUp(inst); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := ic.DefaultChannel(inst)
+	ticket, _ := ic.HomeChannel(inst)
 	if _, err := ic.PostTrusted(ticket, intercom.Squawk{From: alice, Body: "a reply on the ticket"}); err != nil {
 		t.Fatal(err)
 	}

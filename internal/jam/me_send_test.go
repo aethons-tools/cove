@@ -27,7 +27,7 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := f.ic.DefaultChannel(f.ticket)
+	ticket, _ := f.ic.HomeChannel(f.ticket)
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
 	if w := meSend(t, h, f.bob, `{"to":"`+string(ticket.ID)+`","body":"go ahead"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("send = %d %s", w.Code, w.Body)
@@ -41,14 +41,15 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 	}
 }
 
-// A new message to a person or a session starts (or reuses) a chat with them.
+// A new message to a person starts (or reuses) a chat with them; to a
+// session, it goes to the session's home channel.
 func TestParticipantSendNewConversations(t *testing.T) {
 	f := newICFixture(t)
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
 	for to, who := range map[string]ident.ID{
 		"user:" + string(f.alice.ID):    f.alice.ID,
 		"user:alice":                    f.alice.ID,
-		"session:" + f.personal.ActorID: ident.ID(f.personal.ActorID),
+		"session:" + f.standing.ActorID: ident.ID(f.standing.ActorID),
 	} {
 		before := len(f.log.InboxSince(who, 0, 0))
 		if w := meSend(t, h, f.bob, `{"to":"`+to+`","body":"hello"}`); w.Code != http.StatusNoContent {
@@ -58,14 +59,14 @@ func TestParticipantSendNewConversations(t *testing.T) {
 			t.Fatalf("to %s: %s's inbox = %+v", to, who, got)
 		}
 	}
-	if chats := f.store.ListChannels(f.project.ID, SourceChat); len(chats) != 2 {
-		t.Fatalf("chats = %+v, want bob+alice (reused by id and name) and bob+session", chats)
+	if chats := f.store.ListChannels(f.project.ID, SourceChat); len(chats) != 1 {
+		t.Fatalf("chats = %+v, want bob+alice (reused by id and name)", chats)
 	}
 }
 
 func TestParticipantSendErrors(t *testing.T) {
 	f := newICFixture(t)
-	ownerChat, _ := f.ic.DefaultChannel(f.personal)
+	ownerChat, _ := f.ic.HomeChannel(f.personal)
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
 	for body, want := range map[string]int{
 		`{"to":"user:alice","body":""}`: http.StatusBadRequest,
@@ -74,7 +75,7 @@ func TestParticipantSendErrors(t *testing.T) {
 		`{"to":"user:alice","body":"x","content_type":"text/html"}`: http.StatusBadRequest,
 		`{"to":"user:carol","body":"x"}`:                            http.StatusNotFound, // not a member
 		`{"to":"user:nobody","body":"x"}`:                           http.StatusNotFound,
-		`{"to":"session:nope","body":"x"}`:                          http.StatusNotFound,
+		`{"to":"session:nope","body":"x"}`:                          http.StatusForbidden, // never tells whether it exists
 		`{"to":"chn_01j9q3zzzzzzzzzzzzzzzzzzzz","body":"x"}`:        http.StatusForbidden, // never tells whether it exists
 		`{"to":"` + string(ownerChat.ID) + `","body":"x"}`:          http.StatusForbidden, // alice's chat, not bob's
 		`{"to":"pigeon:alice","body":"x"}`:                          http.StatusNotFound,

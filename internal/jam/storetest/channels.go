@@ -125,6 +125,44 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		}
 	})
 
+	t.Run("reopen", func(t *testing.T) {
+		s, p, c := setup(t)
+		ch := mustChannel(t, s, room(p, "eng", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
+		u, _ := s.CreateUser(jam.User{Name: "alice"})
+		if err := s.JoinChannel(ch.ID, u.ID, 3); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReopenChannel(ch.ID); err != nil {
+			t.Fatalf("reopen a live channel: %v, want a no-op", err)
+		}
+		if err := s.ArchiveChannel(ch.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReopenChannel(ch.ID); err != nil {
+			t.Fatalf("ReopenChannel: %v", err)
+		}
+		if got, ok := s.ChannelByKey(p.ID, jam.SourceRoom, "eng"); !ok || got.ID != ch.ID || got.Status != jam.StatusLive {
+			t.Fatalf("reopened = %+v, %v", got, ok)
+		}
+		if got, ok := s.ChannelByBinding(c.ID, "ACME-1"); !ok || got.ID != ch.ID {
+			t.Fatal("a reopened channel takes its ingress back")
+		}
+		if m := s.ChannelMembers(ch.ID); len(m) != 1 || m[0].ParticipantID != u.ID {
+			t.Fatalf("members kept = %+v", m)
+		}
+		// A live channel took the key meanwhile: the old one stays archived.
+		if err := s.ArchiveChannel(ch.ID); err != nil {
+			t.Fatal(err)
+		}
+		mustChannel(t, s, room(p, "eng"))
+		if err := s.ReopenChannel(ch.ID); !errors.Is(err, jam.ErrChannelExists) {
+			t.Fatalf("reopen over a live key: %v, want ErrChannelExists", err)
+		}
+		if err := s.ReopenChannel("chn_01j9q3zzzzzzzzzzzzzzzzzzzz"); !errors.Is(err, jam.ErrChannelNotFound) {
+			t.Fatalf("reopen unknown: %v", err)
+		}
+	})
+
 	t.Run("binding_taken", func(t *testing.T) {
 		s, p, c := setup(t)
 		mustChannel(t, s, room(p, "eng", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))

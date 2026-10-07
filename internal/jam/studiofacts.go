@@ -48,8 +48,10 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 		switch {
 		case t.Kind == "channel":
 			who = "channel"
+		case t.Kind == "session":
+			who = "session"
 		case t.Name == owner:
-			who = "your owner"
+			who = "started you"
 		}
 		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: t.Kind + ":" + t.Name, Who: who})
 	}

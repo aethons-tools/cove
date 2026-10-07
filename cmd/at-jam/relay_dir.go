@@ -105,7 +105,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: prefix(service)})
 		}
-	case jam.SourceChat:
+	case jam.SourceChat, jam.SourceSession: // a session channel reaches its people as a chat does
 		p, ok := d.projectOf(ch)
 		if !ok {
 			return nil
@@ -140,7 +140,9 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		// The Linear fallback carries a session's message to a person (the
 		// pre-channel "user:x from a ticket session"); a person's chat
 		// message is never made a public comment.
-		if tracker, ok := d.tracker(); service == "linear" && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
+		// A session channel has no such fallback: it is never rendered onto a
+		// ticket another session in it works on.
+		if tracker, ok := d.tracker(); service == "linear" && ch.Kind == jam.SourceChat && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
 			out = append(out, relay.Delivery{Service: "linear", Address: ticket, BodyPrefix: strings.Join(mentions, " ") + " " + prefix("linear")})
 		}
 	}
@@ -213,7 +215,7 @@ func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 				return relay.Routed{}, false
 			}
 			var err error
-			if ch, err = d.ic.DefaultChannel(inst); err != nil {
+			if ch, err = d.ic.HomeChannel(inst); err != nil {
 				return relay.Routed{}, false
 			}
 		}

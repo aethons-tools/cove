@@ -34,19 +34,20 @@ const resumePrompt = "New input may have arrived on your ticket — use the inte
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the
 // owner replying — arrives.
-const residentResumePrompt = "Your owner may have replied — use the intercom `read` tool to fetch new messages, then continue. " +
-	"Use `send` to message your owner when you have results or need input."
+const residentResumePrompt = "A reply may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
+	"`send` without `to` posts to your own channel, which the person who started you is in: use it when you have results or need input."
 
-// standingResumePrompt is a standing session's wake text: it has no owner and
-// no default recipient.
-const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. Pass `to` when you `send`."
+// standingResumePrompt is a standing session's wake text: it has no owner;
+// people reach it in its own channel or elsewhere.
+const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
+	"`send` without `to` posts to your own channel; pass `to` to answer anywhere else."
 
 // standingRestartPrompt is the first message of a standing session's first
 // episode when it resumes a prior conversation (its /agent-data survived a
 // restart): it replaces the raise prompt, which the conversation already holds.
 const standingRestartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
-	"then continue where you left off. Pass `to` when you `send`."
+	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else."
 
 // resumeFailWindow bounds the resume fallback: a resumed episode that exits
 // non-zero within it, the agent never having replied, is retried fresh.

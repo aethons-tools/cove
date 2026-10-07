@@ -114,8 +114,9 @@ type NewMessageOption struct {
 }
 
 // newMessageOptions lists who the participant can start a conversation
-// with, across their projects: its other members and live sessions (a chat),
-// the live sessions' tickets, and its rooms.
+// with, across their projects: its other members (a chat), the live sessions
+// they may reach (in a session's home channel) and their tickets, and its
+// rooms.
 func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 	seen := map[string]bool{}
 	var out []NewMessageOption
@@ -145,7 +146,9 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			}
 			waiting := inst.Activity == jam.ActivityWaiting || inst.Phase == jam.PhaseIdled
 			label := d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label
-			add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "session", Project: name, Waiting: waiting})
+			if d.Intercom.MayReach(p.UserID, inst) {
+				add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "session", Project: name, Waiting: waiting})
+			}
 			if inst.Unit != "" {
 				if ch, ok := d.Intercom.TicketChannelOf(inst); ok {
 					add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "ticket", Project: name, Waiting: waiting})
