@@ -142,7 +142,7 @@ at-jam project escalation list  <project>
 at-jam project escalation clear <project> [--category <name>]
 ```
 
-The admin UI's project page edits the same chains ([ui-pages.md](ui-pages.md#project-pages)).
+The admin UI's project Escalation page edits the same chains ([ui-projects.md](ui-projects.md#sections)).
 
 - `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
   `comma,separated,targets@duration` — a comma-separated list of `user:<name>`
