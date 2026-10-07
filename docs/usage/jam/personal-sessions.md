@@ -171,7 +171,8 @@ at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 ```
 
 - **request** grants a slot, then raises the studio with you as its owner, and
-  prints only the session id (a new `ses_…` id for each request). The admin UI's role
+  prints only the session id (a new `ses_…` id for each request). It is **named**
+  `pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The admin UI's role
   **Request** action does the same from the browser (see
   [ui-editing.md](ui-editing.md#runtime-studios)). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
@@ -187,7 +188,7 @@ at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 
 | Route | Result |
 |---|---|
-| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role, a project whose chat service isn't `discord`, or an owner with no Discord delivery profile. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
+| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, name, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role, a project whose chat service isn't `discord`, or an owner with no Discord delivery profile. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
 | `GET /admin/sessions/personal?project=P` | **200** with your own personal sessions in P. **403** if your login is not linked. |
 | `DELETE /admin/sessions/personal/{id}` | **204** after the teardown. **404** if the id does not exist or is not a personal session. **403** unless you are its owner. |
 

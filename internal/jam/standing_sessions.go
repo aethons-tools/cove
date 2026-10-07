@@ -111,14 +111,25 @@ func RaiseManual(ctx context.Context, store Store, sup *Supervisor, label string
 	if label == "" {
 		return Instance{}, "", "", "", writeErr(http.StatusBadRequest, "id (the session's label) is required")
 	}
-	for _, inst := range store.ListInstances() {
-		if inst.Phase != PhaseGone && (inst.ActorID == label || (inst.Name == label && inst.SessionKind != SessionKindStanding)) {
-			return Instance{}, "", "", "", writeErr(http.StatusConflict, "a live session is already labelled %q", label)
-		}
+	if sessionLabelTaken(store, label) {
+		return Instance{}, "", "", "", writeErr(http.StatusConflict, "a live session is already labelled %q", label)
 	}
 	spec.ActorID, spec.Name = string(ident.New(ident.Session)), label
 	inst, tok, secret, err := sup.Raise(ctx, spec)
 	return inst, spec.ActorID, tok, secret, err
+}
+
+// sessionLabelTaken reports whether a live session already answers to label:
+// its id, or the name of a non-standing session (a manual label or a personal
+// session's name). Standing names are scoped to their role, so they don't count.
+// Such labels are unique across the Jam, which keeps ResolveSession unambiguous.
+func sessionLabelTaken(store Store, label string) bool {
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != PhaseGone && (inst.ActorID == label || (inst.Name == label && inst.SessionKind != SessionKindStanding)) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveSession maps an operator's reference to a session id: an id as is,

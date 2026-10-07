@@ -366,3 +366,74 @@ func TestNagMessageID(t *testing.T) {
 		t.Fatal("an empty actor id never matches")
 	}
 }
+
+// A personal session is named after its role: <role>-01, else the next free
+// -NN. A name is taken while a live non-standing session carries it (the
+// manual-label rule); a gone one frees it.
+func TestPersonalSessionNames(t *testing.T) {
+	k := newSessionKit(t)
+	name := func() string {
+		t.Helper()
+		res, code, body := k.request(t)
+		if code != http.StatusCreated {
+			t.Fatalf("request = %d %s", code, body)
+		}
+		inst, _ := k.store.GetInstance(res.ID)
+		if inst.Name != res.Name {
+			t.Fatalf("instance name %q, result name %q", inst.Name, res.Name)
+		}
+		return res.Name
+	}
+	if got := name(); got != "pair-01" {
+		t.Fatalf("first = %q, want pair-01", got)
+	}
+	if got := name(); got != "pair-02" {
+		t.Fatalf("second = %q, want pair-02", got)
+	}
+	// a manual raise labelled pair-03 takes that name; a standing session's
+	// declared name (scoped to its role) does not.
+	for _, i := range []Instance{
+		{ActorID: "manual-x", Project: "acme", Role: "pair", Name: "pair-03", Phase: PhaseLive},
+		{ActorID: "standing-x", Project: "acme", Role: "pair", Name: "pair-04", SessionKind: SessionKindStanding, Phase: PhaseLive},
+	} {
+		if err := k.store.PutInstance(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := name(); got != "pair-04" {
+		t.Fatalf("third = %q, want pair-04 (pair-03 is a live manual label)", got)
+	}
+	// pair-01 goes away: its name is free again.
+	for _, i := range k.store.ListInstances() {
+		if i.Name == "pair-01" {
+			i.Phase = PhaseGone
+			if err := k.store.PutInstance(i); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := name(); got != "pair-01" {
+		t.Fatalf("after pair-01 went = %q, want pair-01", got)
+	}
+}
+
+// Two requests in flight can't pick the same name: a name is reserved from
+// the moment it's picked until its raise is done.
+func TestReservePersonalName(t *testing.T) {
+	store := NewMemStore()
+	a, releaseA := reservePersonalName(store, "pair")
+	b, releaseB := reservePersonalName(store, "pair")
+	if a != "pair-01" || b != "pair-02" {
+		t.Fatalf("reserved %q, %q; want pair-01, pair-02", a, b)
+	}
+	releaseA()
+	c, releaseC := reservePersonalName(store, "pair")
+	if c != "pair-01" {
+		t.Fatalf("after release = %q, want pair-01", c)
+	}
+	releaseB()
+	releaseC()
+	if got := personalName("pair", 100); got != "pair-100" {
+		t.Fatalf("past 99 = %q", got)
+	}
+}
