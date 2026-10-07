@@ -49,7 +49,7 @@ func TestImageStaleIsFlagged(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), sup, nil, anyCred, nil)
 
-	page := get(t, h, "/ui/coves").Body.String()
+	page := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, "<th>Image</th>") || !strings.Contains(page, "<td>ok</td>") {
 		t.Fatalf("fresh image not shown ok; page:\n%s", page)
 	}
@@ -58,7 +58,7 @@ func TestImageStaleIsFlagged(t *testing.T) {
 	}
 
 	asm = "a2" // a Jam-side rebuild: every raised image is now stale
-	page = get(t, h, "/ui/coves").Body.String()
+	page = get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, `title="raised on an older image than its role would run now">stale</span>`) {
 		t.Fatalf("stale image not flagged; page:\n%s", page)
 	}

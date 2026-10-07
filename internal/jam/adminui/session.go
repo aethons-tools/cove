@@ -19,8 +19,8 @@ const (
 )
 
 func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *sessionevents.Hub) {
-	mux.HandleFunc("GET /ui/coves/{id}/session", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Studios", "ActorID": r.PathValue("id"), "Enabled": store != nil}
+	mux.HandleFunc("GET /ui/agents/{id}/session", func(w http.ResponseWriter, r *http.Request) {
+		data := map[string]any{"Title": r.PathValue("id") + " session", "ActorID": r.PathValue("id"), "Enabled": store != nil}
 		if store != nil {
 			streams, _ := store.Streams(r.PathValue("id"))
 			selected := r.URL.Query().Get("stream")
@@ -31,13 +31,16 @@ func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *session
 		}
 		render(w, "session", data)
 	})
-	mux.HandleFunc("GET /ui/coves/{id}/session/events", func(w http.ResponseWriter, r *http.Request) {
+	events := func(w http.ResponseWriter, r *http.Request) {
 		if store == nil || hub == nil {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		serveSessionEvents(w, r, store, hub)
-	})
+	}
+	mux.HandleFunc("GET /ui/agents/{id}/session/events", events)
+	// The pre-agents path, for timelines already open in a browser.
+	mux.HandleFunc("GET /ui/coves/{id}/session/events", events)
 }
 
 type eventView struct {

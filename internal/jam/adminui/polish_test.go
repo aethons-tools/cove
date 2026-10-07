@@ -14,8 +14,8 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
 	for path, href := range map[string]string{
 		"/ui/":             `href="/ui/"`,
-		"/ui/actors":       `href="/ui/coves"`, // Agents
-		"/ui/kits":         `href="/ui/kits"`,  // Specs
+		"/ui/agents":       `href="/ui/agents"`,
+		"/ui/kits":         `href="/ui/kits"`, // Specs
 		"/ui/destinations": `href="/ui/kits"`,
 		"/ui/users":        `href="/ui/users"`,
 		"/ui/projects":     `href="/ui/projects"`,
@@ -56,14 +56,14 @@ func TestDashboardShowsStatTiles(t *testing.T) {
 func TestPhasePill(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/coves").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
 	if !strings.Contains(body, `class="pill phase-live"`) {
 		t.Errorf("studios table should render the phase as a pill; got:\n%s", body)
 	}
 }
 
-// The roster renders one collapsed add-grant form per actor and grants as
-// removable chips, not a full form row under every grant table.
+// An agent's page renders its grants as removable chips and one collapsed
+// add-grant form.
 func TestRosterPerActorGrantForm(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
@@ -75,12 +75,12 @@ func TestRosterPerActorGrantForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String()
-	if n := strings.Count(body, `hx-post="/ui/actors/`); n != 2 {
-		t.Errorf("want one add-grant form per actor (2), got %d", n)
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents/a-1").Body.String()
+	if n := strings.Count(body, `hx-post="/ui/actors/a-1/grants"`); n != 1 {
+		t.Errorf("want one add-grant form on the agent's page, got %d", n)
 	}
-	if n := strings.Count(body, `<details class="grant-add"`); n != 2 {
-		t.Errorf("add-grant forms should be collapsed <details>, got %d", n)
+	if n := strings.Count(body, `<details class="grant-add"`); n != 1 {
+		t.Errorf("the add-grant form should be a collapsed <details>, got %d", n)
 	}
 	if !strings.Contains(body, `hx-delete="/ui/actors/a-1/grants/acme/worker"`) {
 		t.Errorf("grant chip should carry its remove action")

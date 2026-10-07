@@ -10,21 +10,26 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
-// studioSquawkLimit caps how many squawks the studio page shows; the Intercom
+// studioSquawkLimit caps how many squawks the agent page shows; the Intercom
 // page (linked, pre-filtered) has the rest.
 const studioSquawkLimit = 50
 
-// studioDetail is the studio page payload. Inst is the registry record while
-// the studio runs; a torn-down studio is gone from the registry, so Running is
-// false and only its audit trail (session streams, squawks) is shown.
-type studioDetail struct {
+// agentDetail is the agent page payload: the identity (an enrolled actor and
+// its grants), its studio while one runs, and its session's audit trail. Inst
+// is the registry record while the studio runs; a torn-down studio is gone
+// from the registry, so Running is false and only its audit trail (session
+// streams, squawks) is shown.
+type agentDetail struct {
 	Title    string
 	ID       string
 	Running  bool
 	Inst     jam.Instance
 	CanEdit  bool
-	Kind     string // ephemeral | personal | standing
+	Kind     string // standing | personal | ticket | manual | enrolled (agentKind)
 	EgressID string // short egress fingerprint
+
+	Actor    jam.ActorSummary // the enrolled identity, when HasActor
+	HasActor bool
 
 	SessionsEnabled bool
 	Streams         []sessionevents.StreamInfo
@@ -74,23 +79,27 @@ func studioSquawks(store jam.Store, msgs SquawkReader, id string) ([]squawkRow, 
 	return rows, more
 }
 
-// buildStudioDetail gathers a studio's page; false when nothing at all is
-// known about id (not running, no session streams, no squawks).
-func buildStudioDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, id string, canEdit bool) (studioDetail, bool) {
+// buildAgentDetail gathers an agent's page; false when nothing at all is
+// known about id (no actor, not running, no session streams, no squawks).
+func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, id string, canEdit bool) (agentDetail, bool) {
 	participant := id // the session: its squawks in the channel log, and as actor:<id> in the legacy log
-	d := studioDetail{
-		Title: "Studios", ID: id, CanEdit: canEdit,
+	d := agentDetail{
+		Title: id, ID: id, CanEdit: canEdit,
 		SessionsEnabled: sess != nil, SquawksConfigured: msgs != nil,
 		IntercomURL: "/ui/intercom?participant=" + url.QueryEscape(participant),
 	}
 	d.Inst, d.Running = store.GetInstance(id)
 	d.Inst.Project = jam.ProjectName(store, d.Inst.Project) // the page names it
 	if d.Running {
-		d.Kind = d.Inst.SessionKind
-		if d.Kind == "" {
-			d.Kind = "ephemeral"
-		}
 		d.EgressID = shortDigest(d.Inst.Egress)
+	}
+	for _, a := range jam.RosterSummaries(store) {
+		if a.ID == id {
+			d.Actor, d.HasActor = a, true
+		}
+	}
+	if d.Running || d.HasActor { // a gone studio with no identity is neither
+		d.Kind = agentKind(d.Inst, d.Running)
 	}
 	if sess != nil {
 		d.Streams, _ = sess.Streams(id)
@@ -98,17 +107,17 @@ func buildStudioDetail(store jam.Store, msgs SquawkReader, sess sessionevents.St
 	if msgs != nil {
 		d.Squawks, d.SquawksMore = studioSquawks(store, msgs, id)
 	}
-	return d, d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
+	return d, d.HasActor || d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
 }
 
-func registerStudio(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, canEdit bool) {
-	mux.HandleFunc("GET /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildStudioDetail(store, msgs, sess, r.PathValue("id"), canEdit)
+func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, canEdit bool) {
+	mux.HandleFunc("GET /ui/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
+		d, ok := buildAgentDetail(store, msgs, sess, r.PathValue("id"), canEdit)
 		if !ok {
 			d.NotFound = true
-			renderStatus(w, http.StatusNotFound, "studio", d)
+			renderStatus(w, http.StatusNotFound, "agent", d)
 			return
 		}
-		render(w, "studio", d)
+		render(w, "agent", d)
 	})
 }

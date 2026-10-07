@@ -94,7 +94,7 @@ func TestRaiseCoveNoRuntime503(t *testing.T) {
 		t.Fatalf("raise with no runtime = %d, want 503", rec.Code)
 	}
 	// And the Coves page hides the raise form.
-	page := get(t, h, "/ui/coves").Body.String()
+	page := get(t, h, "/ui/agents").Body.String()
 	if strings.Contains(page, `hx-post="/ui/coves"`) {
 		t.Error("read-only Coves page must not render the raise form")
 	}
@@ -148,7 +148,7 @@ func TestCovesControlsRenderWithSupervisor(t *testing.T) {
 	h := adminui.Handler(store, testLogger(), newSup(t, store), nil, anyCred, nil)
 
 	// Raise form is present on the Coves page.
-	page := get(t, h, "/ui/coves").Body.String()
+	page := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, `hx-post="/ui/coves"`) {
 		t.Error("Coves page with a supervisor must render the raise form")
 	}
@@ -157,7 +157,7 @@ func TestCovesControlsRenderWithSupervisor(t *testing.T) {
 	if rec := covePost(t, h, "/ui/coves", url.Values{"id": {"cove-3"}, "project": {"acme"}, "role": {"worker"}}); rec.Code != http.StatusOK {
 		t.Fatalf("setup raise = %d", rec.Code)
 	}
-	page = get(t, h, "/ui/coves").Body.String()
+	page = get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, `hx-delete="/ui/coves/`) {
 		t.Errorf("Coves page with a live cove must render the Teardown button; got:\n%s", page)
 	}
@@ -198,8 +198,36 @@ func TestCovesConnectorStaleIsFlagged(t *testing.T) {
 	if err := sup.RecordConnector(jam.ResolveSession(store, "cove-s"), "not-the-current-fingerprint"); err != nil {
 		t.Fatal(err)
 	}
-	page := get(t, h, "/ui/coves").Body.String()
+	page := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, `<span class="pill phase-raising">stale</span>`) {
 		t.Fatalf("stale connector not flagged; page:\n%s", page)
+	}
+}
+
+// Raising from a filtered Agents tab keeps the filter: the table fragment is
+// derived from the page's own URL (HX-Current-URL), so it keeps polling it.
+func TestRaiseKeepsAgentsFilter(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), newSup(t, store), nil, anyCred, nil)
+	for hdr, want := range map[string]string{
+		"http://host/ui/agents?phase=live": `hx-get="/ui/agents?phase=live" hx-trigger="every 3s"`,
+		"":                                 `hx-get="/ui/agents" hx-trigger="every 3s"`,
+		"::not a url":                      `hx-get="/ui/agents" hx-trigger="every 3s"`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/ui/coves", strings.NewReader(url.Values{"id": {"c-" + strings.Repeat("x", len(hdr))}, "project": {"acme"}, "role": {"worker"}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", "http://"+req.Host)
+		if hdr != "" {
+			req.Header.Set("HX-Current-URL", hdr)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("HX-Current-URL %q: %d, want %s in\n%s", hdr, rec.Code, want, rec.Body.String())
+		}
 	}
 }

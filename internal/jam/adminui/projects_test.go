@@ -68,7 +68,7 @@ func projHandler(store jam.Store) http.Handler {
 
 func TestProjectsTabFollowsDashboard(t *testing.T) {
 	body := get(t, projHandler(seedProjects(t)), "/ui/projects").Body.String()
-	dash, proj, studios := strings.Index(body, `href="/ui/"`), strings.Index(body, `href="/ui/projects"`), strings.Index(body, `href="/ui/coves"`)
+	dash, proj, studios := strings.Index(body, `href="/ui/"`), strings.Index(body, `href="/ui/projects"`), strings.Index(body, `href="/ui/agents"`)
 	if !(dash >= 0 && dash < proj && proj < studios) {
 		t.Errorf("nav order: dashboard@%d projects@%d studios@%d", dash, proj, studios)
 	}
@@ -161,7 +161,7 @@ func TestProjectPage(t *testing.T) {
 		}
 		// the section itself (the tree lists studio-acme on every page)
 		if strings.HasSuffix(path, "/agents") {
-			if sec := body[strings.Index(body, `<div id="project">`):]; !strings.Contains(sec, `href="/ui/coves/studio-acme"`) {
+			if sec := body[strings.Index(body, `<div id="project">`):]; !strings.Contains(sec, `href="/ui/agents/studio-acme"`) {
 				t.Errorf("%s: studios table missing studio-acme", path)
 			}
 		}
@@ -186,16 +186,15 @@ func TestProjectPageNotFound(t *testing.T) {
 // project, so a typo can't land anything.
 func TestProjectPickers(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	for _, path := range []string{"/ui/actors", "/ui/coves"} {
+	for _, path := range []string{"/ui/agents", "/ui/agents/a1"} {
 		body := get(t, h, path).Body.String()
 		if !strings.Contains(body, `<input name="project" data-ta="projects" value="default"`) || strings.Contains(body, `<select name="project"`) {
 			t.Errorf("%s: project should be a type-ahead prefilled with default", path)
 		}
 	}
-	// the roster's per-actor add-grant form, re-rendered after a write, keeps it
-	rec := post(t, h, "/ui/actors/a1/grants", url.Values{"project": {"acme"}, "role": {"ops"}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `name="project" data-ta="projects"`) {
-		t.Errorf("roster fragment after add-grant lost the project type-ahead: %d", rec.Code)
+	// the agent page's add-grant form posts the typed project
+	if rec := post(t, h, "/ui/actors/a1/grants", url.Values{"project": {"acme"}, "role": {"ops"}}); rec.Code != http.StatusOK {
+		t.Errorf("add-grant = %d", rec.Code)
 	}
 	// an unknown project is still refused
 	if rec := post(t, h, "/ui/roles", url.Values{"project": {"nope"}, "name": {"r"}}); rec.Code != http.StatusNotFound {

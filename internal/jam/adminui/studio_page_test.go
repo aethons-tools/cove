@@ -50,7 +50,7 @@ func studioFixture(t *testing.T, sup *jam.Supervisor) http.Handler {
 }
 
 func TestStudioPageShowsRuntime(t *testing.T) {
-	rec := get(t, studioFixture(t, &jam.Supervisor{}), "/ui/coves/sess-1")
+	rec := get(t, studioFixture(t, &jam.Supervisor{}), "/ui/agents/sess-1")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("studio page = %d", rec.Code)
 	}
@@ -75,9 +75,9 @@ func TestStudioPageShowsRuntime(t *testing.T) {
 }
 
 func TestStudioPageSessionAndSquawks(t *testing.T) {
-	body := get(t, studioFixture(t, nil), "/ui/coves/sess-1").Body.String()
+	body := get(t, studioFixture(t, nil), "/ui/agents/sess-1").Body.String()
 	for _, want := range []string{
-		fmt.Sprintf(`href="/ui/coves/sess-1/session?stream=%s"`, sessSID), "2 event(s)",
+		fmt.Sprintf(`href="/ui/agents/sess-1/session?stream=%s"`, sessSID), "2 event(s)",
 		"need a decision", "go ahead",
 		`href="/ui/intercom?participant=sess-1"`,
 	} {
@@ -103,19 +103,23 @@ func TestStudioPageGoneStillShowsAudit(t *testing.T) {
 	l := newIntercomLog(t, intercom.LegacySquawk{From: actor("old-1"), To: []intercom.Target{human("alice")}, Body: "last words", At: time.Now(), Project: "acme"})
 	st := sessionevents.NewMemStore()
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, l, adminui.WithSessions(st, sessionevents.NewHub()))
-	rec := get(t, h, "/ui/coves/old-1")
+	rec := get(t, h, "/ui/agents/old-1")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "not running") || !strings.Contains(rec.Body.String(), "last words") {
 		t.Fatalf("gone studio = %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := get(t, h, "/ui/coves/never-was"); rec.Code != http.StatusNotFound {
+	if strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {
+		t.Error("a gone studio with no actor is not enrolled; no kind chip")
+	}
+	if rec := get(t, h, "/ui/agents/never-was"); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown id = %d, want 404", rec.Code)
 	}
 }
 
 func TestStudiosTableLinksStudioPage(t *testing.T) {
-	body := get(t, studioFixture(t, nil), "/ui/coves").Body.String()
-	if !strings.Contains(body, `href="/ui/coves/sess-1"`) || !strings.Contains(body, `href="/ui/coves/sess-1/session"`) {
-		t.Errorf("studios row should link the studio page and its timeline")
+	// the dashboard's studio table links each studio's agent page and timeline
+	body := get(t, studioFixture(t, nil), "/ui/").Body.String()
+	if !strings.Contains(body, `href="/ui/agents/sess-1"`) || !strings.Contains(body, `href="/ui/agents/sess-1/session"`) {
+		t.Errorf("studios row should link the agent page and its timeline")
 	}
 }
 
@@ -146,7 +150,7 @@ func TestStudioPageChannelLogSquawks(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
-	if body := get(t, h, "/ui/coves/sess-2").Body.String(); !strings.Contains(body, "a reply on the ticket") || !strings.Contains(body, "COV-1 · ticket") {
+	if body := get(t, h, "/ui/agents/sess-2").Body.String(); !strings.Contains(body, "a reply on the ticket") || !strings.Contains(body, "COV-1 · ticket") {
 		t.Errorf("studio page lacks its ticket's squawk:\n%s", body)
 	}
 }

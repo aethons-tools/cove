@@ -4,7 +4,7 @@ read_when: You have a kit, serve config, script, environment or bookmark that st
 owns: the Harbor → Jam old→new name table, which old names are deprecated aliases, and the alias removal policy
 prereqs: none
 tier: leaf
-updated: 2026-09-27
+updated: 2026-10-07
 ---
 
 # Renamed from Harbor
@@ -24,7 +24,7 @@ process) that names the old and new name and points here. The aliases are
 | kit `config.yml` `harbor:` block | `jam:` | Yes, with a warning. Setting both is a validation error. |
 | serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host` | Yes, with a warning. Setting both is an error. |
 | serve config `runtime.dispatcher` (the resident dispatcher) | `runtime.requisitioner` (the Requisitioner) | Yes, with a warning. Setting both is an error. The standalone `at-dispatch` keeps its name. |
-| `at-jam cove raise\|list\|status\|teardown` | `at-jam studio raise\|list\|status\|teardown` | Yes, with a warning. The entity is called a **Studio** in the CLI, the admin UI and the docs; ids, admin API routes (`/admin/coves…`, `/ui/coves`), JSON fields, `cove-master` and `.at-cove/` keep "cove". |
+| `at-jam cove raise\|list\|status\|teardown` | `at-jam studio raise\|list\|status\|teardown` | Yes, with a warning. The entity is called a **Studio** in the CLI, the admin UI and the docs; ids, admin API routes (`/admin/coves…`), JSON fields, `cove-master` and `.at-cove/` keep "cove". |
 | admin UI cookies `harbor_session`, `harbor_oauth_*` | `jam_session`, `jam_oauth_*` | No. **Admin UI users log in again once** after upgrading; the old cookies are simply ignored. |
 | broker basic-auth realm `harbor` | `jam` | No. Git picks its credential helper by URL, not realm, so coves are unaffected. |
 | `HARBOR_TEST_POSTGRES_DSN`; CI and dev database/user/password `harbor` | `JAM_TEST_POSTGRES_DSN`; `jam` | No (test infrastructure). The dev compose project is now `jam-dev`, so an old `harbor-dev` volume is not reused — `just dev-up` starts fresh. |

@@ -19,15 +19,15 @@ from the UI itself.
 Beyond viewing, the UI can do the roster day-job — the same actions as the CLI
 verbs in [roster.md](roster.md):
 
-- **Enroll** an actor (id, project, role, optional destination overrides).
+- **Enroll** an agent on the Agents list (id, project, role, optional destination overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
-- **Revoke** an actor, **create/delete** a role (and edit it on its
-  [role page](ui-projects.md#role-pages)), and **add/remove** a grant.
-  On the Actors page each actor's grants are chips (`project/role`, with a ×
-  to remove; hover for the effective destinations), and **+ Grant** on the
-  actor's row opens its add-grant form.
+- **Revoke** an agent, **create/delete** a role (and edit it on its
+  [role page](ui-projects.md#role-pages)), and **add/remove** a grant. On an
+  [agent's page](ui-pages.md#agent-pages) its grants are chips (`project/role`,
+  with a × to remove; hover for the effective destinations), **+ Grant** opens
+  its add-grant form, and **Revoke** is in the header.
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Credential *names*
@@ -64,13 +64,13 @@ supervisor is configured — see [Runtime (studios)](#runtime-studios) below.
 ### Runtime (studios)
 
 When Jam is configured with a runtime supervisor (`runtime:` in the serve
-config — see [coves.md](coves.md)), the Studios page can also:
+config — see [coves.md](coves.md)), the Agents list can also:
 
-- **Raise a managed studio** — id, role, optional project/unit and a workload
+- **Raise a managed studio** — a label, role, optional project/unit and a workload
   prompt. Jam handles the studio's identity token and launch secret internally;
   they are never shown in the browser (use the CLI `at-jam studio raise` for
   manual wiring).
-- **Tear down a studio** (confirmed).
+- **Tear down a studio** (confirmed) — from its row or its agent's page.
 
 A project's Roles section and each role page gain a **Request** action: it raises a
 [personal session](personal-sessions.md) of that role **for you**, with the
@@ -81,7 +81,7 @@ As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
 the outcome (the new session id, or the refusal) shows in the page's banner.
 
-Without a runtime supervisor, the Studios page is view-only. Setting a studio's
+Without a runtime supervisor, studios are view-only. Setting a studio's
 activity is not a UI action — that is reported by the studio itself. These actions
 obey the same gate, CSRF, and audit-logging as the roster edits above.
 

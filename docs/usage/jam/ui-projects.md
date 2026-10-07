@@ -94,8 +94,8 @@ only that section:
   the page says what applies when unset.
 - **Standing sessions** — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
   each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
-- **Holders** and **Studios** — the actors granted the role (marked where the
-  grant overrides the scope; grants are managed on the Actors page, under Agents) and the role's
+- **Holders** and **Studios** — the agents granted the role (linked; marked where the
+  grant overrides the scope; grants are managed on the agent's page) and the role's
   running studios.
 
 **Request session** and **Delete** (which returns to the project's Roles) are on the page header. These writes share

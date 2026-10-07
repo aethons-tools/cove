@@ -24,13 +24,13 @@ type navItem struct {
 	Href    string
 }
 
-// navItems is the top nav, in order. Agents and Specs land on today's studio
-// and kit lists until their own pages exist.
+// navItems is the top nav, in order. Specs lands on the kit list until its
+// own page exists.
 var navItems = []navItem{
 	{navDashboard, "Dashboard", "/ui/"},
 	{navProjects, "Projects", "/ui/projects"},
 	{navUsers, "Users", "/ui/users"},
-	{navAgents, "Agents", "/ui/coves"},
+	{navAgents, "Agents", "/ui/agents"},
 	{navSpecs, "Specs", "/ui/kits"},
 	{navIntercom, "Intercom", "/ui/intercom"},
 }
@@ -45,8 +45,7 @@ type subTab struct {
 // shown under the top bar on each of the section's pages. Each tab's Href is
 // also its key: a page names the tab it belongs to (mustParseTab).
 var navSubTabs = map[navSection][]subTab{
-	navAgents: {{Label: "Studios", Href: "/ui/coves"}, {Label: "Actors", Href: "/ui/actors"}},
-	navSpecs:  {{Label: "Kits", Href: "/ui/kits"}, {Label: "Destinations", Href: "/ui/destinations"}, {Label: "Model-specs", Href: "/ui/model-specs"}},
+	navSpecs: {{Label: "Kits", Href: "/ui/kits"}, {Label: "Destinations", Href: "/ui/destinations"}, {Label: "Model-specs", Href: "/ui/model-specs"}},
 }
 
 // subTabsFor is section's sub-tabs with tab (an Href) marked current; none for

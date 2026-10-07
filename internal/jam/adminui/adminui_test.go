@@ -70,12 +70,12 @@ func seedCove(t *testing.T, store jam.Store) {
 func TestCovesFullPage(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/coves")
+	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /ui/coves = %d, want 200", rec.Code)
+		t.Fatalf("GET /ui/agents = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"<nav", `id="coves"`, "spider-9", "live", "running", `hx-trigger="every 3s"`} {
+	for _, want := range []string{"<nav", `id="agents"`, "spider-9", "live", "running", `hx-trigger="every 3s"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("full page missing %q", want)
 		}
@@ -86,11 +86,11 @@ func TestCovesFragment(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/agents", nil)
 	req.Header.Set("HX-Request", "true")
 	adminui.Handler(store, testLogger(), nil, nil, anyCred, nil).ServeHTTP(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `id="coves"`) || !strings.Contains(body, "spider-9") {
+	if !strings.Contains(body, `id="agents"`) || !strings.Contains(body, "spider-9") {
 		t.Errorf("fragment missing table/row; got:\n%s", body)
 	}
 	if strings.Contains(body, "<nav") || strings.Contains(body, "<html") {
@@ -107,7 +107,7 @@ func TestCovesNoSecretLeak(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/coves")
+	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents")
 	if strings.Contains(rec.Body.String(), "SECRET-HASH-XYZ") {
 		t.Error("cove view leaked the launch-secret hash")
 	}
@@ -122,10 +122,18 @@ func TestRosterView(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE", Grants: []jam.Grant{{Project: "acme", Role: "worker"}}}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String()
-	for _, want := range []string{"spider-2", "worker", "anthropic"} {
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
+	body := get(t, h, "/ui/agents").Body.String()
+	for _, want := range []string{`href="/ui/agents/spider-2"`, "enrolled", `href="/ui/projects/acme/roles/worker"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("roster view missing %q", want)
+			t.Errorf("agents list missing %q", want)
+		}
+	}
+	// the agent page shows its grants with their effective destinations
+	body = get(t, h, "/ui/agents/spider-2").Body.String()
+	for _, want := range []string{"acme/worker", "destinations: anthropic"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("agent page missing %q", want)
 		}
 	}
 }
@@ -135,7 +143,8 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "spider-2", TokenHash: "HASH-NOPE"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/actors").Body.String(), "HASH-NOPE") {
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
+	if strings.Contains(get(t, h, "/ui/agents").Body.String()+get(t, h, "/ui/agents/spider-2").Body.String(), "HASH-NOPE") {
 		t.Error("roster view leaked a token hash")
 	}
 }

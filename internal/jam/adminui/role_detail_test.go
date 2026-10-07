@@ -139,7 +139,7 @@ func TestRoleLinksFromRolesAndRoster(t *testing.T) {
 	if !strings.Contains(roles, "git-pat") {
 		t.Errorf("roles table should show the credential mapping")
 	}
-	roster := get(t, h, "/ui/actors").Body.String()
+	roster := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(roster, `href="/ui/projects/acme/roles/review"`) {
 		t.Errorf("roster grant chips should link to the role")
 	}

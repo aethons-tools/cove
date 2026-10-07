@@ -1,7 +1,7 @@
 ---
 summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
 read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, a session timeline, and the roster/roles/kits/destinations — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
-owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
 updated: 2026-10-07
@@ -19,10 +19,9 @@ http://127.0.0.1:8081/ui/
 
 The top nav has six sections — **Dashboard · Projects · Users · Agents ·
 Specs · Intercom** — and a page highlights its section, so a detail page
-highlights the list it belongs to (a role page: Projects). **Agents** and
-**Specs** each group several list pages under a sub-tab strip: Agents holds
-**Studios · Actors**, Specs holds **Kits · Destinations · Model-specs** (their
-detail pages show the strip too). It renders:
+highlights the list it belongs to (a role page: Projects). **Specs** groups
+**Kits · Destinations · Model-specs** under a sub-tab strip (their detail pages
+show it too). It renders:
 
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
   idled studios, and counts of projects, actors, roles, kits, destinations),
@@ -43,25 +42,25 @@ detail pages show the strip too). It renders:
   studios, roster size and chat service; create one, or delete one nothing
   references. Each project opens on a tree of its sections — members, agents,
   roles, rooms and messages, escalation — see [ui-projects.md](ui-projects.md).
-- **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
-  activity, connector and image status ([coves.md](coves.md#the-studio-verbs)), lease holder, raised-at, last-seen. The table **auto-refreshes every
-  3 seconds** (htmx polling); no page reload. View-only unless a runtime
-  supervisor is configured, in which case it can also raise and tear down
-  studios — see [Runtime (studios)](ui-editing.md#runtime-studios) and
-  [coves.md](coves.md). Each id opens the studio's page (runtime, waiting and
-  escalation state, session streams, squawks — see
-  [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
-  live session timeline.
+- **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
+  per id, with its **kind** (`standing`, `personal`, `ticket` — a session with
+  a unit, `manual`, or `enrolled` — no studio), project/role, phase, activity,
+  connector and image status ([coves.md](coves.md#the-studio-verbs)); it
+  **auto-refreshes every 3 seconds**. Phase filters
+  (`?phase=live|raising|idled|attention`) match the dashboard tiles. Enroll,
+  raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
+  page ([ui-pages.md](ui-pages.md#agent-pages)); `/ui/coves…` and `/ui/actors`
+  redirect here.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See
   [Intercom](#intercom) below.
-- **Users / Actors / Kits / Destinations / Model-specs** — the control-plane
-  objects as tables, all editable from here; roles live in their project — see
+- **Users / Kits / Destinations / Model-specs** — the control-plane objects as
+  tables, all editable from here; roles live in their project — see
   [ui-editing.md](ui-editing.md).
 
-Every table has a fixed order — studios and actors by id; roles by project,
+Every table has a fixed order — agents and studios by id; roles by project,
 then name; kits and destinations by name; squawks newest-first — so rows don't
-shuffle across the Studios poll or after an edit. The order comes from the
+shuffle across a poll or after an edit. The order comes from the
 store, so the JSON admin API and CLI lists match it.
 
 **One look for `/ui` and `/me`.** Both UIs take their colors (light and dark,
@@ -183,12 +182,12 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 
-`/ui/coves/{id}/session` (linked from the Studios table and the studio's page) shows a managed
+`/ui/agents/{id}/session` (linked from studio tables and the agent's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
 markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
-behind **show progress events**. It updates live over SSE from `/ui/coves/{id}/session/events` (backfill, then
+behind **show progress events**. It updates live over SSE from `/ui/agents/{id}/session/events` (backfill, then
 live; reconnects resume via `Last-Event-ID`). Storage, retention,
 and sensitivity: [session-events.md](session-events.md).
 

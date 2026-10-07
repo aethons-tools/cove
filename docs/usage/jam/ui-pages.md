@@ -1,7 +1,7 @@
 ---
-summary: The Jam admin UI's per-entity pages outside a project — a user's page, a studio's page (/ui/coves/<id>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a user, studio, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; a studio's runtime, waiting/escalation state, session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the user, studio, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/ui/agents/<id>: identity, grants, studio, session, squawks), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a user, studio, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI and the top nav; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-07
@@ -26,14 +26,19 @@ A project's pages (its tree, sections and role pages) are in
 logins and OIDC identities, adds or unlinks accounts, and removes it (rename and
 remove are refused while the user owns a live personal session).
 
-## Studio pages
+## Agent pages
 
-Each studio id in the Studios table opens `/ui/coves/<id>`, the hub for one
-studio. The header shows its phase, activity, kind (ephemeral, personal with
-its owner, or standing with its name), project, role and unit (linked), with
-**Open live timeline** (the [session timeline](ui.md#session-timeline)) and,
-when a runtime supervisor is configured, **Teardown**.
+Each agent id (in the Agents list, a studio table, a role's holders, a
+project's identities, or search) opens `/ui/agents/<id>`, the page for one
+agent identity. The header shows its kind, phase and activity, standing name or
+personal owner, project, role and unit (linked), with **Open live timeline**
+(the [session timeline](ui.md#session-timeline); shown when session capture is
+configured), **Teardown** (returns to the Agents list) when it has a
+studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 
+- **Identity** — its grants as `project/role` chips (× removes one; hover for
+  the effective destinations), **+ Grant**, and its token expiry; or "not
+  enrolled" for a studio whose identity is gone.
 - **Runtime** — raised and last seen, lease holder, backend and location.
 - **Waiting & escalation** — whether it is waiting and since when (wake-on
   resumes it on a reply past its wait seq), the open escalation (which tier was
