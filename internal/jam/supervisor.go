@@ -740,8 +740,9 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 	}
 	if turnStarted {
 		// Whatever woke it answered this turn end, so the idle deadline is
-		// disarmed until the next one.
+		// disarmed until the next one, and an escalate ask is answered too.
 		inst.IdleDeadline = time.Time{}
+		inst.EscalationAsked = false
 		// Fired alarms were answered too: retire one-shots, re-arm the rest.
 		var kept []Alarm
 		for _, al := range inst.Alarms {
@@ -1013,7 +1014,9 @@ func (s *Supervisor) alarmZone(inst Instance) *time.Location {
 	return time.UTC
 }
 
-// SetEscalationCategory stamps the cove-declared block category on its instance.
+// SetEscalationCategory stamps the cove-declared block category on its
+// instance, and marks it as asking for a person (EscalationAsked) until a turn
+// next starts.
 // Persists until re-declared or teardown (Report does not clear it); the
 // escalation engine reads it to pick the tier chain, falling back to the default
 // when the category isn't configured. No-op semantics if the actor is gone.
@@ -1025,6 +1028,7 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.EscalationCategory = category
+	inst.EscalationAsked = true // asks for a person until it is next woken
 	return s.store.PutInstance(inst)
 }
 

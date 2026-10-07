@@ -42,7 +42,8 @@ profile for the owner.
 
 **v1 limit:** you can only *reply* to the studio's messages; a new, non-reply message
 in your inbox channel does not reach it. The session is never torn down for
-`wait-max` and never escalated (it has no ticket); it ends when you release it, or
+`wait-max`; it [escalates](escalation.md) only when it calls `escalate` and the
+project has a policy (you are already in its channel); it ends when you release it, or
 when the [idle ladder](#the-idle-ladder) reclaims it (only if its role sets
 `--reclaim-after`).
 

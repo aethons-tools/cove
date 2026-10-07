@@ -4,7 +4,7 @@ read_when: You are enabling or operating Jam's automatic intake — having it po
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # The Requisitioner
@@ -73,11 +73,12 @@ runtime:
 ```
 
 The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
-wake-on engine) and `escalation-poll-interval` (the escalation engine). The three wake
-fields are now a **fallback**: the matching `runtime.wake` field wins when set — see
-[intercom.md](intercom.md#waiting-for-a-reply-wake-on). The Requisitioner also brings the
-escalation engine and the Linear relay, both of which need its tracker; the intercom
-itself (`/squawks`, wake-on, the Discord relay) runs without a Requisitioner.
+wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
+**fallback**: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
+wins when set — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) and
+[escalation.md](escalation.md). The Requisitioner also brings the Linear relay, which
+needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
+relay) runs without a Requisitioner.
 
 The role must grant the `anthropic` and `git` destinations so the raised studio's
 agent can reach them ([roster.md](roster.md)).

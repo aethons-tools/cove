@@ -22,7 +22,7 @@ that channel's members. Jam holds the tracker token, does the platform I/O, and 
 - **`list_targets()`** — lists the people, rooms and sessions this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
 - **`call_in(who, channel?)`** and **`leave(channel)`** — membership (`POST /squawks/call-in` → `200 {channel, member}`, `POST /squawks/leave` → `204`); see [Channel membership](#channel-membership).
 - **`report(state, summary, pr?)`**, **`end(reason)`**, **`idle_timeout(duration, scope)`** and **`alarm_set` / `alarm_clear` / `alarm_list`** — report a ticket's state, end the session at turn end, tune how long it may sit idle after one, or set named alarms that wake it; see [turn-end.md](turn-end.md).
-- **`escalate(category)`** — declares the studio's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
+- **`escalate(category)`** — asks for a person: declares the block's category (picking the escalation tier chain) and, until the session is next woken, opens an escalation once it waits — its tiers are called into the session's channel; see [escalation.md](escalation.md#when-it-opens-waiting-and-asking-for-a-person).
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.
 
@@ -186,9 +186,9 @@ paused agent-to-agent wakes here … Reply here to resume"); a person's post res
 "ended" notice, the breaker's — are for people and never wake another session;
 a session calling another in does.
 
-A Project may also configure an **escalation policy** that actively pings ordered
-human tiers on their own per-tier timers while a studio waits, instead of leaving it
-to wait passively — a separate, independent clock from `wait-max` above; see
+A Project may also configure an **escalation policy** that calls ordered tiers of
+people into a waiting session's channel on their own per-tier timers when it asks
+for a person, instead of leaving it to wait passively — a separate, independent clock from `wait-max` above; see
 [escalation.md](escalation.md).
 
 ## Not yet (later comms slices)

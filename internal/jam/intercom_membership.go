@@ -32,7 +32,7 @@ func IsBreakerNotice(id string) bool { return strings.HasPrefix(id, "breaker:") 
 // channel (IsLocalNotice). A notice is for people: it never wakes another
 // session (wake-on).
 func IsNotice(id string) bool {
-	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsCallInNotice(id) || IsBreakerNotice(id)
+	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsCallInNotice(id) || IsBreakerNotice(id) || IsEscalationNotice(id)
 }
 
 // BreakerNotice posts the agent-to-agent loop breaker's notice (wake-on) into

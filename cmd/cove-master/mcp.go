@@ -586,7 +586,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "escalate",
-		Description: "Declare the category of your current block so Jam routes the escalation to the right on-call tier. Call this before you finish a turn needing input; it categorizes, it does not itself page anyone.",
+		Description: "Ask for a person: declare your current block's category so Jam calls the right on-call people into your channel if you're still waiting after this turn (per the project's escalation policy). Call it before you end a turn needing input; it asks until you're next woken.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in escalateIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr

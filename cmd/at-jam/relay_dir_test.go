@@ -396,3 +396,29 @@ func TestSurfacesSkipCallInNotice(t *testing.T) {
 	}
 	wantSurfaces(t, "call-in notice", k.dir.Surfaces("linear", m[0]), nil)
 }
+
+// An escalation notice in a ticket's conversation @-mentions the tier's
+// people on the issue (those with handles) and reaches each called-in
+// person's Discord inbox.
+func TestSurfacesEscalationNotice(t *testing.T) {
+	k := newRelayKit(t)
+	var members []jam.Member
+	for _, u := range []jam.User{k.alice, k.bob, k.carol} {
+		p, _ := k.st.GetProject("acme")
+		m, ok := jam.MemberOf(k.st, p.ID, u.ID)
+		if !ok {
+			t.Fatal("no member")
+		}
+		members = append(members, m)
+	}
+	if err := k.ic.Escalate(context.Background(), k.ticket, 0, "", members); err != nil {
+		t.Fatal(err)
+	}
+	m := k.lg.InboxSince(k.carol.ID, 0, 0)
+	if len(m) != 1 {
+		t.Fatalf("carol's inbox = %+v", m)
+	}
+	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-7": "@alice.h @carol.h "})
+	label := k.ic.PartyOf(ident.ID(k.ticket.ActorID)).Label + ": "
+	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m[0]), map[string]string{"discord:inbox-A": label, "discord:inbox-B": label})
+}
