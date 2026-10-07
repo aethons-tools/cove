@@ -134,7 +134,9 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
-	studios := searchGroup{Key: "studios", Name: "Studios"}
+	// Agents: one hit per id, whether it is a studio, an enrolled actor or both.
+	agents := searchGroup{Key: "agents", Name: "Agents"}
+	seen := map[string]bool{}
 	for _, i := range store.ListInstances() {
 		i.Project = jam.ProjectName(store, i.Project)
 		if m.any(i.ActorID, i.Unit, i.Owner, i.Name, i.Project+"/"+i.Role) {
@@ -145,18 +147,17 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			if i.Owner != "" {
 				sub += " · owner " + i.Owner
 			}
-			studios.add(searchHit{Title: i.ActorID, Sub: sub, URL: agentURL(i.ActorID), Exact: m.exact(i.ActorID)})
+			seen[i.ActorID] = true
+			agents.add(searchHit{Title: i.ActorID, Sub: sub, URL: agentURL(i.ActorID), Exact: m.exact(i.ActorID)})
 		}
 	}
-
-	actors := searchGroup{Key: "actors", Name: "Actors"}
 	for _, a := range store.ListActors() {
 		grants := make([]string, len(a.Grants))
 		for i, g := range a.Grants {
 			grants[i] = jam.ProjectName(store, g.Project) + "/" + g.Role
 		}
-		if m.any(append([]string{a.ID}, grants...)...) {
-			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: agentURL(a.ID), Exact: m.exact(a.ID)})
+		if !seen[a.ID] && m.any(append([]string{a.ID}, grants...)...) {
+			agents.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: agentURL(a.ID), Exact: m.exact(a.ID)})
 		}
 	}
 
@@ -183,6 +184,20 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
+	specs := searchGroup{Key: "model-specs", Name: "Model-specs"}
+	for _, ms := range store.ListModelSpecs() {
+		if m.any(ms.Name, string(ms.Type), ms.Model.ID, ms.Principal.Credential) {
+			var parts []string
+			for _, p := range []string{string(ms.Type), ms.Principal.Credential, ms.Model.ID} {
+				if p != "" {
+					parts = append(parts, p)
+				}
+			}
+			sub := strings.Join(parts, " · ")
+			specs.add(searchHit{Title: ms.Name, Sub: sub, URL: specURL(ms.Name), Exact: m.exact(ms.Name)})
+		}
+	}
+
 	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/ui/intercom?q=" + url.QueryEscape(q)}
 	if msgs != nil {
 		var found []Logged
@@ -204,7 +219,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
-	for _, g := range []searchGroup{studios, roles, projects, kits, dests, actors, users, channels, squawks} {
+	for _, g := range []searchGroup{agents, roles, projects, kits, dests, specs, users, channels, squawks} {
 		if g.Count > 0 {
 			d.Groups = append(d.Groups, g)
 			d.Total += g.Count

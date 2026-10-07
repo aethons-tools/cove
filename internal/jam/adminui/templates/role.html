@@ -50,7 +50,7 @@
   <h1>{{.Name}}</h1>
   <div class="facts">
     <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
-    {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    {{if .Role.Kit}}<span>kit <a class="chip accent" href="{{kitURL .Role.Kit}}">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
     <span>model-spec <a class="chip" href="/ui/model-specs/{{.Role.ModelSpecName}}">{{.Role.ModelSpecName}}</a>{{if not .Role.ModelSpec}} <span class="unset">default</span>{{end}}</span>
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>
@@ -187,7 +187,7 @@
   <section class="card">
     <header><h2>Holders</h2><span class="sub">agents granted this role — open one to manage its grants</span></header>
     <div class="body">
-      {{range .Holders}}<span class="chip"><a href="{{agentURL .ID}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No actors hold this role.</span>{{end}}
+      {{range .Holders}}<span class="chip"><a href="{{agentURL .ID}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No agents hold this role.</span>{{end}}
     </div>
   </section>
 

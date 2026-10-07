@@ -19,6 +19,7 @@ type Logged struct {
 	At          time.Time
 	From        string // label
 	FromID      string // participant id; for a legacy squawk its kind:ref
+	AgentID     string // the author's agent id when it is one (links its page), else ""
 	Channel     string // the channel's label and kind ("" for a legacy squawk)
 	ChannelID   string
 	Project     string
@@ -71,7 +72,7 @@ func (r logReader) Squawks(legacy bool) []Logged {
 			for _, t := range m.To {
 				to = append(to, toCell{Target: t.String(), External: intercom.Classify(t) == intercom.External})
 			}
-			out = append(out, Logged{At: m.At, From: m.From.String(), FromID: m.From.String(), Project: m.Project, To: to,
+			out = append(out, Logged{At: m.At, From: m.From.String(), FromID: m.From.String(), AgentID: legacyAgentID(m.From), Project: m.Project, To: to,
 				Body: m.Body, ContentType: m.ContentType, Legacy: true})
 		}
 		return out
@@ -80,10 +81,17 @@ func (r logReader) Squawks(legacy bool) []Logged {
 		return nil
 	}
 	projects := map[ident.ID]string{}
+	agents := map[string]bool{} // actor and instance ids: the store's agents
+	for _, a := range r.store.ListActors() {
+		agents[a.ID] = true
+	}
 	for _, m := range r.log.ListSince(0, 0) {
 		ch := r.ic.ChannelParty(m.Channel)
 		l := Logged{At: m.At, From: r.ic.PartyOf(m.From).Label, FromID: string(m.From), Channel: ch.Label + " · " + ch.Kind,
 			ChannelID: string(m.Channel), Body: m.Body, ContentType: m.ContentType}
+		if _, live := r.store.GetInstance(string(m.From)); live || agents[string(m.From)] {
+			l.AgentID = string(m.From)
+		}
 		if c, ok := r.store.GetChannel(m.Channel); ok {
 			if _, ok := projects[c.ProjectID]; !ok {
 				if e, ok := r.store.Resolve(c.ProjectID); ok {
@@ -95,6 +103,14 @@ func (r logReader) Squawks(legacy bool) []Logged {
 		out = append(out, l)
 	}
 	return out
+}
+
+// legacyAgentID is the agent id of a legacy author actor:<id>, else "".
+func legacyAgentID(t intercom.Target) string {
+	if t.Kind == "actor" {
+		return t.Ref
+	}
+	return ""
 }
 
 // dateLayout is the format of the since/until date inputs.
@@ -111,6 +127,7 @@ type squawkRow struct {
 	At        string
 	From      string
 	FromID    string
+	AgentID   string // the author's agent id when it is one
 	Channel   string
 	ChannelID string
 	To        []toCell
@@ -243,6 +260,7 @@ func toRow(m Logged) squawkRow {
 		At:        m.At.Format("2006-01-02 15:04:05"),
 		From:      m.From,
 		FromID:    m.FromID,
+		AgentID:   m.AgentID,
 		Channel:   m.Channel,
 		ChannelID: m.ChannelID,
 		To:        m.To,

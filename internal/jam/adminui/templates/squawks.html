@@ -19,7 +19,7 @@
     {{range .Rows}}
       <tr>
         <td><time>{{.At}}</time></td>
-        <td><span class="mono" title="{{.FromID}}">{{.From}}</span></td>
+        <td>{{if .AgentID}}<a class="mono" href="{{agentURL .AgentID}}" title="{{.FromID}}">{{.From}}</a>{{else}}<span class="mono" title="{{.FromID}}">{{.From}}</span>{{end}}</td>
         <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}" title="{{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
         <td>{{.Project}}</td>
         <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}{{if .Plain}} <span class="reach">text/plain</span>{{end}}</td>

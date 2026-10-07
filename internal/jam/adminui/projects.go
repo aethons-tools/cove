@@ -140,6 +140,7 @@ type projectDetail struct {
 	Holders      []projectHolder
 	Coves        []jam.CoveSummary
 	LiveCoves    int
+	Agents       int  // studios in the project ∪ actors holding a grant into it
 	CanEdit      bool // always false: the page's studio table is read-only
 	CanRequest   bool // the Roles section offers Request (a supervisor runs)
 	Members      []memberRow
@@ -183,6 +184,14 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 			}
 		}
 	}
+	agents := map[string]bool{} // the Agents section's rows: studios in the project plus grant holders
+	for _, c := range d.Coves {
+		agents[c.ID] = true
+	}
+	for _, h := range d.Holders {
+		agents[h.ID] = true
+	}
+	d.Agents = len(agents)
 	members := jam.MembersOf(store, p.ID)
 	for _, m := range members {
 		d.Members = append(d.Members, memberRow{UserID: m.User.ID, Name: m.User.Name, Handle: m.Handle,

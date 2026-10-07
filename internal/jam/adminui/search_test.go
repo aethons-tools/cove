@@ -140,3 +140,16 @@ func TestSearchHighlightEscapes(t *testing.T) {
 		t.Errorf("highlight must escape the surrounding text")
 	}
 }
+
+// A model-spec hit's sub-line has no dangling separator when the principal
+// credential is empty.
+func TestSearchModelSpecSubNoDanglingSeparator(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "bare", Type: jam.HarnessClaude, Version: "2.1.0"}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, projHandler(store), "/ui/search?q=bare").Body.String()
+	if !strings.Contains(body, "bare") || strings.Contains(body, " · <") || strings.Contains(body, "· </") {
+		t.Errorf("dangling separator:\n%s", body)
+	}
+}

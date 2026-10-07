@@ -24,14 +24,13 @@ type navItem struct {
 	Href    string
 }
 
-// navItems is the top nav, in order. Specs lands on the kit list until its
-// own page exists.
+// navItems is the top nav, in order. Specs lands on its first sub-tab (Kits).
 var navItems = []navItem{
 	{navDashboard, "Dashboard", "/ui/"},
 	{navProjects, "Projects", "/ui/projects"},
 	{navUsers, "Users", "/ui/users"},
 	{navAgents, "Agents", "/ui/agents"},
-	{navSpecs, "Specs", "/ui/kits"},
+	{navSpecs, "Specs", "/ui/specs"},
 	{navIntercom, "Intercom", "/ui/intercom"},
 }
 

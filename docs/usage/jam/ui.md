@@ -1,6 +1,6 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
-read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, a session timeline, and the roster/roles/kits/destinations — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
+summary: The Jam admin UI — a server-rendered web view of the agents and their studios, the projects, users and specs, and the durable squawk Log, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
+read_when: You want to watch a running Jam in a browser — the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
 owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
@@ -19,27 +19,29 @@ http://127.0.0.1:8081/ui/
 
 The top nav has six sections — **Dashboard · Projects · Users · Agents ·
 Specs · Intercom** — and a page highlights its section, so a detail page
-highlights the list it belongs to (a role page: Projects). **Specs** groups
-**Kits · Destinations · Model-specs** under a sub-tab strip (their detail pages
-show it too). It renders:
+highlights the list it belongs to (a role page: Projects). **Specs**
+(`/ui/specs`, opening on Kits) groups **Kits · Destinations · Model-specs**
+under a sub-tab strip (their detail pages show it too). It renders:
 
-- **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
-  idled studios, and counts of projects, actors, roles, kits, destinations),
-  each linking to its page, then the Jam-wide **Session context** card
+- **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
+  idled agents, each opening the Agents list filtered to that phase, and counts
+  of projects, agents, users and specs (kits + destinations + model-specs),
+  each opening its section; then the Jam-wide **Session context** card
   ([ui-pages.md](ui-pages.md#session-context-cards)), above the studio table.
 - **Search** — the box in the top bar (press `/` from anywhere) searches every
-  page's objects at once: studios (id, unit, owner, standing name,
-  project/role), roles (project/name, kit, destinations), projects, kits (name,
-  current prompt and egress), destinations (name, route, upstream, env keys),
-  actors (id, grants), users (name, logins, OIDC subject, account handles and
-  ids) and channels, and squawk bodies (newest 10; the rest via Intercom's `q=`).
+  page's objects at once: agents (id, unit, owner, standing name,
+  project/role, grants — one hit per id), roles (project/name, kit,
+  destinations), projects, kits (name, current prompt and egress), destinations
+  (name, route, upstream, env keys), model-specs (name, type, model, principal),
+  users (name, logins, OIDC subject, account handles and ids) and rooms, and
+  squawk bodies (newest 10; the rest via Intercom's `q=`).
   Matching is case-insensitive substring, at least 2 characters; results are
   grouped and link to each object's page. **Enter** jumps straight to the page
-  when exactly one object's name is the whole query (e.g. a studio id or
+  when exactly one object's name is the whole query (e.g. an agent id or
   `acme/dev`); otherwise it opens `/ui/search?q=…`, which updates as you type.
   Session event streams are not searched.
-- **Projects** (`/ui/projects`) — every project with its roles, actors,
-  studios, roster size and chat service; create one, or delete one nothing
+- **Projects** (`/ui/projects`) — every project with its roles, agents,
+  roster size and chat service; create one, or delete one nothing
   references. Each project opens on a tree of its sections — members, agents,
   roles, rooms and messages, escalation — see [ui-projects.md](ui-projects.md).
 - **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
@@ -58,10 +60,9 @@ show it too). It renders:
   tables, all editable from here; roles live in their project — see
   [ui-editing.md](ui-editing.md).
 
-Every table has a fixed order — agents and studios by id; roles by project,
-then name; kits and destinations by name; squawks newest-first — so rows don't
-shuffle across a poll or after an edit. The order comes from the
-store, so the JSON admin API and CLI lists match it.
+Every table has a fixed order — agents and studios by id; roles by project, then
+name; kits and destinations by name; squawks newest-first — so rows don't shuffle
+across a poll or an edit, and the JSON admin API and CLI lists match it.
 
 **One look for `/ui` and `/me`.** Both UIs take their colors (light and dark,
 following the OS setting) and typography from one stylesheet, `jam.css`, in

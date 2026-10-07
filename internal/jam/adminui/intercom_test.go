@@ -234,3 +234,61 @@ func TestSquawksChannelLog(t *testing.T) {
 		t.Errorf("author filter:\n%s", body)
 	}
 }
+
+// An agent author links to its page: legacy actor:<id> authors always; in
+// the channel log, a participant the store knows as an actor or a studio.
+// Humans stay plain text.
+func TestSquawkAuthorsLinkAgents(t *testing.T) {
+	t0 := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	l := newIntercomLog(t,
+		intercom.LegacySquawk{From: actor("cove-1"), To: []intercom.Target{human("alice")}, Body: "from agent", At: t0},
+		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "from human", At: t0.Add(time.Hour)},
+	)
+	body := get(t, squawkHandler(t, l), "/ui/intercom?log=legacy").Body.String()
+	if !strings.Contains(body, `<a class="mono" href="/ui/agents/cove-1"`) {
+		t.Errorf("legacy actor author not linked:\n%s", body)
+	}
+	if strings.Contains(body, `href="/ui/agents/alice"`) {
+		t.Errorf("human author linked as an agent:\n%s", body)
+	}
+
+	store := jam.NewMemStore()
+	if err := store.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := store.LookupName(ident.User, "alice")
+	acme, _ := store.GetProject("acme")
+	eng, err := store.CreateChannel(jam.Channel{ProjectID: acme.ID, Kind: jam.SourceRoom, Key: "eng", Label: "eng"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(jam.Actor{ID: "enrolled-1", TokenHash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutInstance(jam.Instance{ActorID: "studio-1", Project: "acme", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	lg := intercom.NewMemLog(nil)
+	ic := jam.NewIntercom(store, func() (ident.ID, bool) { return "", false }, lg, nil, nil)
+	for _, c := range []struct {
+		from ident.ID
+		body string
+	}{{"enrolled-1", "by actor"}, {"studio-1", "by studio"}, {alice, "by user"}} {
+		if _, err := ic.PostTrusted(eng, intercom.Squawk{From: c.from, Body: c.body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
+	body = get(t, h, "/ui/intercom").Body.String()
+	for _, id := range []string{"enrolled-1", "studio-1"} {
+		if !strings.Contains(body, `href="/ui/agents/`+id+`"`) {
+			t.Errorf("channel-log author %s not linked:\n%s", id, body)
+		}
+	}
+	if strings.Contains(body, `href="/ui/agents/`+string(alice)+`"`) {
+		t.Errorf("user author linked as an agent")
+	}
+}

@@ -11,15 +11,14 @@
 </style>
 {{with .Stats}}
 <div class="tiles">
-  <a class="tile live" href="/ui/coves" data-stat="live"><b>{{.Live}}</b><span>Live studios</span></a>
-  <a class="tile{{if .Raising}} wait{{end}}" href="/ui/coves" data-stat="raising"><b>{{.Raising}}</b><span>Raising</span></a>
-  <a class="tile{{if .Attention}} bad{{end}}" href="/ui/coves" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
-  <a class="tile" href="/ui/coves" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
+  <a class="tile live" href="/ui/agents?phase=live" data-stat="live"><b>{{.Live}}</b><span>Live agents</span></a>
+  <a class="tile{{if .Raising}} wait{{end}}" href="/ui/agents?phase=raising" data-stat="raising"><b>{{.Raising}}</b><span>Raising</span></a>
+  <a class="tile{{if .Attention}} bad{{end}}" href="/ui/agents?phase=attention" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
+  <a class="tile" href="/ui/agents?phase=idled" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
   <a class="tile" href="/ui/projects" data-stat="projects"><b>{{.Projects}}</b><span>Projects</span></a>
-  <a class="tile" href="/ui/agents" data-stat="actors"><b>{{.Actors}}</b><span>Actors</span></a>
-  <a class="tile" href="/ui/roles" data-stat="roles"><b>{{.Roles}}</b><span>Roles</span></a>
-  <a class="tile" href="/ui/kits" data-stat="kits"><b>{{.Kits}}</b><span>Kits</span></a>
-  <a class="tile" href="/ui/destinations" data-stat="destinations"><b>{{.Destinations}}</b><span>Destinations</span></a>
+  <a class="tile" href="/ui/agents" data-stat="agents"><b>{{.Agents}}</b><span>Agents</span></a>
+  <a class="tile" href="/ui/users" data-stat="users"><b>{{.Users}}</b><span>Users</span></a>
+  <a class="tile" href="/ui/specs" data-stat="specs"><b>{{.Specs}}</b><span>Specs</span></a>
 </div>
 {{end}}
 {{template "context-panel" .JamContext}}

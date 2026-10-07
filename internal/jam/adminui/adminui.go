@@ -167,6 +167,10 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	registerAgents(mux, store, sup, canEdit)
+	// Specs has no page of its own: it opens on its first sub-tab.
+	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/kits", http.StatusFound)
+	})
 	// The global roles list and role pages moved into the project tree.
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/ui/projects")
