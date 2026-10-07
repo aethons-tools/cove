@@ -1,6 +1,6 @@
 # intercom slice 4: escalation as call-in — design
 
-**Status:** approved (2026-10-07); §8 questions decided as recommended.
+**Status:** approved (2026-10-07); §8 questions decided as recommended. Built: 4a (#381); see its plan for review decisions.
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 4 of 4. It builds on slice 3 ([`…-slice3-session-channels-design.md`](2026-10-07-intercom-slice3-session-channels-design.md)): home channels, call-in, and sessions waking sessions.
 **Today's engine:** [`docs/usage/jam/escalation.md`](../../usage/jam/escalation.md); the original designs are [`2026-09-14-harbor-escalation.md`](2026-09-14-harbor-escalation.md) and [`…-escalation-categories.md`](2026-09-14-harbor-escalation-categories.md).
 **Delivers:**
