@@ -72,19 +72,6 @@ func ParticipantByIdentity(store ParticipantStore, issuer, subject string) (Part
 	return p, true
 }
 
-// HumanByIdentity returns the roster Human bound to the browser OIDC identity
-// (issuer, subject), if any. It is how the participant send path resolves the
-// sender's per-project roster name (handles/names may differ per project — see
-// Participant) to attribute an outgoing message from the target's project.
-func (r Roster) HumanByIdentity(issuer, subject string) (Human, bool) {
-	for _, h := range r.Humans {
-		if h.HasIdentity(issuer, subject) {
-			return h, true
-		}
-	}
-	return Human{}, false
-}
-
 type participantCtxKey struct{}
 
 // WithParticipant returns r carrying the authenticated participant, so /me

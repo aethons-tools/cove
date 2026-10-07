@@ -673,11 +673,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /admin/projects/{project}/roster", func(w http.ResponseWriter, r *http.Request) {
-		rr, _ := store.GetRoster(r.PathValue("project"))
-		writeJSON(w, http.StatusOK, rr)
-	})
-
 	mux.HandleFunc("GET /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, EscalationView{Default: p.Escalation, ByCategory: p.EscalationByCategory})

@@ -44,7 +44,7 @@ func fixture() (*env, jam.Participant) {
 	if err := st.CreateProject("proj"); err != nil {
 		panic(err)
 	}
-	if err := st.AddHuman("proj", jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}}}); err != nil {
+	if err := jam.AddPerson(st, "proj", jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-alice"}}}); err != nil {
 		panic(err)
 	}
 	proj, _ := st.GetProject("proj")
@@ -419,7 +419,7 @@ func railFor(t *testing.T, h http.Handler, p jam.Participant) string {
 // deliveries, then the legacy log's conversations as a read-only History.
 func TestRailUnreadAndHistory(t *testing.T) {
 	e, p := fixture()
-	if err := e.st.AddHuman("proj", jam.Human{Name: "bob"}); err != nil {
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
 		t.Fatal(err)
 	}
 	bob, _ := e.st.LookupName(ident.User, "bob")
@@ -468,5 +468,22 @@ func TestRailUnreadAndHistory(t *testing.T) {
 	}
 	if rail := railFor(t, h, p); strings.Contains(rail, ">eng<") || strings.Contains(rail, ">bob<") {
 		t.Errorf("rail after leaving the project:\n%s", rail)
+	}
+}
+
+// History matches the viewer by their user name only: the legacy log is not
+// project-scoped, so a pre-registry name that now belongs to someone else
+// (a migration clash renamed the viewer) must not show that person's history.
+func TestHistoryIsTheViewersNameOnly(t *testing.T) {
+	e, p := fixture()
+	legacy := intercom.NewLegacyMemLog()
+	if _, err := legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "old-cove"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}},
+		Body: "for the other alice", Project: "elsewhere"}); err != nil {
+		t.Fatal(err)
+	}
+	e.Legacy = legacy
+	p.Name = "alice-proj" // as the clash renamed them
+	if rail := railFor(t, Handler(e.Deps, nil), p); strings.Contains(rail, "History (before the upgrade)") {
+		t.Errorf("a renamed viewer sees human:alice's history:\n%s", rail)
 	}
 }

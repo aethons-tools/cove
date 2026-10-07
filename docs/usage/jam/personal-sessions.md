@@ -1,8 +1,8 @@
 ---
-summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the roster human linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
+summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the project member linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
 read_when: You (a human operator) want Jam to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
-owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
-prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
+owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
+prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
 updated: 2026-10-06
 ---
@@ -63,12 +63,12 @@ wake-on engine walks it up a ladder set by the role:
    personal session … Next reminder in *idle-after*."). Rules:
    - **Owner only.** The reply counts only if Jam attributes it to you, never
      by Discord display name ([the rules](discord.md#who-a-discord-reply-is-from)).
-     **Bind your Discord user id (recommended):**
-     `--delivery discord:<inbox-channel>:<your-user-id>`. Then only your own
+     **Bind your Discord user id (recommended):** add it as your account on
+     the `discord` connection (`at-jam account add --connection discord --uid <your-user-id> --user <you>`). Then only your own
      Discord account counts as you, and `keep`/`release` works from **any**
      inbox, shared ones included.
      **Unbound**, only an inbox channel that is **exactly yours** proves it's
-     you. A shared inbox (or one that is also a roster channel) gets no
+     you. A shared inbox (or one that is also a room's channel) gets no
      `keep`/`release` hint in the nag, and its replies are ordinary replies.
      Jam can't see Discord permissions, so unbound this relies on your setup:
      **only you (and Jam's bot) may post in your inbox channel.** Anyone who can
@@ -126,8 +126,8 @@ at-jam project member add acme alice
 ```
 
 A login belongs to one user Jam-wide. `--login` is described with the
-rest of the roster in [comms-addressing.md](comms-addressing.md#the-project-roster).
-If no human in the project is linked to your login, every `session` call answers
+rest of a project's members in [comms-addressing.md](comms-addressing.md#project-members-and-rooms).
+If no member of the project is linked to your login, every `session` call answers
 **403**.
 
 ## Admission: two caps, one ledger

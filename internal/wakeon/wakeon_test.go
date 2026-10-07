@@ -22,7 +22,7 @@ func TestParticipantSendWakesWaitingStudio(t *testing.T) {
 	if err := st.CreateProject("acme"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+	if err := jam.AddPerson(st, "acme", jam.Human{Name: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	alice, _ := st.LookupName(ident.User, "alice")

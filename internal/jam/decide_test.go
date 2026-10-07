@@ -82,19 +82,34 @@ func TestEffectiveScopeAddressingReplaces(t *testing.T) {
 }
 
 func TestListTargets(t *testing.T) {
-	roles := map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}}
-	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "h"}, {Name: "bob", Handle: "h2"}}, Channels: []RosterChannel{{Name: "eng", Ref: "R"}}}}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"alice", "bob"} {
+		if err := AddPerson(s, "acme", Human{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PutRole("acme", Role{Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PutRoom(s, "acme", RoomBody{Name: "eng", Ref: "R"}); err != nil {
+		t.Fatal(err)
+	}
 	a := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}
-	got := ListTargets(a, getRole, getRoster, time.Unix(1, 0))
-	// only humans are addressable (channel not in addressing)
 	names := map[string]bool{}
-	for _, tg := range got {
+	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
 		names[tg.Kind+":"+tg.Name] = true
 	}
-	if !names["human:alice"] || !names["human:bob"] || names["channel:eng"] {
-		t.Fatalf("unexpected targets: %+v", got)
+	// Only people: the room isn't in the addressing (human: reads as user:).
+	if len(names) != 2 || !names["user:alice"] || !names["user:bob"] {
+		t.Fatalf("targets: %v", names)
+	}
+	expired := a
+	expired.Expiry = time.Unix(0, 1)
+	if got := ListTargets(s, expired, time.Unix(1, 0)); got != nil {
+		t.Fatalf("an expired actor has no targets: %+v", got)
 	}
 }
 

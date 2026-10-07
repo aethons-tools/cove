@@ -70,7 +70,7 @@ func newSessionKit(t *testing.T) *sessionKit {
 		{Name: "carol", Handle: "@carol"},
 		{Name: "dave", Handle: "@dave", Login: "auth0|dave"}, // linked, but no discord delivery profile
 	} {
-		if err := store.AddHuman("acme", h); err != nil {
+		if err := AddPerson(store, "acme", h); err != nil {
 			t.Fatal(err)
 		}
 	}

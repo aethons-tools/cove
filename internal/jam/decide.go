@@ -76,16 +76,6 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 	return Decision{Dest: dest, NeedCred: cred != "", CredName: cred, Apply: dest.Apply}, nil
 }
 
-// SendTarget is a resolved comms recipient: how Jam should deliver a send.
-type SendTarget struct {
-	Kind    string   // "human" (a user; the log's kind until slice 2) | "channel"
-	Name    string   // the user's or channel's name
-	UserID  ident.ID // the user (Kind=="human")
-	Handle  string   // human @-mention handle (Kind=="human")
-	Ref     string   // channel thread identifier (Kind=="channel")
-	Project string   // the project whose grant authorized+resolved this target
-}
-
 // ErrSendDenied means no grant's addressing authorizes the target's form (403);
 // it never reveals whether the target exists. ErrSendUnresolved means the target
 // was authorized-in-form but is absent from the roster of every authorizing
@@ -135,45 +125,45 @@ func isIDForm(f string) bool {
 	return err == nil && id.Kind() == ident.User
 }
 
-// humanForms are the addressable forms of a roster person.
-func humanForms(h Human) []string {
-	forms := []string{"user:" + h.Name}
-	if h.UserID != "" {
-		forms = append(forms, "user:"+string(h.UserID))
-	}
-	return forms
+// Target is one address a session may send to: a person ("user", by name)
+// or a room ("channel"), in the project of the grant that allows it.
+type Target struct {
+	Kind    string // "user" | "channel"
+	Name    string
+	Project string
 }
 
-// ListTargets returns the actor's authorized-and-resolvable targets (dedup by
-// kind:name). Order is grant-then-roster order.
-func ListTargets(a Actor, getRole func(project, role string) (Role, bool), getRoster func(project string) (Roster, bool), now time.Time) []SendTarget {
+// ListTargets returns the actor's allowed-and-resolvable targets: the members
+// and rooms of each grant's project its addressing allows (dedup by
+// kind:name, grant then name order). An expired actor has none.
+func ListTargets(store Store, a Actor, now time.Time) []Target {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return nil
 	}
 	seen := map[string]bool{}
-	var out []SendTarget
+	var out []Target
 	for _, g := range a.Grants {
-		role, ok := getRole(g.Project, g.Role)
+		role, ok := store.GetRole(g.Project, g.Role)
 		if !ok {
 			continue
 		}
 		globs := EffectiveScope(g, role).Addressing
-		roster, ok := getRoster(g.Project)
+		p, ok := store.GetProject(orDefaultProject(g.Project))
 		if !ok {
 			continue
 		}
-		for _, h := range roster.Humans {
-			key := "user:" + h.Name
-			if !seen[key] && anyAllowed(humanForms(h), globs) {
+		for _, m := range MembersOf(store, p.ID) {
+			key := "user:" + m.User.Name
+			if !seen[key] && anyAllowed([]string{key, "user:" + string(m.User.ID)}, globs) {
 				seen[key] = true
-				out = append(out, SendTarget{Kind: "human", Name: h.Name, UserID: h.UserID, Handle: h.Handle, Project: g.Project})
+				out = append(out, Target{Kind: "user", Name: m.User.Name, Project: g.Project})
 			}
 		}
-		for _, c := range roster.Channels {
-			key := "channel:" + c.Name
+		for _, c := range store.ListChannels(p.ID, SourceRoom) {
+			key := "channel:" + c.Key
 			if !seen[key] && anyAllowed([]string{key}, globs) {
 				seen[key] = true
-				out = append(out, SendTarget{Kind: "channel", Name: c.Name, Ref: c.Ref, Project: g.Project})
+				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
 			}
 		}
 	}

@@ -43,7 +43,7 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 		f.Egress, _ = studio.Ceiling(kitEgress)
 		f.EgressKnown = true
 	}
-	for _, t := range ListTargets(a, store.GetRole, store.GetRoster, now) {
+	for _, t := range ListTargets(store, a, now) {
 		who := "project contact"
 		switch {
 		case t.Kind == "channel":
@@ -51,11 +51,7 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 		case t.Name == owner:
 			who = "your owner"
 		}
-		kind := t.Kind
-		if kind == "human" {
-			kind = "user" // a person; "human" is only the log's kind until slice 2
-		}
-		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: kind + ":" + t.Name, Who: who})
+		f.Targets = append(f.Targets, sessionctx.StudioTarget{Target: t.Kind + ":" + t.Name, Who: who})
 	}
 	return f
 }

@@ -350,7 +350,7 @@ func (s *PostgresStore) RemoveMember(project, user ident.ID) error {
 // insertProjectTx inserts a new project row with its id (and the id's
 // participants row).
 func insertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
-	p.Roster.Humans = nil // the registry holds them (roster_view.go)
+	p.Roster.Humans = nil // the registry holds them (people.go)
 	if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
 		return err
 	}
@@ -365,7 +365,7 @@ func insertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
 // upsertProjectTx writes a project row by name, keeping its id column in step
 // with the doc.
 func upsertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
-	p.Roster.Humans = nil // the registry holds them (roster_view.go)
+	p.Roster.Humans = nil // the registry holds them (people.go)
 	if err := insertParticipantTx(ctx, tx, p.ID); err != nil {
 		return err
 	}

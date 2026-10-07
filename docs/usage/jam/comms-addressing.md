@@ -1,7 +1,7 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed user:/chat:/channel:/ticket: targets (human: alias), each naming a channel of the channel log; a Project's members and rooms, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
-read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's roster of humans and channels.
-owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, Project/Roster (Human/Channel, incl. a Human's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's members and rooms.
+owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-10-06
@@ -40,46 +40,47 @@ pattern like `user:a*` never matches an id — so ids never widen a name glob. G
 their kind — a glob never crosses `user:`/`channel:` implicitly; write both
 prefixes if you mean both.
 
-## The Project roster
+## Project members and rooms
 
 A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.md))
-owns a **Roster** of addressable members:
+has two kinds of addressable things:
 
-- **Human** — `{Name, Handle, Login, Identity}`. `Name` is the roster-local target
-  name (`user:<Name>`); `Handle` is the tracker `@`-mention handle used to deliver
-  to them. `Login` (optional) links them to their **admin login** (OIDC `sub`, or
-  `local` on loopback), so Jam knows who is behind an admin request, e.g. to
-  own a [personal session](personal-sessions.md).
-  `Identity` (optional) is a list of **OIDC identity bindings** `{Issuer, Subject}`
-  (a browser login, e.g. for [`/me`](intercom-ui.md)); opaque, never secrets,
-  both parts non-empty.
-- **Channel** — `{Name, Service, Ref}`. `Name` is the roster-local target name
-  (`channel:<Name>`); `Service` is the transport (`linear` or `discord`); `Ref` is
-  the surface it posts to (a tracker issue identifier like `ACME-1`, or a Discord
-  channel id).
+- **Members** — users in the Jam-wide [identity registry](roster.md) with a
+  membership in the project. A member is addressed by their user name or id
+  (`user:<name|usr_id>`). Their tracker `@`-handle is the **account** linked to
+  them on the `linear` connection, and their Discord user id is the account on
+  the `discord` connection. Their per-project **delivery** addresses (e.g. a
+  Discord inbox) live on the membership. A user's **logins** link them to
+  their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
+  behind an admin request, e.g. to own a
+  [personal session](personal-sessions.md). Their **OIDC identity bindings**
+  `{Issuer, Subject}` are for a browser login, e.g. [`/me`](intercom-ui.md);
+  they are opaque, never secrets, and both parts are non-empty.
+- **Rooms** — the project's named channels (`channel:<name>`) in Jam's channel
+  registry, each with an id and a **binding** of a `Ref` (a tracker issue
+  identifier like `ACME-1`, or a Discord channel id) on a connection.
 
-**Roster channels are rooms** in Jam's channel registry, each with an id and a
-**binding** of its `Ref` on a connection. A ref receives replies for at most one
-channel: binding a taken ref is refused (`409`). On upgrade, each project's
-channels became rooms once; if two shared a ref, the first kept it and the other
-only posts there (re-saving it unchanged keeps it so; the upgrade logs which); a
-channel whose service isn't `linear` or `discord` stays unused in the project's
-record, logged. Removing a room archives it. Don't roll back past this upgrade.
+A ref receives replies for at most one room: binding a taken ref is refused
+(`409`). Removing a room archives it.
 
-**Roster humans are Jam-wide users.** Since intercom slice 1a-3a, a human is
-a user in the [identity registry](roster.md) plus a project membership: the
-same name in two projects is one person, and a login, OIDC binding, tracker
-handle or Discord user id belongs to one person Jam-wide (claiming another
-person's is **400**). A person's logins, OIDC bindings and service accounts are
-managed on the **user**; their per-project delivery addresses on the
-**membership**. On upgrade, per-project humans were merged into users once
-(same login/OIDC/Discord id, else same name; a clash keeps the name for the
-first and renames the other `<name>-<project>`, logged).
+**A person is one user Jam-wide.** The same name in two projects is one person.
+A login, OIDC binding, tracker handle or Discord user id belongs to one person
+Jam-wide; claiming another person's is **400**. A person's logins, OIDC
+bindings and service accounts are managed on the **user**, and their
+per-project delivery addresses on the **membership**.
 
-A Project's roster of humans also backs its **escalation policy** — ordered tiers
+**Upgrades from per-project rosters** migrated them once (don't roll back past
+it). Humans were merged into users: the same login, OIDC binding or Discord id
+makes one user, else the same name; on a clash the first keeps the name and the
+other becomes `<name>-<project>`. Channels became rooms: if two shared a ref,
+the first kept it and the other only posts there (re-saving it unchanged keeps
+it so); a service other than `linear` or `discord` stays unused in the
+project's record. The upgrade logs each of these.
+
+A Project's members also back its **escalation policy** — ordered tiers
 that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
 
-Manage a roster with `at-jam project`:
+Manage members and rooms with `at-jam`:
 
 ```
 at-jam user add <name> [--login 'auth0|abc123']... [--oidc <issuer>:<subject>]...
@@ -101,8 +102,8 @@ A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
 memberships; it and `user rename` are refused (409) while the user owns a live
 personal session. The admin API behind
 these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
-`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`
-and `/channels` routes, and `project roster`, are gone).
+`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`,
+`/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
 `discord`: that kind's connection, created if there is none); it defaults to

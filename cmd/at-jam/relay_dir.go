@@ -110,7 +110,6 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		if !ok {
 			return nil
 		}
-		roster, _ := d.store.GetRoster(p.Name)
 		discordChat := jam.ChatKind(d.store, p) == "discord"
 		var ticket string
 		var mentions []string
@@ -124,18 +123,18 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			if mm.ParticipantID == m.From || mm.ParticipantID.Kind() != ident.User {
 				continue
 			}
-			h, ok := humanOf(roster, mm.ParticipantID)
+			mem, ok := jam.MemberOf(d.store, p.ID, mm.ParticipantID)
 			if !ok {
 				continue // no longer a member of the project: nothing to deliver to
 			}
-			if inbox, ok := h.DeliveryFor("discord"); ok && discordChat && inbox.Address != "" {
-				if service == "discord" && !cameFrom(d.discord, inbox.Address) {
-					out = append(out, relay.Delivery{Service: "discord", Address: inbox.Address, BodyPrefix: prefix("discord")})
+			if inbox, ok := mem.Inbox("discord"); ok && discordChat {
+				if service == "discord" && !cameFrom(d.discord, inbox) {
+					out = append(out, relay.Delivery{Service: "discord", Address: inbox, BodyPrefix: prefix("discord")})
 				}
 				continue
 			}
-			if h.Handle != "" {
-				mentions = append(mentions, "@"+strings.TrimPrefix(h.Handle, "@"))
+			if mem.Handle != "" {
+				mentions = append(mentions, "@"+strings.TrimPrefix(mem.Handle, "@"))
 			}
 		}
 		// The Linear fallback carries a session's message to a person (the
@@ -146,26 +145,6 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		}
 	}
 	return out
-}
-
-// humanOf is the roster view of user u (their handle and delivery).
-func humanOf(r jam.Roster, u ident.ID) (jam.Human, bool) {
-	for _, h := range r.Humans {
-		if h.UserID == u {
-			return h, true
-		}
-	}
-	return jam.Human{}, false
-}
-
-// findHuman looks up a roster Human by name.
-func findHuman(r jam.Roster, name string) (jam.Human, bool) {
-	for _, h := range r.Humans {
-		if h.Name == name {
-			return h, true
-		}
-	}
-	return jam.Human{}, false
 }
 
 // Route maps a foreign event into the channel log.
@@ -253,7 +232,7 @@ func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 }
 
 // author names who a foreign event is from: on Discord, the member the
-// attribution rules give it to (jam.DiscordAuthor: their bound Discord id,
+// attribution rules give it to (jam.DiscordAuthorOf: their bound Discord id,
 // or an unbound member's own inbox); otherwise the account the author's
 // service id is recorded as (never their display name, which anyone can
 // set) — or the user an operator linked it to, when they're a member of the
@@ -264,13 +243,9 @@ func (d *directory) author(kind string, ch jam.Channel, surface, uid, label stri
 		return "", false
 	}
 	if kind == "discord" {
-		if r, ok := d.store.GetRoster(p.Name); ok {
-			if name, by, ok := jam.DiscordAuthor(r, surface, uid, false); ok {
-				if h, ok := findHuman(r, name); ok && h.UserID != "" {
-					d.debug("relay: discord reply attributed", "project", p.Name, "user", string(h.UserID), "by", by)
-					return h.UserID, true
-				}
-			}
+		if m, by, ok := jam.DiscordAuthorOf(d.store, p.ID, surface, uid); ok {
+			d.debug("relay: discord reply attributed", "project", p.Name, "user", string(m.User.ID), "by", by)
+			return m.User.ID, true
 		}
 	}
 	if uid == "" {

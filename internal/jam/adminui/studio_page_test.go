@@ -124,7 +124,7 @@ func TestStudiosTableLinksStudioPage(t *testing.T) {
 func TestStudioPageChannelLogSquawks(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
-	if err := store.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	alice, _ := store.LookupName(ident.User, "alice")

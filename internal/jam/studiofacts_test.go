@@ -64,7 +64,7 @@ func TestStudioFactsEgressSources(t *testing.T) {
 // omits them — see comms-addressing.md).
 func TestStudioFactsOmitHandles(t *testing.T) {
 	_, store, _ := supTestKit(t, &fakeLauncher{})
-	if err := store.AddHuman("default", Human{Name: "bob", Handle: "bob-gh"}); err != nil {
+	if err := AddPerson(store, "default", Human{Name: "bob", Handle: "bob-gh"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{Addressing: []string{"human:*"}, TTL: time.Hour}}); err != nil {

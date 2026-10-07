@@ -69,10 +69,7 @@ type Store interface {
 	// entries, or ErrUnsupportedConfigVersion for a bad version.
 	ImportConfig(s ConfigSnapshot) error
 
-	AddHuman(project string, h Human) error // upsert by name
-	RemoveHuman(project, name string) error
 	GetProject(name string) (Project, bool)
-	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
 	// SetChatService sets project's chat service to a connection, by id or
 	// name, or by chat kind for its implicit connection ("" clears).

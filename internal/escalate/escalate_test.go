@@ -22,6 +22,15 @@ func (f *fakeProjects) GetProject(name string) (jam.Project, bool) {
 	return p, ok
 }
 
+// Members reads the members off the fake project's (legacy-shaped) roster.
+func (f *fakeProjects) Members(name string) []jam.Member {
+	var out []jam.Member
+	for _, h := range f.projects[name].Roster.Humans {
+		out = append(out, jam.Member{User: jam.User{ID: h.UserID, Name: h.Name}, Handle: h.Handle})
+	}
+	return out
+}
+
 type fakeState struct {
 	called   bool
 	lastTier int

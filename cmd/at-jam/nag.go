@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -26,20 +27,12 @@ type notifier interface {
 // "keep"/"release" reply to a nag from any other reply. The nag advertises
 // those replies only when the owner could send one wake-on will act on: the
 // project chats over discord and a reply from the owner is attributed to them
-// (jam.DiscordAuthor) — they are bound to their Discord user id, or, unbound,
+// (jam.DiscordAuthorOf) — they are bound to their Discord user id, or, unbound,
 // their discord inbox is theirs alone.
 type intercomNagger struct {
 	log    notifier
-	roster nagRoster
+	roster jam.Store        // nil: never offer keep/release
 	now    func() time.Time // nil = time.Now
-}
-
-// nagRoster is the slice of jam.Store the nagger reads to decide whether a
-// nag offers keep/release. Any jam.Store satisfies it (PostgresStore in serve; MemStore in tests).
-type nagRoster interface {
-	GetRoster(project string) (jam.Roster, bool)
-	GetProject(name string) (jam.Project, bool)
-	jam.ConnectionGetter
 }
 
 func (n intercomNagger) Nag(_ context.Context, inst jam.Instance, idle time.Duration) error {
@@ -83,31 +76,34 @@ func (n intercomNagger) NotifyEnded(_ context.Context, inst jam.Instance, reason
 
 // ownerAttributable reports whether, in a discord-chat project, a reply from
 // inst's owner to a nag in their inbox would be attributed to them
-// (jam.DiscordAuthor, by their bound id or by their unshared inbox) — the
+// (jam.DiscordAuthorOf, by their bound id or by their unshared inbox) — the
 // condition under which the reply can act on the session.
 func (n intercomNagger) ownerAttributable(inst jam.Instance) bool {
 	if n.roster == nil {
 		return false
 	}
-	if p, ok := n.roster.GetProject(inst.Project); !ok || jam.ChatKind(n.roster, p) != "discord" {
+	p, ok := n.roster.GetProject(inst.Project)
+	if !ok || jam.ChatKind(n.roster, p) != "discord" {
 		return false
 	}
-	r, ok := n.roster.GetRoster(inst.Project)
+	owner := inst.OwnerID
+	if owner == "" {
+		if owner, ok = n.roster.LookupName(ident.User, inst.Owner); !ok {
+			return false
+		}
+	}
+	m, ok := jam.MemberOf(n.roster, p.ID, owner)
 	if !ok {
 		return false
 	}
-	h, ok := findHuman(r, inst.Owner)
-	if !ok {
-		return false
-	}
-	p, ok := h.DeliveryFor("discord")
+	inbox, ok := m.Inbox("discord")
 	if !ok {
 		return false
 	}
 	// Ask the attribution rule itself about a reply from the owner's own
 	// account (their bound id, or none) in their own inbox.
-	owner, _, ok := jam.DiscordAuthor(r, p.Address, p.UserID, false)
-	return ok && owner == inst.Owner
+	got, _, ok := jam.DiscordAuthorOf(n.roster, p.ID, inbox, m.DiscordUID)
+	return ok && got.User.ID == m.User.ID
 }
 
 func (n intercomNagger) clock() time.Time {

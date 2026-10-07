@@ -2021,7 +2021,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// share only the Instance.Activity==Waiting gate. Resident for the
 		// lifetime of the process.
 		epoll, _ := time.ParseDuration(dc.EscalationPollInterval) // "" or invalid → 0 → engine default
-		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
+		eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
 		go eeng.Run(context.Background())
 		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 

@@ -193,7 +193,7 @@ func TestSquawksChannelLog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := store.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	alice, _ := store.LookupName(ident.User, "alice")

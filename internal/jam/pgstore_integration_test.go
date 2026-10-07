@@ -5,7 +5,6 @@ package jam_test
 import (
 	"context"
 	"os"
-	"reflect"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -94,7 +93,7 @@ func TestPostgresProjectIDBackfill(t *testing.T) {
 // TestPostgresHumansMigration: project docs written before the registry carry
 // roster humans; the first load migrates them into users, memberships,
 // accounts and legacy aliases, clears the docs, and marks it done — so a
-// later load changes nothing and serves the same roster view.
+// later load changes nothing and serves the same members.
 func TestPostgresHumansMigration(t *testing.T) {
 	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -130,12 +129,12 @@ func TestPostgresHumansMigration(t *testing.T) {
 	if !ok || len(m.ListUsers()) != 1 {
 		t.Fatalf("users = %+v", m.ListUsers())
 	}
-	r, _ := m.GetRoster("acme")
-	if len(r.Humans) != 1 || r.Humans[0].Login != "auth0|a" || r.Humans[0].Handle != "@alice" {
-		t.Fatalf("acme roster = %+v", r.Humans)
+	alice, ok := jam.MemberByLogin(m, "acme", "auth0|a")
+	if !ok || alice.User.ID != id || alice.Handle != "@alice" || alice.DiscordUID != "111" {
+		t.Fatalf("acme alice = %+v, %v", alice, ok)
 	}
-	if d, ok := r.Humans[0].DeliveryFor("discord"); !ok || d.Address != "inbox-a" || d.UserID != "111" {
-		t.Fatalf("acme delivery = %+v, %v", d, ok)
+	if d, ok := alice.Inbox("discord"); !ok || d != "inbox-a" {
+		t.Fatalf("acme inbox = %q, %v", d, ok)
 	}
 	if got, ok := m.LegacyHumanAlias("beta", "alice"); !ok || got != id {
 		t.Fatalf("beta alias = %q, %v", got, ok)
@@ -149,15 +148,15 @@ func TestPostgresHumansMigration(t *testing.T) {
 	if got, _ := again.LookupName(ident.User, "alice"); got != id || len(again.ListUsers()) != 1 {
 		t.Fatalf("reload: alice = %q, users %+v", got, again.ListUsers())
 	}
-	if r, _ := again.GetRoster("beta"); len(r.Humans) != 1 || r.Humans[0].Name != "alice" {
-		t.Fatalf("reload: beta roster = %+v", r.Humans)
+	if ms := (jam.ProjectMembers{Store: again}).Members("beta"); len(ms) != 1 || ms[0].User.Name != "alice" {
+		t.Fatalf("reload: beta members = %+v", ms)
 	}
-	// AddHuman through the reloaded store persists to the registry, not the doc.
-	if err := again.AddHuman("beta", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
+	// AddPerson through the reloaded store persists to the registry.
+	if err := jam.AddPerson(again, "beta", jam.Human{Name: "bob", Handle: "@bob"}); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := open().GetRoster("beta"); len(r.Humans) != 2 {
-		t.Fatalf("after AddHuman + reload: beta roster = %+v", r.Humans)
+	if ms := (jam.ProjectMembers{Store: open()}).Members("beta"); len(ms) != 2 {
+		t.Fatalf("after AddPerson + reload: beta members = %+v", ms)
 	}
 }
 
@@ -227,7 +226,7 @@ func TestPostgresPolicyRefsMigration(t *testing.T) {
 	if err := s.CreateProject("acme"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddHuman("acme", jam.Human{Name: "alice"}); err != nil {
+	if err := jam.AddPerson(s, "acme", jam.Human{Name: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:alice", "human:*"}}}); err != nil {
@@ -255,7 +254,7 @@ func TestPostgresPolicyRefsMigration(t *testing.T) {
 
 // TestPostgresRoomsMigration: a store at roster_schema 4 whose project doc
 // still holds roster channels gets them as rooms at load, once; the doc drops
-// them, and the roster view and a reload agree.
+// them, and the rooms and a reload agree.
 func TestPostgresRoomsMigration(t *testing.T) {
 	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -287,11 +286,10 @@ func TestPostgresRoomsMigration(t *testing.T) {
 		}
 	}
 	m := open()
-	want := []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-1"}}
-	if r, _ := m.GetRoster("acme"); !reflect.DeepEqual(r.Channels, want) {
-		t.Fatalf("roster channels = %+v", r.Channels)
-	}
 	p, _ := m.GetProject("acme")
+	if got := jam.ListRooms(m, p); len(got) != 1 || got[0].Name != "eng" || got[0].Kind != "linear" || got[0].Ref != "ACME-1" {
+		t.Fatalf("rooms = %+v", got)
+	}
 	rooms := m.ListChannels(p.ID, jam.SourceRoom)
 	if len(rooms) != 1 {
 		t.Fatalf("rooms = %+v", rooms)

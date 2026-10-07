@@ -23,8 +23,8 @@ which waits on its owner instead.
 
 A Project's `Escalation` is an ordered list of tiers, each `{Targets, Timeout}`.
 `Targets` name people (`user:<name>` or `user:<usr_id>`; `human:<name>` is read as `user:`), resolved against the
-same Project [Roster](comms-addressing.md#the-project-roster) used for addressed
-`send(to=…)` — the roster's `Handle` is what gets `@`-mentioned. C2 v1 is
+same Project [members](comms-addressing.md#project-members-and-rooms) used for addressed
+`send(to=…)` — a member's tracker handle (their linked `linear` account) is what gets `@`-mentioned. C2 v1 is
 **human-only**: a `channel:` target (or anything malformed) in a tier is skipped
 with a logged warning, never a hard failure. `Timeout` is how long the engine
 waits after pinging that tier before moving to the next one.
@@ -93,7 +93,7 @@ handling of its own; the two engines share only the `Activity == Waiting` gate.
 ## Delivery: an `@`-mention on the studio's own ticket
 
 A ping resolves the tier's `user:` targets to `@<handle>` (via the
-Project's [Roster](comms-addressing.md#the-project-roster)) and posts a single
+Project's [members](comms-addressing.md#project-members-and-rooms)) and posts a single
 comment on the **studio's own ticket** — not a separate thread. Because the ping
 lands where wake-on is already watching, a reply needs no new routing; see
 [comms-addressing.md](comms-addressing.md) for the human/handle model this

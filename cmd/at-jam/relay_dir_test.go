@@ -45,7 +45,7 @@ func newRelayKit(t *testing.T) *relayKit {
 		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "inbox-B"}}},
 		{Name: "carol", Handle: "carol.h"},
 	} {
-		if err := st.AddHuman("acme", h); err != nil {
+		if err := jam.AddPerson(st, "acme", h); err != nil {
 			t.Fatal(err)
 		}
 	}

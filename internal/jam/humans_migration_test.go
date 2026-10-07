@@ -435,8 +435,8 @@ func TestPlanRegistryMigrationRosterChannelsToRooms(t *testing.T) {
 	if again := m.planRegistryMigration(5); len(again.channels)+len(again.projects) != 0 {
 		t.Fatalf("from 5 = %+v", again)
 	}
-	if got := m.rosterChannels(acme.ID); len(got) != 2 || got[0] != (RosterChannel{Name: "chat", Service: "discord", Ref: "42"}) {
-		t.Fatalf("roster view = %+v", got)
+	if got := roomChannels(m, acme.ID); len(got) != 2 || got[0] != (RosterChannel{Name: "chat", Service: "discord", Ref: "42"}) {
+		t.Fatalf("rooms = %+v", got)
 	}
 }
 
@@ -459,7 +459,7 @@ func TestPlanRoomsKeepsWhatItCannotPlace(t *testing.T) {
 	}
 	m.applyHumanPlan(plan)
 	want := []RosterChannel{{Name: "chat", Service: "discord", Ref: "42"}, {Name: "eng", Service: "linear", Ref: "ACME-2"}}
-	if got := m.rosterChannels(p.ID); !slices.Equal(got, want) {
+	if got := roomChannels(m, p.ID); !slices.Equal(got, want) {
 		t.Fatalf("rooms = %+v, want %+v", got, want)
 	}
 	if kept := m.projects["acme"].Roster.Channels; len(kept) != 1 || kept[0].Name != "pigeon" {
@@ -481,4 +481,21 @@ func TestPlanRegistryMigrationRoomsKeepEarlierSteps(t *testing.T) {
 	if len(plan.users) != 1 || len(plan.channels) != 1 {
 		t.Fatalf("users %+v, channels %+v", plan.users, plan.channels)
 	}
+}
+
+// roomChannels lists project's live rooms in the legacy roster-channel shape
+// (name, connection kind, ingress ref), sorted by name.
+func roomChannels(m *memState, project ident.ID) []RosterChannel {
+	var out []RosterChannel
+	for _, ch := range m.ListChannels(project, SourceRoom) {
+		rc := RosterChannel{Name: ch.Key}
+		if len(ch.Bindings) > 0 {
+			if c, ok := m.GetConnection(ch.Bindings[0].ConnectionID); ok {
+				rc.Service = c.Kind
+			}
+			rc.Ref = ch.Bindings[0].Ref
+		}
+		out = append(out, rc)
+	}
+	return out
 }

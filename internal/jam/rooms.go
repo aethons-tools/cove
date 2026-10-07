@@ -14,54 +14,6 @@ import (
 // roster_schema 5 has run; the view fills it on the way out, and AddChannel /
 // RemoveChannel write rooms. The view goes away with the log cutover (2b).
 
-// rosterChannels is the roster view of a project's live rooms: Service is the
-// bound connection's kind, Ref the binding's ref. A room that only posts to
-// its ref (the migration demoted it: another channel receives that ref's
-// replies) comes after the rest, so a consumer matching the first channel by
-// ref finds the one replies belong to; otherwise sorted by name. Caller
-// holds mu.
-func (m *memState) rosterChannels(project ident.ID) []RosterChannel {
-	if project == "" {
-		return nil
-	}
-	type row struct {
-		rc      RosterChannel
-		demoted bool
-	}
-	var rows []row
-	for _, c := range m.channels {
-		if c.ProjectID != project || c.Kind != SourceRoom || c.Status != StatusLive {
-			continue
-		}
-		r := row{rc: RosterChannel{Name: c.Key, Service: "linear"}}
-		if len(c.Bindings) > 0 {
-			b := c.Bindings[0]
-			r.rc.Ref, r.demoted = b.Ref, b.Mode != BindBoth
-			if conn, ok := m.connections[b.ConnectionID]; ok {
-				r.rc.Service = conn.Kind
-			}
-		}
-		rows = append(rows, r)
-	}
-	slices.SortFunc(rows, func(a, b row) int {
-		if a.demoted != b.demoted {
-			if a.demoted {
-				return 1
-			}
-			return -1
-		}
-		return cmp.Compare(a.rc.Name, b.rc.Name)
-	})
-	out := make([]RosterChannel, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.rc)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 // planRoom plans roster channel rc of project p as a room (an upsert by
 // name, against the store and the rooms the plan already holds). A binding
 // another channel already holds is ErrBindingTaken — unless the room already

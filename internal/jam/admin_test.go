@@ -336,38 +336,6 @@ func TestAdminGrantAddRemove(t *testing.T) {
 	}
 }
 
-func TestAdminRosterRoutes(t *testing.T) {
-	h, store := newTestAdmin(t)
-	mustCreateProject(t, store, "acme")
-	if err := store.AddHuman("acme", Human{Name: "alice", Handle: "alice.h"}); err != nil {
-		t.Fatal(err)
-	}
-	rec := doJSON(t, h, "POST", "/admin/projects/acme/rooms", RoomBody{Name: "eng-help", Ref: "ACME-1"})
-	if rec.Code != http.StatusCreated { // alice's handle made the linear connection
-		t.Fatalf("POST room = %d %s", rec.Code, rec.Body)
-	}
-	var rr Roster
-	getJSON(t, h, "/admin/projects/acme/roster", &rr)
-	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" || rr.Humans[0].Handle != "alice.h" {
-		t.Fatalf("roster humans = %+v", rr.Humans)
-	}
-	if len(rr.Channels) != 1 || rr.Channels[0].Name != "eng-help" || rr.Channels[0].Ref != "ACME-1" {
-		t.Fatalf("roster channels = %+v", rr.Channels)
-	}
-	if err := store.RemoveHuman("acme", "alice"); err != nil {
-		t.Fatalf("RemoveHuman = %v", err)
-	}
-	rec = doReq(t, h, "DELETE", "/admin/projects/acme/rooms/eng-help", nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE room = %d", rec.Code)
-	}
-	var after Roster
-	getJSON(t, h, "/admin/projects/acme/roster", &after)
-	if len(after.Humans) != 0 || len(after.Channels) != 0 {
-		t.Fatalf("roster after removal = %+v", after)
-	}
-}
-
 // TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
 // asserting a round-trip through a real MemStore + admin handler.
 func TestAdminEscalationRoutes(t *testing.T) {

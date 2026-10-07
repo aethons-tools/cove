@@ -204,8 +204,8 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	}
 }
 
-// TestClientRosterAndAddressing exercises users + members, rooms,
-// GetRoster and role Addressing round-trips against a real Jam
+// TestClientRosterAndAddressing exercises users + members, rooms and
+// role Addressing round-trips against a real Jam
 // admin handler + MemStore (not just a wire-format mock).
 func TestClientRosterAndAddressing(t *testing.T) {
 	ts, store := newServer(t)
@@ -231,15 +231,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "help" {
 		t.Fatalf("ListRooms = %+v, %v", rooms, err)
 	}
-	rr, err := c.GetRoster("acme")
-	if err != nil {
-		t.Fatalf("GetRoster: %v", err)
-	}
-	if len(rr.Humans) != 1 || rr.Humans[0].Name != "alice" {
-		t.Fatalf("roster humans = %+v", rr.Humans)
-	}
-	if len(rr.Channels) != 1 || rr.Channels[0].Name != "help" || rr.Channels[0].Ref != "ACME-1" {
-		t.Fatalf("roster channels = %+v", rr.Channels)
+	if ms, err := c.ListMembers("acme"); err != nil || len(ms) != 1 || ms[0].User != "alice" {
+		t.Fatalf("ListMembers = %+v, %v", ms, err)
 	}
 
 	if err := c.RemoveMember("acme", "alice"); err != nil {
@@ -248,12 +241,12 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if err := c.RemoveRoom("acme", "help"); err != nil {
 		t.Fatalf("RemoveRoom: %v", err)
 	}
-	rr, err = c.GetRoster("acme")
-	if err != nil {
-		t.Fatalf("GetRoster after removal: %v", err)
+	ms, err := c.ListMembers("acme")
+	if err != nil || len(ms) != 0 {
+		t.Fatalf("members after removal = %+v, %v", ms, err)
 	}
-	if len(rr.Humans) != 0 || len(rr.Channels) != 0 {
-		t.Fatalf("roster after removal = %+v", rr)
+	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 0 {
+		t.Fatalf("rooms after removal = %+v, %v", rooms, err)
 	}
 
 	// PutRole with Scope.Addressing round-trips via ListRoles.
@@ -583,7 +576,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 	// A personal session is delivered over Discord: the project's chat service
 	// and the owner's delivery profile must both be set.
-	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetChatService("acme", "discord"); err != nil {

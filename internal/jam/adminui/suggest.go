@@ -51,12 +51,12 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 		// targets: a project's addressable roster, plus the per-kind globs.
 		"targets": func(p string) []string {
 			out := []string{"user:*", "channel:*"}
-			if r, ok := store.GetRoster(orDefaultProject(p)); ok {
-				for _, h := range r.Humans {
-					out = append(out, "user:"+h.Name)
+			if pr, ok := store.GetProject(orDefaultProject(p)); ok {
+				for _, m := range jam.MembersOf(store, pr.ID) {
+					out = append(out, "user:"+m.User.Name)
 				}
-				for _, c := range r.Channels {
-					out = append(out, "channel:"+c.Name)
+				for _, c := range store.ListChannels(pr.ID, jam.SourceRoom) {
+					out = append(out, "channel:"+c.Key)
 				}
 			}
 			return out
@@ -79,13 +79,11 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 						out = append(out, string(c.ID))
 					}
 				}
-				if r, ok := store.GetRoster(name); ok {
-					for _, h := range r.Humans {
-						out = append(out, "human:"+h.Name)
-					}
-					for _, c := range r.Channels {
-						out = append(out, "channel:"+c.Name)
-					}
+				for _, m := range jam.MembersOf(store, p.ID) {
+					out = append(out, "human:"+m.User.Name)
+				}
+				for _, c := range store.ListChannels(p.ID, jam.SourceRoom) {
+					out = append(out, "channel:"+c.Key)
 				}
 			}
 			return out

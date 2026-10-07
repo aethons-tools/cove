@@ -82,7 +82,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 
 	projects := searchGroup{Key: "projects", Name: "Projects"}
 	users := searchGroup{Key: "users", Name: "Users"}
-	channels := searchGroup{Key: "channels", Name: "Roster channels"}
+	channels := searchGroup{Key: "channels", Name: "Rooms"}
 	for _, u := range store.ListUsers() {
 		v := jam.NewUserView(store, u)
 		fields := append([]string{u.Name}, u.Logins...)
@@ -112,9 +112,9 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			projects.add(searchHit{Title: name, URL: projectURL(name), Exact: m.exact(name),
 				Sub: pluralCount(len(store.ListRoles(name)), "role")})
 		}
-		for _, c := range p.Roster.Channels {
-			if m.any(c.Name, c.Ref) {
-				channels.add(searchHit{Title: "channel:" + c.Name, Sub: name + " · " + c.Service + " " + c.Ref, URL: projectURL(name)})
+		for _, r := range jam.ListRooms(store, p) {
+			if m.any(r.Name, r.Ref) {
+				channels.add(searchHit{Title: "channel:" + r.Name, Sub: name + " · " + r.Connection + " " + r.Ref, URL: projectURL(name)})
 			}
 		}
 	}

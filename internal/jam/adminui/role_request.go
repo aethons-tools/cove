@@ -27,17 +27,17 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 		}
 		project, role := r.PathValue("project"), r.PathValue("name")
 		login := jam.OperatorID(r)
-		human, ok := jam.HumanByLogin(store, project, login)
+		human, ok := jam.MemberByLogin(store, project, login)
 		if !ok {
-			msg := fmt.Sprintf("no roster human in %s is linked to your login", project)
+			msg := fmt.Sprintf("no member of %s is linked to your login", project)
 			if login == "local" {
-				msg = "sign in to request a session (/ui/auth/login): Jam needs to know which roster human you are"
+				msg = "sign in to request a session (/ui/auth/login): Jam needs to know which member you are"
 			}
 			renderError(w, http.StatusForbidden, msg)
 			return
 		}
 		res, err := jam.RequestPersonalSession(r.Context(), store, sup, alloc, log, login,
-			jam.PersonalSessionBody{Project: project, Role: role, Prompt: requestPrompt(human.Name)})
+			jam.PersonalSessionBody{Project: project, Role: role, Prompt: requestPrompt(human.User.Name)})
 		if err != nil {
 			renderError(w, jam.PersonalSessionStatus(err), err.Error())
 			return

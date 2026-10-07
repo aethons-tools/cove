@@ -20,6 +20,9 @@ import (
 type Registry interface{ ListInstances() []jam.Instance }
 type Projects interface {
 	GetProject(name string) (jam.Project, bool)
+	// Members lists a project's members (their @-handles name them on the
+	// tracker).
+	Members(project string) []jam.Member
 }
 type State interface {
 	SetEscalation(actorID string, tier int, at time.Time) error
@@ -108,12 +111,12 @@ func chainFor(proj jam.Project, category string) []jam.EscalationTier {
 	return proj.Escalation
 }
 
-// pingTier resolves the tier's human handles from the roster, posts an @-mention
+// pingTier resolves the tier's members' handles, posts an @-mention
 // nudge on the cove's OWN ticket, and records the advance. A tier with no
 // resolvable human handles posts nothing but still advances the timer (so a
 // mis-configured tier can't wedge a blocked cove).
 func (e *Engine) pingTier(ctx context.Context, inst jam.Instance, proj jam.Project, chain []jam.EscalationTier, tier int) {
-	handles := e.resolveHandles(proj.Roster, chain, tier)
+	handles := e.resolveHandles(e.proj.Members(inst.Project), chain, tier)
 	if len(handles) > 0 {
 		issueID, err := e.ping.IssueByIdentifier(ctx, inst.Unit)
 		if err != nil {
@@ -134,7 +137,7 @@ func (e *Engine) pingTier(ctx context.Context, inst jam.Instance, proj jam.Proje
 	}
 }
 
-func (e *Engine) resolveHandles(roster jam.Roster, chain []jam.EscalationTier, tier int) []string {
+func (e *Engine) resolveHandles(members []jam.Member, chain []jam.EscalationTier, tier int) []string {
 	var handles []string
 	for _, target := range chain[tier].Targets {
 		kind, ref, ok := strings.Cut(target, ":")
@@ -143,10 +146,14 @@ func (e *Engine) resolveHandles(roster jam.Roster, chain []jam.EscalationTier, t
 			continue
 		}
 		found := false
-		for _, h := range roster.Humans {
-			if h.Name == ref || (h.UserID != "" && string(h.UserID) == ref) {
-				handles = append(handles, "@"+h.Handle)
+		for _, m := range members {
+			if m.User.Name == ref || string(m.User.ID) == ref {
 				found = true
+				if m.Handle == "" {
+					e.log.Warn("escalate: member has no tracker handle, skipping", "target", target)
+					break
+				}
+				handles = append(handles, "@"+m.Handle)
 				break
 			}
 		}
