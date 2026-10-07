@@ -182,7 +182,7 @@ func TestProjectPage(t *testing.T) {
 
 func TestProjectPageNotFound(t *testing.T) {
 	rec := get(t, projHandler(newStore(t)), "/ui/projects/nope")
-	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "<nav") {
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<aside id="rail"`) {
 		t.Fatalf("missing project = %d", rec.Code)
 	}
 }

@@ -296,7 +296,7 @@ func registerSearch(mux *http.ServeMux, store jam.Store, msgs SquawkReader) {
 			}
 		}
 		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, "search", "search-results", d)
+			renderFragment(w, r, "search", "search-results", d)
 			return
 		}
 		render(w, r, "search", d)

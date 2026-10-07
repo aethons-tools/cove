@@ -350,10 +350,22 @@
 </body>
 </html>{{end}}
 
-{{/* rail is the permanent scope list (a railView), re-fetched every 3s so
-     its badges stay live; Scope keeps the selection across polls. */}}
+{{/* rail is the permanent scope list (a railView). Only its entry lists
+     (rail-entries) re-fetch themselves every 3s so badges stay live — the
+     "+ New project" form sits outside the swapped element, so a poll never
+     wipes what's being typed; Poll keeps the selection across polls. */}}
 {{define "rail"}}
-<aside id="rail" hx-get="/ui/rail?scope={{.Scope}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<aside id="rail">
+  {{template "rail-entries" .}}
+  <details class="newproj">
+    <summary>+ New project</summary>
+    <form hx-post="/ui/projects" hx-swap="none"><input name="name" placeholder="name" aria-label="Project name" required autocomplete="off"><button type="submit" class="primary small">Create</button></form>
+  </details>
+</aside>
+{{end}}
+
+{{define "rail-entries"}}
+<div id="rail-entries" hx-get="{{.Poll}}" hx-trigger="every 3s" hx-swap="outerHTML">
   <ul>
     <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ Jam</span>{{template "badge" .Jam.Badge}}</a></li>
   </ul>
@@ -364,11 +376,7 @@
     <li><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span class="name">{{.Name}}</span>{{template "badge" .Badge}}</a></li>
     {{- end}}
   </ul>
-  <details class="newproj">
-    <summary>+ New project</summary>
-    <form hx-post="/ui/projects" hx-swap="none"><input name="name" placeholder="name" aria-label="Project name" required autocomplete="off"><button type="submit" class="primary small">Create</button></form>
-  </details>
-</aside>
+</div>
 {{end}}
 
 {{/* badge renders an attention badge (an attnBadge): its count, red when

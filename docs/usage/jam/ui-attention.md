@@ -13,8 +13,9 @@ The admin UI computes one list of things that need an operator's attention and
 shows it in three places: a **badge** on each rail entry, a badge on the tab
 that owns each item, and a **⚠** on the row it names. A badge is a count of
 items, **red** when any of them is broken, **amber** otherwise; hover for the
-breakdown (`1 broken · 2 out of date`). The rail refreshes every 3 seconds, so
-its badges stay live on every page.
+breakdown (`1 broken · 2 out of date`). The rail's entries refresh every 3
+seconds (a half-typed **+ New project** survives it), so its badges stay live
+on every page; a table re-rendered by its poll or by an edit keeps its ⚠ flags.
 
 | Kind | Severity | Raised when | Scope · tab |
 |---|---|---|---|

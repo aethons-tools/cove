@@ -30,8 +30,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 
 - **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
   idled agents, each opening the Agents list filtered to that phase, and counts
-  of projects, agents, users and specs (kits + destinations + model-specs),
-  each opening its section; Jam's **Needs attention** card; then the Jam-wide **Session context** card
+  of projects, agents, users and specs (kits + destinations + model-specs) —
+  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Session context** card
   ([ui-pages.md](ui-pages.md#session-context-cards)), above the studio table.
 - **Search** — the box in the top bar (press `/` from anywhere) searches every
   page's objects at once: agents (id, unit, owner, standing name,

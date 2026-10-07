@@ -120,7 +120,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 			}
 			log.Info("ui user "+what, "operator", jam.OperatorID(r), "user", id)
 			d, _ := buildUserDetail(store, string(id))
-			renderFragment(w, "user", "user-body", d)
+			renderFragment(w, r, "user", "user-body", d)
 		}
 	}
 
@@ -138,7 +138,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		}
 		log.Info("ui user created", "operator", jam.OperatorID(r), "user", u.ID, "name", u.Name)
 		w.Header().Set("HX-Redirect", userURL(u.ID))
-		renderFragment(w, "users", "users-table", usersData(store))
+		renderFragment(w, r, "users", "users-table", usersData(store))
 	})
 	mux.HandleFunc("POST /ui/users/{user}/name", edit("renamed", func(r *http.Request, id ident.ID) error {
 		return jam.RenameUserChecked(store, id, strings.TrimSpace(r.FormValue("name")))

@@ -77,7 +77,7 @@ func registerJamContext(mux *http.ServeMux, store jam.Store, log *slog.Logger, g
 				return
 			}
 			log.Info("ui jam context "+what, "operator", jam.OperatorID(r))
-			renderFragment(w, "dashboard", "context-panel", jamPanel(store))
+			renderFragment(w, r, "dashboard", "context-panel", jamPanel(store))
 		}
 	}
 	mux.HandleFunc("POST /ui/jam/context", write("set", parseContextForm))

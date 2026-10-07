@@ -132,7 +132,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
 			}
-			renderFragment(w, "project", "project-"+string(section), d)
+			renderFragment(w, r, "project", "project-"+string(section), d)
 		}
 	}
 

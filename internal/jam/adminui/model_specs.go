@@ -319,7 +319,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 		}
 		log.Info("ui model-spec created", "operator", jam.OperatorID(r), "name", m.Name, "type", string(m.Type))
 		w.Header().Set("HX-Redirect", specURL(m.Name))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 
 	mux.HandleFunc("POST /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +344,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			renderError(w, http.StatusNotFound, "model-spec no longer exists")
 			return
 		}
-		renderFragment(w, "model-spec", "spec-body", u.detail(stored))
+		renderFragment(w, r, "model-spec", "spec-body", u.detail(stored))
 	})
 
 	mux.HandleFunc("DELETE /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +356,6 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			return
 		}
 		log.Info("ui model-spec deleted", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 }

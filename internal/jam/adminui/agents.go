@@ -117,7 +117,7 @@ func registerAgents(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, 
 	mux.HandleFunc("GET /ui/agents", func(w http.ResponseWriter, r *http.Request) {
 		data := newAgentsData(store, img, r.URL.Query().Get("phase"), canEdit)
 		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, "agents", "agents-table", data)
+			renderFragment(w, r, "agents", "agents-table", data)
 			return
 		}
 		render(w, r, "agents", data)

@@ -21,13 +21,13 @@ func kitTableData(store jam.Store) map[string]any {
 
 // renderKitBody answers a kit-page write with the re-rendered kit body (the
 // current version), plus an out-of-band #flash message when msg is set.
-func renderKitBody(w http.ResponseWriter, store jam.Store, name, msg string) {
+func renderKitBody(w http.ResponseWriter, r *http.Request, store jam.Store, name, msg string) {
 	d, ok := buildKitDetail(store, name, 0, 0)
 	if !ok {
 		renderError(w, http.StatusNotFound, "kit no longer exists")
 		return
 	}
-	renderFragment(w, "kit", "kit-body", d)
+	renderFragment(w, r, "kit", "kit-body", d)
 	if msg != "" {
 		_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
 	}
@@ -83,7 +83,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 		}
 		log.Info("ui kit pushed", "operator", jam.OperatorID(r), "kit", name, "version", v)
 		w.Header().Set("HX-Redirect", kitURL(name))
-		renderFragment(w, "kits", "kits-table", kitTableData(store))
+		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 
 	mux.HandleFunc("POST /ui/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 			return
 		}
 		log.Info("ui kit pushed", "operator", jam.OperatorID(r), "kit", name, "version", v, "unchanged", unchanged)
-		renderKitBody(w, store, name, pushedMsg(name, v, unchanged))
+		renderKitBody(w, r, store, name, pushedMsg(name, v, unchanged))
 	})
 
 	mux.HandleFunc("POST /ui/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
@@ -128,10 +128,10 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 		}
 		log.Info("ui kit pinned", "operator", jam.OperatorID(r), "kit", name, "version", v)
 		if r.Header.Get("HX-Target") == "kit" { // from the kit's own page
-			renderKitBody(w, store, name, fmt.Sprintf("%s current is now v%d", name, v))
+			renderKitBody(w, r, store, name, fmt.Sprintf("%s current is now v%d", name, v))
 			return
 		}
-		renderFragment(w, "kits", "kits-table", kitTableData(store))
+		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 
 	mux.HandleFunc("DELETE /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +148,6 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 			return
 		}
 		log.Info("ui kit removed", "operator", jam.OperatorID(r), "kit", name)
-		renderFragment(w, "kits", "kits-table", kitTableData(store))
+		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 }

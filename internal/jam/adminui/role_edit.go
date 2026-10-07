@@ -121,7 +121,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 				return
 			}
 			d.CanRequest = canRequest
-			renderFragment(w, "role", "role-body", d)
+			renderFragment(w, r, "role", "role-body", d)
 			if msg != "" {
 				_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
 			}

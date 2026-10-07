@@ -112,11 +112,13 @@ func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 		chains := map[string][]jam.EscalationTier{"": proj.Escalation}
 		maps.Copy(chains, proj.EscalationByCategory)
 		for _, cat := range slices.Sorted(maps.Keys(chains)) {
+			seen := map[string]bool{} // a target named in several tiers is one item
 			for _, t := range chain(cat, chains[cat], known).Tiers {
 				for _, tg := range t.Targets {
-					if !tg.Unknown {
+					if !tg.Unknown || seen[tg.Text] {
 						continue
 					}
+					seen[tg.Text] = true
 					where := "default chain"
 					if cat != "" {
 						where = "chain " + cat

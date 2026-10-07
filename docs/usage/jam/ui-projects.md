@@ -1,6 +1,6 @@
 ---
 summary: The admin UI's project pages — a project selected in the rail, its tabs (Overview, Members, Agents, Roles, Intercom, Escalation) with one URL per tab under /ui/projects/<name>, what each tab shows and edits, and the role page at /ui/projects/<project>/roles/<name>.
-read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or session context — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles link.
+read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or session context — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles or /ui/projects link.
 owns: a project's tabs and their pages (/ui/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/ui/projects/<project>/roles/<name>), and the /ui/roles and /ui/projects redirects
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-attention.md for the badges and Needs attention; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf

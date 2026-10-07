@@ -123,7 +123,7 @@ func TestRoleDetailNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing role = %d, want 404", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "<nav") {
+	if !strings.Contains(rec.Body.String(), `<aside id="rail"`) {
 		t.Errorf("not-found should still render the page chrome")
 	}
 	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/roles"`) {

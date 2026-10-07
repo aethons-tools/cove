@@ -63,12 +63,13 @@ type railEntry struct {
 	Badge      attnBadge
 }
 
-// railView is the rail. Scope is the current scope as the rail's poll query
-// carries it: "" none, "~" Jam, else a project name.
+// railView is the rail. Poll is the URL its entry lists re-fetch themselves
+// from, carrying the current scope: ?jam=1 for Jam, ?scope=<project> for a
+// project, neither for none.
 type railView struct {
 	Jam      railEntry
 	Projects []railEntry
-	Scope    string
+	Poll     string
 }
 
 // frame is everything around a page's content: the rail, the scope's title
@@ -85,23 +86,43 @@ type frame struct {
 	Items   []attnItem
 }
 
-// railScopeJam is the rail poll's scope value for Jam.
-const railScopeJam = "~"
-
-// buildRail lays out the rail with scope ("" none, railScopeJam, or a project)
-// current; items are every attention item.
-func buildRail(store jam.Store, scope string, items []attnItem) railView {
-	rv := railView{Scope: scope, Jam: railEntry{Name: "Jam", Href: "/ui/", Current: scope == railScopeJam, Badge: badgeOf(inScope(items, "", ""))}}
+// buildRail lays out the rail with the scope kind current (for a project,
+// the named one); items are every attention item.
+func buildRail(store jam.Store, kind scopeKind, project string, items []attnItem) railView {
+	q := url.Values{}
+	switch kind {
+	case scopeJam:
+		q.Set("jam", "1")
+	case scopeProject:
+		q.Set("scope", project)
+	}
+	rv := railView{Poll: "/ui/rail", Jam: railEntry{Name: "Jam", Href: "/ui/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
+	if len(q) > 0 {
+		rv.Poll += "?" + q.Encode()
+	}
 	for _, p := range store.ListProjects() {
-		rv.Projects = append(rv.Projects, railEntry{Name: p, Href: projectURL(p), Current: scope == p, Badge: badgeOf(inScope(items, p, ""))})
+		rv.Projects = append(rv.Projects, railEntry{Name: p, Href: projectURL(p), Current: kind == scopeProject && project == p, Badge: badgeOf(inScope(items, p, ""))})
 	}
 	return rv
 }
 
+// railFor is the rail a poll asks for (see railView.Poll).
+func railFor(r *http.Request, store jam.Store, items []attnItem) railView {
+	q := r.URL.Query()
+	switch {
+	case q.Get("jam") == "1":
+		return buildRail(store, scopeJam, "", items)
+	case q.Has("scope"):
+		return buildRail(store, scopeProject, q.Get("scope"), items)
+	}
+	return buildRail(store, scopeNone, "", items)
+}
+
 // frameFor builds a page's frame from its meta and request. A project page
-// names its project in the URL (/ui/projects/{name}[/section] or
-// /ui/projects/{project}/roles/{name}); an agent page is in a project's scope
-// when linked with ?project=.
+// names its project in its route (/ui/projects/{name}[/section] or
+// /ui/projects/{project}/roles/{name}) — a missing project leaves the page
+// in no scope; an agent page is in a project's scope when linked with
+// ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	items := attention(src.store, src.img)
 	f := frame{Kind: meta.Kind, All: items}
@@ -114,7 +135,10 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	}
 	tab := meta.Tab
 	if meta.Kind == scopeProject {
-		f.Project, tab = projectFromPath(r.URL.Path)
+		f.Project, tab = projectFromRoute(r)
+		if _, ok := src.store.GetProject(f.Project); !ok {
+			f.Kind, f.Project = scopeNone, ""
+		}
 	}
 	switch f.Kind {
 	case scopeJam:
@@ -122,7 +146,7 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 		for _, t := range jamTabs {
 			f.Tabs = append(f.Tabs, tabView{Label: t.Label, Href: t.Href, Current: t.Key == tab, Badge: badgeOf(inScope(items, "", t.Key))})
 		}
-		f.Rail = buildRail(src.store, railScopeJam, items)
+		f.Rail = buildRail(src.store, scopeJam, "", items)
 	case scopeProject:
 		f.Title, f.Items = f.Project, inScope(items, f.Project, "")
 		for _, s := range projectSections {
@@ -130,9 +154,9 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 			f.Tabs = append(f.Tabs, tabView{Label: s.Label, Href: projectSectionURL(f.Project, s.Section), Current: key == tab,
 				Badge: badgeOf(inScope(items, f.Project, key))})
 		}
-		f.Rail = buildRail(src.store, f.Project, items)
+		f.Rail = buildRail(src.store, scopeProject, f.Project, items)
 	default:
-		f.Rail = buildRail(src.store, "", items)
+		f.Rail = buildRail(src.store, scopeNone, "", items)
 	}
 	if meta.SubTab != "" {
 		for _, s := range specsSubTabs {
@@ -143,15 +167,25 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	return f
 }
 
-// projectFromPath reads a project page's project and tab from its path:
-// /ui/projects/{p} (overview), /ui/projects/{p}/{section}, and
-// /ui/projects/{p}/roles/{role} (roles).
-func projectFromPath(path string) (project, tab string) {
-	parts := strings.Split(strings.TrimPrefix(path, "/ui/projects/"), "/")
-	project, _ = url.PathUnescape(parts[0])
+// projectFromRoute reads a project page's project and tab from its route:
+// /ui/projects/{name} (overview), /ui/projects/{name}/{section}, and
+// /ui/projects/{project}/roles/{name} (roles). The project is the route's
+// decoded {project} wildcard, else its {name} — never re-unescaped; the tab
+// is the pattern's segment after it.
+func projectFromRoute(r *http.Request) (project, tab string) {
+	if project = r.PathValue("project"); project == "" {
+		project = r.PathValue("name")
+	}
+	pat := r.Pattern
+	if i := strings.Index(pat, " "); i >= 0 {
+		pat = pat[i+1:]
+	}
 	tab = string(sectionOverview)
-	if len(parts) > 1 && parts[1] != "" {
-		tab = parts[1]
+	if rest, ok := strings.CutPrefix(pat, "/ui/projects/{"); ok {
+		_, rest, _ = strings.Cut(rest, "}")
+		if seg, _, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/"); seg != "" {
+			tab = seg
+		}
 	}
 	return project, tab
 }

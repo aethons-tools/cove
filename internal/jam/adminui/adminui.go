@@ -31,27 +31,27 @@ type page struct {
 }
 
 var (
-	jam_      = func(tab string) pageMeta { return pageMeta{Kind: scopeJam, Tab: tab} }
+	jamPage   = func(tab string) pageMeta { return pageMeta{Kind: scopeJam, Tab: tab} }
 	specsPage = func(sub string) pageMeta { return pageMeta{Kind: scopeJam, Tab: "specs", SubTab: sub} }
 	projPage  = pageMeta{Kind: scopeProject}
 )
 
 var pages = map[string]page{
-	"dashboard":    mustParse(jam_("dashboard"), "attention.html", "coves.html", "context_panel.html", "dashboard.html"),
-	"agents":       mustParse(jam_("agents"), "agents.html"),
-	"users":        mustParse(jam_("users"), "users.html"),
-	"user":         mustParse(jam_("users"), "user.html"),
+	"dashboard":    mustParse(jamPage("dashboard"), "attention.html", "coves.html", "context_panel.html", "dashboard.html"),
+	"agents":       mustParse(jamPage("agents"), "agents.html"),
+	"users":        mustParse(jamPage("users"), "users.html"),
+	"user":         mustParse(jamPage("users"), "user.html"),
 	"kits":         mustParse(specsPage("/ui/kits"), "kits.html"),
 	"destinations": mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destinations.html"),
-	"intercom":     mustParse(jam_("intercom"), "squawks.html", "intercom.html"),
-	"session":      mustParse(jam_("agents"), "session.html"),
+	"intercom":     mustParse(jamPage("intercom"), "squawks.html", "intercom.html"),
+	"session":      mustParse(jamPage("agents"), "session.html"),
 	"role":         mustParse(projPage, "coves.html", "context_panel.html", "role.html"),
 	"destination":  mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destination.html"),
 	"model-specs":  mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_specs.html"),
 	"model-spec":   mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_spec.html"),
 	"kit":          mustParse(specsPage("/ui/kits"), "kit.html"),
 	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
-	"agent":        mustParse(jam_("agents"), "agent.html"),
+	"agent":        mustParse(jamPage("agents"), "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
 }
 
@@ -160,7 +160,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("HX-Request") == "true" { // the studio table's poll
-			renderFragment(w, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
+			renderFragment(w, r, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
 			return
 		}
 		render(w, r, "dashboard", map[string]any{
@@ -172,9 +172,10 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	registerAgents(mux, store, sup, canEdit)
-	// The rail, re-fetched by its own poll so badges stay live on every page.
+	// The rail's entry lists, re-fetched by their own poll so badges stay
+	// live on every page.
 	mux.HandleFunc("GET /ui/rail", func(w http.ResponseWriter, r *http.Request) {
-		renderFragment(w, "dashboard", "rail", buildRail(store, r.URL.Query().Get("scope"), attention(store, sup)))
+		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, store, attention(store, sup)))
 	})
 	// Specs has no page of its own: it opens on its first sub-tab.
 	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
@@ -275,18 +276,25 @@ func frameFuncs(f frame) template.FuncMap {
 }
 
 // renderFragment executes a single named template (e.g. an htmx-swapped table)
-// without the page chrome or frame.
-func renderFragment(w http.ResponseWriter, name, tmpl string, data any) {
+// without the page chrome. Its row flags still bind every attention item, and
+// a project page's fragment keeps that project's scope in its agent links
+// (the project named by the route); any other fragment is in Jam's scope.
+func renderFragment(w http.ResponseWriter, r *http.Request, name, tmpl string, data any) {
 	p, ok := pages[name]
 	if !ok {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
 		return
+	}
+	var f frame
+	if src, ok := frameSourceOf(r); ok {
+		f = fragmentFrame(r, p.meta, src)
 	}
 	t, err := p.t.Clone()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	t.Funcs(frameFuncs(f))
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, tmpl, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -294,4 +302,16 @@ func renderFragment(w http.ResponseWriter, name, tmpl string, data any) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(buf.Bytes())
+}
+
+// fragmentFrame is the part of a frame a fragment reads: the attention items
+// and the scope its agent links keep.
+func fragmentFrame(r *http.Request, meta pageMeta, src frameSource) frame {
+	f := frame{Kind: meta.Kind, All: attention(src.store, src.img)}
+	if meta.Kind == scopeProject {
+		if f.Project, _ = projectFromRoute(r); f.Project == "" {
+			f.Kind = scopeNone
+		}
+	}
+	return f
 }

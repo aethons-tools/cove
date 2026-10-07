@@ -269,7 +269,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
 		w.Header().Set("HX-Redirect", destURL(d.Name))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 
 	mux.HandleFunc("POST /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +294,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			renderError(w, http.StatusNotFound, "destination no longer exists")
 			return
 		}
-		renderFragment(w, "destination", "dest-body", detail)
+		renderFragment(w, r, "destination", "dest-body", detail)
 	})
 
 	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -306,6 +306,6 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			return
 		}
 		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 }

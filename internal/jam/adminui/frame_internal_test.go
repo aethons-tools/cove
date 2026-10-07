@@ -1,12 +1,16 @@
 package adminui
 
 import (
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 func frameGet(t *testing.T, h http.Handler, path string) string {
@@ -110,15 +114,18 @@ func TestRowFlags(t *testing.T) {
 // The rail polls its own fragment, keeping the selection.
 func TestRailFragment(t *testing.T) {
 	h := frameHandler(t)
-	if body := frameGet(t, h, "/ui/projects/acme/roles"); !strings.Contains(body, `hx-get="/ui/rail?scope=acme" hx-trigger="every 3s"`) {
+	if body := frameGet(t, h, "/ui/projects/acme/roles"); !strings.Contains(body, `<div id="rail-entries" hx-get="/ui/rail?scope=acme" hx-trigger="every 3s"`) {
 		t.Error("rail should poll with its scope")
 	}
+	if body := frameGet(t, h, "/ui/"); !strings.Contains(body, `<div id="rail-entries" hx-get="/ui/rail?jam=1"`) {
+		t.Error("Jam's rail should poll with ?jam=1")
+	}
 	body := frameGet(t, h, "/ui/rail?scope=acme")
-	if !strings.HasPrefix(strings.TrimSpace(body), `<aside id="rail"`) || strings.Contains(body, "<html") ||
+	if !strings.HasPrefix(strings.TrimSpace(body), `<div id="rail-entries"`) || strings.Contains(body, "<html") ||
 		!strings.Contains(body, `<a href="/ui/projects/acme" aria-current="page">`) {
 		t.Errorf("rail fragment:\n%s", body)
 	}
-	if body := frameGet(t, h, "/ui/rail?scope=~"); !strings.Contains(body, `<a class="jam" href="/ui/" aria-current="page">`) {
+	if body := frameGet(t, h, "/ui/rail?jam=1"); !strings.Contains(body, `<a class="jam" href="/ui/" aria-current="page">`) {
 		t.Errorf("rail fragment for Jam:\n%s", body)
 	}
 }
@@ -145,5 +152,120 @@ func TestAgentPageScope(t *testing.T) {
 func TestRailDrawerButton(t *testing.T) {
 	if body := frameGet(t, frameHandler(t), "/ui/"); !strings.Contains(body, `class="railbtn"`) || !strings.Contains(body, "body.rail-open #rail{display:block}") {
 		t.Error("the title bar should carry the rail drawer button")
+	}
+}
+
+// Fragments re-rendered by a poll or a write keep their rows' flags.
+func TestFragmentFlags(t *testing.T) {
+	h := frameHandler(t)
+	want := `<span class="attn-flag red" title="s-lost: lost">⚠</span>`
+	for _, path := range []string{"/ui/agents", "/ui/"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("HX-Request", "true")
+		h.ServeHTTP(rec, req)
+		if body := rec.Body.String(); rec.Code != http.StatusOK || strings.Contains(body, "<html") || !strings.Contains(body, want) {
+			t.Errorf("HX GET %s = %d, want the fragment with %s:\n%s", path, rec.Code, want, body)
+		}
+	}
+}
+
+// The rail's poll swaps only its entry lists, never the "+ New project" form.
+func TestRailPollKeepsForm(t *testing.T) {
+	h := frameHandler(t)
+	page := frameGet(t, h, "/ui/projects/acme")
+	aside := between(page, `<aside id="rail"`, ">")
+	if strings.Contains(aside, "hx-get") {
+		t.Errorf("the rail itself must not be polled: %s", aside)
+	}
+	frag := strings.TrimSpace(frameGet(t, h, "/ui/rail?scope=acme"))
+	if !strings.HasPrefix(frag, `<div id="rail-entries"`) || strings.Contains(frag, "newproj") || strings.Contains(frag, "<form") {
+		t.Errorf("the polled fragment holds the entries only:\n%s", frag)
+	}
+	if !strings.Contains(page, frag) || !strings.Contains(page, `<details class="newproj">`) {
+		t.Errorf("the page should carry the polled element verbatim, and the form outside it")
+	}
+}
+
+// oddHandler serves projects whose names need escaping, and one named "~".
+func oddHandler(t *testing.T) http.Handler {
+	t.Helper()
+	st := jam.NewMemStore()
+	for _, p := range []string{"50%off", "a&b+c", "~"} {
+		if err := st.CreateProject(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return Handler(st, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil)
+}
+
+var pollRe = regexp.MustCompile(`id="rail-entries" hx-get="([^"]+)"`)
+
+// Project names that need escaping keep their title, tabs and rail selection,
+// and the rail's poll URL round-trips.
+func TestOddProjectNames(t *testing.T) {
+	h := oddHandler(t)
+	for _, name := range []string{"50%off", "a&b+c", "~"} {
+		page := frameGet(t, h, projectSectionURL(name, sectionMembers))
+		if got := html.UnescapeString(between(page, `<div class="scope-title">`, "</div>")); got != `<div class="scope-title">`+name {
+			t.Errorf("%s: title %q", name, got)
+		}
+		tabs := html.UnescapeString(between(page, `<nav class="tabs"`, "</nav>"))
+		if !strings.Contains(tabs, `href="`+projectSectionURL(name, sectionMembers)+`" aria-current="page">Members`) {
+			t.Errorf("%s: Members tab not current:\n%s", name, tabs)
+		}
+		current := `<a href="` + projectURL(name) + `" aria-current="page">`
+		if rail := html.UnescapeString(between(page, `<aside id="rail"`, "</aside>")); !strings.Contains(rail, current) || strings.Contains(rail, `class="jam" href="/ui/" aria-current`) {
+			t.Errorf("%s: rail selection wrong:\n%s", name, rail)
+		}
+		m := pollRe.FindStringSubmatch(page)
+		if m == nil {
+			t.Fatalf("%s: no rail poll", name)
+		}
+		frag := html.UnescapeString(frameGet(t, h, html.UnescapeString(m[1])))
+		if !strings.Contains(frag, current) || strings.Contains(frag, `class="jam" href="/ui/" aria-current`) {
+			t.Errorf("%s: polled rail (%s) selection wrong:\n%s", name, m[1], frag)
+		}
+	}
+	// Jam's own pages make Jam current, never the project named "~".
+	page := frameGet(t, h, "/ui/")
+	m := pollRe.FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("no rail poll on the dashboard")
+	}
+	for _, rail := range []string{between(page, `<aside id="rail"`, "</aside>"), frameGet(t, h, html.UnescapeString(m[1]))} {
+		if !strings.Contains(rail, `<a class="jam" href="/ui/" aria-current="page">`) || strings.Contains(rail, `<a href="/ui/projects/~" aria-current`) {
+			t.Errorf("Jam scope rail:\n%s", rail)
+		}
+	}
+}
+
+// Each Specs page shows the sub-tab strip with its own sub-tab current; other
+// pages show none.
+func TestSpecsSubTabs(t *testing.T) {
+	h := frameHandler(t)
+	for path, cur := range map[string]string{"/ui/kits": "Kits", "/ui/destinations": "Destinations", "/ui/model-specs": "Model-specs"} {
+		strip := between(frameGet(t, h, path), `<nav class="subtabs"`, "</nav>")
+		if strings.Count(strip, "<a ") != 3 || strings.Count(strip, "aria-current") != 1 || !strings.Contains(strip, `aria-current="page">`+cur+"</a>") {
+			t.Errorf("%s sub-tabs:\n%s", path, strip)
+		}
+	}
+	for _, path := range []string{"/ui/", "/ui/agents", "/ui/projects/acme"} {
+		if strings.Contains(frameGet(t, h, path), `class="subtabs"`) {
+			t.Errorf("%s should carry no sub-tabs", path)
+		}
+	}
+}
+
+// A missing project's page shows no tabs for it; the rail has nothing current.
+func TestMissingProjectPage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	frameHandler(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/projects/nope", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusNotFound || strings.Contains(body, `<nav class="tabs"`) || strings.Contains(body, "/ui/projects/nope/members") {
+		t.Errorf("404 project page = %d, should carry no tabs:\n%s", rec.Code, between(body, "<main>", "</main>"))
+	}
+	if strings.Contains(between(body, `<aside id="rail"`, "</aside>"), "aria-current") {
+		t.Error("nothing is current in the rail on a missing project's page")
 	}
 }

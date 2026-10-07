@@ -132,3 +132,20 @@ func TestBadgeOf(t *testing.T) {
 		t.Errorf("red badge = %+v", b)
 	}
 }
+
+// A target named twice in one chain is one item.
+func TestAttentionEscalationDedupe(t *testing.T) {
+	st := jam.NewMemStore()
+	if err := st.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetEscalationPolicy("acme", "", []jam.EscalationTier{
+		{Targets: []string{"user:ghost"}, Timeout: time.Minute},
+		{Targets: []string{"user:ghost"}, Timeout: time.Minute},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if items := attention(st, nil); len(items) != 1 || items[0].Subject != "escalation::user:ghost" {
+		t.Errorf("items = %+v, want one escalation::user:ghost", items)
+	}
+}

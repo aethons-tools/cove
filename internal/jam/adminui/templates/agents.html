@@ -7,7 +7,7 @@
     <div class="grid">
       <label>Label <span class="req">required</span><span class="hint">its name; the agent gets a session id</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
       <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>
       <label class="wide">Workload prompt <span class="hint">optional</span><textarea name="prompt"></textarea></label>
     </div>
@@ -21,7 +21,7 @@
     <div class="grid">
       <label>Agent id <span class="req">required</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
       <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
