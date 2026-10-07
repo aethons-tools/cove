@@ -142,7 +142,6 @@ func duration(label string, v time.Duration, unset string) setting {
 	return setting{Label: label, Value: fmtDur(v)}
 }
 
-// roleURL is the detail page path for a role.
 // roleURL is a role's page, under its project.
 func roleURL(project, name string) string {
 	return projectSectionURL(project, sectionRoles) + "/" + url.PathEscape(name)
