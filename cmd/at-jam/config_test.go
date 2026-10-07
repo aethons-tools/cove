@@ -1018,4 +1018,8 @@ func TestEscalationPollInterval(t *testing.T) {
 			t.Errorf("%q = %v, want %v", yml, got, want)
 		}
 	}
+	bad, err := parseServeConfig([]byte("runtime:\n  escalation-poll-interval: soon\n"))
+	if err == nil && bad.validateWake() == nil {
+		t.Fatal("an invalid runtime.escalation-poll-interval must be refused")
+	}
 }

@@ -63,7 +63,9 @@ denial or a `401`, without the studio calling `escalate`) is not implemented yet
 Every turn ends in Waiting, so an escalation opens only when the waiting session
 **asked for a person**: a ticket session's **`needs-input`**
 [report](turn-end.md#reporting-a-ticket), or **any** session's `escalate` call
-since it was last woken. A session that asked to `end` is never escalated. Then:
+since it was last woken (a resume after background work, Holding, doesn't count as
+a wake). A session that asked to `end`, or that is ending or gone, is never
+escalated. Then:
 
 1. **Tier 0 is called in immediately**, with no grace period. If you want a delay
    before the first nudge, give tier 0 a longer timeout — there is no separate
@@ -94,13 +96,16 @@ two engines share only the `Activity == Waiting` gate.
 
 A tier's `user:` targets are called into the session's home channel (people
 already in it stay in; called-in people stay members afterwards and may leave),
-and the session posts an **escalation notice** there: "Needs input — called in
-alice, bob (escalation tier 1, infra)". The relays render it wherever the
-channel goes:
+and the session posts an **escalation notice** there: "Needs input on ACME-7 —
+called in alice, bob (escalation tier 1, infra). Replies here go to ACME-7's
+conversation, its issue included." The relays render it wherever the channel goes:
 
 - a **ticket channel**: a comment on its issue that `@`-mentions the tier's people
-  by their tracker handles (as before), and each called-in person's Discord inbox
-  in a Discord-chat project;
+  by their tracker handles (as before — also when a room holds the issue's
+  binding), and each called-in person's Discord inbox in a Discord-chat project.
+  A Discord reply to it lands in the ticket's conversation, so it is also posted
+  on the issue; the session's answer goes to the issue (and `/me`), not back to
+  that inbox;
 - a **session channel**: each member's Discord inbox, like any post there; a
   person with only Linear sees it in [`/me`](intercom-ui.md).
 
@@ -125,7 +130,8 @@ runtime:
 ```
 
 `runtime.requisitioner.escalation-poll-interval` (where it used to live) is still
-read; the top-level key wins when both are set. The engine only does anything
+read; the top-level key wins when both are set, and an invalid one stops `serve`
+at startup. The engine only does anything
 for a Project that has an escalation policy set.
 
 ## Operator commands: `at-jam project escalation`

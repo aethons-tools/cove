@@ -174,6 +174,11 @@ func (c serveConfig) validateSessionEvents() error {
 
 // validateWake checks runtime.wake's durations parse. A no-op when unset.
 func (c serveConfig) validateWake() error {
+	if v := c.Runtime.EscalationPollInterval; v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			return fmt.Errorf("runtime.escalation-poll-interval: want a positive duration, got %q", v)
+		}
+	}
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil

@@ -737,12 +737,13 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		// the wake-on engine wakes the cove on each later reply and advances the
 		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+		// A wake (not a resume from Holding) answers an escalate ask.
+		inst.EscalationAsked = false
 	}
 	if turnStarted {
 		// Whatever woke it answered this turn end, so the idle deadline is
-		// disarmed until the next one, and an escalate ask is answered too.
+		// disarmed until the next one.
 		inst.IdleDeadline = time.Time{}
-		inst.EscalationAsked = false
 		// Fired alarms were answered too: retire one-shots, re-arm the rest.
 		var kept []Alarm
 		for _, al := range inst.Alarms {

@@ -188,8 +188,8 @@ A standing grant must name a declared session. Otherwise it is denied.
 A standing session's home is its own **session channel** ([intercom.md](intercom.md)):
 a `send` with no `to` reaches whoever is in it. Any project member may join it
 (from [`/me`](intercom-ui.md), or by posting) or be [called in](intercom.md#channel-membership); a session whose addressing allows
-`session:<name>` may post there. A `to` posts elsewhere, within its role's
-`--addressing`. Its [session context](session-context.md) says so, and a reply
+`session:<name>` may post there; an [escalation](escalation.md) calls people in. A
+`to` posts elsewhere, within its role's `--addressing`. Its [session context](session-context.md) says so, and a reply
 wakes it with its own resume text ("… `send` without `to` posts to your own
 channel; pass `to` to answer anywhere else."); it `read`s the reply. See
 [comms-addressing.md](comms-addressing.md) for the targets and

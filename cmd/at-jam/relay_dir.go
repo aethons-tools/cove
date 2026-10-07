@@ -114,6 +114,15 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: bp})
 		}
+		// A ticket whose issue binding a room holds: its escalation still goes
+		// onto the issue (the old ping's place), by the ticket's key.
+		if service == "linear" && ch.Kind == jam.SourceTicket && len(escalated.handles) > 0 && len(out) == 0 {
+			if tracker, ok := d.tracker(); ok {
+				if conn, key, ok := strings.Cut(ch.Key, "/"); ok && conn == string(tracker) {
+					out = append(out, relay.Delivery{Service: "linear", Address: key, BodyPrefix: strings.Join(escalated.handles, " ") + " " + prefix("linear")})
+				}
+			}
+		}
 		if service == "discord" {
 			for _, inbox := range escalated.inboxes {
 				out = append(out, relay.Delivery{Service: "discord", Address: inbox, BodyPrefix: prefix("discord")})

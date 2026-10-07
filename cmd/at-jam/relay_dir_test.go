@@ -411,6 +411,10 @@ func TestSurfacesEscalationNotice(t *testing.T) {
 		}
 		members = append(members, m)
 	}
+	k.ticket.Activity = jam.ActivityWaiting
+	if err := k.st.PutInstance(k.ticket); err != nil {
+		t.Fatal(err)
+	}
 	if err := k.ic.Escalate(context.Background(), k.ticket, 0, "", members); err != nil {
 		t.Fatal(err)
 	}
@@ -421,4 +425,27 @@ func TestSurfacesEscalationNotice(t *testing.T) {
 	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-7": "@alice.h @carol.h "})
 	label := k.ic.PartyOf(ident.ID(k.ticket.ActorID)).Label + ": "
 	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m[0]), map[string]string{"discord:inbox-A": label, "discord:inbox-B": label})
+}
+
+// A ticket whose issue binding a room holds still gets its escalation on the
+// issue: the notice goes to the ticket's key on the tracker.
+func TestSurfacesEscalationOnUnboundTicket(t *testing.T) {
+	k := newRelayKit(t)
+	if _, _, err := jam.PutRoom(k.st, "acme", jam.RoomBody{Name: "ops", Ref: "ACME-9"}); err != nil {
+		t.Fatal(err)
+	}
+	inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: "ACME-9", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting}
+	if err := k.st.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := k.st.GetProject("acme")
+	carol, _ := jam.MemberOf(k.st, p.ID, k.carol.ID)
+	if err := k.ic.Escalate(context.Background(), inst, 0, "", []jam.Member{carol}); err != nil {
+		t.Fatal(err)
+	}
+	m := k.lg.InboxSince(k.carol.ID, 0, 0)
+	if len(m) != 1 {
+		t.Fatalf("carol's inbox = %+v", m)
+	}
+	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-9": "@carol.h "})
 }

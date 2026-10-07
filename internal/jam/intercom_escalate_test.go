@@ -14,6 +14,12 @@ import (
 func TestIntercomEscalate(t *testing.T) {
 	f := newICFixture(t)
 	f.standing.Name = "spider"
+	for _, inst := range []*Instance{&f.standing, &f.ticket} {
+		inst.Activity = ActivityWaiting
+		if err := f.store.PutInstance(*inst); err != nil {
+			t.Fatal(err)
+		}
+	}
 	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
 	bob, _ := MemberOf(f.store, f.project.ID, f.bob.ID)
 	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice, bob}); err != nil {
@@ -40,5 +46,36 @@ func TestIntercomEscalate(t *testing.T) {
 	ticket, _ := f.ic.TicketChannelOf(f.ticket)
 	if !isCurrentMember(f.store, ticket.ID, f.alice.ID) {
 		t.Fatal("alice is called into the ticket's conversation")
+	}
+}
+
+// A session that is gone or no longer waiting is not escalated: nobody is
+// called in and no channel is reopened or rejoined.
+func TestIntercomEscalateOnlyWaitingSessions(t *testing.T) {
+	f := newICFixture(t)
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	for name, mutate := range map[string]func(*Instance){
+		"gone":        func(i *Instance) { i.Phase = PhaseGone },
+		"terminating": func(i *Instance) { i.Phase = PhaseTerminating },
+		"running":     func(i *Instance) { i.Activity = ActivityRunning },
+	} {
+		inst := f.standing
+		inst.Activity = ActivityWaiting
+		mutate(&inst)
+		if err := f.store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.ic.Escalate(context.Background(), inst, 0, "", []Member{alice}); err == nil {
+			t.Errorf("%s: escalated", name)
+		}
+	}
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("channels made for a non-waiting session: %+v", got)
+	}
+	if err := f.store.RemoveInstance(f.standing.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.Escalate(context.Background(), f.standing, 0, "", []Member{alice}); err == nil {
+		t.Error("a removed session was escalated")
 	}
 }

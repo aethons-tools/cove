@@ -75,8 +75,8 @@ func (e *Engine) Run(ctx context.Context) {
 
 func (e *Engine) tick(ctx context.Context) {
 	for _, inst := range e.reg.ListInstances() {
-		if inst.Activity != jam.ActivityWaiting || inst.EndRequested != nil {
-			continue // a session that asked to end is not soliciting anyone
+		if !jam.Escalatable(inst) || inst.EndRequested != nil {
+			continue // not waiting, ending or gone, or asked to end: not soliciting anyone
 		}
 		if !askedForPerson(inst) {
 			continue // every turn ends in Waiting: only an ask opens an escalation

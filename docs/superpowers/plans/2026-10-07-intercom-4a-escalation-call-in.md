@@ -30,6 +30,18 @@
    - The `escalate` tool's description is updated.
    - Docs: rewrite `escalation.md`, and update `intercom.md`, `comms-addressing.md`, `personal-sessions.md`, `requisitioner.md`, `serve.md`, and `INDEX.md`.
 
+## Review decisions (built)
+
+- The engine starts after `ic.Reconcile()`, once the tracker connection is resolved.
+- `Intercom.Escalate` re-reads the instance and acts only while it is `Escalatable`, meaning waiting and not ending, lost or gone. Nothing is reopened or rejoined for a dead session. The engine uses the same check.
+- An `escalate` ask is cleared only by a wake from Waiting, never by a resume from Holding.
+- An escalation on a ticket whose issue binding a room holds still goes onto the issue, addressed by the ticket's key.
+- The notice names what needs input: the ticket, or the session. On a ticket it also says that replies go to the ticket's conversation.
+- An invalid `runtime.escalation-poll-interval` stops serve.
+- Left as they are:
+  - Escalation notices count toward the loop breaker's run.
+  - A Discord reply to a ticket escalation is posted on the issue, and the session's answer goes to the issue and `/me`, not back to that inbox.
+
 ## Verification
 
 `go test ./...`; `-tags integration`; lint; docs audit; review before merge.

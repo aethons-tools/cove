@@ -1897,15 +1897,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// waking until a person posts there.
 	eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, sessionWakeLimit)
 
-	// Escalation engine (intercom slice 4): while a session is Waiting and has
-	// asked for a person, calls ordered tiers of its Project's escalation
-	// policy into its home channel on per-tier timers; the relays deliver the
-	// notice (a ticket's issue @-mentions the tier). Reply-detection, waking
-	// and teardown stay wake-on's job. Runs with or without a Requisitioner.
-	epoll := cfg.escalationPollInterval()
-	eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, ic /*Caller*/, escalate.Config{PollInterval: epoll}, log)
-	go eeng.Run(context.Background())
-	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
 	eng.SetRunningWake(sup /*Cursor*/)
@@ -2049,12 +2040,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
 	}
-	// Every live ticket session gets its ticket channel, bound to the issue on
-	// the tracker connection resolved above (sessions from before ticket
-	// channels existed), so replies on its ticket have somewhere to land.
+	// Every live session gets its home channel — a ticket session its ticket
+	// channel, bound to the issue on the tracker connection resolved above —
+	// so replies have somewhere to land before it sends.
 	if err := ic.Reconcile(); err != nil {
 		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
 	}
+
+	// Escalation engine (intercom slice 4), started once the tracker
+	// connection is resolved and live sessions have their home channels
+	// (above): while a session is Waiting and has asked for a person, calls
+	// ordered tiers of its Project's escalation policy into its home channel
+	// on per-tier timers; the relays deliver the notice (a ticket's issue
+	// @-mentions the tier). Reply-detection, waking and teardown stay
+	// wake-on's job. Runs with or without a Requisitioner.
+	epoll := cfg.escalationPollInterval()
+	eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, ic /*Caller*/, escalate.Config{PollInterval: epoll}, log)
+	go eeng.Run(context.Background())
+	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages

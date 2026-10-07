@@ -2060,3 +2060,16 @@ func TestEscalateAsksUntilWoken(t *testing.T) {
 		t.Fatalf("a new turn clears the ask but keeps the category: %+v", inst)
 	}
 }
+
+// An escalate ask made before a Holding stretch (background tasks running
+// past the turn) survives the resume: only a wake from Waiting answers it.
+func TestEscalateAskSurvivesHolding(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	_ = sup.SetEscalationCategory("w1", "")
+	_ = sup.Report(context.Background(), "w1", ActivityHolding)
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked {
+		t.Fatal("resuming from Holding cleared the ask")
+	}
+}
