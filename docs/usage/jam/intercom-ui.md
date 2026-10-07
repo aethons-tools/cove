@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /me/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /me/read`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the studio phases the "Waiting on you" treatment reflects
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # The participant intercom inbox (`/me`)
@@ -45,8 +45,10 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   markdown. The choice is remembered per browser. The composers always use a
   monospace font.
 - **New Message:** a picker of who to start a conversation with in the person's
-  projects: other members and live sessions (a chat with them), live sessions'
-  tickets, and rooms.
+  projects: other members (a chat with them), the live sessions they may reach
+  (a standing or ticket session; a personal session only if they're already in
+  its channel), live sessions' tickets, and rooms. A message to a session goes to
+  its home channel, which the person joins.
 
 ## Sending, unread, and refresh
 
@@ -54,7 +56,8 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   the composer sends `{to, body}` — `to` is the open channel's id, or for a new
   conversation `user:<id>` / `session:<id>` — and, on success, refreshes the pane
   and rail. The intercom decides whether the person may post there (a chat
-  they're in; a ticket or room of a project they're a member of: they join it)
+  they're in; a ticket, room or session channel of a project they're a member
+  of — a personal session's only if they're in it: they join it)
   and who hears it.
   Messages are markdown by default. Tick the composer's **Plain text** box to
   send one as `text/plain`, shown literally; it applies to that message only. A

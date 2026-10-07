@@ -141,9 +141,9 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if got := f.store.ListChannels(f.project.ID, SourceTicket); len(got) != 1 {
 		t.Fatalf("ticket channels = %+v, want one per ticket", got)
 	}
-	// A session with no ticket has no ticket channel.
-	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ChannelsOf(ident.ID(f.standing.ActorID))) != 0 {
-		t.Fatalf("standing SetUp: %v, channels %v", err, f.store.ChannelsOf(ident.ID(f.standing.ActorID)))
+	// A session with no ticket has no ticket channel (its own instead).
+	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceTicket)) != 1 {
+		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceTicket))
 	}
 }
 
@@ -182,21 +182,7 @@ func TestIntercomPlanDefaults(t *testing.T) {
 		t.Fatalf("audience = %v", got)
 	}
 
-	// A personal session's default is a chat with the user who started it.
-	c := f.mustPlan(f.personal, "")
-	if c.Channel.Kind != SourceChat || !slices.Equal(c.Audience, ids(f.alice)) {
-		t.Fatalf("personal default = %+v", c)
-	}
-	if again := f.mustPlan(f.personal, ""); again.Channel.ID != c.Channel.ID {
-		t.Fatal("the same members are the same chat")
-	}
-	if m := f.store.ChannelMembers(c.Channel.ID); len(m) != 2 {
-		t.Fatalf("chat members = %+v", m)
-	}
-
-	if _, err := f.plan(f.standing, ""); !errors.Is(err, ErrNoDefaultChannel) {
-		t.Fatalf("standing default: %v, want ErrNoDefaultChannel", err)
-	}
+	// Personal and standing sessions: intercom_session_test.go.
 }
 
 func TestIntercomPlanUsers(t *testing.T) {
@@ -390,20 +376,13 @@ func TestIntercomCanSee(t *testing.T) {
 	}
 }
 
-// The default channel is still a send: an expired actor can't make one, and
-// a personal session's starter must still be a live member of its project.
+// The home channel is still a send: an expired actor can't make one.
 func TestIntercomDefaultIsAuthorized(t *testing.T) {
 	f := newICFixture(t)
 	expired := f.poster(f.ticket)
 	expired.Actor.Expiry = f.now.Add(-time.Minute)
 	if _, err := f.ic.Plan(expired, "", f.now); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("expired default: %v", err)
-	}
-	if err := f.store.RemoveMember(f.project.ID, f.alice.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.plan(f.personal, ""); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("personal default after its starter left the project: %v", err)
 	}
 }
 

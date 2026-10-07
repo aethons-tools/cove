@@ -4,7 +4,7 @@ read_when: You are setting up a human's Discord inbox or binding them to their D
 owns: membership delivery profiles and the `--delivery service:address` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
 prereqs: comms-addressing.md for a Project's members and rooms and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Discord delivery & reply attribution
@@ -83,7 +83,7 @@ one [wakes](intercom.md#waiting-for-a-reply-wake-on). Routing works by a
 **receipt** recorded on every post (`discord-msg-id → {channel, squawk id,
 author}`); the reply's `reply_to` is the answered squawk's id, so it joins
 that squawk's thread. A receipt from before the channel log (no channel) still
-routes, to its session's default channel, while that session runs. Who the
+routes, to its session's home channel, while that session runs. Who the
 reply is *from* is decided by [the attribution rules](#who-a-discord-reply-is-from).
 
 - **In an inbox, only a reply routes.** A person's inbox is shared by all

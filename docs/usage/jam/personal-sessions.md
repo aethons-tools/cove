@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Personal sessions
@@ -21,9 +21,12 @@ profile for the owner.
 1. The session works its first prompt, delivered as-is. Its
    [session context](session-context.md) tells the agent it is your personal session and how to reach you.
 2. **The studio speaks first.** When it has results or needs input, it `send`s with
-   no `to`, which goes to its chat with you (its default channel) — a message in
-   your Discord inbox channel, and in your [`/me`](intercom-ui.md) inbox. Its nags
-   and notices go there too, and still arrive after it has ended. It may message **only** you: Jam enrolls it with an addressing
+   no `to`, which goes to its own **session channel** (its home channel). You are
+   called into that channel when the session starts, so it reaches your Discord
+   inbox channel and your [`/me`](intercom-ui.md) inbox. Its nags and notices go
+   there too, and still arrive after it has ended. The channel is private: other
+   people can't join it on their own. You may leave it (the session keeps
+   running). It may message **only** you: Jam enrolls it with an addressing
    override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
    the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);

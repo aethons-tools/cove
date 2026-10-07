@@ -105,7 +105,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: prefix(service)})
 		}
-	case jam.SourceChat:
+	case jam.SourceChat, jam.SourceSession: // a session channel reaches its people as a chat does
 		p, ok := d.projectOf(ch)
 		if !ok {
 			return nil
@@ -213,7 +213,7 @@ func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 				return relay.Routed{}, false
 			}
 			var err error
-			if ch, err = d.ic.DefaultChannel(inst); err != nil {
+			if ch, err = d.ic.HomeChannel(inst); err != nil {
 				return relay.Routed{}, false
 			}
 		}

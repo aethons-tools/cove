@@ -23,9 +23,12 @@ const (
 	SourceChat   SourceKind = "chat"   // a fixed member set
 	SourceTicket SourceKind = "ticket" // a work item: "<connection id>/<issue key>"
 	SourceRoom   SourceKind = "room"   // a topic, named per project
+	// SourceSession is a session's own channel: keyed by its session id, the
+	// home of a session that has no ticket (intercom slice 3).
+	SourceSession SourceKind = "session"
 )
 
-var sourceKinds = []SourceKind{SourceChat, SourceTicket, SourceRoom}
+var sourceKinds = []SourceKind{SourceChat, SourceTicket, SourceRoom, SourceSession}
 
 // StatusArchived is a channel that ended: its history stays readable, it
 // accepts no posts or joins, and its key and bindings are free again.

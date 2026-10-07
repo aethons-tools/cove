@@ -145,8 +145,8 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	if !h.configured(w) {
 		return
 	}
-	// No `to`: the session's default channel (its ticket's, or a chat with the
-	// user who started it). A `to` is planned against the role's addressing.
+	// No `to`: the session's home channel (its ticket's, or its own). A `to`
+	// is planned against the role's addressing.
 	pl, err := h.ic.Plan(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
 	switch {
 	case errors.Is(err, ErrSendDenied):
@@ -154,9 +154,6 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		return
 	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
 		http.Error(w, "target not found", http.StatusNotFound)
-		return
-	case errors.Is(err, ErrNoDefaultChannel):
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	case err != nil:
 		h.log.Error("intercom: plan failed", "actor", actor.ID, "error", err.Error())

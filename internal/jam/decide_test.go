@@ -1,8 +1,11 @@
 package jam
 
 import (
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
@@ -110,6 +113,40 @@ func TestListTargets(t *testing.T) {
 	expired.Expiry = time.Unix(0, 1)
 	if got := ListTargets(s, expired, time.Unix(1, 0)); got != nil {
 		t.Fatalf("an expired actor has no targets: %+v", got)
+	}
+}
+
+// Sessions are targets too, by unique label (else by id), when the
+// addressing allows them; never the caller itself or an ended one.
+func TestListTargetsSessions(t *testing.T) {
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRole("acme", Role{Name: "impl", Scope: Scope{Addressing: []string{"session:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	dup := string(ident.New(ident.Session))
+	for _, inst := range []Instance{
+		{ActorID: "me", Project: "acme", Name: "me"},
+		{ActorID: "s1", Project: "acme", Name: "spider", Phase: PhaseLive},
+		{ActorID: dup, Project: "acme", Name: "twin", Phase: PhaseLive},
+		{ActorID: "s3", Project: "acme", Name: "twin", Phase: PhaseLive},
+		{ActorID: "s4", Project: "acme", Name: "gone", Phase: PhaseGone},
+		{ActorID: "s5", Project: "other", Name: "elsewhere", Phase: PhaseLive},
+	} {
+		if err := s.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := Actor{ID: "me", Grants: []Grant{{Project: "acme", Role: "impl"}}}
+	var got []string
+	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
+		got = append(got, tg.Kind+":"+tg.Name)
+	}
+	slices.Sort(got)
+	if want := []string{"session:s3", "session:" + dup, "session:spider"}; !slices.Equal(got, func() []string { slices.Sort(want); return want }()) {
+		t.Fatalf("targets = %v, want %v", got, want)
 	}
 }
 

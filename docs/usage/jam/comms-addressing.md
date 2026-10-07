@@ -4,13 +4,14 @@ read_when: You want a studio's agent to send to someone other than its own ticke
 owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Comms addressing (target space & access-graph)
 
-A studio's `send` can reach more than its default channel: a **person** or a
-group of them (a chat), a **room**, or another **ticket**'s conversation —
+A studio's `send` can reach more than its home channel: a **person** or a
+group of them (a chat), a **room**, another **ticket**'s conversation, or
+another **session** —
 each a channel of the [channel log](intercom.md#enabling-it) — gated by a **comms
 access-graph** that mirrors the broker's `Scope`/`Grant` model.
 
@@ -24,6 +25,7 @@ A target is **kind-prefixed**, and names a channel:
 | `chat:user:<a>,user:<b>…` | a chat between the session and those people |
 | `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
 | `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only) |
+| `session:<label>` / `session:<ses_id>` | that session's home channel (its ticket's, else its own channel); the sender joins it by posting, so replies come back. A label two live sessions share names neither. |
 
 A person must be a member of the session's project. The same members are the
 same chat, however they're listed. `human:<name>` — the pre-registry form — is
@@ -37,8 +39,7 @@ with `path.Match`: `user:*` (any member), `channel:eng-*`
 what Jam itself writes, e.g. a personal session's grant and migrated policy) or
 by name. An id is matched only by that exact id, `user:*` or `*` — a name
 pattern like `user:a*` never matches an id — so ids never widen a name glob. Globs match only within
-their kind — a glob never crosses `user:`/`channel:` implicitly; write both
-prefixes if you mean both.
+their kind (`user:`, `channel:`, `ticket:`, `session:`); write each prefix you mean.
 
 ## Project members and rooms
 
@@ -100,15 +101,13 @@ at-jam room list <project> | rename <project> <room> <new> | rm <project> <room>
 A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
 (nothing refers to names). `user rm` tombstones the user and ends their
 memberships; it and `user rename` are refused (409) while the user owns a live
-personal session. The admin API behind
-these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
+personal session. The admin API behind these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
 `/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`,
 `/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
-`discord`: that kind's connection, created if there is none); it defaults to
-`linear`. A `<room>` is a name
-or a `chn_` id, and renaming one changes nothing else but which `channel:`
+`discord`: that kind's connection, created if there is none); default `linear`.
+A `<room>` is a name or a `chn_` id, and renaming one changes nothing but which `channel:`
 addressing globs match it. `room list` marks a room that only posts to its ref
 (another channel receives its replies) `post-only`. `--delivery` and `--oidc`
 are both repeatable (one flag per binding). Because an OIDC issuer is commonly
@@ -121,8 +120,8 @@ each binding as `oidc=<issuer>:<subject>`. A malformed value (empty issuer or su
 
 ## Delivery profiles & per-project chat service
 
-A Human may also carry per-service **delivery profiles** (a Discord inbox channel,
-optionally bound to their Discord user id), and a Project a **chat service**; the
+A member may also have per-project **delivery profiles** (a Discord inbox
+channel; their Discord user id is an account), and a Project a **chat service**; the
 Discord egress, the reply loop, and who a Discord reply is attributed to live in
 [discord.md](discord.md).
 
@@ -144,8 +143,8 @@ at-jam role add --project acme --name impl --addressing 'user:*,channel:eng-help
 **fail-closed**: an unknown actor, an expired token, a role with no addressing, or
 a malformed target all deny. A chat needs every person in it allowed; a ticket
 other than the studio's own needs a `ticket:<glob>` (e.g. `ticket:*`). The
-studio's **default channel** (`to` empty) never consults the access-graph — only
-its expiry.
+studio's **home channel** (`to` empty, or `session:` naming itself) never
+consults the access-graph — only its expiry. `session:<glob>` matches a label or id.
 
 **Authz is checked before existence.** A target whose form no grant's addressing
 allows returns **403** — the send is denied without ever asking whether the target
@@ -180,8 +179,9 @@ actor's authorized-**and**-resolvable targets:
              {"target": "user:alice", "kind": "user", "name": "alice"}]}
 ```
 
-The studio's own ticket comes first (when it has one); then the people and rooms
-its addressing allows. Handles are deliberately omitted — the agent addresses by
+The studio's own ticket comes first (when it has one); then the people, rooms
+and other live sessions (`session:<label>`, or `<ses_id>` when the label is
+shared) its addressing allows. Handles are deliberately omitted — the agent addresses by
 `user:<name>`, not by handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,

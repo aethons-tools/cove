@@ -94,7 +94,7 @@ func bodiesOf(sq []Squawk) []string {
 // deliver posts body from a person into the session's default channel.
 func (f *sqFixture) reply(inst Instance, from ident.ID, body string) intercom.Squawk {
 	f.t.Helper()
-	ch, err := f.ic.DefaultChannel(inst)
+	ch, err := f.ic.HomeChannel(inst)
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -156,15 +156,14 @@ func TestSquawksSendDefaults(t *testing.T) {
 		t.Fatalf("ticket default = %d %+v", code, r)
 	}
 	code, r = f.send(f.personal, `{"body":"done?"}`)
-	if code != http.StatusOK || r.Channel.Kind != "chat" {
+	if code != http.StatusOK || r.Channel.Kind != "session" {
 		t.Fatalf("personal default = %d %+v", code, r)
 	}
 	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].Body != "done?" {
 		t.Fatalf("alice's inbox = %+v", got)
 	}
-	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hello?"}`)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `no default recipient: pass "to"`) {
-		t.Fatalf("standing default = %d %s", rec.Code, rec.Body)
+	if code, r = f.send(f.standing, `{"body":"hello?"}`); code != http.StatusOK || r.Channel.Kind != "session" {
+		t.Fatalf("standing default = %d %+v", code, r)
 	}
 }
 
@@ -229,7 +228,7 @@ func TestSquawksReadIsTheInbox(t *testing.T) {
 	}
 	s := r.Squawks[0]
 	if s.ID != m1.ID || s.Author != "alice" || s.From == nil || *s.From != (Party{ID: f.alice.ID, Kind: "user", Label: "alice"}) ||
-		s.Channel == nil || s.Channel.Kind != "chat" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
+		s.Channel == nil || s.Channel.Kind != "session" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
 		t.Fatalf("entry = %+v (from %+v, channel %+v)", s, s.From, s.Channel)
 	}
 	if r.PageFirst != m1.ID {
@@ -295,7 +294,7 @@ func TestSquawksQueueAnchorsAndCommit(t *testing.T) {
 
 func TestSquawksReadLimitIsCapped(t *testing.T) {
 	f := newSqFixture(t)
-	ch, err := f.ic.DefaultChannel(f.personal)
+	ch, err := f.ic.HomeChannel(f.personal)
 	if err != nil {
 		t.Fatal(err)
 	}
