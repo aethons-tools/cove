@@ -62,28 +62,6 @@ func projectRef(store jam.Store, project string) string {
 	return ""
 }
 
-// projectHolder is one actor with grants into the project.
-type projectHolder struct {
-	ID    string
-	Roles []string
-}
-
-func projectHolders(store jam.Store, project string) []projectHolder {
-	var out []projectHolder
-	for _, a := range store.ListActors() {
-		var roles []string
-		for _, g := range a.Grants {
-			if jam.ProjectName(store, g.Project) == project {
-				roles = append(roles, g.Role)
-			}
-		}
-		if roles != nil {
-			out = append(out, projectHolder{ID: a.ID, Roles: roles})
-		}
-	}
-	return out
-}
-
 // crumb is one breadcrumb segment.
 type crumb struct{ Label, Href string }
 
@@ -104,12 +82,12 @@ type projectDetail struct {
 	Crumbs       []crumb
 	Project      jam.Project
 	Roles        []roleRow
-	Holders      []projectHolder
 	Coves        []jam.CoveSummary
 	LiveCoves    int
-	Agents       int  // studios in the project ∪ actors holding a grant into it
-	CanEdit      bool // always false: the page's studio table is read-only
-	CanRequest   bool // the Roles section offers Request (a supervisor runs)
+	Agents       int               // len(AgentRows)
+	AgentRows    []projectAgentRow // the Agents tab: running in the project or holding a grant into it
+	CanEdit      bool              // always false: the page's studio table is read-only
+	CanRequest   bool              // the Roles section offers Request (a supervisor runs)
 	Members      []memberRow
 	Rooms        []jam.RoomView
 	Escalation   []chainView // chains with at least one tier
@@ -134,7 +112,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 	if !ok || p.Status == jam.StatusRemoved {
 		return projectDetail{}, false
 	}
-	d := projectDetail{Title: name, Section: section, Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
+	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
 	d.Crumbs = projectCrumbs(name, section, "")
 	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
@@ -150,14 +128,8 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 			}
 		}
 	}
-	agents := map[string]bool{} // the Agents section's rows: studios in the project plus grant holders
-	for _, c := range d.Coves {
-		agents[c.ID] = true
-	}
-	for _, h := range d.Holders {
-		agents[h.ID] = true
-	}
-	d.Agents = len(agents)
+	d.AgentRows = projectAgents(store, img, name)
+	d.Agents = len(d.AgentRows)
 	members := jam.MembersOf(store, p.ID)
 	for _, m := range members {
 		d.Members = append(d.Members, memberRow{UserID: m.User.ID, Name: m.User.Name, Handle: m.Handle,

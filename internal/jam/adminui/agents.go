@@ -97,6 +97,34 @@ func agentRows(store jam.Store, img jam.ImageResolver, phase string) []agentRow 
 	return out
 }
 
+// projectAgentRow is one row of a project's Agents tab: an agent running in
+// the project or holding a grant into it, with its roles there.
+type projectAgentRow struct {
+	agentRow
+	Roles []string
+}
+
+// projectAgents lists project's agents — those whose studio runs in it and
+// those holding a grant into it, one row per id, in id order.
+func projectAgents(store jam.Store, img jam.ImageResolver, project string) []projectAgentRow {
+	var out []projectAgentRow
+	for _, r := range agentRows(store, img, "") {
+		var roles []string
+		if r.HasStudio && orDefaultProject(r.Project) == project {
+			roles = append(roles, r.Role)
+		}
+		for _, g := range r.Grants {
+			if orDefaultProject(g.Project) == project && !slices.Contains(roles, g.Role) {
+				roles = append(roles, g.Role)
+			}
+		}
+		if roles != nil {
+			out = append(out, projectAgentRow{agentRow: r, Roles: roles})
+		}
+	}
+	return out
+}
+
 // agentsData is the agents page and its polled table.
 type agentsData struct {
 	Title   string

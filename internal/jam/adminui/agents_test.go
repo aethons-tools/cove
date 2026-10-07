@@ -157,8 +157,8 @@ func TestHoldersLinkAgents(t *testing.T) {
 	if body := get(t, h, "/ui/projects/acme/roles/ops").Body.String(); !strings.Contains(body, `<a href="/ui/agents/e-only?project=acme"`) {
 		t.Error("role holders should link their agent pages")
 	}
-	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/ui/agents/e-only?project=acme">e-only</a>`) {
-		t.Error("project identities should link their agent pages")
+	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/ui/agents/e-only?project=acme"><b>e-only</b></a>`) {
+		t.Error("a project's agents should link their agent pages")
 	}
 }
 
@@ -188,5 +188,47 @@ func TestAgentPageLinksOwner(t *testing.T) {
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents/s-own").Body.String()
 	if !strings.Contains(body, `<a href="/ui/users/usr_alice">alice</a>`) {
 		t.Errorf("owner should link the user page:\n%s", body)
+	}
+}
+
+// A project's Agents tab is one table: every agent running in the project or
+// holding a grant into it, one row per id, with its roles there.
+func TestProjectAgentsOneTable(t *testing.T) {
+	store := seedAgents(t)
+	mustCreateProject(t, store, "beta")
+	if err := store.PutRole("beta", jam.Role{Name: "w"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(jam.Actor{ID: "b-only", TokenHash: "h3", Grants: []jam.Grant{{Project: "beta", Role: "w"}}}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
+	sec := body[strings.Index(body, `<div id="project">`):]
+	if n := strings.Count(sec, "<table"); n != 1 {
+		t.Fatalf("want one table on the Agents tab, got %d", n)
+	}
+	if strings.Contains(sec, "Identities") {
+		t.Error("the separate Identities table is gone")
+	}
+	for id, want := range map[string][]string{
+		"s-ticket":   {`<span class="chip">ticket</span>`, `href="/ui/projects/acme/roles/dev"`, `class="pill phase-raising"`}, // studio + enrolled: one row
+		"e-only":     {`<span class="chip">enrolled</span>`, `href="/ui/projects/acme/roles/ops"`, "not running"},
+		"s-standing": {`<span class="chip">standing</span>`, `class="pill phase-live"`},
+	} {
+		row := agentRow(t, sec, id)
+		for _, w := range want {
+			if !strings.Contains(row, w) {
+				t.Errorf("%s row missing %s:\n%s", id, w, row)
+			}
+		}
+		if !strings.Contains(row, `href="/ui/agents/`+id+`?project=acme"`) {
+			t.Errorf("%s should link its agent page in acme's scope", id)
+		}
+	}
+	if n := strings.Count(sec, `<tr data-id="s-ticket">`); n != 1 {
+		t.Errorf("s-ticket should be one row, got %d", n)
+	}
+	if strings.Contains(sec, "b-only") {
+		t.Error("an agent only in beta is not acme's")
 	}
 }

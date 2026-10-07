@@ -45,8 +45,9 @@ re-rendered.
 - **Members** — the users agents here can address (linked to their user page,
   with handle and delivery). **Add member** (a user, and delivery: one
   `service:address` per line); per member, **Edit** delivery and **Remove**.
-- **Agents** — the project's running agents and the identities
-  holding a grant into it, with the roles they hold.
+- **Agents** — one table of the project's agents: each running in it or holding
+  a grant into it (one row per agent), with its kind, roles here, phase,
+  activity, image and last seen; each opens its agent page in the project.
 - **Roles** — the project's roles (linked, with destinations, TTL and kit) and,
   with a runtime supervisor, a **Request** per role
   ([ui-editing.md](ui-editing.md#runtime-studios)). **New role** creates one in this project

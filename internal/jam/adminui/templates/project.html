@@ -136,22 +136,27 @@
 
 {{define "project-agents"}}
 <div id="project">
-<div class="page-head"><h1>Agents</h1><span class="sub">agents running in {{.Project.Name}}, and the identities holding a grant into it</span></div>
-<div class="sections">
-<section class="card full">
-    <header><h2>Running</h2><span class="sub">this project's running agents</span></header>
-    {{template "coves-tbl" .}}
-  </section>
-<section class="card">
-    <header><h2>Identities</h2><span class="sub">agents holding a grant into this project — open one to manage its grants</span></header>
-    <table>
-      <thead><tr><th>Agent</th><th>Roles</th></tr></thead>
-      <tbody>
-        {{range .Holders}}<tr><td><a class="mono" href="{{agentHref .ID ""}}">{{.ID}}</a></td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
-        {{else}}<tr><td colspan="2" class="empty">No agents hold a grant here.</td></tr>{{end}}
-      </tbody>
-    </table>
-  </section>
+<div class="page-head"><h1>Agents</h1><span class="sub">agents running in {{.Project.Name}} or holding a grant into it — open one for its studio, session and grants</span></div>
+<div class="card">
+<table>
+  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Phase</th><th>Activity</th><th>Image</th><th>Last seen</th></tr></thead>
+  <tbody>
+    {{range .AgentRows}}
+    <tr data-id="{{.ID}}">
+      <td><a class="mono" href="{{agentHref .ID ""}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
+      <td><span class="chip">{{.Kind}}</span></td>
+      <td>{{$p := $.Project.Name}}{{range .Roles}}<a class="chip" href="{{roleURL $p .}}">{{.}}</a>{{end}}</td>
+      <td>{{if .HasStudio}}{{template "phase" .Phase}}{{else}}<span class="none">not running</span>{{end}}</td>
+      <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="empty">No agents in this project.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
 </div>
 </div>
 {{end}}
