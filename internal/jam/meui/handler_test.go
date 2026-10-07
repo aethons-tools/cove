@@ -487,3 +487,72 @@ func TestHistoryIsTheViewersNameOnly(t *testing.T) {
 		t.Errorf("a renamed viewer sees human:alice's history:\n%s", rail)
 	}
 }
+
+// postAs posts a form to path as participant p.
+func postAs(t *testing.T, h http.Handler, p jam.Participant, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jam.WithParticipant(req, p))
+	return rec
+}
+
+func pageFor(t *testing.T, h http.Handler, p jam.Participant, c string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(c), nil), p))
+	return rec.Body.String()
+}
+
+func isIn(st *jam.MemStore, ch, p ident.ID) bool {
+	for _, m := range st.ChannelMembers(ch) {
+		if m.ParticipantID == p && !m.Left {
+			return true
+		}
+	}
+	return false
+}
+
+// A member calls someone in, leaves; a person who can see a channel joins it.
+func TestCallInLeaveJoin(t *testing.T) {
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	h := Handler(e.Deps, nil)
+
+	page := pageFor(t, h, p, engID)
+	for _, want := range []string{`hx-post="/me/leave"`, `hx-post="/me/call-in"`, `value="user:` + string(bob) + `"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("member's page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, `hx-post="/me/join"`) {
+		t.Error("a member is offered Join")
+	}
+	if rec := postAs(t, h, p, "/me/call-in", url.Values{"channel": {engID}, "who": {"user:" + string(bob)}}); rec.Code != 204 || !isIn(e.st, e.room.ID, bob) {
+		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
+	}
+	if rec := postAs(t, h, p, "/me/leave", url.Values{"channel": {engID}}); rec.Code != 204 || isIn(e.st, e.room.ID, p.UserID) {
+		t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+	}
+	if page := pageFor(t, h, p, engID); !strings.Contains(page, `hx-post="/me/join"`) || strings.Contains(page, `hx-post="/me/leave"`) {
+		t.Errorf("a non-member who can see the room is offered Join, not Leave:\n%s", page)
+	}
+	if rec := postAs(t, h, p, "/me/join", url.Values{"channel": {engID}}); rec.Code != 204 || !isIn(e.st, e.room.ID, p.UserID) {
+		t.Fatalf("join = %d %s", rec.Code, rec.Body)
+	}
+	for path, form := range map[string]url.Values{
+		"/me/join":    {"channel": {"chn_01j9q3zzzzzzzzzzzzzzzzzz"}},
+		"/me/call-in": {"channel": {engID}, "who": {"user:nobody"}},
+	} {
+		if rec := postAs(t, h, p, path, form); rec.Code == 204 {
+			t.Errorf("%s %v succeeded", path, form)
+		}
+	}
+	if rec := postAs(t, h, p, "/me/join", url.Values{}); rec.Code != http.StatusBadRequest {
+		t.Errorf("join with no channel = %d", rec.Code)
+	}
+}

@@ -26,7 +26,8 @@ profile for the owner.
    inbox channel and your [`/me`](intercom-ui.md) inbox. Its nags and notices go
    there too, and still arrive after it has ended. The channel is private: other
    people can't join it on their own, and a reply by someone else (say, in a
-   shared Discord inbox) doesn't let them in. It may message **only** you: Jam enrolls it with an addressing
+   shared Discord inbox) doesn't let them in — but you can **call them in**
+   (`/me` **Call in…**), and you may **leave** it ([membership](intercom.md#channel-membership)). It may message **only** you: Jam enrolls it with an addressing
    override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
    the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);

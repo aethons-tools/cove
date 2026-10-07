@@ -38,6 +38,10 @@ type Conversation struct {
 	// strip (filled by the handler, which holds the Presence source).
 	SessionIDs []string
 	Sessions   []SessionRow
+	// Membership controls: Join (a channel they can see but aren't in),
+	// Leave (one they're in; never a chat), and who they may call in.
+	CanJoin, CanLeave bool
+	CallIn            []NewMessageOption
 }
 
 func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
@@ -74,7 +78,51 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		conv.Messages = append(conv.Messages, messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID))
 	}
 	conv.HasMessages = len(conv.Messages) > 0
+	membershipControls(&conv, p, d)
 	return conv, true
+}
+
+// membershipControls fills the conversation's Join/Leave/Call in controls:
+// a chat has none (its members are fixed); a room takes people, not sessions.
+func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
+	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
+	if !ok || ch.Status != jam.StatusLive || ch.Kind == jam.SourceChat {
+		return
+	}
+	in := map[ident.ID]bool{}
+	for _, m := range d.Store.ChannelMembers(ch.ID) {
+		if !m.Left {
+			in[m.ParticipantID] = true
+		}
+	}
+	if !in[p.UserID] {
+		conv.CanJoin = true
+		return
+	}
+	conv.CanLeave = true
+	for _, uid := range d.Store.ListMembers(ch.ProjectID) {
+		if u, ok := d.Store.GetUser(uid); ok && u.Status == jam.StatusLive && !in[uid] {
+			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "user:" + string(uid), Label: u.Name, Kind: "person"})
+		}
+	}
+	if ch.Kind == jam.SourceRoom {
+		return
+	}
+	for _, inst := range d.Store.ListInstances() {
+		if inst.Phase == jam.PhaseGone || in[ident.ID(inst.ActorID)] {
+			continue
+		}
+		if !d.Intercom.MayReach(p.UserID, inst) {
+			continue // someone else's personal session isn't theirs to call in
+		}
+		project := inst.Project
+		if project == "" {
+			project = jam.DefaultProject
+		}
+		if pr, ok := d.Store.GetProject(project); ok && pr.ID == ch.ProjectID {
+			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "session:" + inst.ActorID, Label: d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label, Kind: "session"})
+		}
+	}
 }
 
 // legacyConversation is a History conversation: the legacy projection's

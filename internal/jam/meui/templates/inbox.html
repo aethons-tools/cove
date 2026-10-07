@@ -34,6 +34,9 @@
       </div>
       <span class="spacer"></span>
       {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
+      {{if .CallIn}}<form class="callin" hx-post="/me/call-in" hx-swap="none"><input type="hidden" name="channel" value="{{.ChannelID}}"><select name="who" aria-label="Call in">{{range .CallIn}}<option value="{{.To}}">{{.Label}} ({{.Kind}})</option>{{end}}</select><button type="submit">Call in</button></form>{{end}}
+      {{if .CanJoin}}<button type="button" hx-post="/me/join" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Join</button>{{end}}
+      {{if .CanLeave}}<button type="button" hx-post="/me/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
     </div>
     <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
       {{template "messages" $}}

@@ -2,6 +2,7 @@ package meui
 
 import (
 	"embed"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
@@ -56,6 +57,9 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /me/rail", h.rail)
 	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
+	mux.HandleFunc("POST /me/join", h.join)
+	mux.HandleFunc("POST /me/leave", h.leave)
+	mux.HandleFunc("POST /me/call-in", h.callIn)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/events", h.events)
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
@@ -170,4 +174,50 @@ func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// join, leave and callIn are the conversation's membership controls: 204,
+// then the page reloads (HX-Refresh), so the header shows the new state. A refusal never says
+// whether the channel exists.
+func (h *handler) join(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error { return h.d.Intercom.JoinChannel(p.UserID, ch) })
+}
+
+func (h *handler) leave(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error { return h.d.Intercom.LeaveChannel(p.UserID, ch) })
+}
+
+func (h *handler) callIn(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error {
+		_, _, err := h.d.Intercom.CallIn(jam.Poster{ID: p.UserID}, ch, r.FormValue("who"))
+		return err
+	})
+}
+
+func (h *handler) membership(w http.ResponseWriter, r *http.Request, act func(jam.Participant, ident.ID) error) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	channel := r.FormValue("channel")
+	if channel == "" || h.d.Intercom == nil {
+		http.Error(w, "channel required", http.StatusBadRequest)
+		return
+	}
+	err := act(p, ident.ID(channel))
+	switch {
+	case err == nil:
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, jam.ErrSendDenied):
+		http.Error(w, "not allowed", http.StatusForbidden)
+	case errors.Is(err, jam.ErrSendUnresolved), errors.Is(err, jam.ErrRemoved):
+		http.Error(w, "not found", http.StatusNotFound)
+	case errors.Is(err, jam.ErrFixedMembers):
+		http.Error(w, "this channel's members are fixed", http.StatusConflict)
+	default:
+		h.lg.Error("meui membership change failed", "channel", channel, "error", err.Error())
+		http.Error(w, "failed", http.StatusInternalServerError)
+	}
 }
