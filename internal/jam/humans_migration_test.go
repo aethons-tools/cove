@@ -133,8 +133,8 @@ func TestPlanHumanMigrationRenameRewritesExactRefs(t *testing.T) {
 	beta := m.projects["beta"]
 	beta.Escalation = []EscalationTier{{Targets: []string{"human:alice", "human:bob"}}}
 	m.projects["beta"] = beta
-	m.roles["beta"] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:alice", "human:al*"}}}}
-	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:alice"}}}}
+	m.roles[m.projects["beta"].ID] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:alice", "human:al*"}}}}
+	m.roles[m.projects["acme"].ID] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:alice"}}}}
 	m.instances["personal-alice-1"] = Instance{ActorID: "personal-alice-1", Project: "beta", Owner: "alice"}
 	m.actors["h1"] = Actor{ID: "personal-alice-1", TokenHash: "h1", Grants: []Grant{{Project: "beta", Role: "impl", Overrides: &Override{Addressing: []string{"human:alice"}}}}}
 
@@ -151,7 +151,7 @@ func TestPlanHumanMigrationRenameRewritesExactRefs(t *testing.T) {
 	if got := betaDoc.Escalation[0].Targets; !slices.Equal(got, []string{"human:alice-beta", "human:bob"}) {
 		t.Fatalf("beta tiers = %v", got)
 	}
-	if len(plan.roles) != 1 || plan.roles[0].Project != "beta" ||
+	if len(plan.roles) != 1 || plan.roles[0].Project != m.projects["beta"].ID ||
 		!slices.Equal(plan.roles[0].Role.Scope.Addressing, []string{"human:alice-beta", "human:al*"}) {
 		t.Fatalf("roles = %+v (acme's role must be untouched)", plan.roles)
 	}
@@ -314,7 +314,7 @@ func TestPlanRegistryMigrationPolicyRefs(t *testing.T) {
 	acme := m.projects["acme"]
 	acme.Escalation = []EscalationTier{{Targets: []string{"human:alice", "human:ghost", "channel:eng"}}}
 	m.projects["acme"] = acme
-	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*", "human:bob", "channel:eng", "user:carol"}}}}
+	m.roles[m.projects["acme"].ID] = map[string]Role{"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*", "human:bob", "channel:eng", "user:carol"}}}}
 	m.actors["h1"] = Actor{ID: "personal-alice-1", TokenHash: "h1", Grants: []Grant{{Project: "acme", Role: "impl", Overrides: &Override{Addressing: []string{"human:alice"}}}}}
 	m.instances["personal-alice-1"] = Instance{ActorID: "personal-alice-1", Project: "acme", Owner: "alice", SessionKind: SessionKindPersonal}
 
@@ -350,8 +350,11 @@ func TestPlanRegistryMigrationPolicyRefs(t *testing.T) {
 	if plan := m2.planRegistryMigration(2); len(plan.instances) != 1 || plan.instances[0].OwnerID != u.ID {
 		t.Fatalf("from 2 = %+v", plan.instances)
 	}
-	if again := m2.planRegistryMigration(3); len(again.instances)+len(again.roles)+len(again.projects) != 0 {
-		t.Fatalf("from 3 must plan nothing: %+v", again)
+	if again := m2.planRegistryMigration(3); len(again.roles)+len(again.projects) != 0 || len(again.instances) != 1 || again.instances[0].OwnerID != "" {
+		t.Fatalf("from 3 must plan only step 6's project id: %+v", again)
+	}
+	if again := m2.planRegistryMigration(3); again.instances[0].Project != string(m2.projects["beta"].ID) {
+		t.Fatalf("step 6 names the project by id: %+v", again.instances)
 	}
 }
 
@@ -373,7 +376,7 @@ func TestPlanPolicyRefsPrefersLiveNameOverAlias(t *testing.T) {
 // run under, so their state volumes and inboxes carry over untouched.
 func TestPlanRegistryMigrationSeedsStandingSessions(t *testing.T) {
 	m := legacyState(t, map[string][]Human{"acme": nil})
-	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "spider", Prompt: "p"}, {Name: "ant", Prompt: "p"}}}}}
+	m.roles[m.projects["acme"].ID] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "spider", Prompt: "p"}, {Name: "ant", Prompt: "p"}}}}}
 	acme := m.projects["acme"].ID
 	m.standing[standingKey{acme, "impl", "ant"}] = "ses-already"
 	plan := m.planRegistryMigration(3)
@@ -390,7 +393,7 @@ func TestPlanRegistryMigrationSeedsStandingSessions(t *testing.T) {
 // for the reconciler to start with a minted id.
 func TestPlanStandingSessionsSkipsCollidingIDs(t *testing.T) {
 	m := legacyState(t, map[string][]Human{"acme": nil})
-	m.roles["acme"] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "a b", Prompt: "p"}, {Name: "a-b", Prompt: "p"}}}}}
+	m.roles[m.projects["acme"].ID] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "a b", Prompt: "p"}, {Name: "a-b", Prompt: "p"}}}}}
 	plan := m.planRegistryMigration(3)
 	if len(plan.standing) != 1 {
 		t.Fatalf("standing = %+v, want one seeded entry", plan.standing)
@@ -498,4 +501,29 @@ func roomChannels(m *memState, project ident.ID) []RosterChannel {
 		out = append(out, rc)
 	}
 	return out
+}
+
+// Step 6 names every grant's and instance's project by id; an unknown name is
+// kept (and noted), an id is left alone.
+func TestPlanProjectRefs(t *testing.T) {
+	m := legacyState(t, map[string][]Human{"acme": nil, DefaultProject: nil})
+	acme := m.projects["acme"].ID
+	m.actors["h1"] = Actor{ID: "a1", TokenHash: "h1", Grants: []Grant{{Project: "acme", Role: "r"}, {Project: "", Role: "r"}, {Project: "ghost", Role: "r"}}}
+	m.actors["h2"] = Actor{ID: "a2", TokenHash: "h2", Grants: []Grant{{Project: string(acme), Role: "r"}}}
+	m.instances["i1"] = Instance{ActorID: "i1", Project: "acme"}
+	m.instances["i2"] = Instance{ActorID: "i2", Project: string(acme)}
+	plan := m.planRegistryMigration(5)
+	if len(plan.actors) != 1 || plan.actors[0].Grants[0].Project != string(acme) ||
+		plan.actors[0].Grants[1].Project != string(m.projects[DefaultProject].ID) || plan.actors[0].Grants[2].Project != "ghost" {
+		t.Fatalf("actors = %+v", plan.actors)
+	}
+	if len(plan.instances) != 1 || plan.instances[0].ActorID != "i1" || plan.instances[0].Project != string(acme) {
+		t.Fatalf("instances = %+v", plan.instances)
+	}
+	if len(plan.report.Notes) != 1 {
+		t.Fatalf("notes = %q", plan.report.Notes)
+	}
+	if again := m.planRegistryMigration(6); len(again.actors)+len(again.instances) != 0 {
+		t.Fatalf("from 6 = %+v", again)
+	}
 }

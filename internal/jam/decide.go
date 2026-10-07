@@ -208,7 +208,7 @@ func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance
 func liveSessionsOf(store Store, project string) []Instance {
 	var out []Instance
 	for _, inst := range store.ListInstances() {
-		if inst.Phase != PhaseGone && orDefaultProject(inst.Project) == project {
+		if inst.Phase != PhaseGone && SameProject(store, inst.Project, project) {
 			out = append(out, inst)
 		}
 	}
@@ -220,7 +220,7 @@ func liveSessionsOf(store Store, project string) []Instance {
 // when no other live session of its project shares it, else its id.
 func sessionAddressName(store Store, inst Instance) string {
 	label := sessionLabel(inst)
-	for _, other := range liveSessionsOf(store, orDefaultProject(inst.Project)) {
+	for _, other := range liveSessionsOf(store, inst.Project) {
 		if other.ActorID != inst.ActorID && sessionLabel(other) == label {
 			return inst.ActorID
 		}

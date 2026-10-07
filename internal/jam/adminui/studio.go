@@ -84,6 +84,7 @@ func buildStudioDetail(store jam.Store, msgs SquawkReader, sess sessionevents.St
 		IntercomURL: "/ui/intercom?participant=" + url.QueryEscape(participant),
 	}
 	d.Inst, d.Running = store.GetInstance(id)
+	d.Inst.Project = jam.ProjectName(store, d.Inst.Project) // the page names it
 	if d.Running {
 		d.Kind = d.Inst.SessionKind
 		if d.Kind == "" {

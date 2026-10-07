@@ -324,3 +324,42 @@ func (s *Store) migrate(ctx context.Context) error {
 		return nil
 	})
 }
+
+// RewriteRefs re-keys events recorded under a project's or an owner's name
+// to its id (Jam 1b-2a: streams are keyed by project id, personal owners by
+// user id): category and the stream_id prefix by projects (name → id), and
+// session_owner by owners (name → id). Rows already keyed by id are left, so
+// it is idempotent; it runs at startup before any grant. It returns how many
+// rows changed.
+func (s *Store) RewriteRefs(ctx context.Context, projects, owners map[string]string) (int64, error) {
+	var n int64
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		for name, id := range projects {
+			if name == id {
+				continue
+			}
+			tag, err := tx.Exec(ctx,
+				`UPDATE alloc_events SET category = $2, stream_id = $2 || substr(stream_id, length($1) + 1)
+				 WHERE category = $1 AND starts_with(stream_id, $1 || '/')`, name, id)
+			if err != nil {
+				return err
+			}
+			n += tag.RowsAffected()
+		}
+		for name, id := range owners {
+			if name == id {
+				continue
+			}
+			tag, err := tx.Exec(ctx, `UPDATE alloc_events SET session_owner = $2 WHERE session_owner = $1`, name, id)
+			if err != nil {
+				return err
+			}
+			n += tag.RowsAffected()
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("allocpg: rewrite refs: %w", err)
+	}
+	return n, nil
+}

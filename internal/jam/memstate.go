@@ -26,13 +26,13 @@ import (
 // kitExists, actorByID), never a public read method.
 type memState struct {
 	mu        sync.RWMutex
-	roles     map[string]map[string]Role
-	actors    map[string]Actor       // keyed by TokenHash
-	dests     map[string]Destination // keyed by Name
-	specs     map[string]ModelSpec   // keyed by Name; values are owned deep copies
-	kits      map[string]Kit         // keyed by Name
-	instances map[string]Instance    // keyed by ActorID
-	projects  map[string]Project     // keyed by Name
+	roles     map[ident.ID]map[string]Role // project id → name → role
+	actors    map[string]Actor             // keyed by TokenHash
+	dests     map[string]Destination       // keyed by Name
+	specs     map[string]ModelSpec         // keyed by Name; values are owned deep copies
+	kits      map[string]Kit               // keyed by Name
+	instances map[string]Instance          // keyed by ActorID
+	projects  map[string]Project           // keyed by Name
 	// users, connections and accounts are the identity registry, keyed by id;
 	// removed entities stay (tombstones). See registry_state.go.
 	users       map[ident.ID]User
@@ -62,7 +62,7 @@ type memState struct {
 
 func newMemState() *memState {
 	return &memState{
-		roles:       map[string]map[string]Role{},
+		roles:       map[ident.ID]map[string]Role{},
 		actors:      map[string]Actor{},
 		dests:       map[string]Destination{},
 		specs:       map[string]ModelSpec{},
@@ -123,21 +123,23 @@ func (m *memState) ListActors() []Actor {
 func (m *memState) GetRole(project, name string) (Role, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if project == "" {
-		project = DefaultProject
+	p, ok := m.resolveProject(project)
+	if !ok {
+		return Role{}, false
 	}
-	r, ok := m.roles[project][name]
+	r, ok := m.roles[p.ID][name]
 	return r, ok
 }
 
 func (m *memState) ListRoles(project string) []Role {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if project == "" {
-		project = DefaultProject
+	p, ok := m.resolveProject(project)
+	if !ok {
+		return []Role{}
 	}
-	out := make([]Role, 0, len(m.roles[project]))
-	for _, r := range m.roles[project] {
+	out := make([]Role, 0, len(m.roles[p.ID]))
+	for _, r := range m.roles[p.ID] {
 		out = append(out, r)
 	}
 	slices.SortFunc(out, func(a, b Role) int { return cmp.Compare(a.Name, b.Name) })
@@ -273,14 +275,41 @@ func (m *memState) Match(reqPath string) (Destination, bool) {
 	return Config{Destinations: m.ListDestinations()}.Match(reqPath)
 }
 
-func (m *memState) GetProject(name string) (Project, bool) {
+// GetProject finds a project by reference: its id, or its name ("" is
+// DefaultProject).
+func (m *memState) GetProject(ref string) (Project, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	p, ok := m.projects[name]
+	p, ok := m.resolveProject(ref)
 	if !ok {
 		return Project{}, false
 	}
 	return copyProject(p), true
+}
+
+// resolveProject finds a project by reference: a prj_ id, else a name ("" is
+// DefaultProject). Caller holds mu.
+func (m *memState) resolveProject(ref string) (Project, bool) {
+	if ref == "" {
+		ref = DefaultProject
+	}
+	if id, err := ident.Parse(ref); err == nil && id.Kind() == ident.Project {
+		return m.projectByID(id)
+	}
+	p, ok := m.projects[ref]
+	return p, ok
+}
+
+// canonicalProject is the stored form of a project reference: the project's
+// id when it is known, else the reference as given. Caller holds mu.
+func (m *memState) canonicalProject(ref string) string {
+	if p, ok := m.resolveProject(ref); ok && p.ID != "" {
+		return string(p.ID)
+	}
+	if ref == "" {
+		return DefaultProject
+	}
+	return ref
 }
 
 // ---- lock-free read/validation helpers (caller holds the lock) ----
@@ -310,11 +339,29 @@ func (m *memState) roleReferencingKit(name string) (string, string, bool) {
 	for project, roles := range m.roles {
 		for _, r := range roles {
 			if r.Kit == name {
-				return project, r.Name, true
+				return m.projectLabel(project), r.Name, true
 			}
 		}
 	}
 	return "", "", false
+}
+
+// projectNameOf is a project reference's name (the reference itself when
+// unknown; "" is DefaultProject). Caller holds mu.
+func (m *memState) projectNameOf(ref string) string {
+	if p, ok := m.resolveProject(ref); ok {
+		return p.Name
+	}
+	return orDefaultProject(ref)
+}
+
+// projectLabel is a project id's name for messages (the id when unknown).
+// Caller holds mu.
+func (m *memState) projectLabel(id ident.ID) string {
+	if p, ok := m.projectByID(id); ok {
+		return p.Name
+	}
+	return string(id)
 }
 
 // newProject is a fresh project record: name plus a newly minted id. Every
@@ -331,7 +378,7 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 	if name == "" {
 		name = DefaultProject
 	}
-	if p, ok := m.projects[name]; ok {
+	if p, ok := m.resolveProject(name); ok {
 		return p, false, nil
 	}
 	if name == DefaultProject {
@@ -342,16 +389,23 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 
 // grantProjects resolves every project a's grants name, returning the records
 // the caller must persist first (at most the materialized DefaultProject).
-func (m *memState) grantProjects(a Actor) ([]Project, error) {
+// It rewrites a's grants to name their projects by id.
+func (m *memState) grantProjects(a *Actor) ([]Project, error) {
 	var created []Project
-	for _, g := range a.Grants {
+	a.Grants = slices.Clone(a.Grants)
+	for i, g := range a.Grants {
 		p, isNew, err := m.requireProject(g.Project)
 		if err != nil {
 			return nil, err
 		}
-		if isNew && len(created) == 0 {
-			created = append(created, p)
+		if isNew {
+			if len(created) == 0 {
+				created = append(created, p)
+			} else {
+				p = created[0]
+			}
 		}
+		a.Grants[i].Project = string(p.ID)
 	}
 	return created, nil
 }
@@ -359,20 +413,21 @@ func (m *memState) grantProjects(a Actor) ([]Project, error) {
 // projectReference names a role or grant that still references project, for
 // RemoveProject's in-use refusal.
 func (m *memState) projectReference(project string) (string, bool) {
-	if n := len(m.members[m.projects[project].ID]); n > 0 {
+	id := m.projects[project].ID
+	if n := len(m.members[id]); n > 0 {
 		return fmt.Sprintf("%d member(s)", n), true
 	}
 	for k := range m.standing {
-		if k.project == m.projects[project].ID && k.project != "" {
+		if k.project == id && k.project != "" {
 			return fmt.Sprintf("standing session %s/%s (its session is still being ended)", k.role, k.name), true
 		}
 	}
-	for name := range m.roles[project] {
+	for name := range m.roles[id] {
 		return fmt.Sprintf("role %s/%s", project, name), true
 	}
 	for _, a := range m.actors {
 		for _, g := range a.Grants {
-			if orDefaultProject(g.Project) == project {
+			if m.canonicalProject(g.Project) == string(id) {
 				return fmt.Sprintf("actor %q's grant of %s/%s", a.ID, project, g.Role), true
 			}
 		}
@@ -414,11 +469,11 @@ func (m *memState) backfillProjects() {
 			m.projects[name] = newProject(name)
 		}
 	}
-	for p := range m.roles {
-		add(p)
-	}
 	for _, a := range m.actors {
 		for _, g := range a.Grants {
+			if id, err := ident.Parse(g.Project); err == nil && id.Kind() == ident.Project {
+				continue // an id: its project is recorded
+			}
 			add(g.Project)
 		}
 	}
@@ -436,20 +491,14 @@ func (m *memState) applyRemoveActorByID(id string) bool {
 	return false
 }
 
-func (m *memState) applyPutRole(project string, r Role) {
-	if project == "" {
-		project = DefaultProject
-	}
+func (m *memState) applyPutRole(project ident.ID, r Role) {
 	if m.roles[project] == nil {
 		m.roles[project] = map[string]Role{}
 	}
 	m.roles[project][r.Name] = r
 }
 
-func (m *memState) applyRemoveRole(project, name string) bool {
-	if project == "" {
-		project = DefaultProject
-	}
+func (m *memState) applyRemoveRole(project ident.ID, name string) bool {
 	if _, ok := m.roles[project][name]; !ok {
 		return false
 	}
@@ -548,7 +597,7 @@ func (m *memState) checkRemoveModelSpec(name string) error {
 	for _, project := range slices.Sorted(maps.Keys(m.roles)) {
 		for _, role := range slices.Sorted(maps.Keys(m.roles[project])) {
 			if m.roles[project][role].ModelSpecName() == name {
-				return fmt.Errorf("%w: %q is bound to role %s/%s", ErrModelSpecInUse, name, project, role)
+				return fmt.Errorf("%w: %q is bound to role %s/%s", ErrModelSpecInUse, name, m.projectLabel(project), role)
 			}
 		}
 	}
@@ -583,11 +632,9 @@ func (m *memState) applyRemoveProject(name string) {
 
 // ---- pure compute helpers for aggregate (doc) edits ----
 
-// upsertGrant returns a with g upserted by (project, role); project defaults.
+// upsertGrant returns a with g upserted by (project, role); g.Project is
+// already the project's id.
 func upsertGrant(a Actor, g Grant) Actor {
-	if g.Project == "" {
-		g.Project = DefaultProject
-	}
 	for i := range a.Grants {
 		if a.Grants[i].Project == g.Project && a.Grants[i].Role == g.Role {
 			a.Grants[i] = g
@@ -599,11 +646,8 @@ func upsertGrant(a Actor, g Grant) Actor {
 }
 
 // removeGrantFrom returns a with the (project, role) grant removed, and whether
-// it was present; project defaults.
+// it was present; project is the project's id.
 func removeGrantFrom(a Actor, project, role string) (Actor, bool) {
-	if project == "" {
-		project = DefaultProject
-	}
 	kept := a.Grants[:0]
 	found := false
 	for _, g := range a.Grants {

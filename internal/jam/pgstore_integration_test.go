@@ -322,3 +322,80 @@ func TestPostgresRoomsMigration(t *testing.T) {
 		t.Fatal("a removed project's rooms go with it")
 	}
 }
+
+// TestPostgresProjectRefsMigration: a store from before 1b-2a — roles keyed
+// by project name, grants and instances naming projects by name — loads with
+// roles keyed by project id (migration 0013) and grants and instances naming
+// projects by id (registry step 6), once.
+func TestPostgresProjectRefsMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatalf("TruncateAllForTest: %v", err)
+	}
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRole("acme", jam.Role{Name: "impl"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddActor(jam.Actor{ID: "a1", TokenHash: "h1", Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutInstance(jam.Instance{ActorID: "i1", Project: "acme", Role: "impl"}); err != nil {
+		t.Fatal(err)
+	}
+	acme, _ := s.GetProject("acme")
+	// Put the database back the way an older Jam left it.
+	for _, stmt := range []string{
+		`ALTER TABLE roles DROP CONSTRAINT roles_pkey`,
+		`ALTER TABLE roles ADD COLUMN project text`,
+		`UPDATE roles SET project = (SELECT name FROM projects WHERE id = roles.project_id)`,
+		`ALTER TABLE roles DROP COLUMN project_id`,
+		`ALTER TABLE roles ALTER COLUMN project SET NOT NULL`,
+		`ALTER TABLE roles ADD PRIMARY KEY (project, name)`,
+		`ALTER TABLE roles ADD CONSTRAINT roles_project_fkey FOREIGN KEY (project) REFERENCES projects (name)`,
+		`DELETE FROM schema_migrations WHERE version = 13`,
+		`UPDATE actors SET doc = jsonb_set(doc, '{grants,0,project}', '"acme"')`,
+		`UPDATE instances SET doc = jsonb_set(doc, '{project}', '"acme"')`,
+		`UPDATE jam_settings SET doc = '5' WHERE key = 'roster_schema'`,
+	} {
+		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+
+	m := open()
+	if _, ok := m.GetRole("acme", "impl"); !ok {
+		t.Fatal("role lost")
+	}
+	if _, ok := m.GetRole(string(acme.ID), "impl"); !ok {
+		t.Fatal("role not found by project id")
+	}
+	if a, ok := m.Lookup("h1"); !ok || a.Grants[0].Project != string(acme.ID) {
+		t.Fatalf("grant = %+v", a.Grants)
+	}
+	if i, ok := m.GetInstance("i1"); !ok || i.Project != string(acme.ID) {
+		t.Fatalf("instance = %+v", i)
+	}
+	var stored string
+	if err := m.Pool().QueryRow(ctx, `SELECT doc->>'project' FROM instances WHERE actor_id = 'i1'`).Scan(&stored); err != nil || stored != string(acme.ID) {
+		t.Fatalf("stored instance project = %q, %v", stored, err)
+	}
+	if again := open(); func() bool { _, ok := again.GetRole("acme", "impl"); return !ok }() {
+		t.Fatal("reload lost the role")
+	}
+}

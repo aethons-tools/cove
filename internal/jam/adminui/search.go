@@ -136,6 +136,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 
 	studios := searchGroup{Key: "studios", Name: "Studios"}
 	for _, i := range store.ListInstances() {
+		i.Project = jam.ProjectName(store, i.Project)
 		if m.any(i.ActorID, i.Unit, i.Owner, i.Name, i.Project+"/"+i.Role) {
 			sub := i.Project + "/" + i.Role + " · " + string(i.Phase)
 			if i.Unit != "" {
@@ -152,7 +153,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	for _, a := range store.ListActors() {
 		grants := make([]string, len(a.Grants))
 		for i, g := range a.Grants {
-			grants[i] = orDefaultProject(g.Project) + "/" + g.Role
+			grants[i] = jam.ProjectName(store, g.Project) + "/" + g.Role
 		}
 		if m.any(append([]string{a.ID}, grants...)...) {
 			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: "/ui/actors", Exact: m.exact(a.ID)})

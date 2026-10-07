@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
 )
@@ -80,8 +81,9 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("request = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	if len(a.grants) != 1 || a.grants[0] != "acme/pair/alice" {
-		t.Errorf("grants = %v, want one acme/pair/alice", a.grants)
+	alice, _ := store.LookupName(ident.User, "alice")
+	if len(a.grants) != 1 || a.grants[0] != "acme/pair/"+string(alice) {
+		t.Errorf("grants = %v, want one acme/pair/<alice's id>", a.grants)
 	}
 	var inst jam.Instance
 	for _, i := range store.ListInstances() {

@@ -238,7 +238,7 @@ func CoveSummaries(store Store, img ImageResolver) []CoveSummary {
 func RoleCoveSummaries(store Store, img ImageResolver, project, role string) []CoveSummary {
 	project = orDefaultProject(project)
 	return coveSummaries(store, img, func(i Instance) bool {
-		return orDefaultProject(i.Project) == project && i.Role == role
+		return SameProject(store, i.Project, project) && i.Role == role
 	})
 }
 
@@ -254,7 +254,7 @@ func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []C
 			continue
 		}
 		out = append(out, CoveSummary{
-			ID: i.ActorID, Name: i.Name, Project: i.Project, Role: i.Role, Unit: i.Unit,
+			ID: i.ActorID, Name: i.Name, Project: ProjectName(store, i.Project), Role: i.Role, Unit: i.Unit,
 			Phase: string(i.Phase), Activity: string(i.Activity),
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
 			Connector: connectorStatus(store, actors, i),
@@ -367,7 +367,7 @@ func RosterSummaries(store Store) []ActorSummary {
 	for _, a := range store.ListActors() {
 		sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
 		for _, g := range a.Grants {
-			gs := GrantSummary{Project: g.Project, Role: g.Role}
+			gs := GrantSummary{Project: ProjectName(store, g.Project), Role: g.Role}
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
 				gs.Destinations, gs.Credentials = s.Destinations, s.Credentials

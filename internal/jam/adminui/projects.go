@@ -46,7 +46,7 @@ func projectRef(store jam.Store, project string) string {
 	}
 	for _, a := range store.ListActors() {
 		for _, g := range a.Grants {
-			if orDefaultProject(g.Project) == project {
+			if jam.ProjectName(store, g.Project) == project {
 				return fmt.Sprintf("actor %s's grant of %s/%s", a.ID, project, g.Role)
 			}
 		}
@@ -82,7 +82,7 @@ func projectHolders(store jam.Store, project string) []projectHolder {
 	for _, a := range store.ListActors() {
 		var roles []string
 		for _, g := range a.Grants {
-			if orDefaultProject(g.Project) == project {
+			if jam.ProjectName(store, g.Project) == project {
 				roles = append(roles, g.Role)
 			}
 		}

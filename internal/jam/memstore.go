@@ -26,7 +26,7 @@ func (fs *MemStore) AddActor(a Actor) error {
 	if fs.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
-	created, err := fs.grantProjects(a)
+	created, err := fs.grantProjects(&a)
 	if err != nil {
 		return err
 	}
@@ -60,6 +60,7 @@ func (fs *MemStore) AddGrant(actorID string, g Grant) error {
 	if created {
 		fs.applyPutProject(p)
 	}
+	g.Project = string(p.ID)
 	fs.applyPutActor(upsertGrant(a, g))
 	return nil
 }
@@ -67,14 +68,11 @@ func (fs *MemStore) AddGrant(actorID string, g Grant) error {
 func (fs *MemStore) RemoveGrant(actorID, project, role string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
 	_, a, ok := fs.actorByID(actorID)
 	if !ok {
 		return actorNotFoundErr(actorID)
 	}
-	updated, found := removeGrantFrom(a, project, role)
+	updated, found := removeGrantFrom(a, fs.canonicalProject(project), role)
 	if !found {
 		return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
 	}
@@ -95,7 +93,7 @@ func (fs *MemStore) PutRole(project string, r Role) error {
 	if created {
 		fs.applyPutProject(p)
 	}
-	fs.applyPutRole(project, r)
+	fs.applyPutRole(p.ID, r)
 	return nil
 }
 
@@ -122,10 +120,8 @@ func (fs *MemStore) RemoveProject(name string) error {
 func (fs *MemStore) RemoveRole(project, name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
-	if !fs.applyRemoveRole(project, name) {
+	p, ok := fs.resolveProject(project)
+	if !ok || !fs.applyRemoveRole(p.ID, name) {
 		return fmt.Errorf("role %q not found in project %q", name, project)
 	}
 	return nil
@@ -170,6 +166,7 @@ func (fs *MemStore) PutInstance(i Instance) error {
 	if i.ActorID == "" {
 		return fmt.Errorf("instance actor id is required")
 	}
+	i.Project = fs.canonicalProject(i.Project)
 	fs.applyPutInstance(i)
 	return nil
 }

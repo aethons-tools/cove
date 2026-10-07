@@ -114,7 +114,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 
 	for _, act := range store.ListActors() {
 		for _, g := range act.Grants {
-			if orDefaultProject(g.Project) == project && g.Role == name {
+			if jam.ProjectName(store, g.Project) == project && g.Role == name {
 				d.Holders = append(d.Holders, holderRow{ID: act.ID, Override: g.Overrides != nil})
 				break
 			}

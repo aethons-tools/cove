@@ -100,7 +100,8 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 		target := intercom.Target{Kind: "human", Ref: name}
 		var insts []jam.Instance
 		for _, i := range instances {
-			if i.Project == proj {
+			if jam.SameProject(d.Store, i.Project, proj) {
+				i.Project = proj // the legacy projection labels by name
 				insts = append(insts, i)
 			}
 		}

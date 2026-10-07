@@ -167,6 +167,21 @@ type Allocator struct {
 	ledger  Ledger
 	now     func() time.Time // injectable clock for the sweep cutoff; defaults to time.Now
 	log     *slog.Logger
+	// projectKey maps a project reference to the form streams are keyed by
+	// (Jam: the project's id); nil = as given.
+	projectKey func(string) string
+}
+
+// SetProjectKey sets how a request's project is keyed in the ledger (Jam: a
+// name or id → the project's id), so callers that name a project and those
+// that hold its id reach the same stream. Call before use.
+func (a *Allocator) SetProjectKey(f func(string) string) { a.projectKey = f }
+
+func (a *Allocator) key(project string) string {
+	if a.projectKey == nil {
+		return project
+	}
+	return a.projectKey(project)
 }
 
 // New builds an Allocator. ledger may be nil: with no event store (file-store dev)
@@ -209,6 +224,7 @@ func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 // file-store mode Grant reserves nothing and RecordRelease is a no-op, so
 // compensation is harmless there.
 func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
+	req.Project = a.key(req.Project)
 	if req.Kind == "" {
 		req.Kind = SessionEphemeral
 	}
@@ -320,6 +336,7 @@ func (a *Allocator) RecordRelease(ctx context.Context, project, role, reservatio
 	if a.ledger == nil {
 		return nil
 	}
+	project = a.key(project)
 	return a.ledger.Record(ctx, Event{
 		Category:      project,
 		Project:       project,

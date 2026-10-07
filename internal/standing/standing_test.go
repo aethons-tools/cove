@@ -115,7 +115,9 @@ func (w *fakeWorld) Raise(_ context.Context, spec jam.RaiseSpec) (jam.Instance, 
 	if w.failRaise[spec.ActorID] {
 		return jam.Instance{}, "", "", errors.New("launch failed")
 	}
-	inst := jam.Instance{ActorID: spec.ActorID, Project: spec.Project, Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive, ImageTag: w.tag}
+	// The real supervisor stores the project's id (1b-2a).
+	pid, _ := w.LookupName(ident.Project, spec.Project)
+	inst := jam.Instance{ActorID: spec.ActorID, Project: string(pid), Role: spec.Role, Name: spec.Name, Owner: spec.Owner, SessionKind: spec.SessionKind, Phase: jam.PhaseLive, ImageTag: w.tag}
 	w.insts[spec.ActorID] = inst
 	if spec.SessionKind == jam.SessionKindStanding {
 		w.state[spec.ActorID] = true

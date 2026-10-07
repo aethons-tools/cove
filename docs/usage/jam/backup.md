@@ -26,8 +26,9 @@ control-plane aggregates:
   runtime state and are not exported.
 - the **Jam-wide session context**
 
-The format is `version: 3`; an older Jam can't read it. Older backups still
-import: a `version: 1` backup's per-project humans are merged into users the way an
+The format is `version: 4`, which names projects by id in roles and grants; an
+older Jam can't read it. Older backups still import: their project names become
+ids, a `version: 1` backup's per-project humans are merged into users the way an
 upgrade does ([comms-addressing.md](comms-addressing.md#project-members-and-rooms)),
 and a `version: 1` or `2` backup's project channels become rooms.
 

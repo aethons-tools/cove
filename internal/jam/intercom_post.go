@@ -579,7 +579,7 @@ func (ic *Intercom) isMemberOf(ch Channel, p ident.ID) bool {
 func (ic *Intercom) ceiling(p Poster, project string) []string {
 	var globs []string
 	for _, g := range p.Actor.Grants {
-		if orDefaultProject(g.Project) != project {
+		if !SameProject(ic.store, g.Project, project) {
 			continue
 		}
 		if role, ok := ic.store.GetRole(g.Project, g.Role); ok {
@@ -779,7 +779,7 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 func (ic *Intercom) sessionNamed(project Project, ref string) (Instance, bool) {
 	var byLabel []Instance
 	for _, inst := range ic.store.ListInstances() {
-		if inst.Phase == PhaseGone || orDefaultProject(inst.Project) != project.Name {
+		if inst.Phase == PhaseGone || !SameProject(ic.store, inst.Project, string(project.ID)) {
 			continue
 		}
 		if inst.ActorID == ref {

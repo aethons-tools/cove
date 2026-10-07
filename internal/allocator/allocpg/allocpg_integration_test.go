@@ -407,3 +407,43 @@ func TestAllocpg_Grant_ZeroOwnerCapIsPoolOnly(t *testing.T) {
 		t.Fatalf("a4 should be denied by the pool cap: %v,%v", ok, err)
 	}
 }
+
+// RewriteRefs re-keys events recorded by project and owner name to ids, so
+// the outstanding count carries over; running it again changes nothing.
+func TestAllocpg_RewriteRefs(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, ev := range []allocator.Event{
+		{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationGranted, ReservationID: "r1"},
+		{Category: "acme", Project: "acme", Role: "worker", Kind: allocator.KindReservationGranted, ReservationID: "r2", SessionKind: allocator.SessionPersonal, Owner: "alice"},
+		{Category: "acme-two", Project: "acme-two", Role: "worker", Kind: allocator.KindReservationGranted, ReservationID: "r3"},
+	} {
+		if err := st.Record(ctx, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projects := map[string]string{"acme": "prj_a", "acme-two": "prj_b"}
+	owners := map[string]string{"alice": "usr_a"}
+	n, err := st.RewriteRefs(ctx, projects, owners)
+	if err != nil || n != 4 {
+		t.Fatalf("RewriteRefs = %d, %v; want 4 rows (3 projects + 1 owner)", n, err)
+	}
+	if got, _ := st.Outstanding(ctx, "prj_a", "worker"); got != 2 {
+		t.Fatalf("prj_a outstanding = %d, want 2", got)
+	}
+	if got, _ := st.Outstanding(ctx, "prj_b", "worker"); got != 1 {
+		t.Fatalf("prj_b outstanding = %d (acme's rewrite must not touch acme-two)", got)
+	}
+	rs, err := st.OutstandingReservations(ctx, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rs {
+		if r.ReservationID == "r2" && (r.Project != "prj_a" || r.Owner != "usr_a" || r.Role != "worker") {
+			t.Fatalf("r2 = %+v", r)
+		}
+	}
+	if n, err := st.RewriteRefs(ctx, projects, owners); err != nil || n != 0 {
+		t.Fatalf("again = %d, %v", n, err)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -162,13 +163,13 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	// roles carry their project in a column, not the doc.
-	rows, err := s.pool.Query(ctx, `SELECT project, doc FROM roles`)
+	// roles carry their project's id in a column, not the doc.
+	rows, err := s.pool.Query(ctx, `SELECT project_id, doc FROM roles`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load roles: %w", err)
 	}
 	for rows.Next() {
-		var project string
+		var project ident.ID
 		var doc []byte
 		if err := rows.Scan(&project, &doc); err != nil {
 			rows.Close()
@@ -368,7 +369,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				if err != nil {
 					return err
 				}
-				if _, err := tx.Exec(ctx, `INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)`, project, r.Name, doc); err != nil {
+				if _, err := tx.Exec(ctx, `INSERT INTO roles (project_id, name, doc) VALUES ($1,$2,$3)`, project, r.Name, doc); err != nil {
 					return err
 				}
 			}
@@ -441,7 +442,7 @@ func (s *PostgresStore) AddActor(a Actor) error {
 	if s.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
-	created, err := s.grantProjects(a)
+	created, err := s.grantProjects(&a)
 	if err != nil {
 		return err
 	}
@@ -484,6 +485,7 @@ func (s *PostgresStore) AddGrant(actorID string, g Grant) error {
 	if err != nil {
 		return err
 	}
+	g.Project = string(p.ID)
 	updated := upsertGrant(a, g)
 	if err := s.putActorDoc(h, updated, createdProjects(p, created)...); err != nil {
 		return err
@@ -498,14 +500,11 @@ func (s *PostgresStore) AddGrant(actorID string, g Grant) error {
 func (s *PostgresStore) RemoveGrant(actorID, project, role string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
 	h, a, ok := s.actorByID(actorID)
 	if !ok {
 		return actorNotFoundErr(actorID)
 	}
-	updated, found := removeGrantFrom(a, project, role)
+	updated, found := removeGrantFrom(a, s.canonicalProject(project), role)
 	if !found {
 		return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
 	}
@@ -533,9 +532,6 @@ func (s *PostgresStore) PutRole(project string, r Role) error {
 	if r.Kit != "" && !s.kitExists(r.Kit) {
 		return fmt.Errorf("kit %q not found", r.Kit)
 	}
-	if project == "" {
-		project = DefaultProject
-	}
 	p, created, err := s.requireProject(project)
 	if err != nil {
 		return err
@@ -545,15 +541,15 @@ func (s *PostgresStore) PutRole(project string, r Role) error {
 		return err
 	}
 	if err := s.execWithProjects("PutRole", createdProjects(p, created),
-		`INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)
-		 ON CONFLICT (project, name) DO UPDATE SET doc = EXCLUDED.doc, version = roles.version + 1, updated_at = now()`,
-		project, r.Name, doc); err != nil {
+		`INSERT INTO roles (project_id, name, doc) VALUES ($1,$2,$3)
+		 ON CONFLICT (project_id, name) DO UPDATE SET doc = EXCLUDED.doc, version = roles.version + 1, updated_at = now()`,
+		p.ID, r.Name, doc); err != nil {
 		return err
 	}
 	if created {
 		s.applyPutProject(p)
 	}
-	s.applyPutRole(project, r)
+	s.applyPutRole(p.ID, r)
 	return nil
 }
 
@@ -589,16 +585,14 @@ func (s *PostgresStore) RemoveProject(name string) error {
 func (s *PostgresStore) RemoveRole(project, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
+	p, ok := s.resolveProject(project)
+	if _, has := s.roles[p.ID][name]; !ok || !has {
+		return fmt.Errorf("role %q not found in project %q", name, orDefaultProject(project))
 	}
-	if _, ok := s.roles[project][name]; !ok {
-		return fmt.Errorf("role %q not found in project %q", name, project)
-	}
-	if err := s.exec("RemoveRole", `DELETE FROM roles WHERE project = $1 AND name = $2`, project, name); err != nil {
+	if err := s.exec("RemoveRole", `DELETE FROM roles WHERE project_id = $1 AND name = $2`, p.ID, name); err != nil {
 		return err
 	}
-	s.applyRemoveRole(project, name)
+	s.applyRemoveRole(p.ID, name)
 	return nil
 }
 
@@ -673,6 +667,7 @@ func (s *PostgresStore) PutInstance(i Instance) error {
 	if i.ActorID == "" {
 		return fmt.Errorf("instance actor id is required")
 	}
+	i.Project = s.canonicalProject(i.Project)
 	doc, err := json.Marshal(i)
 	if err != nil {
 		return err

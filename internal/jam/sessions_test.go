@@ -108,10 +108,11 @@ func TestPersonalSessionRequest_LinkedHuman(t *testing.T) {
 	if strings.Contains(body, "token") || strings.Contains(body, "secret") {
 		t.Fatalf("personal-session response must not carry identity secrets: %s", body)
 	}
-	if want := "acme/pair/" + res.ID + "/alice"; len(k.alloc.grants) != 1 || k.alloc.grants[0] != want {
+	aliceID, _ := k.store.LookupName(ident.User, "alice")
+	if want := "acme/pair/" + res.ID + "/" + string(aliceID); len(k.alloc.grants) != 1 || k.alloc.grants[0] != want {
 		t.Fatalf("grants = %v, want [%s]", k.alloc.grants, want)
 	}
-	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || s.Prompt != "help me" || s.Project != "acme" || s.Role != "pair" {
+	if s := k.launcher.gotSpec; s.Owner != "alice" || s.SessionKind != "personal" || s.Prompt != "help me" || ProjectName(k.store, s.Project) != "acme" || s.Role != "pair" {
 		t.Fatalf("raise spec = %+v", s)
 	}
 	inst, ok := k.store.GetInstance(res.ID)
@@ -259,7 +260,8 @@ func TestPersonalSessionRelease_RecordsRelease(t *testing.T) {
 	if rec := doReq(t, k.h, "DELETE", "/admin/sessions/personal/"+res.ID, nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("release = %d", rec.Code)
 	}
-	if len(fr.calls) != 1 || fr.calls[0] != "acme/pair/"+res.ID {
+	acme, _ := ProjectIDOf(k.store, "acme")
+	if len(fr.calls) != 1 || fr.calls[0] != string(acme)+"/pair/"+res.ID {
 		t.Fatalf("releases = %v", fr.calls)
 	}
 }

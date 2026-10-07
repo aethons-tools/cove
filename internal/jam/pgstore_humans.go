@@ -113,7 +113,7 @@ func writeHumanPlanTx(ctx context.Context, tx pgx.Tx, p humanPlan) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE roles SET doc = $3, version = version + 1, updated_at = now() WHERE project = $1 AND name = $2`,
+		if _, err := tx.Exec(ctx, `UPDATE roles SET doc = $3, version = version + 1, updated_at = now() WHERE project_id = $1 AND name = $2`,
 			rw.Project, rw.Role.Name, doc); err != nil {
 			return err
 		}

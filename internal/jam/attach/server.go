@@ -69,8 +69,10 @@ func (a *ackState) drain() map[string]uint64 {
 	return out
 }
 
-func stampOf(inst jam.Instance) sessionevents.Stamp {
-	return sessionevents.Stamp{Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner,
+// stampOf labels a session's events; the project by name (the instance holds
+// its id).
+func stampOf(store jam.Store, inst jam.Instance) sessionevents.Stamp {
+	return sessionevents.Stamp{Project: jam.ProjectName(store, inst.Project), Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner,
 		SessionKind: inst.SessionKind, RaisedAt: inst.RaisedAt}
 }
 
@@ -166,7 +168,7 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			}
 			ev := m.Event
 			inst, _ := s.store.GetInstance(actorID)
-			hw, err := s.events.Append(actorID, stampOf(inst), sessionevents.Incoming{
+			hw, err := s.events.Append(actorID, stampOf(s.store, inst), sessionevents.Incoming{
 				StreamID: ev.GetStreamId(), Seq: ev.GetSeq(), Turn: ev.GetTurn(),
 				ObservedAt: time.UnixMilli(ev.GetObservedUnixMs()), Raw: ev.GetRaw(), TruncatedBytes: ev.GetTruncatedBytes(),
 			})
