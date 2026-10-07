@@ -113,7 +113,8 @@ func (n intercomNagger) clock() time.Time {
 	return time.Now()
 }
 
-// send posts body as the session to its owner; id "" lets the log assign one.
+// send posts body as the session into its home channel; id "" gets a
+// notice:… id (jam.Intercom.Notify).
 func (n intercomNagger) send(inst jam.Instance, id, body string) error {
 	if inst.OwnerID == "" && inst.Owner == "" {
 		return fmt.Errorf("nag %s: no owner", inst.ActorID)

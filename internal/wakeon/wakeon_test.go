@@ -3,6 +3,7 @@ package wakeon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -1887,5 +1888,43 @@ func TestTick_SessionNoticesDontWakeSessions(t *testing.T) {
 		if got := contains(wake.woke, "a1"); got != want {
 			t.Errorf("%s: woke = %v, want %v", id, got, want)
 		}
+	}
+}
+
+// countingHistory counts its reads.
+type countingHistory struct {
+	fakeHistory
+	reads int
+}
+
+func (c *countingHistory) ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk {
+	c.reads++
+	return c.fakeHistory.ChannelBefore(ch, beforeSeq, limit)
+}
+
+// A delivery's verdict can't change (earlier seqs are settled), so a
+// suppressed delivery is checked against the log once, not every tick, and
+// the notice is offered once.
+func TestTick_BreakerVerdictIsCached(t *testing.T) {
+	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
+	var history []intercom.Squawk
+	for i := int64(1); i <= 5; i++ {
+		history = append(history, intercom.Squawk{Seq: i, ID: fmt.Sprintf("m%d", i), Channel: ch, From: ses, Body: "x"})
+	}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 4}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {history[4]}}}
+	h := &countingHistory{fakeHistory: fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: history}}}
+	br := &fakeBreaker{}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetSessionWakes(h, br, 3)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+	first := h.reads
+	for range 3 {
+		e.tick(context.Background())
+	}
+	if h.reads != first || len(br.notices) != 1 {
+		t.Fatalf("reads %d → %d over later ticks, notices %v", first, h.reads, br.notices)
 	}
 }

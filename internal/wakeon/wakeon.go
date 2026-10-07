@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -181,6 +182,11 @@ type Engine struct {
 	history      ChannelHistory
 	breaker      BreakerNotifier // nil = no notice
 	sessionLimit int
+	// tripped caches each session delivery's verdict by seq (it can't change:
+	// every earlier seq is settled), so a suppressed delivery is checked
+	// against the log once, not every tick; cleared when it grows large.
+	trippedMu sync.Mutex
+	tripped   map[int64]bool
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -199,10 +205,6 @@ func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Co
 	return &Engine{reg: reg, wake: wake, reap: reap, idler: idler, inbox: inbox, cfg: cfg, now: time.Now, log: log}
 }
 
-// SetIdleLadder turns on the personal-session idle ladder: roles supplies each
-// role's idle settings, nags records sent nags, and nagger delivers them (nil =
-// no intercom: no nags or reclaim notices, but a configured reclaim still
-// happens). Call before Run.
 // SetSessionWakes lets another session's post wake a waiting session — with
 // a loop breaker: once a channel has had more than limit session posts in a
 // row since a person or account last posted there, session posts in it no
@@ -212,6 +214,10 @@ func (e *Engine) SetSessionWakes(history ChannelHistory, breaker BreakerNotifier
 	e.history, e.breaker, e.sessionLimit = history, breaker, limit
 }
 
+// SetIdleLadder turns on the personal-session idle ladder: roles supplies each
+// role's idle settings, nags records sent nags, and nagger delivers them (nil =
+// no intercom: no nags or reclaim notices, but a configured reclaim still
+// happens). Call before Run.
 func (e *Engine) SetIdleLadder(roles RoleLookup, nags NagRecorder, nagger Nagger) {
 	e.roles, e.nags, e.nagger = roles, nags, nagger
 }
@@ -634,6 +640,27 @@ func (e *Engine) loopTripped(inst jam.Instance, m intercom.Squawk) bool {
 	if m.Channel == "" {
 		return false
 	}
+	e.trippedMu.Lock()
+	verdict, known := e.tripped[m.Seq]
+	e.trippedMu.Unlock()
+	if known {
+		return verdict
+	}
+	verdict = e.checkLoop(inst, m)
+	e.trippedMu.Lock()
+	if e.tripped == nil || len(e.tripped) >= trippedCacheMax {
+		e.tripped = map[int64]bool{}
+	}
+	e.tripped[m.Seq] = verdict
+	e.trippedMu.Unlock()
+	return verdict
+}
+
+// trippedCacheMax bounds the breaker's verdict cache.
+const trippedCacheMax = 10000
+
+// checkLoop decides loopTripped from the log, posting the notice on a trip.
+func (e *Engine) checkLoop(inst jam.Instance, m intercom.Squawk) bool {
 	window := e.history.ChannelBefore(m.Channel, m.Seq+1, e.sessionLimit+1)
 	if len(window) <= e.sessionLimit {
 		return false
@@ -651,7 +678,7 @@ func (e *Engine) loopTripped(inst jam.Instance, m intercom.Squawk) bool {
 			}
 		}
 		id := fmt.Sprintf("breaker:%s:%d", m.Channel, since)
-		body := fmt.Sprintf("Paused agent-to-agent wakes here after %d messages between sessions in a row. Reply here to resume.", e.sessionLimit)
+		body := fmt.Sprintf("Jam paused agent-to-agent wakes here after %d messages between sessions in a row. Reply here to resume.", e.sessionLimit)
 		if err := e.breaker.BreakerNotice(m.Channel, ident.ID(inst.ActorID), id, body); err != nil {
 			e.log.Warn("wakeon: loop breaker notice failed", "channel", string(m.Channel), "error", err.Error())
 		}

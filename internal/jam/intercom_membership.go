@@ -18,19 +18,21 @@ import (
 func IsCallInNotice(id string) bool { return strings.HasPrefix(id, "callin:") }
 
 // IsLocalNotice reports whether a squawk id is one of Jam's own notes inside
-// a channel — a call-in notice or the loop breaker's — which the relays
-// never render onto a ticket's issue or a room's surface (only onto people's
-// own inboxes).
-func IsLocalNotice(id string) bool {
-	return IsCallInNotice(id) || strings.HasPrefix(id, "breaker:")
-}
+// a channel that the relays never render onto a ticket's issue or a room's
+// surface (only onto people's own inboxes): a call-in notice. The loop
+// breaker's notice is not one — it asks whoever follows the conversation, on
+// any surface, to reply.
+func IsLocalNotice(id string) bool { return IsCallInNotice(id) }
+
+// IsBreakerNotice reports whether a squawk id is the loop breaker's notice.
+func IsBreakerNotice(id string) bool { return strings.HasPrefix(id, "breaker:") }
 
 // IsNotice reports whether a squawk id is one of Jam's notices posted as a
 // session (Notify: a nag, a "kept"/"ended" notice) or Jam's own note in a
 // channel (IsLocalNotice). A notice is for people: it never wakes another
 // session (wake-on).
 func IsNotice(id string) bool {
-	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsLocalNotice(id)
+	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsCallInNotice(id) || IsBreakerNotice(id)
 }
 
 // BreakerNotice posts the agent-to-agent loop breaker's notice (wake-on) into

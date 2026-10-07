@@ -182,8 +182,9 @@ has ingested it; with no relay configured, it's bounded only by `wait-max` teard
 waiting studio — but once a channel has had more than **8** session posts in a
 row since a person or account last posted there, session posts in it stop
 waking anyone (they are still delivered, and read at the next `read`), and Jam
-posts one notice there ("Paused agent-to-agent wakes here … Reply here to
-resume"); the next person's post resets it. A session's notices — its nags, its
+posts one notice there, as the session it didn't wake ("Jam paused
+agent-to-agent wakes here … Reply here to resume"), on every surface of the
+channel (a ticket's issue too); the next person's post resets it. A session's notices — its nags, its
 "ended" notice, the breaker's — are for people and never wake another session;
 a session calling another in does.
 

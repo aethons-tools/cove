@@ -168,9 +168,8 @@ func TestIntercomLeaveUnseenChannel(t *testing.T) {
 	}
 }
 
-// The loop breaker's notice is posted once (a repeat of its id is no error)
-// and, like a call-in notice, is Jam's own: never rendered onto a ticket's
-// issue or a room's surface.
+// The loop breaker's notice is posted once (a repeat of its id is no error),
+// and unlike a call-in notice it reaches every surface (it asks for a reply).
 func TestIntercomBreakerNotice(t *testing.T) {
 	f := newICFixture(t)
 	standing := f.mustPlan(f.standing, "").Channel
@@ -183,7 +182,7 @@ func TestIntercomBreakerNotice(t *testing.T) {
 		}
 	}
 	got := f.log.InboxSince(f.bob.ID, 0, 0)
-	if len(got) != 1 || !IsLocalNotice(got[0].ID) || got[0].Body != "paused" {
+	if len(got) != 1 || !IsBreakerNotice(got[0].ID) || IsLocalNotice(got[0].ID) || got[0].Body != "paused" {
 		t.Fatalf("bob's inbox = %+v", got)
 	}
 	if err := f.ic.BreakerNotice("chn_01j9q3zzzzzzzzzzzzzzzzzz", ident.ID(f.standing.ActorID), "breaker:y:1", "x"); err != nil {
