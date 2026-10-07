@@ -286,6 +286,20 @@ func TestDisplayName(t *testing.T) {
 			}
 		}
 	}
+	// a named Jam's search and 404 pages carry the brand too
+	if body := frameGet(t, named, "/ui/search?q=zz"); !strings.Contains(body, "<title>Aethon Jam — Search</title>") || !strings.Contains(body, `<span class="name">◉ Aethon</span>`) {
+		t.Error("search page should carry the display name")
+	}
+	rec := httptest.NewRecorder()
+	named.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/projects/nope", nil))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<span class="dot"></span>Aethon Jam <small>Admin</small>`) {
+		t.Errorf("404 page should carry the display name: %d", rec.Code)
+	}
+	// the name is config text: it is escaped wherever it renders
+	hostile := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName(`<i>&"x`))
+	if body := frameGet(t, hostile, "/ui/"); strings.Contains(body, `<i>&"x`) || !strings.Contains(body, "&lt;i&gt;&amp;&#34;x Jam") {
+		t.Error("the display name must be HTML-escaped")
+	}
 	body := frameGet(t, frameHandler(t), "/ui/")
 	for _, want := range []string{"<title>Jam — Dashboard</title>", `<span class="dot"></span>Jam <small>Admin</small>`, `<span class="name">◉ Jam</span>`, `<div class="scope-title">Jam</div>`} {
 		if !strings.Contains(body, want) {

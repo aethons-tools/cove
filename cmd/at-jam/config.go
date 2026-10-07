@@ -197,16 +197,17 @@ func (c serveConfig) validateSessionEvents() error {
 // displayName is the trimmed display-name ("" when unset).
 func (c serveConfig) displayName() string { return strings.TrimSpace(c.DisplayName) }
 
-// validateDisplayName refuses a display-name that spans lines, holds control
-// characters or runs past 64 characters.
+// validateDisplayName refuses a display-name that spans lines, holds control,
+// invisible or bidi-override characters (anything but printable text and plain
+// spaces), or runs past 64 characters.
 func (c serveConfig) validateDisplayName() error {
 	n := c.displayName()
 	if utf8.RuneCountInString(n) > 64 {
 		return fmt.Errorf("display-name: at most 64 characters, got %d", utf8.RuneCountInString(n))
 	}
 	for _, r := range n {
-		if unicode.IsControl(r) {
-			return fmt.Errorf("display-name: must be one line of text (no control characters)")
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("display-name: must be one line of printable text (no control, invisible or line-separator characters)")
 		}
 	}
 	return nil

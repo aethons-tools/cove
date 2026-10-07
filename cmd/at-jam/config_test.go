@@ -1056,7 +1056,10 @@ func TestDisplayNameConfig(t *testing.T) {
 	if (serveConfig{}).validateDisplayName() != nil || (serveConfig{}).displayName() != "" {
 		t.Error("an unset display-name is valid and empty")
 	}
-	for _, bad := range []string{"two\nlines", "tab\there", strings.Repeat("x", 65)} {
+	if (serveConfig{DisplayName: "   "}).displayName() != "" {
+		t.Error("a whitespace-only display-name is unset")
+	}
+	for _, bad := range []string{"two\nlines", "tab\there", "line\u2028sep", "zero\u200bwidth", "bidi\u202eoverride", strings.Repeat("x", 65)} {
 		if err := (serveConfig{DisplayName: bad}).validateDisplayName(); err == nil {
 			t.Errorf("display-name %q should be refused", bad)
 		}

@@ -88,7 +88,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and tab title read `<name> Jam` and the rail's Jam entry `<name>`. One line, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". |
+| `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and tab title read `<name> Jam` and the rail's Jam entry `<name>`. One line of printable text, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". Don't end it in "Jam" — the title bar adds that. |
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
