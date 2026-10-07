@@ -3,6 +3,7 @@ package escalate
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,22 +45,35 @@ func (f *fakeState) SetEscalation(actorID string, tier int, at time.Time) error 
 	return nil
 }
 
-type fakePinger struct {
-	ids       map[string]string
+// fakeCaller records the call-ins: lastIssue is the session's ticket (or
+// id), lastBody the called-in members as "@handle" (else "@name").
+type fakeCaller struct {
 	postErr   error
 	called    bool
 	lastIssue string
 	lastBody  string
+	lastCat   string
+	lastIDs   []ident.ID
 }
 
-func (f *fakePinger) IssueByIdentifier(_ context.Context, identifier string) (string, error) {
-	return f.ids[identifier], nil
-}
-
-func (f *fakePinger) PostComment(_ context.Context, issueID, body string) error {
+func (f *fakeCaller) Escalate(_ context.Context, inst jam.Instance, tier int, category string, members []jam.Member) error {
 	f.called = true
-	f.lastIssue = issueID
-	f.lastBody = body
+	f.lastIssue = inst.Unit
+	if f.lastIssue == "" {
+		f.lastIssue = inst.ActorID
+	}
+	var names []string
+	f.lastIDs = nil
+	for _, m := range members {
+		n := m.Handle
+		if n == "" {
+			n = m.User.Name
+		}
+		names = append(names, "@"+n)
+		f.lastIDs = append(f.lastIDs, m.User.ID)
+	}
+	f.lastBody = strings.Join(names, " ") + " tier " + strconv.Itoa(tier) + " on " + inst.Unit
+	f.lastCat = category
 	return f.postErr
 }
 
@@ -73,7 +87,7 @@ func TestOpensTierZeroImmediately(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 
@@ -82,7 +96,7 @@ func TestOpensTierZeroImmediately(t *testing.T) {
 	if st.lastTier != 0 || !st.lastAt.Equal(clock) {
 		t.Fatalf("expected SetEscalation(0, now); got tier=%d at=%v", st.lastTier, st.lastAt)
 	}
-	if pg.lastIssue != "iss-42" || !strings.Contains(pg.lastBody, "@alice.h") || !strings.Contains(pg.lastBody, "ACME-42") {
+	if pg.lastIssue != "ACME-42" || !strings.Contains(pg.lastBody, "@alice.h") || !strings.Contains(pg.lastBody, "ACME-42") {
 		t.Fatalf("expected tier-0 ping on own ticket with @alice.h; issue=%q body=%q", pg.lastIssue, pg.lastBody)
 	}
 }
@@ -97,7 +111,7 @@ func TestAdvancesTierOnTimeout(t *testing.T) {
 			{Targets: []string{"human:bob"}, Timeout: time.Hour}},
 		Roster: jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 
@@ -119,7 +133,7 @@ func TestNoAdvanceBeforeTimeout(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}, {Targets: []string{"human:bob"}, Timeout: time.Hour}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -136,7 +150,7 @@ func TestLastTierNoFurtherAdvanceNoTeardown(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "a"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -156,7 +170,7 @@ func TestIgnoresNonWaitingAndNoPolicy(t *testing.T) {
 		"beta": {Name: "beta"}, // no policy
 	}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -172,7 +186,7 @@ func TestEmptyTierAdvancesWithoutPosting(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"channel:x", "human:ghost"}, Timeout: time.Minute}},
 		Roster:     jam.Roster{}}}} // no matching humans
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -191,7 +205,7 @@ func TestUnknownRosterNameWarns(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:ghost"}, Timeout: time.Minute}},
 		Roster:     jam.Roster{}}}} // no matching humans
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	var logBuf strings.Builder
 	log := slog.New(slog.NewTextHandler(&logBuf, nil))
 	e := New(reg, proj, st, pg, Config{}, log)
@@ -211,7 +225,7 @@ func TestPingFailureDoesNotAdvance(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
-	pg := &erroringPinger{}
+	pg := &fakeCaller{postErr: errIssueLookup}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 
@@ -229,7 +243,7 @@ func TestPostCommentFailureDoesNotAdvance(t *testing.T) {
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}, postErr: &testError{"post comment failed"}}
+	pg := &fakeCaller{postErr: &testError{"post comment failed"}}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 
@@ -248,7 +262,7 @@ func TestRoutesByCategory(t *testing.T) {
 		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
 		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -265,7 +279,7 @@ func TestUnknownCategoryFallsBackToDefault(t *testing.T) {
 		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
 		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -282,7 +296,7 @@ func TestEmptyCategoryUsesDefault(t *testing.T) {
 		EscalationByCategory: map[string][]jam.EscalationTier{"infra": {{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}},
 		Roster:               jam.Roster{Humans: []jam.Human{{Name: "oncall", Handle: "oncall.h"}, {Name: "sre", Handle: "sre.h"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -302,7 +316,7 @@ func TestCategoryAdvanceUsesCategoryChainTimeout(t *testing.T) {
 			{Targets: []string{"human:lead"}, Timeout: time.Hour}}},
 		Roster: jam.Roster{Humans: []jam.Human{{Name: "sre", Handle: "s"}, {Name: "lead", Handle: "l"}}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())
@@ -311,35 +325,27 @@ func TestCategoryAdvanceUsesCategoryChainTimeout(t *testing.T) {
 	}
 }
 
-type erroringPinger struct{}
-
-func (erroringPinger) IssueByIdentifier(_ context.Context, _ string) (string, error) {
-	return "", errIssueLookup
-}
-
-func (erroringPinger) PostComment(_ context.Context, _, _ string) error {
-	return nil
-}
-
 var errIssueLookup = &testError{"issue lookup failed"}
 
 type testError struct{ msg string }
 
 func (e *testError) Error() string { return e.msg }
 
-// TestIgnoresTicketlessCove: a Waiting cove with no Unit (a personal session)
-// has no ticket to escalate on — no ping, no state change.
-func TestIgnoresTicketlessCove(t *testing.T) {
-	reg := &fakeReg{insts: []jam.Instance{{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: jam.SessionKindPersonal, Activity: jam.ActivityWaiting, Report: needsInput}}}
-	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
-		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
-	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{}}
-	e := New(reg, proj, st, pg, Config{}, nil)
-	e.tick(context.Background())
-	if st.called || pg.called {
-		t.Fatalf("ticketless cove must not escalate; state=%v ping=%v", st.called, pg.called)
+// A session with no ticket escalates too (slice 4), when it asked for a
+// person with escalate; without asking, it isn't escalated.
+func TestTicketlessSessionEscalatesWhenItAsks(t *testing.T) {
+	for _, asked := range []bool{false, true} {
+		reg := &fakeReg{insts: []jam.Instance{{ActorID: "p1", Project: "acme", Owner: "alice", SessionKind: jam.SessionKindPersonal, Activity: jam.ActivityWaiting, EscalationAsked: asked}}}
+		proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
+			Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
+			Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
+		st := &fakeState{}
+		pg := &fakeCaller{}
+		e := New(reg, proj, st, pg, Config{}, nil)
+		e.tick(context.Background())
+		if pg.called != asked || st.called != asked {
+			t.Errorf("asked=%v: called=%v state=%v", asked, pg.called, st.called)
+		}
 	}
 }
 
@@ -350,7 +356,7 @@ func TestSkipsEndRequested(t *testing.T) {
 	proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
 		Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 		Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, &fakeState{}, pg, Config{}, nil)
 	e.tick(context.Background())
 	if pg.lastIssue != "" {
@@ -375,7 +381,7 @@ func TestEscalatesOnlyOnNeedsInputReport(t *testing.T) {
 		proj := &fakeProjects{projects: map[string]jam.Project{"acme": {Name: "acme",
 			Escalation: []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
 			Roster:     jam.Roster{Humans: []jam.Human{{Name: "alice", Handle: "alice.h"}}}}}}
-		pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+		pg := &fakeCaller{}
 		e := New(reg, proj, &fakeState{}, pg, Config{}, nil)
 		e.tick(context.Background())
 		if got := pg.lastIssue != ""; got != c.want {
@@ -397,7 +403,7 @@ func TestUserTargetsResolveByNameOrID(t *testing.T) {
 			{Name: "carol", Handle: "carol.h"},
 		}}}}}
 	st := &fakeState{}
-	pg := &fakePinger{ids: map[string]string{"ACME-42": "iss-42"}}
+	pg := &fakeCaller{}
 	e := New(reg, proj, st, pg, Config{}, nil)
 	e.now = func() time.Time { return clock }
 	e.tick(context.Background())

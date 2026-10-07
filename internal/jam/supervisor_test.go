@@ -2042,3 +2042,34 @@ func TestSupervisorFollowsSessionChannels(t *testing.T) {
 		t.Fatalf("calls = %q, want %q", fc.calls, want)
 	}
 }
+
+// escalate asks for a person until the session is next woken: the ask holds
+// through the turn end and is cleared when a new turn starts.
+func TestEscalateAsksUntilWoken(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if err := sup.SetEscalationCategory("w1", "infra"); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked || inst.EscalationCategory != "infra" {
+		t.Fatalf("after escalate + turn end = %+v", inst)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); inst.EscalationAsked || inst.EscalationCategory != "infra" {
+		t.Fatalf("a new turn clears the ask but keeps the category: %+v", inst)
+	}
+}
+
+// An escalate ask made before a Holding stretch (background tasks running
+// past the turn) survives the resume: only a wake from Waiting answers it.
+func TestEscalateAskSurvivesHolding(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	_ = sup.SetEscalationCategory("w1", "")
+	_ = sup.Report(context.Background(), "w1", ActivityHolding)
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked {
+		t.Fatal("resuming from Holding cleared the ask")
+	}
+}

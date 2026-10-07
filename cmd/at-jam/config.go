@@ -120,6 +120,9 @@ type serveConfig struct {
 		DeprecatedDispatcher *requisitionerConfig `yaml:"dispatcher"`
 		Discord              *discordConfig       `yaml:"discord"`
 		Wake                 *wakeConfig          `yaml:"wake"`
+		// EscalationPollInterval is how often the escalation engine checks
+		// waiting sessions; it wins over runtime.requisitioner's key.
+		EscalationPollInterval string `yaml:"escalation-poll-interval"`
 	} `yaml:"runtime"`
 
 	// deprecated lists the {old, new} key pairs parseServeConfig folded from a
@@ -171,6 +174,11 @@ func (c serveConfig) validateSessionEvents() error {
 
 // validateWake checks runtime.wake's durations parse. A no-op when unset.
 func (c serveConfig) validateWake() error {
+	if v := c.Runtime.EscalationPollInterval; v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			return fmt.Errorf("runtime.escalation-poll-interval: want a positive duration, got %q", v)
+		}
+	}
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil
@@ -794,4 +802,16 @@ func atJamConfigDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-jam")
+}
+
+// escalationPollInterval resolves the escalation engine's poll interval:
+// runtime.escalation-poll-interval > runtime.requisitioner's key > 0 (the
+// engine default). An unparsable value is the default.
+func (c serveConfig) escalationPollInterval() time.Duration {
+	v := c.Runtime.EscalationPollInterval
+	if v == "" && c.Runtime.Requisitioner != nil {
+		v = c.Runtime.Requisitioner.EscalationPollInterval
+	}
+	d, _ := time.ParseDuration(v)
+	return d
 }

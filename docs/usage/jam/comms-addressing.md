@@ -79,7 +79,7 @@ it so); a service other than `linear` or `discord` stays unused in the
 project's record. The upgrade logs each of these.
 
 A Project's members also back its **escalation policy** — ordered tiers
-that get `@`-mentioned while a studio is Waiting; see [escalation.md](escalation.md).
+called into a waiting session's channel; see [escalation.md](escalation.md).
 
 Manage members and rooms with `at-jam`:
 
@@ -187,10 +187,6 @@ shared) its addressing allows. Handles are deliberately omitted — the agent ad
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
 taken at raise, appears in the session's [session context](session-context.md).
-
-## Not yet (later comms slices)
-
-- **Escalation as call-in** (slice 4): today tiers are `@`-mentioned on the ticket.
 
 Design rationale lives in
 [`../../superpowers/specs/2026-09-14-harbor-comms-addressing.md`](../../superpowers/specs/2026-09-14-harbor-comms-addressing.md)

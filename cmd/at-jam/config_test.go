@@ -1001,3 +1001,25 @@ func TestCredNamesMatchCredConfigured(t *testing.T) {
 		t.Errorf("credNames with shared pool cred = %v", got)
 	}
 }
+
+// The escalation poll interval: runtime.escalation-poll-interval wins over
+// runtime.requisitioner's key (kept for compatibility); neither = default.
+func TestEscalationPollInterval(t *testing.T) {
+	for yml, want := range map[string]time.Duration{
+		"runtime:\n  escalation-poll-interval: 10s\n  requisitioner:\n    escalation-poll-interval: 20s\n": 10 * time.Second,
+		"runtime:\n  requisitioner:\n    escalation-poll-interval: 20s\n":                                  20 * time.Second,
+		"runtime:\n  listen: x\n": 0,
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%q: %v", yml, err)
+		}
+		if got := cfg.escalationPollInterval(); got != want {
+			t.Errorf("%q = %v, want %v", yml, got, want)
+		}
+	}
+	bad, err := parseServeConfig([]byte("runtime:\n  escalation-poll-interval: soon\n"))
+	if err == nil && bad.validateWake() == nil {
+		t.Fatal("an invalid runtime.escalation-poll-interval must be refused")
+	}
+}

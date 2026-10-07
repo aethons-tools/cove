@@ -1536,21 +1536,6 @@ func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.K
 	return jam.KitStatus{State: jam.KitReady}, nil
 }
 
-// linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
-// engine's ticket-comment capability). It exists here, rather than in
-// internal/jam, so Jam core never imports internal/dispatch/linear or
-// internal/dispatch/scheduler (see AGENTS.md boundary rules): the concrete
-// tracker type is a wiring-layer concern.
-type linearCommenter struct{ c *linear.Client }
-
-func (l linearCommenter) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
-	return l.c.IssueByIdentifier(ctx, identifier)
-}
-
-func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) error {
-	return l.c.PostComment(ctx, issueID, body)
-}
-
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "path to the serve config YAML")
@@ -1911,6 +1896,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// past sessionWakeLimit session posts in a row in a channel, they stop
 	// waking until a person posts there.
 	eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, sessionWakeLimit)
+
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
 	eng.SetRunningWake(sup /*Cursor*/)
@@ -2023,17 +2009,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("requisitioner: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Escalation engine: while a managed cove is Waiting on a ticket, pings
-		// ordered human tiers of its Project escalation policy on per-tier timers
-		// by @-mentioning them on the cove's own ticket. Reply-detection, waking,
-		// and max-wait teardown stay wake-on's job (above); the two engines
-		// share only the Instance.Activity==Waiting gate. Resident for the
-		// lifetime of the process.
-		epoll, _ := time.ParseDuration(dc.EscalationPollInterval) // "" or invalid → 0 → engine default
-		eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
-		go eeng.Run(context.Background())
-		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
-
 		// relay linear engine: polls the team-scoped comments feed and
 		// posts inbound replies into the channel log opened above
 		// (ingress), and delivers outbound Log messages to Linear (egress,
@@ -2065,12 +2040,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
 	}
-	// Every live ticket session gets its ticket channel, bound to the issue on
-	// the tracker connection resolved above (sessions from before ticket
-	// channels existed), so replies on its ticket have somewhere to land.
+	// Every live session gets its home channel — a ticket session its ticket
+	// channel, bound to the issue on the tracker connection resolved above —
+	// so replies have somewhere to land before it sends.
 	if err := ic.Reconcile(); err != nil {
 		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
 	}
+
+	// Escalation engine (intercom slice 4), started once the tracker
+	// connection is resolved and live sessions have their home channels
+	// (above): while a session is Waiting and has asked for a person, calls
+	// ordered tiers of its Project's escalation policy into its home channel
+	// on per-tier timers; the relays deliver the notice (a ticket's issue
+	// @-mentions the tier). Reply-detection, waking and teardown stay
+	// wake-on's job. Runs with or without a Requisitioner.
+	epoll := cfg.escalationPollInterval()
+	eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, ic /*Caller*/, escalate.Config{PollInterval: epoll}, log)
+	go eeng.Run(context.Background())
+	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages

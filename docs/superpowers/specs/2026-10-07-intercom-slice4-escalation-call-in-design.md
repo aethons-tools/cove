@@ -39,7 +39,7 @@ Today's tier state is unchanged: `EscalationTier` and `TierPingedAt` reset on ea
 When tier *n* is due, the engine does three things:
 1. **Resolves the targets** to live members of the session's project. `user:<name|usr_id>` works as today, and `human:` is read as `user:`. Other target kinds are skipped with a warning, as today.
 2. **Calls them in** to the session's **home channel**: its ticket channel, or its session channel. This is Jam acting on operator policy, so no addressing ceiling applies; that matches today's rule that escalation is not a session's `send`. A person who is already a member stays one.
-3. **Posts the escalation notice** into that channel, as the session, with an id of the form `escalate:<session>:<tier>:<nanos>`. The text reads: "*Needs input* — called in *alice, bob* (escalation tier *n*, *category*)." Every target of the tier is listed, including people who were already members, so the notice names who is being asked. The notice is posted even when every target was already a member: it is the nudge.
+3. **Posts the escalation notice** into that channel, as the session, with an id of the form `escalate:<session>:<tier>:<nanos>:<usr,…>` (the users called in, for the relays' `@`-mentions). The text reads: "*Needs input* — called in *alice, bob* (escalation tier *n*, *category*)." Every target of the tier is listed, including people who were already members, so the notice names who is being asked. The notice is posted even when every target was already a member: it is the nudge.
 
 Everything else works as it does today:
 - A tier whose targets resolve to nobody posts nothing but still advances, so a broken tier can't wedge the session.

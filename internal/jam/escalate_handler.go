@@ -27,8 +27,10 @@ type categorySetter interface {
 // EscalateHandler is Jam's brokered escalation-category endpoint: an
 // authenticated cove declares its block category, which Jam stamps on the
 // caller's OWN instance (self-scoped by construction — no target parameter).
-// The escalation engine reads it to pick the tier chain. Implements
-// http.Handler.
+// It also asks for a person until the session is next woken
+// (Instance.EscalationAsked); the escalation engine opens an escalation for a
+// waiting session that asked, and reads the category to pick the tier chain.
+// Implements http.Handler.
 type EscalateHandler struct {
 	store  escalateStore
 	setter categorySetter

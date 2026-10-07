@@ -737,6 +737,8 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		// the wake-on engine wakes the cove on each later reply and advances the
 		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+		// A wake (not a resume from Holding) answers an escalate ask.
+		inst.EscalationAsked = false
 	}
 	if turnStarted {
 		// Whatever woke it answered this turn end, so the idle deadline is
@@ -1013,7 +1015,9 @@ func (s *Supervisor) alarmZone(inst Instance) *time.Location {
 	return time.UTC
 }
 
-// SetEscalationCategory stamps the cove-declared block category on its instance.
+// SetEscalationCategory stamps the cove-declared block category on its
+// instance, and marks it as asking for a person (EscalationAsked) until a turn
+// next starts.
 // Persists until re-declared or teardown (Report does not clear it); the
 // escalation engine reads it to pick the tier chain, falling back to the default
 // when the category isn't configured. No-op semantics if the actor is gone.
@@ -1025,6 +1029,7 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.EscalationCategory = category
+	inst.EscalationAsked = true // asks for a person until it is next woken
 	return s.store.PutInstance(inst)
 }
 
