@@ -122,8 +122,11 @@ func (ic *Intercom) PostTrusted(ch Channel, m intercom.Squawk) (intercom.Squawk,
 // Notify posts a notice from Jam as the session into its home channel,
 // trusted: it works from the instance alone, after teardown too — a session
 // channel archived at the session's end still takes Jam's notices about it,
-// so its members learn why it ended. id "" lets the log assign one.
+// so its members learn why it ended. id "" gets a "notice:" id (IsNotice).
 func (ic *Intercom) Notify(inst Instance, id, body string) (intercom.Squawk, error) {
+	if id == "" {
+		id = fmt.Sprintf("notice:%s:%d", inst.ActorID, time.Now().UnixNano())
+	}
 	m := intercom.Squawk{ID: id, From: ident.ID(inst.ActorID), Body: body}
 	if ch, ok := ic.ownSessionChannel(inst); ok && ch.Status != StatusLive {
 		return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)

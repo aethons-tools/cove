@@ -98,7 +98,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 	var out []relay.Delivery
 	switch ch.Kind {
 	case jam.SourceTicket, jam.SourceRoom:
-		if jam.IsCallInNotice(m.ID) {
+		if jam.IsLocalNotice(m.ID) {
 			return nil // Jam's own note: never a public comment or a room post
 		}
 		for _, b := range ch.Bindings {

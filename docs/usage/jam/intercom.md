@@ -164,9 +164,8 @@ field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback 
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid Requisitioner value still falls back to the default.
 
-The wake trigger is **a squawk delivered to the studio from a person or an
-account** (another session's post in a shared channel is delivered but doesn't
-wake it, so two sessions can't wake each other in a loop) after a `WaitSeq`
+The wake trigger is **a squawk delivered to the studio** — from a person, an
+account, or another session — after a `WaitSeq`
 baseline: when a run starts (at raise, and
 whenever the studio enters `running`) the supervisor stamps `WaitSeq` to the Log's
 current tail sequence — the starting agent reads its inbox itself — and any later
@@ -179,6 +178,14 @@ by the relay ingress engine above, so a Waiting studio wakes on a reply only onc
 has ingested it; with no relay configured, it's bounded only by `wait-max` teardown
 (pausing at `warm-timeout` still happens).
 
+**Sessions wake sessions, with a loop breaker.** Another session's post wakes a
+waiting studio — but once a channel has had more than **8** session posts in a
+row since a person or account last posted there, session posts in it stop
+waking anyone (they are still delivered, and read at the next `read`), and Jam posts one notice there on every surface, a ticket's issue too ("Jam
+paused agent-to-agent wakes here … Reply here to resume"); a person's post resets it. A session's notices — its nags, its
+"ended" notice, the breaker's — are for people and never wake another session;
+a session calling another in does.
+
 A Project may also configure an **escalation policy** that actively pings ordered
 human tiers on their own per-tier timers while a studio waits, instead of leaving it
 to wait passively — a separate, independent clock from `wait-max` above; see
@@ -188,4 +195,4 @@ to wait passively — a separate, independent clock from `wait-max` above; see
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: squawks | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
 - **Discord receipt pruning:** see [discord.md](discord.md#egress-the-reply-loop) — the discord-msg-id→studio receipt store the reply loop uses is currently unpruned.
-- **Sessions waking sessions** (a session's post into another's channel doesn't wake it yet): intercom slice 3c.
+- **A configurable loop-breaker limit** (fixed at 8 today).
