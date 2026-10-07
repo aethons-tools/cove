@@ -95,8 +95,8 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	if len(l.prompts) != 1 || !strings.HasSuffix(l.prompts[0], "Squawk me (user:alice) and we will get to work.") {
 		t.Errorf("prompt = %q, want it to end with the squawk-me request", l.prompts)
 	}
-	if !strings.Contains(rec.Body.String(), inst.ActorID) {
-		t.Errorf("response should name the new session %s; got: %s", inst.ActorID, rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "Requested agent pair-01 ("+inst.ActorID+")") || inst.Name != "pair-01" {
+		t.Errorf("response should name the new agent pair-01 (%s); got: %s", inst.ActorID, rec.Body.String())
 	}
 }
 

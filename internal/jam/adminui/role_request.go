@@ -43,7 +43,7 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<p class="ok">Requested agent ` + template.HTMLEscapeString(res.ID) +
+		_, _ = w.Write([]byte(`<p class="ok">Requested agent ` + template.HTMLEscapeString(res.Name) + ` (` + template.HTMLEscapeString(res.ID) + `)` +
 			`; it will squawk you on the intercom.</p>`))
 	})
 }

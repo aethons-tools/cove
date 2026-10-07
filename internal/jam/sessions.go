@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -68,6 +69,7 @@ type PersonalSessionBody struct {
 // a cove raise it never carries the identity token or launch secret.
 type PersonalSessionResult struct {
 	ID      string `json:"id"`
+	Name    string `json:"name"` // its display name, <role>-NN (reservePersonalName)
 	Owner   string `json:"owner"`
 	Project string `json:"project"`
 	Role    string `json:"role"`
@@ -208,8 +210,10 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	case !granted:
 		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.User.Name)
 	}
+	name, release := reservePersonalName(store, b.Role)
+	defer release()
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
-		ActorID: id, Project: project, Role: b.Role, Prompt: b.Prompt,
+		ActorID: id, Name: name, Project: project, Role: b.Role, Prompt: b.Prompt,
 		Owner: human.User.Name, OwnerID: human.User.ID, SessionKind: SessionKindPersonal,
 	})
 	if err != nil {
@@ -221,7 +225,37 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		return refuse(http.StatusBadGateway, "raise failed: %s", err.Error())
 	}
 	log.Info("admin personal session raised", "operator", login, "id", id, "owner", human.User.Name, "project", project, "role", b.Role)
-	return PersonalSessionResult{ID: id, Owner: human.User.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
+	return PersonalSessionResult{ID: id, Name: name, Owner: human.User.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
+}
+
+// personalName is a personal session's n-th candidate name: <role>-01, -02, …
+// (three digits and up past 99).
+func personalName(role string, n int) string { return fmt.Sprintf("%s-%02d", role, n) }
+
+// pendingNames are names picked for personal sessions whose raise hasn't
+// finished, so two requests in flight can't pick the same one.
+var pendingNames = struct {
+	sync.Mutex
+	m map[string]bool
+}{m: map[string]bool{}}
+
+// reservePersonalName picks the first free <role>-NN — not carried by a live
+// non-standing session (sessionLabelTaken, the manual-label rule) nor reserved
+// by a request in flight — and reserves it until release is called.
+func reservePersonalName(store Store, role string) (name string, release func()) {
+	pendingNames.Lock()
+	defer pendingNames.Unlock()
+	for n := 1; ; n++ {
+		if name = personalName(role, n); !pendingNames.m[name] && !sessionLabelTaken(store, name) {
+			break
+		}
+	}
+	pendingNames.m[name] = true
+	return name, func() {
+		pendingNames.Lock()
+		defer pendingNames.Unlock()
+		delete(pendingNames.m, name)
+	}
 }
 
 // personalDeliveryProblem returns why the owner of a personal session in
