@@ -198,7 +198,7 @@ Each is independently shippable, in dependency order, with its own spec/plan.
    `send`/`read` wire shapes, binding-driven relays. Until slice 3, an omitted
    `to` keeps today's targets (a ticket session → its ticket channel; a personal
    session → a chat with the user who started it; standing → `400`).
-3. **Session channels** — the session source, call-in / self-join / invite, removal
+3. **Session channels** ([detailed spec](2026-10-07-intercom-slice3-session-channels-design.md)) — the session source, call-in / self-join / invite, removal
    of owner and default-recipient semantics, agent↔agent collaboration.
 4. **Escalation as call-in** — tiers call users into the session channel.
 
