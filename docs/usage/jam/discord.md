@@ -1,6 +1,6 @@
 ---
 summary: Discord delivery for a Project — a member's delivery profile (inbox channel) and Discord account, the per-project chat service, how chats and rooms are posted to Discord, the reply loop, and who a Discord reply is attributed to.
-read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>[:<user-id>]`), setting a project's chat service, or a Discord reply was routed or attributed (to a member vs a display name) differently than you expected.
+read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>`, `account add --connection discord --uid`), setting a project's chat service, or a Discord reply was routed or attributed (to a member vs a display name) differently than you expected.
 owns: membership delivery profiles and the `--delivery service:address` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
 prereqs: comms-addressing.md for a Project's members and rooms and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
@@ -17,11 +17,12 @@ own inbox channel.
 
 ## Delivery profiles & chat service
 
-A **Human** carries `Delivery []{Service, Address, UserID}` — one
-entry per non-tracker service the human can be reached on. For `Service:
-"discord"`, `Address` is the id of the **inbox channel** Jam posts that human's
-DMs into, and `UserID` (optional) **binds** the human to their Discord user id
-(never a bot token or other secret — see [operators.md](operators.md) for where
+A project **membership** carries `Delivery []{Service, Address}` — one entry
+per non-tracker service the member can be reached on. For `Service:
+"discord"`, `Address` is the id of the **inbox channel** Jam posts that
+member's DMs into. Their Discord user id is not a delivery field: it is their
+**account** on the `discord` connection, which **binds** them to it (an id,
+never a bot token or other secret — see [operators.md](operators.md) for where
 credentials actually live).
 
 A **Project** carries `ChatService string` — the service backing
@@ -37,9 +38,9 @@ at-jam project member add <project> alice --delivery discord:<inbox-channel-id>
 at-jam account add --connection discord --uid <alice's-discord-user-id> --user alice
 ```
 
-The service and address must be non-empty. The optional user id is
-**discord-only** and all digits (a Discord snowflake); any other shape, or a user
-id on another service, exits `2` (the admin route answers **400**). A Discord
+The service and address must be non-empty; a third `:user-id` part exits `2`
+(bind the id as an account instead). A Discord user id is a snowflake (all
+digits). A Discord
 user id binds **one person Jam-wide** (their Discord account in the
 [identity registry](roster.md)) — binding it to anyone else, in any project, is
 **400**, like a duplicate login.

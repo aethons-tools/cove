@@ -61,13 +61,16 @@ var bucketTitle = map[jam.AttentionBucket]string{
 var bucketOrder = []jam.AttentionBucket{jam.BucketWaiting, jam.BucketActive, jam.BucketChannels}
 
 // legacyNames is how the legacy log named the participant in each of their
-// projects: their roster name there before the registry (else their name).
-func legacyNames(p jam.Participant, d Deps) map[string]string {
-	names := d.Store.LegacyHumanNames(p.UserID)
+// projects: as their user name (the name the roster view gave them). Never a
+// pre-registry alias: the legacy projection is not project-scoped, so a name
+// a migration clash moved to someone else would show that person's history.
+func legacyNames(p jam.Participant) map[string]string {
+	names := map[string]string{}
+	if p.Name == "" {
+		return names
+	}
 	for _, proj := range p.Projects {
-		if _, ok := names[proj]; !ok && p.Name != "" {
-			names[proj] = p.Name
-		}
+		names[proj] = p.Name
 	}
 	return names
 }
@@ -82,7 +85,7 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 	var all []jam.ChannelView
 	seen := map[string]bool{}
 	instances := d.Store.ListInstances()
-	names := legacyNames(p, d)
+	names := legacyNames(p)
 	for _, proj := range p.Projects {
 		name, ok := names[proj]
 		if !ok {

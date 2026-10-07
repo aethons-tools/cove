@@ -470,3 +470,20 @@ func TestRailUnreadAndHistory(t *testing.T) {
 		t.Errorf("rail after leaving the project:\n%s", rail)
 	}
 }
+
+// History matches the viewer by their user name only: the legacy log is not
+// project-scoped, so a pre-registry name that now belongs to someone else
+// (a migration clash renamed the viewer) must not show that person's history.
+func TestHistoryIsTheViewersNameOnly(t *testing.T) {
+	e, p := fixture()
+	legacy := intercom.NewLegacyMemLog()
+	if _, err := legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "old-cove"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}},
+		Body: "for the other alice", Project: "elsewhere"}); err != nil {
+		t.Fatal(err)
+	}
+	e.Legacy = legacy
+	p.Name = "alice-proj" // as the clash renamed them
+	if rail := railFor(t, Handler(e.Deps, nil), p); strings.Contains(rail, "History (before the upgrade)") {
+		t.Errorf("a renamed viewer sees human:alice's history:\n%s", rail)
+	}
+}

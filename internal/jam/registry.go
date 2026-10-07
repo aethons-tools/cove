@@ -135,10 +135,6 @@ type Directory interface {
 	// LegacyHumanAlias maps a pre-registry roster human (project name, human
 	// name) to the user it became. Frozen at migration; read-only.
 	LegacyHumanAlias(project, name string) (ident.ID, bool)
-	// LegacyHumanNames is the reverse: the roster names (project name →
-	// human name) user had before the registry — how the legacy log names
-	// them.
-	LegacyHumanNames(user ident.ID) map[string]string
 }
 
 // RegistryStore is the Store's registry: users, connections and accounts.

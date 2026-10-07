@@ -91,6 +91,35 @@ func TestDiscordAuthorOf(t *testing.T) {
 	}
 }
 
+// A room's channel is never an inbox, whichever discord connection binds it
+// and in whatever mode: an unbound member whose inbox is also a room's channel
+// gets nobody's replies attributed to them by channel.
+func TestDiscordAuthorOfRoomOnAnyConnectionOrMode(t *testing.T) {
+	s, p := peopleFixture(t)
+	other, err := s.CreateConnection(Connection{Kind: "discord", Name: "acme-bot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceRoom, Key: "ops", Label: "ops",
+		Bindings: []Binding{{ConnectionID: other.ID, Ref: "inbox-B", Mode: BindBoth}}}); err != nil {
+		t.Fatal(err)
+	}
+	if m, _, ok := DiscordAuthorOf(s, p.ID, "inbox-B", "999"); ok {
+		t.Fatalf("a room on another discord connection = %+v, want nobody", m)
+	}
+	disc, _ := s.ConnectionOfKind("discord")
+	if err := AddPerson(s, "acme", Human{Name: "erin", Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-E"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceRoom, Key: "quiet", Label: "quiet",
+		Bindings: []Binding{{ConnectionID: disc.ID, Ref: "inbox-E", Mode: BindEgress}}}); err != nil {
+		t.Fatal(err)
+	}
+	if m, _, ok := DiscordAuthorOf(s, p.ID, "inbox-E", "999"); ok {
+		t.Fatalf("a post-only room's channel = %+v, want nobody", m)
+	}
+}
+
 // An owner with a Discord account but no inbox in a discord-chat project
 // can't be reached: a personal session for them is refused up front.
 func TestPersonalDeliveryProblemWithoutInbox(t *testing.T) {

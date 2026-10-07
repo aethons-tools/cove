@@ -553,20 +553,6 @@ func (m *memState) LegacyHumanAlias(project, name string) (ident.ID, bool) {
 	return id, ok
 }
 
-func (m *memState) LegacyHumanNames(user ident.ID) map[string]string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := map[string]string{}
-	for project, names := range m.aliases {
-		for name, id := range names {
-			if id == user {
-				out[project] = name
-			}
-		}
-	}
-	return out
-}
-
 // prepareAddMember validates an AddMember: the project exists and the user is
 // live. It returns the membership to write (the existing one, delivery kept)
 // and whether it is new.

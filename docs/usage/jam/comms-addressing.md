@@ -102,9 +102,8 @@ A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
 memberships; it and `user rename` are refused (409) while the user owns a live
 personal session. The admin API behind
 these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
-`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`
-and `/channels` routes, `/admin/projects/{p}/roster`, and `project roster`,
-are gone).
+`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`,
+`/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
 `discord`: that kind's connection, created if there is none); it defaults to

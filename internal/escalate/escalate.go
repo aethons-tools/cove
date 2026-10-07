@@ -148,8 +148,12 @@ func (e *Engine) resolveHandles(members []jam.Member, chain []jam.EscalationTier
 		found := false
 		for _, m := range members {
 			if m.User.Name == ref || string(m.User.ID) == ref {
-				handles = append(handles, "@"+m.Handle)
 				found = true
+				if m.Handle == "" {
+					e.log.Warn("escalate: member has no tracker handle, skipping", "target", target)
+					break
+				}
+				handles = append(handles, "@"+m.Handle)
 				break
 			}
 		}

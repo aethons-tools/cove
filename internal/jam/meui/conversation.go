@@ -92,7 +92,7 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 		return Conversation{}, false
 	}
 	mine := map[string]bool{}
-	for _, name := range legacyNames(p, d) {
+	for _, name := range legacyNames(p) {
 		mine[intercom.Target{Kind: "human", Ref: name}.String()] = true
 	}
 	conv := Conversation{ChannelID: channelID, Label: meta.Label, Kind: meta.Kind, Project: meta.Project, LastSeq: meta.LastSeq}

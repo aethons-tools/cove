@@ -123,10 +123,8 @@ func DiscordAuthorOf(store Store, project ident.ID, channel, authorID string) (m
 	if channel == "" {
 		return Member{}, "", false
 	}
-	if conn, ok := store.ConnectionOfKind("discord"); ok {
-		if _, isRoom := store.ChannelByBinding(conn.ID, channel); isRoom {
-			return Member{}, "", false // a room's channel is a shared conduit, not an inbox
-		}
+	if isDiscordRoomChannel(store, project, channel) {
+		return Member{}, "", false // a room's channel is a shared conduit, not an inbox
 	}
 	var owners []Member
 	for _, x := range members {
@@ -138,6 +136,28 @@ func DiscordAuthorOf(store Store, project ident.ID, channel, authorID string) (m
 		return Member{}, "", false
 	}
 	return owners[0], "channel", true
+}
+
+// isDiscordRoomChannel reports whether Discord channel ref is a room's: bound,
+// in any mode, to a live room of project on any discord connection, or
+// receiving any project's room's replies. It errs toward "a room".
+func isDiscordRoomChannel(store Store, project ident.ID, ref string) bool {
+	for _, c := range store.ListConnections() {
+		if c.Kind != "discord" {
+			continue
+		}
+		if _, ok := store.ChannelByBinding(c.ID, ref); ok {
+			return true
+		}
+		for _, ch := range store.ListChannels(project, SourceRoom) {
+			for _, b := range ch.Bindings {
+				if b.ConnectionID == c.ID && b.Ref == ref {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ProjectMembers adapts a Store to "a project's members by project name"
