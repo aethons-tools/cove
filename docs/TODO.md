@@ -4,7 +4,7 @@ read_when: You want the loose backlog of known follow-ups not yet filed as ticke
 owns: the informal TODO backlog
 prereqs: none
 tier: leaf
-updated: 2026-10-03
+updated: 2026-10-07
 ---
 
 * Special `.claude.json` file handling:
@@ -36,3 +36,6 @@ updated: 2026-10-03
   bots). Serve config names one connection per block today, the relay runs one engine
   per service, and its cursor/marker state files are keyed by service: re-key them by
   connection id (spec slice 1 §7) when relays run per connection.
+* `/me` writes (`/me/send`, `/me/read`, `/me/join|leave|call-in`): add an Origin check
+  like `/ui`'s `originGuard` (configured `ui-origins`). Today they rest on the
+  `SameSite=Lax` session cookie alone, which a sibling subdomain can get past.
