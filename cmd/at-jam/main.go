@@ -1795,14 +1795,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	log.Info("Jam session events: postgres (shared control-plane database)")
-	// Events recorded before they carried ids get them from their labels (1b-2b).
-	if projects, owners := ledgerRefs(st); true {
+	// Events recorded before they carried ids get them from their labels
+	// (1b-2b), in the background: it never holds up serving.
+	go func(projects, owners map[string]string) {
 		if n, err := sessStore.BackfillIDs(context.Background(), projects, owners); err != nil {
 			log.Warn("session events: backfilling project/owner ids failed", "err", err.Error())
 		} else if n > 0 {
 			log.Info("session events: backfilled project/owner ids", "rows", n)
 		}
-	}
+	}(ledgerRefs(st))
 	sessHub := sessionevents.NewHub()
 	// Derived per-session status for /me's presence strip, fed by every event.
 	sessPresence := sessionevents.NewPresence(nil)

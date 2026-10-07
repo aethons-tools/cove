@@ -128,23 +128,43 @@ func (c *fileCursors) keyedBy(key func(string) string) error {
 	c.key = key
 	rekeyed := map[string]string{}
 	changed := false
+	for k, v := range c.m { // keys already by id first: they win over a re-keyed name
+		if _, project, ok := strings.Cut(k, "/"); !ok || key(project) == project {
+			rekeyed[k] = v
+		}
+	}
 	for k, v := range c.m {
 		service, project, ok := strings.Cut(k, "/")
-		if ok && key(project) != project {
-			k, changed = cursorKey(service, key(project)), true
+		if !ok || key(project) == project {
+			continue
 		}
-		rekeyed[k] = v
+		changed = true
+		if nk := cursorKey(service, key(project)); rekeyed[nk] == "" {
+			rekeyed[nk] = v
+		}
 	}
 	if !changed {
 		return nil
 	}
-	if old, err := os.ReadFile(c.path); err == nil {
-		if err := os.WriteFile(c.path+".bak", old, 0o600); err != nil {
-			return err
+	if _, err := os.Stat(c.path + ".bak"); os.IsNotExist(err) { // keep the first
+		if old, err := os.ReadFile(c.path); err == nil {
+			if err := writeFileAtomic(c.path+".bak", old); err != nil {
+				return err
+			}
 		}
 	}
 	c.m = rekeyed
 	return c.save()
+}
+
+// writeFileAtomic writes data to path by a temp file renamed over it, so a
+// crash never leaves a torn file.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func (c *fileCursors) projectKey(project string) string {
@@ -154,13 +174,13 @@ func (c *fileCursors) projectKey(project string) string {
 	return c.key(project)
 }
 
-// save writes the map. Caller holds mu.
+// save writes the map (atomically). Caller holds mu.
 func (c *fileCursors) save() error {
 	data, err := json.MarshalIndent(c.m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, data, 0o600)
+	return writeFileAtomic(c.path, data)
 }
 
 // newFileCursors loads path (tolerating a missing or corrupt/torn file —
@@ -179,7 +199,10 @@ func newFileCursors(path string) (*fileCursors, error) {
 	}
 	var m map[string]string
 	if err := json.Unmarshal(data, &m); err != nil {
-		// torn/corrupt file: tolerate, start empty.
+		// torn/corrupt file: fall back to the re-key's backup, else start empty.
+		if bak, berr := os.ReadFile(path + ".bak"); berr == nil && json.Unmarshal(bak, &m) == nil {
+			c.m = m
+		}
 		return c, nil
 	}
 	c.m = m

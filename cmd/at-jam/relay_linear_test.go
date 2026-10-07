@@ -403,3 +403,42 @@ func TestFileCursorsKeyedByProjectID(t *testing.T) {
 		t.Fatalf("file = %s", data)
 	}
 }
+
+// A torn cursors file falls back to the .bak a re-key left; an id key that
+// already exists wins over a name key re-keyed onto it; a later re-key keeps
+// the first .bak.
+func TestFileCursorsRecoveryAndPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cursors.json")
+	if err := os.WriteFile(p, []byte(`{"linear/acme":"old","linear/prj_a":"new"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := newFileCursors(p)
+	key := func(ref string) string {
+		if ref == "acme" {
+			return "prj_a"
+		}
+		return ref
+	}
+	if err := c.keyedBy(key); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Ingress("linear", "prj_a"); got != "new" {
+		t.Fatalf("the existing id key must win: %q", got)
+	}
+	first, _ := os.ReadFile(p + ".bak")
+	// A torn main file: the .bak is read instead of starting empty.
+	if err := os.WriteFile(p, []byte(`{"linear/prj_a":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c2, _ := newFileCursors(p)
+	if got := c2.Ingress("linear", "acme"); got != "old" {
+		t.Fatalf("torn file: cursor = %q, want the .bak's", got)
+	}
+	if err := c2.keyedBy(key); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(p + ".bak"); string(again) != string(first) {
+		t.Fatalf("the first .bak was overwritten: %s", again)
+	}
+}

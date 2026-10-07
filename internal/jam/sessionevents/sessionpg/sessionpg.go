@@ -278,20 +278,28 @@ func (s *Store) migrate(ctx context.Context) error {
 
 // BackfillIDs fills project_id and owner_id on events recorded before they
 // were (intercom 1b-2b), from the name labels: projects and owners map names
-// to ids. Idempotent; it returns how many rows changed.
+// to ids. One statement per column, over only the rows still waiting (a
+// partial index), so it is cheap once done; idempotent. It returns how many
+// rows changed.
 func (s *Store) BackfillIDs(ctx context.Context, projects, owners map[string]string) (int64, error) {
 	var n int64
-	for name, id := range projects {
-		tag, err := s.pool.Exec(ctx, `UPDATE session_events SET project_id = $2 WHERE project_id = '' AND project = $1`, name, id)
-		if err != nil {
-			return n, fmt.Errorf("sessionpg: backfill project ids: %w", err)
+	for _, col := range []struct {
+		label, id string
+		m         map[string]string
+	}{{"project", "project_id", projects}, {"owner", "owner_id", owners}} {
+		if len(col.m) == 0 {
+			continue
 		}
-		n += tag.RowsAffected()
-	}
-	for name, id := range owners {
-		tag, err := s.pool.Exec(ctx, `UPDATE session_events SET owner_id = $2 WHERE owner_id = '' AND owner = $1`, name, id)
+		var names, ids []string
+		for name, id := range col.m {
+			names, ids = append(names, name), append(ids, id)
+		}
+		tag, err := s.pool.Exec(ctx,
+			`UPDATE session_events e SET `+col.id+` = v.id
+			 FROM unnest($1::text[], $2::text[]) AS v(name, id)
+			 WHERE e.`+col.id+` = '' AND e.`+col.label+` <> '' AND e.`+col.label+` = v.name`, names, ids)
 		if err != nil {
-			return n, fmt.Errorf("sessionpg: backfill owner ids: %w", err)
+			return n, fmt.Errorf("sessionpg: backfill %s: %w", col.id, err)
 		}
 		n += tag.RowsAffected()
 	}
