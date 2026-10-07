@@ -1,6 +1,6 @@
 # intercom slice 3: session channels and call-in — design
 
-**Status:** draft for review (2026-10-07). Open questions are in §9, each with a recommendation.
+**Status:** approved (2026-10-07); §9 questions decided as recommended.
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 3 of 4 (decisions 12 and 13). Slice 2 ([`…-slice2-channels-design.md`](2026-10-06-intercom-slice2-channels-design.md)) put every squawk in one channel and gave us `chat`, `ticket` and `room` sources; this slice adds the fourth.
 **Delivers:**
 - a `session` channel source, and every session's **home channel**;
@@ -112,7 +112,7 @@ There is no log migration and no schema change; the channel kind is new data. At
 
 A rollback to slice 2 leaves `session` channels unused but harmless. A `chn` row of an unknown kind is ignored by slice 2 readers, and the plan must check that it is.
 
-## 9. Open questions (recommendations first)
+## 9. Decided in review (2026-10-07): each as recommended
 
 1. **Ticket sessions' home channel.**
    - Rec.: their **ticket channel**, with no session channel. A ticket session's `send()` keeps commenting on its ticket, which is what tracker users read today. Calling someone into a ticket session adds them to the ticket's conversation.
