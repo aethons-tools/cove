@@ -17,8 +17,8 @@ BEGIN
     END IF;
 END $$;
 
-ALTER TABLE roles DROP CONSTRAINT roles_project_fkey;
-ALTER TABLE roles DROP CONSTRAINT roles_pkey;
+ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_project_fkey;
+ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_pkey;
 ALTER TABLE roles DROP COLUMN project;
 ALTER TABLE roles ALTER COLUMN project_id SET NOT NULL;
 ALTER TABLE roles ADD PRIMARY KEY (project_id, name);
