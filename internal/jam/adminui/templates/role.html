@@ -50,7 +50,7 @@
   <h1>{{.Name}}</h1>
   <div class="facts">
     <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
-    {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    {{if .Role.Kit}}<span>kit <a class="chip accent" href="{{kitURL .Role.Kit}}">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
     <span>model-spec <a class="chip" href="/ui/model-specs/{{.Role.ModelSpecName}}">{{.Role.ModelSpecName}}</a>{{if not .Role.ModelSpec}} <span class="unset">default</span>{{end}}</span>
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>

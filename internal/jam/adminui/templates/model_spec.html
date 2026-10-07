@@ -69,6 +69,13 @@
     </div>
   </section>
 
+  <section class="card">
+    <header><h2>Used by</h2><span class="sub">roles that run this model-spec</span></header>
+    <div class="body">
+      {{range .Uses}}<a class="chip" href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}{{if .Implicit}} <span class="unset">no model-spec set</span>{{end}}</a>{{else}}<span class="unset">No role runs this model-spec.</span>{{end}}
+    </div>
+  </section>
+
   <section class="card full">
     <header><h2>Claude</h2><span class="sub">the per-harness body</span></header>
     {{with .Spec.Claude}}

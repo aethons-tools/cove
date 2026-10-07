@@ -48,7 +48,7 @@ func TestDashboard(t *testing.T) {
 		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, `data-stat="actors"><b>1</b>`} {
+	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, `data-stat="agents"><b>2</b>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}

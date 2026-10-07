@@ -15,8 +15,8 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	for path, href := range map[string]string{
 		"/ui/":             `href="/ui/"`,
 		"/ui/agents":       `href="/ui/agents"`,
-		"/ui/kits":         `href="/ui/kits"`, // Specs
-		"/ui/destinations": `href="/ui/kits"`,
+		"/ui/kits":         `href="/ui/specs"`, // Specs
+		"/ui/destinations": `href="/ui/specs"`,
 		"/ui/users":        `href="/ui/users"`,
 		"/ui/projects":     `href="/ui/projects"`,
 	} {
@@ -46,7 +46,7 @@ func TestDashboardShowsStatTiles(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
-	for _, want := range []string{`data-stat="live"`, `data-stat="attention"`, `data-stat="actors"`, `href="/ui/kits"`} {
+	for _, want := range []string{`data-stat="live"`, `data-stat="attention"`, `data-stat="agents"`, `href="/ui/specs"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}

@@ -31,7 +31,7 @@ func TestUISaysStudioAndJam(t *testing.T) {
 	}
 
 	dash := get(t, h, "/ui/").Body.String()
-	if !strings.Contains(dash, "Live studios") || strings.Contains(dash, "Live coves") {
-		t.Errorf("dashboard should say Live studios; got:\n%s", dash)
+	if !strings.Contains(dash, "Live agents") || strings.Contains(dash, "Live coves") {
+		t.Errorf("dashboard should say Live agents; got:\n%s", dash)
 	}
 }

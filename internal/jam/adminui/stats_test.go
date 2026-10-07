@@ -31,7 +31,9 @@ func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
 	}
 
 	got := dashboardStats(st)
-	want := stats{Live: 2, Raising: 1, Attention: 2, Idled: 1, Studios: 6, Projects: 1, Actors: 1, Roles: 1, Kits: 1}
+	// Agents: six studios plus actor x, which has none. Specs: kit k plus the
+	// built-in default model-spec.
+	want := stats{Live: 2, Raising: 1, Attention: 2, Idled: 1, Studios: 6, Projects: 1, Agents: 7, Specs: 1 + len(st.ListModelSpecs())}
 	if got != want {
 		t.Fatalf("dashboardStats = %+v, want %+v", got, want)
 	}

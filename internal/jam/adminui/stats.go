@@ -6,8 +6,8 @@ import "github.com/aethons-tools/cove/internal/jam"
 // need to look at: lost (reconciler declared dead) or terminating (teardown in
 // flight).
 type stats struct {
-	Studios, Live, Raising, Idled, Attention    int
-	Projects, Actors, Roles, Kits, Destinations int
+	Studios, Live, Raising, Idled, Attention int
+	Projects, Agents, Users, Specs           int // Specs: kits + destinations + model-specs
 }
 
 // dashboardStats counts the fleet by phase and the control-plane objects.
@@ -27,11 +27,12 @@ func dashboardStats(store jam.Store) stats {
 		}
 	}
 	s.Projects = len(store.ListProjects())
-	s.Actors = len(store.ListActors())
-	for _, p := range store.ListProjects() {
-		s.Roles += len(store.ListRoles(p))
+	s.Agents = len(agentRows(store, nil, ""))
+	for _, u := range store.ListUsers() {
+		if u.Status != jam.StatusRemoved {
+			s.Users++
+		}
 	}
-	s.Kits = len(store.ListKits())
-	s.Destinations = len(store.ListDestinations())
+	s.Specs = len(store.ListKits()) + len(store.ListDestinations()) + len(store.ListModelSpecs())
 	return s
 }
