@@ -21,9 +21,9 @@ A permanent **rail** lists **Jam**, then every project, then **+ New project**
 ([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
 title; the title bar reads `<name> Jam`); the selection decides the **tabs** over
 the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
-**Overview · Members · Agents · Roles · Intercom · Escalation**
+**Overview · Members · Agents · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
-page: its project's Roles; a kit: Jam's Specs) with a breadcrumb below it.
+page: its project's Agents; a kit: Jam's Specs) with a breadcrumb below it.
 **Specs** (`/ui/specs`, opening on Kits) groups **Kits · Destinations ·
 Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 (☰ in the title bar). Rail entries, tabs and rows carry **attention badges**

@@ -204,8 +204,9 @@ func TestProjectAgentsOneTable(t *testing.T) {
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
 	sec := body[strings.Index(body, `<div id="project">`):]
-	if n := strings.Count(sec, "<table"); n != 1 {
-		t.Fatalf("want one table on the Agents tab, got %d", n)
+	// the role list, then the one agents table
+	if n := strings.Count(sec, "<table"); n != 2 || strings.Index(sec, "<h2>Roles</h2>") > strings.Index(sec, "<h2>Agents</h2>") {
+		t.Fatalf("want the Roles table above one Agents table, got %d tables", n)
 	}
 	if strings.Contains(sec, "Identities") {
 		t.Error("the separate Identities table is gone")

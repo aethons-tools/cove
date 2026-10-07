@@ -74,7 +74,7 @@ func TestRailListsProjects(t *testing.T) {
 		"/ui/":                        `<a class="jam" href="/ui/" aria-current="page">`,
 		"/ui/users":                   `<a class="jam" href="/ui/" aria-current="page">`,
 		"/ui/projects/acme":           `<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`,
-		"/ui/projects/beta/roles":     `<a href="/ui/projects/beta" aria-current="page"><span class="name">beta</span>`,
+		"/ui/projects/beta/agents":    `<a href="/ui/projects/beta" aria-current="page"><span class="name">beta</span>`,
 		"/ui/projects/acme/roles/dev": `<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`,
 	} {
 		body := get(t, h, path).Body.String()
@@ -145,14 +145,13 @@ func TestProjectPage(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	tabs := []string{
 		`<div class="scope-title">acme</div>`,
-		`href="/ui/projects/acme/members"`, `href="/ui/projects/acme/agents"`, `href="/ui/projects/acme/roles"`,
+		`href="/ui/projects/acme/members"`, `href="/ui/projects/acme/agents"`,
 		`href="/ui/projects/acme/intercom"`, `href="/ui/projects/acme/escalation"`,
 	}
 	for path, wants := range map[string][]string{
 		"/ui/projects/acme":            {"<h1>acme</h1>", "discord"},
 		"/ui/projects/acme/members":    {"<h1>Members</h1>", "alice", "alice-h", "dm-alice", `href="/ui/users/usr_`},
-		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", "<b>a1</b>", "<b>a2</b>", "<b>studio-acme</b>"},
-		"/ui/projects/acme/roles":      {"<h1>Roles</h1>", `<input type="hidden" name="project" value="acme">`},
+		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", "<b>a1</b>", "<b>a2</b>", "<b>studio-acme</b>", "<h2>Roles</h2>", `<input type="hidden" name="project" value="acme">`},
 		"/ui/projects/acme/intercom":   {"<h1>Intercom</h1>", "chan-eng"},
 		"/ui/projects/acme/escalation": {"<h1>Escalation</h1>", "human:alice", "30m", "deploy", "channel:eng", "10m"},
 	} {
@@ -213,7 +212,7 @@ func TestProjectLinks(t *testing.T) {
 	if body := get(t, h, "/ui/projects/acme/roles/dev").Body.String(); !strings.Contains(body, `href="/ui/projects/acme"`) {
 		t.Errorf("role page should link its project")
 	}
-	if body := get(t, h, "/ui/projects/acme/roles").Body.String(); !strings.Contains(body, `href="/ui/projects/acme/roles/dev"`) {
+	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `href="/ui/projects/acme/roles/dev"`) {
 		t.Errorf("a project's roles should link their pages")
 	}
 }

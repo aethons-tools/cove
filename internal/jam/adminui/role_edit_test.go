@@ -41,7 +41,7 @@ func TestRolePagePrefillsEditForms(t *testing.T) {
 		`hx-post="/ui/roles/acme/review/standing"`,
 		`hx-delete="/ui/roles/acme/review/standing/nightly"`,
 		`hx-delete="/ui/roles/acme/review" hx-swap="none"`,
-		`location.href='/ui/projects/acme/roles'`,
+		`location.href='/ui/projects/acme/agents'`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role page missing %q", want)

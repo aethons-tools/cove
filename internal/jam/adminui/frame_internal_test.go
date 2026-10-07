@@ -63,8 +63,8 @@ func TestTabBadges(t *testing.T) {
 	h := frameHandler(t)
 	tabs := between(frameGet(t, h, "/ui/projects/acme"), `<nav class="tabs"`, "</nav>")
 	for _, want := range []string{
-		`>Agents <span class="badge red" title="3 broken">3</span>`,
-		`>Roles <span class="badge" title="2 config">2</span>`,
+		`>Agents <span class="badge red" title="3 broken · 2 config">5</span>`, // studios + roles
+
 		`>Escalation <span class="badge" title="1 config">1</span>`,
 		`>Members</a>`, `>Overview</a>`,
 	} {
@@ -99,14 +99,14 @@ func TestNeedsAttentionCards(t *testing.T) {
 // Rows an item names carry its flag.
 func TestRowFlags(t *testing.T) {
 	h := frameHandler(t)
-	for path, want := range map[string]string{
-		"/ui/projects/acme/roles":  `<b>nokit</b></a> <span class="attn-flag" title="role nokit: kit ghost not found">⚠</span>`,
-		"/ui/agents":               `<span class="attn-flag red" title="s-lost: lost">⚠</span>`,
-		"/ui/kits":                 `<b>bad</b></a> <span class="attn-flag" title="kit bad v1 does not parse">⚠</span>`,
-		"/ui/projects/acme/agents": `<span class="attn-flag red" title="s-term: terminating">⚠</span>`,
+	for _, c := range []struct{ path, want string }{
+		{"/ui/projects/acme/agents", `<b>nokit</b></a> <span class="attn-flag" title="role nokit: kit ghost not found">⚠</span>`}, // the roles table
+		{"/ui/projects/acme/agents", `<span class="attn-flag red" title="s-term: terminating">⚠</span>`},                          // the agents table
+		{"/ui/agents", `<span class="attn-flag red" title="s-lost: lost">⚠</span>`},
+		{"/ui/kits", `<b>bad</b></a> <span class="attn-flag" title="kit bad v1 does not parse">⚠</span>`},
 	} {
-		if body := frameGet(t, h, path); !strings.Contains(body, want) {
-			t.Errorf("%s missing flag %s", path, want)
+		if body := frameGet(t, h, c.path); !strings.Contains(body, c.want) {
+			t.Errorf("%s missing flag %s", c.path, c.want)
 		}
 	}
 }
@@ -114,7 +114,7 @@ func TestRowFlags(t *testing.T) {
 // The rail polls its own fragment, keeping the selection.
 func TestRailFragment(t *testing.T) {
 	h := frameHandler(t)
-	if body := frameGet(t, h, "/ui/projects/acme/roles"); !strings.Contains(body, `<div id="rail-entries" hx-get="/ui/rail?scope=acme" hx-trigger="every 3s"`) {
+	if body := frameGet(t, h, "/ui/projects/acme/agents"); !strings.Contains(body, `<div id="rail-entries" hx-get="/ui/rail?scope=acme" hx-trigger="every 3s"`) {
 		t.Error("rail should poll with its scope")
 	}
 	if body := frameGet(t, h, "/ui/"); !strings.Contains(body, `<div id="rail-entries" hx-get="/ui/rail?jam=1"`) {

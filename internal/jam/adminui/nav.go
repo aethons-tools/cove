@@ -189,6 +189,9 @@ func projectFromRoute(r *http.Request) (project, tab string) {
 			tab = seg
 		}
 	}
+	if tab == string(sectionRoles) { // a role page sits under Agents
+		tab = string(sectionAgents)
+	}
 	return project, tab
 }
 

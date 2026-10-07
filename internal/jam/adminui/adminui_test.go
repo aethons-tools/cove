@@ -155,7 +155,7 @@ func TestRolesView(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Kit: ""}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/roles").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
 	for _, want := range []string{`href="/ui/projects/acme/roles/review"`, "git", `<input type="hidden" name="project" value="acme">`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("project roles view missing %q", want)

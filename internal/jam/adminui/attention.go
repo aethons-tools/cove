@@ -100,7 +100,7 @@ func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 				}
 			}
 			if why != nil {
-				byProject[p] = append(byProject[p], attnItem{Kind: attnConfig, Scope: p, Tab: "roles", Subject: p + "/" + r.Name,
+				byProject[p] = append(byProject[p], attnItem{Kind: attnConfig, Scope: p, Tab: "agents", Subject: p + "/" + r.Name,
 					Href: roleURL(p, r.Name), Why: "role " + r.Name + ": " + strings.Join(why, ", ")})
 			}
 		}

@@ -46,7 +46,7 @@ type roleDetail struct {
 	Title, Project, Name string
 	Crumbs               []crumb
 	WriteBase            string // the role's write endpoints (roleWriteBase)
-	RolesHref            string // the project's Roles section (where a delete lands)
+	RolesHref            string // the project's Agents tab, which lists its roles (where a delete lands)
 	Role                 jam.Role
 	Dests                []destRow
 	EgressManaged        bool
@@ -69,7 +69,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	}
 	project = orDefaultProject(project)
 	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
-		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionRoles)}
+		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
 	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
 
 	dests := map[string]jam.Destination{}
@@ -157,10 +157,10 @@ func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, i
 	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
 		renderStatus(w, r, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
-			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionRoles)})
+			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionAgents)})
 		return
 	}
-	d.Crumbs = projectCrumbs(project, sectionRoles, name)
+	d.Crumbs = projectCrumbs(project, sectionAgents, name)
 	d.CanRequest = canRequest
 	render(w, r, "role", d)
 }

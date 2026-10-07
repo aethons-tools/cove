@@ -17,10 +17,11 @@ import (
 func TestMovedPagesRedirect(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	for from, to := range map[string]string{
-		"/ui/roles":          "/ui/",
-		"/ui/roles/acme/dev": "/ui/projects/acme/roles/dev",
-		"/ui/roles?x=1":      "/ui/?x=1",
-		"/ui/projects":       "/ui/",
+		"/ui/roles":               "/ui/",
+		"/ui/roles/acme/dev":      "/ui/projects/acme/roles/dev",
+		"/ui/roles?x=1":           "/ui/?x=1",
+		"/ui/projects":            "/ui/",
+		"/ui/projects/acme/roles": "/ui/projects/acme/agents",
 	} {
 		rec := get(t, h, from)
 		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != to {
@@ -70,7 +71,7 @@ func TestProjectEditsAnswerWithTheirSection(t *testing.T) {
 func TestCreateRoleFromProject(t *testing.T) {
 	store := seedProjects(t)
 	h := projHandler(store)
-	page := get(t, h, "/ui/projects/acme/roles").Body.String()
+	page := get(t, h, "/ui/projects/acme/agents").Body.String()
 	if !strings.Contains(page, `<form hx-post="/ui/roles" hx-swap="none">`) || strings.Contains(page, `data-ta="projects"`) {
 		t.Errorf("roles section should post the role with its project fixed:\n%s", page)
 	}

@@ -65,13 +65,13 @@ func projectRef(store jam.Store, project string) string {
 // crumb is one breadcrumb segment.
 type crumb struct{ Label, Href string }
 
-// projectCrumbs is the trail below a project's tab: on a role page, Roles /
+// projectCrumbs is the trail below a project's tab: on a role page, Agents /
 // dev; none on a tab's own page (the tab strip names it).
 func projectCrumbs(project string, section projectSection, role string) []crumb {
 	if role == "" {
 		return nil
 	}
-	return []crumb{{"Roles", projectSectionURL(project, sectionRoles)}, {role, roleURL(project, role)}}
+	return []crumb{{"Agents", projectSectionURL(project, sectionAgents)}, {role, roleURL(project, role)}}
 }
 
 // projectDetail is the payload of every project page: Section picks which
@@ -174,6 +174,10 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		}
 	}
 	mux.HandleFunc("GET /ui/projects/{name}", page(sectionOverview))
+	// The role list moved to the Agents tab.
+	mux.HandleFunc("GET /ui/projects/{name}/roles", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, projectSectionURL(r.PathValue("name"), sectionAgents))
+	})
 	for _, s := range projectSections[1:] {
 		mux.HandleFunc("GET /ui/projects/{name}/"+string(s.Section), page(s.Section))
 	}

@@ -42,7 +42,6 @@
 {{with .Crumbs}}{{template "crumbs" .}}{{end}}
 {{if eq .Section "members"}}{{template "project-members" .}}
 {{else if eq .Section "agents"}}{{template "project-agents" .}}
-{{else if eq .Section "roles"}}{{template "project-roles" .}}
 {{else if eq .Section "intercom"}}{{template "project-intercom" .}}
 {{else if eq .Section "escalation"}}{{template "project-escalation" .}}
 {{else}}{{template "attention-card" frame.Items}}{{template "project-overview" .}}{{end}}
@@ -136,35 +135,9 @@
 
 {{define "project-agents"}}
 <div id="project">
-<div class="page-head"><h1>Agents</h1><span class="sub">agents running in {{.Project.Name}} or holding a grant into it — open one for its studio, session and grants</span></div>
-<div class="card">
-<table>
-  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Phase</th><th>Activity</th><th>Image</th><th>Last seen</th></tr></thead>
-  <tbody>
-    {{range .AgentRows}}
-    <tr data-id="{{.ID}}">
-      <td><a class="mono" href="{{agentHref .ID ""}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
-      <td><span class="chip">{{.Kind}}</span></td>
-      <td>{{$p := $.Project.Name}}{{range .Roles}}<a class="chip" href="{{roleURL $p .}}">{{.}}</a>{{end}}</td>
-      <td>{{if .HasStudio}}{{template "phase" .Phase}}{{else}}<span class="none">not running</span>{{end}}</td>
-      <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
-      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
-      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
-    </tr>
-    {{else}}
-    <tr><td colspan="7" class="empty">No agents in this project.</td></tr>
-    {{end}}
-  </tbody>
-</table>
-</div>
-</div>
-</div>
-{{end}}
-
-{{define "project-roles"}}
 {{$p := .Project.Name}}
-<div id="project">
-<div class="page-head"><h1>Roles</h1><span class="sub">what a grant of each role lets an agent reach — open a role to edit it</span></div>
+<div class="page-head"><h1>Agents</h1><span class="sub">{{$p}}'s roles — what a grant of each lets an agent reach — and its agents</span></div>
+<h2>Roles</h2>
 <details class="panel">
   <summary>New role</summary>
   <form hx-post="/ui/roles" hx-swap="none">
@@ -183,7 +156,7 @@
 <table>
   <thead><tr><th>Role</th><th>Destinations</th><th>TTL</th><th>Kit</th><th></th></tr></thead>
   <tbody>
-    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "roles" (printf "%s/%s" .Project .Name))}}</td>
+    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "agents" (printf "%s/%s" .Project .Name))}}</td>
       <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
       <td>{{ttl .TTL}}</td>
       <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td>
@@ -192,6 +165,28 @@
     {{else}}<tr><td colspan="5" class="empty">No roles.</td></tr>{{end}}
   </tbody>
 </table>
+</div>
+<h2>Agents</h2>
+<div class="card">
+<table>
+  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Phase</th><th>Activity</th><th>Image</th><th>Last seen</th></tr></thead>
+  <tbody>
+    {{range .AgentRows}}
+    <tr data-id="{{.ID}}">
+      <td><a class="mono" href="{{agentHref .ID ""}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
+      <td><span class="chip">{{.Kind}}</span></td>
+      <td>{{range .Roles}}<a class="chip" href="{{roleURL $p .}}">{{.}}</a>{{end}}</td>
+      <td>{{if .HasStudio}}{{template "phase" .Phase}}{{else}}<span class="none">not running</span>{{end}}</td>
+      <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="empty">No agents in this project.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
 </div>
 </div>
 {{end}}

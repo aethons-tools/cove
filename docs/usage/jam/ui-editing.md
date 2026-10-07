@@ -29,7 +29,7 @@ verbs in [roster.md](roster.md):
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Credential *names*
-  are references, not secrets, so the UI shows them (a project's Roles renders
+  are references, not secrets, so the UI shows them (a project's role list renders
   `git → git-pat`); credential *values* never appear.
 - Every field that names another entity is a **type-ahead**: projects, roles
   (of the project in the same form), kits, destinations and — after `=` in a
@@ -70,7 +70,7 @@ config — see [coves.md](coves.md)), the Agents list can also:
   manual wiring).
 - **Tear down a studio** (confirmed) — from its row or its agent's page.
 
-A project's Roles section (**Request**) and each role page (**Request agent**) raise a
+A project's role list (**Request**, on its Agents tab) and each role page (**Request agent**) raise a
 personal agent — a [personal session](personal-sessions.md) — of that role **for you**, with the
 prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 agent opens the conversation with you on the intercom. You must be signed in
