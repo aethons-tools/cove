@@ -378,3 +378,21 @@ func putRoom(st jam.Store, project, name, service, ref string) error {
 	_, _, err := jam.PutRoom(st, project, jam.RoomBody{Name: name, Connection: service, Ref: ref})
 	return err
 }
+
+// A call-in notice in a ticket's conversation is Jam's own note: it never
+// becomes a comment on the issue.
+func TestSurfacesSkipCallInNotice(t *testing.T) {
+	k := newRelayKit(t)
+	ch, _ := k.ic.HomeChannel(k.ticket)
+	if err := k.st.JoinChannel(ch.ID, k.alice.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := k.ic.CallIn(jam.Poster{ID: k.alice.ID}, ch.ID, "user:bob"); err != nil {
+		t.Fatal(err)
+	}
+	m := k.lg.InboxSince(k.bob.ID, 0, 0)
+	if len(m) != 1 {
+		t.Fatalf("bob's inbox = %+v", m)
+	}
+	wantSurfaces(t, "call-in notice", k.dir.Surfaces("linear", m[0]), nil)
+}

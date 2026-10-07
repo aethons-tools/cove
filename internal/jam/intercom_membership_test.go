@@ -118,3 +118,52 @@ func TestIntercomJoinAndLeave(t *testing.T) {
 		t.Fatalf("a session leaves its own ticket: %v", err)
 	}
 }
+
+// Calling in is no back door into someone's personal session: a person may
+// call in only a session they could reach themselves (MayReach).
+func TestIntercomCallInPersonalSessionNeedsReach(t *testing.T) {
+	f := newICFixture(t)
+	standing := f.mustPlan(f.standing, "").Channel
+	if err := f.ic.JoinChannel(f.bob.ID, standing.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.ic.CallIn(Poster{ID: f.bob.ID}, standing.ID, "session:"+f.personal.ActorID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("bob calls in alice's personal session: %v, want ErrSendDenied", err)
+	}
+	if err := f.ic.JoinChannel(f.alice.ID, standing.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.mustPlan(f.personal, "") // alice is in her session's channel
+	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, standing.ID, "session:"+f.personal.ActorID); err != nil {
+		t.Fatalf("alice calls in her own personal session: %v", err)
+	}
+}
+
+// The call-in notice is Jam's own: marked so the relays never render it onto
+// a ticket's issue or a room's surface.
+func TestIntercomCallInNoticeIsMarked(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, f.room.ID, "user:bob"); err != nil {
+		t.Fatal(err)
+	}
+	got := f.log.InboxSince(f.bob.ID, 0, 0)
+	if len(got) != 1 || !IsCallInNotice(got[0].ID) {
+		t.Fatalf("notice = %+v", got)
+	}
+}
+
+// Leaving a channel one can't see is refused like any other unknown channel:
+// a refusal never says whether it exists.
+func TestIntercomLeaveUnseenChannel(t *testing.T) {
+	f := newICFixture(t)
+	personal := f.mustPlan(f.personal, "").Channel
+	if err := f.ic.LeaveChannel(f.bob.ID, personal.ID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("bob leaves a channel he can't see: %v, want ErrSendDenied", err)
+	}
+	if err := f.ic.LeaveChannel(f.bob.ID, f.room.ID); err != nil {
+		t.Fatalf("leaving a visible channel one isn't in is a no-op: %v", err)
+	}
+}

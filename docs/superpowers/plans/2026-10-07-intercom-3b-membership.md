@@ -46,6 +46,15 @@
    - `personal-sessions.md`: the starter may leave and may call others in.
    - `standing-sessions.md`: call-in.
 
+## Review decisions (built)
+
+- A person may call in only a session they could reach themselves (`MayReach`), so call-in is no back door into someone's personal session. The `/me` picker uses the same rule.
+- The call-in notice has an id of the form `callin:…` (`IsCallInNotice`). The relays never render it onto a ticket's issue or a room's surface.
+- Leaving a channel the person can't see is refused like an unknown one (403).
+- Left as they are:
+  - `/me` writes rely on the `SameSite=Lax` session cookie, as `/me/send` already did. An Origin check for `/me` is a separate change.
+  - Joining someone and posting the call-in notice are two steps; a failure between them leaves the member joined without a notice.
+
 ## Verification
 
 `go test ./...`; `-tags integration` against local Postgres; `scripts/lint.sh`; docs audit; a fresh review before merge.

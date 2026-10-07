@@ -313,10 +313,6 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	}
 }
 
-// handleCommit advances the caller's durable commit cursor to up_to (POST
-// /squawks/commit {"up_to": "<message id>"}). The session comes solely from
-// the token, never the body. up_to resolves to its seq in either log first;
-// an unknown id is a 400 and never advances anything.
 // handleCallIn calls someone into a channel the session is in (its home
 // when channel is empty): 200 {channel, member}.
 func (h *SquawksHandler) handleCallIn(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
@@ -386,6 +382,10 @@ func membershipError(w http.ResponseWriter, err error) bool {
 	return false
 }
 
+// handleCommit advances the caller's durable commit cursor to up_to (POST
+// /squawks/commit {"up_to": "<message id>"}). The session comes solely from
+// the token, never the body. up_to resolves to its seq in either log first;
+// an unknown id is a 400 and never advances anything.
 func (h *SquawksHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {

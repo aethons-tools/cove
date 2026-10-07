@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
@@ -12,6 +13,11 @@ import (
 // Membership verbs (intercom slice 3b): a member calls someone in, a person
 // joins a channel they can see, anyone but a channel's own session leaves.
 // See docs/superpowers/specs/2026-10-07-intercom-slice3-session-channels-design.md §3.
+
+// IsCallInNotice reports whether a squawk id is a call-in notice: Jam's own
+// note inside the channel, which the relays never render onto a ticket's
+// issue or a room's surface (only onto people's own inboxes).
+func IsCallInNotice(id string) bool { return strings.HasPrefix(id, "callin:") }
 
 // ErrFixedMembers refuses a membership change a channel doesn't take: a chat
 // is its fixed member set, and a room takes no sessions.
@@ -63,7 +69,7 @@ func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.
 	if err := ic.store.JoinChannel(ch.ID, invitee, ic.tail()); err != nil {
 		return Channel{}, "", err
 	}
-	note := intercom.Squawk{From: p.ID, Body: ic.label(p.ID) + " called in " + ic.label(invitee), ContentType: intercom.ContentPlain}
+	note := intercom.Squawk{ID: fmt.Sprintf("callin:%s:%s:%d", ch.ID, invitee, time.Now().UnixNano()), From: p.ID, Body: ic.label(p.ID) + " called in " + ic.label(invitee), ContentType: intercom.ContentPlain}
 	if _, err := ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, p.ID)}, note); err != nil {
 		return Channel{}, "", err
 	}
@@ -91,6 +97,9 @@ func (ic *Intercom) resolveInvitee(p Poster, project Project, ch Channel, who st
 			return "", ErrFixedMembers // rooms are post-only for sessions
 		}
 		target, found := ic.sessionNamed(project, ref)
+		if !session && found && !ic.MayReach(p.ID, target) {
+			return "", ErrSendDenied // never a back door into someone's personal session
+		}
 		if session && !(found && target.ActorID == p.Session.ActorID) {
 			allowed := found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs)
 			if tracker, ok := ic.tracker(); allowed && ok && !sessionTicketAllowed(ic.store, tracker, *p.Session, target, globs) {
@@ -159,6 +168,9 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 		return ErrSendDenied
 	}
 	if !ic.isMemberOf(ch, p) {
+		if !ic.CanSee(p, ch) {
+			return ErrSendDenied // never tells whether it exists
+		}
 		return nil
 	}
 	if ch.Kind == SourceChat {
