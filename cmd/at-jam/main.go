@@ -1795,6 +1795,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	log.Info("Jam session events: postgres (shared control-plane database)")
+	// Events recorded before they carried ids get them from their labels (1b-2b).
+	if projects, owners := ledgerRefs(st); true {
+		if n, err := sessStore.BackfillIDs(context.Background(), projects, owners); err != nil {
+			log.Warn("session events: backfilling project/owner ids failed", "err", err.Error())
+		} else if n > 0 {
+			log.Info("session events: backfilled project/owner ids", "rows", n)
+		}
+	}
 	sessHub := sessionevents.NewHub()
 	// Derived per-session status for /me's presence strip, fed by every event.
 	sessPresence := sessionevents.NewPresence(nil)
@@ -1941,6 +1949,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		cursorsPath, markersPath, _ := relayStatePaths(stateDir)
 		if relayCursors, err = newFileCursors(cursorsPath); err != nil {
+			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
+			return 1
+		}
+		// Cursors are kept by project id (1b-2b); one stored by name is re-keyed.
+		if err := relayCursors.keyedBy(func(ref string) string {
+			if id, ok := jam.ProjectIDOf(st, ref); ok {
+				return string(id)
+			}
+			return ref
+		}); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
 			return 1
 		}

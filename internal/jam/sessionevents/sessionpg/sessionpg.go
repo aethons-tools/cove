@@ -53,8 +53,8 @@ func (s *Store) Close() error { return nil }
 const insertSQL = `INSERT INTO session_events (actor_id, stream_id, seq, kind, gap_from, gap_to, turn,
   observed_at, received_at, truncated_bytes, project, role, unit, owner, session_kind, raised_at,
   type, subtype, tool_name, claude_session_id, cost_usd, input_tokens, output_tokens, duration_ms, is_error,
-  raw, raw_text)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+  raw, raw_text, project_id, owner_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 ON CONFLICT (actor_id, stream_id, seq) DO NOTHING`
 
 // sanitizeEventText makes every free-text column value of ev storable in a
@@ -85,7 +85,7 @@ func (s *Store) insert(ev sessionevents.Event, raw, rawText any) error {
 		ev.Stamp.Project, ev.Stamp.Role, ev.Stamp.Unit, ev.Stamp.Owner, ev.Stamp.SessionKind, ev.Stamp.RaisedAt,
 		ev.Index.Type, ev.Index.Subtype, ev.Index.ToolName, ev.Index.ClaudeSessionID,
 		ev.Index.CostUSD, ev.Index.InputTokens, ev.Index.OutputTokens, ev.Index.DurationMS, ev.Index.IsError,
-		raw, rawText)
+		raw, rawText, ev.Stamp.ProjectID, ev.Stamp.OwnerID)
 	return err
 }
 
@@ -148,7 +148,7 @@ func (s *Store) HighWater(actorID, streamID string) (uint64, error) {
 
 const selectCols = `actor_id, stream_id, seq, kind, gap_from, gap_to, turn, observed_at, received_at, truncated_bytes,
   project, role, unit, owner, session_kind, raised_at, type, subtype, tool_name, claude_session_id,
-  cost_usd, input_tokens, output_tokens, duration_ms, is_error, raw::text, raw_text`
+  cost_usd, input_tokens, output_tokens, duration_ms, is_error, raw::text, raw_text, project_id, owner_id`
 
 func (s *Store) List(f sessionevents.Filter) ([]sessionevents.Event, error) {
 	q := `SELECT ` + selectCols + ` FROM session_events WHERE actor_id=$1 AND stream_id=$2 AND seq > $3 ORDER BY seq`
@@ -172,7 +172,7 @@ func (s *Store) List(f sessionevents.Filter) ([]sessionevents.Event, error) {
 			&e.Stamp.Project, &e.Stamp.Role, &e.Stamp.Unit, &e.Stamp.Owner, &e.Stamp.SessionKind, &e.Stamp.RaisedAt,
 			&e.Index.Type, &e.Index.Subtype, &e.Index.ToolName, &e.Index.ClaudeSessionID,
 			&e.Index.CostUSD, &e.Index.InputTokens, &e.Index.OutputTokens, &e.Index.DurationMS, &e.Index.IsError,
-			&raw, &rawText); err != nil {
+			&raw, &rawText, &e.Stamp.ProjectID, &e.Stamp.OwnerID); err != nil {
 			return nil, err
 		}
 		e.Seq, e.GapFrom, e.GapTo, e.TruncatedBytes, e.Turn = uint64(seq), uint64(gf), uint64(gt), uint64(trunc), uint32(turn)
@@ -274,4 +274,26 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// BackfillIDs fills project_id and owner_id on events recorded before they
+// were (intercom 1b-2b), from the name labels: projects and owners map names
+// to ids. Idempotent; it returns how many rows changed.
+func (s *Store) BackfillIDs(ctx context.Context, projects, owners map[string]string) (int64, error) {
+	var n int64
+	for name, id := range projects {
+		tag, err := s.pool.Exec(ctx, `UPDATE session_events SET project_id = $2 WHERE project_id = '' AND project = $1`, name, id)
+		if err != nil {
+			return n, fmt.Errorf("sessionpg: backfill project ids: %w", err)
+		}
+		n += tag.RowsAffected()
+	}
+	for name, id := range owners {
+		tag, err := s.pool.Exec(ctx, `UPDATE session_events SET owner_id = $2 WHERE owner_id = '' AND owner = $1`, name, id)
+		if err != nil {
+			return n, fmt.Errorf("sessionpg: backfill owner ids: %w", err)
+		}
+		n += tag.RowsAffected()
+	}
+	return n, nil
 }

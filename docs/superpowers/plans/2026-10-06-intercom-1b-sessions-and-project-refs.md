@@ -67,7 +67,8 @@
   - The sweep releases on a reservation's own stream.
   - Personal reservations are re-keyed to their session's owner id by reservation.
   - A v4 snapshot that names an unknown project id is refused.
-- Session-event labels stay as names, and relay cursors are 1b-2b.
+- Session-event labels stay as names.
+- **1b-2b, as built:** session events gain `project_id`/`owner_id` (sessionpg migration `0002`, backfilled at startup from the labels). `relay-cursors.json` is keyed `service/<project id>`, re-keyed once at startup with a `.bak`.
 
 ### 1b-3: project tombstones and rename
 

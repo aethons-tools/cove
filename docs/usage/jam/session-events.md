@@ -4,7 +4,7 @@ read_when: You want to watch, audit, or export what a managed studio's agent did
 owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the operator-only sensitivity stance
 prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui.md#session-timeline for the browser view
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-07
 ---
 
 # Session events
@@ -81,7 +81,9 @@ Errors: 400 for a bad param or stream id; 404 when there are no events.
 
 Fields: `actor_id`, `stream_id`, `seq`, `kind`, `gap_from`, `gap_to`, `turn`,
 `observed_at`, `received_at`, `truncated_bytes`, `project`, `role`, `unit`,
-`owner`, `session_kind`, `raised_at`, and the extracted `type`, `subtype`,
+`owner`, `session_kind`, `raised_at` (`project` and `owner` are names, as
+labels; `project_id` and `owner_id` are their ids, filled in at startup for events
+recorded before they existed), and the extracted `type`, `subtype`,
 `tool_name`, `claude_session_id`, `cost_usd`, `input_tokens`, `output_tokens`,
 `duration_ms`, `is_error`, plus `raw` or `raw_text`.
 
