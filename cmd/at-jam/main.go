@@ -70,11 +70,6 @@ var version = "dev"
 
 const defaultAdminURL = "http://127.0.0.1:8081"
 
-// sessionWakeLimit is the agent-to-agent loop breaker's run: how many session
-// posts in a row a channel takes, since a person last posted there, before
-// session posts stop waking sessions in it.
-const sessionWakeLimit = 8
-
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
 		Name:    "at-jam",
@@ -1893,9 +1888,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
 	// Sessions wake sessions (intercom slice 3c), with the loop breaker:
-	// past sessionWakeLimit session posts in a row in a channel, they stop
-	// waking until a person posts there.
-	eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, sessionWakeLimit)
+	// past runtime.wake.session-wake-limit session posts in a row in a
+	// channel, they stop waking until a person posts there (0: never wake).
+	if limit := cfg.sessionWakeLimit(); limit > 0 {
+		eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, limit)
+	}
 
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
