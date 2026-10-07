@@ -125,6 +125,9 @@ func TestRoleDetailNotFound(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "<nav") {
 		t.Errorf("not-found should still render the page chrome")
 	}
+	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/roles"`) {
+		t.Errorf("not-found should link back to the project's roles")
+	}
 }
 
 func TestRoleLinksFromRolesAndRoster(t *testing.T) {

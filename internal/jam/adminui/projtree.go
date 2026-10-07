@@ -67,6 +67,7 @@ type projectTree struct {
 	Href    string
 	Current string // the current node's label, for the narrow-screen summary
 	Nodes   []treeNode
+	OOB     bool // rendered as an out-of-band swap of #ptree (after a write)
 }
 
 // buildProjectTree lays out project's tree with current marked: section is the

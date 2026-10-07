@@ -1,6 +1,6 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry, destinations and model-specs, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
-read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations/model-specs, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
+summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
+read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, a session timeline, and the roster/roles/kits/destinations — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
 owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
@@ -19,9 +19,10 @@ http://127.0.0.1:8081/ui/
 
 The top nav has six sections — **Dashboard · Projects · Users · Agents ·
 Specs · Intercom** — and a page highlights its section, so a detail page
-highlights the list it belongs to (a role page: Projects). **Agents** opens the
-studio list (and holds the Actors page); **Specs** groups kits, destinations
-and model-specs. It renders:
+highlights the list it belongs to (a role page: Projects). **Agents** and
+**Specs** each group several list pages under a sub-tab strip: Agents holds
+**Studios · Actors**, Specs holds **Kits · Destinations · Model-specs** (their
+detail pages show the strip too). It renders:
 
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
   idled studios, and counts of projects, actors, roles, kits, destinations),
@@ -46,7 +47,7 @@ and model-specs. It renders:
   activity, connector and image status ([coves.md](coves.md#the-studio-verbs)), lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
-  studios — see [Runtime (studios)](ui-editing.md#runtime-studios) below and
+  studios — see [Runtime (studios)](ui-editing.md#runtime-studios) and
   [coves.md](coves.md). Each id opens the studio's page (runtime, waiting and
   escalation state, session streams, squawks — see
   [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
@@ -101,7 +102,8 @@ Register `https://<your-jam-host>/ui/auth/callback` in your IdP's Allowed
 Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
 
 The UI never renders a token hash, launch secret, or credential value; the one
-exception is the identity token shown once at enroll time (below) — and the
+exception is the identity token shown once at enroll time
+([ui-editing.md](ui-editing.md#roster-and-roles)) — and the
 Intercom view, which shows comms bodies (agent/human squawks), not secrets. The
 login routes themselves never expose mutation.
 

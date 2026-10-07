@@ -2,7 +2,7 @@
 summary: The admin UI's project pages — the left-side project tree (Overview, Members, Agents, Roles, Intercom, Escalation) with one URL per section under /ui/projects/<name>, what each section shows and edits, and the role page at /ui/projects/<project>/roles/<name>.
 read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or session context — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles link.
 owns: the project tree and its section pages (/ui/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/ui/projects/<project>/roles/<name>), and the /ui/roles redirects
-prereqs: ui.md for reaching the UI, the top nav, the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
+prereqs: ui.md for reaching the UI and the top nav; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf
 updated: 2026-10-07
 ---
@@ -30,7 +30,7 @@ the project's live and raising agents (the label counts them); its rooms. The
 branch holding the current page renders open and its node highlighted; the
 others expand on click (plain `<details>`, no script needed). On a narrow
 screen the tree collapses to one line naming the current node (`acme ▸ Roles ▸
-dev`); tap it to open the tree.
+dev`); tap it to open the tree. Widening the window opens it again.
 
 **Old links.** `/ui/roles` redirects (301) to `/ui/projects`, and
 `/ui/roles/<project>/<role>` to the role's page here. The write endpoints keep
@@ -39,7 +39,8 @@ their paths.
 ## Sections
 
 Each section's edits are in place: a write answers with that section
-re-rendered.
+re-rendered, and the tree with it (so an added or removed room shows there at
+once).
 
 - **Overview** — counts (members, agents live of all, roles, rooms, escalation
   chains), each linking to its section; the **chat service** (none — tracker

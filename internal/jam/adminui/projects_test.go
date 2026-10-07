@@ -144,7 +144,7 @@ func TestProjectPage(t *testing.T) {
 	for path, wants := range map[string][]string{
 		"/ui/projects/acme":            {"<h1>acme</h1>", "discord"},
 		"/ui/projects/acme/members":    {"<h1>Members</h1>", "alice", "alice-h", "dm-alice", `href="/ui/users/usr_`},
-		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", ">a1<", ">a2<", "studio-acme"},
+		"/ui/projects/acme/agents":     {"<h1>Agents</h1>", ">a1<", ">a2<", "<h2>Studios</h2>"},
 		"/ui/projects/acme/roles":      {"<h1>Roles</h1>", `<input type="hidden" name="project" value="acme">`},
 		"/ui/projects/acme/intercom":   {"<h1>Intercom</h1>", "chan-eng"},
 		"/ui/projects/acme/escalation": {"<h1>Escalation</h1>", "human:alice", "30m", "deploy", "channel:eng", "10m"},
@@ -157,6 +157,12 @@ func TestProjectPage(t *testing.T) {
 		for _, want := range append(wants, tree...) {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s missing %q", path, want)
+			}
+		}
+		// the section itself (the tree lists studio-acme on every page)
+		if strings.HasSuffix(path, "/agents") {
+			if sec := body[strings.Index(body, `<div id="project">`):]; !strings.Contains(sec, `href="/ui/coves/studio-acme"`) {
+				t.Errorf("%s: studios table missing studio-acme", path)
 			}
 		}
 		// ">a3<", not "a3": the page carries random ids (user links) that may contain it.

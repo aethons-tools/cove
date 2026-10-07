@@ -103,7 +103,8 @@ func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
 }
 
 // registerProjectEdits mounts the project page's section writes. Each answers
-// with the re-rendered project body.
+// with the re-rendered section body plus the tree, out of band (a write can
+// change what the tree lists, e.g. its rooms).
 func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	// edit applies one project write and answers with the section it belongs
 	// to re-rendered, for the page's #project swap.
@@ -131,7 +132,8 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
 			}
-			renderFragment(w, "project", "project-"+string(section), d)
+			d.Tree.OOB = true
+			renderFragments(w, "project", namedFragment{"project-" + string(section), d}, namedFragment{"project-tree-nav", d.Tree})
 		}
 	}
 

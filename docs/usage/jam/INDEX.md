@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # `at-jam` — operating the central service
@@ -53,7 +53,7 @@ five pillars), see the design history:
 | [standing-sessions.md](standing-sessions.md) | You want a role to have a permanent, named agent running (a standing teammate) or want to remove, reset or upgrade one: `standing add\|list\|rm\|reset\|upgrade`, how Jam keeps one studio per name alive (restart with its conversation and workspace kept, backoff), upgrading a stale one, dismissal, admission, and how it messages people. |
 | [standing-state.md](standing-state.md) | You need to know what survives a standing session's restart or upgrade, where its conversation and workspace live (labeled volumes), why it did or didn't resume, or which volumes Jam may delete. |
 | [requisitioner.md](requisitioner.md) | You are enabling Jam's always-on intake — polling a tracker (Linear) and raising a managed studio per ready ticket — or tuning its concurrency cap / poll interval. |
-| [ui.md](ui.md) | You want to watch a running Jam in a browser — the live studios and the roster/roles/kits/destinations — or do the roster day-job (enroll/revoke, roles, grants), edit kits/destinations/model-specs, or raise/tear down a managed studio, from the browser instead of the CLI. |
+| [ui.md](ui.md) | You want to watch a running Jam in a browser — the live studios, the squawk Log, a session timeline, the roster/roles/kits/destinations — find your way around the UI (nav, sub-tabs, search), use /me/, or configure browser login. To change something, see ui-editing.md. |
 | [ui-editing.md](ui-editing.md) | You want to change something from the admin UI instead of the CLI — enroll/revoke, grants, roles, raise/tear down a studio, Request a personal session, edit kits/destinations/model-specs — or a UI write was refused. |
 | [ui-projects.md](ui-projects.md) | You are viewing or editing one project in the admin UI — its tree of sections (members, agents, roles, rooms and messages, escalation, chat service, context) — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles link. |
 | [ui-pages.md](ui-pages.md) | You are viewing or editing one user, studio, destination, model-spec or kit in the admin UI — a user's logins/OIDC/accounts, a studio's runtime/session/squawks, client env/connector, kit versions/diffs/pinning, who uses it — or wondering why the list pages only create. |

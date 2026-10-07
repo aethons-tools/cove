@@ -6,6 +6,7 @@
 package adminui
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"log/slog"
@@ -23,25 +24,25 @@ var files embed.FS
 // page holds one parsed template set (layout + that page's content). Each set's
 // full page is rendered via ExecuteTemplate(w, "layout", data). The first
 // argument is the page's top-nav section (see nav.go), which the layout
-// highlights.
+// highlights; mustParseTab also names the section sub-tab it sits under.
 var pages = map[string]*template.Template{
 	"dashboard":    mustParse(navDashboard, "coves.html", "context_panel.html", "dashboard.html"),
-	"coves":        mustParse(navAgents, "coves.html"),
-	"roster":       mustParse(navAgents, "roster.html"),
+	"coves":        mustParseTab(navAgents, "/ui/coves", "coves.html"),
+	"roster":       mustParseTab(navAgents, "/ui/actors", "roster.html"),
 	"users":        mustParse(navUsers, "users.html"),
 	"user":         mustParse(navUsers, "user.html"),
-	"kits":         mustParse(navSpecs, "kits.html"),
-	"destinations": mustParse(navSpecs, "dest_fields.html", "destinations.html"),
+	"kits":         mustParseTab(navSpecs, "/ui/kits", "kits.html"),
+	"destinations": mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destinations.html"),
 	"intercom":     mustParse(navIntercom, "squawks.html", "intercom.html"),
-	"session":      mustParse(navAgents, "session.html"),
+	"session":      mustParseTab(navAgents, "/ui/coves", "session.html"),
 	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "projtree.html", "role.html"),
-	"destination":  mustParse(navSpecs, "dest_fields.html", "destination.html"),
-	"model-specs":  mustParse(navSpecs, "model_spec_fields.html", "model_specs.html"),
-	"model-spec":   mustParse(navSpecs, "model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParse(navSpecs, "kit.html"),
+	"destination":  mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destination.html"),
+	"model-specs":  mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_spec.html"),
+	"kit":          mustParseTab(navSpecs, "/ui/kits", "kit.html"),
 	"projects":     mustParse(navProjects, "projects.html"),
 	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "squawks.html", "projtree.html", "project.html"),
-	"studio":       mustParse(navAgents, "studio.html"),
+	"studio":       mustParseTab(navAgents, "/ui/coves", "studio.html"),
 	"search":       mustParse(navNone, "search.html"),
 }
 
@@ -71,6 +72,12 @@ func roleRows(store jam.Store) []roleRow {
 }
 
 func mustParse(section navSection, names ...string) *template.Template {
+	return mustParseTab(section, "", names...)
+}
+
+// mustParseTab is mustParse for a page under one of section's sub-tabs (tab is
+// that tab's Href; see navSubTabs).
+func mustParseTab(section navSection, tab string, names ...string) *template.Template {
 	paths := make([]string, 0, len(names)+1)
 	paths = append(paths, "templates/layout.html")
 	for _, n := range names {
@@ -78,6 +85,7 @@ func mustParse(section navSection, names ...string) *template.Template {
 	}
 	return template.Must(template.New("").Funcs(funcs).Funcs(template.FuncMap{
 		"navSection": func() navSection { return section },
+		"subTabs":    func() []subTab { return subTabsFor(section, tab) },
 	}).ParseFS(files, paths...))
 }
 
@@ -229,6 +237,31 @@ func renderStatus(w http.ResponseWriter, status int, page string, data any) {
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// namedFragment is one named template and its data, for renderFragments.
+type namedFragment struct {
+	tmpl string
+	data any
+}
+
+// renderFragments executes several named templates of one page, in order,
+// without the page chrome — a swap target followed by its out-of-band swaps.
+func renderFragments(w http.ResponseWriter, page string, fs ...namedFragment) {
+	t, ok := pages[page]
+	if !ok {
+		http.Error(w, "unknown page", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	for _, f := range fs {
+		if err := t.ExecuteTemplate(&buf, f.tmpl, f.data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // renderFragment executes a single named template (e.g. an htmx-swapped table)

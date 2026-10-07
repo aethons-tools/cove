@@ -1,7 +1,9 @@
 {{/* project-tree is the left-side navigation on every project page (a
      projectTree). Branches are <details>: the one holding the current page
      renders open. On a narrow screen the whole tree is a disclosure whose
-     summary names the current node (the layout script closes it there). */}}
+     summary names the current node (the layout script closes it there).
+     project-tree-nav is the tree alone (#ptree): a project write sends it
+     back out of band (OOB set) so it follows rooms added or removed. */}}
 {{define "project-tree"}}
 <style>
   .pframe{display:grid;grid-template-columns:200px minmax(0,1fr);gap:24px;align-items:start}
@@ -29,7 +31,11 @@
     .ptree{position:static}
   }
 </style>
-<details class="ptree-wrap" open>
+{{template "project-tree-nav" .}}
+{{end}}
+
+{{define "project-tree-nav"}}
+<details id="ptree"{{if .OOB}} hx-swap-oob="true"{{end}} class="ptree-wrap" open>
   <summary>{{.Project}} ▸ {{.Current}}</summary>
   <nav class="ptree" aria-label="Project">
     <a class="root" href="{{.Href}}">{{.Project}}</a>

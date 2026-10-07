@@ -2,7 +2,9 @@ package adminui_test
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -49,6 +51,57 @@ func TestTopNavSections(t *testing.T) {
 	// search belongs to no section
 	if body := get(t, h, "/ui/search?q=acme").Body.String(); strings.Contains(body[strings.Index(body, "<nav>"):strings.Index(body, "</nav>")], `aria-current`) {
 		t.Errorf("search should highlight no section")
+	}
+}
+
+// Sections that group several list pages show a sub-tab strip naming them,
+// the current page's tab marked; other sections show none.
+func TestSectionSubTabs(t *testing.T) {
+	h := projHandler(seedProjects(t))
+	agents := []string{`href="/ui/coves"`, `href="/ui/actors"`}
+	specs := []string{`href="/ui/kits"`, `href="/ui/destinations"`, `href="/ui/model-specs"`}
+	for path, c := range map[string]struct {
+		tabs    []string
+		current string
+	}{
+		"/ui/coves":        {agents, "Studios"},
+		"/ui/actors":       {agents, "Actors"},
+		"/ui/kits":         {specs, "Kits"},
+		"/ui/destinations": {specs, "Destinations"},
+		"/ui/model-specs":  {specs, "Model-specs"},
+	} {
+		body := get(t, h, path).Body.String()
+		i := strings.Index(body, `<nav class="subtabs"`)
+		if i < 0 {
+			t.Errorf("%s: no sub-tab strip", path)
+			continue
+		}
+		strip := body[i : i+strings.Index(body[i:], "</nav>")]
+		for _, tab := range c.tabs {
+			if !strings.Contains(strip, tab) {
+				t.Errorf("%s: strip missing %s:\n%s", path, tab, strip)
+			}
+		}
+		if n := strings.Count(strip, `aria-current="page"`); n != 1 || !strings.Contains(strip, `aria-current="page">`+c.current+"<") {
+			t.Errorf("%s: want only %s current in the strip:\n%s", path, c.current, strip)
+		}
+	}
+	for _, path := range []string{"/ui/", "/ui/users", "/ui/projects/acme"} {
+		if strings.Contains(get(t, h, path).Body.String(), `class="subtabs"`) {
+			t.Errorf("%s should have no sub-tab strip", path)
+		}
+	}
+}
+
+// The top bar's nav rules are scoped to it: an unscoped nav rule would also
+// lay out the project tree's and the sub-tab strip's <nav>.
+func TestTopNavStylesAreScoped(t *testing.T) {
+	body := get(t, projHandler(seedProjects(t)), "/ui/projects/acme").Body.String()
+	if regexp.MustCompile(`(?m)^\s*nav[\s{a\[:]`).MatchString(body) {
+		t.Error("layout has an unscoped nav rule")
+	}
+	if !strings.Contains(body, ".topbar nav{display:flex") {
+		t.Error("top nav rules should be scoped to .topbar")
 	}
 }
 
@@ -111,22 +164,53 @@ func TestProjectTreeMarksCurrent(t *testing.T) {
 func TestProjectEditsAnswerWithTheirSection(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	for _, c := range []struct {
-		path    string
-		form    url.Values
-		section string
+		method, path string
+		form         url.Values
+		section      string
 	}{
-		{"/ui/projects/acme/escalation", url.Values{"category": {"infra"}, "tiers": {"human:alice@10m"}}, "<h1>Escalation</h1>"},
-		{"/ui/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}, "<h1>Intercom</h1>"},
-		{"/ui/projects/acme/chat-service", url.Values{"service": {""}}, "<h1>acme</h1>"},
+		{http.MethodPost, "/ui/projects/acme/context", url.Values{"yaml": {"core: C\n"}}, "<h1>acme</h1>"},
+		{http.MethodDelete, "/ui/projects/acme/context", nil, "<h1>acme</h1>"},
+		{http.MethodPost, "/ui/projects/acme/chat-service", url.Values{"service": {""}}, "<h1>acme</h1>"},
+		{http.MethodPost, "/ui/projects/acme/members", url.Values{"user": {"alice"}, "add": {"1"}}, "<h1>Members</h1>"},
+		{http.MethodDelete, "/ui/projects/acme/members/alice", nil, "<h1>Members</h1>"},
+		{http.MethodPost, "/ui/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}, "<h1>Intercom</h1>"},
+		{http.MethodDelete, "/ui/projects/acme/channels/ops", nil, "<h1>Intercom</h1>"},
+		{http.MethodPost, "/ui/projects/acme/escalation", url.Values{"category": {"infra"}, "tiers": {"human:alice@10m"}}, "<h1>Escalation</h1>"},
+		{http.MethodDelete, "/ui/projects/acme/escalation?category=deploy", nil, "<h1>Escalation</h1>"},
 	} {
-		rec := post(t, h, c.path, c.form)
+		var rec *httptest.ResponseRecorder
+		if c.method == http.MethodPost {
+			rec = post(t, h, c.path, c.form)
+		} else {
+			rec = del(t, h, c.path)
+		}
 		body := rec.Body.String()
 		if rec.Code != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(body), `<div id="project">`) || !strings.Contains(body, c.section) {
-			t.Errorf("POST %s = %d, want its section %s:\n%s", c.path, rec.Code, c.section, body)
+			t.Errorf("%s %s = %d, want its section %s:\n%s", c.method, c.path, rec.Code, c.section, body)
 		}
-		if strings.Contains(body, "<html") || strings.Contains(body, `class="ptree"`) {
-			t.Errorf("POST %s should answer with the section only", c.path)
+		// the section, plus the tree only as an out-of-band swap
+		if strings.Contains(body, "<html") || strings.Count(body, `class="ptree"`) != 1 || !strings.Contains(body, `id="ptree" hx-swap-oob="true"`) {
+			t.Errorf("%s %s should answer with the section and an out-of-band tree", c.method, c.path)
 		}
+	}
+}
+
+// A room write refreshes the tree (out of band): its Intercom branch lists the
+// project's rooms.
+func TestRoomWritesRefreshTheTree(t *testing.T) {
+	h := projHandler(seedProjects(t))
+	tree := func(body string) string {
+		i := strings.Index(body, `id="ptree"`)
+		if i < 0 {
+			t.Fatalf("no out-of-band tree:\n%s", body)
+		}
+		return body[i:]
+	}
+	if got := tree(post(t, h, "/ui/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}).Body.String()); !strings.Contains(got, ">ops<") {
+		t.Errorf("tree after adding ops lacks it:\n%s", got)
+	}
+	if got := tree(del(t, h, "/ui/projects/acme/channels/eng").Body.String()); strings.Contains(got, ">eng<") || !strings.Contains(got, ">ops<") {
+		t.Errorf("tree after removing eng:\n%s", got)
 	}
 }
 

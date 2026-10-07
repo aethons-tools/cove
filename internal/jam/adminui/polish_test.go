@@ -21,10 +21,11 @@ func TestNavMarksCurrentPage(t *testing.T) {
 		"/ui/projects":     `href="/ui/projects"`,
 	} {
 		body := get(t, h, path).Body.String()
-		if !strings.Contains(body, href+` aria-current="page"`) {
+		nav := body[strings.Index(body, "<nav>"):strings.Index(body, "</nav>")] // the top nav (sub-tabs mark their own)
+		if !strings.Contains(nav, href+` aria-current="page"`) {
 			t.Errorf("%s: nav should mark %s as current", path, href)
 		}
-		if n := strings.Count(body, ` aria-current="page">`); n != 1 {
+		if n := strings.Count(nav, ` aria-current="page">`); n != 1 {
 			t.Errorf("%s: %d nav items marked current, want 1", path, n)
 		}
 	}

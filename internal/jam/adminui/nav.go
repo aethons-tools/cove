@@ -35,6 +35,33 @@ var navItems = []navItem{
 	{navIntercom, "Intercom", "/ui/intercom"},
 }
 
+// subTab is one sub-tab of a section; Current marks the page's own.
+type subTab struct {
+	Label, Href string
+	Current     bool
+}
+
+// navSubTabs are the sub-tabs of the sections that group several list pages,
+// shown under the top bar on each of the section's pages. Each tab's Href is
+// also its key: a page names the tab it belongs to (mustParseTab).
+var navSubTabs = map[navSection][]subTab{
+	navAgents: {{Label: "Studios", Href: "/ui/coves"}, {Label: "Actors", Href: "/ui/actors"}},
+	navSpecs:  {{Label: "Kits", Href: "/ui/kits"}, {Label: "Destinations", Href: "/ui/destinations"}, {Label: "Model-specs", Href: "/ui/model-specs"}},
+}
+
+// subTabsFor is section's sub-tabs with tab (an Href) marked current; none for
+// a section without sub-tabs or a page that names no tab.
+func subTabsFor(section navSection, tab string) []subTab {
+	if tab == "" {
+		return nil
+	}
+	tabs := append([]subTab(nil), navSubTabs[section]...)
+	for i := range tabs {
+		tabs[i].Current = tabs[i].Href == tab
+	}
+	return tabs
+}
+
 // redirect answers a moved GET page with 301 to target, keeping the query.
 func redirect(w http.ResponseWriter, r *http.Request, target string) {
 	if r.URL.RawQuery != "" {

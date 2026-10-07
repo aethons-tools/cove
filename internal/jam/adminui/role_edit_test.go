@@ -40,10 +40,17 @@ func TestRolePagePrefillsEditForms(t *testing.T) {
 		`hx-post="/ui/roles/acme/review/egress"`,
 		`hx-post="/ui/roles/acme/review/standing"`,
 		`hx-delete="/ui/roles/acme/review/standing/nightly"`,
+		`hx-delete="/ui/roles/acme/review" hx-swap="none"`,
+		`location.href='/ui/projects/acme/roles'`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role page missing %q", want)
 		}
+	}
+	// with a supervisor the page offers Request, posting to the role's own endpoint
+	sup := get(t, adminui.Handler(seedRichRole(t), testLogger(), &jam.Supervisor{}, nil, credKnown, nil), "/ui/projects/acme/roles/review").Body.String()
+	if !strings.Contains(sup, `hx-post="/ui/roles/acme/review/request" hx-target="#flash"`) {
+		t.Errorf("role page should offer Request against the role's endpoint")
 	}
 }
 

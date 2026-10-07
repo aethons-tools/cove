@@ -83,7 +83,7 @@ on the left, the page content on the right.
 | Agents | `/ui/projects/{p}/agents` | agents of this project (an instance or a grant in it), same table as the Agents tab; children = its live/raising agents |
 | Roles | `/ui/projects/{p}/roles` | this project's roles + **New role** form (project implied by the URL; no project picker); children = every role |
 | a role | `/ui/projects/{p}/roles/{r}` | today's role page, unchanged content |
-| Intercom | `/ui/projects/{p}/intercom` | the project's rooms (today's Rooms card: list, add, remove) above the channel log filtered to this project's room channels; children = its rooms |
+| Intercom | `/ui/projects/{p}/intercom` | the project's rooms (today's Rooms card: list, add, remove) above the channel log filtered to this project (every channel in it, as the full Intercom log's `project=` filter); children = its rooms |
 | Escalation | `/ui/projects/{p}/escalation` | today's escalation chains + forms |
 
 - **Server-rendered, no JS required.** Each branch with children is a
@@ -170,7 +170,9 @@ The session-events fragment the session page polls follows the page
 ## 7. Slices (each one PR, shippable alone)
 
 1. **Nav + project tree.** Section-based highlighting; new top nav (Agents/Specs
-   tabs pointing at today's Studios/Kits pages until slices 2–3 land); the
+   tabs pointing at today's Studios/Kits pages until slices 2–3 land, with
+   interim sub-tab strips — Studios · Actors, Kits · Destinations ·
+   Model-specs — so no list page loses its nav entry); the
    project frame, tree and nested routes (§2) with role pages moved; redirects
    for `/ui/roles…`; breadcrumbs.
 2. **Agents.** `/ui/agents` list, the agent page merging studio + session +
