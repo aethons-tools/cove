@@ -393,6 +393,10 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	var err error
 	switch kind {
 	case "user", "human":
+		if home, ok := ic.homeWithMember(p, project, rest, globs); ok {
+			ch = home // already in the session's own channel: keep one conversation
+			break
+		}
 		ch, err = ic.resolveChat(p, project, []string{rest}, globs)
 	case "chat":
 		var refs []string
@@ -610,6 +614,24 @@ func (ic *Intercom) resolveChat(p Poster, project Project, refs []string, globs 
 		return Channel{}, ErrSendUnresolved
 	}
 	return ic.chat(project, members)
+}
+
+// homeWithMember is the poster's own session channel when user ref (whom its
+// addressing allows) is already a member of it — a user: send then posts
+// there rather than opening a separate chat with them.
+func (ic *Intercom) homeWithMember(p Poster, project Project, ref string, globs []string) (Channel, bool) {
+	u, found := ic.memberUser(project, ref)
+	if !found || !anyAllowed([]string{"user:" + u.Name, "user:" + string(u.ID)}, globs) {
+		return Channel{}, false
+	}
+	if p.Session.Unit != "" {
+		return Channel{}, false // a ticket session's home is its ticket: user: stays a chat
+	}
+	home, err := ic.HomeChannel(*p.Session)
+	if err != nil || home.Kind != SourceSession || !ic.isMemberOf(home, u.ID) {
+		return Channel{}, false
+	}
+	return home, true
 }
 
 // memberUser is the live user ref names (a name or a usr_ id) who is a

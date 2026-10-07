@@ -47,7 +47,10 @@ func TestIntercomCallIn(t *testing.T) {
 func TestIntercomCallInRefusals(t *testing.T) {
 	f := newICFixture(t, "user:alice")
 	home := f.mustPlan(f.personal, "").Channel
-	chat := f.mustPlan(f.personal, "user:alice").Channel
+	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.personal.ActorID), f.alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name string
 		p    Poster

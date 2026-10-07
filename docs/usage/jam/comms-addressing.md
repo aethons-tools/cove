@@ -21,7 +21,7 @@ A target is **kind-prefixed**, and names a channel:
 
 | Target | Channel |
 |---|---|
-| `user:<name>` / `user:<usr_id>` | a chat between the session and that person |
+| `user:<name>` / `user:<usr_id>` | a chat between the session and that person — or, from a session without a ticket, its own channel when that person is already in it |
 | `chat:user:<a>,user:<b>…` | a chat between the session and those people |
 | `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
 | `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only) |
