@@ -5,37 +5,13 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/browserauth"
 )
-
-// sameOrigin reports whether a state-changing request's Origin (or, absent that,
-// Referer) is the request's own Host, or exactly one of the trusted extra
-// origins (scheme://host[:port], e.g. a dev proxy fronting the admin listener).
-// Fail-closed: neither header → false.
-func sameOrigin(r *http.Request, trusted map[string]bool) bool {
-	check := func(v string) (bool, bool) {
-		if v == "" {
-			return false, false
-		}
-		u, err := url.Parse(v)
-		if err != nil {
-			return false, true
-		}
-		return u.Host == r.Host || trusted[u.Scheme+"://"+u.Host], true
-	}
-	if ok, present := check(r.Header.Get("Origin")); present {
-		return ok
-	}
-	if ok, present := check(r.Header.Get("Referer")); present {
-		return ok
-	}
-	return false
-}
 
 // originGuard returns the CSRF Origin check for state-changing requests: it
 // writes a 403 and returns false when the request must be refused.
@@ -45,7 +21,7 @@ func originGuard(trustedOrigins []string) func(http.ResponseWriter, *http.Reques
 		trusted[o] = true
 	}
 	return func(w http.ResponseWriter, r *http.Request) bool {
-		if !sameOrigin(r, trusted) {
+		if !browserauth.SameOrigin(r, trusted) {
 			http.Error(w, "cross-origin request refused", http.StatusForbidden)
 			return false
 		}
