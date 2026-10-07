@@ -1,6 +1,6 @@
 # intercom: identity registry, channels & channel sources — architecture overview
 
-**Status:** model approved in brainstorming (2026-10-05/06). Built: slices 1–4 (2026-10-06/07), except 1b-2/1b-3 (project-id references, project tombstones and rename), deferred. Each slice links its detailed spec below.
+**Status:** model approved in brainstorming (2026-10-05/06). Built: slices 1–4 (2026-10-06/07), including 1b-2/1b-3 (project-id references, project tombstones and rename: #386–#388). Each slice links its detailed spec below.
 **Owner:** intercom subsystem.
 **Supersedes (when built):** the name-keyed target space of [`2026-09-14-harbor-comms-addressing.md`](2026-09-14-harbor-comms-addressing.md) and the per-project `Human` roster; the "owner" / "default recipient" comms semantics of personal sessions.
 
