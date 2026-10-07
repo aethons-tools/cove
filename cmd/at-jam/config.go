@@ -139,6 +139,22 @@ type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
 	WaitMax      string `yaml:"wait-max"`
 	WarmTimeout  string `yaml:"warm-timeout"`
+	// SessionWakeLimit is the agent-to-agent loop breaker's run: how many
+	// session posts in a row a channel takes, since a person last posted
+	// there, before session posts stop waking sessions in it. Unset = 8;
+	// 0 = session posts never wake sessions.
+	SessionWakeLimit *int `yaml:"session-wake-limit"`
+}
+
+// defaultSessionWakeLimit is runtime.wake.session-wake-limit's default.
+const defaultSessionWakeLimit = 8
+
+// sessionWakeLimit resolves runtime.wake.session-wake-limit (0: off).
+func (c serveConfig) sessionWakeLimit() int {
+	if c.Runtime.Wake != nil && c.Runtime.Wake.SessionWakeLimit != nil {
+		return *c.Runtime.Wake.SessionWakeLimit
+	}
+	return defaultSessionWakeLimit
 }
 
 // wakeSettings resolves the wake-on engine's settings, per field:
@@ -182,6 +198,9 @@ func (c serveConfig) validateWake() error {
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil
+	}
+	if w.SessionWakeLimit != nil && *w.SessionWakeLimit < 0 {
+		return fmt.Errorf("runtime.wake.session-wake-limit: want 0 (off) or more, got %d", *w.SessionWakeLimit)
 	}
 	for name, v := range map[string]string{"poll-interval": w.PollInterval, "wait-max": w.WaitMax, "warm-timeout": w.WarmTimeout} {
 		if v == "" {

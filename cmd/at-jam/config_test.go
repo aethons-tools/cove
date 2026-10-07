@@ -1023,3 +1023,23 @@ func TestEscalationPollInterval(t *testing.T) {
 		t.Fatal("an invalid runtime.escalation-poll-interval must be refused")
 	}
 }
+
+func TestSessionWakeLimit(t *testing.T) {
+	for yml, want := range map[string]int{
+		"runtime:\n  listen: x\n":                        8,
+		"runtime:\n  wake:\n    session-wake-limit: 3\n": 3,
+		"runtime:\n  wake:\n    session-wake-limit: 0\n": 0,
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil || cfg.validateWake() != nil {
+			t.Fatalf("%q: %v", yml, err)
+		}
+		if got := cfg.sessionWakeLimit(); got != want {
+			t.Errorf("%q = %d, want %d", yml, got, want)
+		}
+	}
+	bad, _ := parseServeConfig([]byte("runtime:\n  wake:\n    session-wake-limit: -1\n"))
+	if bad.validateWake() == nil {
+		t.Fatal("a negative limit must be refused")
+	}
+}

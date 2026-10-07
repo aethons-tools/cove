@@ -179,7 +179,7 @@ has ingested it; with no relay configured, it's bounded only by `wait-max` teard
 (pausing at `warm-timeout` still happens).
 
 **Sessions wake sessions, with a loop breaker.** Another session's post wakes a
-waiting studio — but once a channel has had more than **8** session posts in a
+waiting studio — but once a channel has had more than **8** (`runtime.wake.session-wake-limit`; `0` turns session wakes off) session posts in a
 row since a person or account last posted there, session posts in it stop
 waking anyone (they are still delivered, and read at the next `read`), and Jam posts one notice there on every surface, a ticket's issue too ("Jam
 paused agent-to-agent wakes here … Reply here to resume"); a person's post resets it. A session's notices — its nags, its
@@ -195,4 +195,3 @@ for a person, instead of leaving it to wait passively — a separate, independen
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: squawks | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
 - **Discord receipt pruning:** see [discord.md](discord.md#egress-the-reply-loop) — the discord-msg-id→studio receipt store the reply loop uses is currently unpruned.
-- **A configurable loop-breaker limit** (fixed at 8 today).
