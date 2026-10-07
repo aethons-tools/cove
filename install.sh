@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for at-cove (and its sibling at-mint).
+# install.sh — one-command installer for at-cove (and its siblings at-mint and at-jam).
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -10,8 +10,8 @@
 #
 # It pulls a prebuilt release archive (cove_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `at-cove` + `at-mint` onto your PATH. `at-task`
-# is embedded inside `at-cove`, so it is not installed separately.
+# release's checksums.txt, and drops `at-cove` + `at-mint` + `at-jam` onto your PATH.
+# `at-task` is embedded inside `at-cove`, so it is not installed separately.
 #
 # Env knobs:
 #   COVE_VERSION=<N>-<MMDD>   pin a release (default: latest)
@@ -185,9 +185,14 @@ main() {
   mkdir -p "$tmp/extract"
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
-  place "$tmp/extract/at-cove" "$bindir"
-  place "$tmp/extract/at-mint" "$bindir"
-  info "installed at-cove + at-mint -> $bindir"
+  local b installed=()
+  for b in at-cove at-mint at-jam; do
+    # at-jam joined the archive later: a pinned older release lacks it.
+    if [ "$b" = at-jam ] && [ ! -f "$tmp/extract/$b" ]; then continue; fi
+    place "$tmp/extract/$b" "$bindir"
+    installed+=("$b")
+  done
+  info "installed ${installed[*]} -> $bindir"
 
   path_check "$bindir"
   if command -v "$bindir/at-cove" >/dev/null 2>&1; then

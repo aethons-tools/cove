@@ -1,15 +1,15 @@
 # goreleaser config for the cove host binaries — the BUILD tool for the at-cove
 # leg of the monolithic pipeline (.github/workflows/release.yml, COV-44). CI runs
 # `goreleaser release --snapshot` on every main push: goreleaser builds + archives
-# at-cove + at-mint (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
+# at-cove + at-mint + at-jam (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
 # env; the workflow then cuts the (private) GitHub release with `gh`. Snapshot mode
 # is used deliberately — it skips goreleaser's own publishing, so the non-SemVer
 # <N>-<MMDD> version needs no git tag to satisfy goreleaser. at-task is NOT shipped
 # standalone — it is embedded in at-cove (the before-hook stages the linux at-task
 # binaries first). See COV-36 + docs/superpowers/specs/2026-07-17-at-cove-release-embed-design.md.
 #
-# Public phase (later): add a `brews:` block that installs both at-cove and
-# at-mint from the single archive below, so `brew install` yields both.
+# Public phase (later): add a `brews:` block that installs at-cove, at-mint and
+# at-jam from the single archive below, so `brew install` yields all three.
 version: 2
 
 project_name: cove
@@ -56,10 +56,23 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
+  - id: at-jam
+    main: ./cmd/at-jam
+    binary: at-jam
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
 archives:
-  # One archive carrying both binaries — brew-phase installs them together.
+  # One archive carrying every host binary — install.sh (and so `at-cove update`
+  # / `at-jam update`) installs them together.
   - id: cove
-    ids: [at-cove, at-mint]
+    ids: [at-cove, at-mint, at-jam]
     name_template: "cove_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
