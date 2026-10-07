@@ -14,15 +14,18 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
 	for path, href := range map[string]string{
 		"/ui/":             `href="/ui/"`,
-		"/ui/actors":       `href="/ui/actors"`,
-		"/ui/kits":         `href="/ui/kits"`,
-		"/ui/destinations": `href="/ui/destinations"`,
+		"/ui/actors":       `href="/ui/coves"`, // Agents
+		"/ui/kits":         `href="/ui/kits"`,  // Specs
+		"/ui/destinations": `href="/ui/kits"`,
+		"/ui/users":        `href="/ui/users"`,
+		"/ui/projects":     `href="/ui/projects"`,
 	} {
 		body := get(t, h, path).Body.String()
-		if !strings.Contains(body, href+` aria-current="page"`) {
+		nav := body[strings.Index(body, "<nav>"):strings.Index(body, "</nav>")] // the top nav (sub-tabs mark their own)
+		if !strings.Contains(nav, href+` aria-current="page"`) {
 			t.Errorf("%s: nav should mark %s as current", path, href)
 		}
-		if n := strings.Count(body, ` aria-current="page">`); n != 1 {
+		if n := strings.Count(nav, ` aria-current="page">`); n != 1 {
 			t.Errorf("%s: %d nav items marked current, want 1", path, n)
 		}
 	}
@@ -31,7 +34,7 @@ func TestNavMarksCurrentPage(t *testing.T) {
 // Every page carries the flash region and the htmx error hook, so a 4xx/5xx
 // write response is shown to the operator instead of silently dropped.
 func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
-	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/roles").Body.String()
+	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/projects").Body.String()
 	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/ui/static/jam.css`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing %q", want)
@@ -124,7 +127,7 @@ func TestRoleRequestTargetsFlash(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/roles").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/projects/acme/roles").Body.String()
 	if !strings.Contains(body, `hx-target="#flash"`) || strings.Contains(body, "role-request-msg") {
 		t.Errorf("Request should target #flash; got:\n%s", body)
 	}

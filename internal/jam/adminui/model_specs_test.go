@@ -65,7 +65,7 @@ func TestModelSpecsListAndNav(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`href="/ui/model-specs/default"`, "2.1.0", "anth", "claude-opus-5-5", "vertex",
-		`aria-current="page">Model-specs`,
+		`aria-current="page">Specs`,
 		`hx-post="/ui/model-specs"`,                // the create form
 		`<option value="anth">anth</option>`,       // credential select, names only
 		`<option value="bedrock">bedrock</option>`, // provider select
@@ -105,7 +105,7 @@ func TestModelSpecDetailPrefilled(t *testing.T) {
 		"ANTHROPIC_VERTEX_PROJECT_ID=proj\nCLOUD_ML_REGION=us-east5</textarea>",
 		"superpowers@claude-plugins-official</textarea>",
 		"&#34;theme&#34;: &#34;dark&#34;",
-		`aria-current="page">Model-specs`,
+		`aria-current="page">Specs`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("detail missing %q", want)

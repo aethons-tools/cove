@@ -32,12 +32,11 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 			`name="role" data-ta="roles" data-ta-project="@form"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/roles": {
-			`name="project" data-ta="projects"`,
+		"/ui/projects/acme/roles": {
 			`name="kit" data-ta="kits"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/roles/acme/dev": {
+		"/ui/projects/acme/roles/dev": {
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 			`name="addressing" data-ta="targets" data-ta-list data-ta-project="acme"`,
 			`name="kit" data-ta="kits"`,
@@ -45,8 +44,10 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 		"/ui/destinations": {
 			`name="cred-name" data-ta="credentials"`,
 		},
-		"/ui/projects/acme": {
+		"/ui/projects/acme/escalation": {
 			`name="tiers" data-ta="targets" data-ta-list data-ta-project="acme"`,
+		},
+		"/ui/projects/acme/intercom": {
 			`name="service" data-ta="services"`,
 		},
 		"/ui/intercom": {

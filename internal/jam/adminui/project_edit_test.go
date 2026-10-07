@@ -11,18 +11,23 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
+// Each project section offers its own edits, prefilled.
 func TestProjectPageOffersPrefilledEdits(t *testing.T) {
-	body := get(t, projHandler(seedProjects(t)), "/ui/projects/acme").Body.String()
-	for _, want := range []string{
-		`hx-post="/ui/projects/acme/members"`, "discord:dm-alice", `hx-delete="/ui/projects/acme/members/usr_`,
-		`hx-post="/ui/projects/acme/channels"`, `hx-delete="/ui/projects/acme/channels/eng"`,
-		`hx-post="/ui/projects/acme/escalation"`,
-		"human:alice@30m", "human:alice,channel:eng@10m",
-		`hx-delete="/ui/projects/acme/escalation?category=deploy"`,
-		`hx-post="/ui/projects/acme/chat-service"`, `<option value="discord" selected`,
+	h := projHandler(seedProjects(t))
+	for path, wants := range map[string][]string{
+		"/ui/projects/acme/members":  {`hx-post="/ui/projects/acme/members"`, "discord:dm-alice", `hx-delete="/ui/projects/acme/members/usr_`},
+		"/ui/projects/acme/intercom": {`hx-post="/ui/projects/acme/channels"`, `hx-delete="/ui/projects/acme/channels/eng"`},
+		"/ui/projects/acme/escalation": {
+			`hx-post="/ui/projects/acme/escalation"`, "human:alice@30m", "human:alice,channel:eng@10m",
+			`hx-delete="/ui/projects/acme/escalation?category=deploy"`,
+		},
+		"/ui/projects/acme": {`hx-post="/ui/projects/acme/chat-service"`, `<option value="discord" selected`},
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("project page missing %q", want)
+		body := get(t, h, path).Body.String()
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %q", path, want)
+			}
 		}
 	}
 }
@@ -70,7 +75,7 @@ func TestEditEscalation(t *testing.T) {
 	if rec := del(t, h, "/ui/projects/acme/escalation?category=deploy"); rec.Code != http.StatusOK {
 		t.Fatalf("clear deploy = %d", rec.Code)
 	}
-	body := get(t, h, "/ui/projects/acme").Body.String()
+	body := get(t, h, "/ui/projects/acme/escalation").Body.String()
 	if strings.Contains(body, "category <span class=\"mono\">deploy</span>") {
 		t.Errorf("a cleared chain should not be shown")
 	}
@@ -85,7 +90,7 @@ func TestEscalationFlagsUnknownTargets(t *testing.T) {
 	if err := store.SetEscalationPolicy("acme", "", []jam.EscalationTier{{Targets: []string{"human:ghost", "human:alice"}, Timeout: time.Minute}}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, projHandler(store), "/ui/projects/acme").Body.String()
+	body := get(t, projHandler(store), "/ui/projects/acme/escalation").Body.String()
 	if n := strings.Count(body, `class="chip unknown-target"`); n != 1 {
 		t.Errorf("want 1 flagged target (human:ghost), got %d", n)
 	}

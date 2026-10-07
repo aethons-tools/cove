@@ -69,7 +69,7 @@ func seedRichRole(t *testing.T) jam.Store {
 
 func TestRoleDetailShowsEverything(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, anyCred, nil)
-	rec := get(t, h, "/ui/roles/acme/review")
+	rec := get(t, h, "/ui/projects/acme/roles/review")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET role detail = %d", rec.Code)
 	}
@@ -87,14 +87,17 @@ func TestRoleDetailShowsEverything(t *testing.T) {
 		"nightly", "run the nightly sweep",
 		"holder-plain", "holder-ovr", "override",
 		"studio-of-review",
-		`aria-current="page">Roles`, // still under the Roles tab
+		`aria-current="page">Projects`, // a role lives in its project
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role detail missing %q", want)
 		}
 	}
+	// The project tree lists every live agent in acme; the role's own content
+	// shows only its own studios.
+	roleBody := body[strings.Index(body, `<div id="role">`):]
 	for _, gone := range []string{"not-a-holder", "studio-of-other", `hx-trigger="every 3s"`} {
-		if strings.Contains(body, gone) {
+		if strings.Contains(roleBody, gone) {
 			t.Errorf("role detail should not contain %q", gone)
 		}
 	}
@@ -106,7 +109,7 @@ func TestRoleDetailUnmanagedEgressAndEmptyAddressing(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "bare"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/roles/acme/bare").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/roles/bare").Body.String()
 	for _, want := range []string{"Kit default", "No comms targets"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("bare role detail missing %q", want)
@@ -115,26 +118,29 @@ func TestRoleDetailUnmanagedEgressAndEmptyAddressing(t *testing.T) {
 }
 
 func TestRoleDetailNotFound(t *testing.T) {
-	rec := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/roles/acme/nope")
+	rec := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/roles/nope")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing role = %d, want 404", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "<nav") {
 		t.Errorf("not-found should still render the page chrome")
 	}
+	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/roles"`) {
+		t.Errorf("not-found should link back to the project's roles")
+	}
 }
 
 func TestRoleLinksFromRolesAndRoster(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, anyCred, nil)
-	roles := get(t, h, "/ui/roles").Body.String()
-	if !strings.Contains(roles, `href="/ui/roles/acme/review"`) {
+	roles := get(t, h, "/ui/projects/acme/roles").Body.String()
+	if !strings.Contains(roles, `href="/ui/projects/acme/roles/review"`) {
 		t.Errorf("roles table should link to the detail page")
 	}
 	if !strings.Contains(roles, "git-pat") {
 		t.Errorf("roles table should show the credential mapping")
 	}
 	roster := get(t, h, "/ui/actors").Body.String()
-	if !strings.Contains(roster, `href="/ui/roles/acme/review"`) {
+	if !strings.Contains(roster, `href="/ui/projects/acme/roles/review"`) {
 		t.Errorf("roster grant chips should link to the role")
 	}
 }
@@ -149,13 +155,13 @@ func TestRoleDetailShowsTurnEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	body := get(t, h, "/ui/roles/acme/worker").Body.String()
+	body := get(t, h, "/ui/projects/acme/roles/worker").Body.String()
 	for _, want := range []string{"Idle timeout", "45m", "On idle", "teardown"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("worker role detail missing %q", want)
 		}
 	}
-	bare := get(t, h, "/ui/roles/acme/bare").Body.String()
+	bare := get(t, h, "/ui/projects/acme/roles/bare").Body.String()
 	for _, want := range []string{"Idle timeout", "none", "On idle", "wake"} {
 		if !strings.Contains(bare, want) {
 			t.Errorf("bare role detail missing %q", want)

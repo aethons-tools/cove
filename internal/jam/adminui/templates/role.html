@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
 <div class="page-head"><h1>Role not found</h1></div>
-<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="/ui/roles">Back to roles</a></div>
+<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="{{.RolesHref}}">Back to roles</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -31,15 +31,20 @@
   .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/projects">Projects</a> / <a href="{{projectURL .Project}}">{{.Project}}</a> / <a href="/ui/roles">Roles</a></div>
+<div class="pframe">
+{{template "project-tree" .Tree}}
+<div>
+{{template "crumbs" .Crumbs}}
 {{template "role-body" .}}
+</div>
+</div>
 {{end}}
 {{end}}
 
 {{/* role-body is the swappable part of the role page: every section write
      answers with it re-rendered. */}}
 {{define "role-body"}}
-{{$base := printf "/ui/roles/%s/%s" .Project .Name}}
+{{$base := .WriteBase}}
 <div id="role">
 <div class="page-head">
   <h1>{{.Name}}</h1>
@@ -54,7 +59,7 @@
       title="Raise a personal session of this role for you">Request session</button>{{end}}
   <button class="danger" hx-delete="{{$base}}" hx-swap="none"
       hx-confirm="Delete role {{.Name}} from {{.Project}}?"
-      hx-on::after-request="if(event.detail.successful) location.href='/ui/roles'">Delete</button>
+      hx-on::after-request="if(event.detail.successful) location.href='{{.RolesHref}}'">Delete</button>
 </div>
 
 <div class="sections">

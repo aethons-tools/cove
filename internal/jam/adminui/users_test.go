@@ -119,7 +119,7 @@ func TestProjectMembersSection(t *testing.T) {
 	store := seedProjects(t)
 	h := projHandler(store)
 	alice := userID(t, store, "alice")
-	body := get(t, h, "/ui/projects/acme").Body.String()
+	body := get(t, h, "/ui/projects/acme/members").Body.String()
 	for _, want := range []string{
 		`hx-post="/ui/projects/acme/members"`, `href="/ui/users/` + string(alice) + `"`,
 		"discord:dm-alice", `hx-delete="/ui/projects/acme/members/` + string(alice) + `"`,
@@ -160,7 +160,7 @@ func TestProjectMembersSection(t *testing.T) {
 
 func TestActorsPageReplacesRoster(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	if rec := get(t, h, "/ui/actors"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `aria-current="page">Actors`) {
+	if rec := get(t, h, "/ui/actors"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `aria-current="page">Agents`) {
 		t.Fatalf("actors page = %d", rec.Code)
 	}
 	if rec := get(t, h, "/ui/roster"); rec.Code != http.StatusNotFound {

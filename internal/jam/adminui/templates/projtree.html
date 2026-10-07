@@ -1,0 +1,60 @@
+{{/* project-tree is the left-side navigation on every project page (a
+     projectTree). Branches are <details>: the one holding the current page
+     renders open. On a narrow screen the whole tree is a disclosure whose
+     summary names the current node (the layout script closes it there).
+     project-tree-nav is the tree alone (#ptree): a project write sends it
+     back out of band (OOB set) so it follows rooms added or removed. */}}
+{{define "project-tree"}}
+<style>
+  .pframe{display:grid;grid-template-columns:200px minmax(0,1fr);gap:24px;align-items:start}
+  .ptree-wrap>summary{display:none}
+  .ptree{position:sticky;top:64px;font-size:13px}
+  .ptree a{display:block;color:var(--muted);text-decoration:none;padding:4px 8px;border-radius:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ptree a:hover{color:var(--ink);background:var(--surface-2)}
+  .ptree a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
+  .ptree .root{font-weight:600;color:var(--ink);font-size:14px;margin-bottom:4px}
+  .ptree ul{list-style:none;margin:0;padding:0}
+  .ptree ul ul{padding-left:14px;border-left:1px solid var(--border);margin-left:12px}
+  .ptree details>summary{list-style:none;cursor:pointer;display:flex;align-items:center}
+  .ptree details>summary::-webkit-details-marker{display:none}
+  .ptree details>summary::before{content:"▸";width:12px;color:var(--faint);font-size:10px}
+  .ptree details[open]>summary::before{content:"▾"}
+  .ptree details>summary>a{flex:1}
+  .ptree li.leaf>a{margin-left:12px}
+  .ptree .count{color:var(--faint);font-weight:500}
+  .ptree .phase-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--wait);margin-right:6px;vertical-align:middle}
+  .ptree .phase-dot.live{background:var(--live)}
+  @media (max-width:720px){
+    .pframe{grid-template-columns:1fr;gap:12px}
+    .ptree-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px}
+    .ptree-wrap>summary{display:block;cursor:pointer;padding:4px 8px;font-weight:600}
+    .ptree{position:static}
+  }
+</style>
+{{template "project-tree-nav" .}}
+{{end}}
+
+{{define "project-tree-nav"}}
+<details id="ptree"{{if .OOB}} hx-swap-oob="true"{{end}} class="ptree-wrap" open>
+  <summary>{{.Project}} ▸ {{.Current}}</summary>
+  <nav class="ptree" aria-label="Project">
+    <a class="root" href="{{.Href}}">{{.Project}}</a>
+    <ul>
+      {{range .Nodes}}
+      {{if .Children}}
+      <li><details{{if .Open}} open{{end}}>
+        <summary><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{if .Count}} <span class="count">({{.Count}})</span>{{end}}</a></summary>
+        <ul>{{range .Children}}<li><a class="mono" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{if .Phase}}<span class="phase-dot{{if eq .Phase "live"}} live{{end}}"></span>{{end}}{{.Label}}</a></li>{{end}}</ul>
+      </details></li>
+      {{else}}
+      <li class="leaf"><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{if .Count}} <span class="count">({{.Count}})</span>{{end}}</a></li>
+      {{end}}
+      {{end}}
+    </ul>
+  </nav>
+</details>
+{{end}}
+
+{{/* crumbs renders a breadcrumb trail: a list of crumb{Label, Href}; the last
+     one is the current page (no link). */}}
+{{define "crumbs"}}<div class="crumbs">{{range $i, $c := .}}{{if $i}} / {{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}{{end}}</div>{{end}}

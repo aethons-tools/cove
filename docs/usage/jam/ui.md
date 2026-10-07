@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Beyond viewing, it can do the roster day-job (enroll/revoke actors, roles, grants), edit the kit registry, destinations and model-specs, and, with a runtime supervisor configured, raise/tear down managed studios and request a personal session of a role.
-read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, and the roster/roles/kits/destinations — or do the roster day-job, edit kits/destinations/model-specs, or raise/tear down a managed studio from the browser, without running admin CLI verbs, or you are configuring browser login for it.
-owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability + roster/kit/destination/model-spec-editing + runtime studio raise/teardown surface (what it shows, what it can mutate, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
+read_when: You want to watch a running Jam in a browser — the live studio fleet, the squawk Log, a session timeline, and the roster/roles/kits/destinations — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
+owns: the `/ui/coves/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -17,7 +17,12 @@ there):
 http://127.0.0.1:8081/ui/
 ```
 
-It renders:
+The top nav has six sections — **Dashboard · Projects · Users · Agents ·
+Specs · Intercom** — and a page highlights its section, so a detail page
+highlights the list it belongs to (a role page: Projects). **Agents** and
+**Specs** each group several list pages under a sub-tab strip: Agents holds
+**Studios · Actors**, Specs holds **Kits · Destinations · Model-specs** (their
+detail pages show the strip too). It renders:
 
 - **Dashboard** (`/ui/`) — summary tiles (live / raising / lost-or-terminating /
   idled studios, and counts of projects, actors, roles, kits, destinations),
@@ -36,13 +41,13 @@ It renders:
   Session event streams are not searched.
 - **Projects** (`/ui/projects`) — every project with its roles, actors,
   studios, roster size and chat service; create one, or delete one nothing
-  references. Each project's page is the "everything in this project" view —
-  see [ui-pages.md](ui-pages.md#project-pages).
+  references. Each project opens on a tree of its sections — members, agents,
+  roles, rooms and messages, escalation — see [ui-projects.md](ui-projects.md).
 - **Studios** (`/ui/coves`) — every managed studio's id, project/role, unit, phase,
   activity, connector and image status ([coves.md](coves.md#the-studio-verbs)), lease holder, raised-at, last-seen. The table **auto-refreshes every
   3 seconds** (htmx polling); no page reload. View-only unless a runtime
   supervisor is configured, in which case it can also raise and tear down
-  studios — see [Runtime (studios)](#runtime-studios) below and
+  studios — see [Runtime (studios)](ui-editing.md#runtime-studios) and
   [coves.md](coves.md). Each id opens the studio's page (runtime, waiting and
   escalation state, session streams, squawks — see
   [ui-pages.md](ui-pages.md#studio-pages)); **timeline** next to it opens the
@@ -50,9 +55,9 @@ It renders:
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See
   [Intercom](#intercom) below.
-- **Users / Actors / Roles / Kits / Destinations / Model-specs** — the control-plane objects as
-  tables, all editable from here — see [Editing](#editing-day-job-mutations)
-  below.
+- **Users / Actors / Kits / Destinations / Model-specs** — the control-plane
+  objects as tables, all editable from here; roles live in their project — see
+  [ui-editing.md](ui-editing.md).
 
 Every table has a fixed order — studios and actors by id; roles by project,
 then name; kits and destinations by name; squawks newest-first — so rows don't
@@ -80,7 +85,7 @@ the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed))
   UI refuses it as a possible DNS-rebinding attempt.
   A loopback viewer is the anonymous operator `local`, unless they have signed
   in via `/ui/auth/login`: a valid session is used even on loopback, so the UI
-  knows *who* you are (the [role Request](#runtime-studios) action needs this).
+  knows *who* you are (the [role Request](ui-editing.md#runtime-studios) action needs this).
   A missing or expired session falls back to `local` without a login redirect.
   For UI development, [`dev-identity`](serve.md) makes loopback requests act as
   a chosen user on `/ui` and `/me` with no login at all.
@@ -97,7 +102,8 @@ Register `https://<your-jam-host>/ui/auth/callback` in your IdP's Allowed
 Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
 
 The UI never renders a token hash, launch secret, or credential value; the one
-exception is the identity token shown once at enroll time (below) — and the
+exception is the identity token shown once at enroll time
+([ui-editing.md](ui-editing.md#roster-and-roles)) — and the
 Intercom view, which shows comms bodies (agent/human squawks), not secrets. The
 login routes themselves never expose mutation.
 
@@ -186,89 +192,8 @@ behind **show progress events**. It updates live over SSE from `/ui/coves/{id}/s
 live; reconnects resume via `Last-Event-ID`). Storage, retention,
 and sensitivity: [session-events.md](session-events.md).
 
-## Editing (day-job mutations)
+## Editing
 
-Beyond viewing, the UI can do the roster day-job — the same actions as the CLI
-verbs in [roster.md](roster.md):
-
-- **Enroll** an actor (id, project, role, optional destination overrides).
-  The identity token is shown **once**, right after enrolling — copy it then; it
-  is never shown again, stored in a list, or logged. For the full connection
-  snippet (env vars / git config), use the CLI `at-jam enroll`.
-- **Revoke** an actor, **create/delete** a role (and edit it on its
-  [role page](ui-pages.md#role-pages)), and **add/remove** a grant.
-  On the Actors page each actor's grants are chips (`project/role`, with a ×
-  to remove; hover for the effective destinations), and **+ Grant** on the
-  actor's row opens its add-grant form.
-- Destination fields (role, enroll/grant overrides) take the CLI's
-  `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
-  or a mapping for a destination not in scope is rejected. Credential *names*
-  are references, not secrets, so the UI shows them (the Roles table renders
-  `git → git-pat`); credential *values* never appear.
-- Every field that names another entity is a **type-ahead**: projects, roles
-  (of the project in the same form), kits, destinations and — after `=` in a
-  destinations list — credentials, roster targets (`user:`/`channel:` in
-  addressing and escalation tiers), Intercom participants, and chat services.
-  In list fields it completes the entry under the cursor. ↑/↓ move, Enter or
-  Tab accept, Esc closes. Suggestions guide but don't restrict: the server
-  still validates, so a glob like `user:*` is fine and an unknown project is
-  refused (a project must exist first — [projects.md](projects.md)). Project
-  fields start at `default`. Credential suggestions are the names `at-jam serve`
-  is configured with (names only, never values).
-
-Create forms sit in collapsed **+ Add …** panels above each table. The
-outcome of a write shows in a banner at the top of the page: a refused write
-(validation error, conflict, CSRF refusal) appears as a dismissible error with
-the server's message, rather than failing silently.
-
-Every change obeys the same gate as the views (loopback, or an off-loopback
-session with `require-scope`) and is recorded in Jam's audit log against the
-operator who made it. Destructive actions ask for confirmation. State-changing
-requests are refused unless they originate from the Jam UI itself (an
-Origin/Referer check, plus any exact origins listed in
-[`ui-origins`](serve.md)), so another site can't drive them through your browser.
-
-The kit registry and destinations are also editable from here — see
-[Config plane (kits, destinations, model-specs)](#config-plane-kits-destinations-model-specs) below.
-Raising and tearing down studios is editable from the UI when a runtime
-supervisor is configured — see [Runtime (studios)](#runtime-studios) below.
-
-### Runtime (studios)
-
-When Jam is configured with a runtime supervisor (`runtime:` in the serve
-config — see [coves.md](coves.md)), the Studios page can also:
-
-- **Raise a managed studio** — id, role, optional project/unit and a workload
-  prompt. Jam handles the studio's identity token and launch secret internally;
-  they are never shown in the browser (use the CLI `at-jam studio raise` for
-  manual wiring).
-- **Tear down a studio** (confirmed).
-
-The Roles page gains a **Request** action per role: it raises a
-[personal session](personal-sessions.md) of that role **for you**, with the
-prompt `Squawk me (user:<your name>) and we will get to work.`, so the
-session opens the conversation with you on the intercom. You must be signed in
-(`/ui/auth/login`) as a login linked to a member of the role's project.
-As anonymous loopback `local`, the action asks you to sign in. Admission,
-delivery checks, and errors are exactly those of `at-jam session request`, and
-the outcome (the new session id, or the refusal) shows in the page's banner.
-
-Without a runtime supervisor, the Studios page is view-only. Setting a studio's
-activity is not a UI action — that is reported by the studio itself. These actions
-obey the same gate, CSRF, and audit-logging as the roster edits above.
-
-### Config plane (kits, destinations, model-specs)
-
-- **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
-  and delete an unused one; each kit's page shows its versions, diffs them,
-  pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages).
-- **Destinations** — create one (every field, including client env, git
-  routing and the session note) and remove one; each destination's page shows and
-  edits it — see [ui-pages.md](ui-pages.md#destination-pages).
-- **Model-specs** — create, edit and delete one, validated exactly like
-  `at-jam model-spec` — see [ui-pages.md](ui-pages.md#model-spec-pages).
-
-A kit config references credentials by name only (no secret values), and a
-destination's `cred-name` (or a model-spec's principal) is a reference, not a secret — the UI shows the name
-but never a credential value. These actions obey the same
-gate, CSRF, and audit-logging as the other edits.
+The UI's writes — enrolling and granting, roles, raising and tearing down
+studios, **Request**, and the kit/destination/model-spec registry — with their
+gate, CSRF and audit rules, are in [ui-editing.md](ui-editing.md).

@@ -1,0 +1,33 @@
+{{/* squawk-table renders log rows newest first: .Rows ([]squawkRow), .Legacy
+     (recipients instead of a channel), .Filtered (which empty state). */}}
+{{define "squawk-table"}}
+<style>
+  #squawks td{vertical-align:top}
+  .reach{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:var(--idle-soft);color:var(--idle)}
+  .reach.ext{background:var(--accent-soft);color:var(--accent)}
+  td.body{max-width:560px;word-break:break-word}
+  td.body.plain{white-space:pre-wrap}
+  td.body.md > :first-child{margin-top:0} td.body.md > :last-child{margin-bottom:0}
+  td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre{margin:0 0 .4em}
+  td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
+  td.body.md code{background:var(--idle-soft);padding:1px 4px;border-radius:4px}
+</style>
+<div class="card">
+<table id="squawks">
+  <thead><tr><th>Time</th><th>From</th><th>{{if .Legacy}}To{{else}}Channel{{end}}</th><th>Project</th><th>Body</th></tr></thead>
+  <tbody>
+    {{range .Rows}}
+      <tr>
+        <td><time>{{.At}}</time></td>
+        <td><span class="mono" title="{{.FromID}}">{{.From}}</span></td>
+        <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}" title="{{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
+        <td>{{.Project}}</td>
+        <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}{{if .Plain}} <span class="reach">text/plain</span>{{end}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="empty">{{if .Filtered}}No squawks match.{{else}}No squawks logged yet.{{end}}</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

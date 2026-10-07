@@ -69,9 +69,9 @@ func requestAs(t *testing.T, h http.Handler, op, path string) *httptest.Response
 
 func TestRolesPageOffersRequest(t *testing.T) {
 	_, _, _, h := requestKit(t)
-	body := get(t, h, "/ui/roles").Body.String()
+	body := get(t, h, "/ui/projects/acme/roles").Body.String()
 	if !strings.Contains(body, `hx-post="/ui/roles/acme/pair/request"`) {
-		t.Errorf("roles page should offer a Request action per role; got:\n%s", body)
+		t.Errorf("a project's roles should offer a Request action per role; got:\n%s", body)
 	}
 }
 

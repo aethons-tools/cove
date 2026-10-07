@@ -66,10 +66,10 @@ func TestDestinationDetailEnvRolesAndConflicts(t *testing.T) {
 	for _, want := range []string{
 		"<h1>github-api</h1>", "/api/v3/", "https://api.github.com",
 		"GH_HOST", "{host}", "GH_ENTERPRISE_TOKEN", "{token}",
-		`href="/ui/roles/acme/dev"`, `href="/ui/roles/acme/ops"`,
+		`href="/ui/projects/acme/roles/dev"`, `href="/ui/projects/acme/roles/ops"`,
 		"gh-pat-acme", // dev's own mapping
 		`class="banner error conflict"`, "gh-alt",
-		`aria-current="page">Destinations`,
+		`aria-current="page">Specs`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("github-api detail missing %q", want)

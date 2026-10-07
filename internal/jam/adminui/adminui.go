@@ -6,6 +6,7 @@
 package adminui
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"log/slog"
@@ -21,27 +22,28 @@ import (
 var files embed.FS
 
 // page holds one parsed template set (layout + that page's content). Each set's
-// full page is rendered via ExecuteTemplate(w, "layout", data).
+// full page is rendered via ExecuteTemplate(w, "layout", data). The first
+// argument is the page's top-nav section (see nav.go), which the layout
+// highlights; mustParseTab also names the section sub-tab it sits under.
 var pages = map[string]*template.Template{
-	"dashboard":    mustParse("coves.html", "context_panel.html", "dashboard.html"),
-	"coves":        mustParse("coves.html"),
-	"roster":       mustParse("roster.html"),
-	"users":        mustParse("users.html"),
-	"user":         mustParse("user.html"),
-	"roles":        mustParse("roles.html"),
-	"kits":         mustParse("kits.html"),
-	"destinations": mustParse("dest_fields.html", "destinations.html"),
-	"intercom":     mustParse("intercom.html"),
-	"session":      mustParse("session.html"),
-	"role":         mustParse("coves.html", "context_panel.html", "role.html"),
-	"destination":  mustParse("dest_fields.html", "destination.html"),
-	"model-specs":  mustParse("model_spec_fields.html", "model_specs.html"),
-	"model-spec":   mustParse("model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParse("kit.html"),
-	"projects":     mustParse("projects.html"),
-	"project":      mustParse("coves.html", "context_panel.html", "project.html"),
-	"studio":       mustParse("studio.html"),
-	"search":       mustParse("search.html"),
+	"dashboard":    mustParse(navDashboard, "coves.html", "context_panel.html", "dashboard.html"),
+	"coves":        mustParseTab(navAgents, "/ui/coves", "coves.html"),
+	"roster":       mustParseTab(navAgents, "/ui/actors", "roster.html"),
+	"users":        mustParse(navUsers, "users.html"),
+	"user":         mustParse(navUsers, "user.html"),
+	"kits":         mustParseTab(navSpecs, "/ui/kits", "kits.html"),
+	"destinations": mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destinations.html"),
+	"intercom":     mustParse(navIntercom, "squawks.html", "intercom.html"),
+	"session":      mustParseTab(navAgents, "/ui/coves", "session.html"),
+	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "projtree.html", "role.html"),
+	"destination":  mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destination.html"),
+	"model-specs":  mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_spec.html"),
+	"kit":          mustParseTab(navSpecs, "/ui/kits", "kit.html"),
+	"projects":     mustParse(navProjects, "projects.html"),
+	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "squawks.html", "projtree.html", "project.html"),
+	"studio":       mustParseTab(navAgents, "/ui/coves", "studio.html"),
+	"search":       mustParse(navNone, "search.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -69,16 +71,25 @@ func roleRows(store jam.Store) []roleRow {
 	return out
 }
 
-func mustParse(names ...string) *template.Template {
+func mustParse(section navSection, names ...string) *template.Template {
+	return mustParseTab(section, "", names...)
+}
+
+// mustParseTab is mustParse for a page under one of section's sub-tabs (tab is
+// that tab's Href; see navSubTabs).
+func mustParseTab(section navSection, tab string, names ...string) *template.Template {
 	paths := make([]string, 0, len(names)+1)
 	paths = append(paths, "templates/layout.html")
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
+	return template.Must(template.New("").Funcs(funcs).Funcs(template.FuncMap{
+		"navSection": func() navSection { return section },
+		"subTabs":    func() []subTab { return subTabsFor(section, tab) },
+	}).ParseFS(files, paths...))
 }
 
-// covesData, rosterData and rolesData are the payloads of those pages and
+// covesData and rosterData are the payloads of those pages and
 // their swapped tables.
 func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]any {
 	return map[string]any{"Coves": jam.CoveSummaries(store, img), "CanEdit": canEdit}
@@ -86,10 +97,6 @@ func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]
 
 func rosterData(store jam.Store) map[string]any {
 	return map[string]any{"Actors": jam.RosterSummaries(store)}
-}
-
-func rolesData(store jam.Store, canRequest bool) map[string]any {
-	return map[string]any{"Roles": roleRows(store), "CanRequest": canRequest}
 }
 
 // funcs are the template helpers shared by every page.
@@ -102,6 +109,7 @@ var funcs = template.FuncMap{
 		return fmtDur(d)
 	},
 	"roleURL":    roleURL,
+	"navItems":   func() []navItem { return navItems },
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
@@ -179,12 +187,14 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		data["Title"] = "Actors"
 		render(w, "roster", data)
 	})
+	// The global roles list and role pages moved into the project tree.
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		data := rolesData(store, canEdit)
-		data["Title"] = "Roles"
-		render(w, "roles", data)
+		redirect(w, r, "/ui/projects")
 	})
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
+	})
+	mux.HandleFunc("GET /ui/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoleDetail(w, r, store, sup, canEdit)
 	})
 	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
@@ -198,8 +208,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	guardWrite := originGuard(o.trustedOrigins)
 	registerWrites(mux, store, log, sup, credExists, guardWrite)
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
-	registerProjects(mux, store, sup, log, guardWrite)
-	registerProjectEdits(mux, store, sup, log, guardWrite)
+	registerProjects(mux, store, sup, msgs, canEdit, log, guardWrite)
+	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
 	registerKits(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
@@ -227,6 +237,31 @@ func renderStatus(w http.ResponseWriter, status int, page string, data any) {
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// namedFragment is one named template and its data, for renderFragments.
+type namedFragment struct {
+	tmpl string
+	data any
+}
+
+// renderFragments executes several named templates of one page, in order,
+// without the page chrome — a swap target followed by its out-of-band swaps.
+func renderFragments(w http.ResponseWriter, page string, fs ...namedFragment) {
+	t, ok := pages[page]
+	if !ok {
+		http.Error(w, "unknown page", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	for _, f := range fs {
+		if err := t.ExecuteTemplate(&buf, f.tmpl, f.data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // renderFragment executes a single named template (e.g. an htmx-swapped table)

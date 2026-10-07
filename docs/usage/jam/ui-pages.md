@@ -1,8 +1,8 @@
 ---
-summary: The Jam admin UI's per-entity pages — a project's page (/ui/projects/<name>), a studio's page (/ui/coves/<id>), a role's page (/ui/roles/<project>/<name>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a project, user, studio, role, destination, model-spec or kit in the Jam admin UI — a project's members, rooms, escalation or chat service; a user's logins, OIDC identities or accounts; a studio's runtime, waiting/escalation state, session streams or squawks; a role's scope, egress, allocation or standing sessions; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-owns: the project, user, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project members/rooms/escalation/chat-service editing, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
-prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
+summary: The Jam admin UI's per-entity pages outside a project — a user's page, a studio's page (/ui/coves/<id>), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a user, studio, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; a studio's runtime, waiting/escalation state, session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+owns: the user, studio, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+prereqs: ui.md for reaching the UI and the top nav; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-07
 ---
@@ -15,35 +15,10 @@ existing name is refused with "edit it on its page") and then open the new
 object's page, where every field is pre-filled — so an edit can't silently drop
 a field the form didn't show.
 
-## Project pages
+## Project and role pages
 
-Each project name (in the Projects table, a role's breadcrumb, or a table cell)
-links to `/ui/projects/<name>`, the "everything in this project" view: its
-roles (linked, with destinations and kit), the actors holding a grant into it
-and which roles they hold, its members (linked to their user page, with handle
-and delivery) and rooms (service, ref), its escalation policy (the default chain and each category's chain, as
-ordered tiers of targets with their wait), its chat service, and its running
-studios.
-
-Members, rooms, escalation and chat service are edited in place; each write
-answers with the re-rendered page:
-
-- **Members** — **Add member** (a user, and delivery: one `service:address` per
-  line) and, per member, **Edit** delivery and **Remove**.
-- **Rooms** — **Add room** (name; connection: a connection name, or a service
-  for its connection; ref; an existing name is rebound) and **Remove**.
-- **Escalation** — edit the default chain or any category's chain as one
-  `targets@timeout` per line (the CLI's `--tier`; the first line is tier 0, the
-  timeout a positive duration), add a category chain, or **Clear** one. A target
-  that names nobody on this project's roster (e.g. after removing that human) is
-  flagged red — flagged, not blocked.
-- **Chat service** — none (tracker @-mentions only) or `discord`.
-
-**Delete** (here and in the table) is disabled while a member, a role, a session not yet gone or an actor's
-grant still references the project, and names what does — the same rule as
-`project rm` ([projects.md](projects.md)).
-**Rename** (the page head, except for `default`) renames the project in place
-and opens its new URL ([projects.md](projects.md)).
+A project's pages (its tree, sections and role pages) are in
+[ui-projects.md](ui-projects.md).
 
 ## User pages
 
@@ -79,43 +54,12 @@ session or squawks is a 404.
 
 ## Session context cards
 
-The role page, the project page and the dashboard each carry a **Session context**
+The [role page, the project Overview](ui-projects.md) and the dashboard each carry a **Session context**
 card for that layer (role, project, Jam-wide): the core, its size as a session
 receives it against the budget (a project's includes the resources pointer), the
 leaves and, for projects, the resources. **Edit session context** is one YAML box in
 the [`at-jam context` format](session-context-authoring.md) with bodies inline;
 saving runs the same checks as the API, and **Clear** removes the layer.
-
-## Role pages
-
-Each role name (in the Roles table, a roster grant chip, or a studio row) links
-to its page, `/ui/roles/<project>/<name>`, which shows and edits the whole
-role, one section at a time — each with a pre-filled **Edit** form that saves
-only that section:
-
-- **Scope** — destinations with the credential the broker injects for each
-  (the role's mapping, or the destination's default), addressing, TTL, kit and
-  [model-spec](model-specs.md#binding-a-role) binding (blank = `claude-default`,
-  shown in the page head; the new-role form takes one too).
-  The destinations field uses the `name=credential` syntax; a bare name uses
-  the destination's default credential. Empty addressing means the role can't
-  squawk anyone.
-- **Egress** — the role's domain list, or "kit default" when it sets none.
-  Saving sets a policy (an empty list allows nothing beyond the sealed base and
-  the kit's infra domains); **Reset to kit default** removes it. Running
-  studios pick up the change on the supervisor's next reconcile.
-- **Allocation** — session caps and the personal-session idle ladder.
-  Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
-  the page says what applies when unset.
-- **Standing sessions** — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
-  each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
-- **Holders** and **Studios** — the actors granted the role (marked where the
-  grant overrides the scope; grants are managed on the Actors page) and the role's
-  running studios.
-
-**Request session** and **Delete** are on the page header. These writes share
-one lock with the JSON admin API's role, egress and standing routes, so an edit
-here and a CLI change can't overwrite each other.
 
 ## Destination pages
 

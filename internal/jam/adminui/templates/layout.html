@@ -19,10 +19,15 @@
     .brand{display:flex;align-items:baseline;gap:8px;font-weight:600;white-space:nowrap;padding:12px 0}
     .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);align-self:center}
     .brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
-    nav{display:flex;gap:2px}
-    nav a{color:var(--muted);text-decoration:none;padding:14px 10px 12px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
-    nav a:hover{color:var(--ink)}
-    nav a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    .topbar nav{display:flex;gap:2px}
+    .topbar nav a{color:var(--muted);text-decoration:none;padding:14px 10px 12px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+    .topbar nav a:hover{color:var(--ink)}
+    .topbar nav a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    /* A section's sub-tabs (Agents, Specs): its list pages. */
+    .subtabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px}
+    .subtabs a{color:var(--muted);text-decoration:none;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap}
+    .subtabs a:hover{color:var(--ink);background:var(--surface-2)}
+    .subtabs a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
     .topsearch{margin-left:auto;padding:8px 0}
     .topsearch input{width:200px;padding:5px 10px;font-size:12.5px;border-radius:999px}
     main{max-width:1200px;margin:0 auto;padding:22px 20px 60px}
@@ -107,17 +112,10 @@
   <header class="topbar">
     <span class="brand"><span class="dot"></span>Jam <small>Admin</small></span>
     <nav>
-      {{- $t := .Title}}
-      <a href="/ui/"{{if eq $t "Dashboard"}} aria-current="page"{{end}}>Dashboard</a>
-      <a href="/ui/projects"{{if eq $t "Projects"}} aria-current="page"{{end}}>Projects</a>
-      <a href="/ui/coves"{{if eq $t "Studios"}} aria-current="page"{{end}}>Studios</a>
-      <a href="/ui/users"{{if eq $t "Users"}} aria-current="page"{{end}}>Users</a>
-      <a href="/ui/actors"{{if eq $t "Actors"}} aria-current="page"{{end}}>Actors</a>
-      <a href="/ui/roles"{{if eq $t "Roles"}} aria-current="page"{{end}}>Roles</a>
-      <a href="/ui/kits"{{if eq $t "Kits"}} aria-current="page"{{end}}>Kits</a>
-      <a href="/ui/destinations"{{if eq $t "Destinations"}} aria-current="page"{{end}}>Destinations</a>
-      <a href="/ui/model-specs"{{if eq $t "Model-specs"}} aria-current="page"{{end}}>Model-specs</a>
-      <a href="/ui/intercom"{{if eq $t "Intercom"}} aria-current="page"{{end}}>Intercom</a>
+      {{- $s := navSection}}
+      {{- range navItems}}
+      <a href="{{.Href}}"{{if eq .Section $s}} aria-current="page"{{end}}>{{.Label}}</a>
+      {{- end}}
     </nav>
     <form class="topsearch" action="/ui/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
@@ -125,6 +123,13 @@
     </form>
   </header>
   <main>
+    {{- with subTabs}}
+    <nav class="subtabs" aria-label="Section">
+      {{- range .}}
+      <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
+      {{- end}}
+    </nav>
+    {{- end}}
     <div id="flash" aria-live="polite"></div>
     {{template "content" .}}
   </main>
@@ -277,6 +282,21 @@
     window.addEventListener('scroll', taClose, true);
     window.addEventListener('resize', taClose);
 
+    // On a narrow screen a project's tree starts collapsed to its summary;
+    // on a wide one (where the summary is hidden) it is always open — also
+    // after a resize or rotation, and after a write swaps it out of band.
+    var narrow = window.matchMedia && matchMedia('(max-width:720px)');
+    function syncTree(){
+      if (!narrow) return;
+      document.querySelectorAll('details.ptree-wrap').forEach(function(d){ d.open = !narrow.matches; });
+    }
+    syncTree();
+    if (narrow) {
+      if (narrow.addEventListener) narrow.addEventListener('change', syncTree); else narrow.addListener(syncTree);
+    }
+    document.body.addEventListener('htmx:oobAfterSwap', function(e){
+      if (e.detail && e.detail.target && e.detail.target.id === 'ptree') syncTree();
+    });
     // "/" focuses search from anywhere except a text field.
     document.addEventListener('keydown', function(e){
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;

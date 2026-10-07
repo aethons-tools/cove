@@ -173,7 +173,7 @@ at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 - **request** grants a slot, then raises the studio with you as its owner, and
   prints only the session id (a new `ses_…` id for each request). The admin UI's role
   **Request** action does the same from the browser (see
-  [ui.md](ui.md#runtime-studios)). The prompt file is
+  [ui-editing.md](ui-editing.md#runtime-studios)). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
   `studio raise`, no identity token or launch secret is returned.
 - **list** shows only **your** personal sessions in the project: id, role,
