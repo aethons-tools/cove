@@ -214,9 +214,10 @@ func TestRaiseKeepsAgentsFilter(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), newSup(t, store), nil, anyCred, nil)
 	for hdr, want := range map[string]string{
-		"http://host/ui/agents?phase=live": `hx-get="/ui/agents?phase=live" hx-trigger="every 3s"`,
-		"":                                 `hx-get="/ui/agents" hx-trigger="every 3s"`,
-		"::not a url":                      `hx-get="/ui/agents" hx-trigger="every 3s"`,
+		"http://host/ui/agents?status=waiting": `hx-get="/ui/agents?status=waiting" hx-trigger="every 3s"`,
+		"http://host/ui/agents?phase=live":     `hx-get="/ui/agents?status=running" hx-trigger="every 3s"`, // an old link's filter
+		"":                                     `hx-get="/ui/agents" hx-trigger="every 3s"`,
+		"::not a url":                          `hx-get="/ui/agents" hx-trigger="every 3s"`,
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/ui/coves", strings.NewReader(url.Values{"id": {"c-" + strings.Repeat("x", len(hdr))}, "project": {"acme"}, "role": {"worker"}}.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

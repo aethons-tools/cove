@@ -51,7 +51,7 @@ re-rendered.
   [ui-editing.md](ui-editing.md#runtime-studios)); **New role** creates one in
   this project and opens its page. Then one table of the project's agents: each
   running in it or holding a grant into it (one row per agent), with its kind,
-  roles here, phase, activity, image and last seen; each opens its agent page in
+  roles here, [status](ui-pages.md#agent-status), image and last seen; each opens its agent page in
   the project.
 - **Intercom** — the project's rooms (service, ref): **Add room** (name;
   connection: a connection name, or a service for its connection; ref; an
@@ -87,7 +87,7 @@ only that section:
   Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
   the page says what applies when unset.
 - **Standing agents** ([standing sessions](standing-sessions.md)) — declare, [upgrade](standing-sessions.md#upgrading-a-standing-session), [reset](standing-sessions.md#reset) and dismiss;
-  each shows its studio's phase, flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
+  each shows its [status](ui-pages.md#agent-status), flagged **image stale** per [coves.md](coves.md#the-studio-verbs) (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
 - **Holders** and **Running** — the agents granted the role (linked; marked where the
   grant overrides the scope; grants are managed on the agent's page) and the role's
   running agents.

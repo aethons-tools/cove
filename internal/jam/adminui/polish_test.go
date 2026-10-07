@@ -47,7 +47,7 @@ func TestDashboardShowsStatTiles(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
-	for _, want := range []string{`data-stat="live"`, `data-stat="attention"`, `data-stat="agents"`, `href="/ui/specs"`} {
+	for _, want := range []string{`data-stat="running"`, `data-stat="waiting"`, `data-stat="setting-up"`, `data-stat="attention"`, `data-stat="agents"`, `href="/ui/specs"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
@@ -58,8 +58,8 @@ func TestPhasePill(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
-	if !strings.Contains(body, `class="pill phase-live"`) {
-		t.Errorf("studios table should render the phase as a pill; got:\n%s", body)
+	if !strings.Contains(body, `<span class="pill st-running">running</span>`) {
+		t.Errorf("the agents table should render the status as a pill; got:\n%s", body)
 	}
 }
 

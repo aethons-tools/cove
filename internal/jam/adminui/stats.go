@@ -1,29 +1,31 @@
 package adminui
 
-import "github.com/aethons-tools/cove/internal/jam"
+import (
+	"slices"
 
-// stats is the dashboard's summary counts. Attention is studios a human may
-// need to look at: lost (reconciler declared dead) or terminating (teardown in
-// flight).
+	"github.com/aethons-tools/cove/internal/jam"
+)
+
+// stats is the dashboard's summary counts: studios by status group (Attention
+// is lost or terminating — a human may need to look) and the control-plane
+// objects.
 type stats struct {
-	Studios, Live, Raising, Idled, Attention int
-	Projects, Agents, Users, Specs           int // Specs: kits + destinations + model-specs
+	Studios, Running, Waiting, SettingUp, Idled, Attention int
+	Projects, Agents, Users, Specs                         int // Specs: kits + destinations + model-specs
 }
 
-// dashboardStats counts the fleet by phase and the control-plane objects.
+// dashboardStats counts the fleet by status group (statusGroups) and the
+// control-plane objects.
 func dashboardStats(store jam.Store) stats {
 	var s stats
+	count := map[string]*int{"running": &s.Running, "waiting": &s.Waiting, "setting-up": &s.SettingUp, "idled": &s.Idled, "attention": &s.Attention}
 	for _, c := range jam.CoveSummaries(store, nil) {
 		s.Studios++
-		switch jam.Phase(c.Phase) {
-		case jam.PhaseLive:
-			s.Live++
-		case jam.PhaseRaising:
-			s.Raising++
-		case jam.PhaseIdled:
-			s.Idled++
-		case jam.PhaseLost, jam.PhaseTerminating:
-			s.Attention++
+		st := jam.StatusOf(jam.Phase(c.Phase), jam.Activity(c.Activity), true)
+		for g, members := range statusGroups {
+			if slices.Contains(members, st) {
+				*count[g]++
+			}
 		}
 	}
 	s.Projects = len(store.ListProjects())

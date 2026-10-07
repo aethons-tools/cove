@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -100,6 +101,11 @@ var funcs = template.FuncMap{
 	},
 	"roleURL":  roleURL,
 	"agentURL": agentURL,
+	// statusOf is an agent's display status from its studio's phase and activity.
+	"statusOf": func(phase, activity string, hasStudio bool) jam.AgentStatus {
+		return jam.StatusOf(jam.Phase(phase), jam.Activity(activity), hasStudio)
+	},
+	"statusClass": func(s jam.AgentStatus) string { return strings.ReplaceAll(string(s), " ", "-") },
 	// frame, attn and agentHref are bound per render (frameFuncs); these are
 	// the defaults a fragment renders with.
 	"frame":      func() frame { return frame{} },

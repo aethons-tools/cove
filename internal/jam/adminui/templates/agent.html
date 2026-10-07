@@ -34,9 +34,8 @@
 <div class="page-head">
   <h1 class="mono">{{.ID}}</h1>
   {{if .Running}}
-  {{template "phase" .Inst.Phase}}
+  {{template "status" (statusOf (printf "%s" .Inst.Phase) (printf "%s" .Inst.Activity) .Running)}}
   <div class="facts">
-    {{if .Inst.Activity}}<span>{{.Inst.Activity}}</span>{{end}}
     <span class="chip">{{$.Kind}}{{if .Inst.Owner}} · {{if .Inst.OwnerID}}<a href="{{userURL .Inst.OwnerID}}">{{.Inst.Owner}}</a>{{else}}{{.Inst.Owner}}{{end}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
     <a class="chip" href="{{projectURL .Inst.Project}}">{{.Inst.Project}}</a>
     <a class="chip" href="{{roleURL .Inst.Project .Inst.Role}}">{{.Inst.Role}}</a>
