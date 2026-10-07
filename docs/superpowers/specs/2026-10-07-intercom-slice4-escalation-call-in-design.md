@@ -1,6 +1,6 @@
 # intercom slice 4: escalation as call-in — design
 
-**Status:** draft for review (2026-10-07). Open questions are in §8, each with a recommendation.
+**Status:** approved (2026-10-07); §8 questions decided as recommended.
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 4 of 4. It builds on slice 3 ([`…-slice3-session-channels-design.md`](2026-10-07-intercom-slice3-session-channels-design.md)): home channels, call-in, and sessions waking sessions.
 **Today's engine:** [`docs/usage/jam/escalation.md`](../../usage/jam/escalation.md); the original designs are [`2026-09-14-harbor-escalation.md`](2026-09-14-harbor-escalation.md) and [`…-escalation-categories.md`](2026-09-14-harbor-escalation-categories.md).
 **Delivers:**
@@ -80,7 +80,7 @@ The engine now posts through the intercom, and the relays deliver. So:
   - Docs: `escalation.md` is rewritten around call-in, and `intercom.md` and `comms-addressing.md` drop their "not yet" lines.
 - It fits one PR. A 4b exists only if §8 Q4 is taken.
 
-## 8. Open questions (recommendations first)
+## 8. Decided in review (2026-10-07): each as recommended
 
 1. **Who escalates.**
    - Rec.: **every kind of session**. A ticket session asks by reporting `needs-input` or by calling `escalate`; any other session asks by calling `escalate`.
