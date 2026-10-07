@@ -29,17 +29,33 @@ func agentKind(inst jam.Instance, running bool) string {
 	return "manual"
 }
 
-// agentPhases are the list's filters, matching the dashboard's studio tiles.
-var agentPhases = map[string][]jam.Phase{
-	"live":      {jam.PhaseLive},
-	"raising":   {jam.PhaseRaising},
-	"idled":     {jam.PhaseIdled},
-	"attention": {jam.PhaseLost, jam.PhaseTerminating},
+// statusGroups are the list's filters (?status=), the same groups the
+// dashboard's tiles count.
+var statusGroups = map[string][]jam.AgentStatus{
+	"running":    {jam.StatusRunning, jam.StatusHolding},
+	"waiting":    {jam.StatusWaiting, jam.StatusBlocked},
+	"setting-up": {jam.StatusSettingUp, jam.StatusOrienting},
+	"idled":      {jam.StatusIdled},
+	"attention":  {jam.StatusLost, jam.StatusTerminating},
 }
+
+// legacyPhaseFilters maps the old ?phase= filter values onto status groups, so
+// old links keep working.
+var legacyPhaseFilters = map[string]string{"live": "running", "raising": "setting-up", "idled": "idled", "attention": "attention"}
 
 // agentFilters is the filter strip, in order.
 var agentFilters = []struct{ Key, Label string }{
-	{"", "All"}, {"live", "Live"}, {"raising", "Raising"}, {"idled", "Idled"}, {"attention", "Lost / terminating"},
+	{"", "All"}, {"running", "Running"}, {"waiting", "Waiting"}, {"setting-up", "Setting up"}, {"idled", "Idled"}, {"attention", "Lost / terminating"},
+}
+
+// statusFilter is the request's status group ("" = all): ?status=, else an old
+// ?phase= value.
+func statusFilter(r *http.Request) string {
+	q := r.URL.Query()
+	if s := q.Get("status"); s != "" {
+		return s
+	}
+	return legacyPhaseFilters[q.Get("phase")]
 }
 
 // agentRow is one row of the agents list: an actor, its studio, or both.
@@ -48,6 +64,7 @@ type agentRow struct {
 	Project, Role   string
 	Unit            string
 	Phase, Activity string
+	Status          jam.AgentStatus // the display axis (jam.StatusOf)
 	Connector       string
 	Image           string
 	LastSeen        time.Time
@@ -56,11 +73,11 @@ type agentRow struct {
 }
 
 // agentRows lists every agent — each enrolled actor and each studio, merged by
-// id, sorted by id — keeping only those in phase's filter when one is given.
-func agentRows(store jam.Store, img jam.ImageResolver, phase string) []agentRow {
+// id, sorted by id — keeping only those in status's group when one is given.
+func agentRows(store jam.Store, img jam.ImageResolver, status string) []agentRow {
 	byID := map[string]*agentRow{}
 	for _, a := range jam.RosterSummaries(store) {
-		byID[a.ID] = &agentRow{ID: a.ID, Kind: "enrolled", Grants: a.Grants}
+		byID[a.ID] = &agentRow{ID: a.ID, Kind: "enrolled", Grants: a.Grants, Status: jam.StatusPending}
 		if len(a.Grants) > 0 {
 			byID[a.ID].Project, byID[a.ID].Role = a.Grants[0].Project, a.Grants[0].Role
 		}
@@ -75,12 +92,13 @@ func agentRows(store jam.Store, img jam.ImageResolver, phase string) []agentRow 
 		row.Name, row.Kind, row.HasStudio = c.Name, agentKind(inst, true), true
 		row.Project, row.Role, row.Unit = c.Project, c.Role, c.Unit
 		row.Phase, row.Activity, row.Image, row.LastSeen = c.Phase, c.Activity, c.Image, c.LastSeen
+		row.Status = jam.StatusOf(jam.Phase(c.Phase), jam.Activity(c.Activity), true)
 		row.Connector = c.Connector
 	}
-	want := agentPhases[phase]
+	want := statusGroups[status]
 	out := make([]agentRow, 0, len(byID))
 	for _, r := range byID {
-		if want != nil && !slices.Contains(want, jam.Phase(r.Phase)) {
+		if want != nil && !slices.Contains(want, r.Status) {
 			continue
 		}
 		out = append(out, *r)
@@ -128,22 +146,22 @@ func projectAgents(store jam.Store, img jam.ImageResolver, project string) []pro
 // agentsData is the agents page and its polled table.
 type agentsData struct {
 	Title   string
-	Phase   string // the active filter ("" = all)
+	Status  string // the active status filter ("" = all)
 	Filters []struct{ Key, Label string }
 	Agents  []agentRow
 	CanEdit bool // a runtime supervisor: raise and teardown
 }
 
-func newAgentsData(store jam.Store, img jam.ImageResolver, phase string, canEdit bool) agentsData {
-	if _, ok := agentPhases[phase]; !ok {
-		phase = ""
+func newAgentsData(store jam.Store, img jam.ImageResolver, status string, canEdit bool) agentsData {
+	if _, ok := statusGroups[status]; !ok {
+		status = ""
 	}
-	return agentsData{Title: "Agents", Phase: phase, Filters: agentFilters, Agents: agentRows(store, img, phase), CanEdit: canEdit}
+	return agentsData{Title: "Agents", Status: status, Filters: agentFilters, Agents: agentRows(store, img, status), CanEdit: canEdit}
 }
 
 func registerAgents(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, canEdit bool) {
 	mux.HandleFunc("GET /ui/agents", func(w http.ResponseWriter, r *http.Request) {
-		data := newAgentsData(store, img, r.URL.Query().Get("phase"), canEdit)
+		data := newAgentsData(store, img, statusFilter(r), canEdit)
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, r, "agents", "agents-table", data)
 			return

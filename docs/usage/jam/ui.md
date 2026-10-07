@@ -29,8 +29,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 (☰ in the title bar). Rail entries, tabs and rows carry **attention badges**
 ([ui-attention.md](ui-attention.md)). Jam's pages:
 
-- **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
-  idled agents, each opening the Agents list filtered to that phase, and counts
+- **Dashboard** (`/ui/`) — summary tiles: running / waiting / setting-up /
+  lost-or-terminating / idled agents, each opening the Agents list filtered to it, and counts
   of projects, agents, users and specs (kits + destinations + model-specs) —
   agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
   ([ui-pages.md](ui-pages.md#agent-context-cards)), above the running agents.
@@ -47,10 +47,10 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   `/ui/search?q=…`, which updates as you type. Session events aren't searched.
 - **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
   per id, with its **kind** (`standing`, `personal`, `ticket` — a session with
-  a unit, `manual`, or `enrolled` — no studio), project/role, phase, activity,
+  a unit, `manual`, or `enrolled` — no studio), project/role, [status](ui-pages.md#agent-status),
   connector and image status ([coves.md](coves.md#the-studio-verbs)); it
-  **auto-refreshes every 3 seconds**. Phase filters
-  (`?phase=live|raising|idled|attention`) match the dashboard tiles. Enroll,
+  **auto-refreshes every 3 seconds**. Status filters
+  (`?status=running|waiting|setting-up|idled|attention`; old `?phase=` links still work) match the dashboard tiles. Enroll,
   raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
   page ([ui-pages.md](ui-pages.md#agent-pages)); `/ui/coves…` and `/ui/actors`
   redirect here.

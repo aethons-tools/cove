@@ -169,20 +169,19 @@
 <h2>Agents</h2>
 <div class="card">
 <table>
-  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Phase</th><th>Activity</th><th>Image</th><th>Last seen</th></tr></thead>
+  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Status</th><th>Image</th><th>Last seen</th></tr></thead>
   <tbody>
     {{range .AgentRows}}
     <tr data-id="{{.ID}}">
       <td><a class="mono" href="{{agentHref .ID ""}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
       <td><span class="chip">{{.Kind}}</span></td>
       <td>{{range .Roles}}<a class="chip" href="{{roleURL $p .}}">{{.}}</a>{{end}}</td>
-      <td>{{if .HasStudio}}{{template "phase" .Phase}}{{else}}<span class="none">not running</span>{{end}}</td>
-      <td>{{if .Activity}}{{.Activity}}{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{template "status" .Status}}</td>
       <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
       <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
     </tr>
     {{else}}
-    <tr><td colspan="7" class="empty">No agents in this project.</td></tr>
+    <tr><td colspan="6" class="empty">No agents in this project.</td></tr>
     {{end}}
   </tbody>
 </table>

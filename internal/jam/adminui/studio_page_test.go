@@ -57,7 +57,7 @@ func TestStudioPageShowsRuntime(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`<h1 class="mono">sess-1</h1>`, `aria-current="page">Agents`,
-		`class="pill phase-live"`, "waiting",
+		`<span class="pill st-waiting">waiting</span>`,
 		"personal", "alice", // kind + owner
 		`href="/ui/projects/acme"`, `href="/ui/projects/acme/roles/dev"`, "COV-9",
 		"jam-a", "colima",

@@ -24,6 +24,7 @@ type destRow struct {
 // standingRow is one declared standing session and its studio's phase, if any.
 type standingRow struct {
 	Name, Prompt, ActorID, Phase string
+	Activity                     string // its studio's reported activity
 	Image                        string // the running studio's image status (CoveSummary.Image)
 	Upgrade                      string // its pending upgrade state ("" none)
 }
@@ -107,7 +108,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	}
 	for _, s := range a.Standing {
 		id := jam.StandingSessionOf(store, project, name, s.Name)
-		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image}
+		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Activity: running[id].Activity, Image: running[id].Image}
 		if u, ok := img.(interface {
 			StandingUpgradeState(project, role, name string) string
 		}); ok {

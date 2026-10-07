@@ -11,10 +11,11 @@
 </style>
 {{with .Stats}}
 <div class="tiles">
-  <a class="tile live" href="/ui/agents?phase=live" data-stat="live"><b>{{.Live}}</b><span>Live agents</span></a>
-  <a class="tile{{if .Raising}} wait{{end}}" href="/ui/agents?phase=raising" data-stat="raising"><b>{{.Raising}}</b><span>Raising</span></a>
-  <a class="tile{{if .Attention}} bad{{end}}" href="/ui/agents?phase=attention" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
-  <a class="tile" href="/ui/agents?phase=idled" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
+  <a class="tile live" href="/ui/agents?status=running" data-stat="running"><b>{{.Running}}</b><span>Running</span></a>
+  <a class="tile{{if .Waiting}} wait{{end}}" href="/ui/agents?status=waiting" data-stat="waiting"><b>{{.Waiting}}</b><span>Waiting</span></a>
+  <a class="tile" href="/ui/agents?status=setting-up" data-stat="setting-up"><b>{{.SettingUp}}</b><span>Setting up</span></a>
+  <a class="tile{{if .Attention}} bad{{end}}" href="/ui/agents?status=attention" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
+  <a class="tile" href="/ui/agents?status=idled" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
   <div class="tile" data-stat="projects" title="Projects are listed in the rail"><b>{{.Projects}}</b><span>Projects</span></div>
   <a class="tile" href="/ui/agents" data-stat="agents"><b>{{.Agents}}</b><span>Agents</span></a>
   <a class="tile" href="/ui/users" data-stat="users"><b>{{.Users}}</b><span>Users</span></a>

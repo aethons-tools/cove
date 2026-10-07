@@ -89,6 +89,12 @@
     .phase-live{background:var(--live-soft);color:var(--live)}
     .phase-raising,.phase-terminating{background:var(--wait-soft);color:var(--wait)}
     .phase-lost,.phase-gone{background:var(--bad-soft);color:var(--bad)}
+    /* An agent's status (jam.StatusOf): green working, accent waiting on a
+       person, amber in transition, red broken, grey quiet. */
+    .st-running,.st-holding{background:var(--live-soft);color:var(--live)}
+    .st-waiting{background:var(--accent-soft);color:var(--accent)}
+    .st-setting-up,.st-orienting,.st-terminating{background:var(--wait-soft);color:var(--wait)}
+    .st-blocked,.st-lost{background:var(--bad-soft);color:var(--bad)}
     .chip{display:inline-flex;align-items:center;gap:4px;font:12px "IBM Plex Mono",ui-monospace,monospace;padding:2px 8px;border-radius:6px;background:var(--idle-soft);color:var(--ink);margin:2px 4px 2px 0;white-space:nowrap}
     .chip.accent{background:var(--accent-soft);color:var(--accent);font-weight:600}
     .chip button{background:none;border:0;color:var(--faint);cursor:pointer;padding:0 0 0 2px;font-size:14px;line-height:1}
@@ -389,6 +395,9 @@
 {{/* crumbs renders a breadcrumb trail: a list of crumb{Label, Href}; the last
      one is the current page (no link). */}}
 {{define "crumbs"}}<div class="crumbs">{{range $i, $c := .}}{{if $i}} / {{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}{{end}}</div>{{end}}
+
+{{/* status renders an agent's status (a jam.AgentStatus) as a pill. */}}
+{{define "status"}}<span class="pill st-{{statusClass .}}">{{.}}</span>{{end}}
 
 {{define "phase"}}<span class="pill phase-{{.}}">{{.}}</span>{{end}}
 {{/* project-select is the project field: a type-ahead over every project,

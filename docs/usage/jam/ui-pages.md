@@ -31,7 +31,7 @@ remove are refused while the user owns a live personal session).
 Each agent id (in the Agents list, a running-agents table, a role's holders, a
 project's identities, or search) opens `/ui/agents/<id>`, the page for one
 agent identity. It sits under Jam's Agents tab, or — linked from a project's
-pages (`?project=<name>`) — under that project's. The header shows its kind, phase and activity, standing name or
+pages (`?project=<name>`) — under that project's. The header shows its kind, its [status](#agent-status), standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
 (the [session timeline](ui.md#session-timeline); shown when session capture is
 configured), **Teardown** (returns to the Agents list) when it has a
@@ -57,6 +57,25 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,
 session or squawks is a 404.
+
+## Agent status
+
+Everywhere the UI lists or shows an agent it gives one **status**, folding its
+studio's phase (Jam's) and the agent's reported activity into one axis:
+
+| Status | When |
+|---|---|
+| pending | no studio (enrolled only, or never raised) |
+| setting up · orienting | its studio is being raised · is up, but the agent hasn't reported yet |
+| running · holding | in a turn · turn over, background tasks still running |
+| waiting · blocked | waiting on a person · says it can't proceed |
+| idled · done | paused · reported done (teardown next) |
+| terminating · lost · gone | being torn down · declared dead · torn down |
+
+The Agents list's filters and the dashboard's tiles group them: **Running**
+(running, holding), **Waiting** (waiting, blocked), **Setting up** (setting up,
+orienting), **Idled**, **Lost / terminating**. The API and CLI keep phase and
+activity as separate fields.
 
 ## Agent context cards
 

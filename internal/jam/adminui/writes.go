@@ -287,7 +287,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", sid, "label", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, r, "agents", "agents-table", newAgentsData(store, sup, currentPhase(r), true))
+		renderFragment(w, r, "agents", "agents-table", newAgentsData(store, sup, currentStatus(r), true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -310,13 +310,13 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 
 }
 
-// currentPhase is the Agents tab the request came from (htmx sends the page's
-// URL as HX-Current-URL), so a refreshed table keeps its filter; "" when the
-// header is missing or unparseable.
-func currentPhase(r *http.Request) string {
+// currentStatus is the status filter of the Agents page the request came from
+// (htmx sends the page's URL as HX-Current-URL), so a refreshed table keeps
+// its filter; "" when the header is missing or unparseable.
+func currentStatus(r *http.Request) string {
 	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
 	if err != nil {
 		return ""
 	}
-	return u.Query().Get("phase")
+	return statusFilter(&http.Request{URL: u})
 }

@@ -100,8 +100,9 @@ func TestSearchModelSpecsAndAgents(t *testing.T) {
 func TestDashboardTilesFollowSections(t *testing.T) {
 	body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
 	for _, want := range []string{
-		`href="/ui/agents?phase=live" data-stat="live"`, `href="/ui/agents?phase=raising" data-stat="raising"`,
-		`href="/ui/agents?phase=attention" data-stat="attention"`, `href="/ui/agents?phase=idled" data-stat="idled"`,
+		`href="/ui/agents?status=running" data-stat="running"`, `href="/ui/agents?status=waiting" data-stat="waiting"`,
+		`href="/ui/agents?status=setting-up" data-stat="setting-up"`, `href="/ui/agents?status=attention" data-stat="attention"`,
+		`href="/ui/agents?status=idled" data-stat="idled"`,
 		`<div class="tile" data-stat="projects"`, `href="/ui/agents" data-stat="agents"`,
 		`href="/ui/users" data-stat="users"`, `href="/ui/specs" data-stat="specs"`,
 	} {

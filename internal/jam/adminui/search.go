@@ -140,7 +140,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	for _, i := range store.ListInstances() {
 		i.Project = jam.ProjectName(store, i.Project)
 		if m.any(i.ActorID, i.Unit, i.Owner, i.Name, i.Project+"/"+i.Role) {
-			sub := i.Project + "/" + i.Role + " · " + string(i.Phase)
+			sub := i.Project + "/" + i.Role + " · " + string(jam.StatusOf(i.Phase, i.Activity, true))
 			if i.Unit != "" {
 				sub += " · " + i.Unit
 			}

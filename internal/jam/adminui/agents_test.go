@@ -23,7 +23,7 @@ func seedAgents(t *testing.T) jam.Store {
 		}
 	}
 	for _, i := range []jam.Instance{
-		{ActorID: "s-standing", Project: "acme", Role: "dev", Name: "nightly", SessionKind: "standing", Phase: jam.PhaseLive},
+		{ActorID: "s-standing", Project: "acme", Role: "dev", Name: "nightly", SessionKind: "standing", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "s-personal", Project: "acme", Role: "dev", SessionKind: "personal", Owner: "alice", Phase: jam.PhaseIdled},
 		{ActorID: "s-ticket", Project: "acme", Role: "dev", Unit: "COV-7", Phase: jam.PhaseRaising},
 		{ActorID: "s-manual", Project: "acme", Role: "ops", Name: "scratch", Phase: jam.PhaseLost},
@@ -66,7 +66,7 @@ func TestAgentsListMergesAndKinds(t *testing.T) {
 	if n := strings.Count(body, `<tr data-id="s-ticket">`); n != 1 {
 		t.Errorf("an enrolled studio is one row, got %d", n)
 	}
-	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "not running") || !strings.Contains(row, `href="/ui/projects/acme/roles/ops"`) {
+	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "pending") || !strings.Contains(row, `href="/ui/projects/acme/roles/ops"`) {
 		t.Errorf("enrolled-only row: %s", row)
 	}
 	last := -1
@@ -79,30 +79,54 @@ func TestAgentsListMergesAndKinds(t *testing.T) {
 	}
 }
 
-// ?phase= filters the list like the dashboard tiles count, and the polled
-// table keeps the filter; an unknown filter shows everything.
-func TestAgentsPhaseFilter(t *testing.T) {
+// ?status= filters the list by status group, as the dashboard tiles count,
+// and the polled table keeps the filter; an unknown filter shows everything,
+// and the old ?phase= values still work.
+func TestAgentsStatusFilter(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil)
-	for phase, want := range map[string][]string{
-		"live":      {"s-standing"},
-		"raising":   {"s-ticket"},
-		"idled":     {"s-personal"},
-		"attention": {"s-manual"},
-		"bogus":     {"s-standing", "s-ticket", "s-personal", "s-manual", "e-only"},
+	for query, want := range map[string][]string{
+		"status=running":    {"s-standing"},
+		"status=waiting":    {},
+		"status=setting-up": {"s-ticket"},
+		"status=idled":      {"s-personal"},
+		"status=attention":  {"s-manual"},
+		"status=bogus":      {"s-standing", "s-ticket", "s-personal", "s-manual", "e-only"},
+		"phase=live":        {"s-standing"}, // old links
+		"phase=raising":     {"s-ticket"},
 	} {
-		body := get(t, h, "/ui/agents?phase="+phase).Body.String()
+		body := get(t, h, "/ui/agents?"+query).Body.String()
 		if n := strings.Count(body, `<tr data-id="`); n != len(want) {
-			t.Errorf("phase=%s: %d rows, want %d", phase, n, len(want))
+			t.Errorf("%s: %d rows, want %d", query, n, len(want))
 		}
 		for _, id := range want {
 			if !strings.Contains(body, `<tr data-id="`+id+`">`) {
-				t.Errorf("phase=%s: missing %s", phase, id)
+				t.Errorf("%s: missing %s", query, id)
 			}
 		}
 	}
-	body := get(t, h, "/ui/agents?phase=live").Body.String()
-	if !strings.Contains(body, `hx-get="/ui/agents?phase=live" hx-trigger="every 3s"`) || !strings.Contains(body, `class="tab sel" href="/ui/agents?phase=live"`) {
-		t.Errorf("the poll and the filter strip should keep phase=live")
+	body := get(t, h, "/ui/agents?status=running").Body.String()
+	if !strings.Contains(body, `hx-get="/ui/agents?status=running" hx-trigger="every 3s"`) || !strings.Contains(body, `class="tab sel" href="/ui/agents?status=running"`) {
+		t.Errorf("the poll and the filter strip should keep status=running")
+	}
+}
+
+// Each row shows one status: the studio's phase and the agent's activity on
+// one axis; an agent with no studio is pending.
+func TestAgentsListStatus(t *testing.T) {
+	body := get(t, adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
+	for id, want := range map[string]string{
+		"s-standing": `<span class="pill st-running">running</span>`,
+		"s-personal": `<span class="pill st-idled">idled</span>`,
+		"s-ticket":   `<span class="pill st-setting-up">setting up</span>`,
+		"s-manual":   `<span class="pill st-lost">lost</span>`,
+		"e-only":     `<span class="pill st-pending">pending</span>`,
+	} {
+		if row := agentRow(t, body, id); !strings.Contains(row, want) {
+			t.Errorf("%s: want %s in\n%s", id, want, row)
+		}
+	}
+	if strings.Contains(body, "<th>Phase</th>") || strings.Contains(body, "<th>Activity</th>") {
+		t.Error("phase and activity are one Status column")
 	}
 }
 
@@ -212,9 +236,9 @@ func TestProjectAgentsOneTable(t *testing.T) {
 		t.Error("the separate Identities table is gone")
 	}
 	for id, want := range map[string][]string{
-		"s-ticket":   {`<span class="chip">ticket</span>`, `href="/ui/projects/acme/roles/dev"`, `class="pill phase-raising"`}, // studio + enrolled: one row
-		"e-only":     {`<span class="chip">enrolled</span>`, `href="/ui/projects/acme/roles/ops"`, "not running"},
-		"s-standing": {`<span class="chip">standing</span>`, `class="pill phase-live"`},
+		"s-ticket":   {`<span class="chip">ticket</span>`, `href="/ui/projects/acme/roles/dev"`, `class="pill st-setting-up"`}, // studio + enrolled: one row
+		"e-only":     {`<span class="chip">enrolled</span>`, `href="/ui/projects/acme/roles/ops"`, `class="pill st-pending"`},
+		"s-standing": {`<span class="chip">standing</span>`, `class="pill st-running"`},
 	} {
 		row := agentRow(t, sec, id)
 		for _, w := range want {
