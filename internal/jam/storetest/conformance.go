@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -525,6 +526,97 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 		if got := old.ModelSpecSchema(); got != 0 {
 			t.Fatalf("pre-marker import schema = %d, want 0", got)
+		}
+	})
+
+	t.Run("project_rename_and_tombstone", func(t *testing.T) {
+		s := newStoreWithAcme(t)
+		acme, _ := s.GetProject("acme")
+		if err := s.PutRole("acme", jam.Role{Name: "impl"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddActor(jam.Actor{ID: "a1", TokenHash: "h1", Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutInstance(jam.Instance{ActorID: "i1", Project: "acme", Role: "impl"}); err != nil {
+			t.Fatal(err)
+		}
+		// Rename: one record; everything refers to it by id.
+		if err := s.RenameProject("acme", "apex"); err != nil {
+			t.Fatalf("RenameProject: %v", err)
+		}
+		if _, ok := s.GetProject("acme"); ok {
+			t.Fatal("the old name still answers")
+		}
+		if p, ok := s.GetProject("apex"); !ok || p.ID != acme.ID {
+			t.Fatalf("apex = %+v, %v", p, ok)
+		}
+		if _, ok := s.GetRole("apex", "impl"); !ok {
+			t.Fatal("the role follows the rename")
+		}
+		if a, _ := s.Lookup("h1"); jam.ProjectName(s, a.Grants[0].Project) != "apex" {
+			t.Fatalf("grant = %+v", a.Grants)
+		}
+		if i, _ := s.GetInstance("i1"); jam.ProjectName(s, i.Project) != "apex" {
+			t.Fatalf("instance = %+v", i)
+		}
+		if e, _ := s.Resolve(acme.ID); e.Label() != "apex" {
+			t.Fatalf("Resolve = %q", e.Label())
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatal(err)
+		}
+		for _, bad := range []struct{ ref, name string }{{"apex", "beta"}, {"apex", jam.DefaultProject}, {"apex", ""}, {"apex", "a/b"}, {"ghost", "x"}} {
+			if err := s.RenameProject(bad.ref, bad.name); err == nil {
+				t.Errorf("RenameProject(%q, %q) succeeded", bad.ref, bad.name)
+			}
+		}
+		if err := s.RenameProject("beta", "beta"); err != nil {
+			t.Fatalf("renaming to its own name is a no-op: %v", err)
+		}
+		// Tombstone: the id resolves as removed, the name is free.
+		if err := s.RemoveProject("beta"); err != nil {
+			t.Fatal(err)
+		}
+		beta := func() ident.ID {
+			for _, ref := range s.ExportConfig().Projects {
+				if ref.Name == "beta" {
+					return ref.ID
+				}
+			}
+			return ""
+		}()
+		if e, ok := s.Resolve(beta); !ok || e.Label() != "beta (removed)" {
+			t.Fatalf("Resolve(removed) = %q, %v", e.Label(), ok)
+		}
+		if p, ok := s.GetProject(string(beta)); !ok || p.Status != jam.StatusRemoved {
+			t.Fatalf("GetProject(removed id) = %+v, %v", p, ok)
+		}
+		if _, ok := s.GetProject("beta"); ok || slices.Contains(s.ListProjects(), "beta") {
+			t.Fatal("a removed project's name answers or lists")
+		}
+		if err := s.PutRole(string(beta), jam.Role{Name: "x"}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a write into a removed project: %v", err)
+		}
+		if err := s.RenameProject(string(beta), "gamma"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("renaming a removed project: %v", err)
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatalf("reusing a removed project's name: %v", err)
+		}
+		if p, _ := s.GetProject("beta"); p.ID == beta {
+			t.Fatal("the new beta is a new project")
+		}
+		// Export/import keeps the tombstone.
+		s2 := newStore(t)
+		if err := s2.ImportConfig(s.ExportConfig()); err != nil {
+			t.Fatalf("import: %v", err)
+		}
+		if e, ok := s2.Resolve(beta); !ok || e.Label() != "beta (removed)" {
+			t.Fatalf("imported tombstone = %q, %v", e.Label(), ok)
+		}
+		if _, ok := s2.GetRole("apex", "impl"); !ok {
+			t.Fatal("imported role lost")
 		}
 	})
 

@@ -46,6 +46,7 @@
   <h1>{{.Project.Name}}</h1>
   {{if .ChatService}}<span class="chip">chat: {{.ChatService}}</span>{{else}}<span class="sub">tracker @-mentions only</span>{{end}}
   <span class="spacer"></span>
+  {{if ne $p "default"}}<form class="inline" hx-post="/ui/projects/{{$p}}/rename" hx-swap="none"><input name="name" value="{{$p}}" aria-label="New name" required size="12"><button type="submit">Rename</button></form>{{end}}
   {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles and grants first">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/projects/{{$p}}" hx-swap="none"
       hx-confirm="Delete project {{$p}}? Its roster, escalation and chat service go with it."

@@ -117,6 +117,17 @@ func (fs *MemStore) RemoveProject(name string) error {
 	return nil
 }
 
+func (fs *MemStore) RenameProject(ref, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, err := fs.checkRenameProject(ref, name)
+	if err != nil {
+		return err
+	}
+	fs.applyRenameProject(p, name)
+	return nil
+}
+
 func (fs *MemStore) RemoveRole(project, name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

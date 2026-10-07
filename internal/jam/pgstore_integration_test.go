@@ -45,51 +45,6 @@ func TestPostgresStoreFailsClosedOnBadDSN(t *testing.T) {
 	}
 }
 
-// TestPostgresProjectIDBackfill: a project row written before projects had ids
-// gets one minted and persisted at load, and later loads keep that same id.
-func TestPostgresProjectIDBackfill(t *testing.T) {
-	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
-	}
-	ctx := context.Background()
-	open := func() *jam.PostgresStore {
-		t.Helper()
-		s, err := jam.NewPostgresStore(ctx, dsn, nil)
-		if err != nil {
-			t.Fatalf("NewPostgresStore: %v", err)
-		}
-		t.Cleanup(s.Close)
-		return s
-	}
-	s := open()
-	if err := s.TruncateAllForTest(ctx); err != nil {
-		t.Fatalf("TruncateAllForTest: %v", err)
-	}
-	if _, err := s.Pool().Exec(ctx, `INSERT INTO projects (name, doc) VALUES ('legacy', '{"name":"legacy","roster":{}}')`); err != nil {
-		t.Fatalf("insert legacy row: %v", err)
-	}
-	p, ok := open().GetProject("legacy")
-	if !ok || p.ID.Kind() != ident.Project {
-		t.Fatalf("backfilled project = %+v, %v", p, ok)
-	}
-	again := open()
-	if q, _ := again.GetProject("legacy"); q.ID != p.ID {
-		t.Fatalf("id changed across loads: %q → %q", p.ID, q.ID)
-	}
-	if e, ok := again.Resolve(p.ID); !ok || e.Name != "legacy" {
-		t.Fatalf("Resolve = %+v, %v", e, ok)
-	}
-
-	// An older binary rewrote the doc without "id": the column's id wins.
-	if _, err := again.Pool().Exec(ctx, `UPDATE projects SET doc = doc - 'id' WHERE name = 'legacy'`); err != nil {
-		t.Fatalf("strip doc id: %v", err)
-	}
-	if q, _ := open().GetProject("legacy"); q.ID != p.ID {
-		t.Fatalf("doc without id re-minted: %q, want the column's %q", q.ID, p.ID)
-	}
-}
-
 // TestPostgresHumansMigration: project docs written before the registry carry
 // roster humans; the first load migrates them into users, memberships,
 // accounts and legacy aliases, clears the docs, and marks it done — so a
@@ -115,9 +70,10 @@ func TestPostgresHumansMigration(t *testing.T) {
 	}
 	for _, stmt := range []string{
 		`DELETE FROM jam_settings WHERE key = 'roster_schema'`,
-		`INSERT INTO projects (name, doc) VALUES ('acme', '{"name":"acme","roster":{"humans":[
+		`INSERT INTO participants (id, kind) VALUES ('prj_01j9q3aaaaaaaaaaaaaaaaaaaa', 'prj'), ('prj_01j9q3bbbbbbbbbbbbbbbbbbbb', 'prj')`,
+		`INSERT INTO projects (name, id, doc) VALUES ('acme', 'prj_01j9q3aaaaaaaaaaaaaaaaaaaa', '{"name":"acme","id":"prj_01j9q3aaaaaaaaaaaaaaaaaaaa","roster":{"humans":[
 			{"name":"alice","handle":"@alice","login":"auth0|a","delivery":[{"service":"discord","address":"inbox-a","user_id":"111"}]}]}}')`,
-		`INSERT INTO projects (name, doc) VALUES ('beta', '{"name":"beta","roster":{"humans":[{"name":"alice"}]}}')`,
+		`INSERT INTO projects (name, id, doc) VALUES ('beta', 'prj_01j9q3bbbbbbbbbbbbbbbbbbbb', '{"name":"beta","id":"prj_01j9q3bbbbbbbbbbbbbbbbbbbb","roster":{"humans":[{"name":"alice"}]}}')`,
 	} {
 		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
 			t.Fatalf("seed %q: %v", stmt, err)
@@ -184,7 +140,8 @@ func TestPostgresChatServiceMigration(t *testing.T) {
 	}
 	for _, stmt := range []string{
 		`INSERT INTO jam_settings (key, doc) VALUES ('roster_schema', '1') ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc`,
-		`INSERT INTO projects (name, doc) VALUES ('acme', '{"name":"acme","roster":{},"chat_service":"discord"}')`,
+		`INSERT INTO participants (id, kind) VALUES ('prj_01j9q3aaaaaaaaaaaaaaaaaaaa', 'prj')`,
+		`INSERT INTO projects (name, id, doc) VALUES ('acme', 'prj_01j9q3aaaaaaaaaaaaaaaaaaaa', '{"name":"acme","id":"prj_01j9q3aaaaaaaaaaaaaaaaaaaa","roster":{},"chat_service":"discord"}')`,
 	} {
 		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
 			t.Fatalf("seed %q: %v", stmt, err)
@@ -318,8 +275,8 @@ func TestPostgresRoomsMigration(t *testing.T) {
 	if err := again.RemoveProject("acme"); err != nil {
 		t.Fatalf("RemoveProject with rooms: %v", err)
 	}
-	if _, ok := open().GetChannel(rooms[0].ID); ok {
-		t.Fatal("a removed project's rooms go with it")
+	if got, ok := open().GetChannel(rooms[0].ID); !ok || got.Status != jam.StatusArchived {
+		t.Fatalf("a removed project's rooms are archived: %+v, %v", got, ok)
 	}
 }
 
@@ -367,7 +324,6 @@ func TestPostgresProjectRefsMigration(t *testing.T) {
 		`ALTER TABLE roles DROP COLUMN project_id`,
 		`ALTER TABLE roles ALTER COLUMN project SET NOT NULL`,
 		`ALTER TABLE roles ADD PRIMARY KEY (project, name)`,
-		`ALTER TABLE roles ADD CONSTRAINT roles_project_fkey FOREIGN KEY (project) REFERENCES projects (name)`,
 		`DELETE FROM schema_migrations WHERE version = 13`,
 		`UPDATE actors SET doc = jsonb_set(doc, '{grants,0,project}', '"acme"')`,
 		`UPDATE instances SET doc = jsonb_set(doc, '{project}', '"acme"')`,

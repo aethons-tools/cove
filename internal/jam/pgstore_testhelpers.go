@@ -25,6 +25,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.kits = map[string]Kit{}
 	s.instances = map[string]Instance{}
 	s.projects = map[string]Project{}
+	s.removedProjects = map[ident.ID]Project{}
 	s.users = map[ident.ID]User{}
 	s.connections = map[ident.ID]Connection{}
 	s.accounts = map[ident.ID]Account{}

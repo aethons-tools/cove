@@ -288,9 +288,13 @@ type EscalationTier struct {
 // naming it (or naming no project) materializes on first use.
 type Project struct {
 	// ID is the project's surrogate id (internal/ident), minted when the
-	// record is created. Store methods still key projects by Name until 1b.
-	ID                   ident.ID                    `json:"id,omitempty"`
-	Name                 string                      `json:"name"`
+	// record is created; every stored reference to the project uses it.
+	ID   ident.ID `json:"id,omitempty"`
+	Name string   `json:"name"`
+	// Status is StatusLive ("" reads as live) or StatusRemoved: a removed
+	// project is a tombstone — its id still resolves ("name (removed)"),
+	// its name is free for a new project.
+	Status               Status                      `json:"status,omitempty"`
 	Roster               Roster                      `json:"roster"`
 	Escalation           []EscalationTier            `json:"escalation,omitempty"`
 	EscalationByCategory map[string][]EscalationTier `json:"escalation_by_category,omitempty"` // category → chain; overrides Escalation (the default)

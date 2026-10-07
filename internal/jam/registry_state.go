@@ -17,7 +17,11 @@ func (m *memState) Resolve(id ident.ID) (Entry, bool) {
 	switch id.Kind() {
 	case ident.Project:
 		if p, ok := m.projectByID(id); ok {
-			return Entry{ID: id, Kind: ident.Project, Name: p.Name, Status: StatusLive}, true
+			st := p.Status
+			if st == "" {
+				st = StatusLive
+			}
+			return Entry{ID: id, Kind: ident.Project, Name: p.Name, Status: st}, true
 		}
 	case ident.User:
 		if u, ok := m.users[id]; ok {
@@ -164,7 +168,8 @@ func (m *memState) projectByID(id ident.ID) (Project, bool) {
 			return p, true
 		}
 	}
-	return Project{}, false
+	p, ok := m.removedProjects[id]
+	return p, ok
 }
 
 func (m *memState) checkUserName(name string, self ident.ID) error {

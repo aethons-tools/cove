@@ -116,7 +116,16 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		p.Name = name
 		snap.Projects = append(snap.Projects, p)
 	}
-	sort.Slice(snap.Projects, func(i, j int) bool { return snap.Projects[i].Name < snap.Projects[j].Name })
+	for _, p := range m.removedProjects {
+		snap.Projects = append(snap.Projects, copyProject(p)) // tombstones back history
+	}
+	sort.Slice(snap.Projects, func(i, j int) bool {
+		a, b := snap.Projects[i], snap.Projects[j]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.ID < b.ID
+	})
 
 	snap.ModelSpecSchema = m.specSchema
 	m.exportRegistry(&snap)
@@ -286,7 +295,7 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	if len(m.specs) > 0 {
 		names = append(names, "model_specs")
 	}
-	if len(m.projects) > 0 {
+	if len(m.projects)+len(m.removedProjects) > 0 {
 		names = append(names, "projects")
 	}
 	// Connections alone don't count: a starting serve creates the one its
@@ -312,7 +321,9 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 		if p.ID == "" {
 			p.ID = newProject(p.Name).ID
 		}
-		have[p.Name] = true
+		if p.Status != StatusRemoved {
+			have[p.Name] = true
+		}
 		projects = append(projects, p)
 	}
 	add := func(name string) {
@@ -342,9 +353,11 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 	}
 	s.Projects = projects
 	// Name every project by id (a snapshot before version 4 names them).
-	idOf := map[string]string{}
+	idOf := map[string]string{} // live names only: a tombstone's name may be reused
 	for _, p := range projects {
-		idOf[p.Name] = string(p.ID)
+		if p.Status != StatusRemoved {
+			idOf[p.Name] = string(p.ID)
+		}
 	}
 	canon := func(ref string) string {
 		if ref == "" {
@@ -406,7 +419,12 @@ func applyImport(m *memState, s ConfigSnapshot) {
 		m.specs[ms.Name] = ms
 	}
 	m.projects = map[string]Project{}
+	m.removedProjects = map[ident.ID]Project{}
 	for _, p := range s.Projects {
+		if p.Status == StatusRemoved {
+			m.removedProjects[p.ID] = p
+			continue
+		}
 		m.projects[p.Name] = p
 	}
 	m.specSchema = s.ModelSpecSchema
@@ -512,6 +530,10 @@ func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *
 	}
 	m := newMemState()
 	for _, p := range s.Projects {
+		if p.Status == StatusRemoved {
+			m.removedProjects[p.ID] = p
+			continue
+		}
 		m.projects[p.Name] = p
 	}
 	var plan humanPlan

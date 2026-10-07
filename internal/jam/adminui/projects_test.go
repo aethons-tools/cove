@@ -200,3 +200,22 @@ func putRoom(st jam.Store, project, name, service, ref string) error {
 	_, _, err := jam.PutRoom(st, project, jam.RoomBody{Name: name, Connection: service, Ref: ref})
 	return err
 }
+
+// The project page renames a project in place and moves to its new URL.
+func TestProjectRename(t *testing.T) {
+	store := seedProjects(t)
+	h := projHandler(store)
+	if body := get(t, h, "/ui/projects/acme").Body.String(); !strings.Contains(body, `hx-post="/ui/projects/acme/rename"`) {
+		t.Fatal("project page lacks the rename form")
+	}
+	rec := post(t, h, "/ui/projects/acme/rename", url.Values{"name": {"apex"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/projects/apex" {
+		t.Fatalf("rename = %d %q %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
+	}
+	if _, ok := store.GetProject("apex"); !ok {
+		t.Fatal("not renamed")
+	}
+	if rec := post(t, h, "/ui/projects/apex/rename", url.Values{"name": {""}}); rec.Code == http.StatusOK {
+		t.Fatal("an empty name must be refused")
+	}
+}

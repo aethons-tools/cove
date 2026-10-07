@@ -189,6 +189,24 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		renderFragment(w, "projects", "projects-table", projectTableData(store))
 	})
 
+	mux.HandleFunc("POST /ui/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		old, name := r.PathValue("name"), strings.TrimSpace(r.FormValue("name"))
+		if err := store.RenameProject(old, name); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
+			return
+		}
+		log.Info("ui project renamed", "operator", jam.OperatorID(r), "project", old, "name", name)
+		w.Header().Set("HX-Redirect", projectURL(name))
+		w.WriteHeader(http.StatusOK)
+	})
+
 	mux.HandleFunc("DELETE /ui/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return

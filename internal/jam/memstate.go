@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -32,7 +33,9 @@ type memState struct {
 	specs     map[string]ModelSpec         // keyed by Name; values are owned deep copies
 	kits      map[string]Kit               // keyed by Name
 	instances map[string]Instance          // keyed by ActorID
-	projects  map[string]Project           // keyed by Name
+	projects  map[string]Project           // live projects, keyed by Name
+	// removedProjects are tombstones, keyed by id (their names are free).
+	removedProjects map[ident.ID]Project
 	// users, connections and accounts are the identity registry, keyed by id;
 	// removed entities stay (tombstones). See registry_state.go.
 	users       map[ident.ID]User
@@ -62,22 +65,23 @@ type memState struct {
 
 func newMemState() *memState {
 	return &memState{
-		roles:       map[ident.ID]map[string]Role{},
-		actors:      map[string]Actor{},
-		dests:       map[string]Destination{},
-		specs:       map[string]ModelSpec{},
-		kits:        map[string]Kit{},
-		instances:   map[string]Instance{},
-		projects:    map[string]Project{},
-		users:       map[ident.ID]User{},
-		connections: map[ident.ID]Connection{},
-		accounts:    map[ident.ID]Account{},
-		members:     map[ident.ID]map[ident.ID]Membership{},
-		aliases:     map[string]map[string]ident.ID{},
-		standing:    map[standingKey]string{},
-		channels:    map[ident.ID]Channel{},
-		chanMembers: map[ident.ID][]ChannelMember{},
-		reads:       map[ident.ID]map[ident.ID]int64{},
+		roles:           map[ident.ID]map[string]Role{},
+		actors:          map[string]Actor{},
+		dests:           map[string]Destination{},
+		specs:           map[string]ModelSpec{},
+		kits:            map[string]Kit{},
+		instances:       map[string]Instance{},
+		projects:        map[string]Project{},
+		removedProjects: map[ident.ID]Project{},
+		users:           map[ident.ID]User{},
+		connections:     map[ident.ID]Connection{},
+		accounts:        map[ident.ID]Account{},
+		members:         map[ident.ID]map[ident.ID]Membership{},
+		aliases:         map[string]map[string]ident.ID{},
+		standing:        map[standingKey]string{},
+		channels:        map[ident.ID]Channel{},
+		chanMembers:     map[ident.ID][]ChannelMember{},
+		reads:           map[ident.ID]map[ident.ID]int64{},
 	}
 }
 
@@ -378,7 +382,7 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 	if name == "" {
 		name = DefaultProject
 	}
-	if p, ok := m.resolveProject(name); ok {
+	if p, ok := m.resolveProject(name); ok && p.Status != StatusRemoved {
 		return p, false, nil
 	}
 	if name == DefaultProject {
@@ -437,8 +441,8 @@ func (m *memState) projectReference(project string) (string, bool) {
 
 // checkCreateProject validates a CreateProject. Caller holds the lock.
 func (m *memState) checkCreateProject(name string) error {
-	if name == "" {
-		return fmt.Errorf("project name is required")
+	if err := checkProjectName(name); err != nil {
+		return err
 	}
 	if _, ok := m.projects[name]; ok {
 		return fmt.Errorf("%w: %q", ErrProjectExists, name)
@@ -623,11 +627,47 @@ func prepareModelSpec(ms ModelSpec) (ModelSpec, error) {
 
 func (m *memState) applyPutProject(p Project) { m.projects[p.Name] = p }
 
+// applyRemoveProject tombstones a live project: it leaves the live set (its
+// name is free) and its channels are archived.
 func (m *memState) applyRemoveProject(name string) {
-	if p, ok := m.projects[name]; ok && p.ID != "" {
-		m.applyDropProjectChannels(p.ID)
+	p, ok := m.projects[name]
+	if !ok {
+		return
 	}
 	delete(m.projects, name)
+	if p.ID == "" {
+		return
+	}
+	m.applyArchiveProjectChannels(p.ID)
+	p.Status = StatusRemoved
+	m.removedProjects[p.ID] = p
+}
+
+// applyRenameProject moves live project p to name.
+func (m *memState) applyRenameProject(p Project, name string) {
+	delete(m.projects, p.Name)
+	p.Name = name
+	m.projects[name] = p
+}
+
+// checkRenameProject validates renaming project ref to name: it is live and
+// not the default project, and name is a free, valid project name (never
+// DefaultProject, which "" means). Caller holds mu.
+func (m *memState) checkRenameProject(ref, name string) (Project, error) {
+	p, ok := m.resolveProject(ref)
+	if !ok || p.Status == StatusRemoved {
+		return Project{}, fmt.Errorf("%w: %q", ErrProjectNotFound, ref)
+	}
+	if p.Name == DefaultProject || name == DefaultProject {
+		return Project{}, fmt.Errorf("%w: the %q project can't be renamed, nor another renamed to it", ErrInvalidName, DefaultProject)
+	}
+	if err := checkProjectName(name); err != nil {
+		return Project{}, err
+	}
+	if _, taken := m.projects[name]; taken && name != p.Name {
+		return Project{}, fmt.Errorf("%w: %q", ErrProjectExists, name)
+	}
+	return p, nil
 }
 
 // ---- pure compute helpers for aggregate (doc) edits ----
@@ -746,3 +786,15 @@ func copyProject(p Project) Project {
 // wording identical (the conformance suite checks that mutators error, not the
 // exact text, but keeping one source avoids drift).
 func actorNotFoundErr(id string) error { return fmt.Errorf("actor %q not found", id) }
+
+// checkProjectName validates a project name: required, and no "/" (project
+// names appear in paths and project/role keys).
+func checkProjectName(name string) error {
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if strings.Contains(name, "/") {
+		return fmt.Errorf("%w: project name %q may not contain \"/\"", ErrInvalidName, name)
+	}
+	return nil
+}

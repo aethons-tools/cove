@@ -545,6 +545,19 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
 		w.WriteHeader(http.StatusCreated)
 	})
+	mux.HandleFunc("PUT /admin/projects/{project}/name", func(w http.ResponseWriter, r *http.Request) {
+		var b ProjectBody
+		if !decode(w, r, &b) {
+			return
+		}
+		project := r.PathValue("project")
+		if err := store.RenameProject(project, b.Name); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project renamed", "operator", OperatorID(r), "project", project, "name", b.Name)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
 		project := r.PathValue("project")
 		if err := store.RemoveProject(project); err != nil {
