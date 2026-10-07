@@ -90,7 +90,6 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 	}
 	d.Inst, d.Running = store.GetInstance(id)
 	d.Inst.Project = jam.ProjectName(store, d.Inst.Project) // the page names it
-	d.Kind = agentKind(d.Inst, d.Running)
 	if d.Running {
 		d.EgressID = shortDigest(d.Inst.Egress)
 	}
@@ -98,6 +97,9 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 		if a.ID == id {
 			d.Actor, d.HasActor = a, true
 		}
+	}
+	if d.Running || d.HasActor { // a gone studio with no identity is neither
+		d.Kind = agentKind(d.Inst, d.Running)
 	}
 	if sess != nil {
 		d.Streams, _ = sess.Streams(id)

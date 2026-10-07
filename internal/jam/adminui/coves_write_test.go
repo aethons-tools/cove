@@ -203,3 +203,31 @@ func TestCovesConnectorStaleIsFlagged(t *testing.T) {
 		t.Fatalf("stale connector not flagged; page:\n%s", page)
 	}
 }
+
+// Raising from a filtered Agents tab keeps the filter: the table fragment is
+// derived from the page's own URL (HX-Current-URL), so it keeps polling it.
+func TestRaiseKeepsAgentsFilter(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), newSup(t, store), nil, anyCred, nil)
+	for hdr, want := range map[string]string{
+		"http://host/ui/agents?phase=live": `hx-get="/ui/agents?phase=live" hx-trigger="every 3s"`,
+		"":                                 `hx-get="/ui/agents" hx-trigger="every 3s"`,
+		"::not a url":                      `hx-get="/ui/agents" hx-trigger="every 3s"`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/ui/coves", strings.NewReader(url.Values{"id": {"c-" + strings.Repeat("x", len(hdr))}, "project": {"acme"}, "role": {"worker"}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", "http://"+req.Host)
+		if hdr != "" {
+			req.Header.Set("HX-Current-URL", hdr)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("HX-Current-URL %q: %d, want %s in\n%s", hdr, rec.Code, want, rec.Body.String())
+		}
+	}
+}

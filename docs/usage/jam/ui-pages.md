@@ -32,7 +32,8 @@ Each agent id (in the Agents list, a studio table, a role's holders, a
 project's identities, or search) opens `/ui/agents/<id>`, the page for one
 agent identity. The header shows its kind, phase and activity, standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
-(the [session timeline](ui.md#session-timeline)), **Teardown** when it has a
+(the [session timeline](ui.md#session-timeline); shown when session capture is
+configured), **Teardown** (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 
 - **Identity** — its grants as `project/role` chips (× removes one; hover for

@@ -177,3 +177,16 @@ func TestDashboardPollsItself(t *testing.T) {
 		t.Errorf("poll fragment:\n%s", body)
 	}
 }
+
+// The personal owner on the agent page links to the user page.
+func TestAgentPageLinksOwner(t *testing.T) {
+	store := newStore(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutInstance(jam.Instance{ActorID: "s-own", Project: "acme", Role: "dev", SessionKind: "personal", Owner: "alice", OwnerID: "usr_alice", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents/s-own").Body.String()
+	if !strings.Contains(body, `<a href="/ui/users/usr_alice">alice</a>`) {
+		t.Errorf("owner should link the user page:\n%s", body)
+	}
+}

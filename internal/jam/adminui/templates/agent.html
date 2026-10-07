@@ -37,17 +37,17 @@
   {{template "phase" .Inst.Phase}}
   <div class="facts">
     {{if .Inst.Activity}}<span>{{.Inst.Activity}}</span>{{end}}
-    <span class="chip">{{$.Kind}}{{if .Inst.Owner}} · {{.Inst.Owner}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
+    <span class="chip">{{$.Kind}}{{if .Inst.Owner}} · {{if .Inst.OwnerID}}<a href="{{userURL .Inst.OwnerID}}">{{.Inst.Owner}}</a>{{else}}{{.Inst.Owner}}{{end}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
     <a class="chip" href="{{projectURL .Inst.Project}}">{{.Inst.Project}}</a>
     <a class="chip" href="{{roleURL .Inst.Project .Inst.Role}}">{{.Inst.Role}}</a>
     {{if .Inst.Unit}}<span class="mono">{{.Inst.Unit}}</span>{{end}}
   </div>
-  {{else}}<span class="chip">{{.Kind}}</span>{{end}}
+  {{else if .Kind}}<span class="chip">{{.Kind}}</span>{{end}}
   <span class="spacer"></span>
   {{if .SessionsEnabled}}<a class="btn" href="{{agentURL .ID}}/session">Open live timeline</a>{{end}}
   {{if and .Running .CanEdit}}<button class="danger" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
       hx-confirm="Tear down {{.ID}}?"
-      hx-on::after-request="if(event.detail.successful) location.reload()">Teardown</button>{{end}}
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Teardown</button>{{end}}
   {{if .HasActor}}<button class="danger" hx-delete="/ui/enrollments/{{.ID}}" hx-swap="none"
       hx-confirm="Revoke {{.ID}}? This invalidates its token."
       hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Revoke</button>{{end}}

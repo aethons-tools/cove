@@ -107,6 +107,9 @@ func TestStudioPageGoneStillShowsAudit(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "not running") || !strings.Contains(rec.Body.String(), "last words") {
 		t.Fatalf("gone studio = %d: %s", rec.Code, rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {
+		t.Error("a gone studio with no actor is not enrolled; no kind chip")
+	}
 	if rec := get(t, h, "/ui/agents/never-was"); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown id = %d, want 404", rec.Code)
 	}

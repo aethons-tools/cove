@@ -153,7 +153,7 @@
       <thead><tr><th>Agent</th><th>Roles</th></tr></thead>
       <tbody>
         {{range .Holders}}<tr><td><a class="mono" href="{{agentURL .ID}}">{{.ID}}</a></td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
-        {{else}}<tr><td colspan="2" class="empty">No actors hold a grant here.</td></tr>{{end}}
+        {{else}}<tr><td colspan="2" class="empty">No agents hold a grant here.</td></tr>{{end}}
       </tbody>
     </table>
   </section>

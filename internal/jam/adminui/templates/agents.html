@@ -74,5 +74,5 @@
   </div>
   <button type="button" class="primary small" data-copy="#enroll-token">Copy</button>
 </div>
-<div hx-get="/ui/agents" hx-trigger="load" hx-target="#agents" hx-swap="outerHTML"></div>
+<div hx-on::load="htmx.ajax('GET', location.pathname + location.search, {target: '#agents', swap: 'outerHTML'})"></div>
 {{end}}
