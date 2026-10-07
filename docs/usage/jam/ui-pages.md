@@ -4,7 +4,7 @@ read_when: You are viewing or editing a project, user, studio, role, destination
 owns: the project, user, studio, role, destination, model-spec and kit detail pages (what they show, their edit forms incl. project members/rooms/escalation/chat-service editing, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the write banner, and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Admin UI entity pages
@@ -39,9 +39,11 @@ answers with the re-rendered page:
   flagged red — flagged, not blocked.
 - **Chat service** — none (tracker @-mentions only) or `discord`.
 
-**Delete** (here and in the table) is disabled while a role or an actor's grant
-still references the project, and names what does — the same rule as
+**Delete** (here and in the table) is disabled while a member, a role, a session not yet gone or an actor's
+grant still references the project, and names what does — the same rule as
 `project rm` ([projects.md](projects.md)).
+**Rename** (the page head, except for `default`) renames the project in place
+and opens its new URL ([projects.md](projects.md)).
 
 ## User pages
 

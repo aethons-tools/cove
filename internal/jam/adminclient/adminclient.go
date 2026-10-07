@@ -208,6 +208,12 @@ func (c *Client) CreateProject(name string) error {
 	return c.do("POST", "/admin/projects", jam.ProjectBody{Name: name}, nil)
 }
 
+// RenameProject renames a project; ErrConflict for a taken name, ErrNotFound
+// if absent.
+func (c *Client) RenameProject(project, name string) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/name", jam.ProjectBody{Name: name}, nil)
+}
+
 // RemoveProject deletes a project; ErrConflict while a role or grant still
 // references it, ErrNotFound if absent.
 func (c *Client) RemoveProject(name string) error {

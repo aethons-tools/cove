@@ -31,14 +31,55 @@ type fakeWorld struct {
 	prepares  int    // PrepareImage calls
 	// sessions is the standing-session map, keyed "project/role/name".
 	sessions map[string]string
+	// renamed maps a renamed project's name to the name its id was made from.
+	renamed map[string]string
 }
 
-// LookupName gives every project a fake id: "prj-<name>".
+// LookupName gives every project a fake id: "prj-<name>" (the name it had
+// before any rename); a renamed-away name has none.
 func (w *fakeWorld) LookupName(k ident.Kind, name string) (ident.ID, bool) {
 	if k != ident.Project {
 		return "", false
 	}
+	if orig, ok := w.renamed[name]; ok {
+		return ident.ID("prj-" + orig), true
+	}
+	for _, orig := range w.renamed {
+		if orig == name {
+			return "", false
+		}
+	}
 	return ident.ID("prj-" + name), true
+}
+
+// Resolve is LookupName's inverse.
+func (w *fakeWorld) Resolve(id ident.ID) (jam.Entry, bool) {
+	orig, ok := strings.CutPrefix(string(id), "prj-")
+	if !ok {
+		return jam.Entry{}, false
+	}
+	name := orig
+	for n, o := range w.renamed {
+		if o == orig {
+			name = n
+		}
+	}
+	if got, ok := w.LookupName(ident.Project, name); !ok || got != id {
+		return jam.Entry{}, false
+	}
+	return jam.Entry{ID: id, Kind: ident.Project, Name: name, Status: jam.StatusLive}, true
+}
+
+// rename renames project from to to, keeping its id and roles.
+func (w *fakeWorld) rename(from, to string) {
+	orig := from
+	if o, ok := w.renamed[from]; ok {
+		orig = o
+		delete(w.renamed, from)
+	}
+	w.renamed[to] = orig
+	w.roles[to] = w.roles[from]
+	delete(w.roles, from)
 }
 
 func sessKey(project ident.ID, role, name string) string {
@@ -88,7 +129,7 @@ func (w *fakeWorld) PrepareImage(_ context.Context, p, r string) (jam.CurrentIma
 
 func newWorld() *fakeWorld {
 	return &fakeWorld{roles: map[string][]jam.Role{}, insts: map[string]jam.Instance{}, failRaise: map[string]bool{},
-		state: map[string]bool{}, failPurge: map[string]bool{}, failTear: map[string]bool{}, sessions: map[string]string{}}
+		state: map[string]bool{}, failPurge: map[string]bool{}, failTear: map[string]bool{}, sessions: map[string]string{}, renamed: map[string]string{}}
 }
 
 func (w *fakeWorld) ListProjects() []string {
@@ -857,5 +898,51 @@ func TestQueueUpgradeNeverMints(t *testing.T) {
 	}
 	if len(w.sessions) != 0 || r.UpgradeState("acme", "reviewer", "alice-bot") != "" {
 		t.Fatalf("sessions %v, upgrade %q; want nothing minted or queued", w.sessions, r.UpgradeState("acme", "reviewer", "alice-bot"))
+	}
+}
+
+// A rename while an upgrade waits keeps it: it is tracked by project id and
+// completes under the new name.
+func TestUpgrade_SurvivesProjectRename(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	w.setActivity(botID, jam.ActivityRunning)
+	if err := r.QueueUpgrade("acme", "reviewer", "alice-bot", false); err != nil {
+		t.Fatal(err)
+	}
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if got := r.UpgradeState("acme", "reviewer", "alice-bot"); !strings.HasPrefix(got, jam.UpgradeWaitingIdle) {
+		t.Fatalf("state = %q, want waiting-for-idle", got)
+	}
+	w.rename("acme", "acme2")
+	w.setActivity(botID, jam.ActivityWaiting)
+	r.Tick(ctx)
+	if !slices.Equal(w.torn, []string{botID}) || w.insts[botID].ImageTag != "img:new" {
+		t.Fatalf("torn=%v tag=%q; want the upgrade done after the rename", w.torn, w.insts[botID].ImageTag)
+	}
+	if last := w.raised[len(w.raised)-1]; last.Project != "acme2" || last.ActorID != botID {
+		t.Fatalf("re-raised %+v, want %s under acme2", last, botID)
+	}
+}
+
+// A reset still pending across a rename still ends the session.
+func TestReset_PendingSurvivesProjectRename(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.declare("acme", "reviewer", bot)
+	r.Tick(ctx)
+	w.failPurge[botID] = true
+	if err := r.ResetStanding(ctx, "acme", "reviewer", "alice-bot"); err == nil {
+		t.Fatal("want the reset pending")
+	}
+	w.rename("acme", "acme2")
+	delete(w.failPurge, botID)
+	r.Tick(ctx)
+	if id, ok := w.StandingSessionID("prj-acme", "reviewer", "alice-bot"); !ok || id == botID {
+		t.Fatalf("map = %q, %v; want a new session after the reset", id, ok)
+	}
+	if last := w.raised[len(w.raised)-1]; last.ActorID == botID || last.Project != "acme2" {
+		t.Fatalf("raised %+v; want a new session under acme2", last)
 	}
 }

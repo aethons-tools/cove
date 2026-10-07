@@ -29,6 +29,10 @@ type Store interface {
 	// project to exist, except DefaultProject, which they materialize.
 	CreateProject(name string) error
 	RemoveProject(name string) error
+	// RenameProject renames a live project (by name or id): one record
+	// changes, as everything refers to it by id. ErrProjectExists for a taken
+	// name; the default project is never renamed.
+	RenameProject(ref, name string) error
 	ListProjects() []string
 
 	PushKit(name, config string) (int, error)

@@ -35,6 +35,7 @@ type Roster interface {
 	ListProjects() []string
 	ListRoles(project string) []jam.Role
 	LookupName(k ident.Kind, name string) (ident.ID, bool)
+	Resolve(id ident.ID) (jam.Entry, bool)
 	StandingSessionID(project ident.ID, role, name string) (string, bool)
 	PutStandingSession(project ident.ID, role, name, sessionID string) error
 	RemoveStandingSession(project ident.ID, role, name string) error
@@ -123,7 +124,8 @@ type Reconciler struct {
 	spawn func(f func())
 }
 
-// upgrade is one name's pending upgrade.
+// upgrade is one name's pending upgrade. project is the project's id, so a
+// rename while it is pending keeps it.
 type upgrade struct {
 	project, role, name string
 	force               bool
@@ -178,9 +180,27 @@ func (r *Reconciler) Run(ctx context.Context) {
 	}
 }
 
-// declKey identifies one declaration; it is matched against an Instance's
-// (Project, Role, Name).
+// declKey identifies one declaration by its project's id (stable across a
+// rename); it is matched against an Instance's (Project, Role, Name).
 type declKey struct{ project, role, name string }
+
+// projectName is the live project pid's current name.
+func (r *Reconciler) projectName(pid string) (string, bool) {
+	e, ok := r.roster.Resolve(ident.ID(pid))
+	if !ok || e.Kind != ident.Project || e.Status != jam.StatusLive {
+		return "", false
+	}
+	return e.Name, true
+}
+
+// instProjectID is an instance's project reference as an id (a name on an
+// instance from before 1b-2a is looked up).
+func (r *Reconciler) instProjectID(ref string) (ident.ID, bool) {
+	if e, ok := r.roster.Resolve(ident.ID(ref)); ok && e.Kind == ident.Project {
+		return e.ID, true
+	}
+	return r.roster.LookupName(ident.Project, ref)
+}
 
 // sameProject reports whether an instance's project reference (its project's
 // id; a name on an instance from before 1b-2a) is the project named name.
@@ -196,23 +216,23 @@ func (r *Reconciler) sameProject(ref, name string) bool {
 // is, from the standing-session map; when it has none and mint is set, a new
 // session is started (minted and recorded). Restarts and upgrades keep the
 // entry; a reset drops it.
-func (r *Reconciler) sessionID(project, role, name string, mint bool) (string, error) {
+func (r *Reconciler) sessionID(project, role, name string, mint bool) (string, ident.ID, error) {
 	pid, ok := r.roster.LookupName(ident.Project, project)
 	if !ok {
-		return "", fmt.Errorf("project %q has no id", project)
+		return "", "", fmt.Errorf("project %q has no id", project)
 	}
 	if id, ok := r.roster.StandingSessionID(pid, role, name); ok {
-		return id, nil
+		return id, pid, nil
 	}
 	if !mint {
-		return "", nil
+		return "", pid, nil
 	}
 	id := string(ident.New(ident.Session))
 	if err := r.roster.PutStandingSession(pid, role, name, id); err != nil {
-		return "", fmt.Errorf("recording the new session: %w", err)
+		return "", "", fmt.Errorf("recording the new session: %w", err)
 	}
 	r.log.Info("standing: new session", "id", id, "project", project, "role", role, "name", name)
-	return id, nil
+	return id, pid, nil
 }
 
 // Tick runs one reconcile pass: finish pending resets, advance pending
@@ -238,15 +258,15 @@ func (r *Reconciler) Tick(ctx context.Context) {
 
 	declared := map[declKey]bool{}
 	declaredIDs := map[string]bool{}
-	pids := map[ident.ID]string{} // project id → name, for the map's entries
 	for _, project := range r.roster.ListProjects() {
-		if pid, ok := r.roster.LookupName(ident.Project, project); ok {
-			pids[pid] = project
+		pid, ok := r.roster.LookupName(ident.Project, project)
+		if !ok {
+			continue // no id yet: nothing of it can be declared by id
 		}
 		for _, role := range r.roster.ListRoles(project) {
 			for _, s := range role.Allocation.Standing {
-				declared[declKey{project, role.Name, s.Name}] = true
-				id, err := r.sessionID(project, role.Name, s.Name, true)
+				declared[declKey{string(pid), role.Name, s.Name}] = true
+				id, _, err := r.sessionID(project, role.Name, s.Name, true)
 				if err != nil {
 					r.log.Warn("standing: no session for declaration", "project", project, "role", role.Name, "name", s.Name, "err", err.Error())
 					continue
@@ -260,7 +280,7 @@ func (r *Reconciler) Tick(ctx context.Context) {
 	// session ends (its state is swept below). While a studio still holds it
 	// (a teardown failed), a re-declared name adopts that studio.
 	for _, e := range r.roster.ListStandingSessions() {
-		if declared[declKey{pids[e.ProjectID], e.Role, e.Name}] || r.resetting[e.SessionID] {
+		if declared[declKey{string(e.ProjectID), e.Role, e.Name}] || r.resetting[e.SessionID] {
 			continue
 		}
 		if _, live := byID[e.SessionID]; live {
@@ -278,7 +298,7 @@ func (r *Reconciler) Tick(ctx context.Context) {
 		if !teardownable(declaredIDs, id) {
 			continue // the declaration's current session (re-declared while dismissed)
 		}
-		if name, ok := pids[ident.ID(inst.Project)]; ok && declared[declKey{name, inst.Role, inst.Name}] || declared[declKey{inst.Project, inst.Role, inst.Name}] {
+		if pid, ok := r.instProjectID(inst.Project); ok && declared[declKey{string(pid), inst.Role, inst.Name}] {
 			continue
 		}
 		if err := r.sup.Teardown(ctx, inst.ActorID); err != nil {
@@ -323,7 +343,7 @@ func (r *Reconciler) sweep(ctx context.Context, declaredIDs map[string]bool) {
 func (r *Reconciler) ResetStanding(ctx context.Context, project, role, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	id, err := r.sessionID(project, role, name, false)
+	id, pid, err := r.sessionID(project, role, name, false)
 	if err != nil {
 		return err
 	}
@@ -333,7 +353,7 @@ func (r *Reconciler) ResetStanding(ctx context.Context, project, role, name stri
 	delete(r.backoff, id)
 	r.stMu.Lock()
 	r.resetting[id] = true
-	r.resetKeys[id] = declKey{project, role, name}
+	r.resetKeys[id] = declKey{string(pid), role, name}
 	delete(r.upgrades, id) // the reset raises it fresh, on the current image
 	r.stMu.Unlock()
 	r.log.Info("standing: reset requested", "id", id, "project", project, "role", role, "name", name)
@@ -349,7 +369,7 @@ func (r *Reconciler) QueueUpgrade(project, role, name string, force bool) error 
 	if _, ok := r.declaration(project, role, name); !ok {
 		return fmt.Errorf("%w: %q on role %s/%s", jam.ErrStandingNotDeclared, name, project, role)
 	}
-	id, err := r.sessionID(project, role, name, false)
+	id, pid, err := r.sessionID(project, role, name, false)
 	if err != nil {
 		return err
 	}
@@ -364,7 +384,7 @@ func (r *Reconciler) QueueUpgrade(project, role, name string, force bool) error 
 	if u, ok := r.upgrades[id]; ok {
 		u.force = u.force || force
 	} else {
-		r.upgrades[id] = &upgrade{project: project, role: role, name: name, force: force, state: jam.UpgradeQueued}
+		r.upgrades[id] = &upgrade{project: string(pid), role: role, name: name, force: force, state: jam.UpgradeQueued}
 	}
 	r.stMu.Unlock()
 	r.log.Info("standing: upgrade queued", "id", id, "force", force)
@@ -375,7 +395,7 @@ func (r *Reconciler) QueueUpgrade(project, role, name string, force bool) error 
 // UpgradeState is the name's pending upgrade state ("" none); see
 // jam.StandingUpgrader.
 func (r *Reconciler) UpgradeState(project, role, name string) string {
-	id, _ := r.sessionID(project, role, name, false)
+	id, _, _ := r.sessionID(project, role, name, false)
 	r.stMu.Lock()
 	defer r.stMu.Unlock()
 	if u, ok := r.upgrades[id]; ok && id != "" {
@@ -437,20 +457,24 @@ func (r *Reconciler) advanceUpgrades(ctx context.Context) {
 //     next pass retries. Then clear the backoff and the upgrade, and raise —
 //     a raise failure backs the name off as usual.
 func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, insts map[string]jam.Instance) {
-	s, ok := r.declaration(u.project, u.role, u.name)
+	project, ok := r.projectName(u.project)
+	var s jam.StandingSession
+	if ok {
+		s, ok = r.declaration(project, u.role, u.name)
+	}
 	if !ok || r.resetting[id] {
 		r.dropUpgrade(id)
 		r.log.Info("standing: upgrade dropped (name dismissed or reset)", "id", id)
 		return
 	}
-	cur, err := r.sup.CurrentImage(u.project, u.role)
+	cur, err := r.sup.CurrentImage(project, u.role)
 	if err != nil {
 		r.setUpgrade(id, jam.UpgradeError, "resolving the current image: "+err.Error())
 		return
 	}
 	if key := cur.Key(); cur.HasKit && u.readyKey != key {
 		if !u.preparing {
-			r.startPrepare(ctx, id, u)
+			r.startPrepare(ctx, id, project, u.role)
 		}
 		r.stMu.Lock()
 		if p, ok := r.upgrades[id]; ok {
@@ -460,7 +484,7 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 		return
 	}
 	if inst, live := insts[id]; live {
-		if inst.SessionKind != jam.SessionKindStanding || !r.sameProject(inst.Project, u.project) || inst.Role != u.role || inst.Name != u.name {
+		if inst.SessionKind != jam.SessionKindStanding || !r.sameProject(inst.Project, project) || inst.Role != u.role || inst.Name != u.name {
 			r.setUpgrade(id, jam.UpgradeError, "actor id held by another cove")
 			return
 		}
@@ -476,23 +500,23 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 	}
 	delete(r.backoff, id)
 	r.dropUpgrade(id)
-	if err := r.ensure(ctx, id, u.project, u.role, s, map[string]jam.Instance{}); err != nil {
+	if err := r.ensure(ctx, id, project, u.role, s, map[string]jam.Instance{}); err != nil {
 		r.log.Warn("standing: upgrade re-raise failed", "id", id, "err", err.Error())
 		return
 	}
 	r.log.Info("standing: session upgraded", "id", id, "image", cur.Key())
 }
 
-// startPrepare runs PrepareImage for u's role off the lock, recording the
-// outcome on id's upgrade and kicking a pass.
-func (r *Reconciler) startPrepare(ctx context.Context, id string, u upgrade) {
+// startPrepare runs PrepareImage for (project, role) off the lock, recording
+// the outcome on id's upgrade and kicking a pass.
+func (r *Reconciler) startPrepare(ctx context.Context, id, project, role string) {
 	r.stMu.Lock()
 	if p, ok := r.upgrades[id]; ok {
 		p.preparing = true
 	}
 	r.stMu.Unlock()
 	r.spawn(func() {
-		cur, st, err := r.sup.PrepareImage(ctx, u.project, u.role)
+		cur, st, err := r.sup.PrepareImage(ctx, project, role)
 		r.stMu.Lock()
 		if p, ok := r.upgrades[id]; ok {
 			p.preparing = false
@@ -545,11 +569,10 @@ func (r *Reconciler) finishReset(ctx context.Context, id string) error {
 		return fmt.Errorf("purge state: %w", err)
 	}
 	if k, ok := r.resetKeys[id]; ok {
-		if pid, ok := r.roster.LookupName(ident.Project, k.project); ok {
-			if cur, ok := r.roster.StandingSessionID(pid, k.role, k.name); ok && cur == id {
-				if err := r.roster.RemoveStandingSession(pid, k.role, k.name); err != nil {
-					return fmt.Errorf("ending the session: %w", err)
-				}
+		pid := ident.ID(k.project)
+		if cur, ok := r.roster.StandingSessionID(pid, k.role, k.name); ok && cur == id {
+			if err := r.roster.RemoveStandingSession(pid, k.role, k.name); err != nil {
+				return fmt.Errorf("ending the session: %w", err)
 			}
 		}
 	}

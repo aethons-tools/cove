@@ -234,6 +234,10 @@ func (s *PostgresStore) load(ctx context.Context) error {
 		if err := json.Unmarshal(doc, &p); err != nil {
 			return err
 		}
+		if p.Status == StatusRemoved {
+			s.removedProjects[p.ID] = p
+			return nil
+		}
 		s.projects[p.Name] = p
 		return nil
 	}); err != nil {
@@ -572,13 +576,47 @@ func (s *PostgresStore) CreateProject(name string) error {
 func (s *PostgresStore) RemoveProject(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.checkRemoveProject(name); err != nil {
+	name, err := s.checkRemoveProject(name)
+	if err != nil {
 		return err
 	}
-	if err := s.exec("RemoveProject", `DELETE FROM projects WHERE name = $1`, name); err != nil {
+	p := s.projects[name]
+	tomb := p
+	tomb.Status = StatusRemoved
+	channels := s.projectChannels(p.ID)
+	if err := s.registryTx("RemoveProject", func(ctx context.Context, tx pgx.Tx) error {
+		if err := putProjectRowTx(ctx, tx, tomb); err != nil {
+			return err
+		}
+		for _, c := range channels {
+			c.Status = StatusArchived
+			if err := putChannelTx(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	s.applyRemoveProject(name)
+	return nil
+}
+
+func (s *PostgresStore) RenameProject(ref, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.checkRenameProject(ref, name)
+	if err != nil {
+		return err
+	}
+	renamed := p
+	renamed.Name = name
+	if err := s.registryTx("RenameProject", func(ctx context.Context, tx pgx.Tx) error {
+		return putProjectRowTx(ctx, tx, renamed)
+	}); err != nil {
+		return err
+	}
+	s.applyRenameProject(p, name)
 	return nil
 }
 

@@ -38,11 +38,28 @@ type projectRow struct {
 }
 
 // projectRef is the first thing (deterministically) that keeps project from
-// being removed: a role in it, else an actor's grant into it. Mirrors the
-// store's refusal, which only roles and grants trigger.
+// being removed: a member, a standing-session entry, a role in it, a session
+// not yet gone, or an actor's grant into it. Mirrors the store's refusal.
 func projectRef(store jam.Store, project string) string {
+	p, ok := store.GetProject(project)
+	if !ok {
+		return ""
+	}
+	if n := len(store.ListMembers(p.ID)); n > 0 {
+		return fmt.Sprintf("%d member(s)", n)
+	}
+	for _, e := range store.ListStandingSessions() {
+		if e.ProjectID == p.ID {
+			return fmt.Sprintf("standing session %s/%s", e.Role, e.Name)
+		}
+	}
 	if roles := store.ListRoles(project); len(roles) > 0 {
 		return fmt.Sprintf("role %s/%s", project, roles[0].Name)
+	}
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != jam.PhaseGone && jam.SameProject(store, inst.Project, project) {
+			return "live session " + inst.ActorID
+		}
 	}
 	for _, a := range store.ListActors() {
 		for _, g := range a.Grants {
@@ -115,7 +132,7 @@ type projectDetail struct {
 
 func buildProjectDetail(store jam.Store, img jam.ImageResolver, name string) (projectDetail, bool) {
 	p, ok := store.GetProject(name)
-	if !ok {
+	if !ok || p.Status == jam.StatusRemoved {
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: "Projects", Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
@@ -187,6 +204,24 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		log.Info("ui project created", "operator", jam.OperatorID(r), "project", name)
 		w.Header().Set("HX-Redirect", projectURL(name))
 		renderFragment(w, "projects", "projects-table", projectTableData(store))
+	})
+
+	mux.HandleFunc("POST /ui/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		old, name := r.PathValue("name"), strings.TrimSpace(r.FormValue("name"))
+		if err := store.RenameProject(old, name); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
+			return
+		}
+		log.Info("ui project renamed", "operator", jam.OperatorID(r), "project", old, "name", name)
+		w.Header().Set("HX-Redirect", projectURL(name))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("DELETE /ui/projects/{name}", func(w http.ResponseWriter, r *http.Request) {

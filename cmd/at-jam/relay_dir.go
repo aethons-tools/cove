@@ -36,7 +36,7 @@ func (d *directory) debug(msg string, args ...any) {
 	}
 }
 
-// Projects lists the projects a relay engine polls. Discord covers every
+// Projects lists the projects a relay engine polls, by id. Discord covers every
 // project whose chat service is discord, plus the Requisitioner's project;
 // Linear's feed is team-wide, polled once under the Requisitioner's project.
 func (d *directory) Projects(service string) []string {
@@ -46,9 +46,9 @@ func (d *directory) Projects(service string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, name := range d.store.ListProjects() {
-		if p, ok := d.store.GetProject(name); ok && jam.ChatKind(d.store, p) == "discord" && !seen[name] {
-			seen[name] = true
-			out = append(out, name)
+		if p, ok := d.store.GetProject(name); ok && jam.ChatKind(d.store, p) == "discord" && !seen[string(p.ID)] {
+			seen[string(p.ID)] = true
+			out = append(out, string(p.ID)) // by id: cursors outlive a rename
 		}
 	}
 	if d.project != "" && !seen[d.project] {

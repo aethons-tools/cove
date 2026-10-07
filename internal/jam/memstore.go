@@ -110,10 +110,22 @@ func (fs *MemStore) CreateProject(name string) error {
 func (fs *MemStore) RemoveProject(name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if err := fs.checkRemoveProject(name); err != nil {
+	name, err := fs.checkRemoveProject(name)
+	if err != nil {
 		return err
 	}
 	fs.applyRemoveProject(name)
+	return nil
+}
+
+func (fs *MemStore) RenameProject(ref, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, err := fs.checkRenameProject(ref, name)
+	if err != nil {
+		return err
+	}
+	fs.applyRenameProject(p, name)
 	return nil
 }
 

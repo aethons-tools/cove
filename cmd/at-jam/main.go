@@ -81,7 +81,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
@@ -539,7 +539,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // subcommands nest under "chat-service" and are handled by
 // cmdProjectChatService: `project chat-service set|clear|show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm") {
+	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm" || args[0] == "rename") {
 		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
 	}
 	if len(args) >= 1 && args[0] == "escalation" {
@@ -551,7 +551,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "member" {
 		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: at-jam room)")
+	fmt.Fprintln(stderr, "at-jam project: expected create|list|rename|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: at-jam room)")
 	return 2
 }
 
@@ -643,10 +643,13 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	if !ok {
 		return code
 	}
-	if want := map[string]int{"create": 1, "list": 0, "rm": 1}[sub]; len(pos) != want {
-		if want == 1 {
+	if want := map[string]int{"create": 1, "list": 0, "rm": 1, "rename": 2}[sub]; len(pos) != want {
+		switch want {
+		case 2:
+			fmt.Fprintf(stderr, "at-jam project %s: expected <project> <new-name>\n", sub)
+		case 1:
 			fmt.Fprintf(stderr, "at-jam project %s: expected <project>\n", sub)
-		} else {
+		default:
 			fmt.Fprintf(stderr, "at-jam project %s: unexpected arguments\n", sub)
 		}
 		return 2
@@ -670,6 +673,12 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed project", pos[0])
+	case "rename":
+		if err := c.RenameProject(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "renamed project", pos[0], "to", pos[1])
 	case "list":
 		names, err := c.ListProjects()
 		if err != nil {
@@ -1846,7 +1855,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		ledger = as
 	}
-	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner), ledger)
+	var reqProject string // the Requisitioner's project, by id
+	if cfg.Runtime.Requisitioner != nil {
+		reqProject = resolveRequisitionerProject(st, cfg.Runtime.Requisitioner, log)
+	}
+	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner, reqProject), ledger)
 	alloc.SetProjectKey(func(ref string) string {
 		if id, ok := jam.ProjectIDOf(st, ref); ok {
 			return string(id)
@@ -2028,7 +2041,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → Requisitioner default
 		// The Requisitioner's (project, role), normalized the same way as the
 		// Allocator's fallback (see requisitionerProject).
-		project := requisitionerProject(dc)
+		project := reqProject
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
 			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
@@ -2049,7 +2062,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if err != nil {
 			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 		}
-		dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
+		dir.project = reqProject // by id: the relays' cursors and polling outlive a rename
 		dir.selfIdentity = self
 		surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 		// Seed once: skip everything the 1a dual-write already delivered live,

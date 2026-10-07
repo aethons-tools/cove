@@ -75,6 +75,7 @@
 - **`RemoveProject` tombstones.** The id keeps resolving as "name (removed)", and the name is freed.
 - **`RenameProject`** is a single-row update. Admin API `PUT /admin/projects/{p}/name`, `at-jam project rename`, and the UI.
 - **`legacy_human_aliases`** stays keyed by project *name* at the time of migration (frozen history), so it needs no rewrite.
+- **As built (2026-10-07):** migration `0014` makes `projects` keyed by id, with a `status` column and a unique index on live names. The store keeps tombstones apart from live projects. Removal archives the project's channels; it no longer deletes them, so history keeps its labels.
 
 ## Decided in review (2026-10-06)
 

@@ -358,8 +358,29 @@ func insertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO projects (name, id, doc) VALUES ($1,$2,$3)`, p.Name, p.ID, doc)
+	_, err = tx.Exec(ctx, `INSERT INTO projects (name, id, doc, status) VALUES ($1,$2,$3,$4)`, p.Name, p.ID, doc, projectStatus(p))
 	return err
+}
+
+// putProjectRowTx updates an existing project's row (by id): its name, doc
+// and status.
+func putProjectRowTx(ctx context.Context, tx pgx.Tx, p Project) error {
+	p.Roster.Humans = nil
+	doc, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE projects SET name = $2, doc = $3, status = $4, version = version + 1, updated_at = now() WHERE id = $1`,
+		p.ID, p.Name, doc, projectStatus(p))
+	return err
+}
+
+// projectStatus is a project's status column value.
+func projectStatus(p Project) string {
+	if p.Status == "" {
+		return string(StatusLive)
+	}
+	return string(p.Status)
 }
 
 // upsertProjectTx writes a project row by name, keeping its id column in step
@@ -374,9 +395,9 @@ func upsertProjectTx(ctx context.Context, tx pgx.Tx, p Project) error {
 		return err
 	}
 	_, err = tx.Exec(ctx,
-		`INSERT INTO projects (name, id, doc) VALUES ($1,$2,$3)
-		 ON CONFLICT (name) DO UPDATE SET id = EXCLUDED.id, doc = EXCLUDED.doc, version = projects.version + 1, updated_at = now()`,
-		p.Name, p.ID, doc)
+		`INSERT INTO projects (name, id, doc, status) VALUES ($1,$2,$3,$4)
+		 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, doc = EXCLUDED.doc, status = EXCLUDED.status, version = projects.version + 1, updated_at = now()`,
+		p.Name, p.ID, doc, projectStatus(p))
 	return err
 }
 
@@ -393,7 +414,7 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 		}
 		if err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 			var have *string
-			if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE name = $1 FOR UPDATE`, name).Scan(&have); err != nil {
+			if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE name = $1 AND status = 'live' FOR UPDATE`, name).Scan(&have); err != nil {
 				return err
 			}
 			if have != nil {
@@ -408,7 +429,7 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			_, err = tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3`, p.ID, doc, name)
+			_, err = tx.Exec(ctx, `UPDATE projects SET id = $1, doc = $2 WHERE name = $3 AND status = 'live'`, p.ID, doc, name)
 			return err
 		}); err != nil {
 			return fmt.Errorf("pgstore: backfill project id for %q: %w", name, err)

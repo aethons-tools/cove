@@ -62,7 +62,7 @@ func (m *memState) ListStandingSessions() []StandingSessionRef {
 
 // preparePutStandingSession validates an entry. Caller holds mu.
 func (m *memState) preparePutStandingSession(project ident.ID, role, name, sessionID string) error {
-	if _, ok := m.projectByID(project); !ok {
+	if _, ok := m.liveProjectByID(project); !ok {
 		return fmt.Errorf("%w: %s", ErrProjectNotFound, project)
 	}
 	if role == "" || name == "" || sessionID == "" {

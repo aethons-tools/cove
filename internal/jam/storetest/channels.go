@@ -285,18 +285,27 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		}
 	})
 
-	t.Run("project_removal_removes_its_channels", func(t *testing.T) {
+	t.Run("project_removal_archives_its_channels", func(t *testing.T) {
 		s, p, c := setup(t)
 		ch := mustChannel(t, s, room(p, "eng", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
 		if err := s.RemoveProject("acme"); err != nil {
 			t.Fatalf("RemoveProject: %v", err)
 		}
-		if _, ok := s.GetChannel(ch.ID); ok {
-			t.Fatal("a removed project's channels go with it")
+		if got, ok := s.GetChannel(ch.ID); !ok || got.Status != jam.StatusArchived {
+			t.Fatalf("a removed project's channels are archived, history kept: %+v, %v", got, ok)
 		}
 		if _, ok := s.ChannelByBinding(c.ID, "ACME-1"); ok {
-			t.Fatal("their bindings too")
+			t.Fatal("their bindings take no more ingress")
 		}
+		// The ref is free for the project created under the old name.
+		if err := s.CreateProject("acme"); err != nil {
+			t.Fatal(err)
+		}
+		again, _ := s.GetProject("acme")
+		if again.ID == p.ID {
+			t.Fatal("a project created under a removed one's name is a new project")
+		}
+		mustChannel(t, s, room(again, "eng", jam.Binding{ConnectionID: c.ID, Ref: "ACME-1", Mode: jam.BindBoth}))
 	})
 
 	t.Run("connection_in_use_by_a_binding", func(t *testing.T) {

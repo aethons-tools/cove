@@ -266,7 +266,7 @@ func (m *memState) prepareCreateChannel(c Channel) (Channel, error) {
 		return Channel{}, fmt.Errorf("%w: id %s", ErrChannelExists, id)
 	}
 	c.ID, c.Status = id, StatusLive
-	if _, ok := m.projectByID(c.ProjectID); !ok {
+	if _, ok := m.liveProjectByID(c.ProjectID); !ok {
 		return Channel{}, fmt.Errorf("%w: %s", ErrProjectNotFound, c.ProjectID)
 	}
 	if !slices.Contains(sourceKinds, c.Kind) {
@@ -366,6 +366,9 @@ func (m *memState) prepareReopenChannel(id ident.ID) (Channel, error) {
 		return Channel{}, fmt.Errorf("%w: %s", ErrChannelNotFound, id)
 	}
 	c = copyChannel(c)
+	if _, live := m.liveProjectByID(c.ProjectID); !live {
+		return Channel{}, fmt.Errorf("%w: %s", ErrProjectNotFound, c.ProjectID)
+	}
 	if err := m.checkChannelKey(c.ProjectID, c.Kind, c.Key, c.ID); err != nil {
 		return Channel{}, err
 	}
@@ -423,13 +426,26 @@ func (m *memState) applyLeaveChannel(ch, p ident.ID, seq int64) {
 
 // applyDropProjectChannels removes a removed project's channels and their
 // memberships (the project's rows cascade the same way in Postgres).
-func (m *memState) applyDropProjectChannels(project ident.ID) {
+// applyArchiveProjectChannels archives a removed project's live channels:
+// their history stays readable. Caller holds mu.
+func (m *memState) applyArchiveProjectChannels(project ident.ID) {
 	for id, c := range m.channels {
-		if c.ProjectID == project {
-			delete(m.channels, id)
-			delete(m.chanMembers, id)
+		if c.ProjectID == project && c.Status == StatusLive {
+			c.Status = StatusArchived
+			m.channels[id] = c
 		}
 	}
+}
+
+// projectChannels lists project's live channels. Caller holds mu.
+func (m *memState) projectChannels(project ident.ID) []Channel {
+	var out []Channel
+	for _, c := range m.channels {
+		if c.ProjectID == project && c.Status == StatusLive {
+			out = append(out, copyChannel(c))
+		}
+	}
+	return out
 }
 
 func copyChannel(c Channel) Channel {
