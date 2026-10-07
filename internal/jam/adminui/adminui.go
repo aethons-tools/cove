@@ -27,14 +27,13 @@ var files embed.FS
 // highlights; mustParseTab also names the section sub-tab it sits under.
 var pages = map[string]*template.Template{
 	"dashboard":    mustParse(navDashboard, "coves.html", "context_panel.html", "dashboard.html"),
-	"coves":        mustParseTab(navAgents, "/ui/coves", "coves.html"),
-	"roster":       mustParseTab(navAgents, "/ui/actors", "roster.html"),
+	"agents":       mustParse(navAgents, "agents.html"),
 	"users":        mustParse(navUsers, "users.html"),
 	"user":         mustParse(navUsers, "user.html"),
 	"kits":         mustParseTab(navSpecs, "/ui/kits", "kits.html"),
 	"destinations": mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destinations.html"),
 	"intercom":     mustParse(navIntercom, "squawks.html", "intercom.html"),
-	"session":      mustParseTab(navAgents, "/ui/coves", "session.html"),
+	"session":      mustParse(navAgents, "session.html"),
 	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "projtree.html", "role.html"),
 	"destination":  mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destination.html"),
 	"model-specs":  mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_specs.html"),
@@ -42,7 +41,7 @@ var pages = map[string]*template.Template{
 	"kit":          mustParseTab(navSpecs, "/ui/kits", "kit.html"),
 	"projects":     mustParse(navProjects, "projects.html"),
 	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "squawks.html", "projtree.html", "project.html"),
-	"studio":       mustParseTab(navAgents, "/ui/coves", "studio.html"),
+	"agent":        mustParse(navAgents, "agent.html"),
 	"search":       mustParse(navNone, "search.html"),
 }
 
@@ -89,16 +88,6 @@ func mustParseTab(section navSection, tab string, names ...string) *template.Tem
 	}).ParseFS(files, paths...))
 }
 
-// covesData and rosterData are the payloads of those pages and
-// their swapped tables.
-func covesData(store jam.Store, img jam.ImageResolver, canEdit bool) map[string]any {
-	return map[string]any{"Coves": jam.CoveSummaries(store, img), "CanEdit": canEdit}
-}
-
-func rosterData(store jam.Store) map[string]any {
-	return map[string]any{"Actors": jam.RosterSummaries(store)}
-}
-
 // funcs are the template helpers shared by every page.
 var funcs = template.FuncMap{
 	// ttl renders a role TTL compactly, or "—" when unset.
@@ -109,6 +98,7 @@ var funcs = template.FuncMap{
 		return fmtDur(d)
 	},
 	"roleURL":    roleURL,
+	"agentURL":   agentURL,
 	"navItems":   func() []navItem { return navItems },
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
@@ -136,7 +126,7 @@ type options struct {
 	poolConfigured bool
 }
 
-// WithSessions enables the live session-event timeline (/ui/coves/{id}/session).
+// WithSessions enables the live session-event timeline (/ui/agents/{id}/session).
 func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 	return func(o *options) { o.sessStore, o.sessHub = store, hub }
 }
@@ -164,6 +154,10 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	mux.Handle("GET /ui/static/", uiassets.Handler("/ui/static/"))
 
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("HX-Request") == "true" { // the studio table's poll
+			renderFragment(w, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
+			return
+		}
 		render(w, "dashboard", map[string]any{
 			"Title":      "Dashboard",
 			"Coves":      jam.CoveSummaries(store, sup),
@@ -172,21 +166,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		})
 	})
 
-	mux.HandleFunc("GET /ui/coves", func(w http.ResponseWriter, r *http.Request) {
-		data := covesData(store, sup, canEdit)
-		data["Title"] = "Studios"
-		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, "coves", "coves-table", data)
-			return
-		}
-		render(w, "coves", data)
-	})
-
-	mux.HandleFunc("GET /ui/actors", func(w http.ResponseWriter, r *http.Request) {
-		data := rosterData(store)
-		data["Title"] = "Actors"
-		render(w, "roster", data)
-	})
+	registerAgents(mux, store, sup, canEdit)
 	// The global roles list and role pages moved into the project tree.
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/ui/projects")
@@ -201,7 +181,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
-	registerStudio(mux, store, msgs, o.sessStore, canEdit)
+	registerAgent(mux, store, msgs, o.sessStore, canEdit)
 	registerSearch(mux, store, msgs)
 	registerSuggest(mux, store, o.credNames)
 

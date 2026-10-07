@@ -60,7 +60,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	for _, want := range []string{
 		`href="/ui/projects/zephyr-labs"`,           // project by name
 		`href="/ui/projects/acme/roles/zephyr-dev"`, // role by name
-		`href="/ui/coves/studio-7"`,                 // studio by role
+		`href="/ui/agents/studio-7"`,                // studio by role
 		"bot-<mark>zephyr</mark>",                   // actor by id
 		"human:zoe",                                 // human by handle
 		"channel:ops",                               // channel by ref
@@ -94,7 +94,7 @@ func TestSearchLiveFragment(t *testing.T) {
 func TestSearchExactMatchJumps(t *testing.T) {
 	h := searchFixture(t)
 	for q, want := range map[string]string{
-		"studio-7":        "/ui/coves/studio-7",
+		"studio-7":        "/ui/agents/studio-7",
 		"web":             "/ui/kits/web",
 		"acme/zephyr-dev": "/ui/projects/acme/roles/zephyr-dev",
 	} {

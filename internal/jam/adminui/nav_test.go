@@ -36,8 +36,8 @@ func TestTopNavSections(t *testing.T) {
 	for path, section := range map[string]string{
 		"/ui/projects/acme/roles/dev": "Projects",
 		"/ui/projects/acme/members":   "Projects",
-		"/ui/coves":                   "Agents",
-		"/ui/actors":                  "Agents",
+		"/ui/agents":                  "Agents",
+		"/ui/agents/studio-acme":      "Agents",
 		"/ui/kits":                    "Specs",
 		"/ui/model-specs":             "Specs",
 		"/ui/users":                   "Users",
@@ -58,14 +58,11 @@ func TestTopNavSections(t *testing.T) {
 // the current page's tab marked; other sections show none.
 func TestSectionSubTabs(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	agents := []string{`href="/ui/coves"`, `href="/ui/actors"`}
 	specs := []string{`href="/ui/kits"`, `href="/ui/destinations"`, `href="/ui/model-specs"`}
 	for path, c := range map[string]struct {
 		tabs    []string
 		current string
 	}{
-		"/ui/coves":        {agents, "Studios"},
-		"/ui/actors":       {agents, "Actors"},
 		"/ui/kits":         {specs, "Kits"},
 		"/ui/destinations": {specs, "Destinations"},
 		"/ui/model-specs":  {specs, "Model-specs"},

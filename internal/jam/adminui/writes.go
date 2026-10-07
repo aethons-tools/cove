@@ -115,7 +115,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui enrolled", "operator", jam.OperatorID(r), "id", id, "project", project, "role", role)
-		renderFragment(w, "roster", "enroll-result", map[string]any{"ID": id, "Token": token})
+		renderFragment(w, "agents", "enroll-result", map[string]any{"ID": id, "Token": token})
 	})
 
 	mux.HandleFunc("DELETE /ui/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui revoked", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page navigates to the agents list on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/roles", func(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +221,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant added", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page reloads on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("DELETE /ui/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +234,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant removed", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page reloads on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +286,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", sid, "label", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
+		renderFragment(w, "agents", "agents-table", newAgentsData(store, sup, "", true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +303,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove torn down", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
+		// Pages that offer Teardown reload on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 }

@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
-<div class="page-head"><h1>Studio not found</h1></div>
-<div class="banner">Nothing is known about studio <span class="mono">{{.ID}}</span> — it isn't running and has no session or squawks. <a href="/ui/coves">Back to studios</a></div>
+<div class="page-head"><h1>Agent not found</h1></div>
+<div class="banner">Nothing is known about agent <span class="mono">{{.ID}}</span> — it isn't enrolled, isn't running and has no session or squawks. <a href="/ui/agents">Back to agents</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -30,31 +30,66 @@
   td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/coves">Studios</a></div>
+<div class="crumbs"><a href="/ui/agents">Agents</a> / <a href="{{agentURL .ID}}">{{.ID}}</a></div>
 <div class="page-head">
   <h1 class="mono">{{.ID}}</h1>
   {{if .Running}}
   {{template "phase" .Inst.Phase}}
   <div class="facts">
     {{if .Inst.Activity}}<span>{{.Inst.Activity}}</span>{{end}}
-    <span class="chip">{{.Kind}}{{if .Inst.Owner}} · {{.Inst.Owner}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
+    <span class="chip">{{$.Kind}}{{if .Inst.Owner}} · {{.Inst.Owner}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
     <a class="chip" href="{{projectURL .Inst.Project}}">{{.Inst.Project}}</a>
     <a class="chip" href="{{roleURL .Inst.Project .Inst.Role}}">{{.Inst.Role}}</a>
     {{if .Inst.Unit}}<span class="mono">{{.Inst.Unit}}</span>{{end}}
   </div>
-  {{end}}
+  {{else}}<span class="chip">{{.Kind}}</span>{{end}}
   <span class="spacer"></span>
-  {{if .SessionsEnabled}}<a class="btn" href="/ui/coves/{{.ID}}/session">Open live timeline</a>{{end}}
+  {{if .SessionsEnabled}}<a class="btn" href="{{agentURL .ID}}/session">Open live timeline</a>{{end}}
   {{if and .Running .CanEdit}}<button class="danger" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
       hx-confirm="Tear down {{.ID}}?"
       hx-on::after-request="if(event.detail.successful) location.reload()">Teardown</button>{{end}}
+  {{if .HasActor}}<button class="danger" hx-delete="/ui/enrollments/{{.ID}}" hx-swap="none"
+      hx-confirm="Revoke {{.ID}}? This invalidates its token."
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Revoke</button>{{end}}
 </div>
 
 {{if not .Running}}
-<div class="banner">This studio is not running — it was torn down and left the registry. Its session and squawks remain below as an audit trail.</div>
+<div class="banner">{{if .HasActor}}No studio is running for this agent.{{else}}This agent's studio is not running — it was torn down and left the registry.{{end}} Its session and squawks, if any, remain below as an audit trail.</div>
 {{end}}
 
 <div class="sections">
+  <section class="card full">
+    <header><h2>Identity</h2><span class="sub">the grants this agent's token carries</span></header>
+    <div class="body">
+    {{if .HasActor}}{{$id := .ID}}
+      <div>
+      {{range .Actor.Grants}}
+        <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}"><a href="{{roleURL .Project .Role}}" style="color:inherit">{{.Project}}/{{.Role}}</a>
+          <button type="button" aria-label="Remove grant" hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-swap="none"
+            hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?" hx-on::after-request="if(event.detail.successful) location.reload()">×</button></span>
+      {{else}}<span class="unset">no grants</span>{{end}}
+      </div>
+      <dl class="kv" style="margin-top:10px"><dt>Token expiry</dt><dd>{{if .Actor.Expiry.IsZero}}<span class="unset">none</span>{{else}}<time title="{{.Actor.Expiry.Format "2006-01-02 15:04:05 MST"}}">{{.Actor.Expiry.Format "2006-01-02"}}</time>{{end}}</dd></dl>
+      <details class="grant-add">
+        <summary>+ Grant</summary>
+        <form hx-post="/ui/actors/{{$id}}/grants" hx-swap="none" hx-on::after-request="if(event.detail.successful) location.reload()">
+          <input name="role" data-ta="roles" data-ta-project="@form" placeholder="role" required autocomplete="off" aria-label="Role">
+          {{template "project-select"}}
+          <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" placeholder="overrides, e.g. git=git-pat" autocomplete="off" spellcheck="false" aria-label="Destination overrides">
+          <button type="submit" class="primary small">Add</button>
+        </form>
+      </details>
+<style>
+  details.grant-add{display:inline-block;vertical-align:middle}
+  details.grant-add>summary{display:inline-block;cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--accent);padding:2px 6px;border-radius:6px}
+  details.grant-add>summary::-webkit-details-marker{display:none}
+  details.grant-add[open]{display:block;margin-top:8px}
+  details.grant-add form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  details.grant-add input,details.grant-add select{width:auto;flex:1 1 140px;padding:5px 8px}
+</style>
+    {{else}}<span class="unset">Not enrolled — no identity token or grants (its studio's token was released, or it was revoked).</span>{{end}}
+    </div>
+  </section>
   {{if .Running}}{{with .Inst}}
   <section class="card">
     <header><h2>Runtime</h2></header>
@@ -99,7 +134,7 @@
       <thead><tr><th>Stream</th><th>Started</th><th>Last event</th><th>Events</th></tr></thead>
       <tbody>
         {{range .Streams}}<tr>
-          <td><a class="mono" href="/ui/coves/{{$.ID}}/session?stream={{.StreamID}}">{{slice .StreamID 0 12}}</a></td>
+          <td><a class="mono" href="{{agentURL $.ID}}/session?stream={{.StreamID}}">{{slice .StreamID 0 12}}</a></td>
           <td><time title="{{.FirstAt.Format "2006-01-02 15:04:05 MST"}}">{{.FirstAt.Format "Jan 2 15:04"}}</time></td>
           <td><time title="{{.LastAt.Format "2006-01-02 15:04:05 MST"}}">{{.LastAt.Format "Jan 2 15:04:05"}}</time></td>
           <td>{{.Events}} event(s)</td></tr>

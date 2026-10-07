@@ -91,7 +91,7 @@ func buildProjectTree(store jam.Store, img jam.ImageResolver, project string, se
 				}
 				if ph := jam.Phase(c.Phase); ph == jam.PhaseLive || ph == jam.PhaseRaising {
 					live++
-					n.Children = append(n.Children, treeLeaf{Label: c.ID, Href: "/ui/coves/" + url.PathEscape(c.ID), Phase: c.Phase})
+					n.Children = append(n.Children, treeLeaf{Label: c.ID, Href: agentURL(c.ID), Phase: c.Phase})
 				}
 			}
 			if live > 0 {

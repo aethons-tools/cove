@@ -81,7 +81,7 @@ func TestSquawksNotConfigured(t *testing.T) {
 }
 
 func TestSquawksNavLinkPresentOnOtherPages(t *testing.T) {
-	body := get(t, squawkHandler(t, newIntercomLog(t)), "/ui/coves").Body.String()
+	body := get(t, squawkHandler(t, newIntercomLog(t)), "/ui/agents").Body.String()
 	if !strings.Contains(body, `href="/ui/intercom"`) {
 		t.Errorf("nav should link to /ui/intercom; got:\n%s", body)
 	}

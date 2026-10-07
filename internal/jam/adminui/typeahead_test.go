@@ -23,11 +23,7 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 	log := newIntercomLog(t, intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, log)
 	for page, wants := range map[string][]string{
-		"/ui/coves": {
-			`name="project" data-ta="projects"`,
-			`name="role" data-ta="roles" data-ta-project="@form"`,
-		},
-		"/ui/actors": {
+		"/ui/agents": { // the Raise and Enroll forms
 			`name="project" data-ta="projects"`,
 			`name="role" data-ta="roles" data-ta-project="@form"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,

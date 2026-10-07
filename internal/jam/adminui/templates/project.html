@@ -148,11 +148,11 @@
     {{template "coves-tbl" .}}
   </section>
 <section class="card">
-    <header><h2>Actors</h2><span class="sub">holding a grant into this project — manage on the <a href="/ui/actors">Actors</a> page</span></header>
+    <header><h2>Identities</h2><span class="sub">agents holding a grant into this project — open one to manage its grants</span></header>
     <table>
-      <thead><tr><th>Actor</th><th>Roles</th></tr></thead>
+      <thead><tr><th>Agent</th><th>Roles</th></tr></thead>
       <tbody>
-        {{range .Holders}}<tr><td class="mono">{{.ID}}</td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
+        {{range .Holders}}<tr><td><a class="mono" href="{{agentURL .ID}}">{{.ID}}</a></td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
         {{else}}<tr><td colspan="2" class="empty">No actors hold a grant here.</td></tr>{{end}}
       </tbody>
     </table>

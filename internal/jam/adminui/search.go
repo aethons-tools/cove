@@ -145,7 +145,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			if i.Owner != "" {
 				sub += " · owner " + i.Owner
 			}
-			studios.add(searchHit{Title: i.ActorID, Sub: sub, URL: "/ui/coves/" + url.PathEscape(i.ActorID), Exact: m.exact(i.ActorID)})
+			studios.add(searchHit{Title: i.ActorID, Sub: sub, URL: agentURL(i.ActorID), Exact: m.exact(i.ActorID)})
 		}
 	}
 
@@ -156,7 +156,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			grants[i] = jam.ProjectName(store, g.Project) + "/" + g.Role
 		}
 		if m.any(append([]string{a.ID}, grants...)...) {
-			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: "/ui/actors", Exact: m.exact(a.ID)})
+			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: agentURL(a.ID), Exact: m.exact(a.ID)})
 		}
 	}
 

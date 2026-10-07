@@ -160,7 +160,7 @@ func TestProjectMembersSection(t *testing.T) {
 
 func TestActorsPageReplacesRoster(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	if rec := get(t, h, "/ui/actors"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `aria-current="page">Agents`) {
+	if rec := get(t, h, "/ui/agents"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `aria-current="page">Agents`) {
 		t.Fatalf("actors page = %d", rec.Code)
 	}
 	if rec := get(t, h, "/ui/roster"); rec.Code != http.StatusNotFound {

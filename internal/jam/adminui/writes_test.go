@@ -61,7 +61,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 		t.Fatalf("captured token looks too short to be real: %q", token)
 	}
 	// ...but never appears on the roster afterward.
-	roster := get(t, h, "/ui/actors").Body.String()
+	roster := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(roster, "spider-1") {
 		t.Error("roster should list the new actor")
 	}
