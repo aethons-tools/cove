@@ -50,6 +50,11 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   its channel), live sessions' tickets, and rooms. A message to a session goes to
   its home channel, which the person joins.
 
+**Writes are same-origin only.** Every `/me` POST (send, mark-read, join,
+leave, call-in) is refused (`403`) unless its `Origin` (or `Referer`) is the
+page's own host or one of [`ui-origins`](serve.md) — the same check as `/ui`
+writes — so another site, a sibling subdomain included, can't post as you.
+
 ## Membership controls
 
 The conversation header offers **Join** (a channel the person can see but isn't

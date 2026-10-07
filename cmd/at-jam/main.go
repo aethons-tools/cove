@@ -2199,7 +2199,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
 			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
-			meMux.Handle("/me/", meGate.Wrap(meSurface))
+			// Writes (/me/send, /me/read, /me/join|leave|call-in) must come from
+			// the page itself: the session cookie alone (SameSite=Lax) lets a
+			// sibling subdomain post as the user.
+			meMux.Handle("/me/", meGate.Wrap(browserauth.RequireSameOrigin(cfg.UIOrigins, meSurface)))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
