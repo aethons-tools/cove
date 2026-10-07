@@ -365,7 +365,7 @@
 {{end}}
 
 {{define "rail-entries"}}
-<div id="rail-entries" hx-get="{{.Poll}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<div id="rail-entries" hx-get="{{or .Poll "/ui/rail"}}" hx-trigger="every 3s" hx-swap="outerHTML">
   <ul>
     <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ Jam</span>{{template "badge" .Jam.Badge}}</a></li>
   </ul>
