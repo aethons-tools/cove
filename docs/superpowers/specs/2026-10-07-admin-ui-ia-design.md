@@ -107,7 +107,7 @@ on the left, the page content on the right.
 (standing / ticket / personal / manual / enrolled — derived: `SessionKind`, an
 ephemeral instance with a `Unit` is a ticket, without one manual, an actor with no
 instance enrolled), project · role (linked), phase, activity, last seen. A filter
-matching the dashboard's four studio tiles (`?phase=live|raising|lost|idled`,
+matching the dashboard's four studio tiles (`?phase=live|raising|idled|attention`, attention = lost or terminating,
 counted exactly as the tiles count today) and
 the existing 3s htmx poll for the table. **Enroll** (today's Actors form) and
 **Raise** (today's Studios form) live here as collapsed panels.
