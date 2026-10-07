@@ -19,10 +19,37 @@
     .brand{display:flex;align-items:baseline;gap:8px;font-weight:600;white-space:nowrap;padding:12px 0}
     .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);align-self:center}
     .brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
-    .topbar nav{display:flex;gap:2px}
-    .topbar nav a{color:var(--muted);text-decoration:none;padding:14px 10px 12px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
-    .topbar nav a:hover{color:var(--ink)}
-    .topbar nav a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    .railbtn{display:none;background:none;border:0;font-size:18px;line-height:1;padding:10px 2px;color:var(--ink);cursor:pointer}
+
+    /* Rail: Jam, then every project; the selection decides the tabs. */
+    .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 49px)}
+    #rail{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;position:sticky;top:49px;align-self:start;max-height:calc(100vh - 49px);overflow-y:auto}
+    #rail ul{list-style:none;margin:0;padding:0}
+    #rail a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;white-space:nowrap;overflow:hidden}
+    #rail a span.name{flex:1;overflow:hidden;text-overflow:ellipsis}
+    #rail a:hover{color:var(--ink);background:var(--surface-2)}
+    #rail a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
+    #rail .jam{font-weight:600;color:var(--ink)}
+    #rail hr{border:0;border-top:1px solid var(--border);margin:8px 4px}
+    #rail .rail-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);padding:4px 10px;font-weight:600}
+    #rail details.newproj{margin-top:8px}
+    #rail details.newproj>summary{list-style:none;cursor:pointer;padding:6px 10px;color:var(--accent);font-weight:600;font-size:12.5px}
+    #rail details.newproj>summary::-webkit-details-marker{display:none}
+    #rail details.newproj form{display:flex;gap:6px;padding:4px 6px}
+    #rail details.newproj input{padding:4px 8px}
+    .badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:11px;font-weight:700;background:var(--wait-soft);color:var(--wait)}
+    .badge.red{background:var(--bad-soft);color:var(--bad)}
+
+    /* Scope head: the selected scope's title and tabs. */
+    .scope-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600;margin-bottom:2px}
+    nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto}
+    nav.tabs a{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;padding:9px 10px 8px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+    nav.tabs a:hover{color:var(--ink)}
+    nav.tabs a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+    .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+    .crumbs a{color:var(--muted);text-decoration:none}
+    .attn-flag{color:var(--wait);font-weight:700;cursor:help}
+    .attn-flag.red{color:var(--bad)}
     /* A section's sub-tabs (Agents, Specs): its list pages. */
     .subtabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px}
     .subtabs a{color:var(--muted);text-decoration:none;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap}
@@ -30,7 +57,7 @@
     .subtabs a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
     .topsearch{margin-left:auto;padding:8px 0}
     .topsearch input{width:200px;padding:5px 10px;font-size:12.5px;border-radius:999px}
-    main{max-width:1200px;margin:0 auto;padding:22px 20px 60px}
+    main{max-width:1200px;width:100%;margin:0 auto;padding:18px 20px 60px}
     .page-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
     h1{font-size:20px;margin:0;font-weight:600}
     h2{font-size:13px;margin:26px 0 10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600}
@@ -105,26 +132,38 @@
     .ta-menu .ta-opt{padding:5px 9px;border-radius:7px;cursor:pointer;font:12.5px "IBM Plex Mono",ui-monospace,monospace;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .ta-menu .ta-opt[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
 
-    @media (max-width:720px){main{padding:16px}.topbar{gap:12px;padding:0 16px}th,td{padding:8px 10px}}
+    @media (max-width:720px){
+      main{padding:16px}.topbar{gap:12px;padding:0 16px}th,td{padding:8px 10px}
+      .railbtn{display:block}
+      .shell{grid-template-columns:1fr}
+      #rail{display:none;position:fixed;top:49px;left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+      body.rail-open #rail{display:block}
+    }
   </style>
 </head>
 <body>
   <header class="topbar">
+    <button type="button" class="railbtn" aria-label="Projects" onclick="document.body.classList.toggle('rail-open')">☰</button>
     <span class="brand"><span class="dot"></span>Jam <small>Admin</small></span>
-    <nav>
-      {{- $s := navSection}}
-      {{- range navItems}}
-      <a href="{{.Href}}"{{if eq .Section $s}} aria-current="page"{{end}}>{{.Label}}</a>
-      {{- end}}
-    </nav>
     <form class="topsearch" action="/ui/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
       <input type="hidden" name="go" value="1">
     </form>
   </header>
+  <div class="shell">
+  {{- $f := frame}}
+  {{template "rail" $f.Rail}}
   <main>
-    {{- with subTabs}}
-    <nav class="subtabs" aria-label="Section">
+    {{- with $f.Tabs}}
+    <div class="scope-title">{{$f.Title}}</div>
+    <nav class="tabs" aria-label="{{$f.Title}}">
+      {{- range .}}
+      <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{template "badge" .Badge}}</a>
+      {{- end}}
+    </nav>
+    {{- end}}
+    {{- with $f.SubTabs}}
+    <nav class="subtabs" aria-label="Specs">
       {{- range .}}
       <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
       {{- end}}
@@ -133,6 +172,7 @@
     <div id="flash" aria-live="polite"></div>
     {{template "content" .}}
   </main>
+  </div>
   <script>
   (function(){
     var flash = document.getElementById('flash');
@@ -282,20 +322,12 @@
     window.addEventListener('scroll', taClose, true);
     window.addEventListener('resize', taClose);
 
-    // On a narrow screen a project's tree starts collapsed to its summary;
-    // on a wide one (where the summary is hidden) it is always open — also
-    // after a resize or rotation, and after a write swaps it out of band.
-    var narrow = window.matchMedia && matchMedia('(max-width:720px)');
-    function syncTree(){
-      if (!narrow) return;
-      document.querySelectorAll('details.ptree-wrap').forEach(function(d){ d.open = !narrow.matches; });
-    }
-    syncTree();
-    if (narrow) {
-      if (narrow.addEventListener) narrow.addEventListener('change', syncTree); else narrow.addListener(syncTree);
-    }
-    document.body.addEventListener('htmx:oobAfterSwap', function(e){
-      if (e.detail && e.detail.target && e.detail.target.id === 'ptree') syncTree();
+    // The rail is a drawer on a narrow screen: following a link in it, or
+    // tapping outside it, closes it.
+    document.addEventListener('click', function(e){
+      if (!document.body.classList.contains('rail-open')) return;
+      if (e.target.closest('.railbtn')) return;
+      if (!e.target.closest('#rail') || e.target.closest('#rail a')) document.body.classList.remove('rail-open');
     });
     // "/" focuses search from anywhere except a text field.
     document.addEventListener('keydown', function(e){
@@ -317,6 +349,38 @@
   </script>
 </body>
 </html>{{end}}
+
+{{/* rail is the permanent scope list (a railView), re-fetched every 3s so
+     its badges stay live; Scope keeps the selection across polls. */}}
+{{define "rail"}}
+<aside id="rail" hx-get="/ui/rail?scope={{.Scope}}" hx-trigger="every 3s" hx-swap="outerHTML">
+  <ul>
+    <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ Jam</span>{{template "badge" .Jam.Badge}}</a></li>
+  </ul>
+  <hr>
+  <div class="rail-label">Projects</div>
+  <ul>
+    {{- range .Projects}}
+    <li><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span class="name">{{.Name}}</span>{{template "badge" .Badge}}</a></li>
+    {{- end}}
+  </ul>
+  <details class="newproj">
+    <summary>+ New project</summary>
+    <form hx-post="/ui/projects" hx-swap="none"><input name="name" placeholder="name" aria-label="Project name" required autocomplete="off"><button type="submit" class="primary small">Create</button></form>
+  </details>
+</aside>
+{{end}}
+
+{{/* badge renders an attention badge (an attnBadge): its count, red when
+     anything in it is broken, the breakdown on hover; nothing when zero. */}}
+{{define "badge"}}{{if .N}} <span class="badge{{if .Red}} red{{end}}" title="{{.Title}}">{{.N}}</span>{{end}}{{end}}
+
+{{/* attn-flag marks a row an attention item names (an *attnItem or nil). */}}
+{{define "attn-flag"}}{{with .}} <span class="attn-flag{{if eq .Kind "broken"}} red{{end}}" title="{{.Why}}">⚠</span>{{end}}{{end}}
+
+{{/* crumbs renders a breadcrumb trail: a list of crumb{Label, Href}; the last
+     one is the current page (no link). */}}
+{{define "crumbs"}}<div class="crumbs">{{range $i, $c := .}}{{if $i}} / {{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}{{end}}</div>{{end}}
 
 {{define "phase"}}<span class="pill phase-{{.}}">{{.}}</span>{{end}}
 {{/* project-select is the project field: a type-ahead over every project,

@@ -120,7 +120,7 @@ func registerAgents(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, 
 			renderFragment(w, "agents", "agents-table", data)
 			return
 		}
-		render(w, "agents", data)
+		render(w, r, "agents", data)
 	})
 	// The studio and actor lists and the studio page became the agents list
 	// and the agent page.

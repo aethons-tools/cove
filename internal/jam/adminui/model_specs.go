@@ -284,16 +284,16 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 	mux.HandleFunc("GET /ui/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		data := u.tableData()
 		data["Title"] = "Model-specs"
-		render(w, "model-specs", data)
+		render(w, r, "model-specs", data)
 	})
 
 	mux.HandleFunc("GET /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := u.store.GetModelSpec(r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "model-spec", u.detail(m))
+		render(w, r, "model-spec", u.detail(m))
 	})
 
 	// Create only: an existing model-spec is edited on its page.

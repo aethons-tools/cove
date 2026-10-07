@@ -193,6 +193,7 @@ func TestUserPageGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, h, "/ui/users/"+string(bob.ID)).Body.String()
+	body = body[strings.Index(body, `id="flash"`):] // the page content: the rail has its own New project form
 	if !strings.Contains(body, "removed") || strings.Contains(body, "hx-post=") || strings.Contains(body, "hx-delete=") {
 		t.Errorf("a removed user's page must be read-only:\n%s", body)
 	}

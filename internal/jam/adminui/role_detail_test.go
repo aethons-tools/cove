@@ -87,7 +87,8 @@ func TestRoleDetailShowsEverything(t *testing.T) {
 		"nightly", "run the nightly sweep",
 		"holder-plain", "holder-ovr", "override",
 		"studio-of-review",
-		`aria-current="page">Projects`, // a role lives in its project
+		`<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`, // its project is selected
+		`href="/ui/projects/acme/roles" aria-current="page">Roles`,                       // under Roles
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role detail missing %q", want)

@@ -115,9 +115,9 @@ func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess 
 		d, ok := buildAgentDetail(store, msgs, sess, r.PathValue("id"), canEdit)
 		if !ok {
 			d.NotFound = true
-			renderStatus(w, http.StatusNotFound, "agent", d)
+			renderStatus(w, r, http.StatusNotFound, "agent", d)
 			return
 		}
-		render(w, "agent", d)
+		render(w, r, "agent", d)
 	})
 }

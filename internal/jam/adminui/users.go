@@ -78,15 +78,15 @@ func registryErr(err error) error {
 
 func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("GET /ui/users", func(w http.ResponseWriter, r *http.Request) {
-		render(w, "users", usersData(store))
+		render(w, r, "users", usersData(store))
 	})
 	mux.HandleFunc("GET /ui/users/{user}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildUserDetail(store, r.PathValue("user"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "user", userDetail{Title: "Users", NotFound: true, NotFoundFor: r.PathValue("user")})
+			renderStatus(w, r, http.StatusNotFound, "user", userDetail{Title: "Users", NotFound: true, NotFoundFor: r.PathValue("user")})
 			return
 		}
-		render(w, "user", d)
+		render(w, r, "user", d)
 	})
 
 	// form wraps a write: guard, parse, apply, log; apply's error carries the

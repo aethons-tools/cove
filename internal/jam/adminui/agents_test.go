@@ -154,10 +154,10 @@ func TestAgentPageIdentity(t *testing.T) {
 // Holders on role and project pages link to their agent pages.
 func TestHoldersLinkAgents(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil)
-	if body := get(t, h, "/ui/projects/acme/roles/ops").Body.String(); !strings.Contains(body, `<a href="/ui/agents/e-only"`) {
+	if body := get(t, h, "/ui/projects/acme/roles/ops").Body.String(); !strings.Contains(body, `<a href="/ui/agents/e-only?project=acme"`) {
 		t.Error("role holders should link their agent pages")
 	}
-	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/ui/agents/e-only">e-only</a>`) {
+	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/ui/agents/e-only?project=acme">e-only</a>`) {
 		t.Error("project identities should link their agent pages")
 	}
 }

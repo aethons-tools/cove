@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -21,28 +22,37 @@ import (
 //go:embed templates/*.html
 var files embed.FS
 
-// page holds one parsed template set (layout + that page's content). Each set's
-// full page is rendered via ExecuteTemplate(w, "layout", data). The first
-// argument is the page's top-nav section (see nav.go), which the layout
-// highlights; mustParseTab also names the section sub-tab it sits under.
-var pages = map[string]*template.Template{
-	"dashboard":    mustParse(navDashboard, "coves.html", "context_panel.html", "dashboard.html"),
-	"agents":       mustParse(navAgents, "agents.html"),
-	"users":        mustParse(navUsers, "users.html"),
-	"user":         mustParse(navUsers, "user.html"),
-	"kits":         mustParseTab(navSpecs, "/ui/kits", "kits.html"),
-	"destinations": mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destinations.html"),
-	"intercom":     mustParse(navIntercom, "squawks.html", "intercom.html"),
-	"session":      mustParse(navAgents, "session.html"),
-	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "projtree.html", "role.html"),
-	"destination":  mustParseTab(navSpecs, "/ui/destinations", "dest_fields.html", "destination.html"),
-	"model-specs":  mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_specs.html"),
-	"model-spec":   mustParseTab(navSpecs, "/ui/model-specs", "model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParseTab(navSpecs, "/ui/kits", "kit.html"),
-	"projects":     mustParse(navProjects, "projects.html"),
-	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "squawks.html", "projtree.html", "project.html"),
-	"agent":        mustParse(navAgents, "agent.html"),
-	"search":       mustParse(navNone, "search.html"),
+// page is one parsed template set (layout + that page's content) and where the
+// page sits in the frame. The set is a master: each render executes a clone
+// with the request's frame bound (renderStatus), so the master never executes.
+type page struct {
+	t    *template.Template
+	meta pageMeta
+}
+
+var (
+	jam_      = func(tab string) pageMeta { return pageMeta{Kind: scopeJam, Tab: tab} }
+	specsPage = func(sub string) pageMeta { return pageMeta{Kind: scopeJam, Tab: "specs", SubTab: sub} }
+	projPage  = pageMeta{Kind: scopeProject}
+)
+
+var pages = map[string]page{
+	"dashboard":    mustParse(jam_("dashboard"), "attention.html", "coves.html", "context_panel.html", "dashboard.html"),
+	"agents":       mustParse(jam_("agents"), "agents.html"),
+	"users":        mustParse(jam_("users"), "users.html"),
+	"user":         mustParse(jam_("users"), "user.html"),
+	"kits":         mustParse(specsPage("/ui/kits"), "kits.html"),
+	"destinations": mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destinations.html"),
+	"intercom":     mustParse(jam_("intercom"), "squawks.html", "intercom.html"),
+	"session":      mustParse(jam_("agents"), "session.html"),
+	"role":         mustParse(projPage, "coves.html", "context_panel.html", "role.html"),
+	"destination":  mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destination.html"),
+	"model-specs":  mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_spec.html"),
+	"kit":          mustParse(specsPage("/ui/kits"), "kit.html"),
+	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
+	"agent":        mustParse(jam_("agents"), "agent.html"),
+	"search":       mustParse(pageMeta{}, "search.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -70,22 +80,13 @@ func roleRows(store jam.Store) []roleRow {
 	return out
 }
 
-func mustParse(section navSection, names ...string) *template.Template {
-	return mustParseTab(section, "", names...)
-}
-
-// mustParseTab is mustParse for a page under one of section's sub-tabs (tab is
-// that tab's Href; see navSubTabs).
-func mustParseTab(section navSection, tab string, names ...string) *template.Template {
+func mustParse(meta pageMeta, names ...string) page {
 	paths := make([]string, 0, len(names)+1)
 	paths = append(paths, "templates/layout.html")
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.New("").Funcs(funcs).Funcs(template.FuncMap{
-		"navSection": func() navSection { return section },
-		"subTabs":    func() []subTab { return subTabsFor(section, tab) },
-	}).ParseFS(files, paths...))
+	return page{t: template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...)), meta: meta}
 }
 
 // funcs are the template helpers shared by every page.
@@ -97,9 +98,13 @@ var funcs = template.FuncMap{
 		}
 		return fmtDur(d)
 	},
-	"roleURL":    roleURL,
-	"agentURL":   agentURL,
-	"navItems":   func() []navItem { return navItems },
+	"roleURL":  roleURL,
+	"agentURL": agentURL,
+	// frame, attn and agentHref are bound per render (frameFuncs); these are
+	// the defaults a fragment renders with.
+	"frame":      func() frame { return frame{} },
+	"attn":       func(tab, subject string) *attnItem { return nil },
+	"agentHref":  func(id, suffix string) string { return agentURL(id) + suffix },
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
@@ -158,7 +163,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 			renderFragment(w, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
 			return
 		}
-		render(w, "dashboard", map[string]any{
+		render(w, r, "dashboard", map[string]any{
 			"Title":      "Dashboard",
 			"Coves":      jam.CoveSummaries(store, sup),
 			"Stats":      dashboardStats(store),
@@ -167,13 +172,17 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	registerAgents(mux, store, sup, canEdit)
+	// The rail, re-fetched by its own poll so badges stay live on every page.
+	mux.HandleFunc("GET /ui/rail", func(w http.ResponseWriter, r *http.Request) {
+		renderFragment(w, "dashboard", "rail", buildRail(store, r.URL.Query().Get("scope"), attention(store, sup)))
+	})
 	// Specs has no page of its own: it opens on its first sub-tab.
 	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/kits", http.StatusFound)
 	})
 	// The global roles list and role pages moved into the project tree.
 	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, "/ui/projects")
+		redirect(w, r, "/ui/")
 	})
 	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
@@ -201,63 +210,88 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
 
-	return mux
+	src := frameSource{store: store, img: sup}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, withFrameSource(r, src))
+	})
 }
 
-// render executes the named page's "layout" template.
-func render(w http.ResponseWriter, page string, data any) {
-	renderStatus(w, http.StatusOK, page, data)
+// render executes the named page's "layout" template inside its frame.
+func render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	renderStatus(w, r, http.StatusOK, name, data)
 }
 
-// renderStatus is render with an explicit status code.
-func renderStatus(w http.ResponseWriter, status int, page string, data any) {
-	t, ok := pages[page]
+// renderStatus is render with an explicit status code. It executes a clone of
+// the page's master set with the request's frame bound to the frame, attn and
+// agentHref template funcs.
+func renderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
+	p, ok := pages[name]
 	if !ok {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
+		return
+	}
+	var f frame
+	if src, ok := frameSourceOf(r); ok {
+		f = frameFor(r, p.meta, src)
+	}
+	t, err := p.t.Clone()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	t.Funcs(frameFuncs(f))
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-// namedFragment is one named template and its data, for renderFragments.
-type namedFragment struct {
-	tmpl string
-	data any
-}
-
-// renderFragments executes several named templates of one page, in order,
-// without the page chrome — a swap target followed by its out-of-band swaps.
-func renderFragments(w http.ResponseWriter, page string, fs ...namedFragment) {
-	t, ok := pages[page]
-	if !ok {
-		http.Error(w, "unknown page", http.StatusInternalServerError)
-		return
-	}
-	var buf bytes.Buffer
-	for _, f := range fs {
-		if err := t.ExecuteTemplate(&buf, f.tmpl, f.data); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(buf.Bytes())
 }
 
+// frameFuncs binds f: frame returns it; attn finds the item a row is about
+// (tab and subject, over every scope); agentHref links an agent page, keeping
+// a project scope.
+func frameFuncs(f frame) template.FuncMap {
+	return template.FuncMap{
+		"frame": func() frame { return f },
+		"attn": func(tab, subject string) *attnItem {
+			for i := range f.All {
+				if f.All[i].Tab == tab && f.All[i].Subject == subject {
+					return &f.All[i]
+				}
+			}
+			return nil
+		},
+		"agentHref": func(id, suffix string) string {
+			h := agentURL(id) + suffix
+			if f.Kind == scopeProject {
+				h += "?project=" + url.QueryEscape(f.Project)
+			}
+			return h
+		},
+	}
+}
+
 // renderFragment executes a single named template (e.g. an htmx-swapped table)
-// without the page chrome.
-func renderFragment(w http.ResponseWriter, page, tmpl string, data any) {
-	t, ok := pages[page]
+// without the page chrome or frame.
+func renderFragment(w http.ResponseWriter, name, tmpl string, data any) {
+	p, ok := pages[name]
 	if !ok {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := t.ExecuteTemplate(w, tmpl, data); err != nil {
+	t, err := p.t.Clone()
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, tmpl, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
 }

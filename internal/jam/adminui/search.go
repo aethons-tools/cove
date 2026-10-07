@@ -299,7 +299,7 @@ func registerSearch(mux *http.ServeMux, store jam.Store, msgs SquawkReader) {
 			renderFragment(w, "search", "search-results", d)
 			return
 		}
-		render(w, "search", d)
+		render(w, r, "search", d)
 	})
 }
 

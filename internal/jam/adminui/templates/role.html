@@ -31,13 +31,8 @@
   .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="pframe">
-{{template "project-tree" .Tree}}
-<div>
 {{template "crumbs" .Crumbs}}
 {{template "role-body" .}}
-</div>
-</div>
 {{end}}
 {{end}}
 
@@ -187,7 +182,7 @@
   <section class="card">
     <header><h2>Holders</h2><span class="sub">agents granted this role — open one to manage its grants</span></header>
     <div class="body">
-      {{range .Holders}}<span class="chip"><a href="{{agentURL .ID}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No agents hold this role.</span>{{end}}
+      {{range .Holders}}<span class="chip"><a href="{{agentHref .ID ""}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No agents hold this role.</span>{{end}}
     </div>
   </section>
 

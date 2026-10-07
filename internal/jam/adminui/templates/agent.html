@@ -30,7 +30,7 @@
   td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/agents">Agents</a> / <a href="{{agentURL .ID}}">{{.ID}}</a></div>
+{{$f := frame}}<div class="crumbs"><a href="{{if $f.Project}}{{projectURL $f.Project}}/agents{{else}}/ui/agents{{end}}">Agents</a> / <a href="{{agentHref .ID ""}}">{{.ID}}</a></div>
 <div class="page-head">
   <h1 class="mono">{{.ID}}</h1>
   {{if .Running}}

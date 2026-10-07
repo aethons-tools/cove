@@ -46,7 +46,7 @@
   <tbody>
     {{range .Agents}}
     <tr data-id="{{.ID}}">
-      <td><a class="mono" href="{{agentURL .ID}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}</td>
+      <td><a class="mono" href="{{agentURL .ID}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
       <td><span class="chip">{{.Kind}}</span></td>
       <td>{{if .Project}}<a href="{{projectURL .Project}}">{{.Project}}</a>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .Role}}<a href="{{roleURL .Project .Role}}">{{.Role}}</a>{{if gt (len .Grants) 1}} <span class="sub">+{{len (slice .Grants 1)}}</span>{{end}}{{else}}<span class="none">—</span>{{end}}</td>

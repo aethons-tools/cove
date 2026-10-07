@@ -18,15 +18,16 @@ func TestNavMarksCurrentPage(t *testing.T) {
 		"/ui/kits":         `href="/ui/specs"`, // Specs
 		"/ui/destinations": `href="/ui/specs"`,
 		"/ui/users":        `href="/ui/users"`,
-		"/ui/projects":     `href="/ui/projects"`,
+		"/ui/intercom":     `href="/ui/intercom"`,
 	} {
 		body := get(t, h, path).Body.String()
-		nav := body[strings.Index(body, "<nav>"):strings.Index(body, "</nav>")] // the top nav (sub-tabs mark their own)
-		if !strings.Contains(nav, href+` aria-current="page"`) {
-			t.Errorf("%s: nav should mark %s as current", path, href)
+		tabs := body[strings.Index(body, `<nav class="tabs"`):]
+		tabs = tabs[:strings.Index(tabs, "</nav>")] // Jam's tabs (sub-tabs mark their own)
+		if !strings.Contains(tabs, href+` aria-current="page"`) {
+			t.Errorf("%s: tabs should mark %s as current", path, href)
 		}
-		if n := strings.Count(nav, ` aria-current="page">`); n != 1 {
-			t.Errorf("%s: %d nav items marked current, want 1", path, n)
+		if n := strings.Count(tabs, ` aria-current="page">`); n != 1 {
+			t.Errorf("%s: %d tabs marked current, want 1", path, n)
 		}
 	}
 }
@@ -34,7 +35,7 @@ func TestNavMarksCurrentPage(t *testing.T) {
 // Every page carries the flash region and the htmx error hook, so a 4xx/5xx
 // write response is shown to the operator instead of silently dropped.
 func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
-	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/projects").Body.String()
+	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
 	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/ui/static/jam.css`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing %q", want)

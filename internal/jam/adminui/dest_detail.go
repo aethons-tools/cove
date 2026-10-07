@@ -232,16 +232,16 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
 		data := destTableData(store)
 		data["Title"] = "Destinations"
-		render(w, "destinations", data)
+		render(w, r, "destinations", data)
 	})
 
 	mux.HandleFunc("GET /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildDestDetail(store, r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "destination", d)
+		render(w, r, "destination", d)
 	})
 
 	// Create only: an existing destination is edited on its page, where every

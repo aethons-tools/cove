@@ -44,7 +44,6 @@ type setting struct {
 // roleDetail is the role page's payload.
 type roleDetail struct {
 	Title, Project, Name string
-	Tree                 projectTree
 	Crumbs               []crumb
 	WriteBase            string // the role's write endpoints (roleWriteBase)
 	RolesHref            string // the project's Roles section (where a delete lands)
@@ -157,12 +156,11 @@ func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, i
 	project, name := r.PathValue("project"), r.PathValue("name")
 	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
-		renderStatus(w, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
+		renderStatus(w, r, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
 			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionRoles)})
 		return
 	}
-	d.Tree = buildProjectTree(store, img, project, sectionRoles, name)
 	d.Crumbs = projectCrumbs(project, sectionRoles, name)
 	d.CanRequest = canRequest
-	render(w, "role", d)
+	render(w, r, "role", d)
 }

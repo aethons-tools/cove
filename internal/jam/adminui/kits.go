@@ -44,7 +44,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
 		data := kitTableData(store)
 		data["Title"] = "Kits"
-		render(w, "kits", data)
+		render(w, r, "kits", data)
 	})
 
 	mux.HandleFunc("GET /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -52,10 +52,10 @@ func registerKits(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWr
 		diff, _ := strconv.Atoi(r.URL.Query().Get("diff"))
 		d, ok := buildKitDetail(store, r.PathValue("name"), view, diff)
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "kit", kitDetail{Title: "Kits", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "kit", kitDetail{Title: "Kits", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "kit", d)
+		render(w, r, "kit", d)
 	})
 
 	// New kit: create only — further versions are pushed on the kit's page.

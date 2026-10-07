@@ -21,6 +21,7 @@
   <a class="tile" href="/ui/specs" data-stat="specs"><b>{{.Specs}}</b><span>Specs</span></a>
 </div>
 {{end}}
+{{template "attention-card" frame.Items}}
 {{template "context-panel" .JamContext}}
 <h2>Studios</h2>
 {{template "coves-table" .}}
