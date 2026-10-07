@@ -66,34 +66,44 @@ func projHandler(store jam.Store) http.Handler {
 	return adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil)
 }
 
-func TestProjectsTabFollowsDashboard(t *testing.T) {
-	body := get(t, projHandler(seedProjects(t)), "/ui/projects").Body.String()
-	dash, proj, studios := strings.Index(body, `href="/ui/"`), strings.Index(body, `href="/ui/projects"`), strings.Index(body, `href="/ui/agents"`)
-	if !(dash >= 0 && dash < proj && proj < studios) {
-		t.Errorf("nav order: dashboard@%d projects@%d studios@%d", dash, proj, studios)
+// The rail lists Jam, then every project, on every page; a project page
+// selects its project, a Jam page selects Jam.
+func TestRailListsProjects(t *testing.T) {
+	h := projHandler(seedProjects(t))
+	for path, current := range map[string]string{
+		"/ui/":                        `<a class="jam" href="/ui/" aria-current="page">`,
+		"/ui/users":                   `<a class="jam" href="/ui/" aria-current="page">`,
+		"/ui/projects/acme":           `<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`,
+		"/ui/projects/beta/roles":     `<a href="/ui/projects/beta" aria-current="page"><span class="name">beta</span>`,
+		"/ui/projects/acme/roles/dev": `<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`,
+	} {
+		body := get(t, h, path).Body.String()
+		rail := body[strings.Index(body, `<aside id="rail"`):strings.Index(body, "</aside>")]
+		for _, want := range []string{`href="/ui/projects/acme"`, `href="/ui/projects/beta"`, `href="/ui/projects/default"`, current, `hx-post="/ui/projects"`} {
+			if !strings.Contains(rail, want) {
+				t.Errorf("%s: rail missing %s", path, want)
+			}
+		}
+		if n := strings.Count(rail, `aria-current="page"`); n != 1 {
+			t.Errorf("%s: %d rail entries current, want 1", path, n)
+		}
 	}
-	if !strings.Contains(body, `href="/ui/projects" aria-current="page">Projects`) {
-		t.Errorf("Projects tab should be current on /ui/projects")
+	// search selects nothing
+	body := get(t, h, "/ui/search?q=acme").Body.String()
+	if rail := body[strings.Index(body, `<aside id="rail"`):strings.Index(body, "</aside>")]; strings.Contains(rail, "aria-current") {
+		t.Error("search should select no scope")
 	}
 }
 
-func TestProjectsList(t *testing.T) {
-	body := get(t, projHandler(seedProjects(t)), "/ui/projects").Body.String()
-	for _, want := range []string{
-		`href="/ui/projects/acme"`, `href="/ui/projects/beta"`, `href="/ui/projects/default"`,
-		`data-id="acme" data-roles="2" data-actors="2" data-studios="1"`,
-		"discord",
-		`hx-delete="/ui/projects/beta"`, // empty: removable
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("projects list missing %q", want)
-		}
+// A project's delete is disabled while something references it, saying what.
+func TestProjectDeleteGuard(t *testing.T) {
+	h := projHandler(seedProjects(t))
+	if body := get(t, h, "/ui/projects/beta").Body.String(); !strings.Contains(body, `hx-delete="/ui/projects/beta"`) {
+		t.Errorf("beta is empty: removable")
 	}
-	if strings.Contains(body, `hx-delete="/ui/projects/acme"`) {
-		t.Errorf("acme is referenced; its delete should be disabled")
-	}
-	if !strings.Contains(body, "member(s)") {
-		t.Errorf("a disabled delete should say what still references the project")
+	body := get(t, h, "/ui/projects/acme").Body.String()
+	if strings.Contains(body, `hx-delete="/ui/projects/acme"`) || !strings.Contains(body, "member(s)") {
+		t.Errorf("acme is referenced; its delete should be disabled and say why")
 	}
 }
 
@@ -129,17 +139,14 @@ func TestCreateAndDeleteProject(t *testing.T) {
 	}
 }
 
-// Every project page shows the tree; each section shows its own content and
+// Every project page shows the project's tabs; each section shows its own content and
 // nothing from another project.
 func TestProjectPage(t *testing.T) {
 	h := projHandler(seedProjects(t))
-	tree := []string{
-		`aria-current="page">Projects`, `class="ptree"`,
+	tabs := []string{
+		`<div class="scope-title">acme</div>`,
 		`href="/ui/projects/acme/members"`, `href="/ui/projects/acme/agents"`, `href="/ui/projects/acme/roles"`,
 		`href="/ui/projects/acme/intercom"`, `href="/ui/projects/acme/escalation"`,
-		`href="/ui/projects/acme/roles/dev"`, `href="/ui/projects/acme/roles/ops"`, // roles under Roles
-		"studio-acme", // its live agent under Agents
-		">eng<",       // its room under Intercom
 	}
 	for path, wants := range map[string][]string{
 		"/ui/projects/acme":            {"<h1>acme</h1>", "discord"},
@@ -154,14 +161,13 @@ func TestProjectPage(t *testing.T) {
 			t.Fatalf("%s = %d", path, rec.Code)
 		}
 		body := rec.Body.String()
-		for _, want := range append(wants, tree...) {
+		for _, want := range append(wants, tabs...) {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s missing %q", path, want)
 			}
 		}
-		// the section itself (the tree lists studio-acme on every page)
 		if strings.HasSuffix(path, "/agents") {
-			if sec := body[strings.Index(body, `<div id="project">`):]; !strings.Contains(sec, `href="/ui/agents/studio-acme"`) {
+			if sec := body[strings.Index(body, `<div id="project">`):]; !strings.Contains(sec, `href="/ui/agents/studio-acme?project=acme"`) {
 				t.Errorf("%s: studios table missing studio-acme", path)
 			}
 		}
@@ -176,7 +182,7 @@ func TestProjectPage(t *testing.T) {
 
 func TestProjectPageNotFound(t *testing.T) {
 	rec := get(t, projHandler(newStore(t)), "/ui/projects/nope")
-	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "<nav") {
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<aside id="rail"`) {
 		t.Fatalf("missing project = %d", rec.Code)
 	}
 }

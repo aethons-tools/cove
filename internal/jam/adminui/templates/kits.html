@@ -21,7 +21,7 @@
   <tbody>
     {{range .Kits}}
     <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">
-      <td><a class="mono" href="{{kitURL .Name}}"><b>{{.Name}}</b></a></td>
+      <td><a class="mono" href="{{kitURL .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "specs" (printf "kit:%s" .Name))}}</td>
       <td><span class="chip accent">v{{.Current}}</span> <span class="none">of {{.Count}}</span></td>
       <td>{{if .Invalid}}<span class="pill phase-lost" title="The current version is not a valid studio kit">invalid</span>{{else}}{{.Base}}{{end}}</td>
       <td>{{if .Invalid}}<span class="none">—</span>{{else}}{{.Egress}} domain(s){{end}}</td>

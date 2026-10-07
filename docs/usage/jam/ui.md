@@ -1,7 +1,7 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the agents and their studios, the projects, users and specs, and the durable squawk Log, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
+summary: The Jam admin UI — a server-rendered web view of the agents and their studios, the projects, users and specs, and the durable squawk Log, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the rail of scopes (Jam and each project), their tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
 read_when: You want to watch a running Jam in a browser — the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
-owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the rail, Jam's tabs and the Specs sub-tabs, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
 updated: 2026-10-07
@@ -17,16 +17,21 @@ there):
 http://127.0.0.1:8081/ui/
 ```
 
-The top nav has six sections — **Dashboard · Projects · Users · Agents ·
-Specs · Intercom** — and a page highlights its section, so a detail page
-highlights the list it belongs to (a role page: Projects). **Specs**
-(`/ui/specs`, opening on Kits) groups **Kits · Destinations · Model-specs**
-under a sub-tab strip (their detail pages show it too). It renders:
+A permanent **rail** on the left lists **Jam**, then every project, then **+
+New project**; the selection decides the **tabs** over the content. Jam's tabs
+are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
+**Overview · Members · Agents · Roles · Intercom · Escalation**
+([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
+page: its project's Roles; a kit: Jam's Specs) with a breadcrumb below it.
+**Specs** (`/ui/specs`, opening on Kits) groups **Kits · Destinations ·
+Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
+(☰ in the title bar). Rail entries, tabs and rows carry **attention badges**
+([ui-attention.md](ui-attention.md)). Jam's pages:
 
 - **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
   idled agents, each opening the Agents list filtered to that phase, and counts
-  of projects, agents, users and specs (kits + destinations + model-specs),
-  each opening its section; then the Jam-wide **Session context** card
+  of projects, agents, users and specs (kits + destinations + model-specs) —
+  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Session context** card
   ([ui-pages.md](ui-pages.md#session-context-cards)), above the studio table.
 - **Search** — the box in the top bar (press `/` from anywhere) searches every
   page's objects at once: agents (id, unit, owner, standing name,
@@ -36,14 +41,9 @@ under a sub-tab strip (their detail pages show it too). It renders:
   users (name, logins, OIDC subject, account handles and ids) and rooms, and
   squawk bodies (newest 10; the rest via Intercom's `q=`).
   Matching is case-insensitive substring, at least 2 characters; results are
-  grouped and link to each object's page. **Enter** jumps straight to the page
-  when exactly one object's name is the whole query (e.g. an agent id or
-  `acme/dev`); otherwise it opens `/ui/search?q=…`, which updates as you type.
-  Session event streams are not searched.
-- **Projects** (`/ui/projects`) — every project with its roles, agents,
-  roster size and chat service; create one, or delete one nothing
-  references. Each project opens on a tree of its sections — members, agents,
-  roles, rooms and messages, escalation — see [ui-projects.md](ui-projects.md).
+  grouped and link to each object's page. **Enter** jumps to the page when one
+  object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
+  `/ui/search?q=…`, which updates as you type. Session events aren't searched.
 - **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
   per id, with its **kind** (`standing`, `personal`, `ticket` — a session with
   a unit, `manual`, or `enrolled` — no studio), project/role, phase, activity,

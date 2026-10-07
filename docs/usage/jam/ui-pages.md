@@ -2,7 +2,7 @@
 summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/ui/agents/<id>: identity, grants, studio, session, squawks), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
 read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
-prereqs: ui.md for reaching the UI and the top nav; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
+prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
 updated: 2026-10-07
 ---
@@ -17,7 +17,7 @@ a field the form didn't show.
 
 ## Project and role pages
 
-A project's pages (its tree, sections and role pages) are in
+A project's pages (its tabs and role pages) are in
 [ui-projects.md](ui-projects.md).
 
 ## User pages
@@ -30,7 +30,8 @@ remove are refused while the user owns a live personal session).
 
 Each agent id (in the Agents list, a studio table, a role's holders, a
 project's identities, or search) opens `/ui/agents/<id>`, the page for one
-agent identity. The header shows its kind, phase and activity, standing name or
+agent identity. It sits under Jam's Agents tab, or — linked from a project's
+pages (`?project=<name>`) — under that project's. The header shows its kind, phase and activity, standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
 (the [session timeline](ui.md#session-timeline); shown when session capture is
 configured), **Teardown** (returns to the Agents list) when it has a

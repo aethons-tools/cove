@@ -95,22 +95,27 @@ func TestSearchModelSpecsAndAgents(t *testing.T) {
 }
 
 // The dashboard's studio tiles open the Agents list filtered to their phase;
-// its count tiles follow the top nav.
+// its count tiles follow the tabs — Projects, listed in the rail, is a plain
+// count.
 func TestDashboardTilesFollowSections(t *testing.T) {
 	body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
 	for _, want := range []string{
 		`href="/ui/agents?phase=live" data-stat="live"`, `href="/ui/agents?phase=raising" data-stat="raising"`,
 		`href="/ui/agents?phase=attention" data-stat="attention"`, `href="/ui/agents?phase=idled" data-stat="idled"`,
-		`href="/ui/projects" data-stat="projects"`, `href="/ui/agents" data-stat="agents"`,
+		`<div class="tile" data-stat="projects"`, `href="/ui/agents" data-stat="agents"`,
 		`href="/ui/users" data-stat="users"`, `href="/ui/specs" data-stat="specs"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %s", want)
 		}
 	}
-	for _, gone := range []string{`data-stat="roles"`, `data-stat="actors"`, `href="/ui/roles"`, `href="/ui/coves"`} {
+	for _, gone := range []string{`data-stat="roles"`, `data-stat="actors"`, `href="/ui/roles"`, `href="/ui/coves"`, `href="/ui/projects"`} {
 		if strings.Contains(body, gone) {
 			t.Errorf("dashboard still has %s", gone)
 		}
+	}
+	// The agents page's project fields point at the rail, not a dead list.
+	if body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/agents").Body.String(); strings.Contains(body, `href="/ui/projects"`) {
+		t.Error("the agents page still links /ui/projects")
 	}
 }

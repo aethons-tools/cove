@@ -284,16 +284,16 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 	mux.HandleFunc("GET /ui/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		data := u.tableData()
 		data["Title"] = "Model-specs"
-		render(w, "model-specs", data)
+		render(w, r, "model-specs", data)
 	})
 
 	mux.HandleFunc("GET /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := u.store.GetModelSpec(r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "model-spec", u.detail(m))
+		render(w, r, "model-spec", u.detail(m))
 	})
 
 	// Create only: an existing model-spec is edited on its page.
@@ -319,7 +319,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 		}
 		log.Info("ui model-spec created", "operator", jam.OperatorID(r), "name", m.Name, "type", string(m.Type))
 		w.Header().Set("HX-Redirect", specURL(m.Name))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 
 	mux.HandleFunc("POST /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +344,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			renderError(w, http.StatusNotFound, "model-spec no longer exists")
 			return
 		}
-		renderFragment(w, "model-spec", "spec-body", u.detail(stored))
+		renderFragment(w, r, "model-spec", "spec-body", u.detail(stored))
 	})
 
 	mux.HandleFunc("DELETE /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +356,6 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			return
 		}
 		log.Info("ui model-spec deleted", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 }

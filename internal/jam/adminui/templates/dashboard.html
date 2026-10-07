@@ -15,12 +15,13 @@
   <a class="tile{{if .Raising}} wait{{end}}" href="/ui/agents?phase=raising" data-stat="raising"><b>{{.Raising}}</b><span>Raising</span></a>
   <a class="tile{{if .Attention}} bad{{end}}" href="/ui/agents?phase=attention" data-stat="attention"><b>{{.Attention}}</b><span>Lost / terminating</span></a>
   <a class="tile" href="/ui/agents?phase=idled" data-stat="idled"><b>{{.Idled}}</b><span>Idled</span></a>
-  <a class="tile" href="/ui/projects" data-stat="projects"><b>{{.Projects}}</b><span>Projects</span></a>
+  <div class="tile" data-stat="projects" title="Projects are listed in the rail"><b>{{.Projects}}</b><span>Projects</span></div>
   <a class="tile" href="/ui/agents" data-stat="agents"><b>{{.Agents}}</b><span>Agents</span></a>
   <a class="tile" href="/ui/users" data-stat="users"><b>{{.Users}}</b><span>Users</span></a>
   <a class="tile" href="/ui/specs" data-stat="specs"><b>{{.Specs}}</b><span>Specs</span></a>
 </div>
 {{end}}
+{{template "attention-card" frame.Items}}
 {{template "context-panel" .JamContext}}
 <h2>Studios</h2>
 {{template "coves-table" .}}

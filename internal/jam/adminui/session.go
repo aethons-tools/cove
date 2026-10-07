@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -29,7 +31,7 @@ func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *session
 			}
 			data["Streams"], data["Stream"] = streams, selected
 		}
-		render(w, "session", data)
+		render(w, r, "session", data)
 	})
 	events := func(w http.ResponseWriter, r *http.Request) {
 		if store == nil || hub == nil {
@@ -211,9 +213,15 @@ func sseWrite(w http.ResponseWriter, event, id, data string) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// sessionFragments is a clone of the session page's set for rendering event
+// fragments (the master set is only ever cloned, never executed).
+var sessionFragments = sync.OnceValue(func() *template.Template {
+	return template.Must(pages["session"].t.Clone())
+})
+
 func fragment(name string, data any) string {
 	var b bytes.Buffer
-	if err := pages["session"].ExecuteTemplate(&b, name, data); err != nil {
+	if err := sessionFragments().ExecuteTemplate(&b, name, data); err != nil {
 		return ""
 	}
 	// html/template leaves CR raw; keep it visible to the operator as an entity

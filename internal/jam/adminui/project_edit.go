@@ -132,8 +132,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
 			}
-			d.Tree.OOB = true
-			renderFragments(w, "project", namedFragment{"project-" + string(section), d}, namedFragment{"project-tree-nav", d.Tree})
+			renderFragment(w, r, "project", "project-"+string(section), d)
 		}
 	}
 

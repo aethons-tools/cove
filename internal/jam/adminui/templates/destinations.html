@@ -17,7 +17,7 @@
   <tbody>
     {{range .Destinations}}
     <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">
-      <td><a class="mono" href="{{destURL .Name}}"><b>{{.Name}}</b></a></td>
+      <td><a class="mono" href="{{destURL .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "specs" (printf "dest:%s" .Name))}}</td>
       <td><span class="mono">{{.Route}}</span></td>
       <td><span class="mono">{{.Upstream}}</span></td>
       <td>{{if or .IdentityIn .Apply}}<span class="mono">{{.IdentityIn}} → {{.Apply}}</span>{{else}}<span class="none">—</span>{{end}}</td>

@@ -207,7 +207,7 @@ func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	data := squawksData{Title: "Intercom", Configured: msgs != nil}
 	data.Legacy = q.Get("log") == "legacy"
 	if msgs == nil {
-		render(w, "intercom", data)
+		render(w, r, "intercom", data)
 		return
 	}
 	data.Project = strings.TrimSpace(q.Get("project"))
@@ -238,7 +238,7 @@ func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	// A bad date still counts as filtering (the old view did): the "no
 	// match" empty state.
 	data.Filtered = data.Filtered || data.Since != "" || data.Until != ""
-	render(w, "intercom", data)
+	render(w, r, "intercom", data)
 }
 
 // matchesParticipant reports whether p is m's author or channel (a legacy

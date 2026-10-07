@@ -28,15 +28,6 @@ func projectChoices(store jam.Store) []string {
 	return out
 }
 
-// projectRow is one projects-table row.
-type projectRow struct {
-	Name                   string
-	Roles, Actors, Studios int
-	Members, Channels      int
-	ChatService            string
-	InUseBy                string // what blocks removal; "" when removable
-}
-
 // projectRef is the first thing (deterministically) that keeps project from
 // being removed: a member, a standing-session entry, a role in it, a session
 // not yet gone, or an actor's grant into it. Mirrors the store's refusal.
@@ -71,23 +62,6 @@ func projectRef(store jam.Store, project string) string {
 	return ""
 }
 
-func projectRows(store jam.Store) []projectRow {
-	studios := map[string]int{}
-	for _, c := range jam.CoveSummaries(store, nil) {
-		studios[orDefaultProject(c.Project)]++
-	}
-	var out []projectRow
-	for _, name := range store.ListProjects() {
-		p, _ := store.GetProject(name)
-		out = append(out, projectRow{
-			Name: name, Roles: len(store.ListRoles(name)), Actors: len(projectHolders(store, name)),
-			Studios: studios[name], Members: len(store.ListMembers(p.ID)), Channels: len(store.ListChannels(p.ID, jam.SourceRoom)),
-			ChatService: chatServiceName(store, p), InUseBy: projectRef(store, name),
-		})
-	}
-	return out
-}
-
 // projectHolder is one actor with grants into the project.
 type projectHolder struct {
 	ID    string
@@ -113,27 +87,20 @@ func projectHolders(store jam.Store, project string) []projectHolder {
 // crumb is one breadcrumb segment.
 type crumb struct{ Label, Href string }
 
-// projectCrumbs is the trail to a project section (and, on a role page, the
-// role): Projects / acme / Roles / dev.
+// projectCrumbs is the trail below a project's tab: on a role page, Roles /
+// dev; none on a tab's own page (the tab strip names it).
 func projectCrumbs(project string, section projectSection, role string) []crumb {
-	out := []crumb{{"Projects", "/ui/projects"}, {project, projectURL(project)}}
-	for _, s := range projectSections {
-		if s.Section == section && section != sectionOverview {
-			out = append(out, crumb{s.Label, projectSectionURL(project, section)})
-		}
+	if role == "" {
+		return nil
 	}
-	if role != "" {
-		out = append(out, crumb{role, roleURL(project, role)})
-	}
-	return out
+	return []crumb{{"Roles", projectSectionURL(project, sectionRoles)}, {role, roleURL(project, role)}}
 }
 
 // projectDetail is the payload of every project page: Section picks which
-// section's content renders inside the tree frame.
+// section's content renders under the project's tabs.
 type projectDetail struct {
 	Title        string
 	Section      projectSection
-	Tree         projectTree
 	Crumbs       []crumb
 	Project      jam.Project
 	Roles        []roleRow
@@ -168,7 +135,6 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: name, Section: section, Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
-	d.Tree = buildProjectTree(store, img, name, section, "")
 	d.Crumbs = projectCrumbs(name, section, "")
 	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
@@ -217,15 +183,10 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 	return d, true
 }
 
-func projectTableData(store jam.Store) map[string]any {
-	return map[string]any{"Projects": projectRows(store)}
-}
-
 func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, canRequest bool, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+	// The rail is the project list.
 	mux.HandleFunc("GET /ui/projects", func(w http.ResponseWriter, r *http.Request) {
-		data := projectTableData(store)
-		data["Title"] = "Projects"
-		render(w, "projects", data)
+		redirect(w, r, "/ui/")
 	})
 
 	page := func(section projectSection) http.HandlerFunc {
@@ -233,11 +194,11 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 			name := r.PathValue("name")
 			d, ok := buildProjectDetail(store, img, msgs, name, section)
 			if !ok {
-				renderStatus(w, http.StatusNotFound, "project", projectDetail{Title: "Project not found", NotFound: true, NotFoundFor: name})
+				renderStatus(w, r, http.StatusNotFound, "project", projectDetail{Title: "Project not found", NotFound: true, NotFoundFor: name})
 				return
 			}
 			d.CanRequest = canRequest
-			render(w, "project", d)
+			render(w, r, "project", d)
 		}
 	}
 	mux.HandleFunc("GET /ui/projects/{name}", page(sectionOverview))
@@ -259,8 +220,9 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 			return
 		}
 		log.Info("ui project created", "operator", jam.OperatorID(r), "project", name)
+		// The new project's page; htmx follows the redirect.
 		w.Header().Set("HX-Redirect", projectURL(name))
-		renderFragment(w, "projects", "projects-table", projectTableData(store))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +253,8 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 			return
 		}
 		log.Info("ui project removed", "operator", jam.OperatorID(r), "project", name)
-		renderFragment(w, "projects", "projects-table", projectTableData(store))
+		// The project page navigates to Jam on success.
+		w.WriteHeader(http.StatusOK)
 	})
 }
 

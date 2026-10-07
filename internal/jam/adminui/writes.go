@@ -116,7 +116,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui enrolled", "operator", jam.OperatorID(r), "id", id, "project", project, "role", role)
-		renderFragment(w, "agents", "enroll-result", map[string]any{"ID": id, "Token": token})
+		renderFragment(w, r, "agents", "enroll-result", map[string]any{"ID": id, "Token": token})
 	})
 
 	mux.HandleFunc("DELETE /ui/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +287,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", sid, "label", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "agents", "agents-table", newAgentsData(store, sup, currentPhase(r), true))
+		renderFragment(w, r, "agents", "agents-table", newAgentsData(store, sup, currentPhase(r), true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {

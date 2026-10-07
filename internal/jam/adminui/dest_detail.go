@@ -232,16 +232,16 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
 		data := destTableData(store)
 		data["Title"] = "Destinations"
-		render(w, "destinations", data)
+		render(w, r, "destinations", data)
 	})
 
 	mux.HandleFunc("GET /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildDestDetail(store, r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "destination", d)
+		render(w, r, "destination", d)
 	})
 
 	// Create only: an existing destination is edited on its page, where every
@@ -269,7 +269,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
 		w.Header().Set("HX-Redirect", destURL(d.Name))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 
 	mux.HandleFunc("POST /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +294,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			renderError(w, http.StatusNotFound, "destination no longer exists")
 			return
 		}
-		renderFragment(w, "destination", "dest-body", detail)
+		renderFragment(w, r, "destination", "dest-body", detail)
 	})
 
 	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -306,6 +306,6 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			return
 		}
 		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 }

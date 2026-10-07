@@ -1,22 +1,21 @@
 ---
-summary: The admin UI's project pages — the left-side project tree (Overview, Members, Agents, Roles, Intercom, Escalation) with one URL per section under /ui/projects/<name>, what each section shows and edits, and the role page at /ui/projects/<project>/roles/<name>.
-read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or session context — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles link.
-owns: the project tree and its section pages (/ui/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/ui/projects/<project>/roles/<name>), and the /ui/roles redirects
-prereqs: ui.md for reaching the UI and the top nav; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
+summary: The admin UI's project pages — a project selected in the rail, its tabs (Overview, Members, Agents, Roles, Intercom, Escalation) with one URL per tab under /ui/projects/<name>, what each tab shows and edits, and the role page at /ui/projects/<project>/roles/<name>.
+read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or session context — or a role's page (scope, egress, allocation, standing sessions), or you followed an old /ui/roles or /ui/projects link.
+owns: a project's tabs and their pages (/ui/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/ui/projects/<project>/roles/<name>), and the /ui/roles and /ui/projects redirects
+prereqs: ui.md for reaching the UI, the rail and tabs; ui-attention.md for the badges and Needs attention; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf
 updated: 2026-10-07
 ---
 
 # Admin UI project pages
 
-A project's pages share a **left-side tree** — the project, then **Overview ·
-Members · Agents · Roles · Intercom · Escalation** — beside the selected page.
-Each node is its own URL, so it can be linked and bookmarked, and the
-breadcrumb above the content follows the path (`Projects / acme / Roles / dev`,
-every segment a link). Everything scoped to one project lives here; the top
-nav's **Projects** section stays highlighted throughout.
+Select a project in the [rail](ui.md) and its tabs — **Overview · Members ·
+Agents · Roles · Intercom · Escalation** — sit over its pages. Each tab is its
+own URL, so it can be linked and bookmarked; a role page sits under Roles with
+a `Roles / dev` breadcrumb. Everything scoped to one project lives here, and its
+tabs carry the project's [attention badges](ui-attention.md).
 
-| Node | URL |
+| Tab | URL |
 |---|---|
 | Overview | `/ui/projects/<name>` |
 | Members | `/ui/projects/<name>/members` |
@@ -25,25 +24,18 @@ nav's **Projects** section stays highlighted throughout.
 | Intercom | `/ui/projects/<name>/intercom` |
 | Escalation | `/ui/projects/<name>/escalation` |
 
-**The tree.** Roles, Agents and Intercom expand to their children — every role;
-the project's live and raising agents (the label counts them); its rooms. The
-branch holding the current page renders open and its node highlighted; the
-others expand on click (plain `<details>`, no script needed). On a narrow
-screen the tree collapses to one line naming the current node (`acme ▸ Roles ▸
-dev`); tap it to open the tree. Widening the window opens it again.
-
-**Old links.** `/ui/roles` redirects (301) to `/ui/projects`, and
-`/ui/roles/<project>/<role>` to the role's page here. The write endpoints keep
-their paths.
+**Old links.** `/ui/projects` and `/ui/roles` redirect (301) to `/ui/` (the
+rail is the project list), and `/ui/roles/<project>/<role>` to the role's page
+here. The write endpoints keep their paths. A new project is created from the
+rail's **+ New project**, which opens it.
 
 ## Sections
 
-Each section's edits are in place: a write answers with that section
-re-rendered, and the tree with it (so an added or removed room shows there at
-once).
+Each tab's edits are in place: a write answers with that tab's content
+re-rendered.
 
-- **Overview** — counts (members, agents live of all, roles, rooms, escalation
-  chains), each linking to its section; the **chat service** (none — tracker
+- **Overview** — the project's **Needs attention** card; counts (members,
+  agents live of all, roles, rooms, escalation chains), each linking to its tab; the **chat service** (none — tracker
   @-mentions only — or `discord`); the project's **Session context** card
   ([ui-pages.md](ui-pages.md#session-context-cards)). **Rename** (except
   `default`) renames the project and opens its new URL; **Delete** is disabled
@@ -73,7 +65,7 @@ once).
 
 ## Role pages
 
-Each role name (in the tree, a project's Roles, a grant chip, or a studio row)
+Each role name (in a project's Roles, a grant chip, or a studio row)
 links to its page, `/ui/projects/<project>/roles/<name>`, which shows and edits the whole
 role, one section at a time — each with a pre-filled **Edit** form that saves
 only that section:

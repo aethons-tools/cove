@@ -120,7 +120,7 @@ func TestSearchShortQueryAndNoMatches(t *testing.T) {
 }
 
 func TestSearchBoxOnEveryPage(t *testing.T) {
-	body := get(t, searchFixture(t), "/ui/projects").Body.String()
+	body := get(t, searchFixture(t), "/ui/").Body.String()
 	for _, want := range []string{`action="/ui/search"`, `id="q-top"`, `name="go" value="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("topbar search missing %q", want)

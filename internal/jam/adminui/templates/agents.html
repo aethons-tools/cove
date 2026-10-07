@@ -7,7 +7,7 @@
     <div class="grid">
       <label>Label <span class="req">required</span><span class="hint">its name; the agent gets a session id</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
       <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>
       <label class="wide">Workload prompt <span class="hint">optional</span><textarea name="prompt"></textarea></label>
     </div>
@@ -21,7 +21,7 @@
     <div class="grid">
       <label>Agent id <span class="req">required</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
-      <label>Project <span class="hint">or <a href="/ui/projects">create one</a></span>{{template "project-select"}}</label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
       <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
     </div>
     <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
@@ -46,7 +46,7 @@
   <tbody>
     {{range .Agents}}
     <tr data-id="{{.ID}}">
-      <td><a class="mono" href="{{agentURL .ID}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}</td>
+      <td><a class="mono" href="{{agentURL .ID}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
       <td><span class="chip">{{.Kind}}</span></td>
       <td>{{if .Project}}<a href="{{projectURL .Project}}">{{.Project}}</a>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{if .Role}}<a href="{{roleURL .Project .Role}}">{{.Role}}</a>{{if gt (len .Grants) 1}} <span class="sub">+{{len (slice .Grants 1)}}</span>{{end}}{{else}}<span class="none">—</span>{{end}}</td>

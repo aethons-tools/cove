@@ -28,8 +28,8 @@ at-jam project rm acme       # refused while a role or grant references it
 ```
 
 Each is an admin-API client; for its target and auth flags see
-[operators.md](operators.md). The admin UI's Projects tab does the same
-([ui-projects.md](ui-projects.md)). A project's goals and resources for its
+[operators.md](operators.md). The admin UI does the same from the rail (**+ New project**) and each
+project's pages ([ui-projects.md](ui-projects.md)). A project's goals and resources for its
 sessions are set with `at-jam context --project` ([session-context-authoring.md](session-context-authoring.md)).
 
 ## Existence is enforced

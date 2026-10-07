@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
 <div class="page-head"><h1>Project not found</h1></div>
-<div class="banner">No project <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/projects">Back to projects</a></div>
+<div class="banner">No project <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/">Back to Jam</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -39,18 +39,13 @@
   .tile span{color:var(--muted);font-size:12px}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="pframe">
-{{template "project-tree" .Tree}}
-<div>
-{{template "crumbs" .Crumbs}}
+{{with .Crumbs}}{{template "crumbs" .}}{{end}}
 {{if eq .Section "members"}}{{template "project-members" .}}
 {{else if eq .Section "agents"}}{{template "project-agents" .}}
 {{else if eq .Section "roles"}}{{template "project-roles" .}}
 {{else if eq .Section "intercom"}}{{template "project-intercom" .}}
 {{else if eq .Section "escalation"}}{{template "project-escalation" .}}
-{{else}}{{template "project-overview" .}}{{end}}
-</div>
-</div>
+{{else}}{{template "attention-card" frame.Items}}{{template "project-overview" .}}{{end}}
 {{end}}
 {{end}}
 
@@ -68,15 +63,15 @@
   {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles, sessions and grants first">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/projects/{{$p}}" hx-swap="none"
       hx-confirm="Delete project {{$p}}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed."
-      hx-on::after-request="if(event.detail.successful) location.href='/ui/projects'">Delete</button>{{end}}
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/'">Delete</button>{{end}}
 </div>
 
 <div class="tiles">
-  <a class="tile" href="{{.Tree.Href}}/members"><b>{{len .Members}}</b><span>members</span></a>
-  <a class="tile" href="{{.Tree.Href}}/agents"><b>{{.LiveCoves}}</b><span>agents live of {{.Agents}}</span></a>
-  <a class="tile" href="{{.Tree.Href}}/roles"><b>{{len .Roles}}</b><span>roles</span></a>
-  <a class="tile" href="{{.Tree.Href}}/intercom"><b>{{len .Rooms}}</b><span>rooms</span></a>
-  <a class="tile" href="{{.Tree.Href}}/escalation"><b>{{len .Escalation}}</b><span>escalation chains</span></a>
+  <a class="tile" href="{{projectURL $p}}/members"><b>{{len .Members}}</b><span>members</span></a>
+  <a class="tile" href="{{projectURL $p}}/agents"><b>{{.LiveCoves}}</b><span>agents live of {{.Agents}}</span></a>
+  <a class="tile" href="{{projectURL $p}}/roles"><b>{{len .Roles}}</b><span>roles</span></a>
+  <a class="tile" href="{{projectURL $p}}/intercom"><b>{{len .Rooms}}</b><span>rooms</span></a>
+  <a class="tile" href="{{projectURL $p}}/escalation"><b>{{len .Escalation}}</b><span>escalation chains</span></a>
 </div>
 <div class="sections">
   <section class="card">
@@ -152,7 +147,7 @@
     <table>
       <thead><tr><th>Agent</th><th>Roles</th></tr></thead>
       <tbody>
-        {{range .Holders}}<tr><td><a class="mono" href="{{agentURL .ID}}">{{.ID}}</a></td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
+        {{range .Holders}}<tr><td><a class="mono" href="{{agentHref .ID ""}}">{{.ID}}</a></td><td>{{range .Roles}}<span class="chip">{{.}}</span>{{end}}</td></tr>
         {{else}}<tr><td colspan="2" class="empty">No agents hold a grant here.</td></tr>{{end}}
       </tbody>
     </table>
@@ -183,7 +178,7 @@
 <table>
   <thead><tr><th>Role</th><th>Destinations</th><th>TTL</th><th>Kit</th><th></th></tr></thead>
   <tbody>
-    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a></td>
+    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "roles" (printf "%s/%s" .Project .Name))}}</td>
       <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
       <td>{{ttl .TTL}}</td>
       <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td>
