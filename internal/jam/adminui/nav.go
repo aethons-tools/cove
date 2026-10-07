@@ -77,6 +77,7 @@ type railView struct {
 // All of them (row flags) and the scope's own (Needs attention).
 type frame struct {
 	Kind    scopeKind
+	Brand   string // the title bar's and tab title's name (frameSource.brand)
 	Project string // the project scope's name
 	Title   string // the scope's title
 	Tabs    []tabView
@@ -88,7 +89,8 @@ type frame struct {
 
 // buildRail lays out the rail with the scope kind current (for a project,
 // the named one); items are every attention item.
-func buildRail(store jam.Store, kind scopeKind, project string, items []attnItem) railView {
+func buildRail(src frameSource, kind scopeKind, project string, items []attnItem) railView {
+	store := src.store
 	q := url.Values{}
 	switch kind {
 	case scopeJam:
@@ -96,7 +98,7 @@ func buildRail(store jam.Store, kind scopeKind, project string, items []attnItem
 	case scopeProject:
 		q.Set("scope", project)
 	}
-	rv := railView{Poll: "/ui/rail", Jam: railEntry{Name: "Jam", Href: "/ui/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
+	rv := railView{Poll: "/ui/rail", Jam: railEntry{Name: src.jamName(), Href: "/ui/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
 	if len(q) > 0 {
 		rv.Poll += "?" + q.Encode()
 	}
@@ -107,15 +109,15 @@ func buildRail(store jam.Store, kind scopeKind, project string, items []attnItem
 }
 
 // railFor is the rail a poll asks for (see railView.Poll).
-func railFor(r *http.Request, store jam.Store, items []attnItem) railView {
+func railFor(r *http.Request, src frameSource, items []attnItem) railView {
 	q := r.URL.Query()
 	switch {
 	case q.Get("jam") == "1":
-		return buildRail(store, scopeJam, "", items)
+		return buildRail(src, scopeJam, "", items)
 	case q.Has("scope"):
-		return buildRail(store, scopeProject, q.Get("scope"), items)
+		return buildRail(src, scopeProject, q.Get("scope"), items)
 	}
-	return buildRail(store, scopeNone, "", items)
+	return buildRail(src, scopeNone, "", items)
 }
 
 // frameFor builds a page's frame from its meta and request. A project page
@@ -125,7 +127,7 @@ func railFor(r *http.Request, store jam.Store, items []attnItem) railView {
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	items := attention(src.store, src.img)
-	f := frame{Kind: meta.Kind, All: items}
+	f := frame{Kind: meta.Kind, All: items, Brand: src.brand()}
 	if meta.Kind == scopeJam && meta.Tab == "agents" {
 		if p := r.URL.Query().Get("project"); p != "" {
 			if _, ok := src.store.GetProject(p); ok {
@@ -142,11 +144,11 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	}
 	switch f.Kind {
 	case scopeJam:
-		f.Title, f.Items = "Jam", inScope(items, "", "")
+		f.Title, f.Items = src.jamName(), inScope(items, "", "")
 		for _, t := range jamTabs {
 			f.Tabs = append(f.Tabs, tabView{Label: t.Label, Href: t.Href, Current: t.Key == tab, Badge: badgeOf(inScope(items, "", t.Key))})
 		}
-		f.Rail = buildRail(src.store, scopeJam, "", items)
+		f.Rail = buildRail(src, scopeJam, "", items)
 	case scopeProject:
 		f.Title, f.Items = f.Project, inScope(items, f.Project, "")
 		for _, s := range projectSections {
@@ -154,9 +156,9 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 			f.Tabs = append(f.Tabs, tabView{Label: s.Label, Href: projectSectionURL(f.Project, s.Section), Current: key == tab,
 				Badge: badgeOf(inScope(items, f.Project, key))})
 		}
-		f.Rail = buildRail(src.store, scopeProject, f.Project, items)
+		f.Rail = buildRail(src, scopeProject, f.Project, items)
 	default:
-		f.Rail = buildRail(src.store, scopeNone, "", items)
+		f.Rail = buildRail(src, scopeNone, "", items)
 	}
 	if meta.SubTab != "" {
 		for _, s := range specsSubTabs {
@@ -195,6 +197,25 @@ func projectFromRoute(r *http.Request) (project, tab string) {
 type frameSource struct {
 	store jam.Store
 	img   jam.ImageResolver
+	name  string // the Jam's display name ("" = none)
+}
+
+// jamName is what the rail and Jam's scope call this Jam: its display name,
+// else "Jam".
+func (s frameSource) jamName() string {
+	if s.name != "" {
+		return s.name
+	}
+	return "Jam"
+}
+
+// brand is the title bar's and tab title's name: "<display name> Jam", else
+// "Jam".
+func (s frameSource) brand() string {
+	if s.name != "" {
+		return s.name + " Jam"
+	}
+	return "Jam"
 }
 
 type frameKey struct{}

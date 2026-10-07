@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
@@ -47,6 +49,10 @@ type devIdentityConfig struct {
 
 // serveConfig is the on-disk config for `at-jam serve`.
 type serveConfig struct {
+	// DisplayName names this Jam in the admin UI: the title bar reads
+	// "<name> Jam" and the rail's Jam entry "<name>". Optional; one line, at
+	// most 64 characters, trimmed.
+	DisplayName string `yaml:"display-name"`
 	Listen      string `yaml:"listen"`
 	AdminListen string `yaml:"admin-listen"`
 	// UIHosts are extra Host values accepted for the browser UI on a loopback
@@ -186,6 +192,25 @@ func (c serveConfig) wakeSettings() wakeon.Config {
 func (c serveConfig) validateSessionEvents() error {
 	_, err := sessionevents.ParseRetention(c.SessionEventsRetention)
 	return err
+}
+
+// displayName is the trimmed display-name ("" when unset).
+func (c serveConfig) displayName() string { return strings.TrimSpace(c.DisplayName) }
+
+// validateDisplayName refuses a display-name that spans lines, holds control,
+// invisible or bidi-override characters (anything but printable text and plain
+// spaces), or runs past 64 characters.
+func (c serveConfig) validateDisplayName() error {
+	n := c.displayName()
+	if utf8.RuneCountInString(n) > 64 {
+		return fmt.Errorf("display-name: at most 64 characters, got %d", utf8.RuneCountInString(n))
+	}
+	for _, r := range n {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("display-name: must be one line of printable text (no control, invisible or line-separator characters)")
+		}
+	}
+	return nil
 }
 
 // validateWake checks runtime.wake's durations parse. A no-op when unset.

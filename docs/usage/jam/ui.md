@@ -17,9 +17,10 @@ there):
 http://127.0.0.1:8081/ui/
 ```
 
-A permanent **rail** on the left lists **Jam**, then every project, then **+
-New project**; the selection decides the **tabs** over the content. Jam's tabs
-are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
+A permanent **rail** lists **Jam**, then every project, then **+ New project**
+([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
+title; the title bar reads `<name> Jam`); the selection decides the **tabs** over
+the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
 **Overview · Members · Agents · Roles · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
 page: its project's Roles; a kit: Jam's Specs) with a breadcrumb below it.
@@ -56,9 +57,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See
   [Intercom](#intercom) below.
-- **Users / Kits / Destinations / Model-specs** — the control-plane objects as
-  tables, all editable from here; roles live in their project — see
-  [ui-editing.md](ui-editing.md).
+- **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
+  here ([ui-editing.md](ui-editing.md)); roles live in their project.
 
 Every table has a fixed order — agents and studios by id; roles by project, then
 name; kits and destinations by name; squawks newest-first — so rows don't shuffle

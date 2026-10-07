@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jam — {{.Title}}</title>
+  <title>{{or frame.Brand "Jam"}} — {{.Title}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -144,7 +144,7 @@
 <body>
   <header class="topbar">
     <button type="button" class="railbtn" aria-label="Projects" onclick="document.body.classList.toggle('rail-open')">☰</button>
-    <span class="brand"><span class="dot"></span>Jam <small>Admin</small></span>
+    <span class="brand"><span class="dot"></span>{{or frame.Brand "Jam"}} <small>Admin</small></span>
     <form class="topsearch" action="/ui/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
       <input type="hidden" name="go" value="1">
@@ -367,7 +367,7 @@
 {{define "rail-entries"}}
 <div id="rail-entries" hx-get="{{or .Poll "/ui/rail"}}" hx-trigger="every 3s" hx-swap="outerHTML">
   <ul>
-    <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ Jam</span>{{template "badge" .Jam.Badge}}</a></li>
+    <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ {{.Jam.Name}}</span>{{template "badge" .Jam.Badge}}</a></li>
   </ul>
   <hr>
   <div class="rail-label">Projects</div>

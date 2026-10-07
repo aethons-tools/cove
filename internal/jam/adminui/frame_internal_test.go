@@ -269,3 +269,41 @@ func TestMissingProjectPage(t *testing.T) {
 		t.Error("nothing is current in the rail on a missing project's page")
 	}
 }
+
+// A display name brands the title bar and tab title ("Aethon Jam") and names
+// the Jam rail entry and scope ("Aethon"); unset, everything reads "Jam".
+func TestDisplayName(t *testing.T) {
+	named := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName("Aethon"))
+	for path, wants := range map[string][]string{
+		"/ui/":              {"<title>Aethon Jam — Dashboard</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">Aethon</div>`},
+		"/ui/projects/acme": {"<title>Aethon Jam — acme</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">acme</div>`},
+		"/ui/rail?jam=1":    {`<span class="name">◉ Aethon</span>`},
+	} {
+		body := frameGet(t, named, path)
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %s", path, want)
+			}
+		}
+	}
+	// a named Jam's search and 404 pages carry the brand too
+	if body := frameGet(t, named, "/ui/search?q=zz"); !strings.Contains(body, "<title>Aethon Jam — Search</title>") || !strings.Contains(body, `<span class="name">◉ Aethon</span>`) {
+		t.Error("search page should carry the display name")
+	}
+	rec := httptest.NewRecorder()
+	named.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/projects/nope", nil))
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<span class="dot"></span>Aethon Jam <small>Admin</small>`) {
+		t.Errorf("404 page should carry the display name: %d", rec.Code)
+	}
+	// the name is config text: it is escaped wherever it renders
+	hostile := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName(`<i>&"x`))
+	if body := frameGet(t, hostile, "/ui/"); strings.Contains(body, `<i>&"x`) || !strings.Contains(body, "&lt;i&gt;&amp;&#34;x Jam") {
+		t.Error("the display name must be HTML-escaped")
+	}
+	body := frameGet(t, frameHandler(t), "/ui/")
+	for _, want := range []string{"<title>Jam — Dashboard</title>", `<span class="dot"></span>Jam <small>Admin</small>`, `<span class="name">◉ Jam</span>`, `<div class="scope-title">Jam</div>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("unnamed Jam missing %s", want)
+		}
+	}
+}
