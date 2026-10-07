@@ -1,6 +1,6 @@
 # intercom slice 3: session channels and call-in — design
 
-**Status:** approved (2026-10-07); §9 questions decided as recommended.
+**Status:** approved (2026-10-07); §9 questions decided as recommended. Built: 3a (#376), 3b (#377), 3c (#378); see each plan for review decisions.
 **Parent:** [`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md), slice 3 of 4 (decisions 12 and 13). Slice 2 ([`…-slice2-channels-design.md`](2026-10-06-intercom-slice2-channels-design.md)) put every squawk in one channel and gave us `chat`, `ticket` and `room` sources; this slice adds the fourth.
 **Delivers:**
 - a `session` channel source, and every session's **home channel**;
