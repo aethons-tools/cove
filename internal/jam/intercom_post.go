@@ -127,7 +127,14 @@ func (ic *Intercom) Notify(inst Instance, id, body string) (intercom.Squawk, err
 	m := intercom.Squawk{ID: id, From: ident.ID(inst.ActorID), Body: body}
 	if ch, ok := ic.ownSessionChannel(inst); ok && ch.Status != StatusLive {
 		return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
-	} else if !ok && inst.Unit == "" && !ic.sessionLive(ident.ID(inst.ActorID)) {
+	}
+	if !ic.sessionLive(ident.ID(inst.ActorID)) { // gone: post where it was, joining or creating nothing
+		if ch, ok := ic.ownSessionChannel(inst); ok {
+			return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
+		}
+		if ch, ok, err := ic.ticketChannel(inst, false); err == nil && ok {
+			return ic.PostTrusted(ch, m)
+		}
 		return ic.notifyGone(inst, m)
 	}
 	ch, err := ic.HomeChannel(inst)
@@ -223,14 +230,18 @@ func (ic *Intercom) HomeChannel(inst Instance) (Channel, error) {
 	return ic.sessionChannel(inst)
 }
 
-// ownSessionChannel is the session channel inst is in: the live one, else
-// the latest archived one.
+// ownSessionChannel is the session channel inst is in, in its project: the
+// live one, else the latest archived one.
 func (ic *Intercom) ownSessionChannel(inst Instance) (Channel, bool) {
+	p, exists := ic.store.GetProject(orDefaultProject(inst.Project))
+	if !exists {
+		return Channel{}, false
+	}
 	var found Channel
 	ok := false
 	for _, id := range ic.store.ChannelsOf(ident.ID(inst.ActorID)) {
 		ch, exists := ic.store.GetChannel(id)
-		if !exists || ch.Kind != SourceSession || ch.Key != inst.ActorID {
+		if !exists || ch.Kind != SourceSession || ch.Key != inst.ActorID || ch.ProjectID != p.ID {
 			continue
 		}
 		if ch.Status == StatusLive {
@@ -728,10 +739,8 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
 		// A ticket session's home is its ticket: reaching it needs what
 		// addressing that ticket needs (session: is no way around ticket:).
-		if target.Unit != "" && target.Unit != p.Session.Unit && !anyAllowed([]string{"ticket:" + target.Unit}, globs) {
-			if _, hasTracker := ic.tracker(); hasTracker {
-				return Channel{}, ErrSendDenied
-			}
+		if tracker, ok := ic.tracker(); ok && !sessionTicketAllowed(ic.store, tracker, *p.Session, target, globs) {
+			return Channel{}, ErrSendDenied
 		}
 		return ic.HomeChannel(target)
 	case anyAllowed([]string{"session:" + ref}, globs):

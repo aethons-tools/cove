@@ -305,3 +305,42 @@ func TestSessionChannelsAreNotExported(t *testing.T) {
 		}
 	}
 }
+
+// The ticket: requirement for reaching a ticket session honours every form
+// a ticket: glob takes (bare key, or scoped to the tracker connection), and
+// list_targets offers only the sessions a send would reach.
+func TestIntercomSessionTicketFormsAndTargets(t *testing.T) {
+	f := newICFixture(t, "session:*", "ticket:linear/*")
+	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceTicket {
+		t.Fatalf("with a connection-scoped ticket: glob = %+v, %v", p, err)
+	}
+	g := newICFixture(t, "session:*")
+	a := Actor{ID: g.standing.ActorID, Grants: g.actor.Grants}
+	for _, tg := range ListTargets(g.store, a, g.now) {
+		if tg.Kind == "session" && (tg.Name == g.ticket.ActorID || tg.Name == sessionLabel(g.ticket)) {
+			t.Fatalf("list_targets offers a ticket session a send would refuse: %+v", tg)
+		}
+	}
+}
+
+// A gone ticket session's notice lands in its ticket's channel without
+// joining the dead session back.
+func TestIntercomNotifyGoneTicketSession(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.Ended(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.RemoveInstance(f.ticket.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	m, err := f.ic.Notify(f.ticket, "", "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isCurrentMember(f.store, m.Channel, ident.ID(f.ticket.ActorID)) {
+		t.Fatal("a gone session was joined back to its ticket")
+	}
+}

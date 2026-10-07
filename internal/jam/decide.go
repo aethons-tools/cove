@@ -172,8 +172,10 @@ func ListTargets(store Store, a Actor, now time.Time) []Target {
 				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
 			}
 		}
+		tracker, hasTracker := store.ConnectionOfKind("linear")
+		self, _ := store.GetInstance(a.ID)
 		for _, inst := range liveSessionsOf(store, p.Name) {
-			if inst.ActorID == a.ID {
+			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, tracker.ID, self, inst, globs) {
 				continue
 			}
 			name := sessionAddressName(store, inst)
@@ -185,6 +187,21 @@ func ListTargets(store Store, a Actor, now time.Time) []Target {
 		}
 	}
 	return out
+}
+
+// sessionTicketAllowed reports whether a session whose addressing is globs
+// may reach target where target's home is its ticket (on tracker): no ticket,
+// the poster's own ticket, or a ticket: glob in any form resolveTicket takes
+// — the bare key, or scoped to the tracker connection by name or id.
+func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
+	if target.Unit == "" || target.Unit == poster.Unit {
+		return true
+	}
+	forms := []string{"ticket:" + target.Unit, "ticket:" + string(tracker) + "/" + target.Unit}
+	if c, ok := store.GetConnection(tracker); ok {
+		forms = append(forms, "ticket:"+c.Name+"/"+target.Unit)
+	}
+	return anyAllowed(forms, globs)
 }
 
 // liveSessionsOf lists the live sessions of the project named project, by id.

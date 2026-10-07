@@ -51,9 +51,9 @@
 - A personal session's channel never takes members by posting: a relay reply there doesn't join its author.
 - A session set up again under the same id (a restart or an upgrade) reopens its archived channel, so members are kept (`ReopenChannel`).
 - `*` never matches `session:`: sessions need an explicit `session:` glob.
-- `session:` to a ticket session also needs `ticket:` addressing.
+- `session:` to a ticket session also needs `ticket:` addressing, in any form that `ticket:` takes, and `list_targets` offers only the sessions a send would reach.
 - Session channels never take the chat's Linear `@`-mention fallback.
-- A gone session's notice creates no channel, except for a personal session's starter: that channel is archived as soon as the notice is in it.
+- A gone session's notice joins and creates nothing. It goes to its own channel, else to its ticket's; with neither, only a personal session's starter gets a channel, which is archived as soon as the notice is in it.
 - Session channels are left out of the config export.
 
 ## Verification
