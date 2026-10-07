@@ -28,11 +28,7 @@ func dashboardStats(store jam.Store) stats {
 	}
 	s.Projects = len(store.ListProjects())
 	s.Agents = len(agentRows(store, nil, ""))
-	for _, u := range store.ListUsers() {
-		if u.Status != jam.StatusRemoved {
-			s.Users++
-		}
-	}
+	s.Users = len(store.ListUsers()) // ListUsers returns live users only
 	s.Specs = len(store.ListKits()) + len(store.ListDestinations()) + len(store.ListModelSpecs())
 	return s
 }

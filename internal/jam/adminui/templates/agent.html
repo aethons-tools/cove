@@ -154,7 +154,7 @@
       <tbody>
         {{range .Squawks}}<tr>
           <td><time>{{.At}}</time></td>
-          <td><span class="mono">{{.From}}</span></td>
+          <td>{{if .AgentID}}<a class="mono" href="{{agentURL .AgentID}}">{{.From}}</a>{{else}}<span class="mono">{{.From}}</span>{{end}}</td>
           <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
           <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</td></tr>
         {{else}}<tr><td colspan="4" class="empty">No squawks.</td></tr>{{end}}

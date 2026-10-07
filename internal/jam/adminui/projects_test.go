@@ -236,3 +236,13 @@ func TestProjectRename(t *testing.T) {
 		t.Fatal("an empty name must be refused")
 	}
 }
+
+// The overview's agent count is the Agents section's rows — studios in the
+// project plus actors holding a grant into it, by id — not just studios.
+func TestProjectOverviewAgentCount(t *testing.T) {
+	// seedAgents: 4 studios (2 live/raising) + enrolled-only e-only; s-ticket is both.
+	body := get(t, projHandler(seedAgents(t)), "/ui/projects/acme").Body.String()
+	if !strings.Contains(body, "agents live of 5<") || !strings.Contains(body, "<b>2</b><span>agents live of 5") {
+		t.Errorf("overview tile:\n%s", body)
+	}
+}

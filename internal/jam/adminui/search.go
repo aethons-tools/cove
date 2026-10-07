@@ -187,10 +187,13 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	specs := searchGroup{Key: "model-specs", Name: "Model-specs"}
 	for _, ms := range store.ListModelSpecs() {
 		if m.any(ms.Name, string(ms.Type), ms.Model.ID, ms.Principal.Credential) {
-			sub := string(ms.Type) + " · " + ms.Principal.Credential
-			if ms.Model.ID != "" {
-				sub += " · " + ms.Model.ID
+			var parts []string
+			for _, p := range []string{string(ms.Type), ms.Principal.Credential, ms.Model.ID} {
+				if p != "" {
+					parts = append(parts, p)
+				}
 			}
+			sub := strings.Join(parts, " · ")
 			specs.add(searchHit{Title: ms.Name, Sub: sub, URL: specURL(ms.Name), Exact: m.exact(ms.Name)})
 		}
 	}

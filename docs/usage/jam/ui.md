@@ -1,5 +1,5 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the live studios, the durable squawk Log, and the control-plane roster/roles/kits/destinations, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
+summary: The Jam admin UI — a server-rendered web view of the agents and their studios, the projects, users and specs, and the durable squawk Log, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the top nav and its sub-tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
 read_when: You want to watch a running Jam in a browser — the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
 owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the top nav and its sections, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
@@ -40,8 +40,8 @@ under a sub-tab strip (their detail pages show it too). It renders:
   when exactly one object's name is the whole query (e.g. an agent id or
   `acme/dev`); otherwise it opens `/ui/search?q=…`, which updates as you type.
   Session event streams are not searched.
-- **Projects** (`/ui/projects`) — every project with its roles, actors,
-  studios, roster size and chat service; create one, or delete one nothing
+- **Projects** (`/ui/projects`) — every project with its roles, agents,
+  roster size and chat service; create one, or delete one nothing
   references. Each project opens on a tree of its sections — members, agents,
   roles, rooms and messages, escalation — see [ui-projects.md](ui-projects.md).
 - **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
