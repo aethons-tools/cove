@@ -89,9 +89,9 @@ recorded before they existed), and the extracted `type`, `subtype`,
 
 ## UI
 
-The browser timeline lives at `/ui/coves/{id}/session`; see
+The browser timeline lives at `/ui/agents/{id}/session`; see
 [ui.md](ui.md#session-timeline). The studio's page lists its streams
-([ui-pages.md](ui-pages.md#studio-pages)). `/me` shows participants only a
+([ui-pages.md](ui-pages.md#agent-pages)). `/me` shows participants only a
 derived status per session, never events — see
 [intercom-ui.md](intercom-ui.md#session-status).
 
