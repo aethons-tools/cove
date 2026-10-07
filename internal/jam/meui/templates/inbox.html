@@ -30,7 +30,7 @@
     <div class="cv-head">
       <div>
         <div class="cv-title">{{.Label}}</div>
-        <div class="cv-sub">{{.Project}}{{if .Kind}} · {{.Kind}}{{end}}</div>
+        <div class="cv-sub">{{.Project}}{{if .Kind}} · {{if eq .Kind "session"}}agent{{else}}{{.Kind}}{{end}}{{end}}</div>
       </div>
       <span class="spacer"></span>
       {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}

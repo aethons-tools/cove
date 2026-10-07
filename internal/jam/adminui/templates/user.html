@@ -41,7 +41,7 @@
     <div class="body">{{range $u.Projects}}<a class="chip" href="{{projectURL .}}">{{.}}</a> {{else}}<span class="unset">Not a member of any project.</span>{{end}}</div>
   </section>
   <section class="card">
-    <header><h2>Logins</h2><span class="sub">operator identities this person signs in as — they own personal sessions</span></header>
+    <header><h2>Logins</h2><span class="sub">operator identities this person signs in as — they own personal agents</span></header>
     <div class="body"><form hx-post="{{$base}}/logins" hx-target="#user" hx-swap="outerHTML">
       <label>Logins <span class="hint">one per line; the set is replaced</span><textarea name="logins" spellcheck="false">{{.LoginSpec}}</textarea></label>
       <div class="form-actions"><button type="submit" class="primary small">Save logins</button></div>

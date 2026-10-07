@@ -1,7 +1,8 @@
 package adminui
 
 // projectSection is one of a project's tabs: its Overview page or one of its
-// sections. A role page sits under sectionRoles.
+// sections. Roles have no tab of their own: the role list is on the Agents tab,
+// and a role page (under sectionRoles' path) sits under Agents.
 type projectSection string
 
 const (
@@ -21,7 +22,6 @@ var projectSections = []struct {
 	{sectionOverview, "Overview"},
 	{sectionMembers, "Members"},
 	{sectionAgents, "Agents"},
-	{sectionRoles, "Roles"},
 	{sectionIntercom, "Intercom"},
 	{sectionEscalation, "Escalation"},
 }

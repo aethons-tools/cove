@@ -8,7 +8,7 @@
   {{if .Legacy}}<input type="hidden" name="log" value="legacy">{{end}}
   <div class="grid">
     <label>Project<input name="project" data-ta="projects" value="{{.Project}}" autocomplete="off" spellcheck="false"></label>
-    <label>Participant <span class="hint">{{if .Legacy}}kind:ref{{else}}an id: a user, session, account or channel{{end}}</span><input name="participant" data-ta="participants" value="{{.Participant}}" placeholder="{{if .Legacy}}channel:eng{{else}}usr_…{{end}}" autocomplete="off" spellcheck="false"></label>
+    <label>Participant <span class="hint">{{if .Legacy}}kind:ref{{else}}an id: a user, agent, account or channel{{end}}</span><input name="participant" data-ta="participants" value="{{.Participant}}" placeholder="{{if .Legacy}}channel:eng{{else}}usr_…{{end}}" autocomplete="off" spellcheck="false"></label>
     <label>Body contains<input name="q" value="{{.Q}}"></label>
     <label>Since<input name="since" value="{{.Since}}" type="date"></label>
     <label>Until<input name="until" value="{{.Until}}" type="date"></label>

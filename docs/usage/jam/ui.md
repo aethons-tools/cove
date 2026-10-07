@@ -21,9 +21,9 @@ A permanent **rail** lists **Jam**, then every project, then **+ New project**
 ([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
 title; the title bar reads `<name> Jam`); the selection decides the **tabs** over
 the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
-**Overview · Members · Agents · Roles · Intercom · Escalation**
+**Overview · Members · Agents · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
-page: its project's Roles; a kit: Jam's Specs) with a breadcrumb below it.
+page: its project's Agents; a kit: Jam's Specs) with a breadcrumb below it.
 **Specs** (`/ui/specs`, opening on Kits) groups **Kits · Destinations ·
 Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 (☰ in the title bar). Rail entries, tabs and rows carry **attention badges**
@@ -32,8 +32,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Dashboard** (`/ui/`) — summary tiles: live / raising / lost-or-terminating /
   idled agents, each opening the Agents list filtered to that phase, and counts
   of projects, agents, users and specs (kits + destinations + model-specs) —
-  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Session context** card
-  ([ui-pages.md](ui-pages.md#session-context-cards)), above the studio table.
+  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
+  ([ui-pages.md](ui-pages.md#agent-context-cards)), above the running agents.
 - **Search** — the box in the top bar (press `/` from anywhere) searches every
   page's objects at once: agents (id, unit, owner, standing name,
   project/role, grants — one hit per id), roles (project/name, kit,
@@ -60,7 +60,7 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
 
-Every table has a fixed order — agents and studios by id; roles by project, then
+Every table has a fixed order — agents by id; roles by project, then
 name; kits and destinations by name; squawks newest-first — so rows don't shuffle
 across a poll or an edit, and the JSON admin API and CLI lists match it.
 
@@ -183,7 +183,7 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 
-`/ui/agents/{id}/session` (linked from studio tables and the agent's page) shows a managed
+`/ui/agents/{id}/session` (linked from running-agents tables and the agent's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation

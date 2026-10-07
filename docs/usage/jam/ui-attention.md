@@ -22,7 +22,7 @@ on every page; a table re-rendered by its poll or by an edit keeps its ⚠ flags
 | broken | red | a studio is `lost` or `terminating`, or its egress re-apply is failing | its project · Agents |
 | out of date | amber | a studio runs a stale image or connector ([coves.md](coves.md#the-studio-verbs)) | its project · Agents |
 | config | amber | an escalation target names nobody on the project | the project · Escalation |
-| config | amber | a role's kit or model-spec no longer exists | the project · Roles |
+| config | amber | a role's kit or model-spec no longer exists | the project · Agents (its roles) |
 | config | amber | a destination is in a connector conflict ([ui-pages.md](ui-pages.md#destination-pages)) | Jam · Specs |
 | config | amber | a kit's current version does not parse | Jam · Specs |
 

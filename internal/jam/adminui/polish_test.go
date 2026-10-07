@@ -128,7 +128,7 @@ func TestRoleRequestTargetsFlash(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/projects/acme/roles").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
 	if !strings.Contains(body, `hx-target="#flash"`) || strings.Contains(body, "role-request-msg") {
 		t.Errorf("Request should target #flash; got:\n%s", body)
 	}

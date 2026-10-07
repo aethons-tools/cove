@@ -31,7 +31,7 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 		if !ok {
 			msg := fmt.Sprintf("no member of %s is linked to your login", project)
 			if login == "local" {
-				msg = "sign in to request a session (/ui/auth/login): Jam needs to know which member you are"
+				msg = "sign in to request an agent (/ui/auth/login): Jam needs to know which member you are"
 			}
 			renderError(w, http.StatusForbidden, msg)
 			return
@@ -43,7 +43,7 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<p class="ok">Requested ` + template.HTMLEscapeString(res.ID) +
+		_, _ = w.Write([]byte(`<p class="ok">Requested agent ` + template.HTMLEscapeString(res.ID) +
 			`; it will squawk you on the intercom.</p>`))
 	})
 }

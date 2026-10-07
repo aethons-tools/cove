@@ -104,7 +104,7 @@ func TestStudioPageGoneStillShowsAudit(t *testing.T) {
 	st := sessionevents.NewMemStore()
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, l, adminui.WithSessions(st, sessionevents.NewHub()))
 	rec := get(t, h, "/ui/agents/old-1")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "not running") || !strings.Contains(rec.Body.String(), "last words") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "no longer running") || !strings.Contains(rec.Body.String(), "last words") {
 		t.Fatalf("gone studio = %d: %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {

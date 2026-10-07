@@ -28,7 +28,7 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 			`name="role" data-ta="roles" data-ta-project="@form"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/projects/acme/roles": {
+		"/ui/projects/acme/agents": {
 			`name="kit" data-ta="kits"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},

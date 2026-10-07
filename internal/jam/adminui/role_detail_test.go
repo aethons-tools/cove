@@ -88,7 +88,8 @@ func TestRoleDetailShowsEverything(t *testing.T) {
 		"holder-plain", "holder-ovr", "override",
 		"studio-of-review",
 		`<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`, // its project is selected
-		`href="/ui/projects/acme/roles" aria-current="page">Roles`,                       // under Roles
+		`href="/ui/projects/acme/agents" aria-current="page">Agents`,                     // under Agents
+		`<a href="/ui/projects/acme/agents">Agents</a> / <a href="/ui/projects/acme/roles/review">review</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role detail missing %q", want)
@@ -126,14 +127,14 @@ func TestRoleDetailNotFound(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `<aside id="rail"`) {
 		t.Errorf("not-found should still render the page chrome")
 	}
-	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/roles"`) {
+	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/agents"`) {
 		t.Errorf("not-found should link back to the project's roles")
 	}
 }
 
 func TestRoleLinksFromRolesAndRoster(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, anyCred, nil)
-	roles := get(t, h, "/ui/projects/acme/roles").Body.String()
+	roles := get(t, h, "/ui/projects/acme/agents").Body.String()
 	if !strings.Contains(roles, `href="/ui/projects/acme/roles/review"`) {
 		t.Errorf("roles table should link to the detail page")
 	}

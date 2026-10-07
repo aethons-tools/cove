@@ -41,7 +41,7 @@ func projectRef(store jam.Store, project string) string {
 	}
 	for _, e := range store.ListStandingSessions() {
 		if e.ProjectID == p.ID {
-			return fmt.Sprintf("standing session %s/%s", e.Role, e.Name)
+			return fmt.Sprintf("standing agent %s/%s", e.Role, e.Name)
 		}
 	}
 	if roles := store.ListRoles(project); len(roles) > 0 {
@@ -49,7 +49,7 @@ func projectRef(store jam.Store, project string) string {
 	}
 	for _, inst := range store.ListInstances() {
 		if inst.Phase != jam.PhaseGone && jam.SameProject(store, inst.Project, project) {
-			return "live session " + inst.ActorID
+			return "running agent " + inst.ActorID
 		}
 	}
 	for _, a := range store.ListActors() {
@@ -62,38 +62,16 @@ func projectRef(store jam.Store, project string) string {
 	return ""
 }
 
-// projectHolder is one actor with grants into the project.
-type projectHolder struct {
-	ID    string
-	Roles []string
-}
-
-func projectHolders(store jam.Store, project string) []projectHolder {
-	var out []projectHolder
-	for _, a := range store.ListActors() {
-		var roles []string
-		for _, g := range a.Grants {
-			if jam.ProjectName(store, g.Project) == project {
-				roles = append(roles, g.Role)
-			}
-		}
-		if roles != nil {
-			out = append(out, projectHolder{ID: a.ID, Roles: roles})
-		}
-	}
-	return out
-}
-
 // crumb is one breadcrumb segment.
 type crumb struct{ Label, Href string }
 
-// projectCrumbs is the trail below a project's tab: on a role page, Roles /
+// projectCrumbs is the trail below a project's tab: on a role page, Agents /
 // dev; none on a tab's own page (the tab strip names it).
 func projectCrumbs(project string, section projectSection, role string) []crumb {
 	if role == "" {
 		return nil
 	}
-	return []crumb{{"Roles", projectSectionURL(project, sectionRoles)}, {role, roleURL(project, role)}}
+	return []crumb{{"Agents", projectSectionURL(project, sectionAgents)}, {role, roleURL(project, role)}}
 }
 
 // projectDetail is the payload of every project page: Section picks which
@@ -104,12 +82,12 @@ type projectDetail struct {
 	Crumbs       []crumb
 	Project      jam.Project
 	Roles        []roleRow
-	Holders      []projectHolder
 	Coves        []jam.CoveSummary
 	LiveCoves    int
-	Agents       int  // studios in the project ∪ actors holding a grant into it
-	CanEdit      bool // always false: the page's studio table is read-only
-	CanRequest   bool // the Roles section offers Request (a supervisor runs)
+	Agents       int               // len(AgentRows)
+	AgentRows    []projectAgentRow // the Agents tab: running in the project or holding a grant into it
+	CanEdit      bool              // always false: the page's studio table is read-only
+	CanRequest   bool              // the Roles section offers Request (a supervisor runs)
 	Members      []memberRow
 	Rooms        []jam.RoomView
 	Escalation   []chainView // chains with at least one tier
@@ -134,7 +112,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 	if !ok || p.Status == jam.StatusRemoved {
 		return projectDetail{}, false
 	}
-	d := projectDetail{Title: name, Section: section, Project: p, Holders: projectHolders(store, name), InUseBy: projectRef(store, name)}
+	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
 	d.Crumbs = projectCrumbs(name, section, "")
 	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
@@ -150,14 +128,8 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 			}
 		}
 	}
-	agents := map[string]bool{} // the Agents section's rows: studios in the project plus grant holders
-	for _, c := range d.Coves {
-		agents[c.ID] = true
-	}
-	for _, h := range d.Holders {
-		agents[h.ID] = true
-	}
-	d.Agents = len(agents)
+	d.AgentRows = projectAgents(store, img, name)
+	d.Agents = len(d.AgentRows)
 	members := jam.MembersOf(store, p.ID)
 	for _, m := range members {
 		d.Members = append(d.Members, memberRow{UserID: m.User.ID, Name: m.User.Name, Handle: m.Handle,
@@ -202,6 +174,10 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		}
 	}
 	mux.HandleFunc("GET /ui/projects/{name}", page(sectionOverview))
+	// The role list moved to the Agents tab.
+	mux.HandleFunc("GET /ui/projects/{name}/roles", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, projectSectionURL(r.PathValue("name"), sectionAgents))
+	})
 	for _, s := range projectSections[1:] {
 		mux.HandleFunc("GET /ui/projects/{name}/"+string(s.Section), page(s.Section))
 	}
