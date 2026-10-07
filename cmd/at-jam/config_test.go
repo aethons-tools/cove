@@ -1043,3 +1043,25 @@ func TestSessionWakeLimit(t *testing.T) {
 		t.Fatal("a negative limit must be refused")
 	}
 }
+
+// display-name is optional, one line, at most 64 characters; it is trimmed.
+func TestDisplayNameConfig(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("display-name: \"  Aethon  \"\nlisten: 127.0.0.1:8443\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.validateDisplayName(); err != nil || cfg.displayName() != "Aethon" {
+		t.Fatalf("display-name = %q, %v", cfg.displayName(), err)
+	}
+	if (serveConfig{}).validateDisplayName() != nil || (serveConfig{}).displayName() != "" {
+		t.Error("an unset display-name is valid and empty")
+	}
+	for _, bad := range []string{"two\nlines", "tab\there", strings.Repeat("x", 65)} {
+		if err := (serveConfig{DisplayName: bad}).validateDisplayName(); err == nil {
+			t.Errorf("display-name %q should be refused", bad)
+		}
+	}
+	if err := (serveConfig{DisplayName: strings.Repeat("é", 64)}).validateDisplayName(); err != nil {
+		t.Errorf("64 characters (not bytes) is fine: %v", err)
+	}
+}

@@ -269,3 +269,27 @@ func TestMissingProjectPage(t *testing.T) {
 		t.Error("nothing is current in the rail on a missing project's page")
 	}
 }
+
+// A display name brands the title bar and tab title ("Aethon Jam") and names
+// the Jam rail entry and scope ("Aethon"); unset, everything reads "Jam".
+func TestDisplayName(t *testing.T) {
+	named := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName("Aethon"))
+	for path, wants := range map[string][]string{
+		"/ui/":              {"<title>Aethon Jam — Dashboard</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">Aethon</div>`},
+		"/ui/projects/acme": {"<title>Aethon Jam — acme</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">acme</div>`},
+		"/ui/rail?jam=1":    {`<span class="name">◉ Aethon</span>`},
+	} {
+		body := frameGet(t, named, path)
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %s", path, want)
+			}
+		}
+	}
+	body := frameGet(t, frameHandler(t), "/ui/")
+	for _, want := range []string{"<title>Jam — Dashboard</title>", `<span class="dot"></span>Jam <small>Admin</small>`, `<span class="name">◉ Jam</span>`, `<div class="scope-title">Jam</div>`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("unnamed Jam missing %s", want)
+		}
+	}
+}

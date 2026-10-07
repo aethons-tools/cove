@@ -129,6 +129,13 @@ type options struct {
 	sessHub        *sessionevents.Hub
 	credNames      []string
 	poolConfigured bool
+	displayName    string
+}
+
+// WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
+// and the rail's Jam entry "<name>" ("" keeps "Jam").
+func WithDisplayName(name string) Option {
+	return func(o *options) { o.displayName = name }
 }
 
 // WithSessions enables the live session-event timeline (/ui/agents/{id}/session).
@@ -152,6 +159,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	for _, opt := range opts {
 		opt(&o)
 	}
+	src := frameSource{store: store, img: sup, name: o.displayName}
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -175,7 +183,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	// The rail's entry lists, re-fetched by their own poll so badges stay
 	// live on every page.
 	mux.HandleFunc("GET /ui/rail", func(w http.ResponseWriter, r *http.Request) {
-		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, store, attention(store, sup)))
+		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, attention(store, sup)))
 	})
 	// Specs has no page of its own: it opens on its first sub-tab.
 	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +219,6 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
 
-	src := frameSource{store: store, img: sup}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mux.ServeHTTP(w, withFrameSource(r, src))
 	})

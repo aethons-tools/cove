@@ -17,8 +17,8 @@ there):
 http://127.0.0.1:8081/ui/
 ```
 
-A permanent **rail** on the left lists **Jam**, then every project, then **+
-New project**; the selection decides the **tabs** over the content. Jam's tabs
+A permanent **rail** on the left lists **Jam** (or the serve config's
+[`display-name`](serve.md#the-serve-config)), then every project, then **+ New project**; the selection decides the **tabs** over the content. Jam's tabs
 are **Dashboard · Agents · Users · Specs · Intercom**; a project's are
 **Overview · Members · Agents · Roles · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
