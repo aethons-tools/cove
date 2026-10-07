@@ -190,7 +190,6 @@ taken at raise, appears in the session's [session context](session-context.md).
 
 ## Not yet (later comms slices)
 
-- **Sessions waking sessions** (slice 3c). Call-in, join and leave: [intercom.md](intercom.md#channel-membership).
 - **Escalation as call-in** (slice 4): today tiers are `@`-mentioned on the ticket.
 
 Design rationale lives in

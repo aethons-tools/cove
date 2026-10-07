@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -39,6 +40,20 @@ type Reaper interface {
 // no reply-waking; teardown and pause still run).
 type Inbox interface {
 	Since(p ident.ID, afterSeq int64, limit int) []intercom.Squawk
+}
+
+// ChannelHistory reads a channel's recent squawks (intercom.Store's
+// ChannelBefore: ascending, the last limit before a seq) — what the
+// agent-to-agent loop breaker counts.
+type ChannelHistory interface {
+	ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk
+}
+
+// BreakerNotifier posts the loop breaker's notice into a channel, as from
+// (the session that wasn't woken), with id (a duplicate id is no error: the
+// notice is posted once). jam.Intercom.BreakerNotice.
+type BreakerNotifier interface {
+	BreakerNotice(ch, from ident.ID, id, body string) error
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -161,6 +176,11 @@ type Engine struct {
 	// Alarm gates (SetGates); off while either is nil.
 	gates      GateState
 	gateRunner GateRunner
+
+	// Sessions waking sessions (SetSessionWakes); off while history is nil.
+	history      ChannelHistory
+	breaker      BreakerNotifier // nil = no notice
+	sessionLimit int
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -183,6 +203,15 @@ func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Co
 // role's idle settings, nags records sent nags, and nagger delivers them (nil =
 // no intercom: no nags or reclaim notices, but a configured reclaim still
 // happens). Call before Run.
+// SetSessionWakes lets another session's post wake a waiting session — with
+// a loop breaker: once a channel has had more than limit session posts in a
+// row since a person or account last posted there, session posts in it no
+// longer wake, and breaker posts one notice there (a person's reply resets
+// it). Call before Run.
+func (e *Engine) SetSessionWakes(history ChannelHistory, breaker BreakerNotifier, limit int) {
+	e.history, e.breaker, e.sessionLimit = history, breaker, limit
+}
+
 func (e *Engine) SetIdleLadder(roles RoleLookup, nags NagRecorder, nagger Nagger) {
 	e.roles, e.nags, e.nagger = roles, nags, nagger
 }
@@ -578,15 +607,56 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 	var out []intercom.Squawk
 	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
 		// A person's or an account's post wakes the session. Another
-		// session's doesn't (two sessions in one channel would otherwise wake
-		// each other turn after turn) — it waits in the inbox for the next
-		// read; nor does a legacy squawk from another session.
-		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") || isSession(m.From) {
+		// session's wakes it only with session wakes on, and not once its
+		// channel's loop breaker has tripped (two sessions would otherwise
+		// wake each other turn after turn) — it waits in the inbox for the
+		// next read. A legacy squawk from another session never wakes.
+		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
 			continue
+		}
+		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
+			continue // a session's notice (a nag, the breaker's) is for people
 		}
 		out = append(out, m)
 	}
 	return out
+}
+
+// breakerScan bounds how far back the breaker looks for a person's last post
+// (for its notice's id).
+const breakerScan = 500
+
+// loopTripped reports whether m (a session's post) is past its channel's
+// loop breaker: the last sessionLimit+1 squawks there, m included, are all
+// from sessions. When it is, the breaker's notice is posted (once per run,
+// keyed by the person's last post in the channel).
+func (e *Engine) loopTripped(inst jam.Instance, m intercom.Squawk) bool {
+	if m.Channel == "" {
+		return false
+	}
+	window := e.history.ChannelBefore(m.Channel, m.Seq+1, e.sessionLimit+1)
+	if len(window) <= e.sessionLimit {
+		return false
+	}
+	for _, w := range window {
+		if !isSession(w.From) {
+			return false
+		}
+	}
+	if e.breaker != nil {
+		var since int64
+		for _, w := range e.history.ChannelBefore(m.Channel, window[0].Seq, breakerScan) {
+			if !isSession(w.From) {
+				since = w.Seq
+			}
+		}
+		id := fmt.Sprintf("breaker:%s:%d", m.Channel, since)
+		body := fmt.Sprintf("Paused agent-to-agent wakes here after %d messages between sessions in a row. Reply here to resume.", e.sessionLimit)
+		if err := e.breaker.BreakerNotice(m.Channel, ident.ID(inst.ActorID), id, body); err != nil {
+			e.log.Warn("wakeon: loop breaker notice failed", "channel", string(m.Channel), "error", err.Error())
+		}
+	}
+	return true
 }
 
 // Reply-to-act command words (see command).

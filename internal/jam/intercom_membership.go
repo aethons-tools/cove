@@ -14,10 +14,39 @@ import (
 // joins a channel they can see, anyone but a channel's own session leaves.
 // See docs/superpowers/specs/2026-10-07-intercom-slice3-session-channels-design.md §3.
 
-// IsCallInNotice reports whether a squawk id is a call-in notice: Jam's own
-// note inside the channel, which the relays never render onto a ticket's
-// issue or a room's surface (only onto people's own inboxes).
+// IsCallInNotice reports whether a squawk id is a call-in notice.
 func IsCallInNotice(id string) bool { return strings.HasPrefix(id, "callin:") }
+
+// IsLocalNotice reports whether a squawk id is one of Jam's own notes inside
+// a channel — a call-in notice or the loop breaker's — which the relays
+// never render onto a ticket's issue or a room's surface (only onto people's
+// own inboxes).
+func IsLocalNotice(id string) bool {
+	return IsCallInNotice(id) || strings.HasPrefix(id, "breaker:")
+}
+
+// IsNotice reports whether a squawk id is one of Jam's notices posted as a
+// session (Notify: a nag, a "kept"/"ended" notice) or Jam's own note in a
+// channel (IsLocalNotice). A notice is for people: it never wakes another
+// session (wake-on).
+func IsNotice(id string) bool {
+	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsLocalNotice(id)
+}
+
+// BreakerNotice posts the agent-to-agent loop breaker's notice (wake-on) into
+// live channel chID as from, trusted. A repeat of its id — the notice already
+// posted — and a channel that is gone are no error.
+func (ic *Intercom) BreakerNotice(chID, from ident.ID, id, body string) error {
+	ch, ok := ic.store.GetChannel(chID)
+	if !ok || ch.Status != StatusLive {
+		return nil
+	}
+	_, err := ic.PostTrusted(ch, intercom.Squawk{ID: id, From: from, Body: body, ContentType: intercom.ContentPlain})
+	if errors.Is(err, intercom.ErrDuplicateID) {
+		return nil
+	}
+	return err
+}
 
 // ErrFixedMembers refuses a membership change a channel doesn't take: a chat
 // is its fixed member set, and a room takes no sessions.
