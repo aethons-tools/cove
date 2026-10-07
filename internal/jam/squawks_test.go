@@ -379,7 +379,10 @@ func TestSquawksCallInAndLeave(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Channel.Kind != "session" || out.Member.ID != f.bob.ID || out.Member.Kind != "user" {
 		t.Fatalf("call-in response = %+v, %v", out, err)
 	}
-	chat := f.mustPlan(f.personal, "user:alice").Channel
+	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.personal.ActorID), f.alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for body, want := range map[string]int{
 		`not json`:             http.StatusBadRequest,
 		`{"who":""}`:           http.StatusBadRequest,

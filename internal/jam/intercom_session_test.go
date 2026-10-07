@@ -344,3 +344,25 @@ func TestIntercomNotifyGoneTicketSession(t *testing.T) {
 		t.Fatal("a gone session was joined back to its ticket")
 	}
 }
+
+// user:<x> from a session whose own channel x is already in posts there,
+// keeping one conversation; otherwise it is a chat, as before.
+func TestIntercomUserAddressUsesHomeWhenMember(t *testing.T) {
+	f := newICFixture(t, "user:*")
+	home := f.mustPlan(f.standing, "").Channel
+	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.mustPlan(f.standing, "user:alice"); p.Channel.ID != home.ID || !slices.Equal(p.Audience, ids(f.alice)) {
+		t.Fatalf("user:alice (in my channel) = %+v", p)
+	}
+	if p := f.mustPlan(f.standing, "user:bob"); p.Channel.Kind != SourceChat {
+		t.Fatalf("user:bob (not in it) = %+v", p.Channel)
+	}
+	if p := f.mustPlan(f.personal, "user:alice"); p.Channel.Kind != SourceSession {
+		t.Fatalf("a personal session to its starter = %+v", p.Channel)
+	}
+	if _, err := newICFixture(t, "user:bob").plan(f.standing, "user:alice"); err == nil {
+		t.Fatal("the home shortcut must not bypass addressing")
+	}
+}
