@@ -1,6 +1,6 @@
 ---
-summary: What the Jam admin UI can change — enroll/revoke actors, roles and grants, raising and tearing down studios and requesting a personal session, and the kit/destination/model-spec registry — with the type-ahead fields, the write banner, and the gate/CSRF/audit rules every write obeys.
-read_when: You want to change something from the Jam admin UI instead of the CLI — enroll or revoke an actor, add a grant, create a role, raise or tear down a studio, request a personal session, edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
+summary: What the Jam admin UI can change — enroll/revoke agents, roles and grants, raising and tearing down studios and requesting a personal session, and the kit/destination/model-spec registry — with the type-ahead fields, the write banner, and the gate/CSRF/audit rules every write obeys.
+read_when: You want to change something from the Jam admin UI instead of the CLI — enroll or revoke an agent, add a grant, create a role, raise or tear down a studio, request a personal session, edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
 owns: the admin UI's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels and the write banner, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
 prereqs: ui.md for reaching the UI and its sections; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
 tier: leaf
@@ -23,11 +23,9 @@ verbs in [roster.md](roster.md):
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `at-jam enroll`.
-- **Revoke** an agent, **create/delete** a role (and edit it on its
-  [role page](ui-projects.md#role-pages)), and **add/remove** a grant. On an
-  [agent's page](ui-pages.md#agent-pages) its grants are chips (`project/role`,
-  with a × to remove; hover for the effective destinations), **+ Grant** opens
-  its add-grant form, and **Revoke** is in the header.
+- **Revoke** an agent and **add/remove** its grants on its
+  [agent page](ui-pages.md#agent-pages); **create/delete** a role (and edit it
+  on its [role page](ui-projects.md#role-pages)).
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
   or a mapping for a destination not in scope is rejected. Credential *names*

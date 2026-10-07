@@ -103,8 +103,9 @@ git** is ticked; the form says so. **Delete** is on the page header.
 
 Each model-spec name in the Model-specs table (`/ui/model-specs`) links to
 `/ui/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
-model, policy mode and provider. The page shows the harness (type, version, constraint, principal
-credential *name* and header rules, model, effort, note), the policy (mode, allow/deny rules) and the
+model, policy mode, provider and how many roles use it. The page shows the harness (type, version, constraint, principal
+credential *name* and header rules, model, effort, note), the policy (mode, allow/deny rules), the
+roles that run it (**Used by** — for the default spec, also the roles bound to none) and the
 claude body (provider, provider-env keys, plugins, settings keys).
 
 **New model-spec** and **Edit model-spec** share one form: type and claude
