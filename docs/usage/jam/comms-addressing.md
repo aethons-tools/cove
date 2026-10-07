@@ -25,7 +25,7 @@ A target is **kind-prefixed**, and names a channel:
 | `chat:user:<a>,user:<b>…` | a chat between the session and those people |
 | `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
 | `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only) |
-| `session:<label>` / `session:<ses_id>` | that session's home channel (its ticket's, else its own channel); the sender joins it by posting, so replies come back. A label two live sessions share names neither. |
+| `session:<label>` / `session:<ses_id>` | that session's home channel (its ticket's, else its own channel); the sender joins it by posting, so replies come back. A ticket session's also needs `ticket:` addressing; a label two live sessions share names neither. |
 
 A person must be a member of the session's project. The same members are the
 same chat, however they're listed. `human:<name>` — the pre-registry form — is
@@ -34,7 +34,7 @@ still accepted and read as `user:`. A bare name with no known prefix is
 
 Addressing allow-lists (`Scope.Addressing`, below) are **glob-capable**, matched
 with `path.Match`: `user:*` (any member), `channel:eng-*`
-(channels by prefix), `*` (everything). A person matches a glob by either form —
+(channels by prefix), `*` (everything but sessions: `session:` needs its own glob). A person matches a glob by either form —
 `user:<name>` or `user:<usr_id>` — so policy can name someone by id (rename-proof;
 what Jam itself writes, e.g. a personal session's grant and migrated policy) or
 by name. An id is matched only by that exact id, `user:*` or `*` — a name
@@ -163,10 +163,11 @@ session) and is rendered onto the channel's surfaces by the relays
 | ticket | a comment on its Linear issue | comments on the issue → the ticket's conversation |
 | chat | each person's Discord inbox (a Discord-chat project); a person with none is `@<handle>`-mentioned on the ticket of a session in the chat | a Discord reply to the post → the chat; a Linear reply lands in the ticket's conversation, which the session is in too |
 | room | its bound surface (a Linear issue or a Discord channel) | from that surface → the room |
+| session | each person's Discord inbox, as a chat; never a Linear comment | a Discord reply to the post → the session channel |
 
-A person posting in a ticket or room (from `/me`, or a linked account on the
-tracker) joins it and hears what follows; a person sees a project's tickets and
-rooms while they are a member of it.
+A person posting in a ticket, a room or a non-personal session's channel joins
+it and hears what follows; a person sees a project's tickets, rooms and those
+session channels while they are a member of it.
 
 ## Discovering targets: `GET /squawks/targets` / `list_targets`
 
@@ -189,8 +190,7 @@ taken at raise, appears in the session's [session context](session-context.md).
 
 ## Not yet (later comms slices)
 
-- **Session channels and call-in:** a channel per session, joined by those
-  called in; addressing another session directly (intercom slice 3).
+- **Call-in, join and leave**, and sessions waking sessions (slice 3b/3c).
 - **Escalation as call-in** (slice 4): today tiers are `@`-mentioned on the ticket.
 
 Design rationale lives in

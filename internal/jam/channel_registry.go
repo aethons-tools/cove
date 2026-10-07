@@ -98,6 +98,10 @@ type ChannelStore interface {
 	SetChannelBindings(id ident.ID, bs []Binding) error
 	// ArchiveChannel ends a channel (ErrRemoved if it already has).
 	ArchiveChannel(id ident.ID) error
+	// ReopenChannel makes an archived channel live again, members and
+	// history intact (a no-op on a live one); ErrChannelExists or
+	// ErrBindingTaken when a live channel took its key or a binding meanwhile.
+	ReopenChannel(id ident.ID) error
 
 	// JoinChannel makes p a member from seq on (a no-op while it is one);
 	// LeaveChannel ends its membership at seq (a no-op when it is none).
@@ -356,6 +360,22 @@ func (m *memState) prepareArchiveChannel(id ident.ID) (Channel, error) {
 	return c, nil
 }
 
+func (m *memState) prepareReopenChannel(id ident.ID) (Channel, error) {
+	c, ok := m.channels[id]
+	if !ok {
+		return Channel{}, fmt.Errorf("%w: %s", ErrChannelNotFound, id)
+	}
+	c = copyChannel(c)
+	if err := m.checkChannelKey(c.ProjectID, c.Kind, c.Key, c.ID); err != nil {
+		return Channel{}, err
+	}
+	if err := m.checkBindings(c.Bindings, c.ID); err != nil {
+		return Channel{}, err
+	}
+	c.Status = StatusLive
+	return c, nil
+}
+
 // prepareJoinChannel validates a join; join is false when p already is a
 // member (a no-op). Caller holds mu.
 func (m *memState) prepareJoinChannel(ch, p ident.ID) (join bool, err error) {
@@ -440,6 +460,10 @@ func (fs *MemStore) SetChannelBindings(id ident.ID, bs []Binding) error {
 
 func (fs *MemStore) ArchiveChannel(id ident.ID) error {
 	return fs.putChannelWith(func() (Channel, error) { return fs.prepareArchiveChannel(id) })
+}
+
+func (fs *MemStore) ReopenChannel(id ident.ID) error {
+	return fs.putChannelWith(func() (Channel, error) { return fs.prepareReopenChannel(id) })
 }
 
 func (fs *MemStore) putChannelWith(prepare func() (Channel, error)) error {

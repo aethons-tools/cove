@@ -41,10 +41,20 @@
    - Admin suggest lists session channels.
 7. **Docs.**
    - `intercom.md`: the home channel, the `session` kind and Notify.
-   - `comms-addressing.md`: `session:`, its glob, and the fact that `*` matches it.
+   - `comms-addressing.md`: `session:` and its glob (`*` doesn't match it; see the review decisions).
    - `personal-sessions.md`: the starter is a member of the session channel; there is no owner chat.
    - `standing-sessions.md`: an empty `to` now posts to its channel.
    - `intercom-ui.md`: New Message → a session.
+
+## Review decisions (built)
+
+- A personal session's channel never takes members by posting: a relay reply there doesn't join its author.
+- A session set up again under the same id (a restart or an upgrade) reopens its archived channel, so members are kept (`ReopenChannel`).
+- `*` never matches `session:`: sessions need an explicit `session:` glob.
+- `session:` to a ticket session also needs `ticket:` addressing.
+- Session channels never take the chat's Linear `@`-mention fallback.
+- A gone session's notice creates no channel, except for a personal session's starter: that channel is archived as soon as the notice is in it.
+- Session channels are left out of the config export.
 
 ## Verification
 

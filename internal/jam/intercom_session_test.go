@@ -127,9 +127,10 @@ func TestIntercomSessionAddressing(t *testing.T) {
 	if byID := f.mustPlan(f.personal, "session:"+f.standing.ActorID); byID.Channel.ID != p.Channel.ID {
 		t.Fatal("a session by id is the same channel")
 	}
-	// A ticket session's home is its ticket channel.
-	if tk := f.mustPlan(f.personal, "session:"+f.ticket.ActorID); tk.Channel.Kind != SourceTicket {
-		t.Fatalf("session:<ticket session> = %+v", tk.Channel)
+	// A ticket session's home is its ticket channel, which needs ticket:
+	// addressing (TestIntercomSessionAddressToATicketNeedsTicketAddressing).
+	if _, err := f.plan(f.personal, "session:"+f.ticket.ActorID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("session:<ticket session> without ticket: = %v", err)
 	}
 	// One's own session needs no addressing.
 	if own := f.mustPlan(f.standing, "session:spider"); own.Channel.ID != p.Channel.ID {
@@ -206,5 +207,101 @@ func TestIntercomPlanHome(t *testing.T) {
 	}
 	if _, err := f.ic.PlanHome(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("unknown session: %v, want ErrSendDenied (never tells)", err)
+	}
+}
+
+// A relay post into a personal session's channel (a Discord reply in a
+// shared inbox) never makes its author a member: the channel is invite-only.
+// A standing session's channel is open, so a person posting there joins.
+func TestIntercomTrustedPostJoinsOnlyOpenSessionChannels(t *testing.T) {
+	f := newICFixture(t)
+	personal := f.mustPlan(f.personal, "").Channel
+	if _, err := f.ic.PostTrusted(personal, intercom.Squawk{From: f.bob.ID, Body: "reply in a shared inbox"}); err != nil {
+		t.Fatal(err)
+	}
+	if isCurrentMember(f.store, personal.ID, f.bob.ID) || f.ic.CanSee(f.bob.ID, personal) {
+		t.Fatal("a trusted post joined bob to a personal session's channel")
+	}
+	standing := f.mustPlan(f.standing, "").Channel
+	if _, err := f.ic.PostTrusted(standing, intercom.Squawk{From: f.bob.ID, Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if !isCurrentMember(f.store, standing.ID, f.bob.ID) {
+		t.Fatal("posting in a standing session's channel joins")
+	}
+}
+
+// A session set up again under the same id (a restart, an upgrade) gets its
+// channel back, with whoever was in it — not a new one.
+func TestIntercomSessionChannelSurvivesRestart(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.ic.SetUp(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	ch := f.sessionChannel(f.standing)
+	if err := f.store.JoinChannel(ch.ID, f.bob.ID, 11); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.Ended(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.SetUp(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	again := f.sessionChannel(f.standing)
+	if again.ID != ch.ID || !isCurrentMember(f.store, ch.ID, f.bob.ID) {
+		t.Fatalf("after restart = %+v (was %s), members %+v", again, ch.ID, f.store.ChannelMembers(again.ID))
+	}
+}
+
+// A bare "*" never reaches sessions: session: needs an explicit glob, so no
+// ceiling written before sessions were addressable allows it.
+func TestIntercomStarDoesNotAddressSessions(t *testing.T) {
+	f := newICFixture(t, "*")
+	if _, err := f.plan(f.ticket, "session:"+f.personal.ActorID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("* → session: %v, want ErrSendDenied", err)
+	}
+	if _, err := f.plan(f.ticket, "user:alice"); err != nil {
+		t.Fatalf("* still reaches people: %v", err)
+	}
+}
+
+// A ticket session's home is its ticket: reaching it by session: needs the
+// ticket: addressing too, never a way around it.
+func TestIntercomSessionAddressToATicketNeedsTicketAddressing(t *testing.T) {
+	f := newICFixture(t, "session:*")
+	if _, err := f.plan(f.standing, "session:"+f.ticket.ActorID); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("session: to a ticket session without ticket: addressing = %v, want ErrSendDenied", err)
+	}
+	g := newICFixture(t, "session:*", "ticket:ACME-*")
+	if p, err := g.plan(g.standing, "session:"+g.ticket.ActorID); err != nil || p.Channel.Kind != SourceTicket {
+		t.Fatalf("with ticket: addressing = %+v, %v", p, err)
+	}
+}
+
+// Jam's notice for a session that is gone and never had its own channel
+// doesn't conjure one up.
+func TestIntercomNotifyNeverCreatesForAGoneSession(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.store.RemoveInstance(f.standing.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.Notify(f.standing, "", "ended"); err == nil {
+		t.Fatal("Notify for a gone session with no channel must fail")
+	}
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("a channel was created for a gone session: %+v", got)
+	}
+}
+
+// Session channels are runtime state: a config export leaves them out (a
+// restore makes them again for live sessions; an older Jam can't read them).
+func TestSessionChannelsAreNotExported(t *testing.T) {
+	f := newICFixture(t)
+	f.mustPlan(f.standing, "")
+	for _, ch := range f.store.ExportConfig().Channels {
+		if ch.Kind == SourceSession {
+			t.Fatalf("exported a session channel: %+v", ch)
+		}
 	}
 }

@@ -96,11 +96,16 @@ func normalizeGlob(g string) string {
 // anyAllowed reports whether some glob matches some of a target's forms (a
 // person is "user:<name>" and "user:<usr_id>"; a channel "channel:<name>").
 // An id form is matched only by that exact id, "user:*" or "*": a name glob
-// never matches an id ("usr_…"), so it can't reach every member.
+// never matches an id ("usr_…"), so it can't reach every member. A session
+// ("session:<label|id>") is matched only by a session: glob — "*" predates
+// session addressing and never reaches one.
 func anyAllowed(forms []string, globs []string) bool {
 	for _, g := range globs {
 		g = normalizeGlob(g)
 		for _, f := range forms {
+			if strings.HasPrefix(f, "session:") && !strings.HasPrefix(g, "session:") {
+				continue // sessions are reached only by an explicit session: glob, never "*"
+			}
 			if isIDForm(f) {
 				if g == f || g == "user:*" || g == "*" {
 					return true

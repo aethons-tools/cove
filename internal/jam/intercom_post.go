@@ -78,22 +78,35 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 // ---- writing ----
 
 // Post appends m to the planned channel with the planned audience (m's
-// Channel is set from the plan). A person posting in a ticket, room or
-// session channel joins it, from this post on; so does any poster the plan
-// says joins (one addressing a session).
+// Channel is set from the plan). A person posting in a ticket, a room or an
+// open session channel (not a personal session's: that one is by invitation)
+// joins it, from this post on; so does any poster the plan says joins (one
+// addressing a session, whose access the plan already checked).
 func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error) {
 	m.Channel = pl.Channel.ID
 	m, err := ic.lg.Append(m, pl.Audience)
 	if err != nil {
 		return intercom.Squawk{}, err
 	}
-	open := pl.Channel.Kind == SourceTicket || pl.Channel.Kind == SourceRoom || pl.Channel.Kind == SourceSession
-	if (pl.Join || open && !isSessionID(m.From)) && !ic.isMemberOf(pl.Channel, m.From) {
+	if (pl.Join || ic.joinsByPosting(pl.Channel) && !isSessionID(m.From)) && !ic.isMemberOf(pl.Channel, m.From) {
 		if err := ic.store.JoinChannel(pl.Channel.ID, m.From, m.Seq); err != nil && ic.log != nil {
 			ic.log.Warn("intercom: joining the poster to the channel failed", "channel", string(pl.Channel.ID), "err", err.Error())
 		}
 	}
 	return m, nil
+}
+
+// joinsByPosting reports whether a person posting in ch becomes a member:
+// a ticket, a room, or a session channel open to its project.
+func (ic *Intercom) joinsByPosting(ch Channel) bool {
+	switch ch.Kind {
+	case SourceTicket, SourceRoom:
+		return true
+	case SourceSession:
+		inst, ok := ic.store.GetInstance(ch.Key)
+		return ok && !isPersonal(inst)
+	}
+	return false
 }
 
 // PostTrusted posts m into ch without asking the source whether its author
@@ -114,12 +127,35 @@ func (ic *Intercom) Notify(inst Instance, id, body string) (intercom.Squawk, err
 	m := intercom.Squawk{ID: id, From: ident.ID(inst.ActorID), Body: body}
 	if ch, ok := ic.ownSessionChannel(inst); ok && ch.Status != StatusLive {
 		return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
+	} else if !ok && inst.Unit == "" && !ic.sessionLive(ident.ID(inst.ActorID)) {
+		return ic.notifyGone(inst, m)
 	}
 	ch, err := ic.HomeChannel(inst)
 	if err != nil {
 		return intercom.Squawk{}, err
 	}
 	return ic.PostTrusted(ch, m)
+}
+
+// notifyGone delivers Jam's notice about a session that is gone and never
+// had its own channel: a personal session's starter still learns why it
+// ended, in a channel archived as soon as it carries the notice; anyone
+// else's notice has no one to reach and no channel is made for it.
+func (ic *Intercom) notifyGone(inst Instance, m intercom.Squawk) (intercom.Squawk, error) {
+	if _, ok := ic.starter(inst); !ok {
+		return intercom.Squawk{}, fmt.Errorf("%w: session %s ended with no channel", ErrRemoved, inst.ActorID)
+	}
+	live := inst
+	live.Phase = PhaseLive
+	ch, err := ic.sessionChannel(live)
+	if err != nil {
+		return intercom.Squawk{}, err
+	}
+	posted, err := ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
+	if aerr := ic.store.ArchiveChannel(ch.ID); err == nil && aerr != nil {
+		err = aerr
+	}
+	return posted, err
 }
 
 // Reconcile gives every live session its home channel — at startup, for
@@ -187,14 +223,24 @@ func (ic *Intercom) HomeChannel(inst Instance) (Channel, error) {
 	return ic.sessionChannel(inst)
 }
 
-// ownSessionChannel is the session channel inst is in, live or archived.
+// ownSessionChannel is the session channel inst is in: the live one, else
+// the latest archived one.
 func (ic *Intercom) ownSessionChannel(inst Instance) (Channel, bool) {
+	var found Channel
+	ok := false
 	for _, id := range ic.store.ChannelsOf(ident.ID(inst.ActorID)) {
-		if ch, ok := ic.store.GetChannel(id); ok && ch.Kind == SourceSession && ch.Key == inst.ActorID {
+		ch, exists := ic.store.GetChannel(id)
+		if !exists || ch.Kind != SourceSession || ch.Key != inst.ActorID {
+			continue
+		}
+		if ch.Status == StatusLive {
 			return ch, true
 		}
+		if !ok || ch.ID > found.ID {
+			found, ok = ch, true
+		}
 	}
-	return Channel{}, false
+	return found, ok
 }
 
 // sessionChannel finds or creates inst's live session channel.
@@ -209,6 +255,19 @@ func (ic *Intercom) sessionChannel(inst Instance) (Channel, error) {
 	}
 	if inst.Phase == PhaseGone {
 		return Channel{}, fmt.Errorf("%w: session %s ended", ErrRemoved, inst.ActorID)
+	}
+	// Set up again under the same id (a restart, an upgrade): its channel
+	// comes back, with whoever was in it.
+	if old, ok := ic.ownSessionChannel(inst); ok {
+		if err := ic.store.ReopenChannel(old.ID); err == nil {
+			old.Status = StatusLive
+			return old, ic.store.JoinChannel(old.ID, self, ic.tail())
+		} else if !errors.Is(err, ErrChannelExists) {
+			return Channel{}, err
+		}
+		if ch, ok := ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID); ok { // reopened or created meanwhile
+			return ch, ic.store.JoinChannel(ch.ID, self, ic.tail())
+		}
 	}
 	ch, err := ic.store.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceSession, Key: inst.ActorID, Label: sessionLabel(inst)})
 	if errors.Is(err, ErrChannelExists) { // created meanwhile: its creator called the starter in
@@ -664,7 +723,16 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 	target, found := ic.sessionNamed(project, ref)
 	own := found && target.ActorID == p.Session.ActorID
 	switch {
-	case own, found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
+	case own:
+		return ic.HomeChannel(target)
+	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
+		// A ticket session's home is its ticket: reaching it needs what
+		// addressing that ticket needs (session: is no way around ticket:).
+		if target.Unit != "" && target.Unit != p.Session.Unit && !anyAllowed([]string{"ticket:" + target.Unit}, globs) {
+			if _, hasTracker := ic.tracker(); hasTracker {
+				return Channel{}, ErrSendDenied
+			}
+		}
 		return ic.HomeChannel(target)
 	case anyAllowed([]string{"session:" + ref}, globs):
 		return Channel{}, ErrSendUnresolved

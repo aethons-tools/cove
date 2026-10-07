@@ -40,6 +40,10 @@ func (s *PostgresStore) ArchiveChannel(id ident.ID) error {
 	return s.putChannelWith("ArchiveChannel", func() (Channel, error) { return s.prepareArchiveChannel(id) })
 }
 
+func (s *PostgresStore) ReopenChannel(id ident.ID) error {
+	return s.putChannelWith("ReopenChannel", func() (Channel, error) { return s.prepareReopenChannel(id) })
+}
+
 func (s *PostgresStore) putChannelWith(op string, prepare func() (Channel, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

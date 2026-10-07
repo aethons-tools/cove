@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Backing up and restoring Jam config
@@ -22,8 +22,8 @@ control-plane aggregates:
   connections, accounts, project memberships and the legacy human aliases — with
   their ids, so a restore keeps every reference valid
 - the **channel registry**: rooms (a project's channels, archived ones too)
-  with their bindings and ids. Channel membership is runtime state and is not
-  exported.
+  with their bindings and ids. Channel membership and session channels are
+  runtime state and are not exported.
 - the **Jam-wide session context**
 
 The format is `version: 3`; an older Jam can't read it. Older backups still
