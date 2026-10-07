@@ -21,27 +21,29 @@ import (
 var files embed.FS
 
 // page holds one parsed template set (layout + that page's content). Each set's
-// full page is rendered via ExecuteTemplate(w, "layout", data).
+// full page is rendered via ExecuteTemplate(w, "layout", data). The first
+// argument is the page's top-nav section (see nav.go), which the layout
+// highlights.
 var pages = map[string]*template.Template{
-	"dashboard":    mustParse("coves.html", "context_panel.html", "dashboard.html"),
-	"coves":        mustParse("coves.html"),
-	"roster":       mustParse("roster.html"),
-	"users":        mustParse("users.html"),
-	"user":         mustParse("user.html"),
-	"roles":        mustParse("roles.html"),
-	"kits":         mustParse("kits.html"),
-	"destinations": mustParse("dest_fields.html", "destinations.html"),
-	"intercom":     mustParse("intercom.html"),
-	"session":      mustParse("session.html"),
-	"role":         mustParse("coves.html", "context_panel.html", "role.html"),
-	"destination":  mustParse("dest_fields.html", "destination.html"),
-	"model-specs":  mustParse("model_spec_fields.html", "model_specs.html"),
-	"model-spec":   mustParse("model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParse("kit.html"),
-	"projects":     mustParse("projects.html"),
-	"project":      mustParse("coves.html", "context_panel.html", "project.html"),
-	"studio":       mustParse("studio.html"),
-	"search":       mustParse("search.html"),
+	"dashboard":    mustParse(navDashboard, "coves.html", "context_panel.html", "dashboard.html"),
+	"coves":        mustParse(navAgents, "coves.html"),
+	"roster":       mustParse(navAgents, "roster.html"),
+	"users":        mustParse(navUsers, "users.html"),
+	"user":         mustParse(navUsers, "user.html"),
+	"roles":        mustParse(navProjects, "roles.html"),
+	"kits":         mustParse(navSpecs, "kits.html"),
+	"destinations": mustParse(navSpecs, "dest_fields.html", "destinations.html"),
+	"intercom":     mustParse(navIntercom, "intercom.html"),
+	"session":      mustParse(navAgents, "session.html"),
+	"role":         mustParse(navProjects, "coves.html", "context_panel.html", "role.html"),
+	"destination":  mustParse(navSpecs, "dest_fields.html", "destination.html"),
+	"model-specs":  mustParse(navSpecs, "model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParse(navSpecs, "model_spec_fields.html", "model_spec.html"),
+	"kit":          mustParse(navSpecs, "kit.html"),
+	"projects":     mustParse(navProjects, "projects.html"),
+	"project":      mustParse(navProjects, "coves.html", "context_panel.html", "project.html"),
+	"studio":       mustParse(navAgents, "studio.html"),
+	"search":       mustParse(navNone, "search.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -69,13 +71,15 @@ func roleRows(store jam.Store) []roleRow {
 	return out
 }
 
-func mustParse(names ...string) *template.Template {
+func mustParse(section navSection, names ...string) *template.Template {
 	paths := make([]string, 0, len(names)+1)
 	paths = append(paths, "templates/layout.html")
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
+	return template.Must(template.New("").Funcs(funcs).Funcs(template.FuncMap{
+		"navSection": func() navSection { return section },
+	}).ParseFS(files, paths...))
 }
 
 // covesData, rosterData and rolesData are the payloads of those pages and
@@ -102,6 +106,7 @@ var funcs = template.FuncMap{
 		return fmtDur(d)
 	},
 	"roleURL":    roleURL,
+	"navItems":   func() []navItem { return navItems },
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,

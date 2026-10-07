@@ -69,7 +69,7 @@ func TestDestinationDetailEnvRolesAndConflicts(t *testing.T) {
 		`href="/ui/roles/acme/dev"`, `href="/ui/roles/acme/ops"`,
 		"gh-pat-acme", // dev's own mapping
 		`class="banner error conflict"`, "gh-alt",
-		`aria-current="page">Destinations`,
+		`aria-current="page">Specs`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("github-api detail missing %q", want)

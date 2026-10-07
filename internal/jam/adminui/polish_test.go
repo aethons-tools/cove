@@ -14,9 +14,11 @@ func TestNavMarksCurrentPage(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
 	for path, href := range map[string]string{
 		"/ui/":             `href="/ui/"`,
-		"/ui/actors":       `href="/ui/actors"`,
-		"/ui/kits":         `href="/ui/kits"`,
-		"/ui/destinations": `href="/ui/destinations"`,
+		"/ui/actors":       `href="/ui/coves"`, // Agents
+		"/ui/kits":         `href="/ui/kits"`,  // Specs
+		"/ui/destinations": `href="/ui/kits"`,
+		"/ui/users":        `href="/ui/users"`,
+		"/ui/projects":     `href="/ui/projects"`,
 	} {
 		body := get(t, h, path).Body.String()
 		if !strings.Contains(body, href+` aria-current="page"`) {

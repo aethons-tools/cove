@@ -107,17 +107,10 @@
   <header class="topbar">
     <span class="brand"><span class="dot"></span>Jam <small>Admin</small></span>
     <nav>
-      {{- $t := .Title}}
-      <a href="/ui/"{{if eq $t "Dashboard"}} aria-current="page"{{end}}>Dashboard</a>
-      <a href="/ui/projects"{{if eq $t "Projects"}} aria-current="page"{{end}}>Projects</a>
-      <a href="/ui/coves"{{if eq $t "Studios"}} aria-current="page"{{end}}>Studios</a>
-      <a href="/ui/users"{{if eq $t "Users"}} aria-current="page"{{end}}>Users</a>
-      <a href="/ui/actors"{{if eq $t "Actors"}} aria-current="page"{{end}}>Actors</a>
-      <a href="/ui/roles"{{if eq $t "Roles"}} aria-current="page"{{end}}>Roles</a>
-      <a href="/ui/kits"{{if eq $t "Kits"}} aria-current="page"{{end}}>Kits</a>
-      <a href="/ui/destinations"{{if eq $t "Destinations"}} aria-current="page"{{end}}>Destinations</a>
-      <a href="/ui/model-specs"{{if eq $t "Model-specs"}} aria-current="page"{{end}}>Model-specs</a>
-      <a href="/ui/intercom"{{if eq $t "Intercom"}} aria-current="page"{{end}}>Intercom</a>
+      {{- $s := navSection}}
+      {{- range navItems}}
+      <a href="{{.Href}}"{{if eq .Section $s}} aria-current="page"{{end}}>{{.Label}}</a>
+      {{- end}}
     </nav>
     <form class="topsearch" action="/ui/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">

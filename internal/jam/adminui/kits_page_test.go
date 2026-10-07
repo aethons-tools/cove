@@ -77,7 +77,7 @@ func TestKitPageShowsCurrentVersion(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"<h1>web</h1>", `aria-current="page">Kits`,
+		"<h1>web</h1>", `aria-current="page">Specs`,
 		`href="/ui/kits/web?v=1"`, `class="ver current`,
 		"ghcr.io/acme/web@sha256:abc",
 		"github.com", "anthropic.com", // egress + excluded by the ceiling
