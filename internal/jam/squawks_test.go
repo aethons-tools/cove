@@ -365,3 +365,48 @@ func TestSquawksTargets(t *testing.T) {
 		t.Error("a non-member is no target")
 	}
 }
+
+func TestSquawksCallInAndLeave(t *testing.T) {
+	f := newSqFixture(t, "user:*", "session:*")
+	rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, `{"who":"user:bob"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Channel Party `json:"channel"`
+		Member  Party `json:"member"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Channel.Kind != "session" || out.Member.ID != f.bob.ID || out.Member.Kind != "user" {
+		t.Fatalf("call-in response = %+v, %v", out, err)
+	}
+	chat := f.mustPlan(f.personal, "user:alice").Channel
+	for body, want := range map[string]int{
+		`not json`:             http.StatusBadRequest,
+		`{"who":""}`:           http.StatusBadRequest,
+		`{"who":"user:carol"}`: http.StatusNotFound, // not a member of the project
+		`{"who":"pigeon:x"}`:   http.StatusForbidden,
+		`{"who":"user:bob","channel":"` + string(chat.ID) + `"}`:      http.StatusConflict,
+		`{"who":"user:bob","channel":"chn_01j9q3zzzzzzzzzzzzzzzzzz"}`: http.StatusForbidden,
+	} {
+		if rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, body); rec.Code != want {
+			t.Errorf("call-in %s = %d, want %d (%s)", body, rec.Code, want, rec.Body)
+		}
+	}
+	// A session leaves a channel it joined, never its own.
+	if code, r := f.send(f.ticket, `{"body":"hi","to":"session:`+f.standing.ActorID+`"}`); code != http.StatusOK {
+		t.Fatalf("ticket → standing = %d", code)
+	} else {
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusNoContent {
+			t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+		}
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.standing, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
+			t.Fatalf("leave own home = %d", rec.Code)
+		}
+	}
+	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("leave without channel = %d", rec.Code)
+	}
+	if rec := f.do(http.MethodGet, "/squawks/call-in", f.ticket, ``); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET call-in = %d", rec.Code)
+	}
+}

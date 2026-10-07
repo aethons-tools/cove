@@ -110,6 +110,24 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// POST /squawks/call-in and /squawks/leave — membership verbs. Like
+	// commit, a non-POST never falls through to a read.
+	for suffix, handle := range map[string]func(http.ResponseWriter, *http.Request, Actor, Instance){
+		"/call-in": h.handleCallIn, "/leave": h.handleLeave,
+	} {
+		if strings.HasSuffix(r.URL.Path, suffix) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if h.configured(w) {
+				handle(w, r, actor, inst)
+			}
+			return
+		}
+	}
+
 	switch r.Method {
 	case http.MethodPost:
 		h.handlePost(w, r, actor, inst)
@@ -299,6 +317,75 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 // /squawks/commit {"up_to": "<message id>"}). The session comes solely from
 // the token, never the body. up_to resolves to its seq in either log first;
 // an unknown id is a 400 and never advances anything.
+// handleCallIn calls someone into a channel the session is in (its home
+// when channel is empty): 200 {channel, member}.
+func (h *SquawksHandler) handleCallIn(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	var req struct {
+		Who     string `json:"who"`
+		Channel string `json:"channel"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Who == "" {
+		http.Error(w, "who required", http.StatusBadRequest)
+		return
+	}
+	ch, who, err := h.ic.CallIn(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, ident.ID(req.Channel), req.Who)
+	if !membershipError(w, err) {
+		if err != nil {
+			h.log.Error("intercom: call-in failed", "actor", actor.ID, "error", err.Error())
+		}
+		return
+	}
+	h.log.Info("intercom", "actor", actor.ID, "op", "call-in", "channel", string(ch.ID), "member", string(who))
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		Channel Party `json:"channel"`
+		Member  Party `json:"member"`
+	}{Channel: h.ic.ChannelParty(ch.ID), Member: h.ic.PartyOf(who)}); err != nil {
+		h.log.Error("intercom: encode call-in response failed", "actor", actor.ID, "error", err.Error())
+	}
+}
+
+// handleLeave takes the session out of a channel: 204.
+func (h *SquawksHandler) handleLeave(w http.ResponseWriter, r *http.Request, actor Actor, _ Instance) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	var req struct {
+		Channel string `json:"channel"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Channel == "" {
+		http.Error(w, "channel required", http.StatusBadRequest)
+		return
+	}
+	err := h.ic.LeaveChannel(ident.ID(actor.ID), ident.ID(req.Channel))
+	if !membershipError(w, err) {
+		if err != nil {
+			h.log.Error("intercom: leave failed", "actor", actor.ID, "error", err.Error())
+		}
+		return
+	}
+	h.log.Info("intercom", "actor", actor.ID, "op", "leave", "channel", req.Channel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// membershipError writes a membership verb's error as its status and
+// reports whether there was none (true: carry on). An unexpected error is a
+// 500, left to the caller to log.
+func membershipError(w http.ResponseWriter, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, ErrSendDenied):
+		http.Error(w, "not allowed", http.StatusForbidden)
+	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
+		http.Error(w, "not found", http.StatusNotFound)
+	case errors.Is(err, ErrFixedMembers):
+		http.Error(w, err.Error(), http.StatusConflict)
+	default:
+		http.Error(w, "failed", http.StatusInternalServerError)
+	}
+	return false
+}
+
 func (h *SquawksHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {

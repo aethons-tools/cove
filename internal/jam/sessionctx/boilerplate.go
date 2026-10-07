@@ -12,7 +12,7 @@ import (
 // from the image's SANDBOX.md (COV-246). That file's guard tells a Jam session
 // (CORE.md present) to ignore it, so these are the rules the session follows.
 func Boilerplate(f SessionFacts) Layer {
-	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
+	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
 	var who, comms, turns string
 	turns = "- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn."
 	switch f.Kind {

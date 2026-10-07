@@ -71,7 +71,7 @@ type sendOut struct {
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, or ticket:<key>; omit to post in your default channel — your ticket's, or a chat with whoever started your session"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, ticket:<key>, or session:<name>; omit to post in your own channel — your ticket's, or your session's"`
 	// ContentType opts out of the markdown default.
 	ContentType string `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
 }
@@ -90,6 +90,23 @@ type readOut struct {
 	CommittedCursor string      `json:"committed_cursor,omitempty"`
 	PageFirst       string      `json:"page_first,omitempty"`
 	PageLast        string      `json:"page_last,omitempty"`
+}
+
+// callInIn is the "call_in" tool's typed input.
+type callInIn struct {
+	Who     string `json:"who" jsonschema:"who to call in: user:<name> or session:<name>"`
+	Channel string `json:"channel,omitempty" jsonschema:"optional channel id (chn_…) you are in, e.g. from a read entry's channel; omit for your own channel"`
+}
+
+// callInOut is the "call_in" tool's typed output: the channel and who is now in it.
+type callInOut struct {
+	Channel partyOut `json:"channel"`
+	Member  partyOut `json:"member"`
+}
+
+// leaveIn is the "leave" tool's typed input.
+type leaveIn struct {
+	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your own channel or ticket"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
@@ -340,6 +357,39 @@ func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, e
 	return out, nil
 }
 
+// callIn calls who into a channel the cove is in (its own when channel is
+// empty) via Jam's POST /squawks/call-in.
+func (c *messagingClient) callIn(ctx context.Context, who, channel string) (callInOut, error) {
+	payload, err := json.Marshal(struct {
+		Who     string `json:"who"`
+		Channel string `json:"channel,omitempty"`
+	}{Who: who, Channel: channel})
+	if err != nil {
+		return callInOut{}, err
+	}
+	body, err := c.do(ctx, http.MethodPost, "/squawks/call-in", payload)
+	if err != nil {
+		return callInOut{}, err
+	}
+	var out callInOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		return callInOut{}, fmt.Errorf("decoding Jam call-in response")
+	}
+	return out, nil
+}
+
+// leave takes the cove out of a channel via Jam's POST /squawks/leave.
+func (c *messagingClient) leave(ctx context.Context, channel string) error {
+	payload, err := json.Marshal(struct {
+		Channel string `json:"channel"`
+	}{Channel: channel})
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPost, "/squawks/leave", payload)
+	return err
+}
+
 // listTargets fetches the actor's addressable send targets via Jam.
 func (c *messagingClient) listTargets(ctx context.Context) (targetsOut, error) {
 	body, err := c.do(ctx, http.MethodGet, "/squawks/targets", nil)
@@ -456,7 +506,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to post in your default channel — your ticket's, or a chat with whoever started your session; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, or ticket:<key> for a ticket's conversation. Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally.",
+		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, ticket:<key> for a ticket's conversation, or session:<name> for another session's channel (you join it). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
@@ -498,7 +548,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_targets",
-		Description: "List the targets this cove may send to (ticket:<key> / user:<name> / channel:<room>).",
+		Description: "List the targets this cove may send to (ticket:<key> / user:<name> / channel:<room> / session:<name>).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTargetsIn) (*mcp.CallToolResult, targetsOut, error) {
 		if cfgErr != nil {
 			return nil, targetsOut{}, cfgErr
@@ -508,6 +558,30 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, targetsOut{}, err
 		}
 		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "call_in",
+		Description: "Call someone into a channel you are in (default: your own channel), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. Chats can't take new members; rooms take no sessions.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in callInIn) (*mcp.CallToolResult, callInOut, error) {
+		if cfgErr != nil {
+			return nil, callInOut{}, cfgErr
+		}
+		out, err := client.callIn(ctx, in.Who, in.Channel)
+		if err != nil {
+			return nil, callInOut{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "leave",
+		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your own channel or your ticket's.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in leaveIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.leave(ctx, in.Channel)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
