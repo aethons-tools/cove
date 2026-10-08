@@ -1081,6 +1081,8 @@ func TestValidateMetrics(t *testing.T) {
 		"no token-cred":    "metrics: {}\n",
 		"undemanded cred":  "metrics:\n  token-cred: nope\n",
 		"bad alertmanager": "credentials:\n  t:\nmetrics:\n  token-cred: t\n  alertmanager-url: ftp://x\n",
+		"gcp cred":         "credentials:\n  g: { exchange: gcp }\nmetrics:\n  token-cred: g\n",
+		"pool cred":        "credentials:\n  sub:\npool: { store: /tmp/p.json, cred-name: sub }\nmetrics:\n  token-cred: sub\n",
 	} {
 		c, err := parseServeConfig([]byte(yml))
 		if err != nil {

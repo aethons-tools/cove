@@ -199,7 +199,6 @@ func (c serveConfig) validateSessionEvents() error {
 	return err
 }
 
-// displayName is the trimmed display-name ("" when unset).
 // alertmanagerURL is the configured Alertmanager's base URL, or "".
 func alertmanagerURL(c serveConfig) string {
 	if c.Metrics == nil {
@@ -208,6 +207,7 @@ func alertmanagerURL(c serveConfig) string {
 	return c.Metrics.AlertmanagerURL
 }
 
+// displayName is the trimmed display-name ("" when unset).
 func (c serveConfig) displayName() string { return strings.TrimSpace(c.DisplayName) }
 
 // validateDisplayName refuses a display-name that spans lines, holds control,
@@ -300,6 +300,9 @@ func (c serveConfig) validateMetrics() error {
 	}
 	if _, ok := c.Credentials[m.TokenCred]; !ok {
 		return fmt.Errorf("metrics.token-cred %q is not a demanded credential", m.TokenCred)
+	}
+	if slices.Contains(c.gcpCredentials(), m.TokenCred) || (c.Pool != nil && m.TokenCred == c.Pool.CredName) {
+		return fmt.Errorf("metrics.token-cred %q must be a plain static credential, not a gcp-exchange or pool credential", m.TokenCred)
 	}
 	if m.AlertmanagerURL != "" {
 		u, err := url.Parse(m.AlertmanagerURL)
