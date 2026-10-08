@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="page-head"><h1>Intercom</h1><span class="sub">{{if .Legacy}}The legacy log (before the channel log), frozen{{else}}The channel log{{end}}, newest first</span></div>
+<div class="tabs"><a class="tab{{if not .Legacy}} sel{{end}}" href="/ui/intercom">Channels</a> <a class="tab{{if .Legacy}} sel{{end}}" href="/ui/intercom?log=legacy">Legacy</a></div>
+{{if not .Configured}}
+  <div class="banner">The message log is unavailable.</div>
+{{else}}
+<form method="get" action="/ui/intercom" class="card" style="padding:14px 16px;margin-bottom:16px;overflow:visible">
+  {{if .Legacy}}<input type="hidden" name="log" value="legacy">{{end}}
+  <div class="grid">
+    <label>Project<input name="project" data-ta="projects" value="{{.Project}}" autocomplete="off" spellcheck="false"></label>
+    <label>Participant <span class="hint">{{if .Legacy}}kind:ref{{else}}an id: a user, agent, account or channel{{end}}</span><input name="participant" data-ta="participants" value="{{.Participant}}" placeholder="{{if .Legacy}}channel:eng{{else}}usr_…{{end}}" autocomplete="off" spellcheck="false"></label>
+    <label>Body contains<input name="q" value="{{.Q}}"></label>
+    <label>Since<input name="since" value="{{.Since}}" type="date"></label>
+    <label>Until<input name="until" value="{{.Until}}" type="date"></label>
+  </div>
+  <div class="form-actions">
+    <a class="btn" href="/ui/intercom{{if .Legacy}}?log=legacy{{end}}">Reset</a>
+    <a class="btn" href="/ui/intercom{{if .RawQuery}}?{{.RawQuery}}{{end}}">Refresh</a>
+    <button type="submit" class="primary">Filter</button>
+  </div>
+</form>
+{{if .BadDate}}<div class="banner error">Ignored an unparseable date (expected YYYY-MM-DD).</div>{{end}}
+<style>
+  .tabs{margin:-6px 0 14px;display:flex;gap:6px}
+  .tab{padding:4px 10px;border-radius:999px;color:var(--muted);text-decoration:none}
+  .tab.sel{background:var(--accent-soft);color:var(--accent);font-weight:600}
+</style>
+{{template "squawk-table" .}}
+{{end}}
+{{end}}

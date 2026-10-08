@@ -1,5 +1,6 @@
-// Package update drives the embedded install.sh to update the on-PATH at-cove
-// binaries to a GitHub release (COV-128). It deliberately *reuses* install.sh's
+// Package update drives the embedded install.sh to update the on-PATH cove
+// binaries (at-cove, at-mint, at-jam) to a GitHub release (COV-128). Both
+// `at-cove update` and `at-jam update` call Do. It deliberately *reuses* install.sh's
 // resolve → download → verify (checksums.txt) → replace flow rather than
 // reimplementing any of it in Go: the checksum verification the installer
 // performs is a security boundary, so `at-cove update` must never replace a
@@ -7,12 +8,13 @@
 //
 // The package splits a pure, testable plan (Target/UpToDate/Env — argv/env and
 // the already-current decision) from execution (WriteScript/ResolveLatest/Run,
-// which shell out via a runner.Runner). Callers embed install.sh (see the module
-// root package) and hand its bytes to WriteScript.
+// which shell out via a runner.Runner); Do sequences them. Callers embed
+// install.sh (see the module root package) and hand its bytes to Do.
 package update
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -98,4 +100,66 @@ func ResolveLatest(r runner.Runner, scriptPath string) (string, error) {
 // script's own progress to the user's terminal via the Runner.
 func Run(r runner.Runner, scriptPath string, env []string) error {
 	return r.RunEnv(env, "bash", scriptPath)
+}
+
+// Options parameterizes Do for the calling binary.
+type Options struct {
+	Binary  string    // the updating binary's name, for user-facing lines (e.g. "at-jam")
+	Current string    // the running binary's version
+	Pin     string    // the --version flag ("" = unpinned)
+	CoveEnv string    // the COVE_VERSION env knob ("" = unset)
+	DryRun  bool      // print the intent; resolve and replace nothing
+	Stdout  io.Writer // where progress lines go
+}
+
+// Do updates the installation to a release by driving the embedded install.sh
+// (script) — resolve → download → verify checksums.txt → replace — never
+// reimplementing that flow in Go, and never fetching the script over the
+// network. The target is the pin, else COVE_VERSION, else the latest (resolved
+// via install.sh's own resolve_version). It no-ops when the running version
+// already matches the target. A dry run resolves nothing (no network) and
+// replaces nothing. install.sh's other knobs (BINDIR, COVE_SYSTEM, COVE_REPO)
+// flow through the inherited process env untouched.
+func Do(r runner.Runner, script []byte, o Options) error {
+	target := Target(o.Pin, o.CoveEnv)
+
+	// A pinned target we already run is a no-op we can decide without touching the
+	// network. (The unpinned "latest" no-op is decided after resolving, below.)
+	if UpToDate(o.Current, target) {
+		fmt.Fprintf(o.Stdout, "%s is already up to date (%s)\n", o.Binary, o.Current)
+		return nil
+	}
+
+	if o.DryRun {
+		want := target
+		if want == "" {
+			want = "the latest release"
+		}
+		fmt.Fprintf(o.Stdout, "would update %s from %s to %s by running the embedded install.sh (fetch → verify checksums.txt → replace)\n", o.Binary, o.Current, want)
+		return nil
+	}
+
+	scriptPath, cleanup, err := WriteScript(script)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if target == "" {
+		latest, err := ResolveLatest(r, scriptPath)
+		if err != nil {
+			return fmt.Errorf("resolve latest release: %w", err)
+		}
+		if UpToDate(o.Current, latest) {
+			fmt.Fprintf(o.Stdout, "%s is already up to date (%s)\n", o.Binary, o.Current)
+			return nil
+		}
+		target = latest
+	}
+
+	fmt.Fprintf(o.Stdout, "updating %s from %s to %s\n", o.Binary, o.Current, target)
+	if err := Run(r, scriptPath, Env(target)); err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	return nil
 }

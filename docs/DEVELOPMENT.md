@@ -1,3 +1,12 @@
+---
+summary: Operational notes for building and testing this repo inside the egress-locked dev sandbox.
+read_when: You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build.
+owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
+prereqs: OVERVIEW.md
+tier: leaf
+updated: 2026-10-07
+---
+
 # Development notes
 
 Operational notes for building and testing `at-cove`,
@@ -26,9 +35,16 @@ Two host constraints shape how `go` is run here:
 - **The default `GOPATH` (`~/go` → `/home/agent/go`) works.** `cove-image` provides
   a writable home with `~/go` pre-created, and bakes `GOROOT`/`GOPATH`/`GOPROXY`/
   `GOSUMDB`/`GOFLAGS` as image `ENV` surfaced into the session via `COVE_SSHENV`
-  (see [`OVERVIEW.md`](OVERVIEW.md#the-image-tree)). (Older sandboxes redirected
+  (see [`OVERVIEW.md`](#the-image-tree)). (Older sandboxes redirected
   `GOPATH` to `/home/agent/workspace/.gopath` because `~` was not writable; that
   override is now unnecessary — harmless if a stale `settings.json` still sets it.)
+
+The `cove-ic` studio kit ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml))
+differs: it sets `GOPROXY=https://proxy.golang.org,direct`. A studio's
+`github.com` git traffic goes through the at-jam git proxy, which serves only the
+studio's own repo, so `direct` alone fails every dependency with a 403. It also
+sets the agent's git commit identity (`GIT_AUTHOR_*`/`GIT_COMMITTER_*`, carried
+into sessions via `COVE_SSHENV`), so a studio can commit without `git config`.
 
 These are already exported in this environment (via `COVE_SSHENV`), and `go` is on
 `PATH`. If you need to set them inline (e.g. a non-session shell that didn't read
@@ -52,8 +68,8 @@ Two consequences worth knowing when adding a dependency:
 
 ## Regenerating gRPC code
 
-`internal/harbor/attach/attachpb` (the harbor Attach stream's generated types
-and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
+`internal/jam/attach/attachpb` (the Jam Attach stream's generated types
+and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 `just buf-gen`. It installs `protoc-gen-go`, `protoc-gen-go-grpc`, and a pinned
 `buf`, then runs `buf generate`.
 
@@ -76,6 +92,10 @@ and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
   every test drives `internal/runner.Fake`,
   so no Docker, network, or live VM is required.
   Keep new tests this way.
+  Tests also never touch a real cove path: agents run this suite *inside* coves,
+  so a test using a production path (e.g. the agentrun harness's `/dev/shm` files)
+  clobbers the live agent. Give every harness test paths (`testClaude`);
+  `internal/agentrun`'s `TestMain` fails the run if a real harness file changed.
 - `just integration` (`go test -tags integration ./internal/connect/ -v`) runs the **real-ssh** suite:
   it boots an unprivileged throwaway `sshd` on loopback with a fake `claude`
   and exercises the transports and TOFU end-to-end with the real `ssh` client.
@@ -83,14 +103,25 @@ and gRPC stubs) is built from `internal/harbor/attach/proto/attach.proto` by
 - `go test -tags integration ./internal/baseimage/` proves the provenance gate against
   **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
   `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
-- `HARBOR_TEST_POSTGRES_DSN=… go test -tags integration ./internal/harbor/... ./internal/intercom/...`
+- `JAM_TEST_POSTGRES_DSN=… go test -tags integration ./internal/jam/... ./internal/intercom/...`
   runs the **Postgres store** conformance + fail-closed suite (`PostgresStore`)
-  and the **Postgres squawk log** (`intercompg`) conformance suite against a real
-  Postgres; both **skip** when `HARBOR_TEST_POSTGRES_DSN` is unset (so the hermetic
-  `go test ./...` is unaffected). Example DSN:
-  `host=localhost port=5432 dbname=harbor user=harbor password=harbor sslmode=disable`.
+  and the **Postgres squawk log** (`intercompg`) conformance suites — the channel
+  log and the legacy log, each case in a fresh schema of its own, so the cutover
+  migration runs over a populated legacy log — against a real Postgres; both
+  **skip** when `JAM_TEST_POSTGRES_DSN` is unset. Jam is Postgres-only; hermetic
+  tests (`go test ./...`) use the in-memory stores `jam.NewMemStore`, `intercom.NewMemLog`,
+  and `sessionevents.NewMemStore` (test-only, never constructed by `serve`). Example DSN:
+  `host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable`.
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
+- `just test-browser` (`go test -tags browser ./internal/jam/meui/`) drives the
+  `/me` page in **headless Chrome** via chromedp, covering the composer JS that
+  the hermetic tests can only see as source (e.g. paste-as-code). It needs
+  `chrome-headless-shell` on `PATH` (or `COVE_BROWSER=<path>`), and each test
+  **skips** without one. The `cove-ic` studio kit
+  ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml)) installs a pinned Chrome
+  for Testing build; the same binary can screenshot a page
+  (`chrome-headless-shell --screenshot=out.png <url>`) to eyeball a UI change.
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
 - The remaining untested gap is a full `create`→container→`connect` against a real image,
   which needs a container runtime;
@@ -125,7 +156,8 @@ loop cannot drift.
   it is not version-pinned there.)
 - The workflow needs no `just` — the logic lives in `scripts/`, per the
   justfile's header.
-- **Not** gated: `just integration` (real-ssh) and `just e2e` (live infra).
+- **Not** gated: `just integration` (real-ssh), `just test-browser` (headless
+  Chrome) and `just e2e` (live infra).
 - CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.
@@ -141,9 +173,9 @@ loop cannot drift.
 ## CI: the store integration job
 
 [`.github/workflows/store-integration.yml`](../.github/workflows/store-integration.yml)
-runs `go test -tags integration ./internal/harbor/... ./internal/intercom/...`
-against a Postgres **service container**, with `HARBOR_TEST_POSTGRES_DSN`
-pointing at it — the Postgres-backed `harbor.Store` conformance suite and the
+runs `go test -tags integration ./internal/jam/... ./internal/intercom/...`
+against a Postgres **service container**, with `JAM_TEST_POSTGRES_DSN`
+pointing at it — the Postgres-backed `jam.Store` conformance suite and the
 Postgres squawk log (`intercompg`) conformance suite, both behind the
 `//go:build integration` tag. It is a **separate** workflow from `gate.yml` on
 purpose: the required check is `gate`, and this job must not touch it. This job
@@ -171,10 +203,11 @@ full rationale.
   [`samber/cc-skills-golang`](https://github.com/samber/cc-skills-golang) release
   and seeds its Go agent skills into `.init-agent-data/skills/` — so agents
   working on *this* repo get Go-specific skills. This lives in `cove-image` (not
-  the shared hardening layer, which carries the generic board/docs skills global
-  to every kit), so other kits are unaffected; `entrypoint.sh` re-mirrors the
-  seed's `skills/` into `/agent-data/skills` on every boot, so a rebuilt image
-  reaches existing sandboxes on restart. The MIT notice is kept at
+  `cove-base-image`, which carries the generic board/docs skills and agent docs
+  every kit inherits), so other kits are unaffected; the base seed's `.refresh`
+  manifest lists `skills`, so the sealed entrypoint re-mirrors the seed's
+  `skills/` into `/agent-data/skills` on every boot and a rebuilt image reaches
+  existing sandboxes on restart. The MIT notice is kept at
   `/usr/share/doc/cc-skills-golang/LICENSE`.
 
 **Reproducible by pinning.** Every input is pinned: the `FROM ubuntu:24.04`
@@ -209,7 +242,7 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   → rebuild the base **and** cove-image (downstream) **and** re-cut at-cove (its
   new digest becomes the default base + blessed-list head);
   `images/cove-image/**` → rebuild just cove-image (FROM the current published
-  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` → re-cut at-cove
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut at-cove
   (blessed list recomputed from the registry head). Docs-only → nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task +
@@ -219,7 +252,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; at-cove is built by
-  `goreleaser --snapshot` (archives + checksums, stamped `<N>-<MMDD>`) and the
+  `goreleaser --snapshot` (one archive per os/arch carrying at-cove + at-mint +
+  at-jam, plus checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
 - **at-task and at-switchboard are embedded**, not shipped standalone —
   re-cutting at-cove re-cuts both embedded binaries
@@ -264,7 +298,9 @@ digest via the GitHub packages API and pins by digest (never a moving tag). It
 needs `GITHUB_TOKEN` with `read:packages` (like `gen-blessed`) and cannot run
 offline. `--breaking` prints the new blessed floor; preview the resulting set with
 `just gen-blessed`. Only raise the watermark for a genuinely breaking base — doing
-it on a routine bump wrongly evicts still-valid older bases. Design:
+it on a routine bump wrongly evicts still-valid older bases. A base that the sealed
+hardening layer newly *depends on* counts as breaking too, even with an unchanged
+layer prefix. Design:
 [adopt-base-recipe](superpowers/specs/2026-08-09-adopt-base-recipe-design.md).
 
 ## Verified `claude` CLI facts

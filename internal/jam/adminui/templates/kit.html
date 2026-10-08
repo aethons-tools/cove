@@ -1,0 +1,146 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Kit not found</h1></div>
+<div class="banner">No kit <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/kits">Back to kits</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .kit-layout{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start}
+  .rail{padding:6px}
+  .ver{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;border:1px solid transparent}
+  .ver.sel{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+  .ver .top{display:flex;align-items:center;gap:6px}
+  .ver .top a{font-weight:600;text-decoration:none;color:var(--ink)}
+  .ver .links{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px}
+  .ver .links a{color:var(--muted)}
+  .ver .dig{font:11px "IBM Plex Mono",monospace;color:var(--faint)}
+  .ver form{display:inline}
+  .stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>header .spacer{flex:1}
+  section.card>.body{padding:12px 16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-word}
+  .unset{color:var(--faint)}
+  pre.yaml,pre.diff{margin:0;padding:12px 16px;overflow-x:auto;font:12.5px/1.55 "IBM Plex Mono",ui-monospace,monospace;background:var(--surface-2);border-radius:0 0 12px 12px}
+  pre.diff span{display:block;white-space:pre}
+  .d-add{background:var(--live-soft);color:var(--live)}
+  .d-del{background:var(--bad-soft);color:var(--bad)}
+  .d-skip{color:var(--faint);font-style:italic}
+  .prompt{white-space:pre-wrap}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  @media (max-width:860px){.kit-layout{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/kits">Kits</a></div>
+{{template "kit-body" .}}
+{{end}}
+{{end}}
+
+{{define "kit-body"}}
+{{$name := .Name}}{{$cur := .Current}}{{$sel := .View.N}}
+<div id="kit">
+<div class="page-head">
+  <h1>{{.Name}}</h1>
+  <span class="chip accent">current v{{.Current}}</span>
+  <span class="sub">{{len .Versions}} version(s)</span>
+  <span class="spacer"></span>
+  {{if or .Uses .IsDefault}}<button class="danger" disabled title="{{if .IsDefault}}The built-in default kit is re-seeded at serve start{{else}}Roles use this kit — rebind them first{{end}}">Delete</button>
+  {{else}}<button class="danger" hx-delete="/ui/kits/{{.Name}}" hx-swap="none"
+      hx-confirm="Delete kit {{.Name}} and all its versions?"
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/kits'">Delete</button>{{end}}
+</div>
+
+<div class="kit-layout">
+  <section class="card rail" aria-label="Versions">
+    {{range .Versions}}
+    <div class="ver{{if .Current}} current{{end}}{{if eq .N $sel}} sel{{end}}">
+      <div class="top">
+        <a href="{{kitURL $name}}?v={{.N}}">v{{.N}}</a>
+        {{if .Current}}<span class="chip accent">current</span>{{else}}
+        <form hx-post="/ui/kits/{{$name}}/pin" hx-target="#kit" hx-swap="outerHTML" hx-confirm="Make v{{.N}} the current version of {{$name}}? Roles bound to it raise v{{.N}} from now on.">
+          <input type="hidden" name="version" value="{{.N}}"><button class="small" type="submit">Pin</button></form>{{end}}
+      </div>
+      <div class="links">
+        {{if .Prev}}<a href="{{kitURL $name}}?v={{.N}}&diff={{.Prev}}">diff v{{.Prev}}</a>{{end}}
+        {{if not .Current}}<a href="{{kitURL $name}}?v={{.N}}&diff={{$cur}}">diff current</a>{{end}}
+      </div>
+      {{if .Digest}}<span class="dig" title="Build digest under claude-default's harness: versions sharing it reuse one image (a role bound to another model-spec builds its own)">{{.Digest}}</span>{{else}}<span class="dig">invalid</span>{{end}}
+    </div>
+    {{end}}
+  </section>
+
+  <div class="stack">
+    {{with .Diff}}
+    <section class="card">
+      <header><h2>Diff v{{.From}} → v{{.To}}</h2>
+        <span class="sub">{{if .DigestChanged}}build digest changed — a new image is built{{else}}same build digest — the cached image is reused{{end}}</span>
+        <span class="spacer"></span><a class="sub" href="{{kitURL $name}}?v={{.To}}">close</a></header>
+      {{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}
+      <pre class="diff">{{range .Lines}}{{if eq .Op "+"}}<span class="d-add">+ {{.Text}}</span>{{else if eq .Op "-"}}<span class="d-del">- {{.Text}}</span>{{else if eq .Op "…"}}<span class="d-skip">  … {{.Text}}</span>{{else}}<span>  {{.Text}}</span>{{end}}{{end}}</pre>
+      {{end}}
+    </section>
+    {{end}}
+
+    {{with .View}}
+    {{if .ParseErr}}
+    <section class="card">
+      <header><h2>v{{.N}}</h2></header>
+      <div class="body"><div class="banner error">Stored config is not a valid studio kit: {{.ParseErr}}</div>
+        <p class="sub">Raises from this version fail closed. Push a valid version to replace it.</p></div>
+      <pre class="yaml">{{.Raw}}</pre>
+    </section>
+    {{else}}
+    <section class="card">
+      <header><h2>v{{.N}}</h2>{{if eq .N $cur}}<span class="chip accent">current</span>{{end}}<span class="sub mono">build digest {{.Digest}}</span></header>
+      <div class="body">
+        <dl class="kv">
+          <dt>Base</dt><dd>{{.Base}}{{if .Image}} <span class="mono">{{.Image}}</span>{{end}}{{if .ContextSize}} <span class="unset">({{.ContextSize}} encoded)</span>{{end}}</dd>
+          {{if .Files}}<dt>Context files</dt><dd>{{range .Files}}<span class="chip">{{.}}</span>{{end}}</dd>{{end}}
+          {{if .Context}}<dt>Context</dt><dd><table><thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead><tbody>{{range .Context}}<tr><td class="mono">{{.Path}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody></table>{{with .ContextNote}}<span class="unset">{{.}}</span>{{end}}</dd>
+          {{else if .ContextNote}}<dt>Context</dt><dd class="unset">{{.ContextNote}}</dd>{{end}}
+          <dt>Egress</dt><dd>{{range .Egress}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Egress ceiling</dt><dd>{{range .Ceiling}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          {{if .Excluded}}<dt>Excluded</dt><dd>{{range .Excluded}}<span class="chip">{{.}}</span>{{end}} <span class="unset">Anthropic is reached only through the broker (COV-208)</span></dd>{{end}}
+          <dt>Build args</dt><dd>{{range .BuildArgs}}<span class="chip">{{.Key}}={{.Value}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Secret demands</dt><dd>{{range .Secrets}}<div><span class="mono">{{.Key}}</span> <span class="unset">{{.Value}}</span></div>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Prompt</dt><dd class="prompt">{{if .Prompt}}{{.Prompt}}{{else}}<span class="unset">none</span>{{end}}</dd>
+        </dl>
+      </div>
+    </section>
+    <section class="card">
+      <header><h2>YAML</h2><span class="sub">v{{.N}}, rendered from the stored kit</span><span class="spacer"></span>
+        <button type="button" class="small" data-copy="#kit-yaml">Copy</button></header>
+      <pre class="yaml" id="kit-yaml">{{.YAML}}</pre>
+    </section>
+    {{end}}
+    {{end}}
+
+    <section class="card">
+      <header><h2>Used by</h2><span class="sub">roles that raise this kit</span></header>
+      <div class="body">
+        {{range .Uses}}<a class="chip" href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}{{if .Implicit}} <span class="unset">no kit set</span>{{end}}</a>{{else}}<span class="unset">No role uses this kit.</span>{{end}}
+      </div>
+    </section>
+
+    <section class="card">
+      <details class="edit">
+        <summary>Push new version</summary>
+        <form hx-post="/ui/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML">
+          <label>Studio kit YAML <span class="hint">pre-filled with v{{.View.N}}; pushing makes a new current version (an unchanged kit makes none)</span>
+            <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.Raw}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
+          <div class="form-actions"><button type="submit" class="primary">Push version</button></div>
+        </form>
+      </details>
+    </section>
+  </div>
+</div>
+</div>
+{{end}}

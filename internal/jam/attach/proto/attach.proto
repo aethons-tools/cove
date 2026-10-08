@@ -1,0 +1,97 @@
+syntax = "proto3";
+// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
+// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
+// already-built cove images dials, so renaming it would break running coves.
+// See docs/usage/jam/renamed-from-harbor.md.
+package harbor.attach.v1;
+option go_package = "github.com/aethons-tools/cove/internal/jam/attach/attachpb";
+
+service Runtime {
+  rpc Attach(stream StatusUp) returns (stream ControlDown);
+}
+
+message StatusUp {
+  oneof msg {
+    Activity     status    = 1;
+    Heartbeat    heartbeat = 2;
+    SessionEvent event     = 3;
+    ConnectorApplied connector = 4;
+    GateResult   gate      = 5;
+  }
+}
+
+// ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
+// connector cove-master applied to the agent's most recent spawn. Jam compares it
+// with the role's current connector to flag a stale studio.
+message ConnectorApplied { string fingerprint = 1; }
+
+// SessionEvent is one line of the agent's claude stream-json stdout.
+message SessionEvent {
+  string stream_id        = 1; // random per cove-master process: 32 lowercase hex chars
+  uint64 seq              = 2; // monotonic per stream_id, from 1
+  uint32 turn             = 3; // claude invocation number, from 1
+  int64  observed_unix_ms = 4; // when cove-master read the line
+  bytes  raw              = 5; // the line, no trailing newline, secrets redacted
+  uint64 truncated_bytes  = 6; // bytes dropped from raw; 0 = intact
+}
+enum Activity {
+  ACTIVITY_UNSPECIFIED = 0;
+  RUNNING = 1;
+  WAITING = 2;
+  BLOCKED = 3;
+  DONE    = 4;
+  HOLDING = 5; // turn ended, background tasks outstanding: wakeable, never paused
+}
+message Heartbeat {}
+
+message ControlDown {
+  oneof msg {
+    Wake        wake     = 1;
+    Teardown    teardown = 2;
+    TierChanged tier     = 3;
+    RotateToken rotate   = 4; // reserved
+    EventAck    ack      = 5;
+    RunGate     gate     = 6;
+  }
+}
+
+// EventAck is cumulative: every event of stream_id with seq <= this is durable.
+message EventAck {
+  string stream_id = 1;
+  uint64 seq       = 2;
+}
+// Wake asks the cove to start (or resume) a turn. reasons says why; empty from
+// an older Jam (the cove then uses its generic resume prompt).
+message Wake { repeated WakeReason reasons = 1; }
+
+// WakeReason is one cause of a Wake. kind: squawk | alarm | gate-failed | idle |
+// context-changed (unknown kinds are rendered generically).
+message WakeReason {
+  string kind   = 1;
+  string alarm  = 2; // alarm name (alarm, gate-failed)
+  string note   = 3; // the alarm's note
+  string detail = 4; // free text: gate stdout, failure cause, …
+}
+message Teardown    { string reason = 1; }
+message TierChanged { int32 tier = 1; }
+message RotateToken { string token = 1; }
+
+// RunGate asks cove-master to run an alarm's gate (sh -c command in the
+// agent's workspace, killed at timeout_s) and answer with a GateResult.
+message RunGate {
+  string run_id    = 1;
+  string alarm     = 2;
+  string command   = 3;
+  uint32 timeout_s = 4;
+}
+
+// GateResult answers a RunGate: exit is the shell's status (-1 when killed),
+// timed_out is set when it was killed at timeout_s, output is its combined
+// stdout+stderr (capped; truncated set when cut).
+message GateResult {
+  string run_id    = 1;
+  int32  exit      = 2;
+  bool   timed_out = 3;
+  bytes  output    = 4;
+  bool   truncated = 5;
+}

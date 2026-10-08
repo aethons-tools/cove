@@ -8,7 +8,7 @@
 # so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
-FROM ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
 LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
@@ -22,12 +22,12 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       openssh-server=1:9.6p1-3ubuntu13.19 \
       ca-certificates=20260601~24.04.1 \
-      curl=8.5.0-2ubuntu10.13 \
+      curl=8.5.0-2ubuntu10.15 \
       git=1:2.43.0-1ubuntu7.3 \
       gh=2.45.0-1ubuntu0.3 \
       nftables=1.0.9-1ubuntu0.1 \
       squid=6.14-0ubuntu0.24.04.4 \
-      sudo=1.9.15p5-3ubuntu5.24.04.2 \
+      sudo=1.9.15p5-3ubuntu5.24.04.3 \
       systemd=255.4-1ubuntu8.17 \
       systemd-sysv=255.4-1ubuntu8.17 \
       jq=1.7.1-3ubuntu0.24.04.2 \
@@ -73,6 +73,16 @@ RUN mkdir -p /run/sshd \
 RUN useradd -m -s /bin/bash agent \
  && usermod -aG docker agent
 
+# The agent's default docs and skills: /home/agent/.init-agent-data is the seed
+# the sealed entrypoint copies into /agent-data (CLAUDE_CONFIG_DIR) on first
+# boot — CLAUDE.md and its includes (SANDBOX.md is the plain at-cove sandbox
+# guide; a Jam session gets those rules from its session context instead),
+# reference/ and skills/, plus the startup defaults (settings.json,
+# .claude.json). Its .refresh manifest names the entries re-copied on every boot
+# (the image-owned docs; never the runtime-owned settings or COLLABORATOR.md).
+# They live here, not in the sealed hardening layer, so a kit overrides them by
+# COPY; hardening owns only the seeding mechanism.
 COPY image-files/. /.
 
-RUN chown -R agent:agent /home/agent
+RUN chown -R agent:agent /home/agent \
+ && chmod 0755 /home/agent/.init-agent-data/skills/docs-audit/scripts/docs_audit.py

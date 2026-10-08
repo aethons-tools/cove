@@ -24,10 +24,10 @@ run *ARGS: build
 run-dispatch *ARGS: build
     "dist/$(go env GOOS)-$(go env GOARCH)/at-dispatch" {{ARGS}}
 
-# Run the at-harbor binary, forwarding ARGS (uses the last `just build` output —
-# run `just build` first). e.g. `just harbor destination list`  or  `just harbor version`
-harbor *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" {{ARGS}}
+# Run the at-jam binary, forwarding ARGS (uses the last `just build` output —
+# run `just build` first). e.g. `just jam destination list`  or  `just jam version`
+jam *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
 
 # install the host binaries (at-cove, at-dispatch) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
@@ -54,8 +54,8 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
-# regenerate the harbor Attach stream's gRPC code (internal/harbor/attach/attachpb)
-# from internal/harbor/attach/proto/attach.proto. Installs protoc-gen-go,
+# regenerate the jam Attach stream's gRPC code (internal/jam/attach/attachpb)
+# from internal/jam/attach/proto/attach.proto. Installs protoc-gen-go,
 # protoc-gen-go-grpc, and buf (pinned) into GOPATH/bin, then runs `buf generate`.
 # Generated files ARE committed — CI never regenerates.
 buf-gen:
@@ -65,7 +65,7 @@ buf-gen:
     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
     go install github.com/bufbuild/buf/cmd/buf@v1.45.0
-    cd internal/harbor/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
+    cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
 
 # adopt a published base image: resolve <tag> to its @sha256 index digest and pin
 # it in .at-cove/config.yml (image.base). Add --breaking to also raise the blessed
@@ -74,18 +74,18 @@ buf-gen:
 adopt-base *ARGS:
     go run ./cmd/adopt-base {{ARGS}}
 
-# generate a self-signed dev broker cert for harbor.local.aethons.tools into dev/tls/ (gitignored)
+# generate a self-signed dev broker cert for jam.local.aethons.tools into dev/tls/ (gitignored)
 dev-cert:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p dev/tls
     openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-      -subj "/CN=harbor.local.aethons.tools" \
-      -addext "subjectAltName=DNS:harbor.local.aethons.tools" \
+      -subj "/CN=jam.local.aethons.tools" \
+      -addext "subjectAltName=DNS:jam.local.aethons.tools" \
       -keyout dev/tls/key.pem -out dev/tls/cert.pem
-    echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=harbor.local.aethons.tools)"
+    echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=jam.local.aethons.tools)"
 
-# raise the local dev Postgres for harbor (host port 15432; see dev/README.md)
+# raise the local dev Postgres for Jam (host port 15432; see dev/README.md)
 dev-up:
     docker compose -f dev/docker-compose.yml up -d
 
@@ -93,15 +93,34 @@ dev-up:
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 
-# Run at-harbor serve against the local dev config (uses the last `just build`
-# output — run `just build` + `just dev-cert` + `just dev-up` first). Binding a
-# privileged port (e.g. :443) needs root — sudo the built binary directly for that.
+# Run at-jam serve against the local dev config (uses the last `just build`
+# output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
+# wildcard :443 without root; on Linux, sudo the built binary directly for that.
 dev-serve *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-harbor" serve --config dev/harbor.dev.yml {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
+
+# Config in .air.toml; needs a plain-HTTP admin listener (no admin-tls). Runs
+# Jam as you (macOS wildcard :443 bind); JAM_WATCH_SUDO=1 uses sudo. See dev/README.md.
+# live-reload at-jam serve (air): rebuild+restart on change, browse http://localhost:8090
+dev-watch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cfg="${JAM_WATCH_CONFIG:-dev/jam.dev.yml}"
+    if grep -q '^admin-tls:' "$cfg"; then
+        echo "dev-watch: $cfg sets admin-tls; air's browser-reload proxy can only front a plain-HTTP admin listener. Comment out admin-tls (loopback admin may be plain HTTP) — see dev/README.md." >&2
+        exit 1
+    fi
+    if [ -n "${JAM_WATCH_SUDO:-}" ]; then sudo -v; fi
+    go run github.com/air-verse/air@v1.67.4 -c .air.toml
 
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
+
+# headless-Chrome tests of the /me UI's JS (needs chrome-headless-shell on PATH or
+# COVE_BROWSER; each test skips without one)
+test-browser:
+    go test -tags browser ./internal/jam/meui/ -run Browser -v
 
 # hermetic test for the root install.sh installer (stubs gh/uname; no network)
 test-install:
@@ -120,9 +139,9 @@ e2e:
 integration-docker:
     COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
-# harbor integration: real-TLS broker round-trip + the harbor package's tagged tests
-integration-harbor:
-    go test -tags integration ./cmd/at-harbor/... ./internal/harbor/...
+# jam integration: real-TLS broker round-trip + the jam package's tagged tests
+integration-jam:
+    go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
 
 # switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
 # signed-in claude; run in a sandbox) and/or a real Discord round-trip
@@ -138,3 +157,15 @@ lint:
 # install dev/test tooling (podman, shellcheck, hadolint, jq, just)
 setup:
     ./scripts/setup-test-tools.sh
+
+# operator-attention monitoring: local Prometheus + Alertmanager scraping <jam-host>
+# (put scrape-token, jam-ca.pem and discord-webhook in deploy/monitoring/.local/ first)
+monitoring-up jam_host:
+    mkdir -p deploy/monitoring/.local
+    for f in scrape-token jam-ca.pem discord-webhook; do test -s deploy/monitoring/.local/$f || { echo "missing deploy/monitoring/.local/$f (see docs/usage/jam/monitoring.md)"; exit 1; }; done
+    chmod 644 deploy/monitoring/.local/scrape-token deploy/monitoring/.local/jam-ca.pem deploy/monitoring/.local/discord-webhook
+    sed 's/@JAM_HOST@/{{jam_host}}/g' deploy/monitoring/prometheus.yml > deploy/monitoring/.local/prometheus.yml
+    JAM_HOST={{jam_host}} docker compose -f deploy/monitoring/compose.yml up -d
+
+monitoring-down:
+    JAM_HOST=unused docker compose -f deploy/monitoring/compose.yml down

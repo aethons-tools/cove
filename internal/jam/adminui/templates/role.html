@@ -1,0 +1,195 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Role not found</h1></div>
+<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="{{.RolesHref}}">Back to roles</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>.body{padding:12px 16px}
+  section.card .row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:8px}
+  section.card .row>b{font-size:12px;color:var(--muted);font-weight:600;min-width:80px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0}
+  .unset{color:var(--faint)}
+  .prompt{white-space:pre-wrap;color:var(--muted);font-size:13px}
+  details.edit{border-top:1px dashed var(--border)}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit[open]>summary{background:var(--surface-2)}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  .form-actions .left{margin-right:auto}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+{{template "crumbs" .Crumbs}}
+{{template "role-body" .}}
+{{end}}
+{{end}}
+
+{{/* role-body is the swappable part of the role page: every section write
+     answers with it re-rendered. */}}
+{{define "role-body"}}
+{{$base := .WriteBase}}
+<div id="role">
+<div class="page-head">
+  <h1>{{.Name}}</h1>
+  <div class="facts">
+    <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
+    {{if .Role.Kit}}<span>kit <a class="chip accent" href="{{kitURL .Role.Kit}}">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    <span>model-spec <a class="chip" href="/ui/model-specs/{{.Role.ModelSpecName}}">{{.Role.ModelSpecName}}</a>{{if not .Role.ModelSpec}} <span class="unset">default</span>{{end}}</span>
+    <span>TTL {{ttl .Role.Scope.TTL}}</span>
+  </div>
+  <span class="spacer"></span>
+  {{if .CanRequest}}<button class="primary" hx-post="{{$base}}/request" hx-target="#flash" hx-swap="innerHTML"
+      title="Raise a personal agent of this role for you">Request agent</button>{{end}}
+  <button class="danger" hx-delete="{{$base}}" hx-swap="none"
+      hx-confirm="Delete role {{.Name}} from {{.Project}}?"
+      hx-on::after-request="if(event.detail.successful) location.href='{{.RolesHref}}'">Delete</button>
+</div>
+
+<div class="sections">
+  <section class="card full">
+    <header><h2>Scope</h2><span class="sub">what the broker lets it reach, with which credential, and who it may squawk</span></header>
+    <table>
+      <thead><tr><th>Destination</th><th>Credential</th><th>Route</th></tr></thead>
+      <tbody>
+        {{range .Dests}}
+        <tr>
+          <td><span class="mono">{{.Name}}</span>{{if .Missing}} <span class="pill phase-lost" title="Not a registered destination">unregistered</span>{{end}}</td>
+          <td>{{if .Cred}}<span class="mono">{{.Cred}}</span> <span class="unset">{{if .CredIsRole}}role mapping{{else}}destination default{{end}}</span>{{else}}<span class="unset">none</span>{{end}}</td>
+          <td>{{if .Route}}<span class="mono">{{.Route}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="3" class="empty">No destinations.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+    <div class="body">
+      <div class="row"><b>Addressing</b><span>{{range .Role.Scope.Addressing}}<span class="chip">{{.}}</span>{{else}}<span class="unset">No comms targets — it can't squawk anyone.</span>{{end}}</span></div>
+    </div>
+    <details class="edit">
+      <summary>Edit scope</summary>
+      <form hx-post="{{$base}}/scope" hx-target="#role" hx-swap="outerHTML">
+        <div class="grid">
+          <label class="wide">Destinations <span class="hint">comma-separated; <code>name=credential</code> maps a credential, a bare name uses the destination's default</span>
+            <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" value="{{.Form.Destinations}}" autocomplete="off" spellcheck="false"></label>
+          <label class="wide">Addressing <span class="hint">comms target globs, e.g. <code>human:*,channel:eng</code>; empty = can't squawk anyone</span>
+            <input name="addressing" data-ta="targets" data-ta-list data-ta-project="{{.Project}}" value="{{.Form.Addressing}}" autocomplete="off" spellcheck="false"></label>
+          <label>TTL <span class="hint">e.g. 1h, 90m; blank = none</span><input name="ttl" value="{{.Form.TTL}}"></label>
+          <label>Kit
+            <input name="kit" data-ta="kits" value="{{.Role.Kit}}" placeholder="blank = no kit (the default kit)" autocomplete="off" spellcheck="false"></label>
+          <label>Model-spec <span class="hint">how its coves run the agent; takes effect at each cove's next episode</span>
+            <input name="model-spec" data-ta="model-specs" value="{{.Role.ModelSpec}}" placeholder="blank = claude-default" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Save scope</button></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="card">
+    <header><h2>Egress</h2><span class="sub">raw outbound domains, within the kit's ceiling</span></header>
+    <div class="body">
+      {{if .EgressManaged}}
+        {{range .Role.Scope.Egress.Domains}}<span class="chip">{{.}}</span>{{else}}<span class="unset">Managed, empty — nothing beyond the sealed base and the kit's infra domains.</span>{{end}}
+      {{else}}
+        <span class="unset">Kit default — the role sets no egress policy.</span>
+      {{end}}
+    </div>
+    <details class="edit">
+      <summary>Edit egress</summary>
+      <form hx-post="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML">
+        <label>Domains <span class="hint">one per line; a leading dot adds subdomains (<code>.example.com</code>); saving an empty list allows nothing extra</span>
+          <textarea name="domains" spellcheck="false">{{.Form.Egress}}</textarea></label>
+        <div class="form-actions">
+          {{if .EgressManaged}}<button type="button" class="danger left" hx-delete="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Drop {{.Name}}'s egress policy and use the kit default?">Reset to kit default</button>{{end}}
+          <button type="submit" class="primary">Save egress</button>
+        </div>
+      </form>
+    </details>
+  </section>
+
+  {{template "context-panel" .Context}}
+
+  <section class="card">
+    <header><h2>Allocation</h2><span class="sub">agent caps and the personal-agent idle ladder</span></header>
+    <div class="body">
+      <dl class="kv">
+        {{range .Allocation}}<dt>{{.Label}}</dt><dd{{if .Unset}} class="unset"{{end}}>{{.Value}}</dd>{{end}}
+      </dl>
+    </div>
+    <details class="edit">
+      <summary>Edit allocation</summary>
+      <form hx-post="{{$base}}/allocation" hx-target="#role" hx-swap="outerHTML">
+        <p class="sub" style="margin:0 0 10px">Leave a field blank to unset it (the value shown above for unset applies).</p>
+        <div class="grid">
+          <label>Max ephemeral<input name="max-ephemeral" value="{{.Form.MaxEphemeral}}" inputmode="numeric"></label>
+          <label>Max personal<input name="max-personal" value="{{.Form.MaxPersonal}}" inputmode="numeric"></label>
+          <label>Max personal per owner<input name="max-personal-per-owner" value="{{.Form.MaxPersonalPerOwner}}" inputmode="numeric"></label>
+          <label>Idle after<input name="idle-after" value="{{.Form.IdleAfter}}" placeholder="4h"></label>
+          <label>Nag every<input name="nag-every" value="{{.Form.NagEvery}}" placeholder="24h"></label>
+          <label>Reclaim after<input name="reclaim-after" value="{{.Form.ReclaimAfter}}" placeholder="never"></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Save allocation</button></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="card full">
+    <header><h2>Standing agents</h2><span class="sub">kept running, one per name</span></header>
+    <table>
+      <thead><tr><th>Name</th><th>Prompt</th><th>Agent</th><th></th></tr></thead>
+      <tbody>
+        {{range .Standing}}
+        <tr data-id="{{.Name}}">
+          <td><span class="mono">{{.Name}}</span></td>
+          <td class="prompt">{{.Prompt}}</td>
+          <td>{{if .Phase}}{{template "status" (statusOf .Phase .Activity true)}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}}{{if .Upgrade}} <span class="pill phase-raising" title="pending upgrade (Jam restarts it on the current image once ready and idle)">upgrade: {{.Upgrade}}</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
+          <td class="actions">{{if $.CanRequest}}<button class="small{{if eq .Image "stale"}} primary{{end}}" hx-post="{{$base}}/standing/{{.Name}}/upgrade" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Upgrade standing agent {{.Name}}? It restarts on the current image; its conversation and workspace are kept.">Upgrade</button>
+            <button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Reset standing agent {{.Name}}? Its conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
+            <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
+              hx-confirm="Dismiss standing agent {{.Name}}? It stops, and its conversation and workspace are deleted.">Dismiss</button></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="empty">No standing agents.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+    <details class="edit">
+      <summary>Declare standing agent</summary>
+      <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML">
+        <div class="grid">
+          <label>Name <span class="req">required</span><input name="name" required></label>
+          <label class="wide">Prompt <span class="req">required</span><textarea name="prompt" required></textarea></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Declare</button></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="card">
+    <header><h2>Holders</h2><span class="sub">agents granted this role — open one to manage its grants</span></header>
+    <div class="body">
+      {{range .Holders}}<span class="chip"><a href="{{agentHref .ID ""}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No agents hold this role.</span>{{end}}
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Running</h2><span class="sub">this role's running agents</span></header>
+    {{template "coves-tbl" .}}
+  </section>
+</div>
+</div>
+{{end}}

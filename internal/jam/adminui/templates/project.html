@@ -1,0 +1,269 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Project not found</h1></div>
+<div class="banner">No project <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/">Back to Jam</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  .unset{color:var(--faint)}
+  ol.tiers{margin:0;padding-left:20px}
+  ol.tiers li{margin:4px 0}
+  .chain+.chain{margin-top:12px}
+  .chain h3{font-size:12.5px;margin:0 0 4px;color:var(--muted)}
+  details.edit{border-top:1px dashed var(--border)}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit[open]>summary{background:var(--surface-2)}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  details.row-edit{display:inline-block;vertical-align:middle}
+  details.row-edit>summary{cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--accent);padding:3px 8px}
+  details.row-edit>summary::-webkit-details-marker{display:none}
+  details.row-edit[open]{display:block;margin-top:8px;text-align:left}
+  details.row-edit form{padding:10px 0 0}
+  .chip.unknown-target{background:var(--bad-soft);color:var(--bad)}
+  .form-actions .left{margin-right:auto}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+  .tile{display:block;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;text-decoration:none;color:var(--ink)}
+  .tile:hover{border-color:var(--faint)}
+  .tile b{display:block;font-size:22px;font-weight:600}
+  .tile span{color:var(--muted);font-size:12px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+{{with .Crumbs}}{{template "crumbs" .}}{{end}}
+{{if eq .Section "members"}}{{template "project-members" .}}
+{{else if eq .Section "agents"}}{{template "project-agents" .}}
+{{else if eq .Section "intercom"}}{{template "project-intercom" .}}
+{{else if eq .Section "escalation"}}{{template "project-escalation" .}}
+{{else}}{{template "attention-card" frame.Items}}{{template "project-overview" .}}{{end}}
+{{end}}
+{{end}}
+
+{{/* Each project-<section> template is one section's page body, wrapped in
+     #project: the section's writes answer with it re-rendered. */}}
+
+{{define "project-overview"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head">
+  <h1>{{.Project.Name}}</h1>
+  {{if .ChatService}}<span class="chip">chat: {{.ChatService}}</span>{{else}}<span class="sub">tracker @-mentions only</span>{{end}}
+  <span class="spacer"></span>
+  {{if ne $p "default"}}<form class="inline" hx-post="/ui/projects/{{$p}}/rename" hx-swap="none"><input name="name" value="{{$p}}" aria-label="New name" required size="12"><button type="submit">Rename</button></form>{{end}}
+  {{if .InUseBy}}<button class="danger" disabled title="Still referenced by {{.InUseBy}} — remove its roles, agents and grants first">Delete</button>
+  {{else}}<button class="danger" hx-delete="/ui/projects/{{$p}}" hx-swap="none"
+      hx-confirm="Delete project {{$p}}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed."
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/'">Delete</button>{{end}}
+</div>
+
+<div class="tiles">
+  <a class="tile" href="{{projectURL $p}}/members"><b>{{len .Members}}</b><span>members</span></a>
+  <a class="tile" href="{{projectURL $p}}/agents"><b>{{.LiveCoves}}</b><span>agents live of {{.Agents}}</span></a>
+  <a class="tile" href="{{projectURL $p}}/roles"><b>{{len .Roles}}</b><span>roles</span></a>
+  <a class="tile" href="{{projectURL $p}}/intercom"><b>{{len .Rooms}}</b><span>rooms</span></a>
+  <a class="tile" href="{{projectURL $p}}/escalation"><b>{{len .Escalation}}</b><span>escalation chains</span></a>
+</div>
+<div class="sections">
+  <section class="card">
+    <header><h2>Chat service</h2><span class="sub">what backs human DMs</span></header>
+    <div class="body">
+      <form class="inline" hx-post="/ui/projects/{{$p}}/chat-service" hx-target="#project" hx-swap="outerHTML">
+        {{$cs := .ChatService}}
+        <select name="service" aria-label="Chat service">{{range .ChatServices}}<option value="{{.}}"{{if eq . $cs}} selected{{end}}>{{if .}}{{.}}{{else}}none — tracker @-mentions only{{end}}</option>{{end}}</select>
+        <button type="submit" class="small">Save</button>
+      </form>
+    </div>
+  </section>
+
+  {{template "context-panel" .Context}}
+</div>
+</div>
+{{end}}
+
+{{define "project-members"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Members</h1><span class="sub">the users agents in {{$p}} can address, and where they get DMs here</span></div>
+<section class="card">
+    <header><h2>Members</h2><span class="sub">the <a href="/ui/users">users</a> agents in this project can address, and where they get DMs here</span></header>
+    <table>
+      <thead><tr><th>User</th><th>Handle</th><th>Delivery</th><th></th></tr></thead>
+      <tbody>
+        {{range .Members}}
+        <tr data-id="{{.UserID}}">
+          <td><a class="mono" href="{{userURL .UserID}}"><b>{{.Name}}</b></a></td>
+          <td>{{if .Handle}}<span class="mono">@{{.Handle}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
+          <td>{{range .Delivery}}<div><span class="chip">{{.Service}}</span> <span class="mono">{{.Address}}</span></div>{{else}}<span class="unset">—</span>{{end}}</td>
+          <td class="actions">
+            <details class="row-edit"><summary>Edit</summary>
+              <form hx-post="/ui/projects/{{$p}}/members" hx-target="#project" hx-swap="outerHTML">
+                <input type="hidden" name="user" value="{{.UserID}}">
+                <label class="wide">Delivery <span class="hint">one per line, <code>service:address</code></span><textarea name="delivery" spellcheck="false">{{.DeliverySpec}}</textarea></label>
+                <div class="form-actions"><button type="submit" class="primary small">Save {{.Name}}</button></div>
+              </form>
+            </details>
+            <button class="danger small" hx-delete="/ui/projects/{{$p}}/members/{{.UserID}}" hx-target="#project" hx-swap="outerHTML"
+              hx-confirm="Remove {{.Name}} from {{$p}}?">Remove</button>
+          </td>
+        </tr>
+        {{else}}<tr><td colspan="4" class="empty">No members.</td></tr>{{end}}
+      </tbody>
+    </table>
+    <details class="edit">
+      <summary>Add member</summary>
+      <form hx-post="/ui/projects/{{$p}}/members" hx-target="#project" hx-swap="outerHTML">
+        <input type="hidden" name="add" value="1">
+        <div class="grid">
+          <label>User <span class="req">required</span><span class="hint">a <a href="/ui/users">user</a>'s name</span><input name="user" data-ta="users" required autocomplete="off"></label>
+          <label class="wide">Delivery <span class="hint">one per line, <code>service:address</code>, e.g. <code>discord:&lt;inbox-channel-id&gt;</code></span><textarea name="delivery" spellcheck="false"></textarea></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Add member</button></div>
+      </form>
+    </details>
+  </section>
+</div>
+{{end}}
+
+{{define "project-agents"}}
+<div id="project">
+{{$p := .Project.Name}}
+<div class="page-head"><h1>Agents</h1><span class="sub">{{$p}}'s roles — what a grant of each lets an agent reach — and its agents</span></div>
+<h2>Roles</h2>
+<details class="panel">
+  <summary>New role</summary>
+  <form hx-post="/ui/roles" hx-swap="none">
+    <input type="hidden" name="project" value="{{$p}}">
+    <div class="grid">
+      <label>Role name <span class="req">required</span><input name="name" required></label>
+      <label>Destinations <span class="hint">comma-separated, e.g. git=git-pat,anthropic</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
+      <label>TTL <span class="hint">seconds, optional</span><input name="ttl-seconds" type="number" min="0" inputmode="numeric"></label>
+      <label>Kit <span class="hint">optional</span><input name="kit" data-ta="kits" autocomplete="off" spellcheck="false"></label>
+      <label>Model-spec <span class="hint">optional; blank = claude-default</span><input name="model-spec" data-ta="model-specs" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Create role</button></div>
+  </form>
+</details>
+<div class="card">
+<table>
+  <thead><tr><th>Role</th><th>Destinations</th><th>TTL</th><th>Kit</th><th></th></tr></thead>
+  <tbody>
+    {{range .Roles}}<tr data-id="{{.Name}}"><td><a class="mono" href="{{roleURL .Project .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "agents" (printf "%s/%s" .Project .Name))}}</td>
+      <td>{{$c := .Credentials}}{{range .Destinations}}<span class="chip">{{.}}{{with index $c .}} <span class="none">→</span> {{.}}{{end}}</span>{{else}}<span class="unset">—</span>{{end}}</td>
+      <td>{{ttl .TTL}}</td>
+      <td>{{if .Kit}}<a class="chip" href="{{kitURL .Kit}}">{{.Kit}}</a>{{else}}<span class="unset">default</span>{{end}}</td>
+      <td class="actions">{{if $.CanRequest}}<button class="primary small" hx-post="/ui/roles/{{.Project}}/{{.Name}}/request" hx-target="#flash" hx-swap="innerHTML"
+          title="Raise a personal agent of this role for you">Request</button>{{end}}</td></tr>
+    {{else}}<tr><td colspan="5" class="empty">No roles.</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+<h2>Agents</h2>
+<div class="card">
+<table>
+  <thead><tr><th>Agent</th><th>Kind</th><th>Roles</th><th>Status</th><th>Image</th><th>Last seen</th></tr></thead>
+  <tbody>
+    {{range .AgentRows}}
+    <tr data-id="{{.ID}}">
+      <td><a class="mono" href="{{agentHref .ID ""}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
+      <td><span class="chip">{{.Kind}}</span></td>
+      <td>{{range .Roles}}<a class="chip" href="{{roleURL $p .}}">{{.}}</a>{{end}}</td>
+      <td>{{template "status" .Status}}</td>
+      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">No agents in this project.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+</div>
+</div>
+{{end}}
+
+{{define "project-intercom"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Intercom</h1><span class="sub">{{$p}}'s rooms and its recent messages</span><span class="spacer"></span><a class="btn" href="/ui/intercom?project={{$p}}">Full log</a></div>
+<section class="card">
+    <header><h2>Rooms</h2></header>
+    <table>
+      <thead><tr><th>Name</th><th>Connection</th><th>Ref</th><th></th></tr></thead>
+      <tbody>
+        {{range .Rooms}}<tr><td class="mono"><b>{{.Name}}</b></td><td>{{.Connection}} <span class="chip">{{.Kind}}</span></td><td class="mono">{{.Ref}}{{if .PostOnly}} <span class="chip" title="another channel receives this ref's replies">post-only</span>{{end}}</td>
+          <td class="actions"><button class="danger small" hx-delete="/ui/projects/{{$p}}/channels/{{.Name}}" hx-target="#project" hx-swap="outerHTML"
+            hx-confirm="Remove room {{.Name}} from {{$p}}?">Remove</button></td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No rooms.</td></tr>{{end}}
+      </tbody>
+    </table>
+    <details class="edit">
+      <summary>Add room</summary>
+      <form hx-post="/ui/projects/{{$p}}/channels" hx-target="#project" hx-swap="outerHTML">
+        <div class="grid">
+          <label>Name <span class="req">required</span><span class="hint">an existing name is rebound</span><input name="name" required></label>
+          <label>Connection <span class="req">required</span><span class="hint">a connection name, or a service (its connection)</span><input name="service" data-ta="services" required placeholder="discord" autocomplete="off"></label>
+          <label>Ref <span class="req">required</span><span class="hint">the service's channel id</span><input name="ref" required></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Add room</button></div>
+      </form>
+    </details>
+  </section>
+<h2>Recent messages</h2>
+{{if .LogConfigured}}{{template "squawk-table" .Squawks}}{{else}}<div class="banner">The message log is unavailable.</div>{{end}}
+</div>
+{{end}}
+
+{{define "project-escalation"}}
+{{$p := .Project.Name}}
+<div id="project">
+<div class="page-head"><h1>Escalation</h1><span class="sub">who is pinged, in order, when an agent in {{$p}} is waiting</span></div>
+<section class="card">
+        <div class="body">
+      {{range .Escalation}}
+      <div class="chain">
+        <h3>{{if .Category}}category <span class="mono">{{.Category}}</span>{{else}}default chain{{end}}</h3>
+        <ol class="tiers">{{range .Tiers}}<li>{{range .Targets}}<span class="chip{{if .Unknown}} unknown-target{{end}}"{{if .Unknown}} title="Not on this project's roster"{{end}}>{{.Text}}</span>{{end}} <span class="unset">then wait {{.Timeout}}</span></li>{{end}}</ol>
+        {{if .Category}}<details class="row-edit"><summary>Edit</summary>{{template "chain-form" (chainForm $p .)}}</details>{{end}}
+      </div>
+      {{else}}<span class="unset">No escalation policy.</span>{{end}}
+    </div>
+    <details class="edit">
+      <summary>Edit default chain</summary>
+      {{template "chain-form" (chainForm $p .DefaultChain)}}
+    </details>
+    <details class="edit">
+      <summary>Add category chain</summary>
+      <form hx-post="/ui/projects/{{$p}}/escalation" hx-target="#project" hx-swap="outerHTML">
+        <div class="grid">
+          <label>Category <span class="req">required</span><input name="category" required></label>
+          <label class="wide">Tiers <span class="hint">one per line, <code>user:alice,channel:eng@15m</code> — first line is tier 0</span><textarea name="tiers" data-ta="targets" data-ta-list data-ta-project="{{$p}}" required spellcheck="false"></textarea></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary">Add chain</button></div>
+      </form>
+    </details>
+  </section>
+</div>
+{{end}}
+
+{{/* chain-form edits one escalation chain: .Project, .Chain (a chainView). */}}
+{{define "chain-form"}}
+<form hx-post="/ui/projects/{{.Project}}/escalation" hx-target="#project" hx-swap="outerHTML">
+  <input type="hidden" name="category" value="{{.Chain.Category}}">
+  <label>Tiers <span class="hint">one per line, <code>user:alice,channel:eng@15m</code> — first line is tier 0</span>
+    <textarea name="tiers" data-ta="targets" data-ta-list data-ta-project="{{.Project}}" required spellcheck="false">{{.Chain.Spec}}</textarea></label>
+  <div class="form-actions">
+    {{if .Chain.Tiers}}<button type="button" class="danger left" hx-delete="/ui/projects/{{.Project}}/escalation?category={{.Chain.Category}}" hx-target="#project" hx-swap="outerHTML"
+        hx-confirm="Clear the {{if .Chain.Category}}{{.Chain.Category}}{{else}}default{{end}} chain?">Clear</button>{{end}}
+    <button type="submit" class="primary">Save chain</button>
+  </div>
+</form>
+{{end}}

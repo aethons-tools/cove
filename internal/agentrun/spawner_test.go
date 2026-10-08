@@ -1,8 +1,11 @@
 package agentrun
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -17,7 +20,7 @@ func needSh(t *testing.T) {
 
 func TestExecSpawnerCleanExit(t *testing.T) {
 	needSh(t)
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "")
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -28,7 +31,7 @@ func TestExecSpawnerCleanExit(t *testing.T) {
 
 func TestExecSpawnerNonzeroExit(t *testing.T) {
 	needSh(t)
-	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 3"}, "")
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 3"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -41,7 +44,7 @@ func TestExecSpawnerNonzeroExit(t *testing.T) {
 func TestExecSpawnerCancelSIGTERM(t *testing.T) {
 	needSh(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	p, err := execSpawner{grace: 5 * time.Second}.Spawn(ctx, "sh", []string{"-c", "sleep 30"}, "")
+	p, err := execSpawner{grace: 5 * time.Second}.Spawn(ctx, "sh", []string{"-c", "sleep 30"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -62,7 +65,7 @@ func TestExecSpawnerCancelSIGKILLAfterGrace(t *testing.T) {
 	needSh(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	// Ignores SIGTERM, so only the WaitDelay SIGKILL can stop it.
-	p, err := execSpawner{grace: 200 * time.Millisecond}.Spawn(ctx, "sh", []string{"-c", "trap '' TERM; sleep 30"}, "")
+	p, err := execSpawner{grace: 200 * time.Millisecond}.Spawn(ctx, "sh", []string{"-c", "trap '' TERM; sleep 30"}, "", nil, nil)
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -76,5 +79,90 @@ func TestExecSpawnerCancelSIGKILLAfterGrace(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Wait did not return after grace SIGKILL")
+	}
+}
+
+func TestExecSpawnerStdoutOnlyToProvidedWriter(t *testing.T) {
+	needSh(t)
+	var buf bytes.Buffer
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo hello"}, "", nil, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "hello\n" {
+		t.Fatalf("stdout got %q", buf.String())
+	}
+}
+
+// With a writer provided, the child's stdout must NOT also reach cove-master's
+// own stdout (cove-master.log is Jam-visible; agent output must stay out of it).
+func TestExecSpawnerDoesNotEchoToOsStdout(t *testing.T) {
+	needSh(t)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	var buf bytes.Buffer
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "echo secret"}, "", nil, &buf)
+	os.Stdout = old
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	leaked, _ := io.ReadAll(r)
+	if len(leaked) != 0 {
+		t.Fatalf("leaked to os.Stdout: %q", leaked)
+	}
+}
+
+func TestExecSpawnerStdinRoundTrip(t *testing.T) {
+	needSh(t)
+	var buf bytes.Buffer
+	p, err := execSpawner{grace: time.Second}.Spawn(context.Background(), "sh", []string{"-c", "cat"}, "", nil, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(p.Input(), "hello\n"); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := p.Input().Close(); err != nil {
+		t.Fatalf("close stdin: %v", err)
+	}
+	if err := p.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if buf.String() != "hello\n" {
+		t.Fatalf("stdout got %q", buf.String())
+	}
+}
+
+// A child that exits on its own while we still hold stdin open must not make
+// Wait hang (StdinPipe is closed by Wait, unlike a copied io.Reader).
+func TestExecSpawnerExitWithStdinOpen(t *testing.T) {
+	needSh(t)
+	p, err := execSpawner{grace: 5 * time.Second}.Spawn(context.Background(), "sh", []string{"-c", "exit 0"}, "", nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- p.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait hung with stdin still open")
+	}
+	if _, err := io.WriteString(p.Input(), "late\n"); err == nil {
+		t.Fatal("write after exit: want error, got nil")
 	}
 }

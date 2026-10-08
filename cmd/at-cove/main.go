@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -35,6 +36,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
 	"github.com/aethons-tools/cove/internal/dispatchrun"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -70,6 +72,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				pd := projectDirFlag(fs)
 				allowUnverified := allowUnverifiedBaseFlag(fs)
 				assembleOnly := fs.Bool("assemble-only", false, "assemble the .build context for inspection, then stop (no docker, no manifest)")
+				noCache := fs.Bool("no-cache", false, "rebuild every layer, bypassing docker's build cache (forces a fresh claude/plugin install)")
 				pos, code, ok := cli.ParseFlags(fs, args, out, errw)
 				if !ok {
 					return code
@@ -81,7 +84,7 @@ func run(argv []string, r runner.Runner, lookup func(string) (string, bool), loo
 				if code != 0 {
 					return code
 				}
-				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, *assembleOnly, g.DryRun, out), errw)
+				return exitCode("at-cove", doInstall(kitDir, r, *allowUnverified, *assembleOnly, g.DryRun, *noCache, out), errw)
 			}},
 			{Name: "create", Brief: "build the image and start the sandbox", Run: func(args []string, g cli.Globals, out, errw io.Writer) int {
 				fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -366,24 +369,43 @@ func resolveKit(projectDir string) (string, error) {
 	return kitDir, nil
 }
 
-// atHarborBinary resolves an at-harbor executable sitting beside this at-cove
+// atJamBinary resolves the at-jam executable sitting beside this at-cove
 // binary (so a dist/<os-arch>/at-cove finds its sibling), falling back to the
-// bare name "at-harbor" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
-// at-harbor for cove auto-enrollment (COV-141) rather than importing adminclient
+// bare name "at-jam" (PATH lookup). Mirrors mint.atMintBinary — at-cove shells
+// at-jam for cove auto-enrollment (COV-141) rather than importing adminclient
 // (which pulls go-oidc).
-func atHarborBinary() string {
+func atJamBinary() string {
 	self, err := os.Executable()
 	if err != nil {
-		return "at-harbor"
+		return "at-jam"
 	}
 	if resolved, err := filepath.EvalSymlinks(self); err == nil {
 		self = resolved
 	}
-	sibling := filepath.Join(filepath.Dir(self), "at-harbor")
-	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-		return sibling
+	return resolveJamBinary(filepath.Dir(self), exec.LookPath)
+}
+
+// resolveJamBinary prefers at-jam (beside at-cove in dir, then on PATH) and
+// falls back to the deprecated at-harbor name the same way, so a new at-cove
+// next to an older install keeps working for the deprecation release (see
+// docs/usage/jam/renamed-from-harbor.md). With neither found it returns the
+// bare "at-jam", so the eventual exec error names the current binary.
+func resolveJamBinary(dir string, lookPath func(string) (string, error)) string {
+	isExec := func(p string) bool {
+		info, err := os.Stat(p)
+		return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 	}
-	return "at-harbor"
+	for _, name := range []string{"at-jam", "at-harbor"} {
+		if sibling := filepath.Join(dir, name); isExec(sibling) {
+			return sibling
+		}
+	}
+	for _, name := range []string{"at-jam", "at-harbor"} {
+		if _, err := lookPath(name); err == nil {
+			return name
+		}
+	}
+	return "at-jam"
 }
 
 func configDir() string {
@@ -442,7 +464,9 @@ func assembleContext(kitDir string, r runner.Runner) error {
 	}
 	// assemble.Assemble ensures the kit's .gitignore (as every .build path does).
 	gitlabHost, _ := cfg.GitLabHost() // "" for a non-GitLab kit → header-only include
-	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, kit.RootDomains(cfg), gitlabHost)
+	// The harness layer is the kit's model-spec: block's (version + plugins),
+	// else claude-default's — the same install currencyInputs hashes.
+	return assemble.Assemble(kitDir, filepath.Join(kitDir, ".build"), pub, assemble.EgressFor(cfg), gitlabHost, assemble.HarnessFor(cfg))
 }
 
 // doInstall compiles a kit into a runnable artifact (COV-38): assemble the .build
@@ -452,7 +476,7 @@ func assembleContext(kitDir string, r runner.Runner) error {
 // nothing and touches no docker, keys, or manifest; use `--assemble-only` to
 // materialize the `.build` context for inspection (the old `build`'s
 // "assemble + inspect" use) without building.
-func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly, dryRun bool, stdout io.Writer) error {
+func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly, dryRun, noCache bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
 	if err != nil {
 		return err
@@ -463,7 +487,11 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 		// A --dry-run must have no resolver/key/disk side effects: describe the plan
 		// from config.yml (source) and return before assembling anything. --dry-run
 		// wins over --assemble-only.
-		fmt.Fprintf(stdout, "would assemble %s, then build + gate + tag %s and write %s\n", buildDir, img, install.Path(kitDir))
+		cacheNote := ""
+		if noCache {
+			cacheNote = " (no cache)"
+		}
+		fmt.Fprintf(stdout, "would assemble %s, then build%s + gate + tag %s and write %s\n", buildDir, cacheNote, img, install.Path(kitDir))
 		return nil
 	}
 	if err := assembleContext(kitDir, r); err != nil {
@@ -478,7 +506,7 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 		return err
 	}
 	installed, err := b.Install(backend.InstallContext{
-		Kit: cfg.Name, BuildDir: buildDir,
+		Kit: cfg.Name, BuildDir: buildDir, NoCache: noCache,
 		Base: backend.BaseSpec{KitDir: kitDir, Base: cfg.Image.Base, AllowUnverified: allowUnverifiedBase},
 	})
 	if err != nil {
@@ -516,6 +544,14 @@ func doInstall(kitDir string, r runner.Runner, allowUnverifiedBase, assembleOnly
 // touches nothing.
 func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) error {
 	cfg, err := kit.Load(kitDir)
+	if errors.Is(err, kit.ErrModelProviderRemoved) && install.Exists(kitDir) {
+		// A kit still on the removed model-provider: block can always be
+		// uninstalled: the name comes from its install.
+		var m install.Manifest
+		if m, err = install.Load(kitDir); err == nil {
+			cfg = kit.Config{Name: m.Name}
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -556,74 +592,20 @@ func doUninstall(kitDir string, r runner.Runner, dryRun bool, stdout io.Writer) 
 	return nil
 }
 
-// doUpdate updates the on-PATH at-cove binaries to a GitHub release (COV-128) by
-// driving the *embedded* install.sh — the same resolve → download → verify
-// (checksums.txt) → replace flow the one-command installer runs — rather than
-// reimplementing that logic (or its checksum verification, a security boundary)
-// in Go. Embedding the script means update is self-contained: it works for a
-// `curl | bash`-installed user with no repo checkout, and never fetches the
-// script over the network at update time.
-//
-// The target release is the --version flag, else the COVE_VERSION env knob, else
-// the latest (resolved via install.sh's own resolve_version, sourced in lib
-// mode). install.sh's other knobs — BINDIR, COVE_SYSTEM, COVE_REPO — flow
-// through the inherited process env untouched. When the running version already
-// matches the target it no-ops (no download, no replace). --dry-run prints the
-// intent and resolves/replaces nothing (no network side effects), mirroring the
-// other commands' dry-run convention.
+// doUpdate updates the on-PATH cove binaries to a GitHub release (COV-128) via
+// the shared update.Do, which drives the embedded install.sh.
 func doUpdate(r runner.Runner, lookup func(string) (string, bool), currentVersion, versionPin string, dryRun bool, stdout io.Writer) error {
 	coveEnv, _ := lookup("COVE_VERSION")
-	target := update.Target(versionPin, coveEnv)
-
-	// A pinned target we already run is a no-op we can decide without touching the
-	// network. (The unpinned "latest" no-op is decided after resolving, below.)
-	if update.UpToDate(currentVersion, target) {
-		fmt.Fprintf(stdout, "at-cove is already up to date (%s)\n", currentVersion)
-		return nil
-	}
-
-	if dryRun {
-		// A pure preview: resolve nothing (no network) and replace nothing.
-		want := target
-		if want == "" {
-			want = "the latest release"
-		}
-		fmt.Fprintf(stdout, "would update at-cove from %s to %s by running the embedded install.sh (fetch → verify checksums.txt → replace)\n", currentVersion, want)
-		return nil
-	}
-
-	// Materialize the embedded installer to a temp file and drive it through the
-	// Runner — self-contained, no repo checkout, no network fetch of the script.
-	scriptPath, cleanup, err := update.WriteScript(cove.InstallScript)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-
-	// Unpinned: resolve the latest tag via install.sh's own resolve_version
-	// (reuse, not reimplement) so we can no-op when already current.
-	if target == "" {
-		latest, err := update.ResolveLatest(r, scriptPath)
-		if err != nil {
-			return fmt.Errorf("resolve latest release: %w", err)
-		}
-		if update.UpToDate(currentVersion, latest) {
-			fmt.Fprintf(stdout, "at-cove is already up to date (%s)\n", currentVersion)
-			return nil
-		}
-		target = latest
-	}
-
-	fmt.Fprintf(stdout, "updating at-cove from %s to %s\n", currentVersion, target)
-	if err := update.Run(r, scriptPath, update.Env(target)); err != nil {
-		return fmt.Errorf("update: %w", err)
-	}
-	return nil
+	return update.Do(r, cove.InstallScript, update.Options{
+		Binary: "at-cove", Current: currentVersion, Pin: versionPin, CoveEnv: coveEnv, DryRun: dryRun, Stdout: stdout,
+	})
 }
 
 // currencyInputs gathers the build-affecting inputs the install manifest hashes
-// (§5): the kit source tree, at-cove's embedded build identity, and the base ref
-// as configured (or the blessed default). install writes the resulting hash; the
+// (§5): the kit source tree, at-cove's embedded build identity, the base ref
+// as configured (or the blessed default), and the kit's harness install
+// (assemble.HarnessFor: its model-spec: block's, else claude-default's —
+// COV-241). install writes the resulting hash; the
 // run commands (S3/S4) recompute it from the live kit to detect a stale install.
 func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, error) {
 	kitTree, err := install.KitSourceTree(kitDir)
@@ -642,6 +624,7 @@ func currencyInputs(kitDir string, cfg kit.Config) (install.CurrencyInputs, erro
 		KitSourceTree:       kitTree,
 		AtCoveBuildIdentity: identity,
 		BaseRef:             baseRef,
+		Harness:             install.HarnessIdentity(assemble.HarnessFor(cfg)),
 	}, nil
 }
 
@@ -661,6 +644,9 @@ func loadCurrentInstall(kitDir string) (install.Manifest, error) {
 	m, err := install.Load(kitDir)
 	if err != nil {
 		return install.Manifest{}, err
+	}
+	if m.LegacyModelProvider {
+		return install.Manifest{}, install.ErrLegacyModelProvider
 	}
 	in, err := currencyInputs(kitDir, m.RunConfig)
 	if err != nil {
@@ -796,10 +782,10 @@ func createInstance(kitDir string, r runner.Runner, cfg kit.Config, image, diges
 	cc := backend.CreateContext{
 		Name: name, Image: image, Digest: digest, Workspace: ws, DNS: cfg.Image.DNS, Docker: cfg.Docker,
 	}
-	// Map a host-run harbor to the gateway so the hardened container can reach it
+	// Map a host-run Jam to the gateway so the hardened container can reach it
 	// by name (COV-138).
-	if cfg.Harbor != nil && cfg.Harbor.HostGateway() {
-		cc.ExtraHosts = []string{cfg.Harbor.Host}
+	if cfg.Jam != nil && cfg.Jam.HostGateway() {
+		cc.ExtraHosts = []string{cfg.Jam.Host}
 	}
 	bi, err := b.Create(cc)
 	if err != nil {
@@ -980,22 +966,22 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// a credential here would just be wasted (and, for a mint: supply, needless)
 	// work.
 	var vertexAuth *connect.VertexAuth
-	if _, isVertex := cfg.Vertex(); isVertex && !noAuth {
+	if cfg.UsesVertex() && !noAuth {
 		if vertexAuth, _, err = vertexPlan(cfg, store, expand, st.Name, kitPath, secretsPath, r); err != nil {
 			return err
 		}
 	}
 
-	// Harbor routes Anthropic + git through the broker, superseding OAuth/Vertex
+	// Jam routes Anthropic + git through the broker, superseding OAuth/Vertex
 	// (COV-138). Resolve the identity token host-side; connect delivers it env-only.
-	var harborAuth *connect.HarborAuth
-	if cfg.Harbor != nil && !noAuth {
-		var harborRevoke func()
-		if harborAuth, harborRevoke, err = harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
+	var jamAuth *connect.JamAuth
+	if cfg.Jam != nil && !noAuth {
+		var jamRevoke func()
+		if jamAuth, jamRevoke, err = jamPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r); err != nil {
 			return err
 		}
-		if harborRevoke != nil {
-			defer harborRevoke() // revoke the auto-minted identity when the session ends
+		if jamRevoke != nil {
+			defer jamRevoke() // revoke the auto-minted identity when the session ends
 		}
 	}
 
@@ -1009,12 +995,12 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	if src, ok := cfg.SourceControl.Repo(); ok {
 		repo = src.Project
 	}
-	// A harbor cove must never resolve or carry the real code-host PAT: harbor's
-	// git insteadOf rewrites github.com → the harbor connector, so an at-task
-	// bootstrap clone would send the real token to harbor (and break). Skip the
-	// auto-clone under harbor — the agent clones through harbor on demand (COV-138).
+	// A Jam cove must never resolve or carry the real code-host PAT: Jam's
+	// git insteadOf rewrites github.com → the Jam connector, so an at-task
+	// bootstrap clone would send the real token to Jam (and break). Skip the
+	// auto-clone under Jam — the agent clones through Jam on demand (COV-138).
 	var wsClone *connect.WorkspaceClone
-	if cfg.Harbor == nil {
+	if cfg.Jam == nil {
 		wsClone, err = workspaceClonePlan(cfg, st, store, mint.Expander(r, store.Global, repo), kitPath, secretsPath)
 	}
 	if err != nil {
@@ -1076,7 +1062,11 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 	// instances of the same kit don't collide on tmux/session identity. It is derived
 	// from cfg.Name + the resolved class, deliberately NOT from st.Name: State.Name
 	// (the bare kit name) is the shared secret-bucket key and must not be re-keyed.
-	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: cfg.Name, Collaborator: class}, awake.New(), connect.Options{
+	//
+	// The kit's model-spec runtime parts (model, policy, settings) ride on the
+	// claude launch as argv (connect.SpecArgs); its provider env is in
+	// SessionEnv; version/plugins were the build's (assemble.HarnessFor).
+	return connect.Connect(b, r, connect.StdinScript{R: r, Cmd: cmd, Resume: resume, Name: cfg.Name, Collaborator: class, Args: connect.SpecArgs(cfg.ModelSpec)}, awake.New(), connect.Options{
 		Container:          st.Container,
 		Secrets:            specs,
 		IdentityFile:       priv,
@@ -1088,7 +1078,7 @@ func doChat(collaborator, kitDir string, r runner.Runner, dryRun, raw, noAuth, f
 		WorkspaceClone:     wsClone,
 		ExtraEnv:           cfg.SessionEnv(),
 		Vertex:             vertexAuth,
-		Harbor:             harborAuth,
+		Jam:                jamAuth,
 	})
 }
 
@@ -1196,19 +1186,20 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		errorChannel = tm.Discord.Channels[0]
 	}
 
-	// Harbor: route the conductor's Anthropic + git through the broker (COV-142).
+	// Jam: route the conductor's Anthropic + git through the broker (COV-142).
 	// A teammate is detached (no exit hook to revoke on), so auto-enroll is
 	// unsupported — the identity must be pre-supplied.
-	var harborHost, harborToken string
-	if cfg.Harbor != nil {
-		if cfg.Harbor.Identity == "" {
-			return fmt.Errorf("teammate harbor requires harbor.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
+	var jamHost, jamToken string
+	var jamConn *snippet.Connector
+	if cfg.Jam != nil {
+		if cfg.Jam.Identity == "" {
+			return fmt.Errorf("teammate Jam requires jam.identity (a pre-supplied token); auto-enroll is unsupported for a detached teammate")
 		}
-		hauth, _, err := harborPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
+		hauth, _, err := jamPlan(cfg, store, expand, st.Name, st.Container, kitPath, secretsPath, r)
 		if err != nil {
 			return err
 		}
-		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+		jamHost, jamToken, jamConn = cfg.Jam.Host, hauth.Token, hauth.Connector
 	}
 
 	if err := connect.LaunchTeammate(r, b, connect.TeammateOptions{
@@ -1220,8 +1211,9 @@ func doTeammate(class, kitDir string, r runner.Runner, dryRun bool, stdout, stde
 		KnownHostsFile:  filepath.Join(knownHostsDir, st.Container),
 		CredentialsFile: filepath.Join(configDir(), "credentials.json"),
 		Stderr:          stderr,
-		HarborHost:      harborHost,
-		HarborToken:     harborToken,
+		JamHost:         jamHost,
+		JamToken:        jamToken,
+		JamConnector:    jamConn,
 	}); err != nil {
 		return err
 	}
@@ -1260,7 +1252,8 @@ func workspaceClonePlan(cfg kit.Config, st state.State, store usersecret.Store, 
 	}, nil
 }
 
-// gcpADCDemand is the well-known demand name a Vertex kit's GCP Application Default
+// gcpADCDemand is the well-known demand name a Vertex kit's (model-spec
+// claude.provider: vertex) GCP Application Default
 // Credentials are supplied under (machine-side, in secrets.yml/secrets.local.yml).
 // It is resolved host-side and seeded into the VM as a file — it never enters the
 // agent's session env.
@@ -1282,26 +1275,26 @@ func vertexPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 	if strings.TrimSpace(adc) == "" {
 		return nil, nil, fmt.Errorf("vertex kit %q: resolved GCP credential %s is empty", kitName, gcpADCDemand)
 	}
-	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.VertexEnv(), nil
+	return &connect.VertexAuth{ADC: []byte(adc)}, cfg.ProviderEnv(), nil
 }
 
-// harborPlan produces a harbor kit's connector config host-side; nil when the kit
-// has no harbor: block. When harbor.identity is set it resolves that supplied
-// secret (COV-138); when absent it auto-enrolls by shelling at-harbor (COV-141),
+// jamPlan produces a Jam kit's connector config host-side; nil when the kit
+// has no jam: block. When jam.identity is set it resolves that supplied
+// secret (COV-138); when absent it auto-enrolls by shelling at-jam (COV-141),
 // returning a revoke closure the caller defers (nil for the pre-supplied path).
 // The token is kept out of the agent's kit-secret env — connect delivers it
-// env-only as the harbor identity.
+// env-only as the Jam identity.
 // coveID is the unique per-instance identity id for auto-enroll (the container
 // name), distinct from kitName (the shared secret-bucket key used by the
 // pre-supplied path). Passing the bucket key would collide across concurrent
 // same-kit instances and revoke a sibling cove's live identity.
-func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.HarborAuth, func(), error) {
-	if cfg.Harbor == nil {
+func jamPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintExpander, kitName, coveID, kitPath, secretsPath string, r runner.Runner) (*connect.JamAuth, func(), error) {
+	if cfg.Jam == nil {
 		return nil, nil, nil
 	}
-	// Pre-supplied path: harbor.identity names a host-supplied secret (COV-138).
-	if cfg.Harbor.Identity != "" {
-		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Harbor.Identity, secretsPath)
+	// Pre-supplied path: jam.identity names a host-supplied secret (COV-138).
+	if cfg.Jam.Identity != "" {
+		spec, err := planRequired(store, expand, kitName, kitPath, cfg.Jam.Identity, secretsPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1309,32 +1302,71 @@ func harborPlan(cfg kit.Config, store usersecret.Store, expand usersecret.MintEx
 		if err != nil {
 			return nil, nil, err
 		}
-		tok := resolved[cfg.Harbor.Identity]
+		tok := resolved[cfg.Jam.Identity]
 		if strings.TrimSpace(tok) == "" {
-			return nil, nil, fmt.Errorf("harbor kit %q: resolved identity %s is empty", kitName, cfg.Harbor.Identity)
+			return nil, nil, fmt.Errorf("Jam kit %q: resolved identity %s is empty", kitName, cfg.Jam.Identity)
 		}
-		return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: tok}, nil, nil
+		conn, err := fetchJamConnector(cfg.Jam.Host, tok)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Jam kit %q: %w", kitName, err)
+		}
+		return &connect.JamAuth{Host: cfg.Jam.Host, Token: tok, Connector: conn}, nil, nil
 	}
-	// Auto-enroll path (COV-141): shell a sibling at-harbor to mint a fresh per-cove
+	// Auto-enroll path (COV-141): shell a sibling at-jam to mint a fresh per-cove
 	// identity (reusing the CLI's operator-auth; keeps at-cove go-oidc-free). The
 	// token arrives on stdout, in memory only. The returned closure revokes it.
 	args := []string{"enroll", "--json", "--id", coveID, "--role", "guest"}
-	out, err := r.Output(atHarborBinary(), args...)
+	out, err := r.Output(atJamBinary(), args...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll failed (is at-harbor reachable + an operator logged in?): %w", kitName, err)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll failed (is at-jam reachable + an operator logged in?): %w", kitName, err)
 	}
 	var res struct {
-		ID    string `json:"id"`
-		Token string `json:"token"`
+		ID        string             `json:"id"`
+		Token     string             `json:"token"`
+		Connector *snippet.Connector `json:"connector"` // absent from an older at-jam
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned unparseable output: %w", kitName, err)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned unparseable output: %w", kitName, err)
 	}
 	if strings.TrimSpace(res.Token) == "" {
-		return nil, nil, fmt.Errorf("harbor kit %q: at-harbor enroll returned an empty token", kitName)
+		return nil, nil, fmt.Errorf("Jam kit %q: at-jam enroll returned an empty token", kitName)
 	}
-	revoke := func() { _ = r.Run(atHarborBinary(), "revoke", "--id", res.ID) }
-	return &connect.HarborAuth{Host: cfg.Harbor.Host, Token: res.Token}, revoke, nil
+	revoke := func() { _ = r.Run(atJamBinary(), "revoke", "--id", res.ID) }
+	if res.Connector == nil {
+		if res.Connector, err = fetchJamConnector(cfg.Jam.Host, res.Token); err != nil {
+			revoke()
+			return nil, nil, fmt.Errorf("Jam kit %q: %w", kitName, err)
+		}
+	}
+	return &connect.JamAuth{Host: cfg.Jam.Host, Token: res.Token, Connector: res.Connector}, revoke, nil
+}
+
+// fetchJamConnector asks the Jam broker at host for the identity's client
+// connector. Swapped out in tests so they never reach a real Jam.
+var fetchJamConnector = func(host, token string) (*snippet.Connector, error) {
+	return jamConnector(&http.Client{Timeout: 10 * time.Second}, "https://"+host, token, os.Stderr)
+}
+
+// jamConnector fetches GET /connector. nil (the legacy Anthropic + git contract)
+// when the Jam predates the endpoint (404) or can't be dialed from the host (a
+// DNS or connect failure) — the latter with a warning, since studios reach Jam
+// from inside the VM. Anything else (401, a 409 conflict, a TLS verification
+// failure) is an error: fail closed.
+func jamConnector(hc *http.Client, baseURL, token string, warn io.Writer) (*snippet.Connector, error) {
+	c, err := snippet.Fetch(hc, baseURL, token)
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
+	switch {
+	case err == nil:
+		return &c, nil
+	case errors.Is(err, snippet.ErrNoConnectorEndpoint):
+		return nil, nil
+	case errors.As(err, &opErr) || errors.As(err, &dnsErr):
+		fmt.Fprintf(warn, "warning: Jam connector unreachable from the host (%v); using the legacy Anthropic + git contract\n", err)
+		return nil, nil
+	default:
+		return nil, err
+	}
 }
 
 // doDestroyInstance tears an instance down under an EXCLUSIVE lock: it refuses
@@ -1804,6 +1836,14 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		lg.Warn("secret has no supply; it will not be set", slog.String("step", "secrets"), slog.String("secret", name), slog.String("kit", cfg.Name))
 	}
 
+	// A kit model-spec's model/policy/settings (and an anthropic spec's
+	// provider-env) reach the worker (dispatchrun); a vertex provider does
+	// not — workers authenticate with the worker-bucket bearer below and are
+	// never seeded the GCP ADC (Vertex is chat-only).
+	if cfg.UsesVertex() {
+		lg.Warn("the kit's model-spec provider vertex applies to chat only; this dispatched worker runs on the Anthropic API with its worker-bucket bearer", slog.String("step", "model-spec"), slog.String("kit", cfg.Name))
+	}
+
 	// The dispatched agent authenticates to Anthropic under either well-known
 	// bearer name; config validation accepts either as the worker-bucket bearer,
 	// so the gate does too. A keyless worker is a guaranteed 401, so we fail
@@ -1825,10 +1865,10 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 			break
 		}
 	}
-	// A harbor kit supplies the agent's Anthropic auth via the harbor connector
+	// A Jam kit supplies the agent's Anthropic auth via the Jam connector
 	// (injected ANTHROPIC_API_KEY = the identity token), not a worker-bucket bearer,
 	// so the bearer gate doesn't apply.
-	if !bearerResolved && cfg.Harbor == nil {
+	if !bearerResolved && cfg.Jam == nil {
 		bearerNames := strings.Join(agentBearerSecrets, " or ")
 		bearerErr := fmt.Errorf("no agent bearer (%s) is resolved for kit %q — the worker would fail closed with a 401; wire one under kits: %q in %s (or secrets.local.yml)",
 			bearerNames, cfg.Name, cfg.Name, secretsPath)
@@ -1854,18 +1894,19 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		return 1
 	}
 
-	// Harbor: route the agent's Anthropic through the broker (COV-142). The worker
+	// Jam: route the agent's Anthropic through the broker (COV-142). The worker
 	// container name is the per-unit enroll id, so concurrent workers don't collide;
 	// the revoke fires when this unit ends (auto path; pre-supplied path has none).
 	workerName := workName(cfg.Name)
-	var harborHost, harborToken string
-	if cfg.Harbor != nil {
-		hauth, hrevoke, herr := harborPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
+	var jamHost, jamToken string
+	var jamConn *snippet.Connector
+	if cfg.Jam != nil {
+		hauth, hrevoke, herr := jamPlan(cfg, store, expand, cfg.Name, workerName, kitPath, secretsPath, r)
 		if herr != nil {
 			lg.UserError(ctx, herr, slog.String("step", "secrets"))
 			return 1
 		}
-		harborHost, harborToken = cfg.Harbor.Host, hauth.Token
+		jamHost, jamToken, jamConn = cfg.Jam.Host, hauth.Token, hauth.Connector
 		if hrevoke != nil {
 			defer hrevoke()
 		}
@@ -1876,8 +1917,9 @@ func doWork(args []string, r runner.Runner, g cli.Globals, stdout, stderr io.Wri
 		Secrets:       rootSpecs,
 		WorkerSecrets: workerSpecs,
 		GitToken:      gitTok,
-		HarborHost:    harborHost,
-		HarborToken:   harborToken,
+		JamHost:       jamHost,
+		JamToken:      jamToken,
+		JamConnector:  jamConn,
 		// A dispatched worker authenticates to Anthropic via an injected
 		// ANTHROPIC_API_KEY secret, NOT the interactive subscription OAuth login.
 		// So we deliberately do not seed credentials.json: with no OAuth token to

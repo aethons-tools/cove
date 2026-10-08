@@ -59,62 +59,62 @@ func TestParseConfigRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestHarborConfig(t *testing.T) {
+func TestJamConfig(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
 name: k
-harbor:
-  host: harbor.local.aethons.tools
-  identity: harbor-id
+jam:
+  host: jam.local.aethons.tools
+  identity: jam-id
 `))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if cfg.Harbor == nil || cfg.Harbor.Host != "harbor.local.aethons.tools" || cfg.Harbor.Identity != "harbor-id" {
-		t.Fatalf("harbor = %+v", cfg.Harbor)
+	if cfg.Jam == nil || cfg.Jam.Host != "jam.local.aethons.tools" || cfg.Jam.Identity != "jam-id" {
+		t.Fatalf("jam = %+v", cfg.Jam)
 	}
-	if !cfg.Harbor.HostGateway() {
+	if !cfg.Jam.HostGateway() {
 		t.Fatal("via-host-gateway must default to true")
 	}
 	// host is folded into the baked allow-list
-	if !contains(RootDomains(cfg), "harbor.local.aethons.tools") {
-		t.Fatalf("RootDomains missing harbor host: %v", RootDomains(cfg))
+	if !contains(RootDomains(cfg), "jam.local.aethons.tools") {
+		t.Fatalf("RootDomains missing jam host: %v", RootDomains(cfg))
 	}
 
 	// via-host-gateway: false is honored
-	off, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n  identity: i\n  via-host-gateway: false\n"))
+	off, err := ParseConfig([]byte("name: k\njam:\n  host: h.example\n  identity: i\n  via-host-gateway: false\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if off.Harbor.HostGateway() {
+	if off.Jam.HostGateway() {
 		t.Fatal("via-host-gateway: false must disable host-gateway")
 	}
 
-	// identity is optional: a harbor block without it parses (auto-enroll mode).
-	auto, err := ParseConfig([]byte("name: k\nharbor:\n  host: h.example\n"))
-	if err != nil || auto.Harbor == nil || auto.Harbor.Identity != "" {
-		t.Fatalf("harbor without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Harbor, err)
+	// identity is optional: a jam block without it parses (auto-enroll mode).
+	auto, err := ParseConfig([]byte("name: k\njam:\n  host: h.example\n"))
+	if err != nil || auto.Jam == nil || auto.Jam.Identity != "" {
+		t.Fatalf("jam without identity must parse (auto-enroll): cfg=%+v err=%v", auto.Jam, err)
 	}
 
-	// no harbor block → no harbor host in RootDomains
+	// no jam block → no jam host in RootDomains
 	none, _ := ParseConfig([]byte("name: k\n"))
-	if none.Harbor != nil {
-		t.Fatal("Harbor should be nil when absent")
+	if none.Jam != nil {
+		t.Fatal("Jam should be nil when absent")
 	}
-	if contains(RootDomains(none), "harbor.local.aethons.tools") {
-		t.Fatal("RootDomains should not contain a harbor host when absent")
+	if contains(RootDomains(none), "jam.local.aethons.tools") {
+		t.Fatal("RootDomains should not contain a jam host when absent")
 	}
 }
 
-func TestHarborConfigValidation(t *testing.T) {
+func TestJamConfigValidation(t *testing.T) {
 	bad := map[string]string{
-		"empty host":       "name: k\nharbor:\n  identity: i\n",
-		"host w/ scheme":   "name: k\nharbor:\n  host: https://h.example\n  identity: i\n",
-		"host w/ port":     "name: k\nharbor:\n  host: h.example:8443\n  identity: i\n",
-		"host w/ path":     "name: k\nharbor:\n  host: h.example/x\n  identity: i\n",
-		"host w/ space":    "name: k\nharbor:\n  host: \"h.example evil\"\n  identity: i\n",
-		"host w/ cmdsubst": "name: k\nharbor:\n  host: \"x$(id)\"\n  identity: i\n",
-		"host w/ newline":  "name: k\nharbor:\n  host: \"a\\nevil.com\"\n  identity: i\n",
-		"harbor+provider":  "name: k\nharbor:\n  host: h.example\n  identity: i\nmodel-provider:\n  vertex:\n    env: { ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us }\n",
+		"empty host":       "name: k\njam:\n  identity: i\n",
+		"host w/ scheme":   "name: k\njam:\n  host: https://h.example\n  identity: i\n",
+		"host w/ port":     "name: k\njam:\n  host: h.example:8443\n  identity: i\n",
+		"host w/ path":     "name: k\njam:\n  host: h.example/x\n  identity: i\n",
+		"host w/ space":    "name: k\njam:\n  host: \"h.example evil\"\n  identity: i\n",
+		"host w/ cmdsubst": "name: k\njam:\n  host: \"x$(id)\"\n  identity: i\n",
+		"host w/ newline":  "name: k\njam:\n  host: \"a\\nevil.com\"\n  identity: i\n",
+		"jam+model-spec":   "name: k\njam:\n  host: h.example\n  identity: i\nmodel-spec: {name: s, type: claude, version: 2.1.287, claude: {provider: anthropic}}\n",
 	}
 	for label, data := range bad {
 		if _, err := ParseConfig([]byte(data)); err == nil {
@@ -1130,83 +1130,6 @@ teammates:
 	}
 }
 
-func TestParseConfig_VertexValid(t *testing.T) {
-	cfg, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-      CLOUD_ML_REGION: us-east5
-      ANTHROPIC_MODEL: claude-opus-4-8
-`))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	v, ok := cfg.Vertex()
-	if !ok {
-		t.Fatalf("Vertex() ok = false, want true")
-	}
-	if v.Env["ANTHROPIC_VERTEX_PROJECT_ID"] != "my-proj" {
-		t.Fatalf("project id = %q", v.Env["ANTHROPIC_VERTEX_PROJECT_ID"])
-	}
-	env := cfg.VertexEnv()
-	if env["CLAUDE_CODE_USE_VERTEX"] != "1" {
-		t.Fatalf("VertexEnv missing CLAUDE_CODE_USE_VERTEX=1: %v", env)
-	}
-	if env["ANTHROPIC_MODEL"] != "claude-opus-4-8" || env["CLOUD_ML_REGION"] != "us-east5" {
-		t.Fatalf("VertexEnv passthrough wrong: %v", env)
-	}
-}
-
-func TestParseConfig_VertexMissingRequired(t *testing.T) {
-	_, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-`))
-	if err == nil || !strings.Contains(err.Error(), "CLOUD_ML_REGION is required") {
-		t.Fatalf("want CLOUD_ML_REGION required error, got %v", err)
-	}
-}
-
-func TestParseConfig_VertexRejectsProtectedKey(t *testing.T) {
-	_, err := ParseConfig([]byte(`
-name: k
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-proj
-      CLOUD_ML_REGION: us
-      https_proxy: http://evil:3128
-`))
-	if err == nil || !strings.Contains(err.Error(), "https_proxy") {
-		t.Fatalf("want protected-key rejection for https_proxy, got %v", err)
-	}
-}
-
-func TestParseConfig_ModelProviderEmptyUnionRejected(t *testing.T) {
-	_, err := ParseConfig([]byte("name: k\nmodel-provider: {}\n"))
-	if err == nil || !strings.Contains(err.Error(), "must set exactly one provider") {
-		t.Fatalf("empty model-provider union must be rejected mentioning 'must set exactly one provider'; got %v", err)
-	}
-}
-
-func TestVertexEnv_NilWhenNoProvider(t *testing.T) {
-	cfg, err := ParseConfig([]byte("name: k\n"))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	if cfg.VertexEnv() != nil {
-		t.Fatalf("VertexEnv should be nil for a non-vertex kit")
-	}
-	if _, ok := cfg.Vertex(); ok {
-		t.Fatalf("Vertex() ok = true for a non-vertex kit")
-	}
-}
-
 func TestSessionEnv_GitLabDefaultHost(t *testing.T) {
 	cfg, err := ParseConfig([]byte("name: k\nsource-control:\n  gitlab:\n    project: grp/sub/name\n"))
 	if err != nil {
@@ -1238,7 +1161,7 @@ func TestSessionEnv_GitHubDoesNotSetGitLabHost(t *testing.T) {
 }
 
 // A GITLAB_HOST the kit sets explicitly in its own authored session env (here via
-// the model-provider env map, which passes non-protected keys through) must win
+// the model-spec's provider-env, which passes non-protected keys through) must win
 // over the source-control-derived default — never overwrite an explicit value.
 func TestSessionEnv_UserEnvWinsOverGitLabHostDefault(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`
@@ -1247,9 +1170,13 @@ source-control:
   gitlab:
     host: gitlab.example.com
     project: grp/sub/name
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: my-proj
       CLOUD_ML_REGION: us-east5
       GITLAB_HOST: gitlab.override.example
@@ -1267,9 +1194,13 @@ func TestProviderDomains_Vertex(t *testing.T) {
 name: k
 image:
   allowed-domains: [example.com]
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: p
       CLOUD_ML_REGION: us-east5
 `))
@@ -1470,5 +1401,82 @@ func TestResolvedCollaboratorKeepsShadowDirs(t *testing.T) {
 	}
 	if len(col.ShadowDirs) != 2 || col.ShadowDirs[0] != ".venv" || col.ShadowDirs[1] != "node_modules" {
 		t.Fatalf("shadow-dirs not preserved: %+v", col.ShadowDirs)
+	}
+}
+
+// InfraDomains is the mechanism half of the old RootDomains: provider, self-hosted
+// GitLab and Jam hosts — always on, never replaced by a role's egress policy.
+func TestInfraDomains(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`
+name: k
+image:
+  allowed-domains: [policy.example, .wild.example]
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
+      ANTHROPIC_VERTEX_PROJECT_ID: p
+      CLOUD_ML_REGION: us-east5
+source-control:
+  gitlab:
+    host: gitlab.example.com
+    project: g/app
+`))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	infra := InfraDomains(cfg)
+	want := unionDomains(ProviderDomains(cfg), []string{"gitlab.example.com"})
+	if strings.Join(infra, ",") != strings.Join(want, ",") {
+		t.Fatalf("InfraDomains = %v, want %v", infra, want)
+	}
+	if containsStr(infra, "policy.example") || containsStr(infra, ".wild.example") {
+		t.Fatalf("InfraDomains must not include image.allowed-domains: %v", infra)
+	}
+	// RootDomains stays the full union (policy ∪ infra).
+	root := RootDomains(cfg)
+	if strings.Join(root, ",") != strings.Join(unionDomains(cfg.Image.AllowedDomains, infra), ",") {
+		t.Fatalf("RootDomains = %v, want image.allowed-domains ∪ InfraDomains", root)
+	}
+	// Jam and model-spec are mutually exclusive, so the Jam host is
+	// checked on its own kit.
+	hb, err := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [p.example]\njam:\n  host: jam.example\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if got := InfraDomains(hb); len(got) != 1 || got[0] != "jam.example" {
+		t.Fatalf("InfraDomains(Jam kit) = %v, want [jam.example]", got)
+	}
+	// No provider/gitlab/jam → empty.
+	bare, _ := ParseConfig([]byte("name: k\nimage:\n  allowed-domains: [only.example]\n"))
+	if got := InfraDomains(bare); len(got) != 0 {
+		t.Fatalf("InfraDomains(bare) = %v, want empty", got)
+	}
+}
+
+func TestIsReservedSecretName(t *testing.T) {
+	tests := []struct {
+		name     string
+		wantTrue bool
+	}{
+		{"AT_TASK_GIT_TOKEN", true},
+		{"AT_DISPATCH_TRACKER_TOKEN", true},
+		{"AT_DISPATCH_WEBHOOK_SECRET", true},
+		{"GOOGLE_APPLICATION_CREDENTIALS_JSON", true},
+		{"FOO", false},
+		{"MYSECRET", false},
+		{"CUSTOM_TOKEN", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsReservedSecretName(tc.name)
+			if got != tc.wantTrue {
+				t.Errorf("IsReservedSecretName(%q) = %v, want %v", tc.name, got, tc.wantTrue)
+			}
+		})
 	}
 }

@@ -75,7 +75,7 @@ teammates:
 
 image:
   # This repo builds out its toolchain image in CI rather than locally.
-  base: ghcr.io/aethons-tools/cove-image@sha256:b1aaaaacf6632b1b2990131ece7c8f16efceb1cab303122f0911680dc83e5b7d
+  base: ghcr.io/aethons-tools/cove-image@sha256:8cbec58a7891f556564e56b63c1631788928fa9150e37e177c03f8cde3fb9713
   allowed-domains:
     # Go dependencies
     - gopkg.in
@@ -88,7 +88,10 @@ image:
     # base adoption (see cmd/adopt-base) and ad-hoc manifest inspection. Manifest
     # lookups only; a full image pull would also need the blob CDN host + Docker.
     - ghcr.io
-    # the project's at-harbor domain, so a collaborator sandbox can reach it.
+    # the project's at-jam domain, so a collaborator sandbox can reach it.
     - .local.aethons.tools
     # Javascript dependencies
     - cdnjs.cloudflare.com
+
+#jam:
+#  host: jam.local.aethons.tools

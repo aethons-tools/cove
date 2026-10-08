@@ -1,0 +1,42 @@
+{{define "content"}}
+<style>
+  .search-big{display:flex;gap:8px;margin-bottom:18px}
+  .search-big input{font-size:15px;padding:10px 12px}
+  .sgroup{margin-bottom:16px}
+  .sgroup>header{display:flex;align-items:baseline;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border)}
+  .sgroup>header h2{margin:0}
+  .sgroup>header .spacer{flex:1}
+  .hit{display:block;padding:9px 16px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--ink)}
+  .hit:last-child{border-bottom:0}
+  .hit:hover{background:var(--surface-2)}
+  .hit .t{font-weight:600}
+  .hit .s{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+  mark{background:var(--accent-soft);color:var(--accent);border-radius:3px;padding:0 1px}
+</style>
+<div class="page-head"><h1>Search</h1><span class="sub">agents, roles, projects, kits, destinations, model-specs, users, rooms and squawks</span></div>
+<form class="search-big" action="/ui/search" method="get" role="search">
+  <input id="q-page" name="q" value="{{.Q}}" autocomplete="off" autofocus placeholder="Search everything…"
+    hx-get="/ui/search" hx-trigger="input changed delay:200ms, search" hx-target="#search-results" hx-swap="outerHTML" hx-push-url="true">
+</form>
+{{template "search-results" .}}
+{{end}}
+
+{{define "search-results"}}
+<div id="search-results">
+  {{if .TooShort}}<div class="banner">Type at least 2 characters.</div>
+  {{else if not .Q}}<div class="empty">Search by name, id, unit, handle, route, prompt or message text.</div>
+  {{else if not .Groups}}<div class="banner">No matches for <span class="mono">{{.Q}}</span>.</div>
+  {{else}}
+  <p class="sub" style="margin:0 0 12px">{{.Total}} match(es) for <span class="mono">{{.Q}}</span></p>
+  {{$q := .Q}}
+  {{range .Groups}}
+  <section class="card sgroup" data-group="{{.Key}}" data-count="{{.Count}}">
+    <header><h2>{{.Name}}</h2><span class="sub">{{.Count}}</span><span class="spacer"></span>
+      {{if .MoreURL}}{{if gt .Count (len .Hits)}}<a class="sub" href="{{.MoreURL}}">all {{.Count}} in Intercom</a>{{else}}<a class="sub" href="{{.MoreURL}}">open in Intercom</a>{{end}}
+      {{else if gt .Count (len .Hits)}}<span class="sub">showing {{len .Hits}}</span>{{end}}</header>
+    {{range .Hits}}<a class="hit" href="{{.URL}}"><span class="t">{{hl .Title $q}}</span>{{if .Sub}}<span class="s">{{hl .Sub $q}}</span>{{end}}</a>{{end}}
+  </section>
+  {{end}}
+  {{end}}
+</div>
+{{end}}

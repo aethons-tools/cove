@@ -1,31 +1,31 @@
-# Dev instance assets for harbor.
+# Dev instance assets for Jam.
 #
-# Raises a local PostgreSQL matching harbor's CI/integration conventions
-# (see .github/workflows/store-integration.yml). harbor auto-migrates on
+# Raises a local PostgreSQL matching Jam's CI/integration conventions
+# (see .github/workflows/store-integration.yml). Jam auto-migrates on
 # startup, so no init SQL is needed here.
 #
 #   docker compose -f dev/docker-compose.yml up -d   (or: just dev-up)
 #
 # Host port is 15432 (mapped to the container's 5432) to avoid clashing with
 # any other local Postgres. Point the integration tests at it with:
-#   export HARBOR_TEST_POSTGRES_DSN="host=localhost port=15432 dbname=harbor user=harbor password=harbor sslmode=disable"
-#   just integration-harbor
+#   export JAM_TEST_POSTGRES_DSN="host=localhost port=15432 dbname=jam user=jam password=jam sslmode=disable"
+#   just integration-jam
 
-name: harbor-dev
+name: jam-dev
 
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     environment:
-      POSTGRES_USER: harbor
-      POSTGRES_PASSWORD: harbor
-      POSTGRES_DB: harbor
+      POSTGRES_USER: jam
+      POSTGRES_PASSWORD: jam
+      POSTGRES_DB: jam
     ports:
       - "15432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U harbor"]
+      test: ["CMD-SHELL", "pg_isready -U jam"]
       interval: 5s
       timeout: 5s
       retries: 5

@@ -15,7 +15,7 @@ func actor(r string) intercom.Target { return intercom.Target{Kind: "actor", Ref
 func human(r string) intercom.Target { return intercom.Target{Kind: "human", Ref: r} }
 
 // bodies extracts the Body of each message, for compact test failure output.
-func bodies(ms []intercom.Squawk) []string {
+func bodies(ms []intercom.LegacySquawk) []string {
 	out := make([]string, len(ms))
 	for i, m := range ms {
 		out[i] = m.Body
@@ -23,10 +23,10 @@ func bodies(ms []intercom.Squawk) []string {
 	return out
 }
 
-func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
+func RunLegacyConformance(t *testing.T, newStore func(t *testing.T) intercom.LegacyStore) {
 	t.Run("append_assigns_id_and_at", func(t *testing.T) {
 		s := newStore(t)
-		got, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "hi"})
+		got, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "hi"})
 		if err != nil {
 			t.Fatalf("Append: %v", err)
 		}
@@ -35,22 +35,43 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 		}
 	})
 
+	t.Run("content_type_defaults_to_markdown_and_round_trips", func(t *testing.T) {
+		s := newStore(t)
+		md, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "**hi**"})
+		if err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+		if md.ContentType != intercom.ContentMarkdown {
+			t.Fatalf("default content type = %q, want %q", md.ContentType, intercom.ContentMarkdown)
+		}
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "2 * 3 = 6", ContentType: intercom.ContentPlain}); err != nil {
+			t.Fatalf("Append plain: %v", err)
+		}
+		got := s.ListSince(0, 0)
+		if len(got) != 2 || got[0].ContentType != intercom.ContentMarkdown || got[1].ContentType != intercom.ContentPlain {
+			t.Fatalf("read back content types = %+v, want [markdown plain]", got)
+		}
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "x", ContentType: "text/html"}); err == nil {
+			t.Fatal("a content type outside the allowlist must be rejected")
+		}
+	})
+
 	t.Run("append_validates", func(t *testing.T) {
 		s := newStore(t)
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}}); err == nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}}); err == nil {
 			t.Fatal("empty body must error")
 		}
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), Body: "x"}); err == nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), Body: "x"}); err == nil {
 			t.Fatal("empty To must error")
 		}
 	})
 
 	t.Run("read_inbox_multi_recipient", func(t *testing.T) {
 		s := newStore(t)
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("a"), human("b")}, Body: "m1"}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("a"), human("b")}, Body: "m1"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("c")}, Body: "m2"}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("c")}, Body: "m2"}); err != nil {
 			t.Fatal(err)
 		}
 		if got := s.ReadInbox(actor("a")); len(got) != 1 || got[0].Body != "m1" {
@@ -70,11 +91,11 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 
 	t.Run("read_thread_root_and_direct_replies", func(t *testing.T) {
 		s := newStore(t)
-		root, _ := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "root"})
-		if _, err := s.Append(intercom.Squawk{From: human("a"), To: []intercom.Target{actor("c1")}, Body: "reply", ReplyTo: root.ID}); err != nil {
+		root, _ := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "root"})
+		if _, err := s.Append(intercom.LegacySquawk{From: human("a"), To: []intercom.Target{actor("c1")}, Body: "reply", ReplyTo: root.ID}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "unrelated"}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "unrelated"}); err != nil {
 			t.Fatal(err)
 		}
 		got := s.ReadThread(root.ID)
@@ -86,19 +107,19 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 	t.Run("list_filter_project_and_time", func(t *testing.T) {
 		s := newStore(t)
 		t0 := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "acme1", Project: "acme", At: t0}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "acme1", Project: "acme", At: t0}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "beta1", Project: "beta", At: t0.Add(48 * time.Hour)}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("a")}, Body: "beta1", Project: "beta", At: t0.Add(48 * time.Hour)}); err != nil {
 			t.Fatal(err)
 		}
-		if got := s.List(intercom.Filter{Project: "acme"}); len(got) != 1 || got[0].Body != "acme1" {
+		if got := s.List(intercom.LegacyFilter{Project: "acme"}); len(got) != 1 || got[0].Body != "acme1" {
 			t.Fatalf("List(project=acme) = %+v", got)
 		}
-		if got := s.List(intercom.Filter{}); len(got) != 2 {
+		if got := s.List(intercom.LegacyFilter{}); len(got) != 2 {
 			t.Fatalf("List(all) = %d, want 2", len(got))
 		}
-		win := s.List(intercom.Filter{Since: t0.Add(24 * time.Hour), Until: t0.Add(72 * time.Hour)})
+		win := s.List(intercom.LegacyFilter{Since: t0.Add(24 * time.Hour), Until: t0.Add(72 * time.Hour)})
 		if len(win) != 1 || win[0].Body != "beta1" {
 			t.Fatalf("List(time window) = %+v, want [beta1]", win)
 		}
@@ -107,11 +128,11 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 	t.Run("list_and_reads_are_append_order", func(t *testing.T) {
 		s := newStore(t)
 		for _, b := range []string{"a", "b", "c"} {
-			if _, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("h")}, Body: b}); err != nil {
+			if _, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("h")}, Body: b}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		got := s.List(intercom.Filter{})
+		got := s.List(intercom.LegacyFilter{})
 		if len(got) != 3 || got[0].Body != "a" || got[2].Body != "c" {
 			t.Fatalf("List order = %+v, want a,b,c", got)
 		}
@@ -119,7 +140,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 
 	t.Run("duplicate_to_target", func(t *testing.T) {
 		s := newStore(t)
-		if _, err := s.Append(intercom.Squawk{
+		if _, err := s.Append(intercom.LegacySquawk{
 			From: actor("c1"),
 			To:   []intercom.Target{actor("a"), actor("a")},
 			Body: "dup",
@@ -135,11 +156,11 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 	t.Run("seen_ids_by_prefix", func(t *testing.T) {
 		s := newStore(t)
 		for _, id := range []string{"in:linear:c1", "in:linear:c2", "in:discord:c3"} {
-			if _, err := s.Append(intercom.Squawk{ID: id, From: human("a"), To: []intercom.Target{actor("x")}, Body: "b"}); err != nil {
+			if _, err := s.Append(intercom.LegacySquawk{ID: id, From: human("a"), To: []intercom.Target{actor("x")}, Body: "b"}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if _, err := s.Append(intercom.Squawk{From: actor("x"), To: []intercom.Target{human("a")}, Body: "egress"}); err != nil {
+		if _, err := s.Append(intercom.LegacySquawk{From: actor("x"), To: []intercom.Target{human("a")}, Body: "egress"}); err != nil {
 			t.Fatal(err)
 		}
 		got := s.SeenIDs("in:linear:")
@@ -153,7 +174,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 		s := newStore(t)
 		var seqs []int64
 		for _, b := range []string{"m1", "m2", "m3"} {
-			got, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{human("h")}, Body: b})
+			got, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{human("h")}, Body: b})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,9 +203,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 
 	t.Run("read_inbox_since", func(t *testing.T) {
 		s := newStore(t)
-		m1, _ := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "before"})
-		m2, _ := s.Append(intercom.Squawk{From: human("a"), To: []intercom.Target{actor("x")}, Body: "after1"})
-		_, _ = s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("y")}, Body: "other"})
+		m1, _ := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "before"})
+		m2, _ := s.Append(intercom.LegacySquawk{From: human("a"), To: []intercom.Target{actor("x")}, Body: "after1"})
+		_, _ = s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("y")}, Body: "other"})
 		got := s.ReadInboxSince(actor("x"), m1.Seq, 0)
 		if len(got) != 1 || got[0].Body != "after1" || got[0].ID != m2.ID {
 			t.Fatalf("ReadInboxSince(x, m1) = %+v, want [after1]", got)
@@ -200,7 +221,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 		// ReadInboxSince to EVERY one of its recipients, with its full To
 		// reconstructed — exercising the message_recipients join fan-out through
 		// the cursor path.
-		m3, err := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x"), actor("y")}, Body: "multi"})
+		m3, err := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x"), actor("y")}, Body: "multi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,9 +245,9 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 
 	t.Run("read_inbox_before", func(t *testing.T) {
 		s := newStore(t)
-		m1, _ := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b1"})
-		_, _ = s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b2"})
-		m3, _ := s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b3"})
+		m1, _ := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b1"})
+		_, _ = s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b2"})
+		m3, _ := s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x")}, Body: "b3"})
 		// from the end: last 2, ascending.
 		end := s.ReadInboxBefore(actor("x"), 0, 2)
 		if len(end) != 2 || end[0].Body != "b2" || end[1].Body != "b3" {
@@ -245,7 +266,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 
 	t.Run("read_inbox_before_multi_recipient", func(t *testing.T) {
 		s := newStore(t)
-		_, _ = s.Append(intercom.Squawk{From: actor("c1"), To: []intercom.Target{actor("x"), actor("y")}, Body: "shared"})
+		_, _ = s.Append(intercom.LegacySquawk{From: actor("c1"), To: []intercom.Target{actor("x"), actor("y")}, Body: "shared"})
 		if got := s.ReadInboxBefore(actor("x"), 0, 10); len(got) != 1 || len(got[0].To) != 2 {
 			t.Fatalf("multi-recipient before(x) = %+v", got)
 		}
@@ -265,19 +286,19 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) intercom.Store) {
 // "in:discord:<snowflake>" ingress id) have no consistent lexical relationship
 // to append order. Ordering and cursors must use Seq, never lexical id
 // comparison, or a message can be silently skipped or misordered.
-func testMixedNamespaceOrdering(t *testing.T, newStore func(t *testing.T) intercom.Store) {
+func testMixedNamespaceOrdering(t *testing.T, newStore func(t *testing.T) intercom.LegacyStore) {
 	s := newStore(t)
 	x := actor("x")
 	// append in a deliberate order whose lexical id order differs from append order.
-	m1, err := s.Append(intercom.Squawk{ID: "in:linear:zzz", From: human("h"), To: []intercom.Target{x}, Body: "1"})
+	m1, err := s.Append(intercom.LegacySquawk{ID: "in:linear:zzz", From: human("h"), To: []intercom.Target{x}, Body: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	m2, err := s.Append(intercom.Squawk{ID: "in:discord:aaa", From: human("h"), To: []intercom.Target{x}, Body: "2"}) // lexically < m1
+	m2, err := s.Append(intercom.LegacySquawk{ID: "in:discord:aaa", From: human("h"), To: []intercom.Target{x}, Body: "2"}) // lexically < m1
 	if err != nil {
 		t.Fatal(err)
 	}
-	m3, err := s.Append(intercom.Squawk{From: human("h"), To: []intercom.Target{x}, Body: "3"}) // digit-prefixed internal id
+	m3, err := s.Append(intercom.LegacySquawk{From: human("h"), To: []intercom.Target{x}, Body: "3"}) // digit-prefixed internal id
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,10 +322,10 @@ func testMixedNamespaceOrdering(t *testing.T, newStore func(t *testing.T) interc
 
 // testSeqAndResolution exercises Message.Seq assignment, SeqOf resolution, and
 // TailSeq — shared by both backends via RunConformance.
-func testSeqAndResolution(t *testing.T, newStore func(t *testing.T) intercom.Store) {
+func testSeqAndResolution(t *testing.T, newStore func(t *testing.T) intercom.LegacyStore) {
 	s := newStore(t)
-	a, _ := s.Append(intercom.Squawk{From: actor("c"), To: []intercom.Target{actor("x")}, Body: "a"})
-	b, _ := s.Append(intercom.Squawk{From: actor("c"), To: []intercom.Target{actor("x")}, Body: "b"})
+	a, _ := s.Append(intercom.LegacySquawk{From: actor("c"), To: []intercom.Target{actor("x")}, Body: "a"})
+	b, _ := s.Append(intercom.LegacySquawk{From: actor("c"), To: []intercom.Target{actor("x")}, Body: "b"})
 	if a.Seq <= 0 || b.Seq <= a.Seq {
 		t.Fatalf("Seq not monotonic: a=%d b=%d", a.Seq, b.Seq)
 	}

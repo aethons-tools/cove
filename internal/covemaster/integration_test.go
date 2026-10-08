@@ -7,16 +7,15 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/aethons-tools/cove/internal/harbor"
-	"github.com/aethons-tools/cove/internal/harbor/attach"
-	"github.com/aethons-tools/cove/internal/harbor/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/attach"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
 // realListenerHarness raises one instance and starts an attach server on a real
@@ -25,15 +24,12 @@ import (
 // mirrors client_test.go's serverHarness (store + guest role + Supervisor +
 // aliveLauncher + Raise) but binds net.Listen instead of bufconn.Listen, since
 // that's the one axis this test needs to differ on.
-func realListenerHarness(t *testing.T) (store harbor.Store, addr, token, secret string) {
+func realListenerHarness(t *testing.T) (store jam.Store, addr, token, secret string) {
 	t.Helper()
-	store, err := harbor.NewFileStore(filepath.Join(t.TempDir(), "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.PutRole("default", harbor.Role{Name: "guest", Scope: harbor.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
-	sup := harbor.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, tok, sec, err := sup.Raise(context.Background(), harbor.RaiseSpec{ActorID: "w1", Role: "guest"})
+	store = jam.NewMemStore()
+	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, tok, sec, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +64,7 @@ func TestIntegrationRealListener(t *testing.T) {
 
 	if !eventually(func() bool {
 		inst, ok := store.GetInstance("w1")
-		return ok && inst.Activity == harbor.ActivityWaiting
+		return ok && inst.Activity == jam.ActivityWaiting
 	}) {
 		inst, _ := store.GetInstance("w1")
 		t.Fatalf("activity never reached waiting: %+v", inst)

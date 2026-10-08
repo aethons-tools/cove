@@ -1,118 +1,46 @@
 package intercom
 
 import (
-	"bufio"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log/slog"
-	"os"
 	"strings"
 	"sync"
 )
 
-// maxLineBytes bounds a single JSONL line read at open (a message body is far
-// smaller in practice; this is a safety cap well above any real message).
-const maxLineBytes = 4 << 20 // 4 MiB
-
-// Log is a durable, append-only message log: a JSONL file mirrored in memory.
-// The serve process is the sole writer (single-node MVP).
-type Log struct {
+// LegacyLog is an in-memory, append-only message log implementing Store, for tests
+// and tooling. Not for production: nothing is persisted — Jam's message log is
+// intercompg (Postgres).
+type LegacyLog struct {
 	mu      sync.Mutex
-	path    string
-	f       *os.File
-	msgs    []Squawk
-	log     *slog.Logger
-	nextSeq int64 // next Seq to assign; resumed on Open to max(seen Seq)+1
+	msgs    []LegacySquawk
+	nextSeq int64 // next Seq to assign, from 1
 }
 
-// Open loads (or creates) the log at path — reading every well-formed line into
-// the in-memory mirror, tolerating a torn trailing line (logged + skipped) — and
-// opens the file for append. A nil logger discards.
-func Open(path string, log *slog.Logger) (*Log, error) {
-	if log == nil {
-		log = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	l := &Log{path: path, log: log}
-	if data, err := os.Open(path); err == nil {
-		sc := bufio.NewScanner(data)
-		sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
-		for sc.Scan() {
-			line := sc.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var m Squawk
-			if err := json.Unmarshal(line, &m); err != nil {
-				log.Warn("intercom: skipping malformed line", "error", err.Error())
-				continue
-			}
-			l.msgs = append(l.msgs, m)
-		}
-		data.Close()
-		// A Scanner error (e.g. an over-long final torn line) is tolerated: the
-		// prior good messages are kept.
-		if err := sc.Err(); err != nil {
-			log.Warn("intercom: scan ended early", "error", err.Error())
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("intercom: open %s: %w", path, err)
-	}
-	var maxSeq int64
-	for _, m := range l.msgs {
-		if m.Seq > maxSeq {
-			maxSeq = m.Seq
-		}
-	}
-	l.nextSeq = maxSeq + 1
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+// NewLegacyMemLog returns an empty in-memory log.
+func NewLegacyMemLog() *LegacyLog { return &LegacyLog{nextSeq: 1} }
+
+// Close is a no-op; it exists to satisfy Store.
+func (l *LegacyLog) Close() error { return nil }
+
+// Append validates m, assigns an ID/At when unset and the next Seq, and stores
+// it. Returns the stored message.
+func (l *LegacyLog) Append(m LegacySquawk) (LegacySquawk, error) {
+	m, err := PrepareLegacy(m)
 	if err != nil {
-		return nil, fmt.Errorf("intercom: open-append %s: %w", path, err)
-	}
-	l.f = f
-	return l, nil
-}
-
-// Close closes the append handle.
-func (l *Log) Close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.f == nil {
-		return nil
-	}
-	err := l.f.Close()
-	l.f = nil
-	return err
-}
-
-// Append validates m, assigns an ID/At when unset, writes one JSONL line, and
-// mirrors it in memory. Returns the stored message.
-func (l *Log) Append(m Squawk) (Squawk, error) {
-	m, err := Prepare(m)
-	if err != nil {
-		return Squawk{}, err
+		return LegacySquawk{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	m.Seq = l.nextSeq
 	l.nextSeq++
-	line, err := json.Marshal(m)
-	if err != nil {
-		return Squawk{}, fmt.Errorf("intercom: marshal: %w", err)
-	}
-	if _, err := l.f.Write(append(line, '\n')); err != nil {
-		return Squawk{}, fmt.Errorf("intercom: write: %w", err)
-	}
 	l.msgs = append(l.msgs, m)
 	return m, nil
 }
 
-// snapshot returns a copy of the in-memory mirror (deep enough that callers
+// snapshot returns a copy of the stored messages (deep enough that callers
 // can't mutate stored To slices). Reads in read.go build on this.
-func (l *Log) snapshot() []Squawk {
+func (l *LegacyLog) snapshot() []LegacySquawk {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]Squawk, len(l.msgs))
+	out := make([]LegacySquawk, len(l.msgs))
 	for i, m := range l.msgs {
 		m.To = append([]Target(nil), m.To...)
 		out[i] = m
@@ -121,7 +49,7 @@ func (l *Log) snapshot() []Squawk {
 }
 
 // SeenIDs returns ids with the given prefix, in append order.
-func (l *Log) SeenIDs(prefix string) []string {
+func (l *LegacyLog) SeenIDs(prefix string) []string {
 	var out []string
 	for _, m := range l.snapshot() {
 		if strings.HasPrefix(m.ID, prefix) {
@@ -131,4 +59,4 @@ func (l *Log) SeenIDs(prefix string) []string {
 	return out
 }
 
-var _ Store = (*Log)(nil)
+var _ LegacyStore = (*LegacyLog)(nil)

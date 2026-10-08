@@ -59,6 +59,10 @@ type Manifest struct {
 	// demands — names only, never values — and allowed-domains): whatever a run
 	// command needs, resolved once. kit.Load has already applied its defaults.
 	RunConfig kit.Config `json:"runConfig"`
+	// LegacyModelProvider is set by Load when the frozen run-config still
+	// carries the removed model-provider: block (never written): the run path
+	// refuses such an install (ErrLegacyModelProvider); teardown ignores it.
+	LegacyModelProvider bool `json:"-"`
 }
 
 // Compile freezes the resolved config and the resolved build outputs into a
@@ -145,5 +149,22 @@ func Load(kitDir string) (Manifest, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Manifest{}, err
 	}
+	// A manifest frozen from a kit with the removed model-provider: block
+	// (COV-241) would otherwise load as a plain anthropic kit and silently drop
+	// its Vertex wiring: flag it, so the run path refuses it (teardown —
+	// destroy, status, uninstall — still loads it).
+	var legacy struct {
+		RunConfig struct {
+			ModelProvider json.RawMessage `json:"ModelProvider"`
+		} `json:"runConfig"`
+	}
+	if json.Unmarshal(b, &legacy) == nil && len(legacy.RunConfig.ModelProvider) > 0 && string(legacy.RunConfig.ModelProvider) != "null" {
+		m.LegacyModelProvider = true
+	}
 	return m, nil
 }
+
+// ErrLegacyModelProvider is the run path's refusal of an install frozen from a
+// kit that still had model-provider: (replaced by model-spec:, COV-241;
+// Manifest.LegacyModelProvider).
+var ErrLegacyModelProvider = errors.New("this install was built from a kit with model-provider:, which was replaced by model-spec: — move it into a model-spec: block in config.yml (see docs/usage/at-cove-config.md#model-spec) and run `at-cove install`")

@@ -1,7 +1,9 @@
-// Package dispatcher is harbor's resident intake: an always-on poll loop that
-// turns ready tracker tickets into managed-cove raises, bounded by a
-// registry-derived concurrency cap. It lives outside internal/harbor core (it
-// imports the tracker + kit + supervisor) and is wired from cmd/at-harbor.
+// Package dispatcher is the Requisitioner (Jam's resident intake; the package
+// keeps its pre-rename name): an always-on poll loop that
+// turns ready tracker tickets into managed-cove raises, admitting each raise
+// through the Allocator (Jam's capacity authority) rather than counting
+// instances against a cap itself. It lives outside internal/jam core (it
+// imports the tracker + kit + supervisor) and is wired from cmd/at-jam.
 package dispatcher
 
 import (
@@ -10,68 +12,83 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
-	"github.com/aethons-tools/cove/internal/harbor"
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Raiser is the supervisor's raise entrypoint (satisfied by *harbor.Supervisor).
+// Raiser is the supervisor's raise entrypoint (satisfied by *jam.Supervisor).
 type Raiser interface {
-	Raise(ctx context.Context, spec harbor.RaiseSpec) (harbor.Instance, string, string, error)
+	Raise(ctx context.Context, spec jam.RaiseSpec) (jam.Instance, string, string, error)
 }
 
-// Registry reads the durable Instance registry (satisfied by harbor.Store).
+// Registry reads the durable Instance registry (satisfied by jam.Store).
 type Registry interface {
-	GetInstance(actorID string) (harbor.Instance, bool)
-	ListInstances() []harbor.Instance
+	GetInstance(actorID string) (jam.Instance, bool)
+	ListInstances() []jam.Instance
 }
 
-// Tracker is the scheduler.Tracker subset the dispatcher needs (satisfied by *linear.Client).
+// Tracker is the scheduler.Tracker subset the Requisitioner needs (satisfied by *linear.Client).
 type Tracker interface {
 	ListReady(ctx context.Context) ([]scheduler.Issue, error)
 	Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error)
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 }
 
-// Config is the dispatcher's behavior configuration.
+// Admitter is Jam's capacity authority: the Requisitioner no longer counts
+// instances against a cap itself. Satisfied by *allocator.Allocator.
+type Admitter interface {
+	// Grant atomically admits and reserves a slot for req's (project, role) — the
+	// OCC admission gate. The Requisitioner always asks for an ephemeral session. It
+	// returns true when a slot was reserved (the caller must then compensate with
+	// RecordRelease on any later failure), false when at capacity, and an error on
+	// store trouble.
+	Grant(ctx context.Context, req allocator.Request) (bool, error)
+	// RecordRelease frees a slot Grant reserved (compensation for a post-grant
+	// failure); a failure is logged, never fatal.
+	RecordRelease(ctx context.Context, project, role, reservationID string) error
+}
+
+// Config is the Requisitioner's behavior configuration.
 type Config struct {
-	Role          string        // role raised coves get (must grant anthropic + git)
-	Project       string        // optional
-	MaxConcurrent int           // required, > 0 — max live Instances maintained
-	PollInterval  time.Duration // default 30s if <= 0
+	Role         string        // role raised coves get (must grant anthropic + git)
+	Project      string        // optional
+	PollInterval time.Duration // default 30s if <= 0
 }
 
 const defaultPollInterval = 30 * time.Second
 
-// resultProtocol instructs the agent to record its outcome. The task is inline
-// (the brief precedes this), so unlike the dispatch-worker protocol there is no
-// ".at-task/task.json" to read; output-handling (PR/push) is deferred. The
-// worker-result.json schema matches internal/dispatch/worker.WorkerResult, which
-// the cove's agent wrapper reads to map ok/needs-input/error onto its lifecycle.
-const resultProtocol = `---
+// turnEndProtocol tells a ticket studio how it finishes (see
+// docs/usage/jam/turn-end.md#reporting-a-ticket): it owns its branch and PR
+// through merge, reports the ticket's state with `report`, and ends with
+// `end`. The cove's agent wrapper reads no result file.
+const turnEndProtocol = `---
 Your task is described above. Do the work in this repository: make the changes and run the project's tests.
-
-When finished, write your result to .at-task/worker-result.json as EXACTLY ONE of:
-  {"status":{"ok":{}}}
-  {"status":{"needs-input":{"doing":"…","blocker":"…","need":"…","tried":"…"}}}
-  {"status":{"error":{"message":"<what went wrong>"}}}
-Use ok only if the change is complete and tests pass.`
+You own this ticket through merge:
+- Work on a branch, push it, and open a pull request yourself (gh pr create).
+- Use the intercom ` + "`report`" + ` tool to keep the ticket's state current: in-review with the PR link once it is up, needs-input with your question when you are blocked on a person, blocked if you cannot proceed, done once it has merged.
+- While the PR is open, set an alarm (` + "`alarm_set`" + `) whose gate checks the PR (new review comments, failing CI, branch behind main, merged) so you are woken only when there is something to do; address review comments and keep the branch mergeable.
+- When the ticket is finished (merged, reported done), call ` + "`end`" + ` as your last action.
+If you need a person, ask with ` + "`send`" + ` and end your turn; their reply wakes you.`
 
 type Dispatcher struct {
 	tracker  Tracker
 	raiser   Raiser
 	registry Registry
+	admitter Admitter
 	cfg      Config
 	log      *slog.Logger
 }
 
-func New(t Tracker, r Raiser, reg Registry, cfg Config, log *slog.Logger) *Dispatcher {
+func New(t Tracker, r Raiser, reg Registry, adm Admitter, cfg Config, log *slog.Logger) *Dispatcher {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Dispatcher{tracker: t, raiser: r, registry: reg, cfg: cfg, log: log}
+	return &Dispatcher{tracker: t, raiser: r, registry: reg, admitter: adm, cfg: cfg, log: log}
 }
 
 // Run polls until ctx is cancelled: an immediate tick, then every PollInterval
@@ -90,58 +107,83 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// tick runs one poll pass: list ready → dedup → cap → claim → raise.
+// tick runs one poll pass: list ready → dedup → grant → claim → prompt → raise.
+// The grant reserves the slot atomically (OCC admission) before the raise, so
+// admission cannot overshoot the budget under concurrency; any failure after a
+// successful grant compensates by releasing the reserved slot.
+//
+// Known gap (Slice 5): a crash between a successful grant and the raise leaks the
+// reserved slot (no compensation runs). A reconcile sweep that releases granted
+// reservations with no live instance closes it; the cap stays ≤ budget meanwhile.
 func (d *Dispatcher) tick(ctx context.Context) {
 	issues, err := d.tracker.ListReady(ctx)
 	if err != nil {
-		d.log.Warn("dispatcher: list ready failed", "error", err.Error())
+		d.log.Warn("requisitioner: list ready failed", "error", err.Error())
 		return
 	}
-	live := d.countLive()
 	for _, iss := range issues {
 		if !iss.DispatchLabeled {
 			continue // not tagged for dispatch — never claimed, counted, or raised
 		}
-		actorID := "cove-" + iss.Identifier
-		if _, ok := d.registry.GetInstance(actorID); ok {
-			continue // already raised (dedup)
+		if d.working(iss.Identifier) {
+			continue // a session is already on this ticket (dedup)
 		}
-		if live >= d.cfg.MaxConcurrent {
-			d.log.Info("dispatcher: at capacity, deferring", "max", d.cfg.MaxConcurrent)
+		// Each dispatch starts a new session (a re-dispatch is a new one too).
+		actorID := string(ident.New(ident.Session))
+		granted, err := d.admitter.Grant(ctx, allocator.Request{
+			Project: d.cfg.Project, Role: d.cfg.Role, ReservationID: actorID, Kind: allocator.SessionEphemeral,
+		})
+		if err != nil {
+			d.log.Warn("requisitioner: grant failed", "actor", actorID, "err", err.Error())
+			break // store trouble — back off this tick
+		}
+		if !granted {
+			d.log.Info("requisitioner: at capacity, deferring", "project", d.cfg.Project, "role", d.cfg.Role)
 			break // backpressure — wait for a slot next tick
 		}
+		// slot reserved — any failure from here must release it (compensation)
 		if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleInProgress); err != nil {
-			d.log.Warn("dispatcher: claim failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: claim failed", "issue", iss.Identifier, "error", err.Error())
+			d.release(ctx, actorID)
 			continue
 		}
 		prompt, err := d.buildPrompt(ctx, iss)
 		if err != nil {
-			d.log.Warn("dispatcher: build prompt failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: build prompt failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
+			d.release(ctx, actorID)
 			continue
 		}
-		if _, _, _, err := d.raiser.Raise(ctx, harbor.RaiseSpec{
+		if _, _, _, err := d.raiser.Raise(ctx, jam.RaiseSpec{
 			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, Prompt: prompt,
 		}); err != nil {
-			d.log.Warn("dispatcher: raise failed", "issue", iss.Identifier, "error", err.Error())
+			d.log.Warn("requisitioner: raise failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)
+			d.release(ctx, actorID)
 			continue
 		}
-		d.log.Info("dispatcher: raised cove", "issue", iss.Identifier, "actor", actorID)
-		live++
+		d.log.Info("requisitioner: raised cove", "issue", iss.Identifier, "actor", actorID)
 	}
 }
 
-// countLive counts Instances that occupy a concurrency slot (everything not gone;
-// gone Instances are already deregistered, but filter defensively).
-func (d *Dispatcher) countLive() int {
-	n := 0
-	for _, i := range d.registry.ListInstances() {
-		if i.Phase != harbor.PhaseGone {
-			n++
+// working reports whether a session is live on the ticket unit: a raised,
+// not yet gone instance whose Unit is it.
+func (d *Dispatcher) working(unit string) bool {
+	for _, inst := range d.registry.ListInstances() {
+		if inst.Unit == unit && inst.Phase != jam.PhaseGone {
+			return true
 		}
 	}
-	return n
+	return false
+}
+
+// release compensates a reserved-but-not-raised slot (best-effort; the teardown
+// path releases normally-completed sessions). It is a no-op in file-store mode,
+// where Grant reserved nothing.
+func (d *Dispatcher) release(ctx context.Context, actorID string) {
+	if err := d.admitter.RecordRelease(ctx, d.cfg.Project, d.cfg.Role, actorID); err != nil {
+		d.log.Warn("requisitioner: compensating release failed", "actor", actorID, "err", err.Error())
+	}
 }
 
 func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (string, error) {
@@ -149,12 +191,12 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (stri
 	if err != nil {
 		return "", fmt.Errorf("comments: %w", err)
 	}
-	return scheduler.AssembleBrief(iss, comments) + "\n\n" + resultProtocol, nil
+	return scheduler.AssembleBrief(iss, comments) + "\n\n" + turnEndProtocol, nil
 }
 
 func (d *Dispatcher) needsInput(ctx context.Context, iss scheduler.Issue) {
 	if err := d.tracker.Transition(ctx, iss.ID, scheduler.RoleNeedsInput); err != nil {
-		d.log.Warn("dispatcher: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
+		d.log.Warn("requisitioner: move to needs-input failed", "issue", iss.Identifier, "error", err.Error())
 	}
 }
 

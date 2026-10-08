@@ -1,0 +1,426 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jam Intercom</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script>
+// Apply the saved message view (Rendered / Raw) before first paint.
+try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.classList.add('raw'); } }catch(_){}
+</script>
+<link rel="stylesheet" href="{{stylesheet}}">
+<style>
+/* Tokens and base: jam.css (shared with /ui). Intercom components below. */
+html,body{height:100%}
+body{display:flex;flex-direction:column}
+.mono,.cove,.tkt{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
+.brand{display:flex;align-items:baseline;gap:8px;font-weight:600}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
+.brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
+.topbar .spacer{flex:1}
+.who{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.who .av{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:600}
+.panes{flex:1 1 auto;display:grid;grid-template-columns:320px 1fr;min-height:0}
+.rail{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;min-height:0}
+.rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 4px}
+.rail-head b{font-size:13px}
+.newmsg{position:relative}
+.newmsg summary{cursor:pointer;list-style:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;border:1px solid var(--border-strong);border-radius:8px}
+.newmsg[open] summary{background:var(--accent-soft)}
+.recips{position:absolute;top:100%;right:0;z-index:30;min-width:230px;margin-top:6px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto}
+.recips button{text-align:left;background:none;border:0;font:inherit;color:var(--ink);padding:6px 8px;border-radius:8px;cursor:pointer}
+.recips button:hover{background:var(--surface-2)}
+.recips .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-left:6px}
+.group{padding:6px 10px 4px}
+.group-h{display:flex;align-items:center;gap:8px;padding:10px 8px 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.group-h .count{margin-left:auto}
+.group.attention .group-h{color:var(--wait)}
+.thread{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;text-decoration:none;color:inherit;border:1px solid transparent}
+.thread:hover{background:var(--surface-2)}
+.thread.sel{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+.thread .pin{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.pin.wait{background:var(--wait);box-shadow:0 0 0 3px var(--wait-soft)}
+.pin.live{background:var(--live);box-shadow:0 0 0 3px var(--live-soft)}
+.pin.chan{background:var(--faint);border-radius:2px}
+.thread .cove{font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px}
+.badge.unread{background:var(--accent);color:#fff;min-width:18px;text-align:center}
+.empty{color:var(--faint);font-size:13px;padding:14px}
+.convo{display:grid;grid-template-rows:auto 1fr auto;min-height:0;background:var(--bg)}
+.cv-empty{display:grid;place-items:center;color:var(--faint)}
+.cv-readonly{padding:10px 16px;color:var(--faint);border-top:1px solid var(--border)}
+.cv-head{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cv-title{font-weight:600;font-size:15px}
+.cv-sub{color:var(--muted);font-size:12.5px}
+.cv-head .spacer{flex:1}
+.cv-head .callin{display:inline-flex;gap:6px;align-items:center}
+.cv-head .callin select,.cv-head button{font:inherit;font-size:12.5px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:inherit}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--wait-line);background:var(--wait-soft);color:var(--wait)}
+.stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
+.msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px;position:relative}
+/* Copy controls: shown on hover or keyboard focus (always on touch screens).
+   The bubble's pair sits beside the sender, outside the bubble's box so it never
+   resizes it; a code block's button floats over its top-right corner. */
+.msg .acts{position:absolute;top:50%;transform:translateY(-50%);left:100%;display:flex;gap:4px;margin-left:4px;white-space:nowrap}
+.msg.human .acts{left:auto;right:100%;margin:0 4px 0 0}
+.msg.agent .from{align-self:flex-start}
+.msg .acts button,.codebox .copy-code{font:inherit;font-size:11px;font-weight:600;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1px 7px;cursor:pointer}
+.msg .acts button:hover,.codebox .copy-code:hover{color:var(--accent);border-color:var(--accent)}
+.msg .acts button.copied::after{content:" ✓"}
+.msg .acts,.codebox .copy-code{opacity:0;transition:opacity .12s}
+.msg:hover .acts,.msg .acts:has(:focus-visible),.codebox:hover .copy-code,.codebox .copy-code:focus-visible{opacity:1}
+@media (hover:none){.msg .acts,.codebox .copy-code{opacity:1}}
+.codebox{position:relative}
+.codebox>pre{margin:0}
+.codebox .copy-code{position:absolute;top:5px;right:5px;padding:3px 5px;line-height:0}
+.codebox .copy-code .ok,.codebox .copy-code.copied .cp{display:none}
+.codebox .copy-code.copied .ok{display:inline}
+/* max-width caps the body at its bubble: a right-aligned (human) body is sized
+   to its content, not stretched, so a wide code block would otherwise spill out
+   of the bubble instead of scrolling inside its own pre (overflow-x:auto below). */
+.msg .body{padding:10px 13px;border-radius:13px;word-break:break-word;max-width:100%}
+.msg .body.plain{white-space:pre-wrap}
+/* Raw view: every bubble shows its body text as sent, in monospace. */
+.msg .body.raw{display:none;white-space:pre-wrap;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
+html.raw .msg .body:not(.raw){display:none}
+html.raw .msg .body.raw{display:block}
+.viewsel{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
+.viewsel button{background:none;border:0;font:inherit;font-size:12.5px;color:var(--muted);padding:4px 10px;cursor:pointer}
+.viewsel button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.msg .body.md>:first-child{margin-top:0}.msg .body.md>:last-child{margin-bottom:0}
+.msg .body.md p,.msg .body.md ul,.msg .body.md ol,.msg .body.md pre,.msg .body.md .codebox,.msg .body.md blockquote,.msg .body.md table{margin:0 0 .6em}
+.msg .body.md ul,.msg .body.md ol{padding-left:1.3em}
+.msg .body.md code{font:12.5px "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,127,127,.15);padding:1px 4px;border-radius:4px}
+.msg .body.md pre{overflow-x:auto;background:rgba(127,127,127,.12);padding:8px 10px;border-radius:8px}
+.msg .body.md pre code{background:none;padding:0}
+.msg .body.md blockquote{border-left:3px solid var(--border);padding-left:10px;color:var(--faint)}
+.msg .body.md table{border-collapse:collapse}.msg .body.md th,.msg .body.md td{border:1px solid var(--border);padding:3px 8px}
+.msg .body.md a{color:inherit;text-decoration:underline}
+.msg.agent{align-self:flex-start}
+.msg.agent .body{background:var(--agent-bubble);border-top-left-radius:4px}
+.msg.human{align-self:flex-end;align-items:flex-end}
+.msg.human .body{background:var(--human-bubble);border-top-right-radius:4px}
+.msg .t{font-size:10.5px;color:var(--faint);padding:0 4px}
+/* Presence strip: each session's status under the messages, typing-indicator
+   style. Busy sessions get animated dots; idle and paused ones are dimmed. */
+.presence{padding:0 20px 10px;display:flex;flex-direction:column;gap:3px}
+.presence:empty{display:none}
+.sess{font-size:12px;color:var(--muted)}
+.sess .sname{font-weight:600;color:var(--ink)}
+.sess b{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-weight:500}
+.sess.dim{opacity:.55}
+.sess.wait,.sess.wait .sname{color:var(--wait)}
+.sess .dots{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
+.sess .dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:meDot 1.2s infinite ease-in-out}
+.sess .dots i:nth-child(2){animation-delay:.15s}
+.sess .dots i:nth-child(3){animation-delay:.3s}
+@keyframes meDot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}
+@media (prefers-reduced-motion:reduce){.sess .dots i{animation:none;opacity:.6}}
+.composer{border-top:1px solid var(--border);background:var(--surface);padding:12px 20px}
+.composer form{display:flex;gap:10px;align-items:flex-end}
+.composer textarea{flex:1;border:1px solid var(--border-strong);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:13px;padding:10px 12px;resize:none;min-height:42px;outline:none}
+.composer textarea:focus{border-color:var(--accent)}
+.composer .draft-chip{display:inline-block;margin:0 0 8px;font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
+.composer .draft-chip[hidden]{display:none}
+.composer .send-col{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.composer .send-col button kbd{font:inherit;font-size:11px;font-weight:500;opacity:.75;margin-left:4px}
+.composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+.composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
+@media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand"><span class="dot"></span>Jam <small>Intercom</small></span>
+  <span class="spacer"></span>
+  <div class="viewsel" role="group" aria-label="Message view">
+    <button type="button" data-view="rendered" onclick="meSetView('rendered')" title="Show messages rendered (markdown)">Rendered</button>
+    <button type="button" data-view="raw" onclick="meSetView('raw')" title="Show every message as its raw text, in monospace (for copying markdown)">Raw</button>
+  </div>
+  <details class="newmsg" id="newmsg">
+    <summary>New message</summary>
+    <div class="recips">
+      {{range .Recipients}}
+        <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
+      {{else}}
+        <p class="empty">No active recipients.</p>
+      {{end}}
+    </div>
+  </details>
+  <span class="who"><span class="av">{{if .Me}}{{slice .Me 0 1}}{{else}}?{{end}}</span> <span>{{.Me}}</span></span>
+</header>
+<div class="panes">
+{{template "content" .}}
+</div>
+<script src="/me/static/htmx.min.js"></script>
+<script>
+// meSelecting reports a non-empty text selection touching #stream. It filters
+// the stream's refresh: swapping the list would replace the selected text nodes
+// and the browser would drop the selection before it could be copied.
+function meSelecting(){
+  var sel=window.getSelection(), s=document.getElementById('stream');
+  return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));
+}
+// Stick to the bottom: a #stream swap (a live-push/poll refresh, or the refresh after a
+// send) keeps the old scrollTop, so a new squawk would land below the fold.
+// Note before the swap whether the view was at the end (within a few px, for
+// fractional scroll offsets); if so, scroll to the new end after it. A viewer
+// scrolled up into history is left where they are.
+document.addEventListener('htmx:beforeSwap', function(e){
+  var s=e.detail.target;
+  if(s && s.id==='stream'){ s._atBottom = s.scrollHeight - s.scrollTop - s.clientHeight < 16; }
+});
+document.addEventListener('htmx:afterSwap', function(e){
+  var s=e.detail.target;
+  if(s && s.id==='stream'){ meCodeButtons(s); }
+  if(s && s.id==='stream' && s._atBottom){ meScrollToEnd(s, 'smooth'); }
+});
+// meScrollToEnd scrolls the message list s (if any) to its last message.
+function meScrollToEnd(s, behavior){
+  if(s){ s.scrollTo({top: s.scrollHeight, behavior: behavior || 'auto'}); }
+}
+// Opening a conversation is a full page load: start at its end.
+meScrollToEnd(document.getElementById('stream'));
+// Live push: /me/events sends a payload-free `changed` on each intercom-log
+// append; fire meChanged so the rail and the open conversation refetch their
+// own fragments (the 30s poll is the fallback, e.g. for a session going
+// Waiting, which appends nothing). A push that arrives while text in #stream is
+// selected is held and replayed once the selection clears; a REconnect fires
+// one too, to catch up on anything missed while the stream was down. A server
+// without live push answers 204, which stops EventSource for good.
+(function(){
+  if(!window.EventSource) return;
+  var pending=false, connected=false;
+  function changed(){
+    if(meSelecting()){ pending=true; return; }
+    pending=false;
+    htmx.trigger(document.body, 'meChanged');
+  }
+  var es=new EventSource('/me/events');
+  es.addEventListener('changed', changed);
+  // A session's status changed: refetch only the presence strip (it never
+  // touches #stream, so no selection guard is needed).
+  es.addEventListener('presence', function(){ htmx.trigger(document.body, 'mePresence'); });
+  es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
+  document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });
+})();
+function meSend(e, to){
+  e.preventDefault();
+  var f=e.target, body=(f.body.value||"").trim();
+  if(!body) return false;
+  fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
+    // Markdown is the default; the per-message "Plain text" box opts out.
+    content_type: f.plain && f.plain.checked ? 'text/plain' : undefined})})
+   .then(function(r){
+     if(r.status===204){
+       f.reset();
+       meKeepReply(f.body);
+       mePopDraft(f);
+       // Refresh only the message list of an open conversation; the rail's own
+       // live-push refresh picks up a brand-new channel. Never re-render the composer.
+       var s=document.getElementById('stream');
+       // A send always ends at the bottom, wherever the view was: scroll once
+       // this refresh has swapped (not on the next swap, which a push/poll refresh
+       // without the new message could win).
+       if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}).then(function(){ meScrollToEnd(s, 'smooth'); }); }
+     } else { alert('Send failed ('+r.status+')'); }
+   });
+  return false;
+}
+// Composer keys: Shift-Enter sends and inserts nothing; plain Enter is left
+// alone, so it always inserts a newline. meSend trims the message's ends.
+// Delegated on document so it covers htmx-swapped and meCompose composers
+// alike.
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  if(e.key!=='Enter' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  e.preventDefault();
+  t.form.requestSubmit();
+});
+// meFence returns a backtick fence longer than any backtick run in s (at least
+// three), so pasted text that has its own fences stays inside the block.
+function meFence(s){
+  var longest=0, run=0;
+  for(var i=0;i<s.length;i++){ if(s[i]==='`'){ run++; if(run>longest){ longest=run; } } else { run=0; } }
+  return '`'.repeat(Math.max(3, longest+1));
+}
+// Paste as code: Cmd-Shift-V (Ctrl-Shift-V off the Mac; on the Mac also
+// Cmd-Alt-Shift-V, Safari's "Paste and Match Style") wraps what is pasted in a
+// fenced code block on its own lines. These are the browsers' own
+// paste-as-plain-text shortcuts — a no-op distinction in a plain textarea — so
+// they fire a real paste event, whose clipboardData needs no permission prompt
+// in any browser. The keydown marks the box (any other keydown clears it, so a
+// later plain paste stays plain); the paste handler does the wrapping, via
+// execCommand so Cmd-Z undoes it.
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  t._pasteAsCode = e.code==='KeyV' && e.shiftKey && (mac ? e.metaKey : (e.ctrlKey && !e.altKey));
+});
+document.addEventListener('paste', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea') || !t._pasteAsCode) return;
+  t._pasteAsCode=false;
+  var text=e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if(!text) return;
+  e.preventDefault();
+  var f=meFence(text), before=t.value.slice(0, t.selectionStart);
+  var block=(before && before.slice(-1)!=='\n' ? '\n' : '') + f + '\n' + text + (text.slice(-1)==='\n' ? '' : '\n') + f + '\n';
+  if(!document.execCommand('insertText', false, block)){ t.setRangeText(block, t.selectionStart, t.selectionEnd, 'end'); meKeepReply(t); }
+});
+function meCompose(to, label){
+  var pane=document.getElementById('pane');
+  pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
+    +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
+    +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
+    +'<textarea name="body" placeholder="Message '+label+'… (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
+    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div></form></div>';
+  var form=pane.querySelector('.composer form');
+  meRestoreReply(form);
+  meDraftChip(form);
+}
+// Draft stack: Cmd-Down (Ctrl-Down off the Mac) pushes the composer's draft onto
+// a per-conversation stack and clears the box, so another message can be
+// written and sent first; a successful send pops the top draft back, cursor
+// restored. Cmd-Up, or the chip above the box, pops by hand. A pop never
+// overwrites text in the box, and on an empty box (push) or a non-empty one
+// (pop) the keys keep their usual cursor moves. The stack lives in this tab's
+// sessionStorage (it survives switching conversations and reloads, including
+// dev live-reload), falling back to memory when storage is unavailable; it is
+// never sent anywhere.
+function meDraftKey(form){ return 'me-drafts:'+(form.dataset.to||''); }
+function meDrafts(form){
+  try{ return JSON.parse(sessionStorage.getItem(meDraftKey(form))||'[]'); }
+  catch(_){ return form._drafts||[]; }
+}
+function meSaveDrafts(form, d){
+  form._drafts=d;
+  try{ sessionStorage.setItem(meDraftKey(form), JSON.stringify(d)); }catch(_){}
+  meDraftChip(form);
+}
+function meDraftChip(form){
+  if(!form) return;
+  var chip=form.parentNode.querySelector('.draft-chip');
+  if(!chip){
+    chip=document.createElement('button');
+    chip.type='button'; chip.className='draft-chip';
+    chip.title='Restore the top stacked draft (⌘↑) — the box must be empty';
+    chip.onclick=function(){ mePopDraft(form); };
+    form.parentNode.insertBefore(chip, form);
+  }
+  var n=meDrafts(form).length;
+  chip.hidden = n===0;
+  chip.textContent='↩ '+n+' stacked draft'+(n===1?'':'s');
+}
+function mePushDraft(form){
+  var t=form.body, text=t.value;
+  if(!text.trim()) return false;
+  var d=meDrafts(form);
+  d.push({text:text, sel:t.selectionStart});
+  meSaveDrafts(form, d);
+  t.value=''; t.focus();
+  meKeepReply(t);
+  return true;
+}
+function mePopDraft(form){
+  var t=form.body;
+  if(t.value.trim()) return false;
+  var d=meDrafts(form), top=d.pop();
+  if(!top) return false;
+  meSaveDrafts(form, d);
+  t.value=top.text; t.focus();
+  var s=Math.min(top.sel, top.text.length); t.setSelectionRange(s, s);
+  meKeepReply(t);
+  return true;
+}
+// Reply persistence: the text in a conversation's reply box is kept per
+// recipient in this tab's sessionStorage as it is typed (like the draft stack),
+// so leaving the conversation (a full page load) and coming back restores it.
+// Emptying the box or a successful send forgets it. Code that sets the box's
+// value directly (no input event) calls meKeepReply itself.
+function meReplyKey(form){ return 'me-reply:'+(form.dataset.to||''); }
+function meKeepReply(t){
+  try{
+    if(t.value){ sessionStorage.setItem(meReplyKey(t.form), t.value); }
+    else{ sessionStorage.removeItem(meReplyKey(t.form)); }
+  }catch(_){}
+}
+function meRestoreReply(form){
+  if(!form || form.body.value) return;
+  try{ form.body.value=sessionStorage.getItem(meReplyKey(form))||''; }catch(_){}
+}
+document.addEventListener('input', function(e){
+  var t=e.target;
+  if(t.matches && t.matches('.composer textarea')){ meKeepReply(t); }
+});
+document.addEventListener('keydown', function(e){
+  var t=e.target;
+  if(!t.matches || !t.matches('.composer textarea')) return;
+  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
+  if(!(mac ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return;
+  if(e.key==='ArrowDown' && mePushDraft(t.form)){ e.preventDefault(); }
+  else if(e.key==='ArrowUp' && mePopDraft(t.form)){ e.preventDefault(); }
+});
+document.querySelectorAll('.composer form').forEach(function(f){ meRestoreReply(f); meDraftChip(f); });
+// Message view: Rendered (default) or Raw, which shows every bubble's body as
+// sent, in monospace. Flips html.raw (each bubble carries both forms, so it is
+// instant and survives refreshes) and is remembered per browser.
+function meSetView(v){
+  document.documentElement.classList.toggle('raw', v==='raw');
+  try{ localStorage.setItem('me-view', v); }catch(_){}
+  document.querySelectorAll('.viewsel button').forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.view===v)); });
+}
+meSetView(document.documentElement.classList.contains('raw') ? 'raw' : 'rendered');
+// Copy controls. meCopy writes text to the clipboard (the async API where the
+// page is a secure context, else a hidden textarea and execCommand) and flashes
+// a ✓ on the button that asked.
+function meCopy(text, btn){
+  function done(){ btn.classList.add('copied'); clearTimeout(btn._t); btn._t=setTimeout(function(){ btn.classList.remove('copied'); }, 1200); }
+  if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(text).then(done); return; }
+  var ta=document.createElement('textarea');
+  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ if(document.execCommand('copy')){ done(); } }finally{ ta.remove(); }
+}
+// meCopyBubble copies a whole message: as markdown, its body exactly as sent
+// (the Raw view's text); as text, what the rendered bubble shows. innerText
+// needs the rendered body laid out, so in the Raw view the class is lifted for
+// the (synchronous, never painted) read.
+function meCopyBubble(btn, markdown){
+  var m=btn.closest('.msg'), html=document.documentElement;
+  if(markdown){ meCopy(m.querySelector('.body.raw').textContent, btn); return; }
+  var raw=html.classList.contains('raw');
+  if(raw){ html.classList.remove('raw'); }
+  var text=m.querySelector('.body:not(.raw)').innerText;
+  if(raw){ html.classList.add('raw'); }
+  meCopy(text.replace(/\n+$/, ''), btn);
+}
+// meCodeButtons gives each code block under root a copy button, in a wrapper
+// so the button stays put while the block scrolls sideways. The markdown HTML
+// comes from the server renderer, so this runs on load and after each #stream
+// swap. The button is icon-only: no text of its own to leak into a bubble's
+// "Text" copy.
+function meCodeButtons(root){
+  root.querySelectorAll('.msg .body.md pre').forEach(function(pre){
+    if(pre.parentNode.classList.contains('codebox')) return;
+    var box=document.createElement('div'), b=document.createElement('button');
+    box.className='codebox';
+    b.type='button'; b.className='copy-code'; b.title='Copy code'; b.setAttribute('aria-label', 'Copy code');
+    b.innerHTML='<svg class="cp" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/></svg>'
+      +'<svg class="ok" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+    b.onclick=function(){ meCopy(pre.textContent.replace(/\n$/, ''), b); };
+    pre.parentNode.insertBefore(box, pre);
+    box.appendChild(pre); box.appendChild(b);
+  });
+}
+meCodeButtons(document);
+</script>
+</body>
+</html>{{end}}

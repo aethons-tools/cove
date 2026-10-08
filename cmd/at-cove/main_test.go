@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,9 @@ import (
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/install"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -96,10 +100,50 @@ func TestFlagOnlyCommandsRejectPositional(t *testing.T) {
 	}
 }
 
-func TestAtHarborBinary(t *testing.T) {
-	got := atHarborBinary()
-	if got == "" || filepath.Base(got) != "at-harbor" {
-		t.Fatalf("atHarborBinary() = %q, want a path/name ending in at-harbor", got)
+func TestAtJamBinary(t *testing.T) {
+	got := atJamBinary()
+	if got == "" || filepath.Base(got) != "at-jam" {
+		t.Fatalf("atJamBinary() = %q, want a path/name ending in at-jam", got)
+	}
+}
+
+// The deprecated at-harbor name is still found (sibling, then PATH) when no
+// at-jam is installed, so a new at-cove beside an old install keeps enrolling.
+// See docs/usage/jam/renamed-from-harbor.md.
+func TestResolveJamBinaryFallsBackToAtHarbor(t *testing.T) {
+	exe := func(dir, name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noPath := func(string) (string, error) { return "", os.ErrNotExist }
+
+	dir := t.TempDir()
+	if got := resolveJamBinary(dir, noPath); got != "at-jam" {
+		t.Fatalf("nothing installed: got %q, want bare at-jam", got)
+	}
+	exe(dir, "at-harbor")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-harbor") {
+		t.Fatalf("only a sibling at-harbor: got %q", got)
+	}
+	exe(dir, "at-jam")
+	if got := resolveJamBinary(dir, noPath); got != filepath.Join(dir, "at-jam") {
+		t.Fatalf("sibling at-jam must win: got %q", got)
+	}
+
+	empty := t.TempDir()
+	onPath := func(name string) (string, error) {
+		if name == "at-harbor" {
+			return "/usr/bin/at-harbor", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if got := resolveJamBinary(empty, onPath); got != "at-harbor" {
+		t.Fatalf("only at-harbor on PATH: got %q", got)
+	}
+	both := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	if got := resolveJamBinary(empty, both); got != "at-jam" {
+		t.Fatalf("at-jam on PATH must win: got %q", got)
 	}
 }
 
@@ -115,49 +159,49 @@ func calledWith(calls []runner.Call, s string) bool {
 	return false
 }
 
-func TestHarborPlan(t *testing.T) {
-	// nil harbor block → no auth, no revoke.
-	if ha, rev, err := harborPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
-		t.Fatalf("no harbor block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
+func TestJamPlan(t *testing.T) {
+	// nil Jam block → no auth, no revoke.
+	if ha, rev, err := jamPlan(kit.Config{Name: "k"}, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); ha != nil || rev != nil || err != nil {
+		t.Fatalf("no Jam block → nil,nil,nil; got %+v, revNil=%v, %v", ha, rev == nil, err)
 	}
 	// pre-supplied identity: resolves the secret host-side; no revoke, no shell-out.
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local", Identity: "HARBOR_ID"}}
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "jam.local", Identity: "JAM_ID"}}
 	store := usersecret.Store{Kits: map[string]map[string]usersecret.Source{
-		"k": {"HARBOR_ID": {Value: ptr("tok-abc")}},
+		"k": {"JAM_ID": {Value: ptr("tok-abc")}},
 	}}
 	f := &runner.Fake{}
-	ha, rev, err := harborPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, store, nil, "k", "cove-1", "/kp", "/s.yml", f)
 	if err != nil {
-		t.Fatalf("harborPlan: %v", err)
+		t.Fatalf("jamPlan: %v", err)
 	}
-	if ha == nil || ha.Host != "harbor.local" || ha.Token != "tok-abc" || rev != nil {
-		t.Fatalf("manual path: harborAuth=%+v revNil=%v", ha, rev == nil)
+	if ha == nil || ha.Host != "jam.local" || ha.Token != "tok-abc" || rev != nil {
+		t.Fatalf("manual path: jamAuth=%+v revNil=%v", ha, rev == nil)
 	}
 	if calledWith(f.Calls, "enroll") {
-		t.Fatalf("manual path must not shell at-harbor enroll: %+v", f.Calls)
+		t.Fatalf("manual path must not shell at-jam enroll: %+v", f.Calls)
 	}
 	// declared-but-unsupplied identity → hard error (fail closed).
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", &runner.Fake{}); err == nil {
 		t.Fatal("unsupplied identity must fail closed")
 	}
 }
 
-func TestHarborPlanAutoEnroll(t *testing.T) {
-	// no identity → auto-enroll: shell at-harbor enroll --json, use the token,
+func TestJamPlanAutoEnroll(t *testing.T) {
+	// no identity → auto-enroll: shell at-jam enroll --json, use the token,
 	// return a revoke closure.
 	cfg := kit.Config{
 		Name:          "k",
-		Harbor:        &kit.HarborConfig{Host: "harbor.local"},
+		Jam:           &kit.JamConfig{Host: "jam.local"},
 		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/myrepo"}},
 	}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"id":"cove-box-1","token":"TKN"}` + "\n"}}}
 	// kitName ("k") differs from coveID ("cove-box-1"): the enroll --id must use
 	// the per-instance coveID, not the shared kit/bucket name.
-	ha, rev, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
+	ha, rev, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-box-1", "/kp", "/s.yml", f)
 	if err != nil {
 		t.Fatalf("auto-enroll: %v", err)
 	}
-	if ha == nil || ha.Token != "TKN" || ha.Host != "harbor.local" {
+	if ha == nil || ha.Token != "TKN" || ha.Host != "jam.local" {
 		t.Fatalf("auto-enroll auth = %+v", ha)
 	}
 	// the enroll call carries the derived mint scope …
@@ -168,7 +212,7 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 		}
 	}
 	if enroll == nil {
-		t.Fatalf("no at-harbor enroll call: %+v", f.Calls)
+		t.Fatalf("no at-jam enroll call: %+v", f.Calls)
 	}
 	joined := strings.Join(enroll.Args, " ")
 	for _, want := range []string{"--json", "--id cove-box-1", "--role guest"} {
@@ -191,7 +235,7 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	}
 	rev()
 	if !calledWith(f.Calls, "revoke") {
-		t.Fatalf("revoke did not shell at-harbor revoke: %+v", f.Calls)
+		t.Fatalf("revoke did not shell at-jam revoke: %+v", f.Calls)
 	}
 	revoked := false
 	for _, c := range f.Calls {
@@ -205,11 +249,11 @@ func TestHarborPlanAutoEnroll(t *testing.T) {
 	}
 }
 
-func TestHarborPlanAutoEnrollFailsClosed(t *testing.T) {
-	cfg := kit.Config{Name: "k", Harbor: &kit.HarborConfig{Host: "harbor.local"}}
+func TestJamPlanAutoEnrollFailsClosed(t *testing.T) {
+	cfg := kit.Config{Name: "k", Jam: &kit.JamConfig{Host: "jam.local"}}
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: &runner.ExitError{Code: 1}}}}
-	if _, _, err := harborPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
-		t.Fatal("a failing at-harbor enroll must fail closed")
+	if _, _, err := jamPlan(cfg, usersecret.Store{}, nil, "k", "cove-1", "/kp", "/s.yml", f); err == nil {
+		t.Fatal("a failing at-jam enroll must fail closed")
 	}
 }
 
@@ -590,6 +634,61 @@ func TestInstallOwnsAllowUnverifiedFlag(t *testing.T) {
 	}
 }
 
+// findBuild returns the recorded `docker build` call, or nil.
+func findBuild(calls []runner.Call) *runner.Call {
+	for i := range calls {
+		if calls[i].Name == "docker" && slices.Contains(calls[i].Args, "build") {
+			return &calls[i]
+		}
+	}
+	return nil
+}
+
+// TestInstallNoCacheFlag: `install --no-cache` reaches the docker build with
+// --no-cache; plain `install` does not.
+func TestInstallNoCacheFlag(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	seedConfigDir(t)
+
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"install", "--no-cache", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("install --no-cache should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if b := findBuild(f.Calls); b == nil || !slices.Contains(b.Args, "--no-cache") {
+		t.Fatalf("install --no-cache must pass --no-cache to docker build; calls=%+v", f.Calls)
+	}
+
+	f2 := &runner.Fake{}
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"install", "--project-dir", dir}, f2, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("plain install should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if b := findBuild(f2.Calls); b == nil || slices.Contains(b.Args, "--no-cache") {
+		t.Fatalf("plain install must NOT pass --no-cache; calls=%+v", f2.Calls)
+	}
+}
+
+// TestDryRunInstallNoCacheNote: `--dry-run install --no-cache` notes no-cache in
+// the intent line and records no docker calls.
+func TestDryRunInstallNoCacheNote(t *testing.T) {
+	dir := t.TempDir()
+	writeKit(t, dir)
+	f := &runner.Fake{}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--dry-run", "install", "--no-cache", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("--dry-run install --no-cache should be accepted; code=%d stderr=%s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "build (no cache)") {
+		t.Fatalf("dry-run --no-cache must note the cache bypass; out=%q", out.String())
+	}
+	if len(f.Calls) != 0 {
+		t.Fatalf("--dry-run must record no docker calls; calls=%+v", f.Calls)
+	}
+}
+
 // TestAllowUnverifiedFlagRelocatedOffRunCommands: create/recreate/work reject the
 // flag now that it lives only on install (a flag-parse error → exit 2).
 func TestAllowUnverifiedFlagRelocatedOffRunCommands(t *testing.T) {
@@ -784,6 +883,53 @@ func TestChatRequiresCurrentInstall(t *testing.T) {
 	}
 }
 
+// writeLegacyVertexKit writes a kit as a pre-COV-241 Vertex user has it: a
+// config.yml still on model-provider:, and the install.json it was installed
+// from (its RunConfig carrying the old ModelProvider).
+func writeLegacyVertexKit(t *testing.T, dir string) string {
+	t.Helper()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(filepath.Join(kitDir, ".state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := "name: box\nmodel-provider:\n  vertex:\n    env: {ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us}\n"
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"schemaVersion":2,"name":"box","image":"atcove-box","currencyHash":"x","runConfig":{"Name":"box","ModelProvider":{"Vertex":{"Env":{"CLOUD_ML_REGION":"us"}}}}}`
+	if err := os.WriteFile(install.Path(kitDir), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return kitDir
+}
+
+// A stale install from a model-provider kit: run commands refuse it with the
+// migration hint, but teardown (destroy, status, uninstall) keeps working.
+func TestLegacyModelProviderInstallRefusedOnlyOnRunPath(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := writeLegacyVertexKit(t, dir)
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"chat", "--no-auth", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code == 0 ||
+		!strings.Contains(errOut.String(), "model-spec") {
+		t.Fatalf("chat must refuse a model-provider install with the hint; exit=%d stderr=%s", code, errOut.String())
+	}
+	errOut.Reset()
+	if code := run([]string{"status", "--project-dir", dir}, &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}}}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("status must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"destroy", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("destroy must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if code := run([]string{"uninstall", "--project-dir", dir}, &runner.Fake{}, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("uninstall must work on a legacy install: exit=%d stderr=%s", code, errOut.String())
+	}
+	if install.Exists(kitDir) {
+		t.Fatal("uninstall must delete the legacy install.json")
+	}
+}
+
 func TestDestroyRemovesContainerAndState(t *testing.T) {
 	dir := t.TempDir()
 	kitDir := writeKit(t, dir)
@@ -855,15 +1001,15 @@ func TestDestroyReapsKnownHostsPin(t *testing.T) {
 
 // Create records the backend's actual volume names in the state file, so a later
 // destroy removes exactly those instead of re-deriving them (COV-76).
-// COV-138: a kit with a harbor: block maps the broker host to the gateway at
-// create, so the hardened container can reach a host-run harbor by name.
-func TestCreateHarborAddsHost(t *testing.T) {
+// COV-138: a kit with a jam: block maps the broker host to the gateway at
+// create, so the hardened container can reach a host-run Jam by name.
+func TestCreateJamAddsHost(t *testing.T) {
 	dir := t.TempDir()
 	cove := filepath.Join(dir, ".at-cove")
 	if err := os.MkdirAll(cove, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	yml := "name: box\nharbor:\n  host: harbor.local.aethons.tools\n  identity: harbor-id\n"
+	yml := "name: box\njam:\n  host: jam.local.aethons.tools\n  identity: jam-id\n"
 	if err := os.WriteFile(filepath.Join(cove, "config.yml"), []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -877,8 +1023,8 @@ func TestCreateHarborAddsHost(t *testing.T) {
 	if idx == -1 {
 		t.Fatalf("no docker run call; calls=%+v", f.Calls)
 	}
-	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host harbor.local.aethons.tools:host-gateway") {
-		t.Fatalf("create must map the harbor host to the gateway:\n%s", got)
+	if got := strings.Join(f.Calls[idx].Args, " "); !strings.Contains(got, "--add-host jam.local.aethons.tools:host-gateway") {
+		t.Fatalf("create must map the jam host to the gateway:\n%s", got)
 	}
 }
 
@@ -1768,6 +1914,53 @@ func TestChatPlainSessionName(t *testing.T) {
 	}
 	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box cove'`) {
 		t.Fatalf("plain session should be named exactly '<kit> cove': %q", remote)
+	}
+}
+
+// A kit's model-spec: block reaches the interactive session: its model and
+// policy as claude argv on the launch, its provider env in the session env
+// script (--no-auth skips only the ADC resolution, never the provider env).
+func TestChatAppliesKitModelSpec(t *testing.T) {
+	dir := t.TempDir()
+	kitDir := filepath.Join(dir, ".at-cove")
+	if err := os.MkdirAll(kitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yml := `name: box
+model-spec:
+  name: vertex-opus
+  type: claude
+  version: 2.1.287
+  model: {id: claude-opus-4-8}
+  policy: {mode: acceptEdits}
+  claude:
+    provider: vertex
+    provider-env: {ANTHROPIC_VERTEX_PROJECT_ID: proj-1, CLOUD_ML_REGION: us-east5}
+`
+	if err := os.WriteFile(filepath.Join(kitDir, "config.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedConfigDir(t)
+	writeState(t, kitDir, "colima", "box")
+	writeInstall(t, kitDir)
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "true\n"}, {Stdout: "127.0.0.1:49153\n"}}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"chat", "--no-auth", "--project-dir", dir}, f, os.LookupEnv, dummyLookPath, &out, &errOut); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+	}
+	if remote := launchRemote(t, f.Calls); !strings.Contains(remote, `-n 'box cove' '--model' 'claude-opus-4-8' '--permission-mode=acceptEdits'`) {
+		t.Fatalf("the launch must carry the spec's model and policy: %q", remote)
+	}
+	script := ""
+	for _, c := range f.Calls {
+		if strings.Contains(c.Stdin, "export ") {
+			script = c.Stdin
+		}
+	}
+	for _, want := range []string{"export CLAUDE_CODE_USE_VERTEX='1'", "export ANTHROPIC_VERTEX_PROJECT_ID='proj-1'", "export CLOUD_ML_REGION='us-east5'"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("session env missing %q:\n%s", want, script)
+		}
 	}
 }
 
@@ -2941,9 +3134,13 @@ kits:
 	}
 	cfg, err := kit.ParseConfig([]byte(`
 name: vkit
-model-provider:
-  vertex:
-    env:
+model-spec:
+  name: vertex
+  type: claude
+  version: 2.1.287
+  claude:
+    provider: vertex
+    provider-env:
       ANTHROPIC_VERTEX_PROJECT_ID: p
       CLOUD_ML_REGION: us-east5
 `))
@@ -2975,10 +3172,57 @@ func TestVertexPlan_FailsClosedWhenUnsupplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("usersecret.Load: %v", err)
 	}
-	cfg, _ := kit.ParseConfig([]byte("name: vkit\nmodel-provider:\n  vertex:\n    env:\n      ANTHROPIC_VERTEX_PROJECT_ID: p\n      CLOUD_ML_REGION: us\n"))
+	cfg, err := kit.ParseConfig([]byte("name: vkit\nmodel-spec: {name: v, type: claude, version: 2.1.287, claude: {provider: vertex, provider-env: {ANTHROPIC_VERTEX_PROJECT_ID: p, CLOUD_ML_REGION: us}}}\n"))
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
 	r := &runner.Fake{}
 	expand := mint.Expander(r, store.Global, "")
 	if _, _, err := vertexPlan(cfg, store, expand, "vkit", "/canon/vkit", secretsPath, r); err == nil {
 		t.Fatalf("want a fail-closed error when the ADC is unsupplied")
+	}
+}
+
+// A kit's model-spec: block is its harness: the install hashes (and assemble
+// builds) the spec's version/plugins, so editing the spec makes the install stale
+// and survives the install.json RunConfig round trip.
+func TestCurrencyInputs_HarnessFollowsKitModelSpec(t *testing.T) {
+	kitDir := writeKit(t, t.TempDir())
+	bare, err := kit.Load(kitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := currencyInputs(kitDir, bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Harness != install.HarnessIdentity(harnessinstall.Default()) {
+		t.Fatal("a kit without model-spec must hash claude-default's harness")
+	}
+	cfg, err := kit.ParseConfig([]byte("name: box\nmodel-spec: {name: p, type: claude, version: 2.1.100, claude: {provider: anthropic, plugins: [code-review@claude-plugins-official]}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := currencyInputs(kitDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := install.HarnessIdentity(harnessinstall.Install{Type: modelspec.HarnessClaude, Version: "2.1.100", Plugins: []string{"code-review@claude-plugins-official"}})
+	if in.Harness != want {
+		t.Fatal("the currency harness must be the kit model-spec's install")
+	}
+	// install.json stores the RunConfig as JSON; the recomputed harness must match.
+	m := install.Compile(cfg, install.ResolvedBuild{Image: "i", BaseRef: in.BaseRef, CurrencyHash: install.CurrencyHash(in)})
+	b, _ := json.Marshal(m)
+	var back install.Manifest
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	again, err := currencyInputs(kitDir, back.RunConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Harness != want {
+		t.Fatal("the harness must survive the install.json RunConfig round trip")
 	}
 }

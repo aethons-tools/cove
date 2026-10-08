@@ -1,0 +1,38 @@
+{{define "content"}}
+<div class="page-head"><h1>Kits</h1><span class="sub">Versioned studio kits — open one to see its versions, diff them, or push a new one</span></div>
+<details class="panel">
+  <summary>New kit</summary>
+  <form hx-post="/ui/kits" hx-target="#kits" hx-swap="outerHTML">
+    <div class="grid">
+      <label>Kit name <span class="req">required</span><span class="hint">tag-safe: letters, digits, <code>_ . -</code></span><input name="name" required pattern="[A-Za-z0-9_.\-]+" autocomplete="off"></label>
+      <label class="wide">Studio kit YAML <span class="hint"><code>kind: studio</code> with base, egress, build-args, secrets, prompt — no <code>name:</code> (the kit name above names it)</span>
+        <textarea class="tall" name="config" required spellcheck="false" placeholder="kind: studio&#10;egress: [github.com]&#10;prompt: You work on …"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Create kit</button></div>
+  </form>
+</details>
+{{template "kits-table" .}}
+{{end}}
+
+{{define "kits-table"}}
+<div class="card" id="kits">
+<table>
+  <thead><tr><th>Kit</th><th>Current</th><th>Base</th><th>Egress</th><th>Roles</th><th></th></tr></thead>
+  <tbody>
+    {{range .Kits}}
+    <tr data-id="{{.Name}}" data-used-by="{{.UsedBy}}">
+      <td><a class="mono" href="{{kitURL .Name}}"><b>{{.Name}}</b></a>{{template "attn-flag" (attn "specs" (printf "kit:%s" .Name))}}</td>
+      <td><span class="chip accent">v{{.Current}}</span> <span class="none">of {{.Count}}</span></td>
+      <td>{{if .Invalid}}<span class="pill phase-lost" title="The current version is not a valid studio kit">invalid</span>{{else}}{{.Base}}{{end}}</td>
+      <td>{{if .Invalid}}<span class="none">—</span>{{else}}{{.Egress}} domain(s){{end}}</td>
+      <td>{{if .UsedBy}}{{.UsedBy}}{{else}}<span class="none">0</span>{{end}}</td>
+      <td class="actions">{{if .UsedBy}}<button class="danger small" disabled title="Roles use this kit — rebind them first">Delete</button>{{else}}<button class="danger small" hx-delete="/ui/kits/{{.Name}}" hx-target="#kits" hx-swap="outerHTML"
+                hx-confirm="Delete kit {{.Name}} and all its versions?">Delete</button>{{end}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6" class="empty">No kits.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

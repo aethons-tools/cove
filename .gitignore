@@ -5,3 +5,23 @@
 /.idea/
 /dist/
 /dev/tls/
+/dev/pool.dev.json
+/dev/jam.dev.yml
+/.switchboard/
+/.air/
+
+# `go build ./cmd/<name>` output at the repo root
+/adopt-base
+/at-cove
+/at-jam
+/at-mint
+/at-switchboard
+/at-task
+/cove-master
+/gen-blessed
+
+# Per-command build outputs in cmd/*/
+/cmd/*/at-*
+
+# local monitoring secrets
+/deploy/monitoring/.local/

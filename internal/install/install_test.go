@@ -172,3 +172,30 @@ func TestSaveEnsuresGitignore(t *testing.T) {
 		t.Fatalf(".gitignore missing .state/:\n%s", string(b))
 	}
 }
+
+// An install.json frozen from a kit with the removed model-provider: block
+// still loads (teardown needs it) but is flagged, so the run path can refuse it.
+func TestLoadFlagsLegacyModelProviderInstall(t *testing.T) {
+	kitDir := t.TempDir()
+	if err := os.MkdirAll(Dir(kitDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"schemaVersion":2,"name":"vkit","runConfig":{"Name":"vkit","ModelProvider":{"Vertex":{"Env":{"CLOUD_ML_REGION":"us"}}}}}`
+	if err := os.WriteFile(Path(kitDir), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(kitDir)
+	if err != nil || m.Name != "vkit" || !m.LegacyModelProvider {
+		t.Fatalf("Load = %+v, %v", m, err)
+	}
+	if !strings.Contains(ErrLegacyModelProvider.Error(), "model-spec") || !strings.Contains(ErrLegacyModelProvider.Error(), "at-cove install") {
+		t.Fatalf("hint = %v", ErrLegacyModelProvider)
+	}
+	plain := `{"schemaVersion":2,"name":"k","runConfig":{"Name":"k","ModelProvider":null}}`
+	if err := os.WriteFile(Path(kitDir), []byte(plain), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := Load(kitDir); err != nil || m.LegacyModelProvider {
+		t.Fatalf("a manifest without a provider: %+v, %v", m, err)
+	}
+}

@@ -72,11 +72,18 @@ func nameFlag(name, collaborator string) string {
 // When resume is set, claude reopens the most-recent session for the workspace
 // dir if one exists, else starts fresh — making a first-ever connect
 // deterministic. name/collaborator tag the claude session (see nameFlag).
-func launchProgram(cmd string, resume bool, name, collaborator string) string {
+//
+// args is extra claude argv (a kit model-spec's runtime parts, SpecArgs),
+// each element shell-quoted after the name flag; ignored for a program
+// replacement.
+func launchProgram(cmd string, resume bool, name, collaborator string, args []string) string {
 	if cmd != "" {
 		return "exec " + cmd
 	}
 	flag := nameFlag(name, collaborator)
+	for _, a := range args {
+		flag += " " + shellQuote(a)
+	}
 	if !resume {
 		return "exec claude" + flag
 	}
@@ -86,8 +93,8 @@ func launchProgram(cmd string, resume bool, name, collaborator string) string {
 // remoteExec is the tail of a transport's remote command: cd into the workspace,
 // then exec the launch program. Using && (not ;) fails loudly if the workspace
 // mount is missing rather than silently dropping the session in the home dir.
-func remoteExec(cmd string, resume bool, name, collaborator string) string {
-	return "cd " + workspaceDir + " && " + launchProgram(cmd, resume, name, collaborator)
+func remoteExec(cmd string, resume bool, name, collaborator string, args []string) string {
+	return "cd " + workspaceDir + " && " + launchProgram(cmd, resume, name, collaborator, args)
 }
 
 // SendEnv forwards secrets via ssh SendEnv: values live only in the ssh child's
@@ -95,10 +102,11 @@ func remoteExec(cmd string, resume bool, name, collaborator string) string {
 // (shipped in the hardening layer) accepts them.
 type SendEnv struct {
 	R            runner.Runner
-	Cmd          string // remote program to exec; "" => claude
-	Resume       bool   // when launching claude, resume the most-recent session if one exists
-	Name         string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
-	Collaborator string // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
+	Cmd          string   // remote program to exec; "" => claude
+	Resume       bool     // when launching claude, resume the most-recent session if one exists
+	Name         string   // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	Collaborator string   // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
+	Args         []string // extra claude argv (SpecArgs: the kit model-spec's model/policy/settings); not secret
 }
 
 func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
@@ -111,7 +119,7 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 	for _, k := range names {
 		childEnv = append(childEnv, k+"="+env[k])
 	}
-	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator))
+	args := sshargs.InteractiveSendEnv(t, names, remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator, s.Args))
 	return s.R.RunEnv(childEnv, "ssh", args...)
 }
 
@@ -122,10 +130,11 @@ func (s SendEnv) Launch(t sshargs.Target, env map[string]string) error {
 // shell hands off.
 type StdinScript struct {
 	R            runner.Runner
-	Cmd          string // remote program to exec; "" => claude
-	Resume       bool   // when launching claude, resume the most-recent session if one exists
-	Name         string // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
-	Collaborator string // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
+	Cmd          string   // remote program to exec; "" => claude
+	Resume       bool     // when launching claude, resume the most-recent session if one exists
+	Name         string   // kit name; tags the claude session as "<name> cove" (ignored for a program replacement)
+	Collaborator string   // collaborator class; when set, session is "<name> <collaborator> cove" (COV-75)
+	Args         []string // extra claude argv (SpecArgs: the kit model-spec's model/policy/settings); not secret
 }
 
 func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
@@ -140,7 +149,7 @@ func (s StdinScript) Launch(t sshargs.Target, env map[string]string) error {
 		return err
 	}
 	// 2) interactive: source the file, remove it, then launch the program.
-	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator)
+	remote := "set -a; . " + file + "; rm -f " + file + "; " + remoteExec(s.Cmd, s.Resume, s.Name, s.Collaborator, s.Args)
 	runArgs := append([]string{"-tt"}, append(sshargs.Base(t), remote)...)
 	return s.R.RunStdin(nil, "ssh", runArgs...)
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/sshargs"
@@ -302,13 +303,15 @@ func TestWriteCollaboratorRole(t *testing.T) {
 	}
 }
 
-func TestWriteCollaboratorRoleEmptyWritesPlaceholder(t *testing.T) {
+// An empty prompt still rewrites COLLABORATOR.md (to empty), so a previous
+// role's text never lingers and an absent role adds nothing to the context.
+func TestWriteCollaboratorRoleEmptyClearsFile(t *testing.T) {
 	f := &runner.Fake{}
 	if err := writeCollaboratorRole(f, sshargs.Target{}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Calls) == 0 || f.Calls[0].Stdin == "" {
-		t.Fatalf("empty prompt must still write a placeholder; calls=%+v", f.Calls)
+	if len(f.Calls) != 1 || !strings.Contains(strings.Join(f.Calls[0].Args, " "), "cat > "+collaboratorVMPath) || f.Calls[0].Stdin != "" {
+		t.Fatalf("empty prompt must truncate COLLABORATOR.md to empty; calls=%+v", f.Calls)
 	}
 }
 
@@ -506,7 +509,7 @@ func TestConnectInhibitsSleepAroundLaunch(t *testing.T) {
 	}
 }
 
-func TestConnect_HarborSupersedesAndInjects(t *testing.T) {
+func TestConnect_JamSupersedesAndInjects(t *testing.T) {
 	r := &runner.Fake{}
 	b := &fakeBackend{state: backend.StateRunning}
 	tr := &fakeTransport{}
@@ -514,32 +517,33 @@ func TestConnect_HarborSupersedesAndInjects(t *testing.T) {
 		Container:     "c1",
 		IdentityFile:  "id",
 		KnownHostsDir: t.TempDir(),
-		Harbor:        &HarborAuth{Host: "harbor.test", Token: "s3cr3t-xyz"},
+		Jam:           &JamAuth{Host: "jam.test", Token: "s3cr3t-xyz"},
 	})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	// git was routed through harbor (token-free config over ssh stdin).
+	// git was routed through Jam (token-free config over ssh stdin).
 	routed := false
 	for _, c := range r.Calls {
-		if strings.Contains(c.Stdin, `url."https://harbor.test/git/".insteadOf https://github.com/`) {
+		if strings.Contains(c.Stdin, `url."https://jam.test/git/".insteadOf https://github.com/`) {
 			routed = true
 		}
 	}
 	if !routed {
-		t.Fatalf("harbor git routing not configured; calls: %+v", r.Calls)
+		t.Fatalf("Jam git routing not configured; calls: %+v", r.Calls)
 	}
 	// OAuth + Vertex were superseded.
 	if calledWith(r.Calls, "claude auth status") || calledWith(r.Calls, "claude auth login") {
-		t.Fatalf("harbor connect must not run claude auth; calls: %+v", r.Calls)
+		t.Fatalf("Jam connect must not run claude auth; calls: %+v", r.Calls)
 	}
 	if calledWith(r.Calls, gcpADCVMPath) {
-		t.Fatalf("harbor connect must not seed Vertex ADC; calls: %+v", r.Calls)
+		t.Fatalf("Jam connect must not seed Vertex ADC; calls: %+v", r.Calls)
 	}
-	// The launch env carries the harbor connector vars.
-	if tr.gotEnv["ANTHROPIC_BASE_URL"] != "https://harbor.test/anthropic" ||
-		tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["AT_HARBOR_IDENTITY_TOKEN"] != "s3cr3t-xyz" {
-		t.Fatalf("launch env missing harbor connector vars: %v", tr.gotEnv)
+	// The launch env carries the Jam connector vars.
+	if tr.gotEnv["ANTHROPIC_BASE_URL"] != "https://jam.test/anthropic" ||
+		tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["AT_JAM_IDENTITY_TOKEN"] != "s3cr3t-xyz" ||
+		tr.gotEnv["AT_HARBOR_IDENTITY_TOKEN"] != "s3cr3t-xyz" { // deprecated name, still set for older images
+		t.Fatalf("launch env missing Jam connector vars: %v", tr.gotEnv)
 	}
 	// The token stays env-only — never on argv or ssh stdin.
 	if calledWith(r.Calls, "s3cr3t-xyz") {
@@ -635,5 +639,25 @@ func TestConnectInhibitFailureWarnsAndLaunches(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "could not prevent host sleep") {
 		t.Fatalf("expected warning; stderr=%q", errBuf.String())
+	}
+}
+
+func TestConnect_JamUsesConnector(t *testing.T) {
+	r := &runner.Fake{}
+	tr := &fakeTransport{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}} // no git route
+	if err := Connect(&fakeBackend{state: backend.StateRunning}, r, tr, &fakeInhibitor{r: &rec{}}, Options{
+		Container: "c1", IdentityFile: "id", KnownHostsDir: t.TempDir(),
+		Jam: &JamAuth{Host: "jam.test", Token: "s3cr3t-xyz", Connector: &c},
+	}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if tr.gotEnv["GH_HOST"] != "jam.test" || tr.gotEnv["ANTHROPIC_API_KEY"] != "s3cr3t-xyz" || tr.gotEnv["ANTHROPIC_BASE_URL"] != "" {
+		t.Fatalf("launch env = %v, want the connector's vars only", tr.gotEnv)
+	}
+	for _, call := range r.Calls {
+		if strings.Contains(call.Stdin, "insteadOf") {
+			t.Fatalf("connector without a git route must not configure git: %+v", call)
+		}
 	}
 }

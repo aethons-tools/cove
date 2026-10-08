@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/secret"
 )
@@ -35,24 +36,24 @@ func TestDetachedLaunchCmd(t *testing.T) {
 // the bot token must never appear on any argv the runner received (only on
 // stdin, via writeVM), and the actual launch command must be a non-tty,
 // detached (setsid) ssh invocation of at-switchboard.
-func TestLaunchTeammateHarborSupersedesAuth(t *testing.T) {
+func TestLaunchTeammateJamSupersedesAuth(t *testing.T) {
 	b := &fakeBackend{state: backend.StateRunning}
-	r := &runner.Fake{} // no auth probe expected under harbor
+	r := &runner.Fake{} // no auth probe expected under Jam
 	err := LaunchTeammate(r, b, TeammateOptions{
 		Container:      "box-helper",
 		BotTokenSpec:   secret.Spec{Name: "DISCORD_BOT_TOKEN", Value: "botsecret", Literal: true},
 		Channels:       []string{"111"},
 		IdentityFile:   "/id",
 		KnownHostsFile: "/kh",
-		HarborHost:     "h.test",
-		HarborToken:    "harbor-tok-77",
+		JamHost:        "h.test",
+		JamToken:       "jam-tok-77",
 	})
 	if err != nil {
 		t.Fatalf("LaunchTeammate: %v", err)
 	}
 	// OAuth is superseded — no claude auth probe/login.
 	if calledWith(r.Calls, "claude auth status") || calledWith(r.Calls, "claude auth login") {
-		t.Fatalf("harbor teammate must not run claude auth: %+v", r.Calls)
+		t.Fatalf("Jam teammate must not run claude auth: %+v", r.Calls)
 	}
 	// The connector env is staged via ssh stdin (never argv).
 	var staged, gitRouted bool
@@ -68,13 +69,13 @@ func TestLaunchTeammateHarborSupersedesAuth(t *testing.T) {
 		t.Fatalf("connector env not staged: %+v", r.Calls)
 	}
 	if !gitRouted {
-		t.Fatalf("harbor git config not applied: %+v", r.Calls)
+		t.Fatalf("Jam git config not applied: %+v", r.Calls)
 	}
 	// token never on argv.
 	for _, c := range r.Calls {
 		for _, a := range c.Args {
-			if strings.Contains(a, "harbor-tok-77") {
-				t.Fatalf("harbor token leaked onto argv: %+v", c)
+			if strings.Contains(a, "jam-tok-77") {
+				t.Fatalf("Jam token leaked onto argv: %+v", c)
 			}
 		}
 	}
@@ -139,5 +140,29 @@ func TestLaunchTeammateDetachedTokenNeverOnArgv(t *testing.T) {
 	}
 	if !detached {
 		t.Fatalf("expected a detached setsid at-switchboard launch over ssh; calls=%+v", r.Calls)
+	}
+}
+
+func TestLaunchTeammateUsesJamConnector(t *testing.T) {
+	r := &runner.Fake{}
+	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}, GitRoute: "/git/"}
+	if err := LaunchTeammate(r, &fakeBackend{state: backend.StateRunning}, TeammateOptions{
+		Container: "box", BotTokenSpec: secret.Spec{Name: "DISCORD_BOT_TOKEN", Value: "b", Literal: true},
+		Channels: []string{"1"}, IdentityFile: "/id", KnownHostsFile: "/kh",
+		JamHost: "h.test", JamToken: "jam-tok-77", JamConnector: &c,
+	}); err != nil {
+		t.Fatalf("LaunchTeammate: %v", err)
+	}
+	var env bool
+	for _, call := range r.Calls {
+		if strings.Contains(call.Stdin, "GH_HOST") && strings.Contains(call.Stdin, "h.test") {
+			env = true
+		}
+		if strings.Contains(call.Stdin, "ANTHROPIC_BASE_URL") {
+			t.Fatalf("legacy env leaked in alongside the connector: %s", call.Stdin)
+		}
+	}
+	if !env {
+		t.Fatalf("connector env not staged: %+v", r.Calls)
 	}
 }

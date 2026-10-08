@@ -49,6 +49,13 @@
         "https://download.docker.com/linux/ubuntu?suite=noble&components=stable&binaryArch=amd64"
       ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "goldmark majors stay off. A Go major is a new module path (github.com/yuin/goldmark/v2), and without gomodUpdateImportPaths Renovate only adds a require line the code never imports — a no-op PR (#282). v2 also renders our squawks byte-identically for no benefit we use, and upstream keeps fixing v1 while v2 is current. Move majors deliberately (internal/jam/squawkrender), e.g. when a v3 ends v1 support.",
+      "matchDatasources": ["go"],
+      "matchPackageNames": ["github.com/yuin/goldmark"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "customManagers": [
@@ -99,6 +106,14 @@
       "matchStrings": ["(?<depName>[a-z][a-z0-9.+-]*)=(?<currentValue>[0-9][^\\s\\\\]*)"],
       "datasourceTemplate": "deb",
       "versioningTemplate": "deb"
+    },
+    {
+      "customType": "regex",
+      "description": "Claude Code — modelspec.DefaultClaudeVersion, the pinned harness CLI release the code defaults to (COV-242): the version a NEW claude-default is seeded with, the harness every full config.yml kit installs (their installs go stale and rebuild), and the install a Jam raise uses when no model-spec is delivered. It does NOT change a claude-default already stored in a Jam: an operator bumps that with `at-jam model-spec update`. The native installer's releases share the npm package's version numbers.",
+      "managerFilePatterns": ["internal/jam/modelspec/modelspec.go"],
+      "matchStrings": ["const DefaultClaudeVersion = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "@anthropic-ai/claude-code"
     },
     {
       "customType": "regex",

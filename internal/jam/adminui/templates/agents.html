@@ -1,0 +1,77 @@
+{{define "content"}}
+<div class="page-head"><h1>Agents</h1><span class="sub">every agent, running or not — refreshes every 3s</span></div>
+{{if .CanEdit}}
+<details class="panel">
+  <summary>Raise agent</summary>
+  <form hx-post="/ui/coves" hx-target="#agents" hx-swap="outerHTML" data-reset>
+    <div class="grid">
+      <label>Label <span class="req">required</span><span class="hint">its name; the agent gets its own id</span><input name="id" required autocomplete="off"></label>
+      <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
+      <label>Unit <span class="hint">e.g. a ticket id</span><input name="unit"></label>
+      <label class="wide">Workload prompt <span class="hint">optional</span><textarea name="prompt"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Raise</button></div>
+  </form>
+</details>
+{{end}}
+<details class="panel">
+  <summary>Enroll agent</summary>
+  <form hx-post="/ui/enrollments" hx-target="#agents-panel" hx-swap="innerHTML" data-reset>
+    <div class="grid">
+      <label>Agent id <span class="req">required</span><input name="id" required autocomplete="off"></label>
+      <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
+      <label>Project <span class="hint">new ones: + New project in the rail</span>{{template "project-select"}}</label>
+      <label>Destination overrides <span class="hint">optional, e.g. git=git-pat</span><input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Enroll</button></div>
+  </form>
+</details>
+<div id="agents-panel"></div>
+<div class="filters">{{range .Filters}}<a class="tab{{if eq .Key $.Status}} sel{{end}}" href="/ui/agents{{if .Key}}?status={{.Key}}{{end}}">{{.Label}}</a>{{end}}</div>
+<style>
+  .filters{margin:0 0 12px;display:flex;gap:6px;flex-wrap:wrap}
+  .filters .tab{padding:4px 10px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:12.5px}
+  .filters .tab.sel{background:var(--accent-soft);color:var(--accent);font-weight:600}
+</style>
+{{template "agents-table" .}}
+{{end}}
+
+{{/* agents-table is the polled list: one row per agent (an actor, its studio,
+     or both), keeping the page's status filter across polls. */}}
+{{define "agents-table"}}
+<div class="card" id="agents" hx-get="/ui/agents{{if .Status}}?status={{.Status}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<table>
+  <thead><tr><th>Agent</th><th>Kind</th><th>Project</th><th>Role</th><th>Status</th><th>Connector</th><th>Image</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr></thead>
+  <tbody>
+    {{range .Agents}}
+    <tr data-id="{{.ID}}">
+      <td><a class="mono" href="{{agentURL .ID}}"><b>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</b></a>{{if .Name}} <span class="sub mono">{{.ID}}</span>{{end}}{{if .Unit}} <span class="sub mono">{{.Unit}}</span>{{end}}{{template "attn-flag" (attn "agents" .ID)}}</td>
+      <td><span class="chip">{{.Kind}}</span></td>
+      <td>{{if .Project}}<a href="{{projectURL .Project}}">{{.Project}}</a>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{if .Role}}<a href="{{roleURL .Project .Role}}">{{.Role}}</a>{{if gt (len .Grants) 1}} <span class="sub">+{{len (slice .Grants 1)}}</span>{{end}}{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{template "status" .Status}}</td>
+      <td>{{if eq .Connector "stale"}}<span class="pill phase-raising">stale</span>{{else if eq .Connector "error"}}<span class="pill phase-lost">error</span>{{else if eq .Connector "unknown" ""}}<span class="none">{{or .Connector "—"}}</span>{{else}}{{.Connector}}{{end}}</td>
+      <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
+      {{if $.CanEdit}}<td class="actions">{{if .HasStudio}}<button class="danger small" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+          hx-confirm="Tear down {{.ID}}?" hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', location.pathname + location.search, {target: '#agents', swap: 'outerHTML'})">Teardown</button>{{end}}</td>{{end}}
+    </tr>
+    {{else}}
+    <tr><td colspan="{{if .CanEdit}}9{{else}}8{{end}}" class="empty">{{if .Status}}No agents with this status.{{else}}No agents.{{end}}</td></tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+
+{{define "enroll-result"}}
+<div class="banner token-panel">
+  <div style="flex:1;min-width:0">
+    <p style="margin:0 0 6px"><strong>Enrolled {{.ID}}.</strong> Copy this identity token now — it is not shown again.</p>
+    <div id="enroll-token" class="mono" style="word-break:break-all;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px"><code>{{.Token}}</code></div>
+  </div>
+  <button type="button" class="primary small" data-copy="#enroll-token">Copy</button>
+</div>
+<div hx-on::load="htmx.ajax('GET', location.pathname + location.search, {target: '#agents', swap: 'outerHTML'})"></div>
+{{end}}

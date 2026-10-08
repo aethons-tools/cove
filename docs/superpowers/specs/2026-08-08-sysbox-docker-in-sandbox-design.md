@@ -15,7 +15,7 @@ feasibility spike [`2026-08-08-sysbox-docker-in-sandbox-spike.md`](2026-08-08-sy
 **Related:** the hardening layer (`internal/assemble/hardening/`), the colima backend
 (`internal/backend/colima/`), the base image (`images/cove-base-image/`), the config
 (`internal/kit/`), the egress model
-(`docs/OVERVIEW.md#egress-three-additive-allow-lists-session-scoped`).
+(`docs/OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling`).
 
 ## Goal
 

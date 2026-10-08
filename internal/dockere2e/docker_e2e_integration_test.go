@@ -62,6 +62,27 @@ func dexec(t *testing.T, script string) (string, error) {
 	return string(out), err
 }
 
+// dexecAs runs a shell command inside the booted sandbox as user (e.g. "root",
+// "agent") and returns its combined output and error (nil on exit 0).
+func dexecAs(t *testing.T, user, script string) (string, error) {
+	t.Helper()
+	out, err := exec.Command("docker", "exec", "-u", user, container, "sh", "-c", script).CombinedOutput()
+	return string(out), err
+}
+
+// domainLines returns the non-comment, non-blank lines of a squid list.
+func domainLines(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 // mustExec is dexec that fails the test unless the command exits 0.
 func mustExec(t *testing.T, script string) string {
 	t.Helper()
@@ -159,6 +180,66 @@ func TestDockerInSandboxE2E(t *testing.T) {
 		// env must fail.
 		if out, err := dexec(t, "docker run --rm curlimages/curl -m 8 -sS https://example.com >/dev/null"); err == nil {
 			t.Fatalf("un-proxied nested egress to example.com should be dropped, but it succeeded:\n%s", out)
+		}
+	})
+
+	t.Run("role egress replaces the kit list within the ceiling", func(t *testing.T) {
+		// Jam applies a role's egress with `docker exec -u root` running the
+		// sealed apply-role-egress.sh; the fixture kit's image.allowed-domains
+		// (registry-1/auth/index.docker.io, .cloudfront.docker.com) is the ceiling.
+		// Runs after the inner-docker subtests (which pull through the kit list)
+		// and restores the kit default at the end.
+		const (
+			helper  = "/usr/local/lib/cove/apply-role-egress.sh"
+			kitFile = "/etc/squid/allowed_domains.kit.txt"
+		)
+		t.Cleanup(func() {
+			// Restore the kit default (the ceiling is exactly the kit's list).
+			if out, err := dexecAs(t, "root", "grep -v '^#' /etc/squid/egress_ceiling.txt | grep . | "+helper); err != nil {
+				t.Logf("restore kit egress default failed: %v\n%s", err, out)
+			}
+		})
+
+		// The lists and the ceiling are root-owned and not writable by the agent.
+		perms := mustExec(t, "stat -c '%U %a %n' /etc/squid/allowed_domains.txt /etc/squid/allowed_domains.infra.txt "+kitFile+" /etc/squid/allowed_domains.session.txt /etc/squid/egress_ceiling.txt")
+		for _, line := range strings.Split(strings.TrimSpace(perms), "\n") {
+			if !strings.HasPrefix(line, "root 644 ") {
+				t.Fatalf("squid lists must be root-owned 0644; got:\n%s", perms)
+			}
+		}
+
+		// Within the ceiling: the helper exits 0 (a real `squid -k reconfigure`)
+		// and the active policy list now holds exactly the role's domain.
+		if out, err := dexecAs(t, "root", "printf 'auth.docker.io\\n' | "+helper); err != nil {
+			t.Fatalf("apply-role-egress within the ceiling failed: %v\n%s", err, out)
+		}
+		kit := mustExec(t, "cat "+kitFile)
+		if got := strings.Join(domainLines(kit), ","); got != "auth.docker.io" {
+			t.Fatalf("kit list after role egress = %q, want auth.docker.io:\n%s", got, kit)
+		}
+
+		// squid now denies a ceiling domain the role dropped. The 403 is squid's
+		// own CONNECT refusal, so no real egress is needed (an allowed CONNECT
+		// would need the internet, so it is not asserted). Poll: reconfigure is async.
+		denied := "test \"$(curl -s -o /dev/null -w '%{http_connect}' -m 8 --proxy http://127.0.0.1:3128 https://registry-1.docker.io/v2/)\" = 403"
+		waitFor(t, "squid to deny a dropped ceiling domain", denied, 30*time.Second)
+
+		// Outside the ceiling: non-zero exit, and the kit list is unchanged.
+		if out, err := dexecAs(t, "root", "printf 'example.com\\n' | "+helper); err == nil {
+			t.Fatalf("a domain outside the ceiling must be refused, but the helper succeeded:\n%s", out)
+		} else if !strings.Contains(out, "example.com is outside the kit's egress ceiling") {
+			t.Fatalf("refusal must name the domain; got:\n%s", out)
+		}
+		if got := mustExec(t, "cat "+kitFile); got != kit {
+			t.Fatalf("kit list changed after a refused apply:\n%s", got)
+		}
+
+		// The agent user cannot run it to change its own egress.
+		if out, err := dexecAs(t, "agent", "printf 'index.docker.io\\n' | "+helper); err == nil {
+			t.Fatalf("apply-role-egress as the agent user must fail, but it succeeded:\n%s", out)
+		}
+		if got := mustExec(t, "cat "+kitFile); got != kit {
+			t.Fatalf("kit list changed after an agent-user run:\n%s", got)
 		}
 	})
 

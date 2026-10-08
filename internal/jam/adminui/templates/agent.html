@@ -1,0 +1,167 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Agent not found</h1></div>
+<div class="banner">Nothing is known about agent <span class="mono">{{.ID}}</span> — it isn't enrolled, isn't running and has no session or squawks. <a href="/ui/agents">Back to agents</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>header .spacer{flex:1}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-word}
+  .unset{color:var(--faint)}
+  .reach{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px;background:var(--idle-soft);color:var(--idle)}
+  .reach.ext{background:var(--accent-soft);color:var(--accent)}
+  td.body{max-width:620px;word-break:break-word;vertical-align:top}
+  td.body.plain{white-space:pre-wrap}
+  td.body.md > :first-child{margin-top:0} td.body.md > :last-child{margin-bottom:0}
+  td.body.md p, td.body.md ul, td.body.md ol, td.body.md pre{margin:0 0 .4em}
+  td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+{{$f := frame}}<div class="crumbs"><a href="{{if $f.Project}}{{projectURL $f.Project}}/agents{{else}}/ui/agents{{end}}">Agents</a> / <a href="{{agentHref .ID ""}}">{{.ID}}</a></div>
+<div class="page-head">
+  <h1 class="mono">{{.ID}}</h1>
+  {{if .Running}}
+  {{template "status" (statusOf (printf "%s" .Inst.Phase) (printf "%s" .Inst.Activity) .Running)}}
+  <div class="facts">
+    <span class="chip">{{$.Kind}}{{if .Inst.Owner}} · {{if .Inst.OwnerID}}<a href="{{userURL .Inst.OwnerID}}">{{.Inst.Owner}}</a>{{else}}{{.Inst.Owner}}{{end}}{{end}}{{if .Inst.Name}} · {{.Inst.Name}}{{end}}</span>
+    <a class="chip" href="{{projectURL .Inst.Project}}">{{.Inst.Project}}</a>
+    <a class="chip" href="{{roleURL .Inst.Project .Inst.Role}}">{{.Inst.Role}}</a>
+    {{if .Inst.Unit}}<span class="mono">{{.Inst.Unit}}</span>{{end}}
+  </div>
+  {{else if .Kind}}<span class="chip">{{.Kind}}</span>{{end}}
+  <span class="spacer"></span>
+  {{if .SessionsEnabled}}<a class="btn" href="{{agentURL .ID}}/session">Open live timeline</a>{{end}}
+  {{if and .Running .CanEdit}}<button class="danger" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+      hx-confirm="Tear down {{.ID}}?"
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Teardown</button>{{end}}
+  {{if .HasActor}}<button class="danger" hx-delete="/ui/enrollments/{{.ID}}" hx-swap="none"
+      hx-confirm="Revoke {{.ID}}? This invalidates its token."
+      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Revoke</button>{{end}}
+</div>
+
+{{if not .Running}}
+<div class="banner">{{if .HasActor}}This agent isn't running.{{else}}This agent is no longer running — it was torn down and left the registry.{{end}} Its session and squawks, if any, remain below as an audit trail.</div>
+{{end}}
+
+<div class="sections">
+  <section class="card full">
+    <header><h2>Identity</h2><span class="sub">the grants this agent's token carries</span></header>
+    <div class="body">
+    {{if .HasActor}}{{$id := .ID}}
+      <div>
+      {{range .Actor.Grants}}
+        <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}"><a href="{{roleURL .Project .Role}}" style="color:inherit">{{.Project}}/{{.Role}}</a>
+          <button type="button" aria-label="Remove grant" hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-swap="none"
+            hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?" hx-on::after-request="if(event.detail.successful) location.reload()">×</button></span>
+      {{else}}<span class="unset">no grants</span>{{end}}
+      </div>
+      <dl class="kv" style="margin-top:10px"><dt>Token expiry</dt><dd>{{if .Actor.Expiry.IsZero}}<span class="unset">none</span>{{else}}<time title="{{.Actor.Expiry.Format "2006-01-02 15:04:05 MST"}}">{{.Actor.Expiry.Format "2006-01-02"}}</time>{{end}}</dd></dl>
+      <details class="grant-add">
+        <summary>+ Grant</summary>
+        <form hx-post="/ui/actors/{{$id}}/grants" hx-swap="none" hx-on::after-request="if(event.detail.successful) location.reload()">
+          <input name="role" data-ta="roles" data-ta-project="@form" placeholder="role" required autocomplete="off" aria-label="Role">
+          {{template "project-select"}}
+          <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" placeholder="overrides, e.g. git=git-pat" autocomplete="off" spellcheck="false" aria-label="Destination overrides">
+          <button type="submit" class="primary small">Add</button>
+        </form>
+      </details>
+<style>
+  details.grant-add{display:inline-block;vertical-align:middle}
+  details.grant-add>summary{display:inline-block;cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--accent);padding:2px 6px;border-radius:6px}
+  details.grant-add>summary::-webkit-details-marker{display:none}
+  details.grant-add[open]{display:block;margin-top:8px}
+  details.grant-add form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  details.grant-add input,details.grant-add select{width:auto;flex:1 1 140px;padding:5px 8px}
+</style>
+    {{else}}<span class="unset">Not enrolled — no identity token or grants (its token was released, or it was revoked).</span>{{end}}
+    </div>
+  </section>
+  {{if .Running}}{{with .Inst}}
+  <section class="card">
+    <header><h2>Runtime</h2></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Raised</dt><dd><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></dd>
+        <dt>Last seen</dt><dd>{{if .LastSeen.IsZero}}<span class="unset">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</dd>
+        <dt>Lease</dt><dd>{{if .Lease.Holder}}<span class="mono">{{.Lease.Holder}}</span>{{else}}<span class="unset">—</span>{{end}}</dd>
+        <dt>Backend</dt><dd>{{if .Backend}}{{.Backend}}{{else}}<span class="unset">—</span>{{end}}{{if .Location}} <span class="mono unset">{{.Location}}</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Waiting &amp; escalation</h2><span class="sub">wake-on and who has been pinged</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Waiting</dt><dd>{{if .WaitingSince.IsZero}}<span class="unset">not waiting</span>{{else}}since <time title="{{.WaitingSince.Format "2006-01-02 15:04:05 MST"}}">{{.WaitingSince.Format "Jan 2 15:04"}}</time> <span class="unset">· wakes on a reply past wait seq {{.WaitSeq}}</span>{{end}}</dd>
+        <dt>Escalation</dt><dd>{{if .TierPingedAt.IsZero}}<span class="unset">none open</span>{{else}}tier {{.EscalationTier}} pinged <time title="{{.TierPingedAt.Format "2006-01-02 15:04:05 MST"}}">{{.TierPingedAt.Format "Jan 2 15:04"}}</time> · {{if .EscalationCategory}}category <span class="mono">{{.EscalationCategory}}</span>{{else}}default chain{{end}}{{end}}</dd>
+        {{if .Owner}}<dt>Owner nags</dt><dd>{{if .Nags}}{{.Nags}} nag(s){{if not .LastNagAt.IsZero}}, last <time>{{.LastNagAt.Format "Jan 2 15:04"}}</time>{{end}}{{else}}<span class="unset">none this wait</span>{{end}}</dd>{{end}}
+        <dt>Inbox</dt><dd><span class="unset">committed through seq {{.CommitSeq}}</span></dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Egress</h2><span class="sub">the role policy this agent runs under</span></header>
+    <div class="body">
+      <dl class="kv">
+        <dt>Policy</dt><dd>{{if .Egress}}<span class="mono" title="{{.Egress}}">{{$.EgressID}}</span>{{else}}<span class="unset">unknown — re-applied on the next reconcile</span>{{end}}</dd>
+        <dt>Re-apply</dt><dd>{{if .EgressFailures}}<span class="pill phase-lost">{{.EgressFailures}} failure(s)</span> <span class="unset">the supervisor tears the agent down at its limit</span>{{else}}<span class="unset">ok</span>{{end}}</dd>
+      </dl>
+    </div>
+  </section>
+  {{end}}{{end}}
+
+  <section class="card{{if .Running}}{{else}} full{{end}}">
+    <header><h2>Session</h2><span class="sub">captured agent event streams, newest first</span></header>
+    {{if not .SessionsEnabled}}<div class="body unset">Session capture is not configured on this Jam.</div>
+    {{else}}
+    <table>
+      <thead><tr><th>Stream</th><th>Started</th><th>Last event</th><th>Events</th></tr></thead>
+      <tbody>
+        {{range .Streams}}<tr>
+          <td><a class="mono" href="{{agentURL $.ID}}/session?stream={{.StreamID}}">{{slice .StreamID 0 12}}</a></td>
+          <td><time title="{{.FirstAt.Format "2006-01-02 15:04:05 MST"}}">{{.FirstAt.Format "Jan 2 15:04"}}</time></td>
+          <td><time title="{{.LastAt.Format "2006-01-02 15:04:05 MST"}}">{{.LastAt.Format "Jan 2 15:04:05"}}</time></td>
+          <td>{{.Events}} event(s)</td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No session captured yet.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </section>
+
+  <section class="card full">
+    <header><h2>Squawks</h2><span class="sub">in its conversations, newest first</span><span class="spacer"></span>
+      {{if .SquawksConfigured}}<a class="sub" href="{{.IntercomURL}}">{{if .SquawksMore}}all {{end}}in Intercom</a>{{end}}</header>
+    {{if not .SquawksConfigured}}<div class="body unset">Squawk log not configured.</div>
+    {{else}}
+    <table>
+      <thead><tr><th>Time</th><th>From</th><th>Where</th><th>Body</th></tr></thead>
+      <tbody>
+        {{range .Squawks}}<tr>
+          <td><time>{{.At}}</time></td>
+          <td>{{if .AgentID}}<a class="mono" href="{{agentURL .AgentID}}">{{.From}}</a>{{else}}<span class="mono">{{.From}}</span>{{end}}</td>
+          <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
+          <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</td></tr>
+        {{else}}<tr><td colspan="4" class="empty">No squawks.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{if .SquawksMore}}<div class="body unset">Showing the newest {{len .Squawks}}; the rest are in <a href="{{.IntercomURL}}">Intercom</a>.</div>{{end}}
+    {{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

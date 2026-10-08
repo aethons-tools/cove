@@ -4,6 +4,7 @@
 
 **Start here:** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) —
 what the project is, the kit format, the command surface, the security model, the architecture, and how to build/test/run.
+For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Quick orientation
 
@@ -14,10 +15,12 @@ what the project is, the kit format, the command surface, the security model, th
 ## Working in this repo
 
 - **This repo *builds* sandboxes — keep template files distinct from the repo's own files.**
-  Everything under `internal/assemble/*/image-files/` is *payload*:
+  Everything under `internal/assemble/*/image-files/` (and the harness layer's
+  `internal/harnessinstall/payload/`) is *payload*:
   a template tree copied into the sandbox VMs that `at-cove` builds,
   not configuration for this repo.
-  For example, `internal/assemble/hardening/image-files/home/agent/.init-agent-data/CLAUDE.md`
+  Likewise `images/*/image-files/`: for example,
+  `images/cove-base-image/image-files/home/agent/.init-agent-data/CLAUDE.md`
   and its `SANDBOX.md` are instructions *for an agent running inside a built sandbox* —
   they are not instructions for you working in this repo (that's this file).
   When reviewing or documenting, always say which side of the line a file is on,

@@ -24,7 +24,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/dispatch/worker"
-	"github.com/aethons-tools/cove/internal/harbor/snippet"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -69,12 +70,13 @@ type Options struct {
 	WorkerSecrets   []secret.Spec // worker-class bucket — resolved lazily, agent step only
 	GitToken        secret.Spec   // code-host token; withheld from the agent step
 	CredentialsFile string        // host-saved agent login to seed; "" = none
-	// HarborHost/HarborToken, when set, route the AGENT step's Anthropic through a
-	// harbor broker (COV-142): the connector env is injected and the OAuth creds
+	// JamHost/JamToken, when set, route the AGENT step's Anthropic through a
+	// Jam broker (COV-142): the connector env is injected and the OAuth creds
 	// file is not seeded. Git is deliberately left on at-task's minted-token path
-	// (a global harbor insteadOf would misroute prepare/complete).
-	HarborHost    string
-	HarborToken   string
+	// (a global Jam insteadOf would misroute prepare/complete).
+	JamHost       string
+	JamToken      string
+	JamConnector  *snippet.Connector // the identity's client connector (env only here); nil = legacy
 	IdentityFile  string
 	KnownHostsDir string
 	InputPath     string
@@ -172,8 +174,8 @@ func Dispatch(ctx context.Context, o Options) error {
 	// simply run the pre-built image — no per-unit build, no per-unit gate, so
 	// concurrent dispatch units never race on a shared .build dir.
 	var addHosts []string
-	if h := o.Cfg.Harbor; h != nil && h.HostGateway() {
-		addHosts = []string{h.Host} // reach a host-run harbor by name (COV-138)
+	if h := o.Cfg.Jam; h != nil && h.HostGateway() {
+		addHosts = []string{h.Host} // reach a host-run Jam by name (COV-138)
 	}
 	if _, err := o.Ops.RunEphemeral(o.Image, o.ImageDigest, o.Name, Label, o.Cfg.Image.DNS, addHosts, o.Cfg.Docker); err != nil {
 		return err
@@ -216,9 +218,9 @@ func Dispatch(ctx context.Context, o Options) error {
 	if err := eg.ApplySessionEgress(o.Name, domains); err != nil {
 		return fmt.Errorf("apply session egress: %w", err)
 	}
-	// Harbor supersedes the OAuth login: don't seed the credentials file when the
-	// agent authenticates to Anthropic through harbor (COV-142).
-	if o.HarborHost == "" {
+	// Jam supersedes the OAuth login: don't seed the credentials file when the
+	// agent authenticates to Anthropic through Jam (COV-142).
+	if o.JamHost == "" {
 		if err := seedFile(o.R, tgt, o.CredentialsFile, credsVMPath); err != nil {
 			return fmt.Errorf("seed agent credentials: %w", err)
 		}
@@ -254,9 +256,16 @@ func Dispatch(ctx context.Context, o Options) error {
 	// (the build/prepare overhead is already spent). It is merged only into the
 	// agent env; the git steps never carry it.
 	agentEnv := base
-	if len(o.WorkerSecrets) > 0 || o.HarborHost != "" {
+	providerEnv := workerProviderEnv(o.Cfg.ModelSpec)
+	if len(o.WorkerSecrets) > 0 || o.JamHost != "" || len(providerEnv) > 0 {
 		agentEnv = make(map[string]string, len(base)+len(o.WorkerSecrets)+4)
 		for k, v := range base {
+			agentEnv[k] = v
+		}
+		// The kit model-spec's provider-env first, so a resolved secret or
+		// the Jam connector always wins a collision (it holds no credential
+		// key — modelspec.ProviderEnv drops them).
+		for k, v := range providerEnv {
 			agentEnv[k] = v
 		}
 		if len(o.WorkerSecrets) > 0 {
@@ -268,10 +277,14 @@ func Dispatch(ctx context.Context, o Options) error {
 				agentEnv[k] = v
 			}
 		}
-		// Route the agent's Anthropic through harbor (COV-142) — env-only; git
-		// stays on at-task's minted-token path (no harbor insteadOf here).
-		if o.HarborHost != "" {
-			for k, v := range snippet.Env("https://"+o.HarborHost, o.HarborToken) {
+		// Route the agent's Anthropic through Jam (COV-142) — env-only; git
+		// stays on at-task's minted-token path (no Jam insteadOf here).
+		if o.JamHost != "" {
+			c := snippet.Legacy(false)
+			if o.JamConnector != nil {
+				c = *o.JamConnector
+			}
+			for k, v := range c.Expand("https://"+o.JamHost, o.JamToken) {
 				agentEnv[k] = v
 			}
 		}
@@ -283,8 +296,8 @@ func Dispatch(ctx context.Context, o Options) error {
 	// which the host captures instead of letting it spill. That raw output NEVER
 	// reaches the structured/cloud sink — it stays VM-local and is only scanned
 	// in memory (for a 401) to classify the agent-outcome record below.
-	agentCmd := fmt.Sprintf("claude -p --dangerously-skip-permissions \"$(cat %s)\" 2>&1 | tee %s 1>&2",
-		shellQuote(promptVMPath), shellQuote(agentLogVMPath))
+	agentCmd := fmt.Sprintf("claude -p %s \"$(cat %s)\" 2>&1 | tee %s 1>&2",
+		workerClaudeArgs(o.Cfg.ModelSpec), shellQuote(promptVMPath), shellQuote(agentLogVMPath))
 	var agentOut bytes.Buffer
 	_ = runStep(o.R, tgt, agentEnv, agentCmd, o.Timeout, nil, &agentOut) // agent: root + worker bucket; no git token
 	compEnv, err := mint()
@@ -398,3 +411,42 @@ func envScript(env map[string]string) string {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// workerResultAllow is the allow rule a dispatched worker always gets under a
+// non-bypass permission mode: the result file it must write (relative to its
+// cwd, the work dir) — what the Jam harness always allows too.
+const workerResultAllow = "Edit(.at-task/worker-result.json)"
+
+// workerClaudeArgs renders the kit model-spec's runtime claude flags for a
+// dispatched worker with the renderer every claude launcher shares
+// (modelspec.ClaudeModelArgs / ClaudePolicyArgs / ClaudeSettingsJSON): the
+// headless mapping, so an empty or bypassPermissions mode keeps the legacy
+// --dangerously-skip-permissions. Each element is shell-quoted; nil spec is
+// the legacy argv exactly. Version/plugins are the image's (harness layer).
+func workerClaudeArgs(s *modelspec.Spec) string {
+	if s == nil {
+		return "--dangerously-skip-permissions"
+	}
+	args := modelspec.ClaudeModelArgs(s)
+	args = append(args, modelspec.ClaudePolicyArgs(s, true, []string{workerResultAllow})...)
+	if js, ok := modelspec.ClaudeSettingsJSON(s); ok {
+		args = append(args, "--settings", js)
+	}
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = shellQuote(a)
+	}
+	return strings.Join(quoted, " ")
+}
+
+// workerProviderEnv is the kit model-spec's provider env for a dispatched
+// worker (modelspec.ProviderEnv) — anthropic only. A worker authenticates with
+// the worker-bucket Anthropic bearer and is never seeded the GCP ADC (Vertex
+// is chat-only), so a vertex spec's CLAUDE_CODE_USE_VERTEX and its env would
+// make every run fail: they are not applied (at-cove work warns).
+func workerProviderEnv(s *modelspec.Spec) map[string]string {
+	if s == nil || s.Claude == nil || s.Claude.Provider != "anthropic" {
+		return nil
+	}
+	return modelspec.ProviderEnv(s)
+}

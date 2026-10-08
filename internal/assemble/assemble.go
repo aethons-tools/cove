@@ -1,28 +1,84 @@
 package assemble
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
+// Egress is the kit's baked egress beyond the sealed base, split by purpose.
+// Policy is image.allowed-domains: baked as the active policy list
+// (allowed_domains.kit.txt, which a Jam role's list replaces at raise) and as
+// the immutable ceiling that role list must fit inside (egress_ceiling.txt).
+// Infra is kit.InfraDomains (provider, self-hosted GitLab, Jam hosts): always
+// on, baked into allowed_domains.infra.txt.
+type Egress struct {
+	Policy []string
+	Infra  []string
+}
+
+// EgressFor derives a kit config's baked Egress.
+func EgressFor(c kit.Config) Egress {
+	return Egress{Policy: c.Image.AllowedDomains, Infra: kit.InfraDomains(c)}
+}
+
+// HarnessFor derives a kit config's harness install: the harness layer of its
+// model-spec: block (version + plugins), or claude-default's when it has none
+// (kit.Config.EffectiveModelSpec).
+func HarnessFor(c kit.Config) harnessinstall.Install {
+	s := c.EffectiveModelSpec()
+	return harnessinstall.FromSpec(&s)
+}
+
 // Assemble builds the context in buildDir: the sealed hardening layer, the
-// injected at-task, the kit's egress allow-list, the per-kit GitLab gitconfig, and
+// injected at-task, the kit's egress lists, the per-kit GitLab gitconfig, and
 // the managed public key. The kit's image/ is the Dockerfile build context
 // (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
 // source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
-func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabHost string) error {
+//
+// Assemble keeps the kit's .gitignore current (a dev-repo housekeeping side
+// effect on kitDir) and then assembles the build context. The build context
+// itself needs no kitDir — see AssembleContext, which the managed-cove launcher
+// uses to build from a kit communicated as data, with no host directory.
+func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string, harness harnessinstall.Install) error {
 	// Any path that assembles a build context (build/create/work) keeps the kit's
 	// .gitignore current, so generated .build/.state artifacts never leak into git.
 	if err := kit.EnsureGitignore(kitDir); err != nil {
 		return err
 	}
+	// A full kit's agent never runs cove-master (only Jam-raised studio coves
+	// do), so it bakes no MCP servers — just the empty file. Its harness is
+	// the caller's — HarnessFor: the kit's model-spec: block, else
+	// claude-default's install (COV-241).
+	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harness)
+}
+
+// AssembleContext stages the docker build context into buildDir with NO source
+// kit directory: everything comes from resources compiled into this binary (the
+// sealed hardening layer + Dockerfile via the embedded FS, and the injected
+// at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
+// the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
+// (kit.MCPServersImagePath), the public key baked into authorized_keys, and the
+// harness install (the model-spec's CLI version + plugins). Because it takes no directory, a Launcher can build a
+// managed cove from a kit communicated purely as data (config + key), which is
+// what lets that build run wherever the substrate builds (locally today; a
+// remote substrate later). See
+// docs/superpowers/specs/2026-09-29-cove-launcher-abstraction-design.md.
+//
+// The assembled Dockerfile is the generated harness stage (`ARG BASE`, `FROM
+// ${BASE} AS harness`, the CLI install + plugin seed — internal/harnessinstall)
+// followed by the sealed hardening Dockerfile (`FROM harness`), so the image is
+// FROM ${BASE} → harness → hardening and hardening is always applied last.
+func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost string, mcpServers map[string]kit.MCPServer, harness harnessinstall.Install) error {
 	if err := os.RemoveAll(buildDir); err != nil {
 		return err
 	}
@@ -32,9 +88,13 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
 	// not overlaid, and the overridable defaults ship in cove-base-image. So the
-	// build context is the sealed hardening layer plus the injected at-task, the
-	// kit's egress allow-list, and the managed key.
+	// build context is the harness layer, the sealed hardening layer, the
+	// injected at-task, the kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
+		return err
+	}
+
+	if err := writeDockerfile(buildDir, harness); err != nil {
 		return err
 	}
 
@@ -50,7 +110,7 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 		return err
 	}
 
-	if err := writeAllowedDomains(buildDir, rootDomains); err != nil {
+	if err := writeEgressLists(buildDir, egress); err != nil {
 		return err
 	}
 
@@ -58,12 +118,53 @@ func Assemble(kitDir, buildDir string, pub []byte, rootDomains []string, gitlabH
 		return err
 	}
 
+	if err := writeMCPServers(buildDir, mcpServers); err != nil {
+		return err
+	}
+
 	// Managed key injection.
-	ak := filepath.Join(buildDir, "image-files/home/agent/.ssh/authorized_keys")
+	// `COPY image-files/. /.` stamps each staged directory's mode onto the
+	// image's: home/ and home/agent/ must stay 0755 (a 0700 /home is root-only,
+	// so sshd — reading authorized_keys as the agent — refuses every key); only
+	// .ssh is 0700. MkdirAll's perm would apply 0700 to every missing parent.
+	home := filepath.Join(buildDir, "image-files/home/agent")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(filepath.Join(buildDir, "image-files/home"), 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(home, 0o755); err != nil {
+		return err
+	}
+	ak := filepath.Join(home, ".ssh/authorized_keys")
 	if err := os.MkdirAll(filepath.Dir(ak), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(ak, pub, 0o600)
+}
+
+// Revision versions what AssembleContext's own Go code writes into a build
+// context beyond the embedded trees (generated files, staged modes). The
+// embedded trees are hashed by content into install.AtCoveIdentity, but this
+// code is not — so bump Revision whenever a change here alters the assembled
+// context, or a stale image cached under an unchanged tag is reused.
+// 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
+var Revision = "2"
+
+// writeDockerfile prepends the harness stage (staging its payload) to the
+// sealed hardening Dockerfile copyEmbed just wrote.
+func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
+	stage, err := harnessinstall.Stage(buildDir, harness)
+	if err != nil {
+		return err
+	}
+	df := filepath.Join(buildDir, "Dockerfile")
+	sealed, err := os.ReadFile(df)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(df, []byte(stage+"\n# --- sealed hardening layer (internal/assemble/hardening) ---\n"+string(sealed)), 0o644)
 }
 
 // writeAtTask stages the embedded linux at-task binaries into the build context
@@ -143,7 +244,7 @@ func writeCoveMaster(buildDir string) error {
 // git:// remotes must be rewritten — the same treatment github.com gets statically)
 // and scopes the credential helper to that host so an interactive collaborator git
 // authenticates with GITLAB_TOKEN. Always written (header-only when host is "") so
-// the include never dangles — mirroring writeAllowedDomains.
+// the include never dangles — mirroring writeEgressLists.
 func writeGitLabGitConfig(buildDir, host string) error {
 	dst := filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc")
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -163,6 +264,25 @@ func writeGitLabGitConfig(buildDir, host string) error {
 		b.WriteString("\thelper = /usr/local/bin/cove-git-credential.sh\n")
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
+}
+
+// writeMCPServers bakes the kit's MCP servers (validated kit data: env
+// references, never secret values) at kit.MCPServersImagePath, where the cove's
+// agent harness merges them with its guaranteed messaging server (COV-240).
+// Always written ({} when the kit declares none), mirroring writeEgressLists.
+func writeMCPServers(buildDir string, servers map[string]kit.MCPServer) error {
+	if servers == nil {
+		servers = map[string]kit.MCPServer{}
+	}
+	b, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(buildDir, "image-files", kit.MCPServersImagePath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, append(b, '\n'), 0o644)
 }
 
 // copyEmbed copies efs under root into dst, stripping the root prefix.
@@ -194,20 +314,57 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 	})
 }
 
-// writeAllowedDomains writes the kit's additive squid allow-list. Always written
-// (empty list → header only) so the sealed squid.conf can reference it
-// unconditionally without squid erroring on a missing ACL file.
-func writeAllowedDomains(buildDir string, domains []string) error {
-	dst := filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt")
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+// writeEgressLists writes the kit's baked squid lists: the active policy list
+// (kit.txt), the always-on infra list (infra.txt), and the ceiling a Jam role's
+// policy must fit inside (egress_ceiling.txt — read only by the sealed
+// apply-role-egress.sh, never by squid). Each is always written (empty → header
+// only) so the sealed squid.conf never references a missing ACL file.
+func writeEgressLists(buildDir string, e Egress) error {
+	policy := sortedUnique(e.Policy)
+	files := []struct {
+		name    string
+		header  []string
+		domains []string
+	}{
+		{"allowed_domains.kit.txt", []string{
+			"# Active egress policy list: the kit's image.allowed-domains by default;",
+			"# replaced (root-only) by a Jam role's list at raise, within egress_ceiling.txt.",
+			"# Additive to the sealed base + infra lists; leading dot = subdomains.",
+		}, policy},
+		{"allowed_domains.infra.txt", []string{
+			"# Kit infrastructure egress domains (model provider, self-hosted GitLab, Jam).",
+			"# Always on; a Jam role's egress policy cannot remove these.",
+		}, sortedUnique(e.Infra)},
+		{"egress_ceiling.txt", []string{
+			"# Egress ceiling: the kit's image.allowed-domains, baked immutable.",
+			"# NOT an allow-list (squid never reads it). apply-role-egress.sh refuses any",
+			"# role domain this list does not cover; leading dot = subdomains.",
+		}, policy},
+	}
+	dir := filepath.Join(buildDir, "image-files/etc/squid")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	var b strings.Builder
-	b.WriteString("# Kit-declared egress domains (config.yml image.allowed-domains).\n")
-	b.WriteString("# Additive to the sealed base allowed_domains.txt; leading dot = subdomains.\n")
-	for _, d := range domains {
-		b.WriteString(d)
-		b.WriteString("\n")
+	for _, f := range files {
+		var b strings.Builder
+		for _, h := range f.header {
+			b.WriteString(h)
+			b.WriteString("\n")
+		}
+		for _, d := range f.domains {
+			b.WriteString(d)
+			b.WriteString("\n")
+		}
+		if err := os.WriteFile(filepath.Join(dir, f.name), []byte(b.String()), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(dst, []byte(b.String()), 0o644)
+	return nil
+}
+
+// sortedUnique returns the deduped, sorted copy of domains.
+func sortedUnique(domains []string) []string {
+	out := slices.Clone(domains)
+	slices.Sort(out)
+	return slices.Compact(out)
 }

@@ -20,7 +20,7 @@ and launches `claude` interactively.
 
 ## Quickstart
 
-Install `at-cove` (and its sibling `at-mint`) with the one-command installer. The
+Install `at-cove` (and its siblings `at-mint` and `at-jam`) with the one-command installer. The
 repo is private today, so it uses your GitHub CLI login (`gh auth login`) to pull
 the latest release, verify its checksum, and drop the binaries on your PATH:
 
@@ -35,6 +35,7 @@ Once the repo is public this collapses to the classic anonymous form — same sc
 curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
 ```
 
+Once installed, `at-cove update` (or `at-jam update`) moves to the latest release.
 Prefer to build from source? Use `just install`. Version pinning and the
 `BINDIR` / `COVE_SYSTEM` overrides are in
 [the overview](docs/OVERVIEW.md#installing-the-binaries).

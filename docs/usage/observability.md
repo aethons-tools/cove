@@ -4,7 +4,7 @@ read_when: You are operating `at-cove dispatch`/`work` (or `at-task`) and need t
 owns: the operational observability model — output-mode selection + flags, log-file locations, the run/issue/class/step correlation contract, and the secrets-never-in-logs operational guarantee
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: leaf
-updated: 2026-07-20
+updated: 2026-10-02
 ---
 
 # Observability: logs, modes, and correlation
@@ -97,7 +97,9 @@ rule):
    design. This is what makes shipping VM records safe.
 3. **Raw agent/VM output stays VM-local** — the agent step's output is teed to a
    VM-local file, never shipped to the structured sink; only a classified
-   agent-outcome record leaves the VM.
+   agent-outcome record leaves the VM. Session events are a separate, operator-only
+   audit channel that carries agent output by design; see
+   [jam/session-events.md](jam/session-events.md).
 4. **Redaction backstop** — any raw text logged locally at debug runs through a
    known-secret scrubber. Defense-in-depth, not the primary guarantee.
 

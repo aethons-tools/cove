@@ -38,7 +38,7 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 		httpc = http.DefaultClient
 	}
 	// Default the dispatch-label prefix here, not only in kit.ParseConfig: the
-	// harbor dispatcher wraps a bare LinearTracker (cmd/at-harbor) and never runs
+	// Requisitioner wraps a bare LinearTracker (cmd/at-jam) and never runs
 	// the kit parser, so without this the prefix arrives empty and the gate opens
 	// (every ready issue would be raised).
 	dispatchPrefix := lt.DispatchLabelPrefix
@@ -386,6 +386,7 @@ type FeedComment struct {
 	Body            string
 	CreatedAt       time.Time
 	Author          string
+	AuthorID        string // the author's Linear user id
 	IssueIdentifier string
 	ParentID        string
 }
@@ -393,7 +394,7 @@ type FeedComment struct {
 // CommentFeed returns comments in the Client's team created after `since`,
 // oldest-first, capped at `limit`. Backs the relay Linear ingress adapter.
 func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([]FeedComment, error) {
-	const q = `query($key:String!,$since:DateTimeOrDuration!,$first:Int!){comments(filter:{issue:{team:{key:{eq:$key}}},createdAt:{gt:$since}},orderBy:createdAt,first:$first){nodes{id body createdAt user{displayName} issue{identifier} parent{id}}}}`
+	const q = `query($key:String!,$since:DateTimeOrDuration!,$first:Int!){comments(filter:{issue:{team:{key:{eq:$key}}},createdAt:{gt:$since}},orderBy:createdAt,first:$first){nodes{id body createdAt user{id displayName} issue{identifier} parent{id}}}}`
 	var out struct {
 		Comments struct {
 			Nodes []struct {
@@ -401,6 +402,7 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 				Body      string `json:"body"`
 				CreatedAt string `json:"createdAt"`
 				User      struct {
+					ID          string `json:"id"`
 					DisplayName string `json:"displayName"`
 				} `json:"user"`
 				Issue struct {
@@ -418,7 +420,7 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 	fs := make([]FeedComment, 0, len(out.Comments.Nodes))
 	for _, n := range out.Comments.Nodes {
 		at, _ := time.Parse(time.RFC3339, n.CreatedAt) // Linear returns RFC3339; tolerate parse failure as zero
-		fc := FeedComment{ID: n.ID, Body: n.Body, CreatedAt: at, Author: n.User.DisplayName, IssueIdentifier: n.Issue.Identifier}
+		fc := FeedComment{ID: n.ID, Body: n.Body, CreatedAt: at, Author: n.User.DisplayName, AuthorID: n.User.ID, IssueIdentifier: n.Issue.Identifier}
 		if n.Parent != nil {
 			fc.ParentID = n.Parent.ID
 		}
@@ -428,7 +430,7 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 }
 
 // Viewer returns the display name of the identity the Client's token
-// authenticates as (harbor's own Linear user) — for the ingress self-post filter.
+// authenticates as (Jam's own Linear user) — for the ingress self-post filter.
 func (c *Client) Viewer(ctx context.Context) (string, error) {
 	const q = `query{viewer{displayName}}`
 	var out struct {

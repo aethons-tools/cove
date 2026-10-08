@@ -13,9 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// fakeHarbor records what the mcp subcommand sent it and lets tests script a
+// fakeJam records what the mcp subcommand sent it and lets tests script a
 // canned inbox or a failure status.
-type fakeHarbor struct {
+type fakeJam struct {
 	gotAuth   string
 	gotMethod string
 	gotBody   map[string]any
@@ -24,7 +24,7 @@ type fakeHarbor struct {
 	inbox      []squawkOut // canned GET response
 }
 
-func (f *fakeHarbor) handler() http.HandlerFunc {
+func (f *fakeJam) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f.gotAuth = r.Header.Get("Authorization")
 		f.gotMethod = r.Method
@@ -50,7 +50,7 @@ func (f *fakeHarbor) handler() http.HandlerFunc {
 	}
 }
 
-// connectMCP wires the messaging server (built against the fake harbor via
+// connectMCP wires the messaging server (built against the fake Jam via
 // getenv) to a client over in-memory transports, per go-sdk v1.7.0's pattern:
 // the server side must connect before the client initializes its session.
 func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
@@ -76,13 +76,13 @@ func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
 }
 
 func TestMCPListsReadAndSend(t *testing.T) {
-	fh := &fakeHarbor{}
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -95,19 +95,19 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] {
-		t.Fatalf("want read+send+list_targets+commit tools, got %v", names)
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["report"] || !names["call_in"] || !names["leave"] {
+		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
 
-func TestMCPSendForwardsToHarbor(t *testing.T) {
-	fh := &fakeHarbor{}
+func TestMCPSendForwardsToJam(t *testing.T) {
+	fh := &fakeJam{}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-A",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -123,26 +123,26 @@ func TestMCPSendForwardsToHarbor(t *testing.T) {
 		t.Fatalf("send tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodPost {
-		t.Fatalf("harbor saw method %q, want POST", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want POST", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-A" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-A", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-A", fh.gotAuth)
 	}
 	if fh.gotBody["body"] != "hi" {
-		t.Fatalf("harbor saw body %v, want {body: hi}", fh.gotBody)
+		t.Fatalf("Jam saw body %v, want {body: hi}", fh.gotBody)
 	}
 }
 
 func TestMCPReadReturnsInbox(t *testing.T) {
-	fh := &fakeHarbor{inbox: []squawkOut{
+	fh := &fakeJam{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
 	}}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-B",
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-B",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -158,10 +158,10 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 		t.Fatalf("read tool reported error: %+v", res.Content)
 	}
 	if fh.gotMethod != http.MethodGet {
-		t.Fatalf("harbor saw method %q, want GET", fh.gotMethod)
+		t.Fatalf("Jam saw method %q, want GET", fh.gotMethod)
 	}
 	if fh.gotAuth != "Bearer tok-B" {
-		t.Fatalf("harbor saw Authorization %q, want Bearer tok-B", fh.gotAuth)
+		t.Fatalf("Jam saw Authorization %q, want Bearer tok-B", fh.gotAuth)
 	}
 
 	b, err := json.Marshal(res.StructuredContent)
@@ -188,9 +188,9 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -198,11 +198,36 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.send(context.Background(), "hi", "human:alice"); err != nil {
+	out, err := c.send(context.Background(), "hi", "human:alice", "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/squawks" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+	if out != (sendOut{}) {
+		t.Fatalf("an older Jam's 204 is an empty result: %+v", out)
+	}
+}
+
+// A current Jam answers the squawk's id and channel.
+func TestMCPSendReturnsIDAndChannel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"m1","channel":{"id":"chn_x","kind":"ticket","label":"ACME-7"}}`))
+	}))
+	defer srv.Close()
+	c, _ := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	out, err := c.send(context.Background(), "hi", "", "")
+	if err != nil || out.ID != "m1" || out.Channel != (partyOut{ID: "chn_x", Kind: "ticket", Label: "ACME-7"}) {
+		t.Fatalf("send = %+v, %v", out, err)
 	}
 }
 
@@ -217,9 +242,9 @@ func TestMCPListTargets(t *testing.T) {
 	defer srv.Close()
 	c, _ := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -240,9 +265,9 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -268,9 +293,9 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -308,9 +333,9 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -338,9 +363,9 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -360,7 +385,7 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	}
 }
 
-func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
+func TestMCPCommitToolForwardsToJam(t *testing.T) {
 	var gotPath, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -372,8 +397,8 @@ func TestMCPCommitToolForwardsToHarbor(t *testing.T) {
 	defer srv.Close()
 
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   srv.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": "tok-C",
+		"AT_JAM_RUNTIME_ADDR":   srv.URL,
+		"AT_JAM_IDENTITY_TOKEN": "tok-C",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -416,9 +441,9 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_HARBOR_RUNTIME_ADDR":
+		case "AT_JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_HARBOR_IDENTITY_TOKEN":
+		case "AT_JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -434,15 +459,112 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	}
 }
 
+func turnEndClient(t *testing.T, gotMethod, gotPath, gotBody *string) *messagingClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*gotMethod, *gotPath = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		*gotBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestMCPEndForwardsReason(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.end(context.Background(), "merged"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "POST" || p != "/end" || !strings.Contains(b, `"reason":"merged"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPIdleTimeoutForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.idleTimeout(context.Background(), "45m", "next"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/idle" || !strings.Contains(b, `"duration":"45m"`) || !strings.Contains(b, `"scope":"next"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPAlarmSetForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.setAlarm(context.Background(), "pr-watch", "*/5 * * * *", "check", "gh pr checks"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/alarms/pr-watch" || !strings.Contains(b, `"schedule":"*/5 * * * *"`) || !strings.Contains(b, `"note":"check"`) || !strings.Contains(b, `"gate":"gh pr checks"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPAlarmClearForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.clearAlarm(context.Background(), "pr-watch"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "DELETE" || p != "/alarms/pr-watch" {
+		t.Fatalf("%s %s", m, p)
+	}
+}
+
+func TestMCPAlarmListDecodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"alarms":[{"name":"nightly","schedule":"0 2 * * *","note":"backup","next_at":"2026-10-06T02:00:00Z","gate":"true","last_gate":{"at":"2026-10-05T02:00:00Z","verdict":"pass","exit":0}}]}`)
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		return map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.listAlarms(context.Background())
+	if err != nil || len(out.Alarms) != 1 || out.Alarms[0].Name != "nightly" || out.Alarms[0].NextAt != "2026-10-06T02:00:00Z" ||
+		out.Alarms[0].Gate != "true" || out.Alarms[0].LastGate == nil || out.Alarms[0].LastGate.Verdict != "pass" {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+}
+
+func TestMCPReportForwards(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.report(context.Background(), "in-review", "PR is up", "https://github.com/o/r/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "POST" || p != "/report" || !strings.Contains(b, `"state":"in-review"`) || !strings.Contains(b, `"summary":"PR is up"`) || !strings.Contains(b, `"pr":"https://github.com/o/r/pull/7"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
 func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
-	fh := &fakeHarbor{failStatus: http.StatusInternalServerError}
+	fh := &fakeJam{failStatus: http.StatusInternalServerError}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
 
 	const secretToken = "super-secret-token-value"
 	env := map[string]string{
-		"AT_HARBOR_RUNTIME_ADDR":   backend.URL,
-		"AT_HARBOR_IDENTITY_TOKEN": secretToken,
+		"AT_JAM_RUNTIME_ADDR":   backend.URL,
+		"AT_JAM_IDENTITY_TOKEN": secretToken,
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -455,7 +577,7 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 		t.Fatalf("CallTool(send) protocol error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("want a tool-level error on a non-2xx harbor response")
+		t.Fatal("want a tool-level error on a non-2xx Jam response")
 	}
 	var text strings.Builder
 	for _, c := range res.Content {
@@ -465,5 +587,73 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 	}
 	if strings.Contains(text.String(), secretToken) {
 		t.Fatalf("tool error leaked the token: %q", text.String())
+	}
+}
+
+func TestMCPSendForwardsContentTypeAndReadReturnsIt(t *testing.T) {
+	fh := &fakeJam{inbox: []squawkOut{
+		{ID: "m1", Author: "brent", Body: "a_b_c", At: "2026-09-13T00:00:00Z", ContentType: "text/plain"},
+	}}
+	backend := httptest.NewServer(fh.handler())
+	defer backend.Close()
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": backend.URL, "AT_JAM_IDENTITY_TOKEN": "tok-A"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+
+	// Default: no content_type sent (Jam defaults to markdown).
+	if _, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "**hi**"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fh.gotBody["content_type"]; ok {
+		t.Fatalf("default send should omit content_type; Jam saw %v", fh.gotBody)
+	}
+	// Opt-out: forwarded as-is.
+	if _, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "2 * 3", "content_type": "text/plain"}}); err != nil {
+		t.Fatal(err)
+	}
+	if fh.gotBody["content_type"] != "text/plain" {
+		t.Fatalf("Jam saw %v, want content_type text/plain", fh.gotBody)
+	}
+	// read surfaces each message's content type.
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "read", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
+	if !strings.Contains(string(raw), `"content_type":"text/plain"`) {
+		t.Fatalf("read output %s should carry content_type", raw)
+	}
+}
+
+func TestMCPCallInAndLeaveToolsForwardToJam(t *testing.T) {
+	var paths, bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		paths, bodies = append(paths, r.URL.Path), append(bodies, string(b))
+		if strings.HasSuffix(r.URL.Path, "/leave") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channel":{"id":"chn_1","kind":"session","label":"spider"},"member":{"id":"usr_1","kind":"user","label":"bob"}}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok-C"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "call_in", Arguments: map[string]any{"who": "user:bob"}})
+	if err != nil || res.IsError {
+		t.Fatalf("call_in: %v %+v", err, res)
+	}
+	b, _ := json.Marshal(res.StructuredContent)
+	var out callInOut
+	if err := json.Unmarshal(b, &out); err != nil || out.Channel.ID != "chn_1" || out.Member.Label != "bob" {
+		t.Fatalf("call_in result = %+v, %v", out, err)
+	}
+	if res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "leave", Arguments: map[string]any{"channel": "chn_2"}}); err != nil || res.IsError {
+		t.Fatalf("leave: %v %+v", err, res)
+	}
+	if len(paths) != 2 || paths[0] != "/squawks/call-in" || !strings.Contains(bodies[0], `"who":"user:bob"`) ||
+		paths[1] != "/squawks/leave" || !strings.Contains(bodies[1], `"channel":"chn_2"`) {
+		t.Fatalf("requests = %q %q", paths, bodies)
 	}
 }

@@ -4,6 +4,7 @@ package backend
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -78,7 +79,7 @@ type CreateContext struct {
 	Docker bool
 	// ExtraHosts maps hostnames to the host gateway via docker run
 	// --add-host <h>:host-gateway, so the container can reach a host-run service
-	// (e.g. a loopback-bound harbor broker) by name — COV-138. Empty adds nothing.
+	// (e.g. a loopback-bound Jam broker) by name — COV-138. Empty adds nothing.
 	ExtraHosts []string
 }
 
@@ -89,6 +90,7 @@ type InstallContext struct {
 	Kit      string   // identity for the built image tag (naming.Image → atcove-<Kit>)
 	BuildDir string   // the assembled .build context to build
 	Base     BaseSpec // base resolution + provenance gate inputs (owns AllowUnverified)
+	NoCache  bool     // bypass docker's layer cache for this build (forces a fresh claude/plugin install)
 }
 
 // InstalledImage is Backend.Install's result: the built, tagged image and the
@@ -155,7 +157,7 @@ type Backend interface {
 // consumes the image `at-cove install` pre-built (COV-38); there is no build op
 // here — RunEphemeral runs that installed image directly.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117)
+	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...Mount) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117); mounts attaches named volumes, which --rm never removes (COV-249)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
@@ -163,6 +165,32 @@ type DispatchOps interface {
 	// ScavengeLabeled force-removes labeled containers whose age (relative to now)
 	// exceeds olderThan. Returns the count removed.
 	ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error)
+}
+
+// Mount is a named docker volume mounted into an ephemeral container at
+// Target. Named volumes outlive the container: `--rm` removes only anonymous
+// volumes and `docker rm -f` (no -v) none, so a later run with the same Mount
+// re-attaches the same state (a Jam standing session's /agent-data and
+// workspace, COV-249). Only VolumeRemover deletes them.
+type Mount struct {
+	Volume string // docker volume name (created on first use)
+	Target string // absolute mount path in the container
+}
+
+// VolumeOps manages labeled named volumes. Kept its own interface so the
+// DispatchOps surface (at-cove work, whose containers mount no named state)
+// doesn't grow it; Jam's launcher requires it for standing sessions' state
+// volumes (COV-249), and Destroy removes an instance's volumes through it.
+type VolumeOps interface {
+	// CreateVolume creates the named volume with labels ("key=value" each);
+	// creating an existing volume is a no-op.
+	CreateVolume(name string, labels ...string) error
+	// RemoveVolumes deletes the named volumes; an absent volume is not an
+	// error, an in-use one is.
+	RemoveVolumes(names ...string) error
+	// ListVolumes returns the volumes carrying label key, name → its value,
+	// narrowed to those also carrying every match label ("key=value").
+	ListVolumes(key string, match ...string) (map[string]string, error)
 }
 
 // SessionEgress applies a session's per-class egress delta to a running
@@ -178,6 +206,60 @@ type SessionEgress interface {
 	// reverts to the baked sealed + kit lists — root-only for a no-class or
 	// exited session). Domains flow on stdin only, never on argv.
 	ApplySessionEgress(container string, domains []string) error
+}
+
+// RoleEgress replaces a running container's active egress policy list with a
+// role's domains, which must fit the kit's baked ceiling (enforced in-box by the
+// sealed apply-role-egress.sh). Privileged: host docker exec as root; domains on
+// stdin only. Jam's launcher applies it at raise, before the agent starts, and
+// again on a running cove when the role's policy changes.
+type RoleEgress interface {
+	// ApplyRoleEgress execs the sealed helper inside container (as root) with
+	// domains piped on stdin, one per line. An empty domains is a set-but-empty
+	// policy (nothing beyond the sealed base + the kit's infra domains). The
+	// helper rejects — changing nothing — any domain outside the ceiling.
+	ApplyRoleEgress(container string, domains []string) error
+	// ResetRoleEgress execs the sealed helper inside container (as root) in its
+	// --kit-default mode, with empty stdin: the active list reverts to the kit's
+	// baked default (its ceiling). Used when a role's policy is cleared.
+	ResetRoleEgress(container string) error
+}
+
+// KitImageBuilder is the managed-cove build+inventory surface a Jam launcher
+// drives on a substrate (COV-217). The launcher owns "prepare a managed kit's
+// image", which each substrate builds its own way — Colima builds locally via
+// docker in its pinned context, so the build and the RunEphemeral that later runs
+// the image share one daemon. Kept its own interface so the launcher type-asserts
+// it and the persistent Backend/DispatchOps surfaces don't grow build methods.
+//
+// Distinct from Backend.Install (the at-cove single gated build site, COV-38):
+// this builds an already-assembled context FROM a base the caller has already
+// resolved and gated (at-cove install's manifest BaseRef), so it reuses that
+// blessed base rather than running the provenance gate again.
+type KitImageBuilder interface {
+	// BuildKitImage builds the assembled context in buildDir into the tagged image,
+	// FROM base (the Dockerfile's BASE arg; must be non-empty), injecting buildArgs
+	// as additional --build-arg pairs. buildArgs values must never carry secrets.
+	// noCache bypasses docker's layer cache. Returns the built image's own sha256 digest.
+	BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (digest string, err error)
+	// HasKitImage reports whether the tagged image exists on this substrate. A
+	// miss is (false, nil) — the normal signal that drives PrepareKit — not an error.
+	HasKitImage(tag string) (bool, error)
+	// ResolveKitBase resolves + gates a role-named kit's declared base into the ref
+	// to pass BuildKitImage as its base. An empty declaredBase resolves to the
+	// substrate's blessed default. The provenance gate is ON — a brokered kit gets
+	// no --allow-unverified escape hatch, so an unblessed base errors here rather
+	// than building. All studio kits resolve + gate their declared base here (gate
+	// ON, no allow-unverified); an empty declared base resolves to the blessed default.
+	ResolveKitBase(declaredBase string) (resolvedBase string, err error)
+	// ResolveKitBaseTar streams a studio kit's build context (a tar, gzip
+	// auto-detected) to `docker build -`, tags the built image, and gates it —
+	// returning the ref to pass BuildKitImage as its base. Docker reads the context
+	// on stdin and preserves file modes natively (so a +x script keeps its exec
+	// bit). The gate is ON (same as ResolveKitBase) — the built base must descend
+	// from a blessed cove-base-image or this errors. The context's Dockerfile builds
+	// FROM the blessed base via the injected COVE_BASE_IMAGE build arg.
+	ResolveKitBaseTar(ctx io.Reader) (resolvedBase string, err error)
 }
 
 // Factory constructs a Backend bound to a Runner.

@@ -1,0 +1,347 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/switchboard"
+)
+
+// fakeDiscordClient is a fake discordClient: records PostID calls, returns a
+// scripted post id / poll result, so discordSurface is testable without a
+// live Discord bot.
+type fakeDiscordClient struct {
+	posts      []struct{ channel, content string }
+	postID     string
+	postErr    error
+	pollMsgs   []switchboard.Message
+	pollNext   map[string]string
+	pollErr    error
+	gotCursors map[string]string
+}
+
+func (f *fakeDiscordClient) PostID(_ context.Context, ch, c string) (string, error) {
+	if f.postErr != nil {
+		return "", f.postErr
+	}
+	f.posts = append(f.posts, struct{ channel, content string }{ch, c})
+	return f.postID, nil
+}
+
+func (f *fakeDiscordClient) Poll(_ context.Context, cur map[string]string) ([]switchboard.Message, map[string]string, error) {
+	f.gotCursors = cur
+	return f.pollMsgs, f.pollNext, f.pollErr
+}
+
+func mustReceipts(t *testing.T) *fileReceipts {
+	t.Helper()
+	r, err := newFileReceipts(filepath.Join(t.TempDir(), "receipts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestDiscordDeliverRecordsReceipt(t *testing.T) {
+	fc := &fakeDiscordClient{postID: "D1"}
+	rec := mustReceipts(t)
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: "cove-1", Body: "hi"})
+	if err != nil || id != "D1" {
+		t.Fatalf("Deliver = %q,%v", id, err)
+	}
+	if len(fc.posts) != 1 || fc.posts[0].channel != "inbox-A" || fc.posts[0].content != "cove-1: hi" {
+		t.Fatalf("post = %+v", fc.posts)
+	}
+	if a, ok := rec.Lookup("D1"); !ok || a != (receipt{Actor: "cove-1", Message: "M1"}) {
+		t.Fatalf("receipt = %+v,%v", a, ok)
+	}
+}
+
+func TestDiscordDeliverPropagatesPostError(t *testing.T) {
+	fc := &fakeDiscordClient{postErr: errBoom}
+	rec := mustReceipts(t)
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{Body: "x"}); err == nil {
+		t.Fatal("expected post error")
+	}
+}
+
+func TestDiscordDeliverSwallowsEmptyID(t *testing.T) {
+	// PostID returning "" (a known empty-response-body behavior) must never
+	// be recorded as a receipt — an empty key would be ambiguous.
+	fc := &fakeDiscordClient{postID: ""}
+	rec := mustReceipts(t)
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"})
+	if err != nil || id != "" {
+		t.Fatalf("Deliver = %q,%v", id, err)
+	}
+	if _, ok := rec.Lookup(""); ok {
+		t.Fatal("must not record an empty-key receipt")
+	}
+}
+
+func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
+	// receipts pointed at an unwritable path: Record fails, but the post
+	// already happened, so Deliver must still return a nil error — an error
+	// here would make the engine retry and double-post. The swallowed error
+	// must still surface as a warn log (channel + error only — no secret
+	// body/token), so it isn't silently lost.
+	fc := &fakeDiscordClient{postID: "D1"}
+	// newFileReceipts tolerates a missing file at open time (starts empty);
+	// the parent dir not existing only bites on the later Record→WriteFile.
+	rec, err := newFileReceipts(filepath.Join(t.TempDir(), "nope", "sub", "receipts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logbuf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logbuf, nil))
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec, log: log}
+	const secretBody = "top-secret cove message body"
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: secretBody})
+	if err != nil {
+		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
+	}
+	if id != "D1" {
+		t.Fatalf("Deliver id = %q, want D1", id)
+	}
+	logs := logbuf.String()
+	if !strings.Contains(logs, "receipt record failed") || !strings.Contains(logs, "channel=c") {
+		t.Fatalf("expected a warn log naming the channel, got %q", logs)
+	}
+	if strings.Contains(logs, secretBody) {
+		t.Fatalf("log must not contain the message body, got %q", logs)
+	}
+}
+
+func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
+	// A nil logger (e.g. a discordSurface constructed without one) must not
+	// panic on the swallowed-error path.
+	fc := &fakeDiscordClient{postID: "D1"}
+	rec, err := newFileReceipts(filepath.Join(t.TempDir(), "nope", "sub", "receipts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"}); err != nil {
+		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
+	}
+}
+
+func TestDiscordPollMapsReplies(t *testing.T) {
+	fc := &fakeDiscordClient{
+		pollMsgs: []switchboard.Message{{ID: "m2", Channel: "inbox-A", Author: "alice", Content: "re", ReferencedID: "D1"}},
+		pollNext: map[string]string{"inbox-A": "m2"},
+	}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
+	ev, next, err := s.Poll(context.Background(), "acme", "")
+	if err != nil || len(ev) != 1 || ev[0].ReplyToForeign != "D1" || ev[0].ForeignID != "m2" || ev[0].Author != "alice" {
+		t.Fatalf("poll = %+v,%v", ev, err)
+	}
+	if fc.gotCursors == nil || len(fc.gotCursors) != 0 {
+		t.Fatalf("expected empty decoded cursors, got %+v", fc.gotCursors)
+	}
+	// next round-trips: decode(next) == pollNext
+	if got := decodeCursors(next); got["inbox-A"] != "m2" {
+		t.Fatalf("next = %q", next)
+	}
+}
+
+func TestDiscordPollCarriesAuthorIDAndBotFlag(t *testing.T) {
+	fc := &fakeDiscordClient{
+		pollMsgs: []switchboard.Message{
+			{ID: "m1", Channel: "inbox-A", Author: "alice", AuthorID: "111", Content: "hi"},
+			{ID: "m2", Channel: "inbox-A", Author: "botty", AuthorID: "222", AuthorBot: true, Content: "beep"},
+		},
+	}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
+	ev, _, err := s.Poll(context.Background(), "acme", "")
+	if err != nil || len(ev) != 2 {
+		t.Fatalf("poll = %+v,%v", ev, err)
+	}
+	if ev[0].AuthorID != "111" || ev[0].AuthorBot || ev[0].Author != "alice" {
+		t.Fatalf("ev[0] = %+v", ev[0])
+	}
+	if ev[1].AuthorID != "222" || !ev[1].AuthorBot {
+		t.Fatalf("ev[1] = %+v", ev[1])
+	}
+}
+
+func TestDiscordPollPropagatesError(t *testing.T) {
+	fc := &fakeDiscordClient{pollErr: errBoom}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
+	ev, next, err := s.Poll(context.Background(), "acme", "cur")
+	if err == nil || len(ev) != 0 || next != "cur" {
+		t.Fatalf("poll = %+v,%q,%v", ev, next, err)
+	}
+}
+
+func TestDiscordPollEmptyChannels(t *testing.T) {
+	s := &discordSurface{channelsFor: func(string) []string { return nil }}
+	ev, next, err := s.Poll(context.Background(), "acme", "cur")
+	if err != nil || len(ev) != 0 || next != "cur" {
+		t.Fatalf("empty = %+v,%q,%v", ev, next, err)
+	}
+}
+
+func TestCursorCodecRoundTrip(t *testing.T) {
+	if got := decodeCursors(""); len(got) != 0 {
+		t.Fatal("empty → empty map")
+	}
+	m := map[string]string{"a": "1", "b": "2"}
+	if got := decodeCursors(encodeCursors(m)); got["a"] != "1" || got["b"] != "2" {
+		t.Fatalf("round-trip = %+v", got)
+	}
+	if got := decodeCursors("not json"); len(got) != 0 {
+		t.Fatal("torn → empty")
+	}
+	if got := encodeCursors(nil); got != "" {
+		t.Fatalf("nil map should encode to %q, got %q", "", got)
+	}
+	if got := encodeCursors(map[string]string{}); got != "" {
+		t.Fatalf("empty map should encode to %q, got %q", "", got)
+	}
+}
+
+func TestFileReceiptsRoundTrip(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "r.json")
+	r, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Lookup("D1"); ok {
+		t.Fatal("empty lookup should miss")
+	}
+	if err := r.Record("D1", "cove-1", "M1", "chn_1"); err != nil {
+		t.Fatal(err)
+	}
+	want := receipt{Actor: "cove-1", Message: "M1", Channel: "chn_1"}
+	if a, ok := r.Lookup("D1"); !ok || a != want {
+		t.Fatalf("lookup = %+v,%v", a, ok)
+	}
+	r2, err := newFileReceipts(p) // reload
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r2.Lookup("D1"); !ok || a != want {
+		t.Fatalf("reload = %+v,%v", a, ok)
+	}
+}
+
+// A receipts file written before receipts carried the message id is a flat
+// map[discord-msg-id]actorID; it still loads, as receipts with no message id.
+func TestFileReceiptsLegacyFormat(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "r.json")
+	if err := os.WriteFile(p, []byte(`{"D1":"actor-x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
+		t.Fatalf("legacy lookup = %+v,%v", a, ok)
+	}
+	// a new Record alongside the legacy entry persists both in the new shape
+	if err := r.Record("D2", "actor-y", "M2", "chn_2"); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := newFileReceipts(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := r2.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
+		t.Fatalf("legacy after rewrite = %+v,%v", a, ok)
+	}
+	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2", Channel: "chn_2"}) {
+		t.Fatalf("new after rewrite = %+v,%v", a, ok)
+	}
+}
+
+// A torn or corrupt receipts file loads empty rather than failing.
+func TestFileReceiptsCorruptFile(t *testing.T) {
+	for _, body := range []string{`{"D1":"act`, `not json`, `{"D1":42}`} {
+		p := filepath.Join(t.TempDir(), "r.json")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r, err := newFileReceipts(p)
+		if err != nil {
+			t.Fatalf("%q: %v", body, err)
+		}
+		if _, ok := r.Lookup("D1"); ok {
+			t.Fatalf("%q: corrupt file must load empty", body)
+		}
+	}
+}
+
+func TestFileReceiptsMissingFile(t *testing.T) {
+	r, err := newFileReceipts(filepath.Join(t.TempDir(), "nope.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.Lookup("x"); ok {
+		t.Fatal("missing file → empty")
+	}
+}
+
+func TestDiscordPolledChannels(t *testing.T) {
+	st := jam.NewMemStore()
+	mustCreateProject(t, st, "acme")
+	for _, h := range []jam.Human{
+		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
+		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
+		{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // a shared inbox, deduped
+		{Name: "dave"}, // no inbox
+	} {
+		if err := jam.AddPerson(st, "acme", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range [][3]string{{"eng-help", "discord", "chan-C"}, {"linear-only", "linear", "ACME-1"}} {
+		if err := putRoom(st, "acme", r[0], r[1], r[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := discordPolledChannels(st, "acme")
+	sort.Strings(got)
+	if strings.Join(got, ",") != "chan-A,chan-B,chan-C" {
+		t.Fatalf("channels = %v, want the inboxes and the discord room's channel", got)
+	}
+	if got := discordPolledChannels(st, "nope"); got != nil {
+		t.Fatalf("unknown project = %v", got)
+	}
+}
+
+var errBoom = errBoomType("boom")
+
+type errBoomType string
+
+func (e errBoomType) Error() string { return string(e) }
+
+func TestDiscordDeliverEscapesPlainText(t *testing.T) {
+	fc := &fakeDiscordClient{postID: "D1"}
+	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: mustReceipts(t)}
+	d := relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}
+	from := ident.ID("cove-1")
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M2", From: from, Body: "a_b *c*", ContentType: intercom.ContentPlain}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fc.posts) != 2 || fc.posts[0].content != "cove-1: *hi*" || fc.posts[1].content != `cove-1: a\_b \*c\*` {
+		t.Fatalf("posts = %+v", fc.posts)
+	}
+}

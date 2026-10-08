@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"net"
+	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/naming"
 	"gopkg.in/yaml.v3"
 )
@@ -19,7 +25,7 @@ import (
 // produced is a machine-side concern (see internal/usersecret) — a kit never
 // carries a resolver command.
 type SecretConfig struct {
-	Description string `yaml:"description"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // ImageConfig declares the image a kit hardens and its additive egress. Build-time
@@ -36,21 +42,21 @@ type ImageConfig struct {
 	DNS []string `yaml:"dns,omitempty"`
 }
 
-// HarborConfig routes a hardened cove's Anthropic + git through a harbor broker
+// JamConfig routes a hardened cove's Anthropic + git through a Jam broker
 // (COV-138). When set, at-cove folds Host into the egress allow-list, adds a
 // --add-host <host>:host-gateway routability mapping (unless disabled), and
-// sources the harbor connector snippet into the session — superseding the
+// sources the Jam connector snippet into the session — superseding the
 // operator's OAuth/Vertex auth. Host is a bare hostname; the broker is reached
 // over TLS on :443 so no sealed egress changes are needed.
-type HarborConfig struct {
+type JamConfig struct {
 	Host           string `yaml:"host"`             // bare hostname of the :443 TLS broker
 	Identity       string `yaml:"identity"`         // host-supplied secret name for the identity token
 	ViaHostGateway *bool  `yaml:"via-host-gateway"` // nil → true; add --add-host host:host-gateway
 }
 
 // HostGateway reports whether to add the --add-host <host>:host-gateway mapping
-// (default true — the common host-run-harbor-on-loopback case).
-func (h *HarborConfig) HostGateway() bool {
+// (default true — the common host-run-Jam-on-loopback case).
+func (h *JamConfig) HostGateway() bool {
 	return h.ViaHostGateway == nil || *h.ViaHostGateway
 }
 
@@ -251,7 +257,7 @@ type LinearTracker struct {
 	Team             string `yaml:"team"`
 	PollInterval     string `yaml:"poll-interval"`
 	ClassLabelPrefix string `yaml:"class-label-prefix"`
-	// DispatchLabelPrefix gates which ready issues harbor's resident dispatcher
+	// DispatchLabelPrefix gates which ready issues the Requisitioner
 	// raises a cove for: only issues carrying a label with this prefix. Defaults
 	// to "dispatch:" (presence-only; the value after the prefix is unused).
 	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`
@@ -352,22 +358,6 @@ func (c Config) ResolvedTeammateDomains(class string) ([]string, error) {
 		return nil, fmt.Errorf("kit %q declares no teammate class %q", c.Name, class)
 	}
 	return unionDomains(c.Teammates[commonKey].AllowedDomains, own.AllowedDomains), nil
-}
-
-// ModelProvider switches the sandbox's agent off first-party Anthropic and onto a
-// third-party Claude provider — a union keyed by provider name (vertex only today).
-// Its presence is the switch; absent, the Anthropic auth paths are unchanged.
-type ModelProvider struct {
-	Vertex *VertexProvider `yaml:"vertex,omitempty"`
-}
-
-// VertexProvider configures Claude on Google Vertex AI. Because Claude Code's
-// Vertex configuration is entirely environment-driven, the payload is a non-secret
-// env map: at-cove demands the required keys and passes any other (non-protected)
-// key through. The GCP *credential* is not here — it is a host-supplied file
-// (see cmd/at-cove: the GOOGLE_APPLICATION_CREDENTIALS_JSON demand).
-type VertexProvider struct {
-	Env map[string]string `yaml:"env"`
 }
 
 // ResolvedCollaborator returns the named collaborator with the collaborators
@@ -524,8 +514,19 @@ type Config struct {
 	Dispatch      *Dispatch               `yaml:"dispatch,omitempty"`
 	Collaborators map[string]Collaborator `yaml:"collaborators,omitempty"`
 	Teammates     map[string]Teammate     `yaml:"teammates,omitempty"`
-	ModelProvider *ModelProvider          `yaml:"model-provider,omitempty"`
-	Harbor        *HarborConfig           `yaml:"harbor,omitempty"`
+	// ModelSpec is the kit's model-spec (COV-241): the same schema Jam stores
+	// (modelspec.Spec) and the same validator (modelspec.Validate), with a
+	// plain-at-cove principal rule. nil = claude-default (EffectiveModelSpec).
+	ModelSpec *modelspec.Spec `yaml:"model-spec,omitempty"`
+	// LegacyModelProvider is the removed model-provider: block, kept only so
+	// ParseConfig can refuse it with a migration hint (never "unknown field").
+	LegacyModelProvider yaml.Node  `yaml:"model-provider,omitempty" json:"-"`
+	Jam                 *JamConfig `yaml:"jam,omitempty"`
+	// DeprecatedHarbor is the pre-rename name of the jam: block, accepted for
+	// one release with a warning (both present is an error). ParseConfig folds
+	// it into Jam and clears it, so nothing else ever reads it. See
+	// docs/usage/jam/renamed-from-harbor.md.
+	DeprecatedHarbor *JamConfig `yaml:"harbor,omitempty"`
 	// Docker opts the kit into docker-in-sandbox via the Sysbox runtime (COV-117).
 	// When true, the colima backend runs the sandbox container under
 	// --runtime=sysbox-runc with a persistent /var/lib/docker cache volume, so a
@@ -534,6 +535,10 @@ type Config struct {
 	// bool, a non-bool value is rejected by the strict decoder.
 	Docker bool `yaml:"docker,omitempty"`
 }
+
+// deprecationOut receives deprecated-name warnings from ParseConfig (stderr; a
+// test swaps it to assert on them).
+var deprecationOut io.Writer = os.Stderr
 
 // ParseConfig unmarshals and validates config.yml bytes. Unknown fields are
 // rejected to catch typos early.
@@ -546,6 +551,13 @@ func ParseConfig(data []byte) (Config, error) {
 	}
 	if cfg.Name == "" {
 		return Config{}, fmt.Errorf("config.yml: name is required")
+	}
+	if cfg.DeprecatedHarbor != nil {
+		if cfg.Jam != nil {
+			return Config{}, fmt.Errorf("config.yml: both jam: and harbor: are set; harbor: is the deprecated name for jam: — keep only jam: (see %s)", logging.RenameDoc)
+		}
+		logging.Deprecated(deprecationOut, "config.yml harbor:", "jam:")
+		cfg.Jam, cfg.DeprecatedHarbor = cfg.DeprecatedHarbor, nil
 	}
 	if err := validateSecretNames("secrets", cfg.Secrets, false); err != nil {
 		return Config{}, err
@@ -827,43 +839,47 @@ func ParseConfig(data []byte) (Config, error) {
 			return Config{}, fmt.Errorf("config.yml: %q is declared as both a collaborator and a teammate; class names must be unique", name)
 		}
 	}
-	if err := validateModelProvider(cfg); err != nil {
+	if cfg.LegacyModelProvider.Kind != 0 {
+		return Config{}, modelProviderMigrationError(&cfg.LegacyModelProvider)
+	}
+	if err := validateKitModelSpec(cfg.ModelSpec); err != nil {
 		return Config{}, err
 	}
-	if err := validateHarbor(cfg.Harbor); err != nil {
+	if err := validateJam(cfg.Jam); err != nil {
 		return Config{}, err
 	}
-	// harbor supersedes the agent's Anthropic auth, so it is mutually exclusive with
-	// a model provider (which would set an incoherent CLAUDE_CODE_USE_VERTEX pointed
-	// at harbor's base URL with no GCP creds).
-	if cfg.Harbor != nil && cfg.ModelProvider != nil {
-		return Config{}, fmt.Errorf("config.yml: harbor and model-provider are mutually exclusive (harbor supersedes the agent's Anthropic auth)")
+	// Jam supersedes the agent's Anthropic auth and delivers the cove's
+	// model-spec from the role binding, so it is mutually exclusive with a
+	// kit-authored one (a vertex spec would set an incoherent
+	// CLAUDE_CODE_USE_VERTEX pointed at Jam's base URL with no GCP creds).
+	if cfg.Jam != nil && cfg.ModelSpec != nil {
+		return Config{}, fmt.Errorf("config.yml: jam and model-spec are mutually exclusive (under jam, the cove's model-spec comes from its Jam role binding)")
 	}
 	return cfg, nil
 }
 
-// validateHarbor checks the harbor: block: a non-empty bare-hostname Host (no
+// validateJam checks the jam: block: a non-empty bare-hostname Host (no
 // scheme, port, or path — the broker is reached over TLS on :443) and a non-empty
 // Identity (a host-supplied secret name).
-func validateHarbor(h *HarborConfig) error {
+func validateJam(h *JamConfig) error {
 	if h == nil {
 		return nil
 	}
 	host := strings.TrimSpace(h.Host)
 	if host == "" {
-		return fmt.Errorf("config.yml: harbor.host is required")
+		return fmt.Errorf("config.yml: jam.host is required")
 	}
-	// Strict hostname charset: harbor.host flows into the squid allow-list file and
+	// Strict hostname charset: jam.host flows into the squid allow-list file and
 	// an sh-interpreted `git config` script, so reject anything that could inject a
 	// second ACL line or a shell command substitution (newline, space, quotes, $,
 	// `, ;, /, :, …). TLS :443 is implied — no scheme, port, or path.
 	for _, r := range host {
 		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-'
 		if !ok {
-			return fmt.Errorf("config.yml: harbor.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
+			return fmt.Errorf("config.yml: jam.host %q must be a bare hostname (letters, digits, '.', '-'; no scheme, port, or path — TLS :443 is implied)", h.Host)
 		}
 	}
-	// harbor.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
+	// jam.identity is OPTIONAL: set → a host-supplied pre-enrolled token; omitted
 	// → at-cove auto-enrolls the cove (COV-141). So no required-check here.
 	return nil
 }
@@ -877,6 +893,12 @@ var reservedSecretNames = map[string]bool{
 	"AT_DISPATCH_WEBHOOK_SECRET": true,
 	gcpADCDemandName:             true,
 }
+
+// IsReservedSecretName reports whether n is a reserved subsystem secret name
+// (AT_TASK_GIT_TOKEN, AT_DISPATCH_*, the ADC demand). Exported so other packages
+// (e.g. internal/studio build-arg validation) can reject collisions without
+// duplicating the set.
+func IsReservedSecretName(n string) bool { return reservedSecretNames[n] }
 
 // gcpADCDemandName is the well-known demand name a Vertex kit's GCP Application
 // Default Credentials are supplied under (mirrors cmd/at-cove's gcpADCDemand
@@ -1072,51 +1094,53 @@ func checkKitDuration(field, v string) error {
 	return nil
 }
 
-// vertexProtectedEnvKeys are sealed-owned or security-relevant variables a kit's
-// model-provider env map must never set. Unlike a *secret* (demanded by the kit,
-// supplied by the machine — the operator is the gate), an env value is
-// kit-authored with no host gate, and the per-session env file is *sourced* in the
-// session shell, so an unchecked value would shadow the sealed /etc/environment
-// (e.g. the proxy vars) and could defeat egress. Rejected at validation and
-// dropped defensively at injection ("additive, sealed-wins" for env).
-var vertexProtectedEnvKeys = map[string]bool{
-	"http_proxy": true, "https_proxy": true, "no_proxy": true,
-	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
-	"CLAUDE_CONFIG_DIR":              true,
-	"GOOGLE_APPLICATION_CREDENTIALS": true,
-	"PATH":                           true,
-}
+// ProtectedEnvKey reports whether key is a sealed-owned or security-relevant
+// variable that operator-authored, non-secret env (a model-spec's
+// provider-env, in a kit or a Jam) must never set — modelspec.ProtectedEnvKey,
+// the one list.
+func ProtectedEnvKey(key string) bool { return modelspec.ProtectedEnvKey(key) }
 
-// vertexRequiredEnvKeys must be present in the provider env map.
+// vertexRequiredEnvKeys must be present in a kit model-spec's provider-env when
+// its provider is vertex: the project, and the region the egress is derived from.
 var vertexRequiredEnvKeys = []string{"ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"}
 
-// Vertex returns the Vertex provider config and true when the kit targets Vertex.
-func (c Config) Vertex() (*VertexProvider, bool) {
-	if c.ModelProvider == nil || c.ModelProvider.Vertex == nil {
-		return nil, false
+// EffectiveModelSpec is the model-spec the kit's cove runs under: its
+// model-spec: block, or else claude-default (modelspec.Default with no
+// principal — at-cove has none). harnessinstall.FromSpec of it is the image's
+// harness layer.
+//
+// A kit spec without a version follows DefaultClaudeVersion: the default is
+// applied here, at use, not stored — so the run-config install.json freezes
+// keeps no pin, and a bump makes the install stale like a kit without a spec.
+func (c Config) EffectiveModelSpec() modelspec.Spec {
+	if c.ModelSpec == nil {
+		return modelspec.Default("")
 	}
-	return c.ModelProvider.Vertex, true
+	return withDefaultVersion(*c.ModelSpec)
 }
 
-// VertexEnv returns the effective non-secret session env for a Vertex kit:
-// CLAUDE_CODE_USE_VERTEX=1 (at-cove-owned) plus every non-protected key from the
-// kit's env map. Protected keys are dropped defensively (validation already
-// rejected them). Returns nil for a non-Vertex kit. GOOGLE_APPLICATION_CREDENTIALS
-// (the ADC file pointer) is set by connect, not here.
-func (c Config) VertexEnv() map[string]string {
-	v, ok := c.Vertex()
-	if !ok {
-		return nil
+// withDefaultVersion fills an omitted version with DefaultClaudeVersion — the
+// at-cove loader's one difference from Jam's exact-required version.
+func withDefaultVersion(s modelspec.Spec) modelspec.Spec {
+	if strings.TrimSpace(s.Version) == "" {
+		s.Version = modelspec.DefaultClaudeVersion
 	}
-	env := map[string]string{"CLAUDE_CODE_USE_VERTEX": "1"}
-	for k, val := range v.Env {
-		if vertexProtectedEnvKeys[k] {
-			continue
-		}
-		env[k] = val
-	}
-	return env
+	return s
 }
+
+// UsesVertex reports whether the kit's model-spec targets Claude on Vertex AI
+// (claude.provider: vertex) — the switch for the host-supplied GCP ADC demand
+// and the derived Vertex egress.
+func (c Config) UsesVertex() bool {
+	return c.ModelSpec != nil && c.ModelSpec.Claude != nil && c.ModelSpec.Claude.Provider == "vertex"
+}
+
+// ProviderEnv is the non-secret provider env of the kit's model-spec
+// (modelspec.ProviderEnv — the rendering a Jam cove's harness uses too): for
+// vertex, CLAUDE_CODE_USE_VERTEX=1 plus every non-protected provider-env key.
+// nil for a kit without a model-spec or with nothing to set.
+// GOOGLE_APPLICATION_CREDENTIALS (the ADC file pointer) is set by connect, not here.
+func (c Config) ProviderEnv() map[string]string { return modelspec.ProviderEnv(c.ModelSpec) }
 
 // GitLabHost reports the kit's active GitLab source-control host and whether GitLab
 // is the source-control backend at all. The host is defaulted to gitlab.com when
@@ -1149,8 +1173,8 @@ func (c Config) GitLabHost() (string, bool) {
 //     a self-hosted host) without the operator setting it by hand. Nothing is set
 //     for a GitHub kit — glab is not this repo's concern there.
 //
-// Authored env, layered last so it wins: the Vertex model-provider env (see
-// VertexEnv, which passes any non-protected key through). Returns an empty,
+// Authored env, layered last so it wins: the model-spec's provider env (see
+// ProviderEnv, which passes any non-protected provider-env key through). Returns an empty,
 // non-nil map when nothing applies. GITLAB_HOST is a plain non-secret value — it
 // never touches the secret/log paths.
 func (c Config) SessionEnv() map[string]string {
@@ -1159,19 +1183,18 @@ func (c Config) SessionEnv() map[string]string {
 		env["GITLAB_HOST"] = host
 	}
 	// Kit-authored env wins on a key collision — never overwrite an explicit value.
-	for k, v := range c.VertexEnv() {
+	for k, v := range c.ProviderEnv() {
 		env[k] = v
 	}
 	return env
 }
 
-// ProviderDomains returns the additive egress domains a model provider needs,
-// derived from the provider config, or nil when the kit targets no provider.
+// ProviderDomains returns the additive egress domains the kit's model-spec
+// provider needs, or nil for the anthropic provider (sealed base).
 // For Vertex: the aiplatform inference host (region-templated), plus the GCP
 // auth endpoints google-auth uses to refresh ADC access tokens in-VM.
 func ProviderDomains(c Config) []string {
-	v, ok := c.Vertex()
-	if !ok {
+	if !c.UsesVertex() {
 		return nil
 	}
 	domains := []string{
@@ -1180,7 +1203,7 @@ func ProviderDomains(c Config) []string {
 		"sts.googleapis.com",        // WIF / external_account
 		"iamcredentials.googleapis.com",
 	}
-	switch region := strings.TrimSpace(v.Env["CLOUD_ML_REGION"]); region {
+	switch region := strings.TrimSpace(c.ModelSpec.Claude.ProviderEnv["CLOUD_ML_REGION"]); region {
 	case "", "global":
 		// aiplatform.googleapis.com already covers the global endpoint.
 	case "us", "eu":
@@ -1205,36 +1228,117 @@ func SourceControlDomains(c Config) []string {
 	return []string{host}
 }
 
-// RootDomains is the kit's effective baked egress allow-list: the kit's own
-// image.allowed-domains unioned with any provider-derived domains. Assemble bakes
-// this into allowed_domains.kit.txt.
-func RootDomains(c Config) []string {
-	var harbor []string
-	if c.Harbor != nil && c.Harbor.Host != "" {
-		harbor = []string{c.Harbor.Host}
+// InfraDomains is the infrastructure half of the kit's baked egress: the
+// provider-derived, self-hosted GitLab and Jam hosts the kit needs to work at
+// all. Assemble bakes it into allowed_domains.infra.txt, which is always on — a
+// Jam role's egress policy replaces only the kit's policy list, never this.
+func InfraDomains(c Config) []string {
+	var jamHost []string
+	if c.Jam != nil && c.Jam.Host != "" {
+		jamHost = []string{c.Jam.Host}
 	}
-	return unionDomains(c.Image.AllowedDomains, ProviderDomains(c), SourceControlDomains(c), harbor)
+	return unionDomains(ProviderDomains(c), SourceControlDomains(c), jamHost)
 }
 
-// validateModelProvider enforces the provider union, required keys, and the
-// hardening denylist.
-func validateModelProvider(cfg Config) error {
-	if cfg.ModelProvider == nil {
+// RootDomains is the kit's effective baked egress allow-list beyond the sealed
+// base: the kit's own image.allowed-domains (the policy list) unioned with
+// InfraDomains. Assemble bakes the two halves into separate files
+// (allowed_domains.kit.txt and allowed_domains.infra.txt); their union is this.
+func RootDomains(c Config) []string {
+	return unionDomains(c.Image.AllowedDomains, InfraDomains(c))
+}
+
+// validateKitModelSpec checks a kit's model-spec: block with the one shared
+// validator (modelspec.Validate — what Jam runs on a write), giving the
+// principal plain at-cove's meaning, plus what plain at-cove can run:
+//
+//   - principal must be empty: it names a Jam credential (or the pool) and its
+//     header rules are applied by Jam's broker; plain at-cove authenticates
+//     the agent itself (the interactive OAuth login, or the host-supplied GCP
+//     ADC for vertex), so there is no principal to name;
+//   - claude.provider is anthropic or vertex: at-cove has no Bedrock
+//     credential flow;
+//   - vertex needs ANTHROPIC_VERTEX_PROJECT_ID and CLOUD_ML_REGION in
+//     provider-env (the region derives the Vertex egress);
+//   - version is optional: omitted, it follows DefaultClaudeVersion
+//     (EffectiveModelSpec) — validated as that.
+func validateKitModelSpec(s *modelspec.Spec) error {
+	if s == nil {
 		return nil
 	}
-	v := cfg.ModelProvider.Vertex
-	if v == nil {
-		return fmt.Errorf("config.yml: model-provider: must set exactly one provider (vertex)")
+	bad := func(err error) error {
+		return fmt.Errorf("config.yml: model-spec: %w (see docs/usage/at-cove-config.md#model-spec)", err)
 	}
-	for _, req := range vertexRequiredEnvKeys {
-		if strings.TrimSpace(v.Env[req]) == "" {
-			return fmt.Errorf("config.yml: model-provider.vertex.env.%s is required", req)
+	err := modelspec.Validate(withDefaultVersion(*s), func(p modelspec.Principal) error {
+		if p.Credential != "" || len(p.Headers) > 0 {
+			return errors.New("principal is Jam-only (a Jam credential and the broker's header rules); a plain at-cove kit authenticates via the OAuth login or, for provider vertex, the host-supplied GCP ADC — remove principal")
 		}
+		return nil
+	})
+	if err != nil {
+		return bad(err)
 	}
-	for k := range v.Env {
-		if vertexProtectedEnvKeys[k] {
-			return fmt.Errorf("config.yml: model-provider.vertex.env: %q is a sealed-owned/security-relevant variable and cannot be set by a kit", k)
+	c := s.Claude // Validate: a claude spec has its body
+	switch c.Provider {
+	case "anthropic":
+	case "vertex":
+		for _, req := range vertexRequiredEnvKeys {
+			if strings.TrimSpace(c.ProviderEnv[req]) == "" {
+				return bad(fmt.Errorf("claude.provider-env.%s is required for provider vertex", req))
+			}
 		}
+	default:
+		return bad(fmt.Errorf("claude.provider %q is not supported by plain at-cove (want anthropic or vertex; %s runs only under Jam)", c.Provider, c.Provider))
 	}
 	return nil
+}
+
+// legacyModelProvider is the shape of the removed model-provider: block, read
+// only to render its model-spec: replacement in the migration error.
+type legacyModelProvider struct {
+	Vertex *struct {
+		Env map[string]string `yaml:"env"`
+	} `yaml:"vertex"`
+}
+
+// ErrModelProviderRemoved is wrapped by the error ParseConfig returns for a kit
+// that still has the removed model-provider: block.
+var ErrModelProviderRemoved = errors.New("model-provider: was replaced by model-spec:")
+
+// modelProviderMigrationError refuses a kit that still has model-provider:
+// (replaced by model-spec:, COV-241), naming the replacement and its doc and —
+// when the old block is a readable vertex one — the equivalent block to paste:
+// no version (it keeps tracking DefaultClaudeVersion, as the old kit did), and
+// each old env key run through the model-spec validator's key rule
+// (modelspec.CheckProviderEnvKey) — a refused key is left out, named with its
+// reason in a comment (never its value), so the pasted block loads.
+func modelProviderMigrationError(n *yaml.Node) error {
+	head := fmt.Errorf("config.yml: %w (a model-spec with claude.provider: vertex and the old env as claude.provider-env; see docs/usage/at-cove-config.md#model-spec)", ErrModelProviderRemoved)
+	var old legacyModelProvider
+	if err := n.Decode(&old); err != nil || old.Vertex == nil {
+		return head
+	}
+	spec := modelspec.Spec{
+		Name:   "vertex",
+		Type:   modelspec.HarnessClaude,
+		Claude: &modelspec.Claude{Provider: "vertex", ProviderEnv: map[string]string{}, Plugins: modelspec.DefaultClaudePlugins()},
+	}
+	var comments strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(old.Vertex.Env)) {
+		if err := modelspec.CheckProviderEnvKey(k); err != nil {
+			fmt.Fprintf(&comments, "# left out %s: %s\n", k, strings.ReplaceAll(err.Error(), "\n", " "))
+			continue
+		}
+		spec.Claude.ProviderEnv[k] = old.Vertex.Env[k]
+	}
+	var b bytes.Buffer
+	b.WriteString(comments.String())
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(struct {
+		Spec modelspec.Spec `yaml:"model-spec"`
+	}{spec}); err != nil {
+		return head
+	}
+	return fmt.Errorf("%w; replace it with:\n\n%s", head, b.String())
 }

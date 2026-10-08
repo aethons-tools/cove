@@ -1,10 +1,10 @@
 ---
-summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-provider, harbor, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
-read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
-owns: "the config.yml schema: name, source-control, tracker, dispatch, model-provider, harbor, workers, collaborators, teammates, secrets, docker, image (+ validation)"
+summary: The at-cove kit config.yml schema — every field an operator sets to define a sandbox and its scheduler (name, source-control, tracker, dispatch, model-spec, jam, secrets, workers, collaborators, teammates, docker, image), with validation rules, the secret-bucket boundaries, and a full annotated example.
+read_when: You are authoring or editing a kit's .at-cove/config.yml — setting the target repo (source-control), wiring the issue tracker or scheduler policy, switching the agent to Claude on Vertex or pinning its Claude Code version/plugins/model (model-spec), migrating off model-provider, enabling docker-in-sandbox, adding a secret, a worker, collaborator, or teammate class, an allowed domain, or a PATH entry.
+owns: "the config.yml schema: name, source-control, tracker, dispatch, model-spec (plain-at-cove loader rules), jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-09-01
+updated: 2026-10-05
 ---
 
 # at-cove `config.yml`
@@ -21,6 +21,10 @@ Parsing is **strict**: an unknown or misspelled field is a hard error (`config.y
 
 `at-cove dispatch --project-dir <dir>` reads this same file directly — the scheduler now
 consumes the kit like every other command; there is no separate scheduler config file.
+
+There is **no `mcp-servers:` field** here: kit-declared MCP servers are loaded only by
+the cove-master agent of a Jam-raised session, so they are declared on the Jam
+**studio kit** — see [`mcp-servers`](jam/kits.md#mcp-servers-cov-240).
 
 ## Fields
 
@@ -85,9 +89,9 @@ source-control:
 
 The GitLab instance the project lives on — a bare hostname, no scheme or path
 (self-hosted supported, e.g. `gitlab.example.com`). A self-hosted `host`
-**auto-widens the kit-root egress allow-list** at `install` time — no manual
+**auto-widens the kit's always-on infra egress list** (`allowed_domains.infra.txt`) at `install` time — no manual
 [`image.allowed-domains`](#imageallowed-domains) entry needed; see
-[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped). `gitlab.com`
+[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling). `gitlab.com`
 is already in the sealed base, so the common case needs no egress change at all.
 
 The resolved `host` is also defaulted into the interactive in-VM agent session as
@@ -168,11 +172,11 @@ The label prefix that maps a Linear issue to a worker class (e.g. `class:impleme
 #### tracker.linear.dispatch-label-prefix
 *string, defaults to `dispatch:`*
 
-The label prefix that gates which READY issues harbor's [resident
-dispatcher](harbor/dispatcher.md) raises a cove for: only issues carrying a label
+The label prefix that gates which READY issues Jam's
+[Requisitioner](jam/requisitioner.md) raises a cove for: only issues carrying a label
 with this prefix (e.g. `dispatch:go`) are worked. Presence-only — the value after
 the prefix is unused — and distinct from `class-label-prefix` (which parses a
-class but does not gate). Only consulted by the harbor dispatcher; the standalone
+class but does not gate). Only consulted by the Requisitioner; the standalone
 `at-cove dispatch` scheduler ignores it.
 
 #### tracker.linear.states*
@@ -305,129 +309,156 @@ dispatch:
   reaper-timeout: 45m
 ```
 
-### model-provider
-*tagged union — one provider (`vertex` only today), optional*
+### model-spec
+*optional; the kit's [model-spec](jam/model-specs.md) — how the cove runs its agent*
 
-Switches the sandbox's agent from first-party Anthropic (the default, absent this
-block) to a third-party-hosted Claude. **Kit-global** — one setting for the whole
-kit, not yet per-collaborator/per-worker-class — and **`chat`-only**: `at-cove
-work`/`dispatch` do not yet read this block (a documented follow-up; see the
-[design spec](../superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
-Absent block → today's Anthropic OAuth/bearer behavior, unchanged.
-
-#### model-provider.vertex.env*
-*map of string → string*
-
-Non-secret, kit-authored configuration for **Claude on Google Vertex AI**, passed
-through as env for the `chat` session. Two keys are **required** (a missing one is
-a hard config error):
-
-| Key | Meaning |
-|---|---|
-| `ANTHROPIC_VERTEX_PROJECT_ID` | the GCP project Vertex bills/governs through |
-| `CLOUD_ML_REGION` | a specific region, or the multi-region `us`/`eu`, or `global` |
-
-at-cove itself **sets `CLAUDE_CODE_USE_VERTEX=1`** — implied by choosing `vertex`,
-so the kit must not (and need not) set it. Any other key
-(`ANTHROPIC_VERTEX_BASE_URL`, a `VERTEX_REGION_CLAUDE_*` override, `ANTHROPIC_MODEL`,
-…) passes straight through to Claude Code with no schema change required.
-
-**Hardening denylist (load-bearing).** Unlike a *secret* — which a kit only
-*demands* by name, with the host as the supply-side gate — this `env` map is
-**kit-authored with no host-side gate**, so a committed-but-untrusted kit could
-otherwise inject security-relevant env directly. A **protected set** is therefore
-rejected at config validation (a hard parse error) and independently re-checked
-(defensive drop) at injection:
-
-- the egress proxy vars — `http_proxy`/`https_proxy`/`no_proxy` and their uppercase
-  forms — because the per-session env-file is *sourced* in the session shell, so an
-  unchecked value would **shadow** the sealed `/etc/environment` proxy vars the
-  hardening layer writes last, quietly defeating egress;
-- `CLAUDE_CONFIG_DIR` (sealed-owned);
-- `GOOGLE_APPLICATION_CREDENTIALS` (at-cove-owned — it points at the seeded GCP ADC
-  file; see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex));
-- `PATH`.
-
-This is the `env`-block analog of the egress rule "additive, sealed-wins": a kit
-can *configure* the provider but can never shadow a sealed-owned or
-security-relevant variable.
-
-**Egress is auto-derived, not hand-listed.** When `model-provider.vertex` is
-present, `install` widens the kit-root allow-list with the GCP hosts Vertex needs
-— derived from the block, not hand-maintained — see
-[Egress](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped).
+The **same schema and the same validator** as a Jam model-spec (one definition,
+`internal/jam/modelspec`; two loaders — Jam's admin API and this file). Absent
+→ the equivalent of `claude-default`: Claude Code at `modelspec.DefaultClaudeVersion`
+with `superpowers@claude-plugins-official`, on first-party Anthropic — the
+image's behavior before model-specs, unchanged. **Kit-global** (one spec for the
+whole kit).
 
 ```yaml
-model-provider:
-  vertex:
-    env:
-      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project   # required
-      CLOUD_ML_REGION: us                           # required
-      # CLAUDE_CODE_USE_VERTEX=1 is set by at-cove — implied by the vertex block
+model-spec:
+  name: vertex-opus              # required (any name; shown in errors)
+  type: claude                   # required
+  # version: 2.1.287             # optional exact release; omitted = follow DefaultClaudeVersion
+  model: {id: claude-opus-4-8}   # optional
+  policy: {mode: acceptEdits}    # optional; empty = bypassPermissions
+  claude:
+    provider: vertex             # anthropic | vertex (bedrock is Jam-only)
+    provider-env:                # non-secret; vertex requires the two keys below
+      ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project
+      CLOUD_ML_REGION: us
+    plugins: [superpowers@claude-plugins-official]   # installed at build
 ```
 
-The credential itself (a GCP ADC) is **not** part of this block — it is supplied
-host-side and seeded as a file; see
-[Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
+Every [Jam validation rule](jam/model-specs.md#validation) applies (an exact
+`version`, `version-constraint` admitting it, known plugin marketplaces,
+preference-only `claude.settings`, no protected/credential/`AT_JAM_*` keys in
+`provider-env`, no `plan` mode), with four plain-at-cove differences:
+
+- **`version` is optional.** Omitted, the kit follows
+  `modelspec.DefaultClaudeVersion` — resolved when the spec is used, never
+  stored, so an at-cove upgrade that bumps it makes the install stale and the
+  next `install` builds the new CLI (as for a kit without `model-spec:`). Set it
+  to pin. (Jam still requires it.)
+
+- **no `principal`.** In Jam it names a credential (or the pool) and carries the
+  broker's header rules; plain at-cove has no broker and authenticates the agent
+  itself — the interactive OAuth login, or the host-supplied GCP ADC for
+  `vertex` — so `principal` must be omitted;
+- **`claude.provider` is `anthropic` or `vertex`** — at-cove has no Bedrock
+  credential flow;
+- **`vertex` requires `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION`** in
+  `provider-env` (the region derives the egress, below).
+
+**What applies, and when:**
+
+| Field | Applied |
+|-------|---------|
+| `version`, `claude.plugins` | at **`install`**: the image's [harness layer](jam/model-spec-harness.md) installs exactly them (an edit makes the install stale). |
+| `claude.provider`, `claude.provider-env` | in the **`chat`** session env: `vertex` → `CLAUDE_CODE_USE_VERTEX=1` plus every `provider-env` key (the rendering a Jam cove uses), and the GCP ADC demand below. |
+| `model.id` / `model.effort`, `policy`, `claude.settings` | as claude argv for **`chat`** and **dispatched workers** (`work`/`dispatch`), rendered by the one renderer Jam's harness uses: `--model`, `--effort`, `--permission-mode=MODE` plus `--allowedTools=`/`--disallowedTools=` per rule, `--settings JSON`. An empty/`bypassPermissions` mode adds nothing to `chat` (already the image's interactive default) and keeps a worker's `--dangerously-skip-permissions`; under another mode a worker is always allowed to write `.at-task/worker-result.json`. |
+| `claude.provider-env` on workers | applied for `anthropic` only: a worker authenticates with its worker-bucket Anthropic bearer and no GCP ADC is seeded, so a `vertex` spec stays `chat`-only (`work` logs a WARN). |
+| `version-constraint`, `note` | validated only — no runtime check in a plain cove. |
+
+Teammate sessions get the build-time parts (the image) only.
+
+**Hardening.** `provider-env` is kit-authored with no host gate, so its
+protected variables ([list](jam/model-specs.md#validation)) are refused at load
+and dropped again at injection — the per-session env file is *sourced*, so a
+proxy var there would shadow the sealed `/etc/environment` and defeat egress.
+
+**Vertex egress is auto-derived:** `install` folds the GCP hosts Vertex needs,
+from `CLOUD_ML_REGION`, into the always-on infra list — see
+[Egress](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling). The GCP
+credential is **not** in the block: it is supplied host-side and seeded as a file
+— see [Authentication](../OVERVIEW.md#authentication-claude-on-vertex) and the
 [`GOOGLE_APPLICATION_CREDENTIALS_JSON` demand](at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json).
 
-### harbor
-*optional; routes the cove's Anthropic + git through a harbor broker (COV-138)*
+#### Migrating from `model-provider:`
 
-Setting `harbor:` makes a hardened cove reach a [harbor](harbor/INDEX.md)
-broker from **inside** the sandbox, so the agent's `claude` and `git` use harbor's
+The old `model-provider: {vertex: {env: …}}` block is **removed**: loading a
+kit that still has it is a hard error that prints the equivalent `model-spec:`
+block to paste in its place: `claude.provider: vertex`, the old `env` as
+`claude.provider-env`, claude-default's plugins, and **no `version`** (so the kit
+keeps tracking `DefaultClaudeVersion`, as before). Each old env key goes through
+the model-spec validator; one it would refuse (a credential such as
+`ANTHROPIC_API_KEY`, an `AT_JAM_*` name, …) is left out and named, with the
+reason, in a `#` comment above the block — never its value. A run command
+(`create`/`chat`/`work`) refuses an install built from such a kit until you edit
+and `at-cove install`; `destroy`, `status` and `uninstall` keep working on it.
+
+### jam
+*optional; routes the cove's Anthropic + git through a Jam broker (COV-138)*
+
+Setting `jam:` makes a hardened cove reach a [Jam](jam/INDEX.md)
+broker from **inside** the sandbox, so the agent's `claude` and `git` use Jam's
 credential connectors while the cove holds only its identity token. Enabling it does
-three things automatically: folds `host` into the egress allow-list, adds a
+three things automatically: folds `host` into the always-on infra egress list, adds a
 `--add-host <host>:host-gateway` routability mapping (unless disabled), and injects
-the connector setup (`ANTHROPIC_BASE_URL`/x-api-key + git `insteadOf`/credential
-helper) into the session — **superseding** the OAuth/Vertex auth for that cove.
+the identity's connector (the env and git routing its role's destinations declare —
+[jam/connector.md](jam/connector.md)) into the session — **superseding** the OAuth/Vertex auth for that cove.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `host` | yes | Bare hostname of the broker. It is reached over **TLS on :443** (no scheme/port/path), so no sealed-egress changes are needed. |
 | `identity` | no | Name of a **host-supplied** secret (via `~/.config/at-cove/secrets.yml` / a `minters` profile) holding a pre-enrolled identity token. **Omit it to auto-enroll** (see below). Never a literal here; resolved host-side and delivered env-only. |
-| `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) harbor is reachable. Set `false` when `host` already resolves to a routable address. |
+| `via-host-gateway` | no (default `true`) | Add `--add-host <host>:host-gateway` so a host-run (loopback-bound) Jam is reachable. Set `false` when `host` already resolves to a routable address. |
 
 ```yaml
-harbor:
-  host: harbor.local.aethons.tools
-  # identity: harbor-identity      # OMIT to auto-enroll; set to use a pre-supplied token
-  # via-host-gateway: false        # only if harbor is at a routable DNS address
+jam:
+  host: jam.local.aethons.tools
+  # identity: jam-identity         # OMIT to auto-enroll; set to use a pre-supplied token
+  # via-host-gateway: false        # only if Jam is at a routable DNS address
 ```
 
 **Identity: auto-enroll (default) vs pre-supplied.** With `identity` **omitted**,
-at-cove auto-enrolls the cove: it shells a sibling `at-harbor enroll` at session
+at-cove auto-enrolls the cove: it shells a sibling `at-jam enroll` at session
 start to mint a fresh per-cove identity (id = the instance name, role `guest`;
-destinations, repos, and TTL all come from that role, not from this config) and
-`at-harbor revoke`s it on exit. This needs the launching host to have `at-harbor`
-reachable to harbor's admin API **and** an operator credential (`at-harbor login` or
-`AT_HARBOR_ADMIN_TOKEN`). When that's not available (e.g. harbor isn't co-located),
+destinations, credentials, and TTL all come from that role, not from this config) and
+`at-jam revoke`s it on exit. This needs the launching host to have `at-jam`
+reachable to Jam's admin API **and** an operator credential (`at-jam login` or
+`AT_JAM_ADMIN_TOKEN`). When that's not available (e.g. Jam isn't co-located),
 **set `identity`** to a host-supplied, pre-enrolled token instead. Either way the
 token is delivered env-only.
 
-> **Role prerequisite.** An auto-enrolling cove (no `harbor.identity`) enrolls into
-> the `guest` role of harbor's default project; the operator must create it first,
-> e.g. `at-harbor role add --name guest --destinations anthropic,git --repos
-> 'aethons-tools/*' --ttl 24h`. The role's scope governs every cove that enrolls
-> into it — per-cove repo narrowing is a planned follow-up, not available yet.
-> **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
-> that never expire. See [harbor/roster.md](harbor/roster.md) for the role/enroll
-> surface and [harbor/INDEX.md](harbor/INDEX.md) for running the harbor itself.
+**What the session sets** is the identity's **connector** — the env vars and git
+routing its role's destinations declare ([jam/connector.md](jam/connector.md)).
+Auto-enroll receives it from `at-jam enroll`; a pre-supplied identity fetches it
+from the broker (`GET /connector`). A Jam without that endpoint, or one the host
+can't reach (a warning), gets the legacy Anthropic + git contract; a conflict
+among the role's destinations fails the session.
 
-Enabling `harbor:` bakes the allow-list entry + add-host, so it takes effect on the
+> **Role prerequisite.** An auto-enrolling cove (no `jam.identity`) enrolls into
+> the `guest` role of Jam's default project; the operator must create it first,
+> e.g. `at-jam role add --name guest --destinations anthropic,git --ttl 24h`.
+> The role's scope governs every cove that enrolls into it; repo reach is the
+> mapped git credential's own scope.
+> **Always pass `--ttl`** — a `guest` role created without one mints cove tokens
+> that never expire. See [jam/roster.md](jam/roster.md) for the role/enroll
+> surface and [jam/INDEX.md](jam/INDEX.md) for running Jam itself.
+
+Enabling `jam:` bakes the allow-list entry + add-host, so it takes effect on the
 next `at-cove recreate`. The broker must listen on **:443** (a non-443 port would
 require widening the sealed egress). Applies to interactive/managed **chat** sessions, **dispatch workers**, and
-**teammates**. A dispatched worker routes only its **Anthropic** through harbor (its
-git stays on at-task's minted code-host token — a global harbor rewrite would
-misroute `prepare`/`complete`); chat and teammates route both connectors. A
+**teammates**. A dispatched worker routes only its **Anthropic** through Jam (its
+git stays on at-task's minted code-host token — a global Jam rewrite would
+misroute `prepare`/`complete`); chat and teammates also route git when the
+connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
 chat/worker-only). The `git` connector rewrites `github.com` only.
 
-`harbor:` is **mutually exclusive with `model-provider`** (harbor supersedes the
-agent's Anthropic auth). With `harbor:` set, the first-session **auto-clone is
+`jam:` is **mutually exclusive with `model-spec`** (Jam supersedes the
+agent's Anthropic auth, and a Jam cove's model-spec comes from its role binding). With `jam:` set, the first-session **auto-clone is
 disabled** — at-cove will not resolve a real `AT_TASK_GIT_TOKEN` into the cove (that
-PAT would be misrouted to harbor's git connector); the agent clones through harbor
+PAT would be misrouted to Jam's git connector); the agent clones through Jam
 on demand instead.
+
+The block's pre-rename name is still accepted for one release, with a deprecation
+warning — see [renamed-from-harbor.md](jam/renamed-from-harbor.md).
 
 ### secrets
 *map of secret env name → config*
@@ -517,7 +548,7 @@ resolves this delta from the current `install.json` (never a live `config.yml`) 
 applies it to the running container **before the agent step** via `ApplySessionEgress`
 (a privileged `docker exec` of the sealed `apply-session-domains.sh` + `squid -k
 reconfigure`), so squid reaches only `root ∪ <common> ∪ class` for that run — see the
-[three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
+[four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
 and [the work interface](../orchestration/at-cove-work-interface.md).
 
 ```yaml
@@ -836,8 +867,17 @@ entry must be non-empty. It is the base term of the per-class union: a class's
 effective egress is **`image.allowed-domains ∪ workers.<common> ∪ workers.<class>`**
 (and likewise for `collaborators`), where only the `<common> ∪ class` delta is
 delivered per session — see [`workers.*class*.allowed-domains`](#workersclassallowed-domains)
-and the [three additive allow-lists](../OVERVIEW.md#egress-three-additive-allow-lists-session-scoped)
-model. When a dispatched run is blocked by the allow-list, at-cove ends the issue in
+and the [four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)
+model. Provider, self-hosted GitLab and `jam.host` domains are *not* part of this
+list: they are derived into the separate, always-on infra list.
+
+It is also the **egress ceiling for Jam roles**: `install` bakes an immutable copy
+(`egress_ceiling.txt`), and a Jam-managed cove whose role has an egress policy gets
+that role's list *in place of* this one — only if every role domain is covered by it
+(see [role egress](jam/roster.md#role-egress)). So a domain a role needs must be
+listed here first (a leading-dot entry covers the domain and its subdomains).
+
+When a dispatched run is blocked by the allow-list, at-cove ends the issue in
 **NEEDS INPUT** naming the blocked host(s) and pointing back to this key as the remedy
 — see [at-cove-work-interface.md](../orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input).
 
@@ -1015,10 +1055,10 @@ the template kit for `at-cove dispatch`.
   declare exactly `AT_DISPATCH_TRACKER_TOKEN` (demand-only);
 - `dispatch.concurrency` is < 1, or `reaper-timeout` / `dispatch-overhead` isn't a positive
   Go duration;
-- `model-provider` sets more than one provider; `model-provider.vertex.env` is missing
-  `ANTHROPIC_VERTEX_PROJECT_ID` or `CLOUD_ML_REGION`; or it sets a protected key
-  (an egress proxy var, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`, or
-  `PATH`) — see [model-provider](#model-provider);
+- `model-spec` fails the shared model-spec validation (with `version` optional), sets a `principal`, names a
+  provider other than `anthropic`/`vertex`, or (vertex) lacks
+  `ANTHROPIC_VERTEX_PROJECT_ID`/`CLOUD_ML_REGION`; `model-spec` is set with `jam`; or
+  the removed `model-provider` is present — see [model-spec](#model-spec);
 - a `collaborators` key looks `<reserved>` but isn't `<common>`; `<common>` sets a `prompt`,
   `default`, `share-repo-dir`, or `shadow-dirs`; or more than one class sets `default: true`;
 - a `collaborators.*.shadow-dirs` entry is set without that class's `share-repo-dir: true`, is

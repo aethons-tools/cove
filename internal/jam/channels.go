@@ -1,0 +1,329 @@
+package jam
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/aethons-tools/cove/internal/intercom"
+)
+
+// This file is the hermetic core of the participant intercom UI (COV-196
+// slice 1): a PURE projection of the squawk Log + roster + live Instance state
+// into the channels a participant is a member of, an active-recipients
+// directory for the New Message picker, and the attention grouping. It has no
+// HTTP, auth, or VM dependency; separate slices consume it. The per-(participant,
+// channel) unread cursor it reads is persisted by the Store (see CommitUnread).
+
+// ChannelKind classifies a projected conversation.
+//
+//   - DM     — a private channel between two participants: {participant, session}
+//     (a session ref, "actor:<id>") or {participant, human} ("human:<name>").
+//   - Studio — a studio's own conversation, keyed by its Instance.Unit
+//     ("channel:<unit>"); the studio's session is a member. This is the agent's
+//     default target (its send defaults to its own ticket).
+//   - Named  — a roster-declared group channel ("channel:<name>").
+//
+// A session ref ("actor:<id>", a DM to a specific running agent) is deliberately
+// distinct from a studio ref ("channel:<unit>", the studio channel): the Log
+// to[] carries both kinds, and this is how the read-model tells them apart.
+type ChannelKind string
+
+const (
+	ChannelDM     ChannelKind = "dm"
+	ChannelStudio ChannelKind = "studio"
+	ChannelNamed  ChannelKind = "named"
+)
+
+// AttentionBucket is the default rail grouping: needs-you → active → channels.
+type AttentionBucket string
+
+const (
+	BucketNeedsYou AttentionBucket = "needs-you" // a session that needs a person (NeedsPerson)
+	BucketActive   AttentionBucket = "active"    // a live studio/session, not needing anyone
+	BucketChannels AttentionBucket = "channels"  // everything else (named channels, human DMs)
+)
+
+// Channel is one projected conversation a participant is a member of, tagged so
+// a caller can group by attention (Bucket) OR by Project from the same data.
+// Phase/NeedsYou derive from the backing session's live Instance the same way
+// /ui/coves reads it; Unread/LastSeq derive from the Log and the caller's
+// cursor.
+type ChannelView struct {
+	ID       string // stable, deterministic channel id
+	Kind     ChannelKind
+	Label    string // display label from the viewer's perspective
+	Project  string // the studio/session's project, else the squawk's project
+	Phase    string // backing session Instance.Phase; "" when no session backs it
+	NeedsYou bool   // a backing session needs a person (NeedsPerson; the attention signal)
+	Unread   int    // messages on this channel with Seq > cursor, not authored by the viewer
+	LastSeq  int64  // highest append Seq seen on this channel
+	// Sessions are the actor ids of the sessions taking part (sent or were
+	// addressed here, or back it), sorted.
+	Sessions []string
+}
+
+// Bucket places the channel in the attention-ordered rail. NeedsYou wins; a
+// live/raising/idled session-backed channel is Active; everything else is a
+// plain Channel.
+func (c ChannelView) Bucket() AttentionBucket {
+	switch {
+	case c.NeedsYou:
+		return BucketNeedsYou
+	case activePhase(c.Phase) && (c.Kind == ChannelStudio || c.Kind == ChannelDM):
+		return BucketActive
+	default:
+		return BucketChannels
+	}
+}
+
+// StudioChannelID derives a studio channel's id from its Instance.Unit.
+func StudioChannelID(unit string) string { return "studio:" + unit }
+
+// NamedChannelID derives a named channel's id from its roster name.
+func NamedChannelID(name string) string { return "named:" + name }
+
+// DMChannelID derives a DM channel's id deterministically from its two
+// endpoints, independent of direction (the two Target strings, sorted).
+func DMChannelID(a, b intercom.Target) string {
+	x, y := a.String(), b.String()
+	if x > y {
+		x, y = y, x
+	}
+	return "dm:" + x + "|" + y
+}
+
+// LogReader is the read side of the squawk Log the projection needs: a
+// seq-cursored bounded read (ListSince(0, 0) walks the whole Log in append
+// order). *intercom.Log and *intercompg.Store both satisfy it; tests use a
+// slice-backed fake.
+type LogReader interface {
+	ListSince(afterSeq int64, limit int) []intercom.LegacySquawk
+}
+
+// ProjectChannels returns, for participant, the channels they are a member of
+// (member = has SENT OR RECEIVED on the channel), each tagged from the roster,
+// the live Instance snapshot, and the caller's per-channel unread cursors
+// (channel id → last-seen Seq; nil = everything unread). It is pure: no I/O
+// beyond the LogReader, deterministic ordering (attention bucket, then most
+// recent, then id).
+func ProjectChannels(participant intercom.Target, log LogReader, roster Roster, instances []Instance, cursors map[string]int64) []ChannelView {
+	byUnit := map[string]Instance{}
+	byActor := map[string]Instance{}
+	for _, i := range instances {
+		if i.Unit != "" {
+			byUnit[i.Unit] = i
+		}
+		byActor[i.ActorID] = i
+	}
+
+	type acc struct {
+		ch      ChannelView
+		members map[string]bool
+	}
+	accs := map[string]*acc{}
+	self := participant.String()
+
+	ensure := func(id string, kind ChannelKind, project, sessionActor, label string) *acc {
+		a := accs[id]
+		if a != nil {
+			return a
+		}
+		a = &acc{ch: ChannelView{ID: id, Kind: kind, Project: project, Label: label}, members: map[string]bool{}}
+		if sessionActor != "" {
+			a.members[actorRef(sessionActor)] = true
+			if inst, ok := byActor[sessionActor]; ok {
+				a.ch.Phase = string(inst.Phase)
+				a.ch.NeedsYou = NeedsPerson(inst)
+			}
+		}
+		accs[id] = a
+		return a
+	}
+
+	for _, m := range log.ListSince(0, 0) {
+		for _, t := range m.To {
+			var a *acc
+			switch t.Kind {
+			case "channel":
+				if inst, ok := byUnit[t.Ref]; ok {
+					a = ensure(StudioChannelID(t.Ref), ChannelStudio, inst.Project, inst.ActorID, t.Ref)
+				} else {
+					a = ensure(NamedChannelID(t.Ref), ChannelNamed, m.Project, "", t.Ref)
+				}
+			case "actor", "human":
+				session := dmSession(m.From, t)
+				project := m.Project
+				if inst, ok := byActor[session]; ok && inst.Project != "" {
+					project = inst.Project
+				}
+				a = ensure(DMChannelID(m.From, t), ChannelDM, project, session, t.Ref)
+				a.members[t.String()] = true
+			default:
+				continue
+			}
+			a.members[m.From.String()] = true
+			if m.Seq > a.ch.LastSeq {
+				a.ch.LastSeq = m.Seq
+			}
+			if m.Seq > cursors[a.ch.ID] && m.From != participant {
+				a.ch.Unread++
+			}
+		}
+	}
+
+	var out []ChannelView
+	for _, a := range accs {
+		if !a.members[self] {
+			continue
+		}
+		if a.ch.Kind == ChannelDM {
+			a.ch.Label = dmLabel(a.members, self)
+		}
+		for m := range a.members {
+			if kind, ref, ok := strings.Cut(m, ":"); ok && kind == "actor" {
+				a.ch.Sessions = append(a.ch.Sessions, ref)
+			}
+		}
+		sort.Strings(a.ch.Sessions)
+		out = append(out, a.ch)
+	}
+	sortChannels(out)
+	return out
+}
+
+// dmSession returns the actor (session) endpoint of a DM, if either endpoint is
+// an actor; "" for a human↔human DM.
+func dmSession(from, to intercom.Target) string {
+	if to.Kind == "actor" {
+		return to.Ref
+	}
+	if from.Kind == "actor" {
+		return from.Ref
+	}
+	return ""
+}
+
+// dmLabel returns the member of a DM that is not the viewer (the ref), so the
+// channel reads from the viewer's perspective.
+func dmLabel(members map[string]bool, self string) string {
+	for m := range members {
+		if m == self {
+			continue
+		}
+		// members are Target strings ("kind:ref"); the label is the ref.
+		if _, ref, ok := strings.Cut(m, ":"); ok {
+			return ref
+		}
+	}
+	return ""
+}
+
+func actorRef(id string) string { return intercom.Target{Kind: "actor", Ref: id}.String() }
+
+// sortChannels orders channels for the default attention rail: waiting first,
+// then active, then plain channels; within a bucket, most-recent (LastSeq) then
+// id for stability.
+func sortChannels(chs []ChannelView) {
+	rank := map[AttentionBucket]int{BucketNeedsYou: 0, BucketActive: 1, BucketChannels: 2}
+	sort.Slice(chs, func(i, j int) bool {
+		bi, bj := rank[chs[i].Bucket()], rank[chs[j].Bucket()]
+		if bi != bj {
+			return bi < bj
+		}
+		if chs[i].LastSeq != chs[j].LastSeq {
+			return chs[i].LastSeq > chs[j].LastSeq
+		}
+		return chs[i].ID < chs[j].ID
+	})
+}
+
+// ChannelSquawks returns, in append order, every squawk that belongs to
+// channelID — using the SAME id derivation as ProjectChannels, so a channel's
+// conversation is exactly the messages the rail counted. instances map a
+// studio's Unit to its channel; a nil/short log yields nothing.
+func ChannelSquawks(channelID string, log LogReader, instances []Instance) []intercom.LegacySquawk {
+	byUnit := map[string]Instance{}
+	for _, i := range instances {
+		if i.Unit != "" {
+			byUnit[i.Unit] = i
+		}
+	}
+	var out []intercom.LegacySquawk
+	for _, m := range log.ListSince(0, 0) {
+		if squawkMapsToChannel(m, channelID, byUnit) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// squawkMapsToChannel reports whether any recipient of m derives channelID,
+// mirroring the To-target classification in ProjectChannels.
+func squawkMapsToChannel(m intercom.LegacySquawk, channelID string, byUnit map[string]Instance) bool {
+	for _, t := range m.To {
+		var id string
+		switch t.Kind {
+		case "channel":
+			if _, ok := byUnit[t.Ref]; ok {
+				id = StudioChannelID(t.Ref)
+			} else {
+				id = NamedChannelID(t.Ref)
+			}
+		case "actor", "human":
+			id = DMChannelID(m.From, t)
+		default:
+			continue
+		}
+		if id == channelID {
+			return true
+		}
+	}
+	return false
+}
+
+// sessionLabel is a session's display name: its declared name when it has one,
+// else its actor id.
+func sessionLabel(i Instance) string {
+	if i.Name != "" {
+		return i.Name
+	}
+	return i.ActorID
+}
+
+// AskedForPerson reports whether a session asked for a person since it was
+// last woken: a needs-input ticket report, or the escalate tool. A session
+// whose turn merely ended is idle, not asking.
+func AskedForPerson(i Instance) bool {
+	return i.EscalationAsked || i.Report != nil && i.Report.State == ReportNeedsInput
+}
+
+// NeedsPerson reports whether a session needs a person: it is blocked, or it
+// is waiting and asked for one (AskedForPerson) — live, or paused while it
+// waits (escalation keeps paging a paused asker). /me's "Needs you".
+func NeedsPerson(i Instance) bool {
+	if i.Phase != PhaseLive && i.Phase != PhaseIdled {
+		return false
+	}
+	return i.Activity == ActivityBlocked || i.Activity == ActivityWaiting && AskedForPerson(i)
+}
+
+// instanceActive reports whether a session is currently reachable: running,
+// raising, or paused. Gone/Lost/Terminating instances are not offered as
+// recipients.
+func instanceActive(i Instance) bool {
+	switch i.Phase {
+	case PhaseLive, PhaseRaising, PhaseIdled:
+		return true
+	}
+	return false
+}
+
+// activePhase reports whether a channel's backing-session phase counts as a
+// live presence for the Active bucket.
+func activePhase(phase string) bool {
+	switch Phase(phase) {
+	case PhaseLive, PhaseRaising, PhaseIdled:
+		return true
+	}
+	return false
+}

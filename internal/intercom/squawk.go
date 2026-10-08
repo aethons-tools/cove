@@ -1,9 +1,9 @@
-// Package intercom is harbor's durable, append-only squawk Log: one envelope
-// (Squawk{From, To[], Body, …}) for all comms, over a JSONL file mirrored in
-// memory. A Target's Reach (Internal/External) decides whether it's delivered
+// Package intercom is Jam's durable, append-only squawk Log: one envelope
+// (Squawk{From, To[], Body, …}) for all comms, backed by Postgres in serve (an
+// in-memory Log serves tests). A Target's Reach (Internal/External) decides whether it's delivered
 // in-band (a cove reads its inbox) or later rendered onto a human surface by an
-// adapter. This package is stdlib-only and imports nothing from internal/harbor;
-// harbor consumes it. Single-node (the serve process is the sole writer).
+// adapter. This package is stdlib-only and imports nothing from internal/jam;
+// Jam consumes it. Single-node (the serve process is the sole writer).
 package intercom
 
 import (
@@ -15,7 +15,7 @@ import (
 
 // Target addresses a participant or conduit.
 //
-//	actor:<coveID>  — an internal harbor cove (Reach Internal; delivered in-band)
+//	actor:<coveID>  — an internal Jam cove (Reach Internal; delivered in-band)
 //	human:<name>    — an external human (Reach External; rendered by an adapter)
 //	channel:<name>  — a shared conduit (a ticket thread, a chat channel)
 type Target struct {
@@ -29,8 +29,8 @@ func validKind(k string) bool { return k == "actor" || k == "human" || k == "cha
 
 func (t Target) valid() bool { return validKind(t.Kind) && t.Ref != "" }
 
-// Squawk is one immutable Log entry.
-type Squawk struct {
+// LegacySquawk is one immutable Log entry.
+type LegacySquawk struct {
 	Seq     int64     `json:"seq"` // monotonic append order; assigned at Append, 0 before
 	ID      string    `json:"id"`
 	From    Target    `json:"from"`
@@ -39,9 +39,26 @@ type Squawk struct {
 	At      time.Time `json:"at"`
 	Project string    `json:"project,omitempty"`
 	ReplyTo string    `json:"reply_to,omitempty"`
+	// ContentType says how Body is meant to be read: ContentMarkdown (the
+	// default, assigned by Prepare when empty) or ContentPlain, which every
+	// surface shows literally — never interpreted as markdown.
+	ContentType string `json:"content_type"`
 }
 
-func (m Squawk) validate() error {
+// The squawk content types (MIME). Markdown is the default; plain text is the
+// opt-out for text that would render badly as markdown.
+const (
+	ContentMarkdown = "text/markdown"
+	ContentPlain    = "text/plain"
+)
+
+// ValidContentType reports whether ct is an allowed content type ("" counts,
+// meaning the default).
+func ValidContentType(ct string) bool {
+	return ct == "" || ct == ContentMarkdown || ct == ContentPlain
+}
+
+func (m LegacySquawk) validate() error {
 	if m.Body == "" {
 		return fmt.Errorf("intercom: empty body")
 	}
@@ -50,6 +67,9 @@ func (m Squawk) validate() error {
 	}
 	if len(m.To) == 0 {
 		return fmt.Errorf("intercom: empty to")
+	}
+	if !ValidContentType(m.ContentType) {
+		return fmt.Errorf("intercom: unsupported content type %q", m.ContentType)
 	}
 	for _, t := range m.To {
 		if !t.valid() {
