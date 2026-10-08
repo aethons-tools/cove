@@ -67,3 +67,44 @@ func TestRefresherRaisesPoolConditions(t *testing.T) {
 		t.Fatalf("a should be warning once not all fail: %s", ca.Severity)
 	}
 }
+
+func TestRefresherClearsConditionOnceReseeded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer srv.Close()
+	now := time.Unix(1_000_000, 0)
+	st := &memPoolStore{accts: []PoolAccount{{Name: "a", RefreshToken: "a", ExpiresAt: now}}}
+	tr := condition.New(condition.Options{})
+	r := NewRefresher(st, RefresherOptions{TokenURL: srv.URL, Now: func() time.Time { return now }, Conditions: tr})
+	key := condition.Key("pool.account.refresh", "a")
+	_ = r.RefreshDue(context.Background())
+	_ = r.RefreshDue(context.Background())
+	if !tr.IsOpen(key) {
+		t.Fatal("condition should be open after two failing passes")
+	}
+	// The operator re-seeds the account (pool add): fresh token, future expiry.
+	st.accts[0].ExpiresAt = now.Add(time.Hour)
+	_ = r.RefreshDue(context.Background())
+	if tr.IsOpen(key) {
+		t.Fatal("condition not cleared after re-seed")
+	}
+}
+
+func TestRefresherClearsConditionOfRemovedAccount(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	st := &memPoolStore{accts: []PoolAccount{{Name: "kept", RefreshToken: "k", ExpiresAt: now.Add(time.Hour)}}}
+	tr := condition.New(condition.Options{})
+	gone, other := condition.Key("pool.account.refresh", "gone"), condition.Key("cred.unavailable", "gone")
+	tr.Raise(condition.Condition{Key: gone, Severity: condition.Warning, Summary: "s"})
+	tr.Raise(condition.Condition{Key: other, Severity: condition.Critical, Summary: "s"})
+	r := NewRefresher(st, RefresherOptions{Now: func() time.Time { return now }, Conditions: tr})
+	_ = r.RefreshDue(context.Background())
+	if tr.IsOpen(gone) {
+		t.Fatal("condition of removed account not cleared")
+	}
+	if !tr.IsOpen(other) {
+		t.Fatal("unrelated kind must stay open")
+	}
+}

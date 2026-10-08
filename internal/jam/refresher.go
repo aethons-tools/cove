@@ -76,7 +76,7 @@ const PoolFailThreshold = 2
 // RefreshDue refreshes every account whose ExpiresAt is within Margin of Now.
 // Per-account failures are logged and do not stop the others; with
 // Conditions set they raise pool.account.refresh:<account> (warning, or
-// critical while every account is failing) and a success clears it. Never
+// critical while every account is failing) and a success, a fresh token (re-seed) or removal of the account clears it. Never
 // logs tokens.
 func (r *Refresher) RefreshDue(ctx context.Context) error {
 	accts, err := r.store.Accounts()
@@ -86,10 +86,11 @@ func (r *Refresher) RefreshDue(ctx context.Context) error {
 	deadline := r.opt.Now().Add(r.opt.Margin)
 	t := r.opt.Conditions
 	for _, a := range accts {
+		key := condition.Key("pool.account.refresh", a.Name)
 		if a.ExpiresAt.After(deadline) {
+			t.Ok(key) // a not-due account holds a fresh token (e.g. re-seeded)
 			continue
 		}
-		key := condition.Key("pool.account.refresh", a.Name)
 		if err := r.refreshOne(ctx, a); err != nil {
 			r.opt.Log.Warn("pool token refresh failed", "account", a.Name, "error", err.Error())
 			sev := condition.Warning
@@ -105,6 +106,18 @@ func (r *Refresher) RefreshDue(ctx context.Context) error {
 			continue
 		}
 		t.Ok(key)
+	}
+	// Accounts no longer in the store can never refresh again: drop their conditions.
+	if t != nil {
+		live := map[string]bool{}
+		for _, a := range accts {
+			live[condition.Key("pool.account.refresh", a.Name)] = true
+		}
+		for _, k := range t.OpenKeys("pool.account.refresh") {
+			if !live[k] {
+				t.Ok(k)
+			}
+		}
 	}
 	// Every account failing means the pool cannot serve: critical; otherwise warning.
 	if t != nil && len(accts) > 0 {

@@ -335,3 +335,18 @@ func keys(cs []Condition) []string {
 	}
 	return out
 }
+
+func TestOpenKeys(t *testing.T) {
+	tr := New(Options{})
+	tr.Raise(Condition{Key: "a.b:one", Severity: Warning, Summary: "s"})
+	tr.Raise(Condition{Key: "a.b:two", Severity: Warning, Summary: "s"})
+	tr.Raise(Condition{Key: "c.d:one", Severity: Warning, Summary: "s"})
+	got := tr.OpenKeys("a.b")
+	if len(got) != 2 || got[0] != "a.b:one" || got[1] != "a.b:two" {
+		t.Fatalf("OpenKeys = %v", got)
+	}
+	var nilT *Tracker
+	if nilT.OpenKeys("a.b") != nil {
+		t.Fatal("nil tracker must return nil")
+	}
+}

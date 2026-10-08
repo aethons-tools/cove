@@ -152,6 +152,23 @@ func (t *Tracker) Get(key string) (Condition, bool) {
 // IsOpen reports whether key is open.
 func (t *Tracker) IsOpen(key string) bool { _, ok := t.Get(key); return ok }
 
+// OpenKeys lists the keys of open conditions of the given kind, sorted.
+func (t *Tracker) OpenKeys(kind string) []string {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	var out []string
+	for k, c := range t.open {
+		if c.Kind() == kind {
+			out = append(out, k)
+		}
+	}
+	t.mu.Unlock()
+	slices.Sort(out)
+	return out
+}
+
 // Open lists open conditions: critical, warning, info; oldest first within.
 func (t *Tracker) Open() []Condition {
 	if t == nil {
