@@ -31,7 +31,7 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	//     bare manual `docker build`.
 	//   AT_JAM_STUDIO_TARGET_ARCH — "amd64" | "arm64", the build target arch.
 	// -q: emit only the built image ID (a bare `sha256:<hex>`).
-	out, err := d.c.r.Output("docker", dargs(
+	out, err := d.c.r.Output("docker", d.c.dargs(
 		"build", "-q",
 		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
 		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
@@ -52,21 +52,21 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	// back — `FROM <tag>` resolves it from the local daemon (never a registry fetch,
 	// since the tag exists locally), and `docker inspect` (the gate) accepts it too.
 	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
-	if err := d.c.r.Run("docker", dargs("tag", id, tag)...); err != nil {
+	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
 	return tag, nil
 }
 
 func (d dockerImg) Layers(ref string) ([]string, error) {
-	out, err := d.c.r.Output("docker", dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
+	out, err := d.c.r.Output("docker", d.c.dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
 	if err != nil {
 		// Not present locally: pull once, then retry. (A locally-built image ID is
 		// already present, so it never reaches the pull.)
-		if perr := d.c.r.Run("docker", dargs("pull", ref)...); perr != nil {
+		if perr := d.c.r.Run("docker", d.c.dargs("pull", ref)...); perr != nil {
 			return nil, err
 		}
-		out, err = d.c.r.Output("docker", dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
+		out, err = d.c.r.Output("docker", d.c.dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +109,7 @@ type streamDockerImg struct {
 // why the bare sha256 id cannot be used directly).
 func (d streamDockerImg) Build(_ string) (string, error) {
 	var out, errBuf bytes.Buffer
-	if err := d.c.r.RunIO(d.ctx, &out, &errBuf, "docker", dargs(
+	if err := d.c.r.RunIO(d.ctx, &out, &errBuf, "docker", d.c.dargs(
 		"build", "-q",
 		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
 		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
@@ -131,7 +131,7 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 		return "", fmt.Errorf("docker build - (streamed context): no image id on stdout")
 	}
 	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
-	if err := d.c.r.Run("docker", dargs("tag", id, tag)...); err != nil {
+	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
 	return tag, nil
