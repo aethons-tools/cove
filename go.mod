@@ -3,7 +3,7 @@ module github.com/aethons-tools/cove
 go 1.26.0
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
+	github.com/chromedp/cdproto v0.157.9
 	github.com/chromedp/chromedp v0.16.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/moby/patternmatcher v0.6.1
