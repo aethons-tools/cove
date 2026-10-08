@@ -1695,6 +1695,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if err := conds.Load(context.Background()); err != nil {
 		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
 	}
+	clearStaleCredConditions(conds, cfg.credNames())
 	go conds.Run(context.Background(), 5*time.Second)
 
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
