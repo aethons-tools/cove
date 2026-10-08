@@ -33,13 +33,14 @@ type Options struct {
 // the Persister by Flush (Run calls it periodically). A nil *Tracker is a
 // valid no-op tracker.
 type Tracker struct {
-	opt      Options
-	mu       sync.Mutex
-	open     map[string]Condition
-	resolved []Condition // newest resolution first
-	fails    map[string]int
-	dirty    map[string]Condition // occurrence id → latest state, awaiting Save
-	flushMu  sync.Mutex           // serializes Flush saves to prevent reordering
+	opt           Options
+	mu            sync.Mutex
+	open          map[string]Condition
+	resolved      []Condition // newest resolution first
+	fails         map[string]int
+	dirty         map[string]Condition // occurrence id → latest state, awaiting Save
+	flushMu       sync.Mutex           // serializes Flush saves to prevent reordering
+	afterSnapshot func()               // hook called after snapshot in Flush; test only
 }
 
 // New builds a Tracker, filling defaults.
@@ -240,6 +241,10 @@ func (t *Tracker) Flush(ctx context.Context) error {
 	batch := t.dirty
 	t.dirty = map[string]Condition{}
 	t.mu.Unlock()
+
+	if t.afterSnapshot != nil {
+		t.afterSnapshot()
+	}
 
 	var errs []error
 	for id, c := range batch {

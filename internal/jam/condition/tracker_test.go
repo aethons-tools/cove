@@ -13,12 +13,12 @@ import (
 )
 
 type fakePersister struct {
-	mu     sync.Mutex
-	saved  map[string]Condition // key+since → latest
-	fail   bool
-	loaded []Condition
-	pruned []time.Time
-	block  chan struct{} // when non-nil, Save waits on it
+	mu      sync.Mutex
+	saved   map[string]Condition // key+since → latest
+	fail    bool
+	loaded  []Condition
+	pruned  []time.Time
+	saveLog []string // log of save states: "open" or "resolved"
 }
 
 func newFake() *fakePersister { return &fakePersister{saved: map[string]Condition{}} }
@@ -26,18 +26,22 @@ func newFake() *fakePersister { return &fakePersister{saved: map[string]Conditio
 func (f *fakePersister) Load(ctx context.Context, since time.Time) ([]Condition, error) {
 	return f.loaded, nil
 }
+
 func (f *fakePersister) Save(ctx context.Context, c Condition) error {
-	if f.block != nil {
-		<-f.block
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail {
 		return errors.New("db down")
 	}
+	state := "open"
+	if c.ResolvedAt != nil {
+		state = "resolved"
+	}
+	f.saveLog = append(f.saveLog, state)
 	f.saved[c.Key+"@"+c.Since.Format(time.RFC3339Nano)] = c
 	return nil
 }
+
 func (f *fakePersister) Prune(ctx context.Context, before time.Time) error {
 	f.pruned = append(f.pruned, before)
 	return nil
@@ -214,116 +218,170 @@ func TestTrackerNilSafe(t *testing.T) {
 	}
 }
 
-type blockablePersister struct {
-	mu      sync.Mutex
-	saved   map[string]Condition
-	calls   int           // count Save calls in order
-	entered chan struct{} // signaled when first Save is entered
-	release chan struct{} // closed to unblock first Save
-	saveLog []string      // log of save order: "open" or "resolved"
+type blockingPersister struct {
+	base       *fakePersister
+	mu         sync.Mutex
+	saveCount  int
+	aSaveStart chan struct{} // signals when A tries to save
+	aBlocker   chan struct{} // blocks A's save
 }
 
-func (bp *blockablePersister) Load(ctx context.Context, since time.Time) ([]Condition, error) {
-	return nil, nil
+func (bp *blockingPersister) Load(ctx context.Context, since time.Time) ([]Condition, error) {
+	return bp.base.Load(ctx, since)
 }
 
-func (bp *blockablePersister) Save(ctx context.Context, cond Condition) error {
+func (bp *blockingPersister) Save(ctx context.Context, c Condition) error {
 	bp.mu.Lock()
-	bp.calls++
-	isFirst := bp.calls == 1
+	bp.saveCount++
+	isFirst := bp.saveCount == 1
 	bp.mu.Unlock()
 
 	if isFirst {
-		close(bp.entered) // signal that first Save is in progress
-		<-bp.release      // wait for release signal
+		close(bp.aSaveStart) // Signal that A is trying to save
+		<-bp.aBlocker        // Wait for unblock
 	}
-
-	bp.mu.Lock()
-	defer bp.mu.Unlock()
-	state := "open"
-	if cond.ResolvedAt != nil {
-		state = "resolved"
-	}
-	bp.saveLog = append(bp.saveLog, state)
-	bp.saved[cond.Key+"@"+cond.Since.Format(time.RFC3339Nano)] = cond
-	return nil
+	return bp.base.Save(ctx, c)
 }
 
-func (bp *blockablePersister) Prune(ctx context.Context, before time.Time) error {
-	return nil
+func (bp *blockingPersister) Prune(ctx context.Context, before time.Time) error {
+	return bp.base.Prune(ctx, before)
 }
 
 func TestTrackerConcurrentFlushOrdering(t *testing.T) {
-	// Verify that concurrent Flushes see consistent snapshots when flushMu is held
-	// at the top. Without the fix (flushMu after snapshot), the sequence is:
-	// 1. Flush A snapshots {k:open}
-	// 2. Clear runs, marks dirty with resolved
-	// 3. Flush B snapshots {k:resolved}
-	// 4. If B takes flushMu first, saves resolved
-	// 5. Then A saves open, OVERWRITING B's state
-	// Result: final state is open (wrong!)
+	// Verify that flushMu held at the top of Flush serializes snapshots,
+	// preventing concurrent Clear from creating a state mismatch. Uses the
+	// afterSnapshot hook (test seam) to demonstrate the race window.
 	//
-	// With the fix (flushMu at top), A holds flushMu through save, so Clear and
-	// B's snapshot happen while A still has the lock, ensuring consistent order.
+	// Scenario: Flush A snapshots {k:open}, afterSnapshot clears and starts
+	// Flush B which snapshots {k:resolved}. With the fix (flushMu at top), B
+	// blocks waiting for A's flushMu, so A saves first. Without the fix, B
+	// could save first, then A saves its stale open state, overwriting B's.
 	c := &clock{t: time.Unix(1, 0)}
 
-	bp := &blockablePersister{
-		saved:   map[string]Condition{},
-		entered: make(chan struct{}),
-		release: make(chan struct{}),
+	bp := &blockingPersister{
+		base:       &fakePersister{saved: map[string]Condition{}},
+		aSaveStart: make(chan struct{}),
+		aBlocker:   make(chan struct{}),
 	}
 
 	tr := newTracker(bp, c)
 
-	// Raise condition k:a at time t=1
+	// Raise condition k:a
 	tr.Raise(cond("k:a", Critical))
-	since1 := c.t
+	since := c.t
 
-	// Start Flush A in a goroutine; it will block in the first Save
-	flushA := make(chan error, 1)
-	go func() { flushA <- tr.Flush(context.Background()) }()
+	// Set afterSnapshot hook on Flush A
+	var once sync.Once
+	bDone := make(chan struct{})
+	tr.afterSnapshot = func() {
+		once.Do(func() {
+			tr.Clear("k:a")
+			go func() {
+				_ = tr.Flush(context.Background())
+				close(bDone)
+			}()
+			// Wait for A to enter Save (or timeout). This allows B to start
+			// and potentially complete before A finishes.
+			select {
+			case <-bp.aSaveStart:
+				// A is trying to save; wait for B with a bounded select
+				select {
+				case <-bDone:
+					// B completed before A's save unblocked (broken code scenario)
+				case <-time.After(100 * time.Millisecond):
+					// B blocked waiting for flushMu (fixed code scenario)
+				}
+			case <-time.After(500 * time.Millisecond):
+				// A never tried to save?
+			}
+		})
+	}
 
-	// Wait for Flush A to enter Save (first call)
-	<-bp.entered
+	// Run Flush A in a goroutine
+	aDone := make(chan error, 1)
+	go func() { aDone <- tr.Flush(context.Background()) }()
 
-	// While Flush A is blocked in Save (and holds/waits for flushMu depending on fix),
-	// Clear the condition. This marks the occurrence as resolved in dirty.
-	tr.Clear("k:a")
+	// Wait for A to start its save, then unblock it
+	<-bp.aSaveStart
+	close(bp.aBlocker)
 
-	// Start Flush B. With the broken code (flushMu after snapshot), B can snapshot
-	// the resolved state and may save before A does. With the fixed code (flushMu
-	// at top), B blocks on flushMu until A finishes.
-	flushB := make(chan error, 1)
-	go func() { flushB <- tr.Flush(context.Background()) }()
-
-	// Give B a moment to attempt flushMu
-	time.Sleep(10 * time.Millisecond)
-
-	// Unblock Flush A's Save
-	close(bp.release)
-
-	// Wait for both to complete
-	if err := <-flushA; err != nil {
+	// Wait for both to finish
+	if err := <-aDone; err != nil {
 		t.Fatalf("flush A: %v", err)
 	}
-	if err := <-flushB; err != nil {
-		t.Fatalf("flush B: %v", err)
-	}
+	<-bDone
 
-	// With the fix, the save order should be: open (A), resolved (B)
-	// Without the fix, the order could be: resolved (B), open (A) if B got
-	// flushMu first, causing A's stale open state to win.
-	// The test verifies the final state is resolved (which it should be).
-	bp.mu.Lock()
-	saved, ok := bp.saved[("k:a")+"@"+since1.Format(time.RFC3339Nano)]
-	saveOrder := bp.saveLog
-	bp.mu.Unlock()
+	// Verify the final saved state is resolved
+	bp.base.mu.Lock()
+	saved, ok := bp.base.saved[("k:a")+"@"+since.Format(time.RFC3339Nano)]
+	saveLog := append([]string(nil), bp.base.saveLog...)
+	bp.base.mu.Unlock()
 
 	if !ok {
 		t.Fatal("occurrence not saved")
 	}
+
+	// With the fix, A's save is blocked until afterSnapshot returns, so B
+	// cannot have saved yet. A saves {open}, B saves {resolved}, and B's
+	// resolved state is the final state.
+	//
+	// Without the fix, B could have saved {resolved} before A's save block,
+	// and then A saves {open}, causing the final state to be open.
 	if saved.ResolvedAt == nil {
-		t.Errorf("occurrence should be resolved, got open; save order: %v", saveOrder)
+		t.Fatalf("occurrence should be resolved; final state is open; save log: %v", saveLog)
+	}
+}
+
+func TestTrackerClearAndReraiseCreatesTwoOccurrences(t *testing.T) {
+	// Verify that Clear + re-Raise creates two distinct occurrences:
+	// one resolved, one open, with different Since timestamps.
+	c := &clock{t: time.Unix(1, 0)}
+	p := newFake()
+	tr := newTracker(p, c)
+
+	// Raise condition k:a at time t1
+	tr.Raise(cond("k:a", Critical))
+	t1 := c.t
+
+	// Flush to persist
+	if err := tr.Flush(context.Background()); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	// Clear the condition at time t1
+	tr.Clear("k:a")
+
+	// Advance time
+	c.add(time.Hour)
+
+	// Re-raise with a new Since at time t2
+	tr.Raise(cond("k:a", Critical))
+	t2 := c.t
+
+	// Flush to persist both occurrences
+	if err := tr.Flush(context.Background()); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	// Verify both occurrences are saved
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	occ1, ok1 := p.saved[("k:a")+"@"+t1.Format(time.RFC3339Nano)]
+	occ2, ok2 := p.saved[("k:a")+"@"+t2.Format(time.RFC3339Nano)]
+
+	if !ok1 {
+		t.Fatal("first occurrence not saved")
+	}
+	if !ok2 {
+		t.Fatal("second occurrence not saved")
+	}
+
+	if occ1.ResolvedAt == nil {
+		t.Fatal("first occurrence should be resolved")
+	}
+	if occ2.ResolvedAt != nil {
+		t.Fatal("second occurrence should be open")
 	}
 }
 
