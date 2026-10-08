@@ -102,7 +102,12 @@ type serveConfig struct {
 	// coves are seeded in subscription mode, and a background refresher rotates
 	// pool tokens. Absent ⇒ the anthropic destination keeps its configured
 	// (x-api-key/federated) credential and coves launch in API-key mode.
-	Pool         *poolConfig `yaml:"pool"`
+	Pool *poolConfig `yaml:"pool"`
+
+	// Metrics, when set, serves the operator-attention exposition at /metrics
+	// on the broker listener, gated on a scrape token (a demanded credential).
+	// See docs/usage/jam/monitoring.md.
+	Metrics      *metricsConfig `yaml:"metrics"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -265,6 +270,47 @@ type poolConfig struct {
 	TokenURL        string `yaml:"token-url"`        // default jam.defaultTokenURL
 	ClientID        string `yaml:"client-id"`        // default jam.defaultClientID
 	Scope           string `yaml:"scope"`            // default jam.defaultScope
+}
+
+// metricsConfig enables /metrics. TokenCred names a demanded credential (the
+// scrape token's value comes from the credentials file). AlertmanagerURL, when
+// set, is linked from the admin UI's Health tab.
+type metricsConfig struct {
+	TokenCred       string `yaml:"token-cred"`
+	AlertmanagerURL string `yaml:"alertmanager-url"`
+}
+
+// validateMetrics checks a set metrics block: token-cred is required and
+// demanded; alertmanager-url, if set, is an http(s) URL.
+func (c serveConfig) validateMetrics() error {
+	m := c.Metrics
+	if m == nil {
+		return nil
+	}
+	if m.TokenCred == "" {
+		return fmt.Errorf("metrics.token-cred is required")
+	}
+	if _, ok := c.Credentials[m.TokenCred]; !ok {
+		return fmt.Errorf("metrics.token-cred %q is not a demanded credential", m.TokenCred)
+	}
+	if m.AlertmanagerURL != "" {
+		u, err := url.Parse(m.AlertmanagerURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("metrics.alertmanager-url %q must be an http(s) URL", m.AlertmanagerURL)
+		}
+	}
+	return nil
+}
+
+// credFixHint is the remedy a cred.unavailable condition shows for name.
+func (c serveConfig) credFixHint(name string) string {
+	switch {
+	case slices.Contains(c.gcpCredentials(), name):
+		return "if it supplies a user ADC: run `gcloud auth application-default login` on the Jam host (Jam re-reads it within 10s); otherwise replace the Google credentials JSON for " + name
+	case c.Pool != nil && name == c.Pool.CredName:
+		return "check the pool's accounts: `at-jam pool list --store " + c.Pool.Store + "`"
+	}
+	return "check the credentials file entry " + name + " (" + c.credentialsFilePath() + ")"
 }
 
 // validatePool checks a set pool block. Store and CredName are required; the

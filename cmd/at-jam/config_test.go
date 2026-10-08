@@ -1068,3 +1068,43 @@ func TestDisplayNameConfig(t *testing.T) {
 		t.Errorf("64 characters (not bytes) is fine: %v", err)
 	}
 }
+
+func TestValidateMetrics(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  prom-scrape:\nmetrics:\n  token-cred: prom-scrape\n  alertmanager-url: http://localhost:9093\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateMetrics(); err != nil {
+		t.Fatalf("valid metrics refused: %v", err)
+	}
+	for name, yml := range map[string]string{
+		"no token-cred":    "metrics: {}\n",
+		"undemanded cred":  "metrics:\n  token-cred: nope\n",
+		"bad alertmanager": "credentials:\n  t:\nmetrics:\n  token-cred: t\n  alertmanager-url: ftp://x\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := c.validateMetrics(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateMetrics(); err != nil {
+		t.Fatalf("absent metrics must validate: %v", err)
+	}
+}
+
+func TestCredFixHint(t *testing.T) {
+	c, _ := parseServeConfig([]byte("credentials:\n  vertex-gcp: { exchange: gcp }\n  git-pat:\npool: { store: /tmp/p.json, cred-name: anthropic-sub }\n"))
+	if h := c.credFixHint("vertex-gcp"); !strings.Contains(h, "gcloud auth application-default login") {
+		t.Errorf("gcp hint = %q", h)
+	}
+	if h := c.credFixHint("anthropic-sub"); !strings.Contains(h, "at-jam pool list") {
+		t.Errorf("pool hint = %q", h)
+	}
+	if h := c.credFixHint("git-pat"); !strings.Contains(h, "git-pat") || !strings.Contains(h, "credentials") {
+		t.Errorf("default hint = %q", h)
+	}
+}

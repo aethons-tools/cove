@@ -224,3 +224,19 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 		})
 	}
 }
+
+func TestWithMetricsRoutesOnlyExactPath(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
+	metrics := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(298) })
+	h := withMetrics(next, metrics)
+	for path, want := range map[string]int{"/metrics": 298, "/metrics/x": 299, "/anthropic/v1/messages": 299} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != want {
+			t.Errorf("%s → %d, want %d", path, rec.Code, want)
+		}
+	}
+	if withMetrics(next, nil) == nil {
+		t.Fatal("nil metrics must return next")
+	}
+}

@@ -111,3 +111,17 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	log.Info("Jam report: mounted", "path", "/report")
 	return withCoveEndpoints(squawksMux(squawksH, escH, turnEndH, alarmH, reportH, broker))
 }
+
+// withMetrics serves exactly /metrics with metrics (when non-nil) ahead of next.
+func withMetrics(next, metrics http.Handler) http.Handler {
+	if metrics == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/metrics" {
+			metrics.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
