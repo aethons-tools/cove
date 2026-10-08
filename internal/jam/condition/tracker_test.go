@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -218,117 +219,59 @@ func TestTrackerNilSafe(t *testing.T) {
 	}
 }
 
-type blockingPersister struct {
-	base       *fakePersister
-	mu         sync.Mutex
-	saveCount  int
-	aSaveStart chan struct{} // signals when A tries to save
-	aBlocker   chan struct{} // blocks A's save
-}
-
-func (bp *blockingPersister) Load(ctx context.Context, since time.Time) ([]Condition, error) {
-	return bp.base.Load(ctx, since)
-}
-
-func (bp *blockingPersister) Save(ctx context.Context, c Condition) error {
-	bp.mu.Lock()
-	bp.saveCount++
-	isFirst := bp.saveCount == 1
-	bp.mu.Unlock()
-
-	if isFirst {
-		close(bp.aSaveStart) // Signal that A is trying to save
-		<-bp.aBlocker        // Wait for unblock
-	}
-	return bp.base.Save(ctx, c)
-}
-
-func (bp *blockingPersister) Prune(ctx context.Context, before time.Time) error {
-	return bp.base.Prune(ctx, before)
-}
-
 func TestTrackerConcurrentFlushOrdering(t *testing.T) {
-	// Verify that flushMu held at the top of Flush serializes snapshots,
-	// preventing concurrent Clear from creating a state mismatch. Uses the
-	// afterSnapshot hook (test seam) to demonstrate the race window.
+	// Flush A snapshots {k:open}. Inside the afterSnapshot seam (after A's
+	// snapshot, before A's saves) the hook resolves k and starts Flush B,
+	// then waits up to 200ms for B to finish.
 	//
-	// Scenario: Flush A snapshots {k:open}, afterSnapshot clears and starts
-	// Flush B which snapshots {k:resolved}. With the fix (flushMu at top), B
-	// blocks waiting for A's flushMu, so A saves first. Without the fix, B
-	// could save first, then A saves its stale open state, overwriting B's.
+	//   - flushMu at the top of Flush (correct): B blocks on flushMu until A
+	//     returns, so the wait times out, A saves {open}, then B saves
+	//     {resolved}. The last save is resolved.
+	//   - flushMu below the seam (broken): B snapshots {resolved}, takes the
+	//     free lock and saves first; A then saves its stale {open} last, so the
+	//     last save is open and the assertion fails.
+	//
+	// The hook is gated by an atomic CAS so only A's call blocks; B's own call
+	// to the hook returns immediately.
 	c := &clock{t: time.Unix(1, 0)}
+	p := newFake()
+	tr := newTracker(p, c)
 
-	bp := &blockingPersister{
-		base:       &fakePersister{saved: map[string]Condition{}},
-		aSaveStart: make(chan struct{}),
-		aBlocker:   make(chan struct{}),
-	}
-
-	tr := newTracker(bp, c)
-
-	// Raise condition k:a
 	tr.Raise(cond("k:a", Critical))
 	since := c.t
 
-	// Set afterSnapshot hook on Flush A
-	var once sync.Once
+	var fired atomic.Bool
 	bDone := make(chan struct{})
 	tr.afterSnapshot = func() {
-		once.Do(func() {
-			tr.Clear("k:a")
-			go func() {
-				_ = tr.Flush(context.Background())
-				close(bDone)
-			}()
-			// Wait for A to enter Save (or timeout). This allows B to start
-			// and potentially complete before A finishes.
-			select {
-			case <-bp.aSaveStart:
-				// A is trying to save; wait for B with a bounded select
-				select {
-				case <-bDone:
-					// B completed before A's save unblocked (broken code scenario)
-				case <-time.After(100 * time.Millisecond):
-					// B blocked waiting for flushMu (fixed code scenario)
-				}
-			case <-time.After(500 * time.Millisecond):
-				// A never tried to save?
-			}
-		})
+		if !fired.CompareAndSwap(false, true) {
+			return
+		}
+		tr.Clear("k:a")
+		go func() {
+			defer close(bDone)
+			_ = tr.Flush(context.Background())
+		}()
+		select {
+		case <-bDone:
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
 
-	// Run Flush A in a goroutine
-	aDone := make(chan error, 1)
-	go func() { aDone <- tr.Flush(context.Background()) }()
-
-	// Wait for A to start its save, then unblock it
-	<-bp.aSaveStart
-	close(bp.aBlocker)
-
-	// Wait for both to finish
-	if err := <-aDone; err != nil {
+	if err := tr.Flush(context.Background()); err != nil {
 		t.Fatalf("flush A: %v", err)
 	}
 	<-bDone
 
-	// Verify the final saved state is resolved
-	bp.base.mu.Lock()
-	saved, ok := bp.base.saved[("k:a")+"@"+since.Format(time.RFC3339Nano)]
-	saveLog := append([]string(nil), bp.base.saveLog...)
-	bp.base.mu.Unlock()
+	p.mu.Lock()
+	last, ok := p.saved["k:a@"+since.Format(time.RFC3339Nano)]
+	saveLog := append([]string(nil), p.saveLog...)
+	p.mu.Unlock()
 
 	if !ok {
 		t.Fatal("occurrence not saved")
 	}
-
-	// With the fix, A's save is blocked until afterSnapshot returns, so B
-	// cannot have saved yet. A saves {open}, B saves {resolved}, and B's
-	// resolved state is the final state.
-	//
-	// Without the fix, B could have saved {resolved} before A's save block,
-	// and then A saves {open}, causing the final state to be open.
-	if saved.ResolvedAt == nil {
-		t.Fatalf("occurrence should be resolved; final state is open; save log: %v", saveLog)
+	if last.ResolvedAt == nil {
+		t.Fatalf("last saved state is open, want resolved; save order: %v", saveLog)
 	}
 }
 
