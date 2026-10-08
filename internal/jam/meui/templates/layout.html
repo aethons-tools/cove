@@ -128,6 +128,7 @@ html.raw .msg .body.raw{display:block}
 .composer .draft-chip{display:inline-block;margin:0 0 8px;font:inherit;font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
 .composer .draft-chip[hidden]{display:none}
 .composer .send-col{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.composer .send-col button kbd{font:inherit;font-size:11px;font-weight:500;opacity:.75;margin-left:4px}
 .composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
 @media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
@@ -231,27 +232,16 @@ function meSend(e, to){
    });
   return false;
 }
-// Composer keys: Enter inserts a newline as usual, but a second consecutive
-// Enter sends (dropping the newline the first one added). Shift+Enter always
-// inserts a newline and never arms the send, so deliberate blank lines are
-// possible. Delegated on document so it covers htmx-swapped and meCompose
-// composers alike.
+// Composer keys: Shift-Enter sends and inserts nothing; plain Enter is left
+// alone, so it always inserts a newline. meSend trims the message's ends.
+// Delegated on document so it covers htmx-swapped and meCompose composers
+// alike.
 document.addEventListener('keydown', function(e){
   var t=e.target;
   if(!t.matches || !t.matches('.composer textarea')) return;
-  if(e.key!=='Enter' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing){
-    t._enterArmed=false;
-    return;
-  }
-  var i=t.selectionStart;
-  if(t._enterArmed && i===t.selectionEnd && t.value.charAt(i-1)==='\n'){
-    e.preventDefault();
-    t._enterArmed=false;
-    t.value=t.value.slice(0,i-1)+t.value.slice(i);
-    t.form.requestSubmit();
-    return;
-  }
-  t._enterArmed=true;
+  if(e.key!=='Enter' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  e.preventDefault();
+  t.form.requestSubmit();
 });
 // meFence returns a backtick fence longer than any backtick run in s (at least
 // three), so pasted text that has its own fences stays inside the block.
@@ -290,8 +280,8 @@ function meCompose(to, label){
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'… (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
-    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div></form></div>';
+    +'<textarea name="body" placeholder="Message '+label+'… (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
+    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div></form></div>';
   var form=pane.querySelector('.composer form');
   meRestoreReply(form);
   meDraftChip(form);
@@ -335,7 +325,7 @@ function mePushDraft(form){
   var d=meDrafts(form);
   d.push({text:text, sel:t.selectionStart});
   meSaveDrafts(form, d);
-  t.value=''; t._enterArmed=false; t.focus();
+  t.value=''; t.focus();
   meKeepReply(t);
   return true;
 }

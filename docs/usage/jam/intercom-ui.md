@@ -79,9 +79,9 @@ reloads. The rules are the intercom's ([membership](intercom.md#channel-membersh
   send one as `text/plain`, shown literally; it applies to that message only. A
   reply addressed to a waiting studio **wakes it** exactly as a relayed reply does
   (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)).
-- **Composer keys:** Enter inserts a newline; a second consecutive Enter sends
-  (the extra newline is dropped). Shift+Enter always inserts a newline and never
-  arms a send, so deliberate blank lines are possible.
+- **Composer keys:** **⇧↵** (Shift+Enter) sends — the Send button shows it —
+  and inserts nothing; plain Enter always inserts a newline. A message
+  is trimmed at both ends before it is sent.
 - **Saved reply:** what you type is kept per conversation in the tab's session
   storage, so switching conversations (a full page load) and coming back
   restores it. Emptying the box or a successful send clears it. It never leaves
