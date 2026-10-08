@@ -51,7 +51,7 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts [
 		"-p", "127.0.0.1::2222",
 		runImage(image, digest),
 	)
-	if err := c.r.Run("docker", dargs(runArgs...)...); err != nil {
+	if err := c.r.Run("docker", c.dargs(runArgs...)...); err != nil {
 		return backend.Instance{}, err
 	}
 	return backend.Instance{Backend: "colima", Container: name, Image: image, ImageDigest: digest}, nil
@@ -61,7 +61,7 @@ func (c *Colima) RemoveContainer(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs("rm", "-f", name)...)
+	return c.r.Run("docker", c.dargs("rm", "-f", name)...)
 }
 
 // RemoveVolumes deletes the named volumes (`docker volume rm -f`: an absent
@@ -74,7 +74,7 @@ func (c *Colima) RemoveVolumes(names ...string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs(append([]string{"volume", "rm", "-f"}, names...)...)...)
+	return c.r.Run("docker", c.dargs(append([]string{"volume", "rm", "-f"}, names...)...)...)
 }
 
 // CreateVolume creates a labeled named volume (`docker volume create`;
@@ -88,7 +88,7 @@ func (c *Colima) CreateVolume(name string, labels ...string) error {
 	for _, l := range labels {
 		args = append(args, "--label", l)
 	}
-	return c.r.Run("docker", dargs(append(args, name)...)...)
+	return c.r.Run("docker", c.dargs(append(args, name)...)...)
 }
 
 // ListVolumes lists the volumes carrying label key (and every match label,
@@ -102,7 +102,7 @@ func (c *Colima) ListVolumes(key string, match ...string) (map[string]string, er
 		args = append(args, "--filter", "label="+m)
 	}
 	args = append(args, "--format", "{{.Name}}\t{{.Label \""+key+"\"}}") // a real tab: no shell, no escape processing
-	out, err := c.r.Output("docker", dargs(args...)...)
+	out, err := c.r.Output("docker", c.dargs(args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (c *Colima) Pause(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.dockerIdempotent("is already paused", dargs("pause", name)...)
+	return c.dockerIdempotent("is already paused", c.dargs("pause", name)...)
 }
 
 // Unpause thaws a paused container (docker unpause), the inverse of Pause.
@@ -130,7 +130,7 @@ func (c *Colima) Unpause(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.dockerIdempotent("is not paused", dargs("unpause", name)...)
+	return c.dockerIdempotent("is not paused", c.dargs("unpause", name)...)
 }
 
 // dockerIdempotent runs `docker <args>` and treats a benign "already in the
@@ -156,13 +156,13 @@ func (c *Colima) ScavengeLabeled(label string, olderThan time.Duration, now time
 	if err := c.preflight(); err != nil {
 		return 0, err
 	}
-	out, err := c.r.Output("docker", dargs("ps", "-aq", "--filter", "label="+label)...)
+	out, err := c.r.Output("docker", c.dargs("ps", "-aq", "--filter", "label="+label)...)
 	if err != nil {
 		return 0, err
 	}
 	removed := 0
 	for _, id := range strings.Fields(out) {
-		created, err := c.r.Output("docker", dargs("inspect", "-f", "{{.Created}}", id)...)
+		created, err := c.r.Output("docker", c.dargs("inspect", "-f", "{{.Created}}", id)...)
 		if err != nil {
 			continue
 		}
@@ -171,7 +171,7 @@ func (c *Colima) ScavengeLabeled(label string, olderThan time.Duration, now time
 			continue
 		}
 		if now.Sub(t) > olderThan {
-			if err := c.r.Run("docker", dargs("rm", "-f", id)...); err == nil {
+			if err := c.r.Run("docker", c.dargs("rm", "-f", id)...); err == nil {
 				removed++
 			}
 		}

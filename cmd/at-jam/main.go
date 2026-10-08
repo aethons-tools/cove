@@ -1739,11 +1739,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var defaultRef jam.KitRef
 	var haveDefaultKit bool
 	if lc := cfg.Runtime.Launcher; lc != nil {
-		be, ok := colima.New(runner.OS{}).(launcher.Backend) // colima.New returns backend.Backend; *Colima also satisfies DispatchOps+GetStatus
-		if !ok {
-			fmt.Fprintln(stderr, "at-jam: colima backend does not satisfy launcher.Backend")
-			return 1
-		}
+		// docker-context picks the colima instance (profile) studios run in.
+		var be launcher.Backend = colima.NewWithContext(runner.OS{}, lc.DockerContext)
 		// The launcher builds each studio kit's image on demand, so it needs the
 		// public half of the SSH identity to bake into the image's authorized_keys
 		// (the same key at-cove install baked; its private half is IdentityFile). No

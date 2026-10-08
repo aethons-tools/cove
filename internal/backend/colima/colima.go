@@ -24,13 +24,32 @@ func init() {
 // the failure mode where a stopped colima falls through to the wrong backend.
 const dockerContext = "colima"
 
-type Colima struct{ r runner.Runner }
+type Colima struct {
+	r       runner.Runner
+	context string // the pinned docker context ("" = dockerContext); see NewWithContext
+}
 
 func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
 
+// NewWithContext is New pinned to another docker context — typically
+// colima-<profile>, the context `colima start --profile <profile>` creates — so
+// a caller (e.g. a Jam's runtime.launcher.docker-context) can target a specific
+// colima instance. Empty keeps the default colima context.
+func NewWithContext(r runner.Runner, context string) *Colima {
+	return &Colima{r: r, context: context}
+}
+
+// contextName is the context every docker call is pinned to.
+func (c *Colima) contextName() string {
+	if c.context == "" {
+		return dockerContext
+	}
+	return c.context
+}
+
 // dargs prepends the pinned docker context to a docker subcommand's arguments.
-func dargs(args ...string) []string {
-	return append([]string{"--context", dockerContext}, args...)
+func (c *Colima) dargs(args ...string) []string {
+	return append([]string{"--context", c.contextName()}, args...)
 }
 
 // dnsArgs renders the docker run --dns flags for the container's resolvers, one
@@ -113,7 +132,7 @@ func initArgs(docker bool) []string {
 // .Runtimes}}'`, a map of runtime name → config, and checks for the sysbox-runc
 // key. Preflight has already confirmed the daemon is reachable.
 func (c *Colima) requireSysboxRuntime() error {
-	out, err := c.r.Output("docker", dargs("info", "-f", "{{json .Runtimes}}")...)
+	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
 		return fmt.Errorf("colima: cannot query docker runtimes for the docker:true preflight (docker: %v)", err)
 	}
@@ -135,13 +154,22 @@ func (c *Colima) preflight() error {
 	// Probe (not Output): we want only the exit status. `docker info` writes
 	// benign daemon warnings (e.g. "bridge-nf-call-iptables is disabled") to
 	// stderr, which Output would stream to the terminal on every connect.
-	if err := c.r.Probe("docker", dargs("info")...); err != nil {
+	if err := c.r.Probe("docker", c.dargs("info")...); err != nil {
 		// %v, not %w: wrapping the *ExitError would make main treat this as a
 		// child command that already printed its own message and exit silently
 		// with the code — swallowing this guidance. A plain error gets printed.
-		return fmt.Errorf("colima is not reachable (docker context %q is stopped or not set up). Start it with:\n  colima start\n(docker: %v)", dockerContext, err)
+		return fmt.Errorf("colima is not reachable (docker context %q is stopped or not set up). Start it with:\n  %s\n(docker: %v)", c.contextName(), startHint(c.contextName()), err)
 	}
 	return nil
+}
+
+// startHint is the command that starts the colima instance behind context:
+// colima-<profile> is the context of `colima start --profile <profile>`.
+func startHint(context string) string {
+	if p, ok := strings.CutPrefix(context, dockerContext+"-"); ok && p != "" {
+		return "colima start --profile " + p
+	}
+	return "colima start"
 }
 
 // dockerBuild is the single docker-build site (COV-38): it resolves + gates the
@@ -185,14 +213,14 @@ func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, kitArgs map[s
 		buildArgs = append(buildArgs, "--build-arg", k+"="+kitArgs[k])
 	}
 	buildArgs = append(buildArgs, "-t", tag, buildDir)
-	if err := c.r.Run("docker", dargs(buildArgs...)...); err != nil {
+	if err := c.r.Run("docker", c.dargs(buildArgs...)...); err != nil {
 		return "", err
 	}
 	// Capture the built image's OWN sha256 (its image ID) so runs can pin it
 	// (COV-78). `docker build -t` only moves the mutable tag; inspecting {{.Id}} on
 	// the tag right after the build reads back the exact image the tag now points
 	// at. This is distinct from resolvedBase, which is the FROM-base digest.
-	out, err := c.r.Output("docker", dargs("inspect", "--format", "{{.Id}}", tag)...)
+	out, err := c.r.Output("docker", c.dargs("inspect", "--format", "{{.Id}}", tag)...)
 	if err != nil {
 		return "", err
 	}
@@ -234,7 +262,7 @@ func (c *Colima) ResolveKitBaseTar(ctx io.Reader) (string, error) {
 // miss that drives PrepareKit, never surfaced as an error. Context-pinned so it
 // queries the same daemon BuildKitImage/RunEphemeral use.
 func (c *Colima) HasKitImage(tag string) (bool, error) {
-	if _, err := c.r.Output("docker", dargs("image", "inspect", tag)...); err != nil {
+	if _, err := c.r.Output("docker", c.dargs("image", "inspect", tag)...); err != nil {
 		return false, nil
 	}
 	return true, nil
@@ -313,7 +341,7 @@ func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
 	)
 	runArgs = append(runArgs, shadowRun...)
 	runArgs = append(runArgs, img)
-	if err := c.r.Run("docker", dargs(runArgs...)...); err != nil {
+	if err := c.r.Run("docker", c.dargs(runArgs...)...); err != nil {
 		return backend.Instance{}, err
 	}
 	return backend.Instance{
@@ -342,7 +370,7 @@ func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
 	if err := c.preflight(); err != nil {
 		return backend.Endpoint{}, func() {}, err
 	}
-	out, err := c.r.Output("docker", dargs("port", name, "2222")...)
+	out, err := c.r.Output("docker", c.dargs("port", name, "2222")...)
 	if err != nil {
 		return backend.Endpoint{}, func() {}, err
 	}
@@ -365,7 +393,7 @@ func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
 	// Force-remove the container (the rm itself never carries -v; volumes are
 	// named, not anonymous, so -v wouldn't touch them anyway). recreate passes
 	// keepVolumes=true so /agent-data (saved login) and the workspace survive.
-	if err := c.r.Run("docker", dargs("rm", "-f", inst.Container)...); err != nil {
+	if err := c.r.Run("docker", c.dargs("rm", "-f", inst.Container)...); err != nil {
 		return err
 	}
 	// A real destroy purges the instance's named volumes now that the container
@@ -402,14 +430,14 @@ func (c *Colima) RemoveImage(image string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", dargs("rmi", image)...)
+	return c.r.Run("docker", c.dargs("rmi", image)...)
 }
 
 func (c *Colima) GetStatus(name string) (backend.State, error) {
 	if err := c.preflight(); err != nil {
 		return backend.StateAbsent, err
 	}
-	out, err := c.r.Output("docker", dargs("inspect", "-f", "{{.State.Running}}", name)...)
+	out, err := c.r.Output("docker", c.dargs("inspect", "-f", "{{.State.Running}}", name)...)
 	if err != nil {
 		return backend.StateAbsent, nil // no such container
 	}

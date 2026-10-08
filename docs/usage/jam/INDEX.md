@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # `at-jam` — operating the central service
@@ -36,7 +36,7 @@ five pillars), see the design history:
 |-----|-----------|
 | [dispatch-runbook.md](dispatch-runbook.md) | You are standing up (or reproducing) a real Linear→studio dispatch loop end to end and want the ordered steps + the field gotchas (egress, cert-name, flat-vs-grouped labels), not the per-field reference. |
 | [credentials.md](credentials.md) | You are supplying the real secrets a Jam brokers/uses — writing ~/.config/at-jam/credentials.yml, choosing value/command/global/mint per credential, or wiring credentials-file — and want the file format and the demand/supply split. |
-| [serve.md](serve.md) | Standing up the service: `at-jam serve`, the serve-config YAML (listen, TLS, `store-postgres`, `state-dir`, removed storage keys, credentials, the subscription account pool), the broker + destinations, and the off-loopback exposure rule. |
+| [serve.md](serve.md) | Standing up the service: `at-jam serve`, the serve-config YAML (listen, TLS, `store-postgres`, `state-dir`, removed storage keys, credentials, the subscription account pool), the broker + destinations, the launcher (incl. which colima instance studios run in), and the off-loopback exposure rule. |
 | [header-specs.md](header-specs.md) | Adding a destination whose upstream wants the credential in a header the presets don't cover (or bare in Authorization, like Linear), choosing an `identity_in`/`apply` preset, or debugging a 401 / wrong upstream auth header. |
 | [connector.md](connector.md) | Adding a destination a studio needs client-side setup for (env vars like GH_HOST, git routing), wondering why a studio has some ANTHROPIC_*/GH_* variable, or wiring `gh` through Jam. |
 | [vertex.md](vertex.md) | You want a role's coves to run Claude on Vertex AI under Jam (the GCP credential brokered as `exchange: gcp`, a path-guarded destination per region), are adding a Vertex region/project, or a Vertex cove gets 403 "path not allowed" / 502 "credential unavailable". |

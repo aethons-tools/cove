@@ -71,6 +71,7 @@ runtime:                            # optional — supervisor lease/reconcile ti
     known-hosts-dir: /var/lib/jam/known_hosts.d
     dns: []
     docker: false
+    docker-context: colima                   # optional — the colima instance studios run in (colima-<profile>)
   discord:
     connection: discord-main        # an `at-jam connection` of kind discord
   requisitioner:
@@ -106,7 +107,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
-| `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
+| `runtime.launcher` | no | Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to the at-cove config dir. Optional `docker-context` (default `colima`) selects the colima instance — see the launcher note below. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
 | `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), a `linear` block, and `connection`: a **connection** of kind `linear` (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`), whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated `tracker-token-cred: <credential>` still works (with a warning) by binding the implicit connection named `linear`. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
 | `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` binds the implicit connection named `discord`. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`; and `session-wake-limit`, the agent-to-agent loop breaker (default 8; `0` = session posts never wake sessions; negative refused). Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
@@ -238,7 +239,14 @@ names none), built on demand by the launcher — no pre-built image or
 `/etc/hosts` so that name resolves to the host gateway. Jam must reach the Colima
 backend (run it where `docker`/Colima is available); `identity-file` is the SSH key
 Jam uses to reach the studio (defaults to `~/.config/at-cove/id_ed25519`). Omit the
-whole block to keep the placeholder launcher (dev/tests). The build/prepare
+whole block to keep the placeholder launcher (dev/tests).
+
+`docker-context` picks **which colima instance** the studios run in: every docker
+call the launcher makes is pinned to that docker context. It defaults to `colima`,
+the default profile's context; `colima start --profile jam-b` creates
+`colima-jam-b`, so `docker-context: colima-jam-b` places this Jam's studios (and
+their kit images and volumes) in that VM. Use it to give each Jam on one host its
+own colima instance. The build/prepare
 handshake is in [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol).
 
 ## The broker model

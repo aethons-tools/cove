@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -381,7 +382,15 @@ type launcherConfig struct {
 	KnownHostsDir string   `yaml:"known-hosts-dir"`
 	DNS           []string `yaml:"dns"`
 	Docker        bool     `yaml:"docker"`
+	// DockerContext is the docker context the launcher pins every docker call
+	// to, selecting the colima instance its studios run in: colima-<profile>
+	// for `colima start --profile <profile>`. Empty ⇒ colima (the default
+	// profile).
+	DockerContext string `yaml:"docker-context"`
 }
+
+// dockerContextRe is docker's own context-name rule.
+var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
 
 // validateLauncher checks runtime.launcher when present (required fields:
 // runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
@@ -398,6 +407,9 @@ func (c serveConfig) validateLauncher() error {
 	}
 	if lc.JamHost == "" {
 		return fmt.Errorf("runtime.launcher.jam-host is required")
+	}
+	if lc.DockerContext != "" && !dockerContextRe.MatchString(lc.DockerContext) {
+		return fmt.Errorf("runtime.launcher.docker-context %q is not a valid docker context name", lc.DockerContext)
 	}
 	if lc.IdentityFile == "" {
 		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")

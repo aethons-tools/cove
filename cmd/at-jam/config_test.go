@@ -241,6 +241,7 @@ runtime:
     known-hosts-dir: /etc/jam/known_hosts.d
     dns: ["1.1.1.1", "8.8.8.8"]
     docker: true
+    docker-context: colima-jam-b
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +254,7 @@ runtime:
 		lc.JamHost != "jam.example.com" ||
 		lc.IdentityFile != "/etc/jam/id_ed25519" ||
 		lc.KnownHostsDir != "/etc/jam/known_hosts.d" ||
-		!lc.Docker ||
+		!lc.Docker || lc.DockerContext != "colima-jam-b" ||
 		len(lc.DNS) != 2 || lc.DNS[0] != "1.1.1.1" || lc.DNS[1] != "8.8.8.8" {
 		t.Fatalf("launcher config = %+v", lc)
 	}
@@ -1108,5 +1109,25 @@ func TestCredFixHint(t *testing.T) {
 	}
 	if h := c.credFixHint("git-pat"); !strings.Contains(h, "git-pat") || !strings.Contains(h, "credentials") {
 		t.Errorf("default hint = %q", h)
+	}
+}
+
+// docker-context must be a valid docker context name: it rides as a
+// `--context` argv value, so reject anything that could read as a flag.
+func TestValidateLauncherDockerContext(t *testing.T) {
+	for ctx, ok := range map[string]bool{
+		"":             true, // unset → the default colima context
+		"colima":       true,
+		"colima-jam-b": true,
+		"my_ctx.2":     true,
+		"-x":           false,
+		"a b":          false,
+		"colima/x":     false,
+	} {
+		c := serveConfig{}
+		c.Runtime.Launcher = &launcherConfig{RuntimeAddr: "h:443", JamHost: "h", DockerContext: ctx}
+		if err := c.validateLauncher(); (err == nil) != ok {
+			t.Errorf("docker-context %q: err=%v, want ok=%v", ctx, err, ok)
+		}
 	}
 }
