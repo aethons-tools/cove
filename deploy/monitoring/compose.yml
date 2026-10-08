@@ -2,7 +2,7 @@
 # Run via `just monitoring-up <jam-host>`; secrets live in .local/ (gitignored).
 services:
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.15.0
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes:
       - ./.local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
