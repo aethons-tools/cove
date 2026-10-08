@@ -55,9 +55,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   page ([ui-pages.md](ui-pages.md#agent-pages)); `/ui/coves…` and `/ui/actors`
   redirect here.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
-  the channel log, with the frozen legacy log on a Legacy tab. See
-  [Intercom](#intercom) below.
-- **Health** (`/ui/health`) — operator-attention conditions (open with their fix, resolved in the last 7 days); open critical/warning ones also count in the rail badge — see [monitoring.md](monitoring.md).
+  the channel log, with the frozen legacy log on a Legacy tab. See [Intercom](#intercom).
+- **Health** (`/ui/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
 

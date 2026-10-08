@@ -32,8 +32,8 @@ Conditions survive a Jam restart and keep their original start time.
 
 | Key | Severity | Raised when | Cleared when |
 |---|---|---|---|
-| `cred.unavailable:<cred>` | critical | 3 consecutive failures resolving a brokered credential | the next successful resolve |
-| `pool.account.refresh:<account>` | warning; critical while every account fails | 2 consecutive failed refresh passes | the next successful refresh |
+| `cred.unavailable:<cred>` | critical | 3 consecutive failures resolving a brokered credential | the next successful resolve, or at startup if the credential is no longer configured |
+| `pool.account.refresh:<account>` | warning; critical while every account fails | 2 consecutive failed refresh passes | the next successful refresh, a fresh token (`pool add`), or removal of the account |
 
 Each carries its fix (e.g. `gcloud auth application-default login` for a
 gcp-exchange ADC). Conditions name things only — never secret values.
@@ -48,7 +48,7 @@ tokens are refused. Series: `jam_up`, `jam_attention_condition{key,kind,severity
 (one per open condition), `jam_attention_open{severity}`, `jam_studios`.
 Unset ⇒ no `/metrics`.
 
-- `token-cred` must be a plain credential, not an `exchange: gcp` one.
+- `token-cred` must be a plain credential: not `exchange: gcp`, not the pool's `cred-name` (serve refuses it).
 - The scrape token is read once at startup; after rotating it, restart
   `at-jam serve` (and update `scrape-token` for the bundle).
 
