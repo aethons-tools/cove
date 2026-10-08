@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -19,8 +21,8 @@ const (
 )
 
 func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *sessionevents.Hub) {
-	mux.HandleFunc("GET /ui/coves/{id}/session", func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{"Title": "Studios", "ActorID": r.PathValue("id"), "Enabled": store != nil}
+	mux.HandleFunc("GET /ui/agents/{id}/session", func(w http.ResponseWriter, r *http.Request) {
+		data := map[string]any{"Title": r.PathValue("id") + " session", "ActorID": r.PathValue("id"), "Enabled": store != nil}
 		if store != nil {
 			streams, _ := store.Streams(r.PathValue("id"))
 			selected := r.URL.Query().Get("stream")
@@ -29,15 +31,18 @@ func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *session
 			}
 			data["Streams"], data["Stream"] = streams, selected
 		}
-		render(w, "session", data)
+		render(w, r, "session", data)
 	})
-	mux.HandleFunc("GET /ui/coves/{id}/session/events", func(w http.ResponseWriter, r *http.Request) {
+	events := func(w http.ResponseWriter, r *http.Request) {
 		if store == nil || hub == nil {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		serveSessionEvents(w, r, store, hub)
-	})
+	}
+	mux.HandleFunc("GET /ui/agents/{id}/session/events", events)
+	// The pre-agents path, for timelines already open in a browser.
+	mux.HandleFunc("GET /ui/coves/{id}/session/events", events)
 }
 
 type eventView struct {
@@ -208,9 +213,15 @@ func sseWrite(w http.ResponseWriter, event, id, data string) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// sessionFragments is a clone of the session page's set for rendering event
+// fragments (the master set is only ever cloned, never executed).
+var sessionFragments = sync.OnceValue(func() *template.Template {
+	return template.Must(pages["session"].t.Clone())
+})
+
 func fragment(name string, data any) string {
 	var b bytes.Buffer
-	if err := pages["session"].ExecuteTemplate(&b, name, data); err != nil {
+	if err := sessionFragments().ExecuteTemplate(&b, name, data); err != nil {
 		return ""
 	}
 	// html/template leaves CR raw; keep it visible to the operator as an entity

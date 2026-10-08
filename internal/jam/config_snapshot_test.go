@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -30,14 +31,14 @@ func populated(t *testing.T) *MemStore {
 	if err := s.AddDestination(Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddHuman(DefaultProject, Human{Name: "alice", Handle: "@alice"}); err != nil {
+	if err := AddPerson(s, DefaultProject, Human{Name: "alice", Handle: "@alice"}); err != nil {
 		t.Fatal(err)
 	}
 	// excluded state:
 	if err := s.PutInstance(Instance{ActorID: "spider-18"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CommitUnread("alice", "eng", 7); err != nil {
+	if err := s.CommitChannelRead("usr_01j9q3aaaaaaaaaaaaaaaaaaaa", "chn_01j9q3aaaaaaaaaaaaaaaaaaaa", 7); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -56,7 +57,8 @@ func TestExportConfigIncludesConfigExcludesState(t *testing.T) {
 	if snap.Actors[0].TokenHash != HashToken("tok") {
 		t.Fatalf("token hash not exported: %q", snap.Actors[0].TokenHash)
 	}
-	if _, ok := snap.Roles[DefaultProject]["guest"]; !ok {
+	def, _ := s.GetProject(DefaultProject)
+	if _, ok := snap.Roles[string(def.ID)]["guest"]; !ok {
 		t.Fatalf("roles = %+v", snap.Roles)
 	}
 	if len(snap.Kits) != 1 || snap.Kits[0].Versions[1] != "image: x" {
@@ -73,7 +75,8 @@ func TestExportConfigIsDeepCopied(t *testing.T) {
 	s := populated(t)
 	snap := s.ExportConfig()
 	// Mutating the snapshot must not reach the store.
-	snap.Roles[DefaultProject]["guest"] = Role{Name: "hacked"}
+	def, _ := s.GetProject(DefaultProject)
+	snap.Roles[string(def.ID)]["guest"] = Role{Name: "hacked"}
 	snap.Kits[0].Versions[1] = "tampered"
 	if r, _ := s.GetRole(DefaultProject, "guest"); r.Name != "guest" {
 		t.Fatalf("store role mutated via snapshot: %+v", r)
@@ -113,7 +116,7 @@ func TestImportConfigRefusesWhenNotEmpty(t *testing.T) {
 		"roles":        func(s *MemStore) { _ = s.PutRole(DefaultProject, Role{Name: "r"}) },
 		"kits":         func(s *MemStore) { _, _ = s.PushKit("k", "cfg") },
 		"destinations": func(s *MemStore) { _ = s.AddDestination(Destination{Name: "d"}) },
-		"projects":     func(s *MemStore) { _ = s.AddHuman(DefaultProject, Human{Name: "h"}) },
+		"projects":     func(s *MemStore) { _ = AddPerson(s, DefaultProject, Human{Name: "h"}) },
 		"jam_context":  func(s *MemStore) { _ = s.SetJamContext(sessionctx.Layer{Core: "J"}) },
 	}
 	for name, seed := range cases {
@@ -236,5 +239,19 @@ func TestConfigSnapshotDestinationHeaderSpecsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(dst.ListDestinations(), src.ListDestinations()) {
 		t.Fatalf("round trip:\n got %+v\nwant %+v", dst.ListDestinations(), src.ListDestinations())
+	}
+}
+
+// A v4 snapshot naming a project by an id it doesn't carry is refused rather
+// than leaving roles or grants pointing nowhere.
+func TestImportRefusesUnknownProjectIDs(t *testing.T) {
+	ghost := string(ident.New(ident.Project))
+	for name, snap := range map[string]ConfigSnapshot{
+		"role":  {Version: ConfigSnapshotVersion, Roles: map[string]map[string]Role{ghost: {"r": {Name: "r"}}}},
+		"grant": {Version: ConfigSnapshotVersion, Actors: []Actor{{ID: "a", TokenHash: "h", Grants: []Grant{{Project: ghost, Role: "r"}}}}},
+	} {
+		if err := NewMemStore().ImportConfig(snap); !errors.Is(err, ErrInvalidConfig) {
+			t.Errorf("%s: %v, want ErrInvalidConfig", name, err)
+		}
 	}
 }

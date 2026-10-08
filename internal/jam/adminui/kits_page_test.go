@@ -77,13 +77,13 @@ func TestKitPageShowsCurrentVersion(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"<h1>web</h1>", `aria-current="page">Kits`,
+		"<h1>web</h1>", `aria-current="page">Specs`,
 		`href="/ui/kits/web?v=1"`, `class="ver current`,
 		"ghcr.io/acme/web@sha256:abc",
 		"github.com", "anthropic.com", // egress + excluded by the ceiling
 		"GO_VERSION", "1.23", "GH_TOKEN", "clone access",
 		"You work on the web and api services.",
-		`href="/ui/roles/acme/builder"`,
+		`href="/ui/projects/acme/roles/builder"`,
 		`hx-post="/ui/kits/web/versions"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -97,7 +97,7 @@ func TestKitPageShowsCurrentVersion(t *testing.T) {
 
 func TestDefaultKitListsImplicitRoles(t *testing.T) {
 	body := get(t, kitsHandler(seedKits(t)), "/ui/kits/default").Body.String()
-	if !strings.Contains(body, `href="/ui/roles/acme/plain"`) || !strings.Contains(body, "no kit set") {
+	if !strings.Contains(body, `href="/ui/projects/acme/roles/plain"`) || !strings.Contains(body, "no kit set") {
 		t.Errorf("default kit should list roles with no kit set")
 	}
 }

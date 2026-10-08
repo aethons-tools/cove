@@ -101,7 +101,7 @@ func TestGateAttributesOperator(t *testing.T) {
 	var gotLoopback string
 	g := operatorGate(nil)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ui/roster", nil)
+	req := httptest.NewRequest("GET", "/ui/actors", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
 	req.Host = "localhost"
 	g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func TestGateAttributesOperator(t *testing.T) {
 	var gotSession string
 	gs := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
 	rec = httptest.NewRecorder()
-	sreq := httptest.NewRequest("GET", "/ui/roster", nil)
+	sreq := httptest.NewRequest("GET", "/ui/actors", nil)
 	sreq.RemoteAddr = "203.0.113.7:5555"
 	sreq.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
 	gs.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,15 +244,19 @@ func TestGateLoopbackAllowsLoopbackLiterals(t *testing.T) {
 
 // --- Participant plane (/me): no loopback trust; session maps to a roster human ---
 
-// fakeParticipantStore is a jam.ParticipantStore over one project's roster.
-type fakeParticipantStore struct{ humans []jam.Human }
-
-func (f fakeParticipantStore) ListProjects() []string { return []string{"proj"} }
-func (f fakeParticipantStore) GetRoster(p string) (jam.Roster, bool) {
-	if p != "proj" {
-		return jam.Roster{}, false
+// participantStore is a store whose project "proj" has humans as members.
+func participantStore(t *testing.T, humans ...jam.Human) jam.Store {
+	t.Helper()
+	s := jam.NewMemStore()
+	if err := s.CreateProject("proj"); err != nil {
+		t.Fatal(err)
 	}
-	return jam.Roster{Humans: f.humans}, true
+	for _, h := range humans {
+		if err := jam.AddPerson(s, "proj", h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
 }
 
 // TestParticipantGateNoLoopbackBypass is the key boundary property: with no
@@ -296,9 +300,7 @@ func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
 			return "", fmt.Errorf("bad token")
 		}
 	}
-	store := fakeParticipantStore{humans: []jam.Human{
-		{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}},
-	}}
+	store := participantStore(t, jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}})
 	sess := svc.ParticipantSession(store)
 
 	cases := []struct {

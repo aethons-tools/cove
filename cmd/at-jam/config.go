@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
@@ -22,21 +25,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// credSpec is the YAML shape for one Jam credential: either a resolver
-// command or a literal value (dev only).
+// credSpec is the YAML shape for one serve-config credentials: entry. The
+// strategy (Command/Value) is the removed inline form, kept only so
+// validateCredentials can refuse it; Exchange is the one setting a demand may
+// carry — how Jam uses the supplied value (credExchangeGCP), never the value.
 type credSpec struct {
-	Command []string `yaml:"command"`
-	Value   string   `yaml:"value"`
+	Command  []string `yaml:"command"`
+	Value    string   `yaml:"value"`
+	Exchange string   `yaml:"exchange"`
 }
 
-// devIdentityConfig names the roster human dev-identity impersonates.
+// credExchangeGCP marks a credential whose supplied value is a Google
+// credentials JSON: the broker exchanges it for short-lived GCP access tokens
+// (jam.GCPTokenResolver), and that token is what a destination applies.
+const credExchangeGCP = "gcp"
+
+// devIdentityConfig names the user dev-identity impersonates. The
+// pre-registry form {project, human} is accepted as the user named human.
 type devIdentityConfig struct {
-	Project string `yaml:"project"`
-	Human   string `yaml:"human"`
+	User              string `yaml:"user"`
+	DeprecatedProject string `yaml:"project"`
+	DeprecatedHuman   string `yaml:"human"`
 }
 
 // serveConfig is the on-disk config for `at-jam serve`.
 type serveConfig struct {
+	// DisplayName names this Jam in the admin UI: the title bar reads
+	// "<name> Jam" and the rail's Jam entry "<name>". Optional; one line, at
+	// most 64 characters, trimmed.
+	DisplayName string `yaml:"display-name"`
 	Listen      string `yaml:"listen"`
 	AdminListen string `yaml:"admin-listen"`
 	// UIHosts are extra Host values accepted for the browser UI on a loopback
@@ -49,7 +66,7 @@ type serveConfig struct {
 	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
 	UIOrigins []string `yaml:"ui-origins"`
 	// DevIdentity — DEV ONLY: loopback browser requests to /ui and /me act as
-	// this roster human with no login (see browserauth.DevIdentity). serve
+	// this user with no login (see browserauth.DevIdentity). serve
 	// refuses it unless admin-listen is loopback.
 	DevIdentity *devIdentityConfig `yaml:"dev-identity"`
 	TLS         struct {
@@ -86,7 +103,12 @@ type serveConfig struct {
 	// coves are seeded in subscription mode, and a background refresher rotates
 	// pool tokens. Absent ⇒ the anthropic destination keeps its configured
 	// (x-api-key/federated) credential and coves launch in API-key mode.
-	Pool         *poolConfig `yaml:"pool"`
+	Pool *poolConfig `yaml:"pool"`
+
+	// Metrics, when set, serves the operator-attention exposition at /metrics
+	// on the broker listener, gated on a scrape token (a demanded credential).
+	// See docs/usage/jam/monitoring.md.
+	Metrics      *metricsConfig `yaml:"metrics"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -110,6 +132,9 @@ type serveConfig struct {
 		DeprecatedDispatcher *requisitionerConfig `yaml:"dispatcher"`
 		Discord              *discordConfig       `yaml:"discord"`
 		Wake                 *wakeConfig          `yaml:"wake"`
+		// EscalationPollInterval is how often the escalation engine checks
+		// waiting sessions; it wins over runtime.requisitioner's key.
+		EscalationPollInterval string `yaml:"escalation-poll-interval"`
 	} `yaml:"runtime"`
 
 	// deprecated lists the {old, new} key pairs parseServeConfig folded from a
@@ -126,6 +151,22 @@ type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
 	WaitMax      string `yaml:"wait-max"`
 	WarmTimeout  string `yaml:"warm-timeout"`
+	// SessionWakeLimit is the agent-to-agent loop breaker's run: how many
+	// session posts in a row a channel takes, since a person last posted
+	// there, before session posts stop waking sessions in it. Unset = 8;
+	// 0 = session posts never wake sessions.
+	SessionWakeLimit *int `yaml:"session-wake-limit"`
+}
+
+// defaultSessionWakeLimit is runtime.wake.session-wake-limit's default.
+const defaultSessionWakeLimit = 8
+
+// sessionWakeLimit resolves runtime.wake.session-wake-limit (0: off).
+func (c serveConfig) sessionWakeLimit() int {
+	if c.Runtime.Wake != nil && c.Runtime.Wake.SessionWakeLimit != nil {
+		return *c.Runtime.Wake.SessionWakeLimit
+	}
+	return defaultSessionWakeLimit
 }
 
 // wakeSettings resolves the wake-on engine's settings, per field:
@@ -159,11 +200,46 @@ func (c serveConfig) validateSessionEvents() error {
 	return err
 }
 
+// alertmanagerURL is the configured Alertmanager's base URL, or "".
+func alertmanagerURL(c serveConfig) string {
+	if c.Metrics == nil {
+		return ""
+	}
+	return c.Metrics.AlertmanagerURL
+}
+
+// displayName is the trimmed display-name ("" when unset).
+func (c serveConfig) displayName() string { return strings.TrimSpace(c.DisplayName) }
+
+// validateDisplayName refuses a display-name that spans lines, holds control,
+// invisible or bidi-override characters (anything but printable text and plain
+// spaces), or runs past 64 characters.
+func (c serveConfig) validateDisplayName() error {
+	n := c.displayName()
+	if utf8.RuneCountInString(n) > 64 {
+		return fmt.Errorf("display-name: at most 64 characters, got %d", utf8.RuneCountInString(n))
+	}
+	for _, r := range n {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("display-name: must be one line of printable text (no control, invisible or line-separator characters)")
+		}
+	}
+	return nil
+}
+
 // validateWake checks runtime.wake's durations parse. A no-op when unset.
 func (c serveConfig) validateWake() error {
+	if v := c.Runtime.EscalationPollInterval; v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			return fmt.Errorf("runtime.escalation-poll-interval: want a positive duration, got %q", v)
+		}
+	}
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil
+	}
+	if w.SessionWakeLimit != nil && *w.SessionWakeLimit < 0 {
+		return fmt.Errorf("runtime.wake.session-wake-limit: want 0 (off) or more, got %d", *w.SessionWakeLimit)
 	}
 	for name, v := range map[string]string{"poll-interval": w.PollInterval, "wait-max": w.WaitMax, "warm-timeout": w.WarmTimeout} {
 		if v == "" {
@@ -178,8 +254,11 @@ func (c serveConfig) validateWake() error {
 
 // discordConfig enables the resident Discord relay engine (egress this slice).
 type discordConfig struct {
-	// BotTokenCred names a demanded credential; the token is supplied by the
-	// at-jam credentials file, never inline here.
+	// Connection names the discord connection the relay uses (its credential
+	// is the connection's). Exclusive with the deprecated BotTokenCred.
+	Connection string `yaml:"connection"`
+	// BotTokenCred (deprecated: use connection) names a demanded credential;
+	// it binds the implicit connection named "discord".
 	BotTokenCred string `yaml:"bot-token-cred"`
 	// DeprecatedBotToken detects the removed inline form; a set value is a hard
 	// error pointing at the credentials file.
@@ -200,6 +279,50 @@ type poolConfig struct {
 	TokenURL        string `yaml:"token-url"`        // default jam.defaultTokenURL
 	ClientID        string `yaml:"client-id"`        // default jam.defaultClientID
 	Scope           string `yaml:"scope"`            // default jam.defaultScope
+}
+
+// metricsConfig enables /metrics. TokenCred names a demanded credential (the
+// scrape token's value comes from the credentials file). AlertmanagerURL, when
+// set, is linked from the admin UI's Health tab.
+type metricsConfig struct {
+	TokenCred       string `yaml:"token-cred"`
+	AlertmanagerURL string `yaml:"alertmanager-url"`
+}
+
+// validateMetrics checks a set metrics block: token-cred is required and
+// demanded; alertmanager-url, if set, is an http(s) URL.
+func (c serveConfig) validateMetrics() error {
+	m := c.Metrics
+	if m == nil {
+		return nil
+	}
+	if m.TokenCred == "" {
+		return fmt.Errorf("metrics.token-cred is required")
+	}
+	if _, ok := c.Credentials[m.TokenCred]; !ok {
+		return fmt.Errorf("metrics.token-cred %q is not a demanded credential", m.TokenCred)
+	}
+	if slices.Contains(c.gcpCredentials(), m.TokenCred) || (c.Pool != nil && m.TokenCred == c.Pool.CredName) {
+		return fmt.Errorf("metrics.token-cred %q must be a plain static credential, not a gcp-exchange or pool credential", m.TokenCred)
+	}
+	if m.AlertmanagerURL != "" {
+		u, err := url.Parse(m.AlertmanagerURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("metrics.alertmanager-url %q must be an http(s) URL", m.AlertmanagerURL)
+		}
+	}
+	return nil
+}
+
+// credFixHint is the remedy a cred.unavailable condition shows for name.
+func (c serveConfig) credFixHint(name string) string {
+	switch {
+	case slices.Contains(c.gcpCredentials(), name):
+		return "if it supplies a user ADC: run `gcloud auth application-default login` on the Jam host (Jam re-reads it within 10s); otherwise replace the Google credentials JSON for " + name
+	case c.Pool != nil && name == c.Pool.CredName:
+		return "check the pool's accounts: `at-jam pool list --store " + c.Pool.Store + "`"
+	}
+	return "check the credentials file entry " + name + " (" + c.credentialsFilePath() + ")"
 }
 
 // validatePool checks a set pool block. Store and CredName are required; the
@@ -259,7 +382,15 @@ type launcherConfig struct {
 	KnownHostsDir string   `yaml:"known-hosts-dir"`
 	DNS           []string `yaml:"dns"`
 	Docker        bool     `yaml:"docker"`
+	// DockerContext is the docker context the launcher pins every docker call
+	// to, selecting the colima instance its studios run in: colima-<profile>
+	// for `colima start --profile <profile>`. Empty ⇒ colima (the default
+	// profile).
+	DockerContext string `yaml:"docker-context"`
 }
+
+// dockerContextRe is docker's own context-name rule.
+var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
 
 // validateLauncher checks runtime.launcher when present (required fields:
 // runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
@@ -277,6 +408,9 @@ func (c serveConfig) validateLauncher() error {
 	if lc.JamHost == "" {
 		return fmt.Errorf("runtime.launcher.jam-host is required")
 	}
+	if lc.DockerContext != "" && !dockerContextRe.MatchString(lc.DockerContext) {
+		return fmt.Errorf("runtime.launcher.docker-context %q is not a valid docker context name", lc.DockerContext)
+	}
 	if lc.IdentityFile == "" {
 		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")
 	}
@@ -289,10 +423,14 @@ func (c serveConfig) validateLauncher() error {
 // requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
-	Role             string `yaml:"role"`
-	Project          string `yaml:"project"`
-	MaxConcurrent    int    `yaml:"max-concurrent"`
-	PollInterval     string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	Role          string `yaml:"role"`
+	Project       string `yaml:"project"`
+	MaxConcurrent int    `yaml:"max-concurrent"`
+	PollInterval  string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
+	// Connection names the linear connection the Requisitioner, escalation and
+	// Linear relay use. Exclusive with the deprecated TrackerTokenCred, which
+	// binds the implicit connection named "linear".
+	Connection       string `yaml:"connection"`
 	TrackerTokenCred string `yaml:"tracker-token-cred"`
 	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
 	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
@@ -421,11 +559,21 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.DeprecatedTrackerToken != nil {
 		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
 	}
-	if d.TrackerTokenCred == "" {
-		return fmt.Errorf("runtime.requisitioner.tracker-token-cred is required")
-	}
-	if _, ok := c.Credentials[d.TrackerTokenCred]; !ok {
-		return fmt.Errorf("runtime.requisitioner.tracker-token-cred %q is not a demanded credential", d.TrackerTokenCred)
+	return checkConnectionOrCred(c, "runtime.requisitioner", d.Connection, "tracker-token-cred", d.TrackerTokenCred)
+}
+
+// checkConnectionOrCred checks a block's exactly-one-of `connection` / its
+// deprecated credential key (which must name a demanded credential).
+func checkConnectionOrCred(c serveConfig, field, conn, credKey, cred string) error {
+	switch {
+	case conn != "" && cred != "":
+		return fmt.Errorf("%s: both connection and %s are set; %s is deprecated — keep only connection", field, credKey, credKey)
+	case conn == "" && cred == "":
+		return fmt.Errorf("%s.connection is required", field)
+	case cred != "":
+		if _, ok := c.Credentials[cred]; !ok {
+			return fmt.Errorf("%s.%s %q is not a demanded credential", field, credKey, cred)
+		}
 	}
 	return nil
 }
@@ -441,13 +589,7 @@ func (c serveConfig) validateDiscord() error {
 	if d.DeprecatedBotToken != nil {
 		return fmt.Errorf("runtime.discord.bot-token is no longer inline — set runtime.discord.bot-token-cred: <name> and %s", credentialsFileHint)
 	}
-	if d.BotTokenCred == "" {
-		return fmt.Errorf("runtime.discord.bot-token-cred is required")
-	}
-	if _, ok := c.Credentials[d.BotTokenCred]; !ok {
-		return fmt.Errorf("runtime.discord.bot-token-cred %q is not a demanded credential", d.BotTokenCred)
-	}
-	return nil
+	return checkConnectionOrCred(c, "runtime.discord", d.Connection, "bot-token-cred", d.BotTokenCred)
 }
 
 // atCoveConfigDir mirrors at-cove's own configDir() (cmd/at-cove/main.go):
@@ -644,9 +786,23 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
 	}
+	if d := c.Runtime.Requisitioner; d != nil && d.TrackerTokenCred != "" && d.Connection == "" {
+		c.deprecated = append(c.deprecated, [2]string{"runtime.requisitioner.tracker-token-cred", "runtime.requisitioner.connection"})
+	}
+	if d := c.Runtime.Discord; d != nil && d.BotTokenCred != "" && d.Connection == "" {
+		c.deprecated = append(c.deprecated, [2]string{"runtime.discord.bot-token-cred", "runtime.discord.connection"})
+	}
 	if d := c.DevIdentity; d != nil {
-		if d.Project == "" || d.Human == "" {
-			return serveConfig{}, fmt.Errorf("dev-identity: project and human are both required")
+		switch {
+		case d.User != "" && (d.DeprecatedHuman != "" || d.DeprecatedProject != ""):
+			return serveConfig{}, fmt.Errorf("dev-identity: both user and project/human are set; project/human is the deprecated form — keep only user")
+		case d.DeprecatedHuman != "":
+			if d.DeprecatedProject == "" {
+				return serveConfig{}, fmt.Errorf("dev-identity: the deprecated human needs its project (or use user)")
+			}
+			c.deprecated = append(c.deprecated, [2]string{"dev-identity.project/human", "dev-identity.user"})
+		case d.User == "":
+			return serveConfig{}, fmt.Errorf("dev-identity: user is required")
 		}
 		if !isLoopbackAddr(c.AdminListen) {
 			return serveConfig{}, fmt.Errorf("dev-identity: admin-listen %q is off-loopback; dev-identity skips login and is only allowed on a loopback admin listener", c.AdminListen)
@@ -687,15 +843,36 @@ const credentialsFileHint = "supply its strategy in the at-jam credentials file 
 
 // validateCredentials enforces the demand/supply split: a serve-config
 // credentials: entry names a credential only; an inline command:/value: (the old
-// form) is a hard error pointing at the credentials file.
+// form) is a hard error pointing at the credentials file. An exchange must be a
+// known one.
 func (c serveConfig) validateCredentials() error {
 	for _, name := range c.demandedCredentials() {
 		cs := c.Credentials[name]
 		if len(cs.Command) > 0 || cs.Value != "" {
 			return fmt.Errorf("credentials.%s: an inline command/value is no longer allowed — list the name only and %s", name, credentialsFileHint)
 		}
+		switch cs.Exchange {
+		case "":
+		case credExchangeGCP:
+			if c.Pool != nil && name == c.Pool.CredName {
+				return fmt.Errorf("credentials.%s: the pool's credential cannot also be exchange: %s", name, credExchangeGCP)
+			}
+		default:
+			return fmt.Errorf("credentials.%s: exchange %q is not supported (want %s)", name, cs.Exchange, credExchangeGCP)
+		}
 	}
 	return nil
+}
+
+// gcpCredentials is the sorted set of demanded credentials with exchange: gcp.
+func (c serveConfig) gcpCredentials() []string {
+	var out []string
+	for _, name := range c.demandedCredentials() {
+		if c.Credentials[name].Exchange == credExchangeGCP {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // demandedCredentials is the sorted set of credential names the serve config
@@ -738,4 +915,16 @@ func atJamConfigDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-jam")
+}
+
+// escalationPollInterval resolves the escalation engine's poll interval:
+// runtime.escalation-poll-interval > runtime.requisitioner's key > 0 (the
+// engine default). An unparsable value is the default.
+func (c serveConfig) escalationPollInterval() time.Duration {
+	v := c.Runtime.EscalationPollInterval
+	if v == "" && c.Runtime.Requisitioner != nil {
+		v = c.Runtime.Requisitioner.EscalationPollInterval
+	}
+	d, _ := time.ParseDuration(v)
+	return d
 }

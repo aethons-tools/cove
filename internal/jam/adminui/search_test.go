@@ -35,19 +35,19 @@ func searchFixture(t *testing.T) http.Handler {
 	if err := store.PutInstance(jam.Instance{ActorID: "studio-7", Project: "acme", Role: "zephyr-dev", Unit: "COV-42", Phase: jam.PhaseLive}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", jam.Human{Name: "zoe", Handle: "zephyr-zoe"}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "zoe", Handle: "zephyr-zoe"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddChannel("acme", jam.Channel{Name: "ops", Service: "discord", Ref: "zephyr-ops"}); err != nil {
+	if err := putRoom(store, "acme", "ops", "discord", "zephyr-ops"); err != nil {
 		t.Fatal(err)
 	}
-	var squawks []intercom.Squawk
+	var squawks []intercom.LegacySquawk
 	t0 := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	for i := range 12 {
-		squawks = append(squawks, intercom.Squawk{From: human("zoe"), To: []intercom.Target{actor("studio-7")},
+		squawks = append(squawks, intercom.LegacySquawk{From: human("zoe"), To: []intercom.Target{actor("studio-7")},
 			Body: fmt.Sprintf("zephyr update %d", i), At: t0.Add(time.Duration(i) * time.Minute), Project: "acme"})
 	}
-	squawks = append(squawks, intercom.Squawk{From: human("zoe"), To: []intercom.Target{channel("ops")}, Body: "nothing relevant", At: t0, Project: "acme"})
+	squawks = append(squawks, intercom.LegacySquawk{From: human("zoe"), To: []intercom.Target{channel("ops")}, Body: "nothing relevant", At: t0, Project: "acme"})
 	return adminui.Handler(store, testLogger(), nil, nil, anyCred, newIntercomLog(t, squawks...))
 }
 
@@ -58,17 +58,17 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`href="/ui/projects/zephyr-labs"`,      // project by name
-		`href="/ui/roles/acme/zephyr-dev"`,     // role by name
-		`href="/ui/coves/studio-7"`,            // studio by role
-		"bot-<mark>zephyr</mark>",              // actor by id
-		"human:zoe",                            // human by handle
-		"channel:ops",                          // channel by ref
-		`href="/ui/kits/web"`,                  // kit by prompt
-		`href="/ui/destinations/gh"`,           // destination by upstream
-		"<mark>zephyr</mark> update 11",        // newest squawk, highlighted
-		`href="/ui/intercom?q=ZEPHYR"`,         // the rest of the squawks
-		`data-group="squawks" data-count="12"`, // full count, 10 shown
+		`href="/ui/projects/zephyr-labs"`,           // project by name
+		`href="/ui/projects/acme/roles/zephyr-dev"`, // role by name
+		`href="/ui/agents/studio-7"`,                // studio by role
+		"bot-<mark>zephyr</mark>",                   // actor by id
+		"human:zoe",                                 // human by handle
+		"channel:ops",                               // channel by ref
+		`href="/ui/kits/web"`,                       // kit by prompt
+		`href="/ui/destinations/gh"`,                // destination by upstream
+		"<mark>zephyr</mark> update 11",             // newest squawk, highlighted
+		`href="/ui/intercom?q=ZEPHYR"`,              // the rest of the squawks
+		`data-group="squawks" data-count="12"`,      // full count, 10 shown
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("search results missing %q", want)
@@ -94,9 +94,9 @@ func TestSearchLiveFragment(t *testing.T) {
 func TestSearchExactMatchJumps(t *testing.T) {
 	h := searchFixture(t)
 	for q, want := range map[string]string{
-		"studio-7":        "/ui/coves/studio-7",
+		"studio-7":        "/ui/agents/studio-7",
 		"web":             "/ui/kits/web",
-		"acme/zephyr-dev": "/ui/roles/acme/zephyr-dev",
+		"acme/zephyr-dev": "/ui/projects/acme/roles/zephyr-dev",
 	} {
 		rec := get(t, h, "/ui/search?go=1&q="+q)
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
@@ -120,7 +120,7 @@ func TestSearchShortQueryAndNoMatches(t *testing.T) {
 }
 
 func TestSearchBoxOnEveryPage(t *testing.T) {
-	body := get(t, searchFixture(t), "/ui/roles").Body.String()
+	body := get(t, searchFixture(t), "/ui/").Body.String()
 	for _, want := range []string{`action="/ui/search"`, `id="q-top"`, `name="go" value="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("topbar search missing %q", want)
@@ -132,11 +132,24 @@ func TestSearchBoxOnEveryPage(t *testing.T) {
 func TestSearchHighlightEscapes(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "p")
-	if err := store.AddHuman("p", jam.Human{Name: "x", Handle: "<b>evil</b>"}); err != nil {
+	if err := jam.AddPerson(store, "p", jam.Human{Name: "x", Handle: "<b>evil</b>"}); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/search?q=evil").Body.String()
 	if strings.Contains(body, "<b>") || !strings.Contains(body, "&lt;b&gt;<mark>evil</mark>&lt;/b&gt;") {
 		t.Errorf("highlight must escape the surrounding text")
+	}
+}
+
+// A model-spec hit's sub-line has no dangling separator when the principal
+// credential is empty.
+func TestSearchModelSpecSubNoDanglingSeparator(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutModelSpec(jam.ModelSpec{Name: "bare", Type: jam.HarnessClaude, Version: "2.1.0"}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, projHandler(store), "/ui/search?q=bare").Body.String()
+	if !strings.Contains(body, "bare") || strings.Contains(body, " · <") || strings.Contains(body, "· </") {
+		t.Errorf("dangling separator:\n%s", body)
 	}
 }

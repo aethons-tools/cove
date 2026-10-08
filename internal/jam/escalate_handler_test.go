@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -46,7 +47,7 @@ func (f *fakeCategorySetter) SetEscalationCategory(actorID, category string) err
 }
 
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // postEscalate issues a POST /escalate with the given bearer token and raw

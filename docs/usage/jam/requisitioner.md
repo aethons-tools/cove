@@ -4,7 +4,7 @@ read_when: You are enabling or operating Jam's automatic intake — having it po
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-07
 ---
 
 # The Requisitioner
@@ -22,8 +22,10 @@ raise (run → report → teardown).
    matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
    explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
    alone. Presence-only — the value after the prefix is unused.
-3. **Dedup** — skip any issue that already has a live Instance in the registry
-   (its studio is `cove-<identifier>`), so a ticket is never raised twice.
+3. **Dedup** — skip any issue that already has a live session on it (an Instance
+   whose unit is the ticket), so a ticket is never raised twice. Each dispatch
+   starts a new session (a minted `ses_…` id): a re-dispatch after the earlier
+   one ended does not inherit its inbox.
 4. **Cap** — ask Jam's Allocator for an ephemeral reservation; stop raising
    once it denies (the role's ephemeral cap is reached); the rest wait for the
    next poll. The cap is the role's roster `max-ephemeral`
@@ -62,7 +64,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    tracker-token-cred: linear-bot   # names a demanded credential; supplied in the at-jam credentials file (see credentials.md), never inline here
+    connection: linear-acme   # a linear connection (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -71,11 +73,12 @@ runtime:
 ```
 
 The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
-wake-on engine) and `escalation-poll-interval` (the escalation engine). The three wake
-fields are now a **fallback**: the matching `runtime.wake` field wins when set — see
-[intercom.md](intercom.md#waiting-for-a-reply-wake-on). The Requisitioner also brings the
-escalation engine and the Linear relay, both of which need its tracker; the intercom
-itself (`/squawks`, wake-on, the Discord relay) runs without a Requisitioner.
+wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
+**fallback**: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
+wins when set — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) and
+[escalation.md](escalation.md). The Requisitioner also brings the Linear relay, which
+needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
+relay) runs without a Requisitioner.
 
 The role must grant the `anthropic` and `git` destinations so the raised studio's
 agent can reach them ([roster.md](roster.md)).

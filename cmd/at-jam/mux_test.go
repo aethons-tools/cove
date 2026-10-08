@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 
@@ -181,7 +182,8 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 // when there is neither.
 func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	st := jam.NewMemStore()
-	lg := intercom.NewMemLog()
+	chlog := intercom.NewMemLog(nil)
+	msg := &messaging{ic: jam.NewIntercom(st, func() (ident.ID, bool) { return "", false }, chlog, nil, nil), log: chlog}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, time.Now, log)
 	broker := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
@@ -193,17 +195,17 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name          string
-		lg            intercom.Store
+		msg           *messaging
 		requisitioner bool
 		mounted       bool
 	}{
-		{"log, no Requisitioner", lg, false, true},
-		{"log + Requisitioner", lg, true, true},
+		{"log, no Requisitioner", msg, false, true},
+		{"log + Requisitioner", msg, true, true},
 		{"Requisitioner, no log", nil, true, true},
 		{"neither", nil, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := coveHTTPHandler(broker, st, sup, tc.lg, tc.requisitioner, nil, log)
+			h := coveHTTPHandler(broker, st, sup, tc.msg, tc.requisitioner, nil, log)
 			for _, p := range []string{"/squawks", "/escalate"} {
 				if got := get(h, p) != http.StatusTeapot; got != tc.mounted {
 					t.Fatalf("%s mounted = %v, want %v", p, got, tc.mounted)
@@ -220,5 +222,21 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 				t.Fatalf("/context = %d, want 401 (mounted ahead of the broker)", got)
 			}
 		})
+	}
+}
+
+func TestWithMetricsRoutesOnlyExactPath(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
+	metrics := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(298) })
+	h := withMetrics(next, metrics)
+	for path, want := range map[string]int{"/metrics": 298, "/metrics/x": 299, "/anthropic/v1/messages": 299} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+		if rec.Code != want {
+			t.Errorf("%s → %d, want %d", path, rec.Code, want)
+		}
+	}
+	if withMetrics(next, nil) == nil {
+		t.Fatal("nil metrics must return next")
 	}
 }

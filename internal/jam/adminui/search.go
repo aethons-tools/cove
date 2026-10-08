@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -82,36 +81,40 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	m := matcher(strings.ToLower(strings.TrimSpace(q)))
 
 	projects := searchGroup{Key: "projects", Name: "Projects"}
-	humans := searchGroup{Key: "humans", Name: "Roster humans"}
-	channels := searchGroup{Key: "channels", Name: "Roster channels"}
+	users := searchGroup{Key: "users", Name: "Users"}
+	channels := searchGroup{Key: "channels", Name: "Rooms"}
+	for _, u := range store.ListUsers() {
+		v := jam.NewUserView(store, u)
+		fields := append([]string{u.Name}, u.Logins...)
+		for _, id := range u.OIDC {
+			fields = append(fields, id.Subject)
+		}
+		for _, a := range v.Accounts {
+			fields = append(fields, a.Handle, a.ServiceUID)
+		}
+		if m.any(fields...) {
+			sub := strings.Join(v.Projects, ", ")
+			for _, a := range v.Accounts {
+				if a.Handle != "" {
+					sub += " · @" + a.Handle
+					break
+				}
+			}
+			if len(u.Logins) > 0 {
+				sub += " · login " + u.Logins[0]
+			}
+			users.add(searchHit{Title: u.Name, Sub: sub, URL: userURL(u.ID), Exact: m.exact(u.Name)})
+		}
+	}
 	for _, name := range store.ListProjects() {
 		p, _ := store.GetProject(name)
 		if m.any(name) {
 			projects.add(searchHit{Title: name, URL: projectURL(name), Exact: m.exact(name),
 				Sub: pluralCount(len(store.ListRoles(name)), "role")})
 		}
-		for _, h := range p.Roster.Humans {
-			fields := []string{h.Name, h.Handle, h.Login}
-			for _, dp := range h.Delivery {
-				fields = append(fields, dp.Address, dp.UserID)
-			}
-			for _, id := range h.Identity {
-				fields = append(fields, id.Subject)
-			}
-			if m.any(fields...) {
-				sub := name
-				if h.Handle != "" {
-					sub += " · @" + h.Handle
-				}
-				if h.Login != "" {
-					sub += " · login " + h.Login
-				}
-				humans.add(searchHit{Title: "human:" + h.Name, Sub: sub, URL: projectURL(name)})
-			}
-		}
-		for _, c := range p.Roster.Channels {
-			if m.any(c.Name, c.Ref) {
-				channels.add(searchHit{Title: "channel:" + c.Name, Sub: name + " · " + c.Service + " " + c.Ref, URL: projectURL(name)})
+		for _, r := range jam.ListRooms(store, p) {
+			if m.any(r.Name, r.Ref) {
+				channels.add(searchHit{Title: "channel:" + r.Name, Sub: name + " · " + r.Connection + " " + r.Ref, URL: projectURL(name)})
 			}
 		}
 	}
@@ -131,28 +134,30 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
-	studios := searchGroup{Key: "studios", Name: "Studios"}
+	// Agents: one hit per id, whether it is a studio, an enrolled actor or both.
+	agents := searchGroup{Key: "agents", Name: "Agents"}
+	seen := map[string]bool{}
 	for _, i := range store.ListInstances() {
+		i.Project = jam.ProjectName(store, i.Project)
 		if m.any(i.ActorID, i.Unit, i.Owner, i.Name, i.Project+"/"+i.Role) {
-			sub := i.Project + "/" + i.Role + " · " + string(i.Phase)
+			sub := i.Project + "/" + i.Role + " · " + string(jam.StatusOf(i.Phase, i.Activity, true))
 			if i.Unit != "" {
 				sub += " · " + i.Unit
 			}
 			if i.Owner != "" {
 				sub += " · owner " + i.Owner
 			}
-			studios.add(searchHit{Title: i.ActorID, Sub: sub, URL: "/ui/coves/" + url.PathEscape(i.ActorID), Exact: m.exact(i.ActorID)})
+			seen[i.ActorID] = true
+			agents.add(searchHit{Title: i.ActorID, Sub: sub, URL: agentURL(i.ActorID), Exact: m.exact(i.ActorID)})
 		}
 	}
-
-	actors := searchGroup{Key: "actors", Name: "Actors"}
 	for _, a := range store.ListActors() {
 		grants := make([]string, len(a.Grants))
 		for i, g := range a.Grants {
-			grants[i] = orDefaultProject(g.Project) + "/" + g.Role
+			grants[i] = jam.ProjectName(store, g.Project) + "/" + g.Role
 		}
-		if m.any(append([]string{a.ID}, grants...)...) {
-			actors.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: "/ui/roster", Exact: m.exact(a.ID)})
+		if !seen[a.ID] && m.any(append([]string{a.ID}, grants...)...) {
+			agents.add(searchHit{Title: a.ID, Sub: "grants: " + strings.Join(grants, ", "), URL: agentURL(a.ID), Exact: m.exact(a.ID)})
 		}
 	}
 
@@ -179,12 +184,28 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
+	specs := searchGroup{Key: "model-specs", Name: "Model-specs"}
+	for _, ms := range store.ListModelSpecs() {
+		if m.any(ms.Name, string(ms.Type), ms.Model.ID, ms.Principal.Credential) {
+			var parts []string
+			for _, p := range []string{string(ms.Type), ms.Principal.Credential, ms.Model.ID} {
+				if p != "" {
+					parts = append(parts, p)
+				}
+			}
+			sub := strings.Join(parts, " · ")
+			specs.add(searchHit{Title: ms.Name, Sub: sub, URL: specURL(ms.Name), Exact: m.exact(ms.Name)})
+		}
+	}
+
 	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/ui/intercom?q=" + url.QueryEscape(q)}
 	if msgs != nil {
-		var found []intercom.Squawk
-		for _, s := range msgs.List(intercom.Filter{}) {
-			if m.any(s.Body) {
-				found = append(found, s)
+		var found []Logged
+		for _, legacy := range []bool{false, true} {
+			for _, s := range msgs.Squawks(legacy) {
+				if m.any(s.Body) {
+					found = append(found, s)
+				}
 			}
 		}
 		sort.SliceStable(found, func(i, j int) bool { return found[i].At.After(found[j].At) })
@@ -192,13 +213,13 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		for _, s := range found[:min(len(found), searchSquawks)] {
 			squawks.Hits = append(squawks.Hits, searchHit{
 				Title: clip(s.Body, 160),
-				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From.String() + " → " + targetsString(s.To),
+				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From + " → " + squawkWhere(s),
 				URL:   "/ui/intercom?q=" + url.QueryEscape(q),
 			})
 		}
 	}
 
-	for _, g := range []searchGroup{studios, roles, projects, kits, dests, actors, humans, channels, squawks} {
+	for _, g := range []searchGroup{agents, roles, projects, kits, dests, specs, users, channels, squawks} {
 		if g.Count > 0 {
 			d.Groups = append(d.Groups, g)
 			d.Total += g.Count
@@ -207,10 +228,15 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	return d
 }
 
-func targetsString(ts []intercom.Target) string {
-	out := make([]string, len(ts))
-	for i, t := range ts {
-		out[i] = t.String()
+// squawkWhere is where a squawk went: its channel, or a legacy squawk's
+// recipients.
+func squawkWhere(s Logged) string {
+	if s.Channel != "" {
+		return s.Channel
+	}
+	out := make([]string, len(s.To))
+	for i, t := range s.To {
+		out[i] = t.Target
 	}
 	return strings.Join(out, ", ")
 }
@@ -270,10 +296,10 @@ func registerSearch(mux *http.ServeMux, store jam.Store, msgs SquawkReader) {
 			}
 		}
 		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, "search", "search-results", d)
+			renderFragment(w, r, "search", "search-results", d)
 			return
 		}
-		render(w, "search", d)
+		render(w, r, "search", d)
 	})
 }
 

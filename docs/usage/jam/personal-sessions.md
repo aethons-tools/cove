@@ -1,10 +1,10 @@
 ---
-summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the roster human linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
+summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the project member linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
 read_when: You (a human operator) want Jam to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
-owns: the personal-session story — owner resolution (roster Human ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
-prereqs: comms-addressing.md for the Project roster and a Human's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
+owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
+prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-02
+updated: 2026-10-08
 ---
 
 # Personal sessions
@@ -21,9 +21,14 @@ profile for the owner.
 1. The session works its first prompt, delivered as-is. Its
    [session context](session-context.md) tells the agent it is your personal session and how to reach you.
 2. **The studio speaks first.** When it has results or needs input, it `send`s with
-   no `to`, which goes to its owner — you — as a message in your Discord inbox
-   channel. It may message **only** you: Jam enrolls it with an addressing
-   override of exactly `human:<owner>`.
+   no `to`, which goes to its own **session channel** (its home channel). You are
+   called into that channel when the session starts, so it reaches your Discord
+   inbox channel and your [`/me`](intercom-ui.md) inbox. Its nags and notices go
+   there too, and still arrive after it has ended. The channel is private: other
+   people can't join it on their own, and a reply by someone else (say, in a
+   shared Discord inbox) doesn't let them in — but you can **call them in**
+   (`/me` **Call in…**), and you may **leave** it ([membership](intercom.md#channel-membership)). It may message **only** you: Jam enrolls it with an addressing
+   override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
    the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
    there is no time limit). While it waits past the `warm-timeout` it is paused
@@ -37,7 +42,8 @@ profile for the owner.
 
 **v1 limit:** you can only *reply* to the studio's messages; a new, non-reply message
 in your inbox channel does not reach it. The session is never torn down for
-`wait-max` and never escalated (it has no ticket); it ends when you release it, or
+`wait-max`; it [escalates](escalation.md) only when it calls `escalate` and the
+project has a policy (you are already in its channel); it ends when you release it, or
 when the [idle ladder](#the-idle-ladder) reclaims it (only if its role sets
 `--reclaim-after`).
 
@@ -50,7 +56,7 @@ wake-on engine walks it up a ladder set by the role:
 1. **Pause.** Past the `warm-timeout` it is paused (step 3 above).
 2. **Nag.** Once it has waited **`idle-after`** (default **4h**), Jam messages you
    *as the session*, in your Discord inbox: "Your personal session *id* (*role*) has
-   been waiting on you for *N*. Reply to this message to pick it back up, or release
+   been idle for *N*. Reply to this message to pick it back up, or release
    it with: `at-jam session release <id>`". It repeats every **`nag-every`**
    (default **24h**). **Replying to a nag is replying to the session** — it wakes and
    carries on, and the ladder starts over.
@@ -62,12 +68,12 @@ wake-on engine walks it up a ladder set by the role:
    personal session … Next reminder in *idle-after*."). Rules:
    - **Owner only.** The reply counts only if Jam attributes it to you, never
      by Discord display name ([the rules](discord.md#who-a-discord-reply-is-from)).
-     **Bind your Discord user id (recommended):**
-     `--delivery discord:<inbox-channel>:<your-user-id>`. Then only your own
+     **Bind your Discord user id (recommended):** add it as your account on
+     the `discord` connection (`at-jam account add --connection discord --uid <your-user-id> --user <you>`). Then only your own
      Discord account counts as you, and `keep`/`release` works from **any**
      inbox, shared ones included.
      **Unbound**, only an inbox channel that is **exactly yours** proves it's
-     you. A shared inbox (or one that is also a roster channel) gets no
+     you. A shared inbox (or one that is also a room's channel) gets no
      `keep`/`release` hint in the nag, and its replies are ordinary replies.
      Jam can't see Discord permissions, so unbound this relies on your setup:
      **only you (and Jam's bot) may post in your inbox channel.** Anyone who can
@@ -102,9 +108,10 @@ refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
   `at-jam project chat-service set --project acme --service discord`;
-- you (the owner) have a Discord delivery profile — your inbox channel, ideally
-  bound to your Discord user id ([discord.md](discord.md)):
-  `at-jam project roster add-human acme --name alice --handle alice.h --login '…' --delivery discord:<inbox-channel>:<your-user-id>`.
+- you (the owner) have a Discord inbox in the project, ideally with your Discord
+  account bound ([discord.md](discord.md)):
+  `at-jam project member add acme alice --delivery discord:<inbox-channel>` and
+  `at-jam account add --connection discord --uid <your-user-id> --user alice`.
 
 Jam must also run the Discord relay (`runtime.discord`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
@@ -115,16 +122,17 @@ polls every project whose chat service is `discord`
 
 Jam finds the owner by matching the caller's **admin login** (the operator
 identity: your OIDC `sub`, which `at-jam whoami` shows, or `local` on a
-loopback-only Jam) against the **roster human** in the target project whose
-`Login` is set to it:
+loopback-only Jam) against the **user** holding that login, who must be a
+member of the target project:
 
 ```
-at-jam project roster add-human acme --name alice --handle alice.h --login 'auth0|abc123'
+at-jam user login alice 'auth0|abc123'
+at-jam project member add acme alice
 ```
 
-A login links at most one human per project. `--login` is described with the
-rest of the roster in [comms-addressing.md](comms-addressing.md#the-project-roster).
-If no human in the project is linked to your login, every `session` call answers
+A login belongs to one user Jam-wide. `--login` is described with the
+rest of a project's members in [comms-addressing.md](comms-addressing.md#project-members-and-rooms).
+If no member of the project is linked to your login, every `session` call answers
 **403**.
 
 ## Admission: two caps, one ledger
@@ -159,13 +167,14 @@ All take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 ```
 at-jam session request --project acme --role pair --prompt-file task.md   # prints the session id
 at-jam session list    [--project acme]
-at-jam session release personal-alice-1a2b3c4d
+at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 ```
 
 - **request** grants a slot, then raises the studio with you as its owner, and
-  prints only the session id (`personal-<owner>-<8 hex>`). The admin UI's role
+  prints only the session id (a new `ses_…` id for each request). It is **named**
+  `pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The admin UI's role
   **Request** action does the same from the browser (see
-  [ui.md](ui.md#runtime-studios)). The prompt file is
+  [ui-editing.md](ui-editing.md#runtime-studios)). The prompt file is
   read on the host and sent in the request body. It never goes on argv. Unlike
   `studio raise`, no identity token or launch secret is returned.
 - **list** shows only **your** personal sessions in the project: id, role,
@@ -179,7 +188,7 @@ at-jam session release personal-alice-1a2b3c4d
 
 | Route | Result |
 |---|---|
-| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role, a project whose chat service isn't `discord`, or an owner with no Discord delivery profile. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
+| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, name, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role, a project whose chat service isn't `discord`, or an owner with no Discord delivery profile. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
 | `GET /admin/sessions/personal?project=P` | **200** with your own personal sessions in P. **403** if your login is not linked. |
 | `DELETE /admin/sessions/personal/{id}` | **204** after the teardown. **404** if the id does not exist or is not a personal session. **403** unless you are its owner. |
 

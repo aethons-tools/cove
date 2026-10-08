@@ -330,7 +330,10 @@ func TestRaiseMountsStateOnlyForStanding(t *testing.T) {
 // A docker:true standing raise also creates its -docker cache volume labeled
 // (the backend mounts it), so the sweep removes it with the rest; the jam
 // label carries the configured JamID.
-func TestRaiseDockerStandingLabelsCacheVolume(t *testing.T) {
+// The -docker cache is the studio's, not the session's: a standing raise
+// labels (and persists) only agent-data and workspace; the backend mounts its
+// own -docker volume.
+func TestRaiseDockerStandingKeepsCacheOutOfState(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
@@ -340,7 +343,7 @@ func TestRaiseDockerStandingLabelsCacheVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 	lbl := " " + StateLabel + "=s1 " + JamLabel + "=jam-a"
-	want := []string{"atcove-cove-s1-agent-data" + lbl, "atcove-cove-s1-workspace" + lbl, "atcove-cove-s1-docker" + lbl}
+	want := []string{"atcove-cove-s1-agent-data" + lbl, "atcove-cove-s1-workspace" + lbl}
 	if !slices.Equal(ops.created, want) {
 		t.Fatalf("created = %v, want %v", ops.created, want)
 	}
@@ -384,6 +387,29 @@ func TestTeardownKeepsVolumes(t *testing.T) {
 	}
 	if len(ops.volsRemoved) != 0 {
 		t.Fatalf("Teardown removed volumes %v", ops.volsRemoved)
+	}
+}
+
+// With docker, teardown removes the studio's -docker cache (any session kind;
+// a session's agent-data and workspace stay): the next studio starts with a
+// clean Docker store, and a non-standing cove's cache no longer leaks.
+func TestTeardownRemovesDockerCache(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(), Docker: true, sleep: func(time.Duration) {},
+	})
+	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ops.volsRemoved, []string{"atcove-cove-s1-docker"}) {
+		t.Fatalf("volsRemoved = %v, want only the -docker cache", ops.volsRemoved)
+	}
+	// A failed cache removal never fails the teardown.
+	ops = &fakeOps{volsErr: errors.New("in use")}
+	l.cfg.Ops = ops
+	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+		t.Fatalf("teardown = %v; the cache removal is best-effort", err)
 	}
 }
 

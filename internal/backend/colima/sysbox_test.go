@@ -24,7 +24,7 @@ func TestHasSysboxRuntime(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &runner.Fake{Outputs: []runner.FakeResult{tc.res}}
-			got, err := HasSysboxRuntime(f)
+			got, err := NewWithContext(f, "").HasSysboxRuntime()
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want %q", err, tc.wantErr)
@@ -48,5 +48,16 @@ func TestRequireSysboxRuntimeNamesSetupCommand(t *testing.T) {
 	err := (&Colima{r: f}).requireSysboxRuntime()
 	if err == nil || !strings.Contains(err.Error(), "at-jam colima setup-docker") || !strings.Contains(err.Error(), "docs/usage/docker-in-sandbox.md") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A backend pinned to another colima profile's context asks that daemon.
+func TestHasSysboxRuntimeUsesPinnedContext(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
+	if ok, err := NewWithContext(f, "colima-work").HasSysboxRuntime(); err != nil || !ok {
+		t.Fatalf("HasSysboxRuntime = %v, %v", ok, err)
+	}
+	if got := strings.Join(f.Calls[0].Args, " "); got != "--context colima-work info -f {{json .Runtimes}}" {
+		t.Fatalf("probe args = %q", got)
 	}
 }

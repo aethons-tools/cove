@@ -16,8 +16,8 @@ type StudioDestination struct {
 
 // StudioTarget is one message target the session may `send` to.
 type StudioTarget struct {
-	Target string // "human:<name>" | "channel:<name>"
-	Who    string // e.g. "your owner", "project contact @alice", "channel"
+	Target string // "user:<name>" | "channel:<name>"
+	Who    string // e.g. "started you", "project contact @alice", "channel", "session"
 }
 
 // StudioFacts are what a session can actually reach, gathered at raise.

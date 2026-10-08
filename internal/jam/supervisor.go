@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
@@ -35,8 +36,10 @@ type RaiseSpec struct {
 	Role    string
 	Unit    string
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
-	// Owner is the owning roster Human's name for a personal session; "" otherwise.
+	// Owner is the owning user's name for a personal session; "" otherwise.
 	Owner string
+	// OwnerID is the owning user for a personal session.
+	OwnerID ident.ID
 	// Name is a standing session's declared name; "" otherwise.
 	Name string
 	// SessionKind is "ephemeral" | "standing" | "personal"; "" = ephemeral. A
@@ -212,6 +215,7 @@ type Supervisor struct {
 	sink      ControlSink
 	tail      tailReader
 	released  Releaser
+	channels  SessionChannels
 	// defaultStudioKit is the studio kit a raise runs from when its role names no
 	// kit (its light reference). nil leaves such a raise with no kit (hermetic
 	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
@@ -258,6 +262,18 @@ func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 // leaves teardown recording nothing, exactly as before.
 func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 
+// SessionChannels follows sessions into and out of their channels: the
+// intercom joins a session set up on a ticket to the ticket's channel, and
+// takes it out when the session ends (teardown).
+type SessionChannels interface {
+	SetUp(inst Instance) error
+	Ended(inst Instance) error
+}
+
+// SetSessionChannels wires the intercom in. Best effort: a failure is logged
+// and never fails the setup or teardown. Call before serving.
+func (s *Supervisor) SetSessionChannels(c SessionChannels) { s.channels = c }
+
 // SetDefaultStudioKit wires the studio kit a raise runs from when its role names
 // no kit — its light reference, recorded in the registry by EnsureDefaultStudioKit
 // at wiring. With it set, a role without a kit stamps this ref on the launch spec
@@ -285,11 +301,17 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if spec.ActorID == "" {
 		return Instance{}, "", "", fmt.Errorf("actor id is required")
 	}
+	if id, ok := ProjectIDOf(s.store, spec.Project); ok {
+		spec.Project = string(id) // stored references name the project by id
+	}
 	// A personal session's cove may message its owner and nobody else: the
 	// override REPLACES the role's addressing (least privilege).
 	var ov *Override
-	if spec.Owner != "" {
-		ov = &Override{Addressing: []string{"human:" + spec.Owner}}
+	switch {
+	case spec.OwnerID != "":
+		ov = &Override{Addressing: []string{"user:" + string(spec.OwnerID)}}
+	case spec.Owner != "":
+		ov = &Override{Addressing: []string{"user:" + spec.Owner}}
 	}
 	tok, err := Enroll(s.store, spec.ActorID, spec.Project, spec.Role, ov, s.now())
 	if err != nil {
@@ -369,7 +391,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	now := s.now()
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
-		Owner: spec.Owner, Name: spec.Name, SessionKind: spec.SessionKind,
+		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
 		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
@@ -388,6 +410,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
 		return Instance{}, "", "", err
+	}
+	if s.channels != nil {
+		if err := s.channels.SetUp(inst); err != nil && s.log != nil {
+			s.log.Warn("raise: joining the session's channels failed (non-fatal)", "id", spec.ActorID, "err", err.Error())
+		}
 	}
 	if s.log != nil {
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
@@ -713,6 +740,8 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		// the wake-on engine wakes the cove on each later reply and advances the
 		// baseline past it (SetWaitSeq).
 		inst.WaitSeq = s.tailSeq()
+		// A wake (not a resume from Holding) answers an escalate ask.
+		inst.EscalationAsked = false
 	}
 	if turnStarted {
 		// Whatever woke it answered this turn end, so the idle deadline is
@@ -989,7 +1018,9 @@ func (s *Supervisor) alarmZone(inst Instance) *time.Location {
 	return time.UTC
 }
 
-// SetEscalationCategory stamps the cove-declared block category on its instance.
+// SetEscalationCategory stamps the cove-declared block category on its
+// instance, and marks it as asking for a person (EscalationAsked) until a turn
+// next starts.
 // Persists until re-declared or teardown (Report does not clear it); the
 // escalation engine reads it to pick the tier chain, falling back to the default
 // when the category isn't configured. No-op semantics if the actor is gone.
@@ -1001,6 +1032,7 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.EscalationCategory = category
+	inst.EscalationAsked = true // asks for a person until it is next woken
 	return s.store.PutInstance(inst)
 }
 
@@ -1146,6 +1178,11 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
+	}
+	if s.channels != nil {
+		if err := s.channels.Ended(inst); err != nil && s.log != nil {
+			s.log.Warn("teardown: leaving the session's channels failed (non-fatal)", "id", actorID, "err", err.Error())
+		}
 	}
 	if s.released != nil {
 		if err := s.released.RecordRelease(ctx, inst.Project, inst.Role, actorID); err != nil && s.log != nil {
@@ -1440,7 +1477,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
-		Kind: spec.SessionKind, Name: spec.Name, Project: orDefaultProject(spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+		Kind: spec.SessionKind, Name: spec.Name, Project: ProjectName(s.store, spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
 	}}
 	var kitEgress []string
 	haveKit := false
@@ -1495,7 +1532,7 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 	}
 	// The cove runs the kit image it was raised with (inst.Kit); only the
 	// current version's prompt and notes are picked up.
-	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
+	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
 	promptKit := inst.Kit
 	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
 		if role.Scope.Egress != nil {

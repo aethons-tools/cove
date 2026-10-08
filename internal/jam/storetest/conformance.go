@@ -6,10 +6,12 @@ package storetest
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -17,6 +19,9 @@ import (
 // RunConformance exercises the full jam.Store contract. newStore must return
 // a fresh, empty store on each call.
 func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
+	runRegistryConformance(t, newStore)
+	runChannelConformance(t, newStore)
+
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
 	// which most subtests write into.
 	newStoreWithAcme := func(t *testing.T) jam.Store {
@@ -342,54 +347,6 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
-	t.Run("unread_cursor_per_participant_channel", func(t *testing.T) {
-		s := newStore(t)
-		if _, ok := s.UnreadCursor("human:alice", "studio:ACME-1"); ok {
-			t.Fatal("an uncommitted (participant, channel) cursor must be absent")
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 5); err != nil {
-			t.Fatalf("CommitUnread: %v", err)
-		}
-		if seq, ok := s.UnreadCursor("human:alice", "studio:ACME-1"); !ok || seq != 5 {
-			t.Fatalf("cursor = %d, %v; want 5, true", seq, ok)
-		}
-		// Forward-only: a backward/equal seq is a no-op success.
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 3); err != nil {
-			t.Fatalf("CommitUnread (backward): %v", err)
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 5); err != nil {
-			t.Fatalf("CommitUnread (equal): %v", err)
-		}
-		if seq, _ := s.UnreadCursor("human:alice", "studio:ACME-1"); seq != 5 {
-			t.Fatalf("cursor after non-forward commits = %d, want 5", seq)
-		}
-		if err := s.CommitUnread("human:alice", "studio:ACME-1", 9); err != nil {
-			t.Fatalf("CommitUnread (forward): %v", err)
-		}
-		// Keyed by (participant, channel): a second channel and a second
-		// participant are independent.
-		if err := s.CommitUnread("human:alice", "dm:x", 2); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.CommitUnread("human:bob", "studio:ACME-1", 7); err != nil {
-			t.Fatal(err)
-		}
-		got := s.UnreadCursors("human:alice")
-		if len(got) != 2 || got["studio:ACME-1"] != 9 || got["dm:x"] != 2 {
-			t.Fatalf("UnreadCursors(alice) = %v; want {studio:ACME-1:9, dm:x:2}", got)
-		}
-		if got := s.UnreadCursors("human:bob"); len(got) != 1 || got["studio:ACME-1"] != 7 {
-			t.Fatalf("UnreadCursors(bob) = %v; want {studio:ACME-1:7}", got)
-		}
-		// Empty participant/channel is rejected.
-		if err := s.CommitUnread("", "c", 1); err == nil {
-			t.Fatal("CommitUnread with an empty participant must error")
-		}
-		if err := s.CommitUnread("p", "", 1); err == nil {
-			t.Fatal("CommitUnread with an empty channel must error")
-		}
-	})
-
 	t.Run("destinations_and_match", func(t *testing.T) {
 		s := newStore(t)
 		if err := s.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}); err != nil {
@@ -572,27 +529,141 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
-	t.Run("roster_and_escalation", func(t *testing.T) {
+	t.Run("project_rename_and_tombstone", func(t *testing.T) {
 		s := newStoreWithAcme(t)
-		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
-			t.Fatalf("AddHuman: %v", err)
+		acme, _ := s.GetProject("acme")
+		if err := s.PutRole("acme", jam.Role{Name: "impl"}); err != nil {
+			t.Fatal(err)
 		}
-		if err := s.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice2"}); err != nil { // upsert by name
-			t.Fatalf("AddHuman (upsert): %v", err)
+		if err := s.AddActor(jam.Actor{ID: "a1", TokenHash: "h1", Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}); err != nil {
+			t.Fatal(err)
 		}
-		if err := s.AddChannel("acme", jam.Channel{Name: "eng", Ref: "ACME-1"}); err != nil {
-			t.Fatalf("AddChannel: %v", err)
+		if err := s.PutInstance(jam.Instance{ActorID: "i1", Project: "acme", Role: "impl"}); err != nil {
+			t.Fatal(err)
 		}
-		ros, ok := s.GetRoster("acme")
-		if !ok || len(ros.Humans) != 1 || ros.Humans[0].Handle != "@alice2" || len(ros.Channels) != 1 {
-			t.Fatalf("GetRoster = %+v, %v", ros, ok)
+		// Rename: one record; everything refers to it by id.
+		if err := s.RenameProject("acme", "apex"); err != nil {
+			t.Fatalf("RenameProject: %v", err)
 		}
-		// AddChannel defaults Service to "linear".
-		if ros.Channels[0].Service != "linear" {
-			// Service is defaulted on write; re-read via GetProject to confirm.
-			if p, _ := s.GetProject("acme"); len(p.Roster.Channels) == 1 && p.Roster.Channels[0].Service != "linear" {
-				t.Fatalf("AddChannel should default Service to linear, got %q", p.Roster.Channels[0].Service)
+		if _, ok := s.GetProject("acme"); ok {
+			t.Fatal("the old name still answers")
+		}
+		if p, ok := s.GetProject("apex"); !ok || p.ID != acme.ID {
+			t.Fatalf("apex = %+v, %v", p, ok)
+		}
+		if _, ok := s.GetRole("apex", "impl"); !ok {
+			t.Fatal("the role follows the rename")
+		}
+		if a, _ := s.Lookup("h1"); jam.ProjectName(s, a.Grants[0].Project) != "apex" {
+			t.Fatalf("grant = %+v", a.Grants)
+		}
+		if i, _ := s.GetInstance("i1"); jam.ProjectName(s, i.Project) != "apex" {
+			t.Fatalf("instance = %+v", i)
+		}
+		if e, _ := s.Resolve(acme.ID); e.Label() != "apex" {
+			t.Fatalf("Resolve = %q", e.Label())
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatal(err)
+		}
+		for _, bad := range []struct{ ref, name string }{{"apex", "beta"}, {"apex", jam.DefaultProject}, {"apex", ""}, {"apex", "a/b"}, {"ghost", "x"}} {
+			if err := s.RenameProject(bad.ref, bad.name); err == nil {
+				t.Errorf("RenameProject(%q, %q) succeeded", bad.ref, bad.name)
 			}
+		}
+		if err := s.RenameProject("beta", "beta"); err != nil {
+			t.Fatalf("renaming to its own name is a no-op: %v", err)
+		}
+		// A live session keeps its project from being removed.
+		if err := s.PutInstance(jam.Instance{ActorID: "i-beta", Project: "beta", Phase: jam.PhaseLive}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveProject("beta"); !errors.Is(err, jam.ErrProjectInUse) {
+			t.Fatalf("removing a project with a live session: %v", err)
+		}
+		if err := s.RemoveInstance("i-beta"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CreateProject("prj_01j9q3zzzzzzzzzzzzzzzzzzzz"); err == nil {
+			t.Fatal("a project name shaped like a project id must be refused")
+		}
+		// Tombstone: the id resolves as removed, the name is free.
+		betaID, _ := jam.ProjectIDOf(s, "beta")
+		if err := s.RemoveProject(string(betaID)); err != nil {
+			t.Fatalf("removing a project by id: %v", err)
+		}
+		beta := func() ident.ID {
+			for _, ref := range s.ExportConfig().Projects {
+				if ref.Name == "beta" {
+					return ref.ID
+				}
+			}
+			return ""
+		}()
+		if e, ok := s.Resolve(beta); !ok || e.Label() != "beta (removed)" {
+			t.Fatalf("Resolve(removed) = %q, %v", e.Label(), ok)
+		}
+		if p, ok := s.GetProject(string(beta)); !ok || p.Status != jam.StatusRemoved {
+			t.Fatalf("GetProject(removed id) = %+v, %v", p, ok)
+		}
+		if _, ok := s.GetProject("beta"); ok || slices.Contains(s.ListProjects(), "beta") {
+			t.Fatal("a removed project's name answers or lists")
+		}
+		if err := s.PutRole(string(beta), jam.Role{Name: "x"}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a write into a removed project: %v", err)
+		}
+		if err := s.RenameProject(string(beta), "gamma"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("renaming a removed project: %v", err)
+		}
+		u, _ := s.CreateUser(jam.User{Name: "tomb-u"})
+		if err := s.PutMembership(jam.Membership{ProjectID: beta, UserID: u.ID}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a membership in a removed project: %v", err)
+		}
+		if _, err := s.CreateChannel(jam.Channel{ProjectID: beta, Kind: jam.SourceRoom, Key: "r", Label: "r"}); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a channel in a removed project: %v", err)
+		}
+		if err := s.PutStandingSession(beta, "impl", "x", "ses-x"); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("a standing session in a removed project: %v", err)
+		}
+		if err := s.RemoveProject(string(beta)); !errors.Is(err, jam.ErrProjectNotFound) {
+			t.Fatalf("removing a removed project: %v", err)
+		}
+		if err := s.CreateProject("beta"); err != nil {
+			t.Fatalf("reusing a removed project's name: %v", err)
+		}
+		if p, _ := s.GetProject("beta"); p.ID == beta {
+			t.Fatal("the new beta is a new project")
+		}
+		// Export/import keeps the tombstone.
+		s2 := newStore(t)
+		if err := s2.ImportConfig(s.ExportConfig()); err != nil {
+			t.Fatalf("import: %v", err)
+		}
+		if e, ok := s2.Resolve(beta); !ok || e.Label() != "beta (removed)" {
+			t.Fatalf("imported tombstone = %q, %v", e.Label(), ok)
+		}
+		if _, ok := s2.GetRole("apex", "impl"); !ok {
+			t.Fatal("imported role lost")
+		}
+	})
+
+	t.Run("members_and_escalation", func(t *testing.T) {
+		s := newStoreWithAcme(t)
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil {
+			t.Fatalf("AddPerson: %v", err)
+		}
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "alice", Handle: "@alice"}); err != nil { // idempotent
+			t.Fatalf("AddPerson (again): %v", err)
+		}
+		if _, _, err := jam.PutRoom(s, "acme", jam.RoomBody{Name: "eng", Ref: "ACME-1"}); err != nil {
+			t.Fatalf("PutRoom: %v", err)
+		}
+		acme, _ := s.GetProject("acme")
+		if ms := jam.MembersOf(s, acme.ID); len(ms) != 1 || ms[0].User.Name != "alice" || ms[0].Handle != "@alice" {
+			t.Fatalf("members = %+v", ms)
+		}
+		if got := roomSummary(s, "acme"); len(got) != 1 || got[0] != "eng linear ACME-1" {
+			t.Fatalf("rooms = %v", got)
 		}
 		tiers := []jam.EscalationTier{{Targets: []string{"human:alice"}, Timeout: time.Minute}}
 		if err := s.SetEscalationPolicy("acme", "", tiers); err != nil {
@@ -605,50 +676,41 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		if !ok || len(p.Escalation) != 1 || len(p.EscalationByCategory["urgent"]) != 1 {
 			t.Fatalf("GetProject escalation = %+v, %v", p, ok)
 		}
-		if err := s.RemoveHuman("acme", "alice"); err != nil {
-			t.Fatalf("RemoveHuman: %v", err)
+		if err := jam.RemovePerson(s, "acme", "alice"); err != nil {
+			t.Fatalf("RemovePerson: %v", err)
 		}
-		if err := s.RemoveChannel("acme", "eng"); err != nil {
-			t.Fatalf("RemoveChannel: %v", err)
+		if err := jam.RemoveRoom(s, "acme", "eng"); err != nil {
+			t.Fatalf("RemoveRoom: %v", err)
 		}
-		if ros, _ := s.GetRoster("acme"); len(ros.Humans) != 0 || len(ros.Channels) != 0 {
-			t.Fatalf("roster after removals = %+v", ros)
+		if len(jam.MembersOf(s, acme.ID)) != 0 || len(roomSummary(s, "acme")) != 0 {
+			t.Fatalf("members/rooms after removals = %+v / %v", jam.MembersOf(s, acme.ID), roomSummary(s, "acme"))
 		}
 		if _, ok := s.GetProject("absent"); ok {
 			t.Fatal("GetProject for an absent project must be false")
 		}
-		if err := s.RemoveHuman("absent", "x"); err == nil {
-			t.Fatal("RemoveHuman on an absent project must error")
+		if err := jam.RemovePerson(s, "absent", "x"); err == nil {
+			t.Fatal("RemovePerson on an absent project must error")
 		}
-		// delivery profile + oidc identity round-trip through AddHuman (upsert by name)
-		if err := s.AddHuman("acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}, Identity: []jam.OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "dave-sub"}}}); err != nil {
-			t.Fatalf("AddHuman with delivery: %v", err)
+		// delivery, login and OIDC identity round-trip through AddPerson
+		if err := jam.AddPerson(s, "acme", jam.Human{Name: "dave", Handle: "@dave", Login: "auth0|dave", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9", UserID: "123456789"}}, Identity: []jam.OIDCIdentity{{Issuer: "https://accounts.google.com", Subject: "dave-sub"}}}); err != nil {
+			t.Fatalf("AddPerson with delivery: %v", err)
 		}
-		if r, ok := s.GetRoster("acme"); !ok {
-			t.Fatal("GetRoster acme")
-		} else {
-			var dave jam.Human
-			for _, h := range r.Humans {
-				if h.Name == "dave" {
-					dave = h
-				}
-			}
-			if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" || d.UserID != "123456789" {
-				t.Fatalf("dave delivery = %+v,%v", d, ok)
-			}
-			if dave.Login != "auth0|dave" {
-				t.Fatalf("dave login = %q, want auth0|dave", dave.Login)
-			}
-			if len(dave.Identity) != 1 || dave.Identity[0].Issuer != "https://accounts.google.com" || dave.Identity[0].Subject != "dave-sub" {
-				t.Fatalf("dave identity = %+v", dave.Identity)
-			}
+		dave := memberNamed(t, s, "acme", "dave")
+		if d, ok := dave.Inbox("discord"); !ok || d != "chan-9" || dave.DiscordUID != "123456789" || dave.Handle != "@dave" {
+			t.Fatalf("dave = %+v", dave)
+		}
+		if !slices.Equal(dave.User.Logins, []string{"auth0|dave"}) {
+			t.Fatalf("dave logins = %q, want auth0|dave", dave.User.Logins)
+		}
+		if len(dave.User.OIDC) != 1 || dave.User.OIDC[0].Issuer != "https://accounts.google.com" || dave.User.OIDC[0].Subject != "dave-sub" {
+			t.Fatalf("dave identity = %+v", dave.User.OIDC)
 		}
 		// chat-service set + clear round-trips through GetProject
 		if err := s.SetChatService("acme", "discord"); err != nil {
 			t.Fatalf("SetChatService: %v", err)
 		}
-		if p, ok := s.GetProject("acme"); !ok || p.ChatService != "discord" {
-			t.Fatalf("ChatService = %q (ok=%v), want discord", p.ChatService, ok)
+		if p, ok := s.GetProject("acme"); !ok || jam.ChatKind(s, p) != "discord" {
+			t.Fatalf("ChatService = %q (ok=%v), want a discord connection", p.ChatService, ok)
 		}
 		if err := s.SetChatService("acme", ""); err != nil {
 			t.Fatalf("SetChatService clear: %v", err)
@@ -682,9 +744,12 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		// Every project-scoped write into an unknown project is refused — no
 		// implicit creation.
 		writes := map[string]func() error{
-			"PutRole":             func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
-			"AddHuman":            func() error { return s.AddHuman("ghost", jam.Human{Name: "h"}) },
-			"AddChannel":          func() error { return s.AddChannel("ghost", jam.Channel{Name: "c"}) },
+			"PutRole":   func() error { return s.PutRole("ghost", jam.Role{Name: "r"}) },
+			"AddPerson": func() error { return jam.AddPerson(s, "ghost", jam.Human{Name: "h"}) },
+			"PutRoom": func() error {
+				_, _, err := jam.PutRoom(s, "ghost", jam.RoomBody{Name: "c", Ref: "R"})
+				return err
+			},
 			"SetEscalationPolicy": func() error { return s.SetEscalationPolicy("ghost", "", nil) },
 			"SetChatService":      func() error { return s.SetChatService("ghost", "discord") },
 			"AddActor": func() error {
@@ -782,4 +847,20 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatal("failed write left a phantom actor (token hash h2) in the cache")
 		}
 	})
+}
+
+// memberNamed is the member of project named name (fatal: none).
+func memberNamed(t *testing.T, s jam.Store, project, name string) jam.Member {
+	t.Helper()
+	p, ok := s.GetProject(project)
+	if !ok {
+		t.Fatalf("no project %q", project)
+	}
+	for _, m := range jam.MembersOf(s, p.ID) {
+		if m.User.Name == name {
+			return m
+		}
+	}
+	t.Fatalf("%s has no member %q: %+v", project, name, jam.MembersOf(s, p.ID))
+	return jam.Member{}
 }

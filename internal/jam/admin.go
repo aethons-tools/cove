@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
@@ -31,7 +32,7 @@ type EnrollResult struct {
 	Connector *snippet.Connector `json:"connector,omitempty"`
 }
 
-// ActorSummary is a GET /admin/roster item: never a token or hash. Each grant
+// ActorSummary is a GET /admin/actors item: never a token or hash. Each grant
 // carries the effective destinations/credentials after overrides.
 type ActorSummary struct {
 	ID     string         `json:"id"`
@@ -189,7 +190,8 @@ type CoveRaiseBody struct {
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
 // returned once (the launcher will consume it to connect the cove).
 type CoveRaiseResult struct {
-	ID           string `json:"id"`
+	ID           string `json:"id"`              // the new session's id
+	Label        string `json:"label,omitempty"` // the operator's --id, which also addresses it while live
 	Token        string `json:"token"`
 	LaunchSecret string `json:"launch_secret"`
 	Phase        string `json:"phase"`
@@ -199,6 +201,7 @@ type CoveRaiseResult struct {
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
 type CoveSummary struct {
 	ID          string    `json:"id"`
+	Name        string    `json:"name,omitempty"` // a standing session's name, or a manual session's label
 	Project     string    `json:"project"`
 	Role        string    `json:"role"`
 	Unit        string    `json:"unit,omitempty"`
@@ -235,7 +238,7 @@ func CoveSummaries(store Store, img ImageResolver) []CoveSummary {
 func RoleCoveSummaries(store Store, img ImageResolver, project, role string) []CoveSummary {
 	project = orDefaultProject(project)
 	return coveSummaries(store, img, func(i Instance) bool {
-		return orDefaultProject(i.Project) == project && i.Role == role
+		return SameProject(store, i.Project, project) && i.Role == role
 	})
 }
 
@@ -251,7 +254,7 @@ func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []C
 			continue
 		}
 		out = append(out, CoveSummary{
-			ID: i.ActorID, Project: i.Project, Role: i.Role, Unit: i.Unit,
+			ID: i.ActorID, Name: i.Name, Project: ProjectName(store, i.Project), Role: i.Role, Unit: i.Unit,
 			Phase: string(i.Phase), Activity: string(i.Activity),
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
 			Connector: connectorStatus(store, actors, i),
@@ -364,7 +367,7 @@ func RosterSummaries(store Store) []ActorSummary {
 	for _, a := range store.ListActors() {
 		sum := ActorSummary{ID: a.ID, Expiry: a.Expiry}
 		for _, g := range a.Grants {
-			gs := GrantSummary{Project: g.Project, Role: g.Role}
+			gs := GrantSummary{Project: ProjectName(store, g.Project), Role: g.Role}
 			if role, ok := store.GetRole(g.Project, g.Role); ok {
 				s := EffectiveScope(g, role)
 				gs.Destinations, gs.Credentials = s.Destinations, s.Credentials
@@ -480,7 +483,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /admin/roster", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /admin/actors", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, RosterSummaries(store))
 	})
 	mux.HandleFunc("POST /admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
@@ -541,6 +544,19 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
 		w.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("PUT /admin/projects/{project}/name", func(w http.ResponseWriter, r *http.Request) {
+		var b ProjectBody
+		if !decode(w, r, &b) {
+			return
+		}
+		project := r.PathValue("project")
+		if err := store.RenameProject(project, b.Name); err != nil {
+			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
+			return
+		}
+		log.Info("admin project renamed", "operator", OperatorID(r), "project", project, "name", b.Name)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
 		project := r.PathValue("project")
@@ -670,53 +686,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	mux.HandleFunc("GET /admin/projects/{project}/roster", func(w http.ResponseWriter, r *http.Request) {
-		rr, _ := store.GetRoster(r.PathValue("project"))
-		writeJSON(w, http.StatusOK, rr)
-	})
-	mux.HandleFunc("POST /admin/projects/{project}/humans", func(w http.ResponseWriter, r *http.Request) {
-		var b Human
-		if !decode(w, r, &b) {
-			return
-		}
-		// Login / Discord-id uniqueness and delivery/identity validation are
-		// shared with the UI (PutRosterHuman).
-		if err := PutRosterHuman(store, r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin roster human", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("POST /admin/projects/{project}/channels", func(w http.ResponseWriter, r *http.Request) {
-		var b Channel
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.AddChannel(r.PathValue("project"), b); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin roster channel", "operator", OperatorID(r), "project", r.PathValue("project"), "name", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}/humans/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.RemoveHuman(r.PathValue("project"), r.PathValue("name")); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin roster human removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}/channels/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if err := store.RemoveChannel(r.PathValue("project"), r.PathValue("name")); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin roster channel removed", "operator", OperatorID(r), "project", r.PathValue("project"), "name", r.PathValue("name"))
-		w.WriteHeader(http.StatusNoContent)
-	})
-
 	mux.HandleFunc("GET /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, EscalationView{Default: p.Escalation, ByCategory: p.EscalationByCategory})
@@ -736,7 +705,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 
 	mux.HandleFunc("GET /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
-		writeJSON(w, http.StatusOK, ChatServiceView{Service: p.ChatService})
+		v := ChatServiceView{}
+		if c, ok := store.GetConnection(ident.ID(p.ChatService)); ok && p.ChatService != "" {
+			v.Service = c.Name
+		}
+		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("PUT /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		var b ChatServiceBody
@@ -863,13 +836,13 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, tok, secret, err := sup.Raise(r.Context(), RaiseSpec{ActorID: b.ID, Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
-		log.Info("admin cove raised", "operator", OperatorID(r), "id", b.ID, "project", inst.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role)
+		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
@@ -885,7 +858,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "activity must be one of running|waiting|blocked|done", http.StatusBadRequest)
 			return
 		}
-		if err := sup.Report(r.Context(), r.PathValue("id"), act); err != nil {
+		if err := sup.Report(r.Context(), ResolveSession(store, r.PathValue("id")), act); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -897,11 +870,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
 			return
 		}
-		if err := sup.Teardown(r.Context(), r.PathValue("id")); err != nil {
+		id := ResolveSession(store, r.PathValue("id"))
+		if err := sup.Teardown(r.Context(), id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Info("admin cove torn down", "operator", OperatorID(r), "id", r.PathValue("id"))
+		log.Info("admin cove torn down", "operator", OperatorID(r), "id", id)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
@@ -909,6 +883,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerStanding(mux, store, sup, log)
 	registerEgress(mux, store, log)
 	registerContext(mux, store, log)
+	registerUsers(mux, store, log)
+	registerRooms(mux, store, log)
 
 	for _, o := range opts {
 		o(mux)

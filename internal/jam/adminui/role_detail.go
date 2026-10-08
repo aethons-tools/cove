@@ -24,6 +24,7 @@ type destRow struct {
 // standingRow is one declared standing session and its studio's phase, if any.
 type standingRow struct {
 	Name, Prompt, ActorID, Phase string
+	Activity                     string // its studio's reported activity
 	Image                        string // the running studio's image status (CoveSummary.Image)
 	Upgrade                      string // its pending upgrade state ("" none)
 }
@@ -44,6 +45,9 @@ type setting struct {
 // roleDetail is the role page's payload.
 type roleDetail struct {
 	Title, Project, Name string
+	Crumbs               []crumb
+	WriteBase            string // the role's write endpoints (roleWriteBase)
+	RolesHref            string // the project's Agents tab, which lists its roles (where a delete lands)
 	Role                 jam.Role
 	Dests                []destRow
 	EgressManaged        bool
@@ -65,7 +69,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 		return roleDetail{}, false
 	}
 	project = orDefaultProject(project)
-	d := roleDetail{Title: "Roles", Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role)}
+	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
+		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
 	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
 
 	dests := map[string]jam.Destination{}
@@ -83,8 +88,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 
 	a := role.Allocation
 	d.Allocation = []setting{
-		count("Max ephemeral sessions", a.MaxEphemeral, "unset (requisitioner limit)"),
-		count("Max personal sessions", a.MaxPersonal, "0 (no personal sessions)"),
+		count("Max ephemeral agents", a.MaxEphemeral, "unset (requisitioner limit)"),
+		count("Max personal agents", a.MaxPersonal, "0 (no personal agents)"),
 		count("Max personal per owner", a.MaxPersonalPerOwner, "unset (pool cap only)"),
 		duration("Idle after", a.IdleAfter, "default ("+fmtDur(jam.DefaultIdleAfter)+")"),
 		duration("Nag every", a.NagEvery, "default ("+fmtDur(jam.DefaultNagEvery)+")"),
@@ -102,8 +107,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 		}
 	}
 	for _, s := range a.Standing {
-		id := jam.StandingActorID(project, name, s.Name)
-		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Image: running[id].Image}
+		id := jam.StandingSessionOf(store, project, name, s.Name)
+		row := standingRow{Name: s.Name, Prompt: s.Prompt, ActorID: id, Phase: running[id].Phase, Activity: running[id].Activity, Image: running[id].Image}
 		if u, ok := img.(interface {
 			StandingUpgradeState(project, role, name string) string
 		}); ok {
@@ -114,7 +119,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 
 	for _, act := range store.ListActors() {
 		for _, g := range act.Grants {
-			if orDefaultProject(g.Project) == project && g.Role == name {
+			if jam.ProjectName(store, g.Project) == project && g.Role == name {
 				d.Holders = append(d.Holders, holderRow{ID: act.ID, Override: g.Overrides != nil})
 				break
 			}
@@ -137,18 +142,26 @@ func duration(label string, v time.Duration, unset string) setting {
 	return setting{Label: label, Value: fmtDur(v)}
 }
 
-// roleURL is the detail page path for a role.
+// roleURL is a role's page, under its project.
 func roleURL(project, name string) string {
+	return projectSectionURL(project, sectionRoles) + "/" + url.PathEscape(name)
+}
+
+// roleWriteBase is the prefix of a role's write endpoints, which keep their
+// pre-tree paths.
+func roleWriteBase(project, name string) string {
 	return "/ui/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
 }
 
 func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest bool) {
-	d, ok := buildRoleDetail(store, img, r.PathValue("project"), r.PathValue("name"))
+	project, name := r.PathValue("project"), r.PathValue("name")
+	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
-		renderStatus(w, http.StatusNotFound, "role", roleDetail{Title: "Roles", NotFound: true,
-			Project: r.PathValue("project"), Name: r.PathValue("name")})
+		renderStatus(w, r, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
+			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionAgents)})
 		return
 	}
+	d.Crumbs = projectCrumbs(project, sectionAgents, name)
 	d.CanRequest = canRequest
-	render(w, "role", d)
+	render(w, r, "role", d)
 }

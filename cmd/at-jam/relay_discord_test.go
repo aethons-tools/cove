@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -54,7 +56,7 @@ func TestDiscordDeliverRecordsReceipt(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}, intercom.Squawk{ID: "M1", From: "cove-1", Body: "hi"})
 	if err != nil || id != "D1" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -81,7 +83,7 @@ func TestDiscordDeliverSwallowsEmptyID(t *testing.T) {
 	fc := &fakeDiscordClient{postID: ""}
 	rec := mustReceipts(t)
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"})
 	if err != nil || id != "" {
 		t.Fatalf("Deliver = %q,%v", id, err)
 	}
@@ -107,7 +109,7 @@ func TestDiscordDeliverSwallowsReceiptError(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec, log: log}
 	const secretBody = "top-secret cove message body"
-	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: secretBody})
+	id, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: secretBody})
 	if err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
@@ -132,7 +134,7 @@ func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: rec}
-	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: intercom.Target{Kind: "actor", Ref: "cove-1"}, Body: "hi"}); err != nil {
+	if _, err := s.Deliver(context.Background(), relay.Delivery{Address: "c"}, intercom.Squawk{From: "cove-1", Body: "hi"}); err != nil {
 		t.Fatalf("Deliver must swallow the receipt error, got %v", err)
 	}
 }
@@ -221,10 +223,10 @@ func TestFileReceiptsRoundTrip(t *testing.T) {
 	if _, ok := r.Lookup("D1"); ok {
 		t.Fatal("empty lookup should miss")
 	}
-	if err := r.Record("D1", "cove-1", "M1"); err != nil {
+	if err := r.Record("D1", "cove-1", "M1", "chn_1"); err != nil {
 		t.Fatal(err)
 	}
-	want := receipt{Actor: "cove-1", Message: "M1"}
+	want := receipt{Actor: "cove-1", Message: "M1", Channel: "chn_1"}
 	if a, ok := r.Lookup("D1"); !ok || a != want {
 		t.Fatalf("lookup = %+v,%v", a, ok)
 	}
@@ -252,7 +254,7 @@ func TestFileReceiptsLegacyFormat(t *testing.T) {
 		t.Fatalf("legacy lookup = %+v,%v", a, ok)
 	}
 	// a new Record alongside the legacy entry persists both in the new shape
-	if err := r.Record("D2", "actor-y", "M2"); err != nil {
+	if err := r.Record("D2", "actor-y", "M2", "chn_2"); err != nil {
 		t.Fatal(err)
 	}
 	r2, err := newFileReceipts(p)
@@ -262,7 +264,7 @@ func TestFileReceiptsLegacyFormat(t *testing.T) {
 	if a, ok := r2.Lookup("D1"); !ok || a != (receipt{Actor: "actor-x"}) {
 		t.Fatalf("legacy after rewrite = %+v,%v", a, ok)
 	}
-	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2"}) {
+	if a, ok := r2.Lookup("D2"); !ok || a != (receipt{Actor: "actor-y", Message: "M2", Channel: "chn_2"}) {
 		t.Fatalf("new after rewrite = %+v,%v", a, ok)
 	}
 }
@@ -295,43 +297,30 @@ func TestFileReceiptsMissingFile(t *testing.T) {
 }
 
 func TestDiscordPolledChannels(t *testing.T) {
-	store := &fakeStore{
-		roster: map[string]jam.Roster{
-			"acme": {
-				Humans: []jam.Human{
-					{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
-					{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
-					{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // duplicate address, deduped
-					{Name: "dave"}, // no discord profile
-				},
-				Channels: []jam.Channel{
-					{Name: "eng-help", Service: "discord", Ref: "chan-C"},   // discord channel → MUST be polled (reply-routing)
-					{Name: "chan-A-dup", Service: "discord", Ref: "chan-A"}, // duplicate of a human inbox → deduped
-					{Name: "linear-only", Service: "linear", Ref: "ACME-1"}, // non-discord → excluded
-				},
-			},
-		},
+	st := jam.NewMemStore()
+	mustCreateProject(t, st, "acme")
+	for _, h := range []jam.Human{
+		{Name: "alice", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}},
+		{Name: "bob", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-B"}}},
+		{Name: "carol", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-A"}}}, // a shared inbox, deduped
+		{Name: "dave"}, // no inbox
+	} {
+		if err := jam.AddPerson(st, "acme", h); err != nil {
+			t.Fatal(err)
+		}
 	}
-	got := discordPolledChannels(store, "acme")
-	seen := map[string]bool{}
-	for _, c := range got {
-		seen[c] = true
+	for _, r := range [][3]string{{"eng-help", "discord", "chan-C"}, {"linear-only", "linear", "ACME-1"}} {
+		if err := putRoom(st, "acme", r[0], r[1], r[2]); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !seen["chan-A"] || !seen["chan-B"] || !seen["chan-C"] {
-		t.Fatalf("channels = %v, want chan-A, chan-B, and the discord roster channel chan-C", got)
+	got := discordPolledChannels(st, "acme")
+	sort.Strings(got)
+	if strings.Join(got, ",") != "chan-A,chan-B,chan-C" {
+		t.Fatalf("channels = %v, want the inboxes and the discord room's channel", got)
 	}
-	if seen["ACME-1"] {
-		t.Fatalf("channels = %v, must exclude the non-discord (linear) channel ACME-1", got)
-	}
-	if len(got) != 3 {
-		t.Fatalf("channels = %v, want exactly 3 distinct (chan-A/B/C, deduped)", got)
-	}
-}
-
-func TestDiscordPolledChannelsNoRoster(t *testing.T) {
-	store := &fakeStore{roster: map[string]jam.Roster{}}
-	if got := discordPolledChannels(store, "nope"); got != nil {
-		t.Fatalf("channels = %v, want nil", got)
+	if got := discordPolledChannels(st, "nope"); got != nil {
+		t.Fatalf("unknown project = %v", got)
 	}
 }
 
@@ -345,7 +334,7 @@ func TestDiscordDeliverEscapesPlainText(t *testing.T) {
 	fc := &fakeDiscordClient{postID: "D1"}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, receipts: mustReceipts(t)}
 	d := relay.Delivery{Address: "inbox-A", BodyPrefix: "cove-1: "}
-	from := intercom.Target{Kind: "actor", Ref: "cove-1"}
+	from := ident.ID("cove-1")
 	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{ID: "M1", From: from, Body: "*hi*"}); err != nil {
 		t.Fatal(err)
 	}

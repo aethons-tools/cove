@@ -4,7 +4,7 @@ read_when: You need what at-cove is, the kit format, the `at-cove` command surfa
 owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-07
 ---
 
 # at-cove — Project Overview
@@ -149,7 +149,7 @@ the image; only `uninstall` removes the image.
 | `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
 | `at-cove destroy [collaborator] [--project-dir DIR] [--all]` | Force-remove the resolved instance's container **and its volumes**, then delete its state file — teardown of the running *instance*. The optional positional selects the collaborator instance (mirroring `chat`); `--all` removes **every** instance of the kit. Unlike `create`/`recreate`/`chat`, it tolerates a stale/absent install (you can always tear down what you created). The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
 | `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while any created instance exists** (an instance — plain or per-collaborator — holds the image), pointing at `at-cove destroy --all` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
-| `at-cove update [--version TAG] [--dry-run]` | Update the on-PATH `at-cove`/`at-mint` binaries to a GitHub release by driving the **embedded** [`install.sh`](#installing-the-binaries) (resolve → download → **verify `checksums.txt`** → replace) — never reimplementing that flow, and never fetching the script over the network. Self-contained: works for a `curl \| bash`-installed user with no repo checkout. `--version TAG` (equivalently `COVE_VERSION`) pins a release; unset resolves the latest via the installer's own `resolve_version`. **No-ops** with "already up to date" when the running version already matches. Honors the installer's `BINDIR`/`COVE_SYSTEM`/`COVE_REPO` env knobs (inherited). `--dry-run` prints the intent and resolves/replaces nothing. Unlike the kit commands it takes no `--project-dir` — it updates the installation, not a kit. |
+| `at-cove update [--version TAG] [--dry-run]` | Update the on-PATH `at-cove`/`at-mint`/`at-jam` binaries to a GitHub release by driving the **embedded** [`install.sh`](#installing-the-binaries) (resolve → download → **verify `checksums.txt`** → replace) — never reimplementing that flow, and never fetching the script over the network. Self-contained: works for a `curl \| bash`-installed user with no repo checkout. `--version TAG` (equivalently `COVE_VERSION`) pins a release; unset resolves the latest via the installer's own `resolve_version`. **No-ops** with "already up to date" when the running version already matches. Honors the installer's `BINDIR`/`COVE_SYSTEM`/`COVE_REPO` env knobs (inherited). `--dry-run` prints the intent and resolves/replaces nothing. Unlike the kit commands it takes no `--project-dir` — it updates the installation, not a kit. `at-jam update` is the same command (shared `internal/update`), so a Jam host updates itself without needing at-cove. |
 | `at-cove status [collaborator] [--project-dir DIR]` | With no positional, **list every instance** of the kit (class, running state, container, workspace mode). With a collaborator positional, show just that one instance's `running` / `stopped` / `absent`. Tolerates a stale/absent install. |
 | `at-cove view [collaborator] [--project-dir DIR] [--write]` | Print (or `--write` to `~/.ssh/config`) a VS Code Remote-SSH `Host` block plus a `git remote add` line for the resolved instance's workspace — connects over the same sandbox `sshd` `chat` uses, no new service or egress domain. See [workspace visibility](usage/workspace-visibility.md). |
 | `at-cove ssh-proxy [collaborator] [--project-dir DIR]` | The `ProxyCommand` transport the `view` config invokes: resolves the instance and relays stdio to its current (rotating) SSH port. Internal — not run directly. |
@@ -850,7 +850,7 @@ internal/dispatch/exec/       real Executor: headless command run with injected 
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
 cmd/at-jam/                at-jam entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`model-spec`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are admin-API clients (config + servers over internal/jam)
-internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image); also the participant intercom-UI read-model core (channels.go) — a PURE projection of the squawk Log + roster + live Instance snapshot into a participant's channels (DM / studio / named, each tagged {kind, project, phase, waiting, unread, lastSeq}), an active-recipients directory, and attention grouping, backed by a per-(participant, channel) unread cursor persisted additively in both Store backends (`CommitUnread`); slice 1 of the intercom UI (COV-196), consumed by later HTTP/auth slices
+internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image); also the intercom on the channel log: the channel registry (channel_registry.go: chat / ticket / room channels, bindings, members, read cursors; rooms.go: roster channels as rooms), the posting rules and writes (intercom_post.go: address → channel, the addressing ceiling, per-source CanPost/CanSee, audience recorded at post; sessions join their ticket's channel at setup), a session's inbox across the channel and legacy logs (session_inbox.go), and the `/me` read-model (channel_views.go; channels.go keeps the legacy log's projection for History)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
@@ -931,10 +931,10 @@ A reference dispatch worker implementation lives at `kits/reference-worker/`; se
 ### Installing the binaries
 
 The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
-fastest way to get `at-cove` and `at-mint`: it pulls the prebuilt archive from the
+fastest way to get `at-cove`, `at-mint` and `at-jam`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs both binaries. `at-task` and `at-switchboard` ship **embedded** in
+and installs all three binaries (a pinned release cut before `at-jam` shipped installs just the first two). `at-task` and `at-switchboard` ship **embedded** in
 `at-cove`, so neither is installed separately.
 
 The repo is **private** today, so the installer authenticates through your GitHub
@@ -965,8 +965,8 @@ Optional knobs:
 | `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
 | `COVE_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
 
-**Updating in place.** Once installed, [`at-cove update`](#command-surface) upgrades
-the binaries to the latest release without re-running the `curl | bash` line: it
+**Updating in place.** Once installed, [`at-cove update`](#command-surface) (or the
+identical `at-jam update`) upgrades all the binaries to the latest release without re-running the `curl | bash` line: it
 drives a copy of this same `install.sh` **embedded** in the binary (so it needs no
 repo checkout and never re-fetches the script over the network), reusing its
 resolve → download → verify → replace flow — including the `checksums.txt`

@@ -61,6 +61,7 @@ jobs:
               - 'go.sum'
               - '.goreleaser.yaml'
               - 'scripts/stage-attask.sh'
+              - 'install.sh' # embedded in at-cove + at-jam (`update`)
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
         #   base change     => rebuild base AND cove-image (downstream) AND at-cove
@@ -258,7 +259,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (at-cove + at-mint; at-task embedded)." \
+            --notes "Continuous release from ${GITHUB_SHA::7} (at-cove + at-mint + at-jam; at-task embedded)." \
             --target "$GITHUB_SHA" \
             dist/cove_*.tar.gz dist/checksums.txt
           echo "## Released at-cove \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

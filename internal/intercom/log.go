@@ -5,27 +5,27 @@ import (
 	"sync"
 )
 
-// Log is an in-memory, append-only message log implementing Store, for tests
+// LegacyLog is an in-memory, append-only message log implementing Store, for tests
 // and tooling. Not for production: nothing is persisted — Jam's message log is
 // intercompg (Postgres).
-type Log struct {
+type LegacyLog struct {
 	mu      sync.Mutex
-	msgs    []Squawk
+	msgs    []LegacySquawk
 	nextSeq int64 // next Seq to assign, from 1
 }
 
-// NewMemLog returns an empty in-memory log.
-func NewMemLog() *Log { return &Log{nextSeq: 1} }
+// NewLegacyMemLog returns an empty in-memory log.
+func NewLegacyMemLog() *LegacyLog { return &LegacyLog{nextSeq: 1} }
 
 // Close is a no-op; it exists to satisfy Store.
-func (l *Log) Close() error { return nil }
+func (l *LegacyLog) Close() error { return nil }
 
 // Append validates m, assigns an ID/At when unset and the next Seq, and stores
 // it. Returns the stored message.
-func (l *Log) Append(m Squawk) (Squawk, error) {
-	m, err := Prepare(m)
+func (l *LegacyLog) Append(m LegacySquawk) (LegacySquawk, error) {
+	m, err := PrepareLegacy(m)
 	if err != nil {
-		return Squawk{}, err
+		return LegacySquawk{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -37,10 +37,10 @@ func (l *Log) Append(m Squawk) (Squawk, error) {
 
 // snapshot returns a copy of the stored messages (deep enough that callers
 // can't mutate stored To slices). Reads in read.go build on this.
-func (l *Log) snapshot() []Squawk {
+func (l *LegacyLog) snapshot() []LegacySquawk {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]Squawk, len(l.msgs))
+	out := make([]LegacySquawk, len(l.msgs))
 	for i, m := range l.msgs {
 		m.To = append([]Target(nil), m.To...)
 		out[i] = m
@@ -49,7 +49,7 @@ func (l *Log) snapshot() []Squawk {
 }
 
 // SeenIDs returns ids with the given prefix, in append order.
-func (l *Log) SeenIDs(prefix string) []string {
+func (l *LegacyLog) SeenIDs(prefix string) []string {
 	var out []string
 	for _, m := range l.snapshot() {
 		if strings.HasPrefix(m.ID, prefix) {
@@ -59,4 +59,4 @@ func (l *Log) SeenIDs(prefix string) []string {
 	return out
 }
 
-var _ Store = (*Log)(nil)
+var _ LegacyStore = (*LegacyLog)(nil)

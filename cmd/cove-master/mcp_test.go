@@ -95,7 +95,7 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["report"] {
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["report"] || !names["call_in"] || !names["leave"] {
 		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
@@ -198,11 +198,36 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.send(context.Background(), "hi", "human:alice", ""); err != nil {
+	out, err := c.send(context.Background(), "hi", "human:alice", "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if gotPath != "/squawks" || !strings.Contains(gotBody, `"to":"human:alice"`) || !strings.Contains(gotBody, `"body":"hi"`) {
 		t.Fatalf("path=%q body=%q", gotPath, gotBody)
+	}
+	if out != (sendOut{}) {
+		t.Fatalf("an older Jam's 204 is an empty result: %+v", out)
+	}
+}
+
+// A current Jam answers the squawk's id and channel.
+func TestMCPSendReturnsIDAndChannel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"m1","channel":{"id":"chn_x","kind":"ticket","label":"ACME-7"}}`))
+	}))
+	defer srv.Close()
+	c, _ := newMessagingClient(func(k string) string {
+		switch k {
+		case "AT_JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "AT_JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	out, err := c.send(context.Background(), "hi", "", "")
+	if err != nil || out.ID != "m1" || out.Channel != (partyOut{ID: "chn_x", Kind: "ticket", Label: "ACME-7"}) {
+		t.Fatalf("send = %+v, %v", out, err)
 	}
 }
 
@@ -596,5 +621,39 @@ func TestMCPSendForwardsContentTypeAndReadReturnsIt(t *testing.T) {
 	raw, _ := json.Marshal(res.StructuredContent)
 	if !strings.Contains(string(raw), `"content_type":"text/plain"`) {
 		t.Fatalf("read output %s should carry content_type", raw)
+	}
+}
+
+func TestMCPCallInAndLeaveToolsForwardToJam(t *testing.T) {
+	var paths, bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		paths, bodies = append(paths, r.URL.Path), append(bodies, string(b))
+		if strings.HasSuffix(r.URL.Path, "/leave") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channel":{"id":"chn_1","kind":"session","label":"spider"},"member":{"id":"usr_1","kind":"user","label":"bob"}}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok-C"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "call_in", Arguments: map[string]any{"who": "user:bob"}})
+	if err != nil || res.IsError {
+		t.Fatalf("call_in: %v %+v", err, res)
+	}
+	b, _ := json.Marshal(res.StructuredContent)
+	var out callInOut
+	if err := json.Unmarshal(b, &out); err != nil || out.Channel.ID != "chn_1" || out.Member.Label != "bob" {
+		t.Fatalf("call_in result = %+v, %v", out, err)
+	}
+	if res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "leave", Arguments: map[string]any{"channel": "chn_2"}}); err != nil || res.IsError {
+		t.Fatalf("leave: %v %+v", err, res)
+	}
+	if len(paths) != 2 || paths[0] != "/squawks/call-in" || !strings.Contains(bodies[0], `"who":"user:bob"`) ||
+		paths[1] != "/squawks/leave" || !strings.Contains(bodies[1], `"channel":"chn_2"`) {
+		t.Fatalf("requests = %q %q", paths, bodies)
 	}
 }

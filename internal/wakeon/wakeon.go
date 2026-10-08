@@ -16,10 +16,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -32,11 +35,26 @@ type Reaper interface {
 	Teardown(ctx context.Context, actorID string) error
 }
 
-// Inbox is the read side of the message Log the engine uses to detect
-// replies. Satisfied by *intercom.Log; may be nil (squawk log unconfigured →
-// no reply-waking, teardown/pause still run).
+// Inbox is the read side of the intercom the engine uses to detect replies:
+// a session's inbox after a seq (jam.SessionInbox — its deliveries, and the
+// legacy squawks addressed to it before the cutover). May be nil (no log →
+// no reply-waking; teardown and pause still run).
 type Inbox interface {
-	ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk
+	Since(p ident.ID, afterSeq int64, limit int) []intercom.Squawk
+}
+
+// ChannelHistory reads a channel's recent squawks (intercom.Store's
+// ChannelBefore: ascending, the last limit before a seq) — what the
+// agent-to-agent loop breaker counts.
+type ChannelHistory interface {
+	ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk
+}
+
+// BreakerNotifier posts the loop breaker's notice into a channel, as from
+// (the session that wasn't woken), with id (a duplicate id is no error: the
+// notice is posted once). jam.Intercom.BreakerNotice.
+type BreakerNotifier interface {
+	BreakerNotice(ch, from ident.ID, id, body string) error
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -159,6 +177,16 @@ type Engine struct {
 	// Alarm gates (SetGates); off while either is nil.
 	gates      GateState
 	gateRunner GateRunner
+
+	// Sessions waking sessions (SetSessionWakes); off while history is nil.
+	history      ChannelHistory
+	breaker      BreakerNotifier // nil = no notice
+	sessionLimit int
+	// tripped caches each session delivery's verdict by seq (it can't change:
+	// every earlier seq is settled), so a suppressed delivery is checked
+	// against the log once, not every tick; cleared when it grows large.
+	trippedMu sync.Mutex
+	tripped   map[int64]bool
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -175,6 +203,15 @@ func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Co
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
 	return &Engine{reg: reg, wake: wake, reap: reap, idler: idler, inbox: inbox, cfg: cfg, now: time.Now, log: log}
+}
+
+// SetSessionWakes lets another session's post wake a waiting session — with
+// a loop breaker: once a channel has had more than limit session posts in a
+// row since a person or account last posted there, session posts in it no
+// longer wake, and breaker posts one notice there (a person's reply resets
+// it). Call before Run.
+func (e *Engine) SetSessionWakes(history ChannelHistory, breaker BreakerNotifier, limit int) {
+	e.history, e.breaker, e.sessionLimit = history, breaker, limit
 }
 
 // SetIdleLadder turns on the personal-session idle ladder: roles supplies each
@@ -574,12 +611,79 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		return nil
 	}
 	var out []intercom.Squawk
-	for _, m := range e.inbox.ReadInboxSince(intercom.Target{Kind: "actor", Ref: inst.ActorID}, inst.WaitSeq, 0) {
-		if intercom.Classify(m.From) == intercom.External {
-			out = append(out, m)
+	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
+		// A person's or an account's post wakes the session. Another
+		// session's wakes it only with session wakes on, and not once its
+		// channel's loop breaker has tripped (two sessions would otherwise
+		// wake each other turn after turn) — it waits in the inbox for the
+		// next read. A legacy squawk from another session never wakes.
+		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
+			continue
 		}
+		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
+			continue // a session's notice (a nag, the breaker's) is for people
+		}
+		out = append(out, m)
 	}
 	return out
+}
+
+// breakerScan bounds how far back the breaker looks for a person's last post
+// (for its notice's id).
+const breakerScan = 500
+
+// loopTripped reports whether m (a session's post) is past its channel's
+// loop breaker: the last sessionLimit+1 squawks there, m included, are all
+// from sessions. When it is, the breaker's notice is posted (once per run,
+// keyed by the person's last post in the channel).
+func (e *Engine) loopTripped(inst jam.Instance, m intercom.Squawk) bool {
+	if m.Channel == "" {
+		return false
+	}
+	e.trippedMu.Lock()
+	verdict, known := e.tripped[m.Seq]
+	e.trippedMu.Unlock()
+	if known {
+		return verdict
+	}
+	verdict = e.checkLoop(inst, m)
+	e.trippedMu.Lock()
+	if e.tripped == nil || len(e.tripped) >= trippedCacheMax {
+		e.tripped = map[int64]bool{}
+	}
+	e.tripped[m.Seq] = verdict
+	e.trippedMu.Unlock()
+	return verdict
+}
+
+// trippedCacheMax bounds the breaker's verdict cache.
+const trippedCacheMax = 10000
+
+// checkLoop decides loopTripped from the log, posting the notice on a trip.
+func (e *Engine) checkLoop(inst jam.Instance, m intercom.Squawk) bool {
+	window := e.history.ChannelBefore(m.Channel, m.Seq+1, e.sessionLimit+1)
+	if len(window) <= e.sessionLimit {
+		return false
+	}
+	for _, w := range window {
+		if !isSession(w.From) {
+			return false
+		}
+	}
+	if e.breaker != nil {
+		var since int64
+		for _, w := range e.history.ChannelBefore(m.Channel, window[0].Seq, breakerScan) {
+			if !isSession(w.From) {
+				since = w.Seq
+			}
+		}
+		id := fmt.Sprintf("breaker:%s:%d", m.Channel, since)
+		body := fmt.Sprintf("Jam paused agent-to-agent wakes here after %d messages between sessions in a row. Reply here to resume.", e.sessionLimit)
+		if err := e.breaker.BreakerNotice(m.Channel, ident.ID(inst.ActorID), id, body); err != nil {
+			e.log.Warn("wakeon: loop breaker notice failed", "channel", string(m.Channel), "error", err.Error())
+		}
+	}
+	return true
 }
 
 // Reply-to-act command words (see command).
@@ -608,10 +712,14 @@ const (
 // (KeepWaiting) before a best-effort confirmation, so a keep acts once; the
 // session is not woken, and an Idled one stays paused.
 func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.Squawk) bool {
-	if e.nags == nil || inst.Owner == "" {
+	if e.nags == nil || (inst.OwnerID == "" && inst.Owner == "") {
 		return false // ladder off: there are no nags to answer
 	}
-	owner := intercom.Target{Kind: "human", Ref: inst.Owner}
+	// The owner: their user id, or — for a reply from before the cutover —
+	// the legacy log's human:<name>.
+	isOwner := func(from ident.ID) bool {
+		return (inst.OwnerID != "" && from == inst.OwnerID) || (inst.Owner != "" && from == ident.ID("human:"+inst.Owner))
+	}
 	var release, other bool
 	var lastKeep int64
 	for _, m := range rs {
@@ -620,7 +728,7 @@ func (e *Engine) command(ctx context.Context, inst jam.Instance, rs []intercom.S
 			other = true
 			continue
 		}
-		if m.From != owner {
+		if !isOwner(m.From) {
 			e.log.Warn("wakeon: ignoring a nag command from someone other than the owner", "actor", inst.ActorID, "command", word)
 			other = true
 			continue
@@ -681,3 +789,14 @@ func commandWord(body string) string {
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+// isSession reports whether a participant is a session: a ses_ id, or a
+// grandfathered one (the only participant ids that aren't registry ids). A
+// legacy squawk's "kind:ref" author is not one.
+func isSession(id ident.ID) bool {
+	if strings.Contains(string(id), ":") {
+		return false
+	}
+	_, err := ident.Parse(string(id))
+	return err != nil || id.Kind() == ident.Session
+}

@@ -117,3 +117,36 @@ func containsSlice(hay []string, needle string) bool {
 	}
 	return false
 }
+
+// TestDoNamesTheCallingBinary: Do is shared by at-cove and at-jam, so its
+// user-facing lines name whichever binary is updating itself.
+func TestDoNamesTheCallingBinary(t *testing.T) {
+	var out strings.Builder
+	f := &runner.Fake{}
+	err := Do(f, []byte("#!/usr/bin/env bash\n"), Options{Binary: "at-jam", Current: "1-0101", Pin: "2-0202", Stdout: &out})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if !strings.Contains(out.String(), "updating at-jam from 1-0101 to 2-0202") {
+		t.Fatalf("Do must name the calling binary; stdout=%q", out.String())
+	}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "bash" {
+		t.Fatalf("Do must drive install.sh once; calls=%+v", f.Calls)
+	}
+
+	out.Reset()
+	if err := Do(&runner.Fake{}, nil, Options{Binary: "at-jam", Current: "2-0202", Pin: "2-0202", Stdout: &out}); err != nil {
+		t.Fatalf("Do (current): %v", err)
+	}
+	if !strings.Contains(out.String(), "at-jam is already up to date (2-0202)") {
+		t.Fatalf("no-op must name the calling binary; stdout=%q", out.String())
+	}
+
+	out.Reset()
+	if err := Do(&runner.Fake{}, nil, Options{Binary: "at-jam", Current: "1-0101", DryRun: true, Stdout: &out}); err != nil {
+		t.Fatalf("Do (dry-run): %v", err)
+	}
+	if !strings.Contains(out.String(), "would update at-jam from 1-0101 to the latest release") {
+		t.Fatalf("dry-run must name the calling binary; stdout=%q", out.String())
+	}
+}

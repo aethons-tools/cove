@@ -1,7 +1,7 @@
 // The mcp subcommand ("cove-master mcp") runs a stdio Model Context Protocol
 // server that gives the cove's claude agent tools — "read" and "send" brokered
 // through Jam's /squawks endpoint on the cove's own ticket (or, via an
-// optional "to" target, another authorized human/channel), "commit" brokered
+// optional "to" target, another authorized user/channel), "commit" brokered
 // through Jam's POST /squawks/commit endpoint to advance the durable read
 // cursor, and "list_targets" brokered through Jam's GET /squawks/targets
 // endpoint.
@@ -47,12 +47,31 @@ type squawkOut struct {
 	// ContentType: text/markdown, or text/plain (the sender opted out of
 	// markdown; read it literally).
 	ContentType string `json:"content_type,omitempty"`
+	// Channel is the conversation it's in (absent on one from before Jam's
+	// channel cutover); From who sent it.
+	Channel *partyOut `json:"channel,omitempty"`
+	From    *partyOut `json:"from,omitempty"`
+}
+
+// partyOut mirrors a channel or participant in Jam's responses: an id, a kind
+// (ticket/chat/room; session/user/account) and a label.
+type partyOut struct {
+	ID    string `json:"id,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// sendOut is the "send" tool's typed output: the squawk's id and the channel
+// it went to (both empty from a Jam that predates them).
+type sendOut struct {
+	ID      string   `json:"id,omitempty"`
+	Channel partyOut `json:"channel,omitempty"`
 }
 
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: human:<name> or channel:<name>; omit to message this cove's default recipient — its ticket, or its owner for a personal session"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, ticket:<key>, or session:<name>; omit to post in your own channel — your ticket's, or your session's"`
 	// ContentType opts out of the markdown default.
 	ContentType string `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
 }
@@ -71,6 +90,23 @@ type readOut struct {
 	CommittedCursor string      `json:"committed_cursor,omitempty"`
 	PageFirst       string      `json:"page_first,omitempty"`
 	PageLast        string      `json:"page_last,omitempty"`
+}
+
+// callInIn is the "call_in" tool's typed input.
+type callInIn struct {
+	Who     string `json:"who" jsonschema:"who to call in: user:<name> or session:<name>"`
+	Channel string `json:"channel,omitempty" jsonschema:"optional channel id (chn_…) you are in, e.g. from a read entry's channel; omit for your own channel"`
+}
+
+// callInOut is the "call_in" tool's typed output: the channel and who is now in it.
+type callInOut struct {
+	Channel partyOut `json:"channel"`
+	Member  partyOut `json:"member"`
+}
+
+// leaveIn is the "leave" tool's typed input.
+type leaveIn struct {
+	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your own channel or ticket"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
@@ -246,19 +282,28 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 	return respBody, nil
 }
 
-// send posts a message to the cove's own ticket via Jam, or, when to is
-// non-empty, to the authorized human/channel target it names.
-func (c *messagingClient) send(ctx context.Context, text, to, contentType string) error {
+// send posts a message via Jam: to the cove's default channel, or, when to
+// is non-empty, to the authorized target it names.
+func (c *messagingClient) send(ctx context.Context, text, to, contentType string) (sendOut, error) {
 	payload, err := json.Marshal(struct {
 		Body        string `json:"body"`
 		To          string `json:"to,omitempty"`
 		ContentType string `json:"content_type,omitempty"`
 	}{Body: text, To: to, ContentType: contentType})
 	if err != nil {
-		return fmt.Errorf("encoding send payload: %w", err)
+		return sendOut{}, fmt.Errorf("encoding send payload: %w", err)
 	}
-	_, err = c.do(ctx, http.MethodPost, "/squawks", payload)
-	return err
+	body, err := c.do(ctx, http.MethodPost, "/squawks", payload)
+	if err != nil {
+		return sendOut{}, err
+	}
+	var out sendOut
+	if len(body) > 0 { // an older Jam answers 204, no body
+		if err := json.Unmarshal(body, &out); err != nil {
+			return sendOut{}, fmt.Errorf("decoding send response: %w", err)
+		}
+	}
+	return out, nil
 }
 
 // read fetches the cove's inbox via Jam, optionally seeking via in's
@@ -310,6 +355,39 @@ func (c *messagingClient) commit(ctx context.Context, upTo string) (commitOut, e
 		return commitOut{}, fmt.Errorf("decoding Jam commit response")
 	}
 	return out, nil
+}
+
+// callIn calls who into a channel the cove is in (its own when channel is
+// empty) via Jam's POST /squawks/call-in.
+func (c *messagingClient) callIn(ctx context.Context, who, channel string) (callInOut, error) {
+	payload, err := json.Marshal(struct {
+		Who     string `json:"who"`
+		Channel string `json:"channel,omitempty"`
+	}{Who: who, Channel: channel})
+	if err != nil {
+		return callInOut{}, err
+	}
+	body, err := c.do(ctx, http.MethodPost, "/squawks/call-in", payload)
+	if err != nil {
+		return callInOut{}, err
+	}
+	var out callInOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		return callInOut{}, fmt.Errorf("decoding Jam call-in response")
+	}
+	return out, nil
+}
+
+// leave takes the cove out of a channel via Jam's POST /squawks/leave.
+func (c *messagingClient) leave(ctx context.Context, channel string) error {
+	payload, err := json.Marshal(struct {
+		Channel string `json:"channel"`
+	}{Channel: channel})
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPost, "/squawks/leave", payload)
+	return err
 }
 
 // listTargets fetches the actor's addressable send targets via Jam.
@@ -428,20 +506,21 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to message this cove's default recipient — its ticket, or its owner for a personal session; set to=human:<name> to @-mention a person (their reply reaches you), or to=channel:<name> to post to a channel. The body is markdown by default; set content_type=text/plain to have it shown literally.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
+		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, ticket:<key> for a ticket's conversation, or session:<name> for another session's channel (you join it). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
-			return nil, nil, cfgErr
+			return nil, sendOut{}, cfgErr
 		}
-		if err := client.send(ctx, in.Text, in.To, in.ContentType); err != nil {
-			return nil, nil, err
+		out, err := client.send(ctx, in.Text, in.To, in.ContentType)
+		if err != nil {
+			return nil, sendOut{}, err
 		}
-		return nil, nil, nil
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read",
-		Description: "Read your inbox as a queue. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
+		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, readOut, error) {
 		if cfgErr != nil {
 			return nil, readOut{}, cfgErr
@@ -469,7 +548,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_targets",
-		Description: "List the targets this cove may send to (human:<name> / channel:<name>).",
+		Description: "List the targets this cove may send to (ticket:<key> / user:<name> / channel:<room> / session:<name>).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTargetsIn) (*mcp.CallToolResult, targetsOut, error) {
 		if cfgErr != nil {
 			return nil, targetsOut{}, cfgErr
@@ -482,8 +561,32 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "call_in",
+		Description: "Call someone into a channel you are in (default: your own channel), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. Chats can't take new members; rooms take no sessions.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in callInIn) (*mcp.CallToolResult, callInOut, error) {
+		if cfgErr != nil {
+			return nil, callInOut{}, cfgErr
+		}
+		out, err := client.callIn(ctx, in.Who, in.Channel)
+		if err != nil {
+			return nil, callInOut{}, err
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "leave",
+		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your own channel or your ticket's.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in leaveIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.leave(ctx, in.Channel)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "escalate",
-		Description: "Declare the category of your current block so Jam routes the escalation to the right on-call tier. Call this before you finish a turn needing input; it categorizes, it does not itself page anyone.",
+		Description: "Ask for a person: declare your current block's category so Jam calls the right on-call people into your channel if you're still waiting after this turn (per the project's escalation policy). Call it before you end a turn needing input; it asks until you're next woken.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in escalateIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr

@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -837,4 +838,58 @@ func allPinned(calls []runner.Call) bool {
 		}
 	}
 	return true
+}
+
+// TestNewWithContextPinsEveryCall: a Colima built for another docker context
+// (a non-default colima profile's colima-<profile>) pins every docker call —
+// probe, run, port, exec, volume ops — to it instead of the default.
+func TestNewWithContextPinsEveryCall(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
+	c := NewWithContext(f, "colima-jam-b")
+	if _, err := c.RunEphemeral("img", "", "atcove-cove-x", "harbor.cove", nil, nil, false); err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	if _, _, err := c.Dial("atcove-cove-x"); err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	if err := c.CreateVolume("v", "k=v"); err != nil {
+		t.Fatalf("CreateVolume: %v", err)
+	}
+	if err := c.RemoveVolumes("v"); err != nil {
+		t.Fatalf("RemoveVolumes: %v", err)
+	}
+	if len(f.Calls) == 0 {
+		t.Fatal("expected docker calls")
+	}
+	for _, call := range f.Calls {
+		if call.Name != "docker" {
+			continue
+		}
+		if len(call.Args) < 2 || call.Args[0] != "--context" || call.Args[1] != "colima-jam-b" {
+			t.Fatalf("docker call not pinned to colima-jam-b: %v", call.Args)
+		}
+	}
+}
+
+// TestNewWithContextEmptyIsDefault: an empty context keeps the default colima
+// context, so an unset config key changes nothing.
+func TestNewWithContextEmptyIsDefault(t *testing.T) {
+	f := &runner.Fake{}
+	c := NewWithContext(f, "")
+	if err := c.RemoveContainer("x"); err != nil {
+		t.Fatalf("RemoveContainer: %v", err)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("empty context must pin to %q; calls=%+v", dockerContext, f.Calls)
+	}
+}
+
+// TestPreflightNamesTheContext: an unreachable non-default context's error
+// names it and points at its profile, not the default `colima start`.
+func TestPreflightNamesTheContext(t *testing.T) {
+	f := &runner.Fake{Err: errors.New("down")}
+	err := NewWithContext(f, "colima-jam-b").RemoveContainer("x")
+	if err == nil || !strings.Contains(err.Error(), `"colima-jam-b"`) || !strings.Contains(err.Error(), "colima start --profile jam-b") {
+		t.Fatalf("preflight error should name the context + its profile; got %v", err)
+	}
 }

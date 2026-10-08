@@ -44,7 +44,8 @@ type destConflict struct {
 
 // destForm is the destination in the edit form's input syntax.
 type destForm struct {
-	Env string // KEY=TEMPLATE lines, the declared env only
+	Env        string // KEY=TEMPLATE lines, the declared env only
+	AllowPaths string // one pattern per line
 }
 
 // destDetail is the destination page payload.
@@ -123,6 +124,7 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 		lines = append(lines, k+"="+d.Env[k])
 	}
 	out.Form.Env = strings.Join(lines, "\n")
+	out.Form.AllowPaths = strings.Join(d.AllowPaths, "\n")
 
 	// Flag (never block) roles whose connector assembly this destination breaks,
 	// mirroring jam.ConnectorFor over the role's own scope.
@@ -186,6 +188,18 @@ func parseEnv(s string) (map[string]string, error) {
 	return env, nil
 }
 
+// parseAllowPaths reads the allow-paths textarea: one pattern per line, blank
+// lines skipped. Empty means any path.
+func parseAllowPaths(s string) []string {
+	var out []string
+	for line := range strings.Lines(s) {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // destFromForm reads every destination field but the name from the form.
 func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 	env, err := parseEnv(r.FormValue("env"))
@@ -200,6 +214,7 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 		CredName:   strings.TrimSpace(r.FormValue("cred-name")),
 		Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
 		Env:        env,
+		AllowPaths: parseAllowPaths(r.FormValue("allow-paths")),
 		Git:        r.FormValue("git") != "",
 		Note:       strings.TrimSpace(r.FormValue("note")),
 	}, nil
@@ -217,16 +232,16 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
 		data := destTableData(store)
 		data["Title"] = "Destinations"
-		render(w, "destinations", data)
+		render(w, r, "destinations", data)
 	})
 
 	mux.HandleFunc("GET /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildDestDetail(store, r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "destination", d)
+		render(w, r, "destination", d)
 	})
 
 	// Create only: an existing destination is edited on its page, where every
@@ -254,7 +269,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		}
 		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
 		w.Header().Set("HX-Redirect", destURL(d.Name))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 
 	mux.HandleFunc("POST /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +294,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			renderError(w, http.StatusNotFound, "destination no longer exists")
 			return
 		}
-		renderFragment(w, "destination", "dest-body", detail)
+		renderFragment(w, r, "destination", "dest-body", detail)
 	})
 
 	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +306,6 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			return
 		}
 		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "destinations", "destinations-table", destTableData(store))
+		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 }

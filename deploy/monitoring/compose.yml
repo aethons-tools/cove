@@ -1,0 +1,19 @@
+# Local Prometheus + Alertmanager for a Jam's operator-attention conditions.
+# Run via `just monitoring-up <jam-host>`; secrets live in .local/ (gitignored).
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./.local/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./jam-rules.yml:/etc/prometheus/jam-rules.yml:ro
+      - ./.local:/etc/prometheus/secrets:ro
+    extra_hosts: ["${JAM_HOST}:host-gateway"]
+    ports: ["127.0.0.1:9090:9090"]
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./.local:/etc/alertmanager/secrets:ro
+    ports: ["127.0.0.1:9093:9093"]

@@ -3,1187 +3,413 @@ package jam
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// fakeStore is a minimal squawkStore: canned actor-by-token-hash and
-// instance-by-actor-id, so tests don't need a real MemStore. roles/rosters
-// back the widened GetRole/GetRoster used by DecideSend for a targeted send.
-type fakeStore struct {
-	actors    map[string]Actor           // tokenHash -> Actor
-	instances map[string]Instance        // actorID -> Instance
-	roles     map[string]map[string]Role // project -> role name -> Role
-	rosters   map[string]Roster          // project -> Roster
+// sqFixture is the /squawks handler over the intercom fixture: each session
+// is enrolled as an actor whose bearer is "tok-" + its id.
+type sqFixture struct {
+	*icFixture
+	h      *SquawksHandler
+	legacy *intercom.LegacyLog
+	logbuf *bytes.Buffer
 }
 
-func (f *fakeStore) Lookup(tokenHash string) (Actor, bool) {
-	a, ok := f.actors[tokenHash]
-	return a, ok
-}
-
-func (f *fakeStore) GetInstance(actorID string) (Instance, bool) {
-	i, ok := f.instances[actorID]
-	return i, ok
-}
-
-func (f *fakeStore) GetRole(project, name string) (Role, bool) {
-	rs, ok := f.roles[project]
-	if !ok {
-		return Role{}, false
-	}
-	r, ok := rs[name]
-	return r, ok
-}
-
-func (f *fakeStore) GetRoster(project string) (Roster, bool) {
-	r, ok := f.rosters[project]
-	return r, ok
-}
-
-// AdvanceCommitCursor mimics MemStore/PostgresStore semantics: monotonic
-// forward on upToSeq only (a no-op if upToSeq <= the current CommitSeq),
-// error if the actor has no instance. CommitCursor (the id echo) travels in
-// lockstep with CommitSeq.
-func (f *fakeStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) {
-	i, ok := f.instances[actorID]
-	if !ok {
-		return Instance{}, errors.New("no instance")
-	}
-	if upToSeq > i.CommitSeq {
-		i.CommitCursor = upToID
-		i.CommitSeq = upToSeq
-	}
-	f.instances[actorID] = i
-	return i, nil
-}
-
-// fakeReader is a scripted inboxReader for handleCommit tests that need
-// SeqOf id→Seq resolution without a real *intercom.Log. ReadInboxSince/Before
-// are unused by these tests (commit never reads) and return nil.
-type fakeReader struct {
-	seqs map[string]int64 // id -> seq
-}
-
-func (f *fakeReader) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
-	return nil
-}
-func (f *fakeReader) ReadInboxBefore(t intercom.Target, beforeSeq int64, limit int) []intercom.Squawk {
-	return nil
-}
-func (f *fakeReader) SeqOf(id string) (int64, bool) {
-	seq, ok := f.seqs[id]
-	return seq, ok
-}
-
-// fakeAppender records every message passed to Append, for asserting the
-// outbound send. The Log is the authoritative send path: a configured err is
-// returned to the caller (but the message is still recorded) so the
-// fail-the-send-on-append-error behavior (502) can be exercised.
-type fakeAppender struct {
-	got []intercom.Squawk
-	err error
-}
-
-func (f *fakeAppender) Append(m intercom.Squawk) (intercom.Squawk, error) {
-	f.got = append(f.got, m)
-	return m, f.err
-}
-
-// newTestSquawksHandler builds a SquawksHandler backed by a real (temp-file)
-// intercom.Log for both the reader and the appender — the same wiring
-// production uses — with one actor "cove-AET-7" (bearer "tok-A", ticket
-// "AET-7"). It returns the Log too, so a test can seed the actor's inbox via
-// lg.Append before issuing a GET.
-func newTestSquawksHandler(t *testing.T) (*SquawksHandler, *fakeStore, *intercom.Log, *bytes.Buffer) {
+func newSqFixture(t *testing.T, addressing ...string) *sqFixture {
 	t.Helper()
-	store := &fakeStore{
-		actors: map[string]Actor{
-			HashToken("tok-A"): {ID: "cove-AET-7"},
-		},
-		instances: map[string]Instance{
-			"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"},
-		},
-	}
-	lg := intercom.NewMemLog()
-	var logbuf bytes.Buffer
-	slogger := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewSquawksHandler(store, lg, lg, slogger)
-	return h, store, lg, &logbuf
-}
-
-// newReadTestStore builds a fakeStore with one actor+instance enrolled: actor
-// actorID, bearer tokenFor(actorID), ticket unit, project project.
-func newReadTestStore(t *testing.T, actorID, unit, project string) *fakeStore {
-	t.Helper()
-	return &fakeStore{
-		actors: map[string]Actor{
-			HashToken(tokenFor(actorID)): {ID: actorID},
-		},
-		instances: map[string]Instance{
-			actorID: {ActorID: actorID, Unit: unit, Project: project},
-		},
-	}
-}
-
-// tokenFor returns the deterministic bearer token newReadTestStore enrolled
-// for actorID.
-func tokenFor(actorID string) string { return "tok-" + actorID }
-
-// mustAppend appends m to lg, failing the test on error.
-func mustAppend(t *testing.T, lg *intercom.Log, m intercom.Squawk) {
-	t.Helper()
-	if _, err := lg.Append(m); err != nil {
-		t.Fatalf("append: %v", err)
-	}
-}
-
-// doGet issues an authenticated GET /squawks against h.
-func doGet(t *testing.T, h *SquawksHandler, token string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
-}
-
-func TestMessagesMissingTokenIs401(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
-}
-
-func TestMessagesUnknownTokenIs401(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	req.Header.Set("Authorization", "Bearer not-a-real-token")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
-}
-
-func TestMessagesNoInstanceIs403(t *testing.T) {
-	store := &fakeStore{
-		actors: map[string]Actor{
-			HashToken("tok-B"): {ID: "cove-no-instance"},
-		},
-		instances: map[string]Instance{},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	req := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	req.Header.Set("Authorization", "Bearer tok-B")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
-}
-
-// TestMessagesPostIsSelfScoped is the security-critical assertion: the
-// appended target is derived ONLY from the authenticated actor's own
-// Instance.Unit. The POST request itself carries no ticket/target field at
-// all, so there is no way for a cove to name another cove's ticket. Since the
-// Log cutover, handlePost only appends; a separate egress engine delivers to
-// Linear.
-func TestMessagesPostIsSelfScoped(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"hi"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("append calls = %d, want 1", len(ap.got))
-	}
-	m := ap.got[0]
-	if m.From.Kind != "actor" || m.From.Ref != "cove-AET-7" {
-		t.Fatalf("From = %+v, want actor:cove-AET-7", m.From)
-	}
-	if len(m.To) != 1 || m.To[0].Kind != "channel" || m.To[0].Ref != "AET-7" {
-		t.Fatalf("To = %+v, want [channel:AET-7]", m.To)
-	}
-	if m.Body != "hi" {
-		t.Fatalf("Body = %q, want raw \"hi\"", m.Body)
-	}
-	if m.Project != "acme" {
-		t.Fatalf("Project = %q, want acme", m.Project)
-	}
-}
-
-func TestMessagesMethodNotAllowed(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	req := httptest.NewRequest(http.MethodPut, "/squawks", nil)
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", rec.Code)
-	}
-}
-
-func TestMessagesOversizeBodyIs413(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	huge := strings.Repeat("a", 32*1024)
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"`+huge+`"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("status = %d, want 413", rec.Code)
-	}
-}
-
-func TestMessagesEmptyBodyIs400(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":""}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
-// TestMessagesNeverLogsToken asserts the bearer token string never appears in
-// any logged output, across both the success and failure paths, and that error
-// bodies returned to the client are generic (no token, no internal detail).
-func TestMessagesNeverLogsToken(t *testing.T) {
-	h, _, _, logbuf := newTestSquawksHandler(t)
-
-	const tok = "tok-A"
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"hi"}`))
-	req.Header.Set("Authorization", "Bearer "+tok)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", rec.Code)
-	}
-
-	// unknown-token path too.
-	req2 := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	req2.Header.Set("Authorization", "Bearer some-other-secret-token")
-	rec2 := httptest.NewRecorder()
-	h.ServeHTTP(rec2, req2)
-
-	if strings.Contains(logbuf.String(), tok) {
-		t.Fatalf("token leaked into logs: %s", logbuf.String())
-	}
-	if strings.Contains(logbuf.String(), "some-other-secret-token") {
-		t.Fatalf("token leaked into logs: %s", logbuf.String())
-	}
-	if strings.Contains(rec.Body.String(), tok) || strings.Contains(rec2.Body.String(), "some-other-secret-token") {
-		t.Fatalf("token leaked into an error body")
-	}
-}
-
-// TestSendToHumanAppendsRawToHumanTarget asserts a "to":"human:<name>" send
-// is authorized via DecideSend and appended with To: human:<name> and the RAW
-// body — no @-mention prefix in the Log; rendering (the @-mention posted on
-// the cove's own ticket, so replies keep landing where wake-on-reply watches)
-// is the egress adapter's job, not handlePost's. It also asserts the message
-// body never reaches the logs while the (non-secret) target does.
-func TestSendToHumanAppendsRawToHumanTarget(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
-	}
-	ap := &fakeAppender{}
-	var logbuf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logbuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"ping","to":"human:alice"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("append calls = %d, want 1", len(ap.got))
-	}
-	m := ap.got[0]
-	if len(m.To) != 1 || m.To[0].Kind != "human" || m.To[0].Ref != "alice" {
-		t.Fatalf("To = %+v, want [human:alice]", m.To)
-	}
-	if m.Body != "ping" {
-		t.Fatalf("Body = %q, want raw \"ping\" (no @-mention)", m.Body)
-	}
-	if strings.Contains(logbuf.String(), "ping") {
-		t.Fatalf("message body leaked into logs: %s", logbuf.String())
-	}
-	if !strings.Contains(logbuf.String(), "human:alice") {
-		t.Fatalf("expected the (non-secret) target to be logged: %s", logbuf.String())
-	}
-}
-
-// TestSendToChannelAppendsToChannelTarget asserts a "to":"channel:<name>"
-// send is authorized via DecideSend and appended with To: channel:<name> —
-// the roster name, not a resolved ticket id; ticket resolution now happens at
-// egress, not in handlePost — and the raw body.
-func TestSendToChannelAppendsToChannelTarget(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"channel:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}}}},
-	}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"heads up","to":"channel:eng-help"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 {
-		t.Fatalf("append calls = %d, want 1", len(ap.got))
-	}
-	m := ap.got[0]
-	if len(m.To) != 1 || m.To[0].Kind != "channel" || m.To[0].Ref != "eng-help" {
-		t.Fatalf("To = %+v, want [channel:eng-help]", m.To)
-	}
-	if m.Body != "heads up" {
-		t.Fatalf("Body = %q, want raw \"heads up\"", m.Body)
-	}
-}
-
-// TestMessagesPostAppendFailureIs502 asserts that once the Log is the
-// authoritative delivery path, an Append failure fails the send (502).
-func TestMessagesPostAppendFailureIs502(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	ap := &fakeAppender{err: errors.New("disk full")}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"hi"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestMessagesPostNilLogIs503 asserts a send fails with 503 (not a silent
-// swallow) when the Log is unconfigured (nil appender).
-func TestMessagesPostNilLogIs503(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7"}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log) // nil appender
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"hi"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// TestSendToDeniedIs403 asserts a target whose form no grant's addressing
-// authorizes is denied (403) and — critically — nothing is appended.
-func TestSendToDeniedIs403(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Channels: []Channel{{Name: "secret", Ref: "X"}}}},
-	}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"x","to":"channel:secret"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
-	if len(ap.got) != 0 {
-		t.Fatalf("Append must not be called on a denied send; got %d", len(ap.got))
-	}
-}
-
-// TestSendToUnresolvedIs404 asserts a target authorized-in-form but absent
-// from the roster of every authorizing grant's project is a 404, distinct
-// from the 403 denial path.
-func TestSendToUnresolvedIs404(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}}},
-	}
-	ap := &fakeAppender{}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, ap, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(`{"body":"x","to":"human:bob"}`))
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
-	}
-	if len(ap.got) != 0 {
-		t.Fatalf("Append must not be called on an unresolved send; got %d", len(ap.got))
-	}
-}
-
-// TestTargetsListsAllowedTargets asserts GET /squawks/targets returns the
-// actor's authorized-and-resolvable targets — a channel not in the role's
-// addressing must be excluded — and that it never includes handles in the
-// response.
-func TestTargetsListsAllowedTargets(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-		instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7"}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	req := httptest.NewRequest(http.MethodGet, "/squawks/targets", nil)
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Targets []map[string]string `json:"targets"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
-	}
-	if len(out.Targets) != 1 {
-		t.Fatalf("targets = %+v, want exactly 1 (channel must be excluded — not in addressing)", out.Targets)
-	}
-	tg := out.Targets[0]
-	if tg["target"] != "human:alice" || tg["kind"] != "human" || tg["name"] != "alice" {
-		t.Fatalf("target = %+v, want human:alice", tg)
-	}
-	if _, ok := tg["handle"]; ok {
-		t.Fatalf("target must not include the handle: %+v", tg)
-	}
-}
-
-// TestTargetsGetStillReturnsInboxForBareSquawksPath is the regression guard:
-// the targets branch must only fire on the exact "/targets" suffix — GET
-// /squawks must still return the caller's own inbox.
-func TestTargetsGetStillReturnsInboxForBareSquawksPath(t *testing.T) {
-	h, _, lg, _ := newTestSquawksHandler(t)
-	mustAppend(t, lg, intercom.Squawk{
-		From: intercom.Target{Kind: "human", Ref: "alice"},
-		To:   []intercom.Target{{Kind: "actor", Ref: "cove-AET-7"}},
-		Body: "hello",
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/squawks", nil)
-	req.Header.Set("Authorization", "Bearer tok-A")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Squawks []Squawk `json:"squawks"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode response: %v (%s)", err, rec.Body.String())
-	}
-	if len(out.Squawks) != 1 || out.Squawks[0].Author != "alice" {
-		t.Fatalf("messages = %+v, want the seeded inbox (own-ticket read must be unaffected)", out.Squawks)
-	}
-}
-
-func TestReadReturnsInbox(t *testing.T) {
-	lg := intercom.NewMemLog()
-	// two inbound replies to the cove + one of the cove's OWN outbound (must be excluded)
-	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "first", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: coveActor, To: []intercom.Target{{Kind: "channel", Ref: "ACME-7"}}, Body: "my own send", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "second", Project: "acme"})
-
-	// store: actor "cove-1" with a token, instance Unit "ACME-7"
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGet(t, h, tokenFor("cove-1")) // GET /squawks with the actor's bearer
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Messages []Squawk `json:"squawks"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Messages) != 2 {
-		t.Fatalf("messages = %d, want 2 (own send excluded); got %+v", len(resp.Messages), resp.Messages)
-	}
-	if resp.Messages[0].Author != "Alice" || resp.Messages[0].Body != "first" {
-		t.Fatalf("msg0 = %+v, want Alice/first", resp.Messages[0])
-	}
-	if resp.Messages[1].Body != "second" {
-		t.Fatalf("msg1 = %+v, want second", resp.Messages[1])
-	}
-	for _, m := range resp.Messages {
-		if m.ID == "" || m.At == nil {
-			t.Fatalf("id/at missing: %+v", m)
+	f := &sqFixture{icFixture: newICFixture(t, addressing...), legacy: intercom.NewLegacyMemLog(), logbuf: &bytes.Buffer{}}
+	for _, inst := range []Instance{f.ticket, f.personal, f.standing} {
+		a := f.actor
+		a.ID, a.TokenHash = inst.ActorID, HashToken("tok-"+inst.ActorID)
+		if err := f.store.AddActor(a); err != nil {
+			t.Fatal(err)
 		}
 	}
+	f.h = NewSquawksHandler(f.store, f.ic, f.log, f.legacy, slog.New(slog.NewTextHandler(f.logbuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	return f
 }
 
-func TestReadEmptyInboxIsEmptyArray(t *testing.T) {
-	lg := intercom.NewMemLog()
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-	rec := doGet(t, h, tokenFor("cove-1"))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+func (f *sqFixture) do(method, path string, inst Instance, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if inst.ActorID != "" {
+		req.Header.Set("Authorization", "Bearer tok-"+inst.ActorID)
 	}
-	if got := rec.Body.String(); !strings.Contains(got, `"squawks":[]`) {
-		t.Fatalf("body = %s, want empty array (not null)", got)
-	}
-}
-
-func TestReadNilReaderIs503(t *testing.T) {
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, nil, nil, testLogger())
-	rec := doGet(t, h, tokenFor("cove-1"))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", rec.Code)
-	}
-}
-
-func TestReadIsSelfScoped(t *testing.T) {
-	lg := intercom.NewMemLog()
-	// an inbound to a DIFFERENT cove
-	mustAppend(t, lg, intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Bob"}, To: []intercom.Target{{Kind: "actor", Ref: "cove-2"}}, Body: "for cove-2", Project: "acme"})
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-	rec := doGet(t, h, tokenFor("cove-1"))
-	var resp struct {
-		Messages []Squawk `json:"squawks"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Messages) != 0 {
-		t.Fatalf("cove-1 must not see cove-2's inbox; got %+v", resp.Messages)
-	}
-}
-
-// doGetQuery issues an authenticated GET to /squawks with the given query
-// string appended (e.g. "anchor=start&limit=2").
-func doGetQuery(t *testing.T, h *SquawksHandler, token, query string) *httptest.ResponseRecorder {
-	t.Helper()
-	path := "/squawks"
-	if query != "" {
-		path += "?" + query
-	}
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	f.h.ServeHTTP(rec, req)
 	return rec
 }
 
-// doCommit issues an authenticated POST /squawks/commit {"up_to": upTo}. An
-// empty upTo sends an empty JSON object (no up_to field at all), to exercise
-// the missing-field 400 path.
-func doCommit(t *testing.T, h *SquawksHandler, token, upTo string) *httptest.ResponseRecorder {
-	t.Helper()
-	body := `{}`
-	if upTo != "" {
-		body = `{"up_to":"` + upTo + `"}`
-	}
-	req := httptest.NewRequest(http.MethodPost, "/squawks/commit", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+type sendResp struct {
+	ID      string `json:"id"`
+	Channel Party  `json:"channel"`
 }
 
-// readResp mirrors the GET /squawks JSON shape, for decoding in tests.
+func (f *sqFixture) send(inst Instance, body string) (int, sendResp) {
+	f.t.Helper()
+	rec := f.do(http.MethodPost, "/squawks", inst, body)
+	var r sendResp
+	if rec.Code == http.StatusOK {
+		if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
+			f.t.Fatalf("decode send: %v", err)
+		}
+	}
+	return rec.Code, r
+}
+
 type readResp struct {
-	Messages        []Squawk `json:"squawks"`
+	Squawks         []Squawk `json:"squawks"`
 	CommittedCursor string   `json:"committed_cursor"`
 	PageFirst       string   `json:"page_first"`
 	PageLast        string   `json:"page_last"`
 }
 
-// seedInbox appends n messages (body "m") addressed to actor:coveID,
-// returning the appended messages (id + Seq) in append order.
-func seedInbox(t *testing.T, lg *intercom.Log, coveID string, n int) []intercom.Squawk {
-	t.Helper()
-	coveActor := intercom.Target{Kind: "actor", Ref: coveID}
-	msgs := make([]intercom.Squawk, 0, n)
-	for i := 0; i < n; i++ {
-		m, err := lg.Append(intercom.Squawk{From: intercom.Target{Kind: "human", Ref: "Alice"}, To: []intercom.Target{coveActor}, Body: "m", Project: "acme"})
-		if err != nil {
-			t.Fatalf("append %d: %v", i, err)
-		}
-		msgs = append(msgs, m)
-	}
-	return msgs
-}
-
-// TestReadDefaultAnchorIsNextAfterCommitCursor asserts the default GET (no
-// anchor/dir) returns the next page strictly after the cove's durable
-// CommitCursor — seeded mid-log here — and that the response carries
-// committed_cursor/page_first/page_last, and that the read itself never
-// advances the cursor.
-func TestReadDefaultAnchorIsNextAfterCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
-	msgs := seedInbox(t, lg, "cove-1", 5)
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme", CommitCursor: msgs[1].ID, CommitSeq: msgs[1].Seq}},
-	}
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGet(t, h, tokenFor("cove-1"))
+func (f *sqFixture) read(inst Instance, query string) readResp {
+	f.t.Helper()
+	rec := f.do(http.MethodGet, "/squawks?"+query, inst, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		f.t.Fatalf("read %q = %d %s", query, rec.Code, rec.Body)
 	}
-	var resp readResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
+	var r readResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
+		f.t.Fatalf("decode read: %v", err)
 	}
-	if len(resp.Messages) != 3 {
-		t.Fatalf("messages = %d, want 3 (msgs[2..4]); got %+v", len(resp.Messages), resp.Messages)
-	}
-	if resp.Messages[0].ID != msgs[2].ID || resp.Messages[2].ID != msgs[4].ID {
-		t.Fatalf("messages = %+v, want msgs[2..4] = %v", resp.Messages, msgs[2:])
-	}
-	if resp.CommittedCursor != msgs[1].ID {
-		t.Fatalf("committed_cursor = %q, want %q", resp.CommittedCursor, msgs[1].ID)
-	}
-	if resp.PageFirst != msgs[2].ID || resp.PageLast != msgs[4].ID {
-		t.Fatalf("page_first/page_last = %q/%q, want %q/%q", resp.PageFirst, resp.PageLast, msgs[2].ID, msgs[4].ID)
-	}
-
-	// A read must never advance the cursor.
-	inst, _ := store.GetInstance("cove-1")
-	if inst.CommitCursor != msgs[1].ID || inst.CommitSeq != msgs[1].Seq {
-		t.Fatalf("commit cursor changed by a read: %+v, want unchanged id=%q seq=%d", inst, msgs[1].ID, msgs[1].Seq)
-	}
+	return r
 }
 
-// TestReadAnchorStartIgnoresCommitCursor asserts anchor=start reads from the
-// beginning of the log regardless of where the cursor sits.
-func TestReadAnchorStartIgnoresCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
-	msgs := seedInbox(t, lg, "cove-1", 3)
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: msgs[2].ID, CommitSeq: msgs[2].Seq}},
+func bodiesOf(sq []Squawk) []string {
+	out := make([]string, len(sq))
+	for i, s := range sq {
+		out[i] = s.Body
 	}
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=start")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp readResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Messages) != 3 || resp.Messages[0].ID != msgs[0].ID {
-		t.Fatalf("messages = %+v, want all 3 starting at %q", resp.Messages, msgs[0].ID)
-	}
+	return out
 }
 
-// TestReadAnchorEndIgnoresCommitCursor asserts anchor=end returns the last
-// `limit` messages regardless of the cursor.
-func TestReadAnchorEndIgnoresCommitCursor(t *testing.T) {
-	lg := intercom.NewMemLog()
-	msgs := seedInbox(t, lg, "cove-1", 5)
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", CommitCursor: msgs[0].ID, CommitSeq: msgs[0].Seq}},
+// deliver posts body from a person into the session's default channel.
+func (f *sqFixture) reply(inst Instance, from ident.ID, body string) intercom.Squawk {
+	f.t.Helper()
+	ch, err := f.ic.HomeChannel(inst)
+	if err != nil {
+		f.t.Fatal(err)
 	}
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=end&limit=2")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	m, err := f.ic.PostTrusted(ch, intercom.Squawk{From: from, Body: body})
+	if err != nil {
+		f.t.Fatal(err)
 	}
-	var resp readResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Messages) != 2 || resp.Messages[0].ID != msgs[3].ID || resp.Messages[1].ID != msgs[4].ID {
-		t.Fatalf("messages = %+v, want the last 2 (%v)", resp.Messages, msgs[3:])
-	}
+	return m
 }
 
-// TestReadAnchorIDForwardAndBackward asserts anchor=id&id=<x> combined with
-// dir selects the window strictly after (forward, default) or strictly
-// before (backward) the given id.
-func TestReadAnchorIDForwardAndBackward(t *testing.T) {
-	lg := intercom.NewMemLog()
-	msgs := seedInbox(t, lg, "cove-1", 5)
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	fwd := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+msgs[2].ID)
-	var fwdResp readResp
-	if err := json.Unmarshal(fwd.Body.Bytes(), &fwdResp); err != nil {
-		t.Fatalf("decode forward: %v", err)
+func TestSquawksAuth(t *testing.T) {
+	f := newSqFixture(t)
+	if rec := f.do(http.MethodGet, "/squawks", Instance{}, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token = %d", rec.Code)
 	}
-	if len(fwdResp.Messages) != 2 || fwdResp.Messages[0].ID != msgs[3].ID || fwdResp.Messages[1].ID != msgs[4].ID {
-		t.Fatalf("forward messages = %+v, want %v", fwdResp.Messages, msgs[3:])
+	if rec := f.do(http.MethodGet, "/squawks", Instance{ActorID: "nobody"}, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown token = %d", rec.Code)
 	}
-
-	back := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id="+msgs[2].ID+"&dir=backward")
-	var backResp readResp
-	if err := json.Unmarshal(back.Body.Bytes(), &backResp); err != nil {
-		t.Fatalf("decode backward: %v", err)
-	}
-	if len(backResp.Messages) != 2 || backResp.Messages[0].ID != msgs[0].ID || backResp.Messages[1].ID != msgs[1].ID {
-		t.Fatalf("backward messages = %+v, want %v", backResp.Messages, msgs[:2])
-	}
-}
-
-// TestReadAnchorIDUnknownIs400 asserts anchor=id with an id the log doesn't
-// recognize is a 400 (SeqOf can't resolve it) — not silently treated as
-// "from the start" or "from the end".
-func TestReadAnchorIDUnknownIs400(t *testing.T) {
-	lg := intercom.NewMemLog()
-	seedInbox(t, lg, "cove-1", 2)
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=id&id=does-not-exist")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
-// TestReadAnchorIDMissingIDIs400 asserts anchor=id without ?id= is a 400.
-func TestReadAnchorIDMissingIDIs400(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	rec := doGetQuery(t, h, "tok-A", "anchor=id")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
-// TestReadInvalidAnchorIs400 asserts an unrecognized anchor value is a 400.
-func TestReadInvalidAnchorIs400(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	rec := doGetQuery(t, h, "tok-A", "anchor=bogus")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
-// TestReadInvalidLimitIs400 asserts a non-numeric or non-positive limit is a 400.
-func TestReadInvalidLimitIs400(t *testing.T) {
-	h, _, _, _ := newTestSquawksHandler(t)
-	for _, v := range []string{"abc", "0", "-5"} {
-		rec := doGetQuery(t, h, "tok-A", "limit="+v)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("limit=%s: status = %d, want 400", v, rec.Code)
-		}
-	}
-}
-
-// TestReadLimitIsCappedAtMax asserts a limit above maxReadLimit is silently
-// capped rather than honored or rejected.
-func TestReadLimitIsCappedAtMax(t *testing.T) {
-	lg := intercom.NewMemLog()
-	seedInbox(t, lg, "cove-1", maxReadLimit+5)
-	store := newReadTestStore(t, "cove-1", "ACME-7", "acme")
-	h := NewSquawksHandler(store, lg, lg, testLogger())
-
-	rec := doGetQuery(t, h, tokenFor("cove-1"), "anchor=start&limit=100000")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp readResp
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Messages) != maxReadLimit {
-		t.Fatalf("messages = %d, want capped at %d", len(resp.Messages), maxReadLimit)
-	}
-}
-
-// TestCommitAdvancesCursorAndReturnsIt asserts POST /squawks/commit calls
-// AdvanceCommitCursor and echoes the resulting cursor.
-func TestCommitAdvancesCursorAndReturnsIt(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7", Project: "acme"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, &fakeReader{seqs: map[string]int64{"msg-005": 5}}, nil, log)
-
-	rec := doCommit(t, h, tokenFor("cove-1"), "msg-005")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		CommittedCursor string `json:"committed_cursor"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.CommittedCursor != "msg-005" {
-		t.Fatalf("committed_cursor = %q, want msg-005", resp.CommittedCursor)
-	}
-	inst, _ := store.GetInstance("cove-1")
-	if inst.CommitCursor != "msg-005" {
-		t.Fatalf("store CommitCursor = %q, want msg-005", inst.CommitCursor)
-	}
-}
-
-// TestCommitMissingUpToIs400 asserts an absent/empty up_to is a 400 and does
-// not touch the store.
-func TestCommitMissingUpToIs400(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	rec := doCommit(t, h, tokenFor("cove-1"), "")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "" {
-		t.Fatalf("CommitCursor = %q, want unchanged (empty) on a rejected commit", inst.CommitCursor)
-	}
-}
-
-// TestCommitOnlyAdvancesCallersOwnInstance is the security-critical
-// assertion for commit: the actor advanced is the one derived from the
-// bearer token, never a value the request body could name (there is no such
-// field). A second actor's instance must be untouched.
-func TestCommitOnlyAdvancesCallersOwnInstance(t *testing.T) {
-	store := &fakeStore{
-		actors: map[string]Actor{
-			HashToken(tokenFor("cove-1")): {ID: "cove-1"},
-			HashToken(tokenFor("cove-2")): {ID: "cove-2"},
-		},
-		instances: map[string]Instance{
-			"cove-1": {ActorID: "cove-1", Unit: "ACME-7"},
-			"cove-2": {ActorID: "cove-2", Unit: "ACME-8"},
-		},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, &fakeReader{seqs: map[string]int64{"msg-100": 100}}, nil, log)
-
-	rec := doCommit(t, h, tokenFor("cove-1"), "msg-100")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if inst, _ := store.GetInstance("cove-2"); inst.CommitCursor != "" {
-		t.Fatalf("cove-2 CommitCursor = %q, want unchanged (empty)", inst.CommitCursor)
-	}
-	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "msg-100" {
-		t.Fatalf("cove-1 CommitCursor = %q, want msg-100", inst.CommitCursor)
-	}
-}
-
-// TestHandleCommitStoreErrorIs403 exercises handleCommit's own defensive
-// branch (AdvanceCommitCursor failing for an actor with no instance) directly
-// — unreachable via ServeHTTP, which already gates on GetInstance beforehand.
-func TestHandleCommitStoreErrorIs403(t *testing.T) {
-	store := &fakeStore{instances: map[string]Instance{}}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, &fakeReader{seqs: map[string]int64{"msg-1": 1}}, nil, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks/commit", strings.NewReader(`{"up_to":"msg-1"}`))
-	rec := httptest.NewRecorder()
-	h.handleCommit(rec, req, Actor{ID: "ghost"})
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
-}
-
-// TestCommitGetIsMethodNotAllowed asserts a GET to /squawks/commit is
-// rejected with 405 (Allow: POST) rather than silently falling through to
-// handleGet, which would otherwise treat it as a bare inbox read.
-func TestCommitGetIsMethodNotAllowed(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	req := httptest.NewRequest(http.MethodGet, "/squawks/commit", nil)
-	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", rec.Code)
-	}
-	if got := rec.Header().Get("Allow"); got != "POST" {
-		t.Fatalf("Allow header = %q, want POST", got)
-	}
-}
-
-// TestCommitMalformedBodyIs400 asserts a non-empty but malformed JSON body
-// decodes to a 400 (distinct from the empty-body/missing-field 400 case).
-func TestCommitMalformedBodyIs400(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	req := httptest.NewRequest(http.MethodPost, "/squawks/commit", strings.NewReader(`{not-json`))
-	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-}
-
-// TestCommitOversizeBodyIs413 asserts a commit body over maxSquawkBodyBytes
-// is rejected as 413, matching handlePost's oversize handling.
-func TestCommitOversizeBodyIs413(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	huge := strings.Repeat("a", 32*1024)
-	req := httptest.NewRequest(http.MethodPost, "/squawks/commit", strings.NewReader(`{"up_to":"`+huge+`"}`))
-	req.Header.Set("Authorization", "Bearer "+tokenFor("cove-1"))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("status = %d, want 413", rec.Code)
-	}
-}
-
-// TestCommitUnknownUpToIs400 asserts an up_to id the reader's SeqOf can't
-// resolve is a 400 — commit must never silently no-op or misresolve an
-// unknown id to some arbitrary Seq.
-func TestCommitUnknownUpToIs400(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, &fakeReader{}, nil, log) // empty seqs: every id unknown
-
-	rec := doCommit(t, h, tokenFor("cove-1"), "ghost-id")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
-	}
-	if inst, _ := store.GetInstance("cove-1"); inst.CommitCursor != "" || inst.CommitSeq != 0 {
-		t.Fatalf("commit cursor changed on an unknown up_to: %+v", inst)
-	}
-}
-
-// TestCommitNilReaderIs503 asserts a commit fails 503 (messaging not
-// configured) when no reader is wired — commit can no longer resolve up_to
-// to a Seq without one, so it must fail closed rather than silently no-op.
-func TestCommitNilReaderIs503(t *testing.T) {
-	store := &fakeStore{
-		actors:    map[string]Actor{HashToken(tokenFor("cove-1")): {ID: "cove-1"}},
-		instances: map[string]Instance{"cove-1": {ActorID: "cove-1", Unit: "ACME-7"}},
-	}
-	log := slog.New(slog.NewTextHandler(bytesDiscard{}, nil))
-	h := NewSquawksHandler(store, nil, nil, log)
-
-	rec := doCommit(t, h, tokenFor("cove-1"), "msg-1")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", rec.Code)
-	}
-}
-
-// bytesDiscard is an io.Writer that discards everything, used where a *bytes.Buffer
-// isn't needed but slog.NewTextHandler still wants a writer.
-type bytesDiscard struct{}
-
-func (bytesDiscard) Write(p []byte) (int, error) { return len(p), nil }
-
-// personalSquawkStore: a personal cove "p1" (owner alice, no ticket) whose
-// grant carries the owner-only addressing override Raise gives it, on a role
-// that could otherwise address any human.
-func personalSquawkStore(unit, owner string) *fakeStore {
-	var ov *Override
-	if owner != "" {
-		ov = &Override{Addressing: []string{"human:" + owner}}
-	}
-	return &fakeStore{
-		actors:    map[string]Actor{HashToken("tok-P"): {ID: "p1", Grants: []Grant{{Project: "acme", Role: "impl", Overrides: ov}}}},
-		instances: map[string]Instance{"p1": {ActorID: "p1", Unit: unit, Project: "acme", Owner: owner}},
-		roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-		rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "a"}, {Name: "bob", Handle: "b"}}}},
-	}
-}
-
-func postSquawk(t *testing.T, store *fakeStore, token, body string) (*httptest.ResponseRecorder, *fakeAppender) {
-	t.Helper()
-	ap := &fakeAppender{}
-	h := NewSquawksHandler(store, nil, ap, slog.New(slog.NewTextHandler(bytesDiscard{}, nil)))
-	req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec, ap
-}
-
-// A ticketless personal cove's send with no `to` goes to its owner.
-func TestSendDefaultsToOwnerForTicketlessCove(t *testing.T) {
-	rec, ap := postSquawk(t, personalSquawkStore("", "alice"), "tok-P", `{"body":"done"}`)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ap.got) != 1 || len(ap.got[0].To) != 1 || ap.got[0].To[0] != (intercom.Target{Kind: "human", Ref: "alice"}) {
-		t.Fatalf("appended = %+v; want one message to human:alice", ap.got)
-	}
-}
-
-// The owner-only override refuses a send to any other human.
-func TestPersonalCoveCannotMessageOtherHumans(t *testing.T) {
-	rec, ap := postSquawk(t, personalSquawkStore("", "alice"), "tok-P", `{"body":"x","to":"human:bob"}`)
-	if rec.Code != http.StatusForbidden || len(ap.got) != 0 {
-		t.Fatalf("status = %d appended = %d; want 403 and nothing appended", rec.Code, len(ap.got))
-	}
-}
-
-// A ticketless, ownerless cove has no default recipient: 400, nothing appended.
-func TestSendWithNoDefaultRecipientIs400(t *testing.T) {
-	rec, ap := postSquawk(t, personalSquawkStore("", ""), "tok-P", `{"body":"x"}`)
-	if rec.Code != http.StatusBadRequest || len(ap.got) != 0 {
-		t.Fatalf("status = %d appended = %d; want 400 and nothing appended", rec.Code, len(ap.got))
-	}
-	if !strings.Contains(rec.Body.String(), "no default recipient") {
-		t.Fatalf("body = %q; want a no-default-recipient message", rec.Body.String())
-	}
-}
-
-// A cove with a ticket still defaults to the ticket channel, even with an owner.
-func TestSendDefaultsToTicketWhenUnitSet(t *testing.T) {
-	rec, ap := postSquawk(t, personalSquawkStore("AET-7", ""), "tok-P", `{"body":"x"}`)
-	if rec.Code != http.StatusNoContent || len(ap.got) != 1 || ap.got[0].To[0] != (intercom.Target{Kind: "channel", Ref: "AET-7"}) {
-		t.Fatalf("status = %d appended = %+v; want 204 to channel:AET-7", rec.Code, ap.got)
-	}
-}
-
-// TestSendCarriesContentType: an agent send defaults to markdown (left to the
-// Log's default), may opt out to text/plain, and an unknown type is a 400.
-func TestSendCarriesContentType(t *testing.T) {
-	newH := func() (*SquawksHandler, *fakeAppender) {
-		store := &fakeStore{
-			actors:    map[string]Actor{HashToken("tok-A"): {ID: "cove-AET-7", Grants: []Grant{{Project: "acme", Role: "impl"}}}},
-			instances: map[string]Instance{"cove-AET-7": {ActorID: "cove-AET-7", Unit: "AET-7", Project: "acme"}},
-			roles:     map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}},
-			rosters:   map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "alice.h"}}}},
-		}
-		ap := &fakeAppender{}
-		return NewSquawksHandler(store, nil, ap, testLogger()), ap
-	}
-	for _, tc := range []struct {
-		name, body, want string
-		code             int
-	}{
-		{"default", `{"body":"**hi**","to":"human:alice"}`, "", http.StatusNoContent},
-		{"plain opt-out", `{"body":"2 * 3","to":"human:alice","content_type":"text/plain"}`, intercom.ContentPlain, http.StatusNoContent},
-		{"explicit markdown", `{"body":"x","to":"human:alice","content_type":"text/markdown"}`, intercom.ContentMarkdown, http.StatusNoContent},
-		{"unknown", `{"body":"x","to":"human:alice","content_type":"text/html"}`, "", http.StatusBadRequest},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h, ap := newH()
-			req := httptest.NewRequest(http.MethodPost, "/squawks", strings.NewReader(tc.body))
-			req.Header.Set("Authorization", "Bearer tok-A")
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
-			if rec.Code != tc.code {
-				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.code, rec.Body.String())
-			}
-			if tc.code == http.StatusNoContent && (len(ap.got) != 1 || ap.got[0].ContentType != tc.want) {
-				t.Fatalf("appended = %+v, want content type %q", ap.got, tc.want)
-			}
-			if tc.code != http.StatusNoContent && len(ap.got) != 0 {
-				t.Fatal("a rejected send must not append")
-			}
-		})
-	}
-}
-
-func TestReadReturnsContentType(t *testing.T) {
-	lg := intercom.NewMemLog()
-	coveActor := intercom.Target{Kind: "actor", Ref: "cove-1"}
-	alice := intercom.Target{Kind: "human", Ref: "Alice"}
-	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "**md**", Project: "acme"})
-	mustAppend(t, lg, intercom.Squawk{From: alice, To: []intercom.Target{coveActor}, Body: "a_b_c", Project: "acme", ContentType: intercom.ContentPlain})
-	h := NewSquawksHandler(newReadTestStore(t, "cove-1", "ACME-7", "acme"), lg, lg, testLogger())
-	rec := doGet(t, h, tokenFor("cove-1"))
-	var resp struct {
-		Messages []Squawk `json:"squawks"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := f.store.RemoveInstance(f.standing.ActorID); err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Messages) != 2 || resp.Messages[0].ContentType != intercom.ContentMarkdown || resp.Messages[1].ContentType != intercom.ContentPlain {
-		t.Fatalf("read = %+v, want content types [markdown plain]", resp.Messages)
+	if rec := f.do(http.MethodGet, "/squawks", f.standing, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("no instance = %d", rec.Code)
+	}
+	if rec := f.do(http.MethodDelete, "/squawks", f.ticket, ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE = %d", rec.Code)
+	}
+	if rec := f.do(http.MethodGet, "/squawks/commit", f.ticket, ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET commit = %d", rec.Code)
+	}
+}
+
+func TestSquawksSendValidation(t *testing.T) {
+	f := newSqFixture(t)
+	for body, want := range map[string]int{
+		`{"body":""}`: http.StatusBadRequest,
+		`not json`:    http.StatusBadRequest,
+		`{"body":"x","content_type":"text/html"}`:                    http.StatusBadRequest,
+		`{"body":"` + strings.Repeat("x", maxSquawkBodyBytes) + `"}`: http.StatusRequestEntityTooLarge,
+	} {
+		if code, _ := f.send(f.ticket, body); code != want {
+			t.Errorf("send %.40q = %d, want %d", body, code, want)
+		}
+	}
+	unconfigured := NewSquawksHandler(f.store, nil, nil, nil, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	f.h = unconfigured
+	if code, _ := f.send(f.ticket, `{"body":"x"}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("send with no log = %d", code)
+	}
+	if rec := f.do(http.MethodGet, "/squawks", f.ticket, ""); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("read with no log = %d", rec.Code)
+	}
+}
+
+func TestSquawksSendDefaults(t *testing.T) {
+	f := newSqFixture(t)
+	code, r := f.send(f.ticket, `{"body":"status: working"}`)
+	if code != http.StatusOK || r.ID == "" || r.Channel.Kind != "ticket" || r.Channel.Label != "ACME-7" {
+		t.Fatalf("ticket default = %d %+v", code, r)
+	}
+	code, r = f.send(f.personal, `{"body":"done?"}`)
+	if code != http.StatusOK || r.Channel.Kind != "session" {
+		t.Fatalf("personal default = %d %+v", code, r)
+	}
+	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].Body != "done?" {
+		t.Fatalf("alice's inbox = %+v", got)
+	}
+	if code, r = f.send(f.standing, `{"body":"hello?"}`); code != http.StatusOK || r.Channel.Kind != "session" {
+		t.Fatalf("standing default = %d %+v", code, r)
+	}
+}
+
+func TestSquawksSendAddressed(t *testing.T) {
+	f := newSqFixture(t, "user:alice", "channel:eng")
+	code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`)
+	if code != http.StatusOK || r.Channel.Kind != "chat" {
+		t.Fatalf("to user = %d %+v", code, r)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi room","to":"channel:eng"}`); code != http.StatusOK || r.Channel.ID != f.room.ID {
+		t.Fatalf("to room = %d %+v", code, r)
+	}
+	for to, want := range map[string]int{
+		"user:bob":      http.StatusForbidden,
+		"user:nobody":   http.StatusForbidden, // not allowed in form: never tells whether bob or nobody exists
+		"channel:ops":   http.StatusForbidden,
+		"ticket:ACME-7": http.StatusForbidden,
+		"alice":         http.StatusForbidden,
+	} {
+		if code, _ := f.send(f.standing, `{"body":"x","to":"`+to+`"}`); code != want {
+			t.Errorf("to %q = %d, want %d", to, code, want)
+		}
+	}
+	wide := newSqFixture(t, "user:*", "channel:*")
+	if code, _ := wide.send(wide.standing, `{"body":"x","to":"user:nobody"}`); code != http.StatusNotFound {
+		t.Fatalf("allowed but unknown = %d, want 404", code)
+	}
+	if code, _ := wide.send(wide.standing, `{"body":"x","to":"channel:ops"}`); code != http.StatusNotFound {
+		t.Fatalf("allowed but unknown room = %d, want 404", code)
+	}
+}
+
+func TestSquawksSendCarriesContentTypeAndNeverLogsSecrets(t *testing.T) {
+	f := newSqFixture(t, "user:*")
+	if code, _ := f.send(f.standing, `{"body":"secret body 2 * 3","to":"user:alice","content_type":"text/plain"}`); code != http.StatusOK {
+		t.Fatalf("send = %d", code)
+	}
+	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].ContentType != intercom.ContentPlain {
+		t.Fatalf("logged = %+v", got)
+	}
+	f.do(http.MethodGet, "/squawks", Instance{ActorID: "some-other-secret"}, "")
+	logs := f.logbuf.String()
+	for _, secret := range []string{"tok-" + f.standing.ActorID, "some-other-secret", "secret body"} {
+		if strings.Contains(logs, secret) {
+			t.Fatalf("%q leaked into the logs: %s", secret, logs)
+		}
+	}
+}
+
+func TestSquawksReadIsTheInbox(t *testing.T) {
+	f := newSqFixture(t, "user:*")
+	if code, _ := f.send(f.personal, `{"body":"question"}`); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	m1 := f.reply(f.personal, f.alice.ID, "answer 1")
+	f.reply(f.personal, f.alice.ID, "answer 2")
+	f.reply(f.ticket, f.bob.ID, "someone else's")
+
+	r := f.read(f.personal, "")
+	if got := bodiesOf(r.Squawks); len(got) != 2 || got[0] != "answer 1" || got[1] != "answer 2" {
+		t.Fatalf("inbox = %q (own sends and others' inboxes excluded)", got)
+	}
+	s := r.Squawks[0]
+	if s.ID != m1.ID || s.Author != "alice" || s.From == nil || *s.From != (Party{ID: f.alice.ID, Kind: "user", Label: "alice"}) ||
+		s.Channel == nil || s.Channel.Kind != "session" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
+		t.Fatalf("entry = %+v (from %+v, channel %+v)", s, s.From, s.Channel)
+	}
+	if r.PageFirst != m1.ID {
+		t.Fatalf("page_first = %q", r.PageFirst)
+	}
+	// An old client decodes the entry it always knew.
+	var old struct {
+		Squawks []struct {
+			ID, Author, Body string
+		} `json:"squawks"`
+	}
+	raw, _ := json.Marshal(r)
+	if err := json.Unmarshal(raw, &old); err != nil || old.Squawks[0].Author != "alice" {
+		t.Fatalf("old client view = %+v, %v", old, err)
+	}
+}
+
+func TestSquawksQueueAnchorsAndCommit(t *testing.T) {
+	f := newSqFixture(t)
+	var ids []string
+	for _, b := range []string{"1", "2", "3", "4"} {
+		ids = append(ids, f.reply(f.personal, f.alice.ID, b).ID)
+	}
+	if got := bodiesOf(f.read(f.personal, "limit=2").Squawks); strings.Join(got, ",") != "1,2" {
+		t.Fatalf("default page = %q", got)
+	}
+	rec := f.do(http.MethodPost, "/squawks/commit", f.personal, `{"up_to":"`+ids[1]+`"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ids[1]) {
+		t.Fatalf("commit = %d %s", rec.Code, rec.Body)
+	}
+	cases := map[string]string{
+		"":                       "3,4",
+		"dir=backward":           "1", // strictly before the cursor
+		"anchor=start&limit=1":   "1",
+		"anchor=end&limit=1":     "4",
+		"anchor=id&id=" + ids[2]: "4",
+		"anchor=id&id=" + ids[2] + "&dir=backward": "1,2",
+	}
+	for q, want := range cases {
+		if got := strings.Join(bodiesOf(f.read(f.personal, q).Squawks), ","); got != want {
+			t.Errorf("read %q = %q, want %q", q, got, want)
+		}
+	}
+	for q, want := range map[string]int{"anchor=id": 400, "anchor=id&id=nope": 400, "anchor=sideways": 400, "limit=0": 400, "limit=x": 400} {
+		if rec := f.do(http.MethodGet, "/squawks?"+q, f.personal, ""); rec.Code != want {
+			t.Errorf("read %q = %d, want %d", q, rec.Code, want)
+		}
+	}
+	// Commit is monotonic, self-scoped, and refuses unknown ids.
+	f.do(http.MethodPost, "/squawks/commit", f.personal, `{"up_to":"`+ids[0]+`"}`)
+	if inst, _ := f.store.GetInstance(f.personal.ActorID); inst.CommitCursor != ids[1] {
+		t.Fatalf("commit went backwards: %q", inst.CommitCursor)
+	}
+	if inst, _ := f.store.GetInstance(f.ticket.ActorID); inst.CommitCursor != "" {
+		t.Fatal("another session's cursor moved")
+	}
+	for body, want := range map[string]int{`{"up_to":"nope"}`: 400, `{}`: 400, `x`: 400} {
+		if rec := f.do(http.MethodPost, "/squawks/commit", f.personal, body); rec.Code != want {
+			t.Errorf("commit %q = %d, want %d", body, rec.Code, want)
+		}
+	}
+}
+
+func TestSquawksReadLimitIsCapped(t *testing.T) {
+	f := newSqFixture(t)
+	ch, err := f.ic.HomeChannel(f.personal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range maxReadLimit + 5 {
+		if _, err := f.ic.PostTrusted(ch, intercom.Squawk{From: f.alice.ID, Body: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := f.read(f.personal, "anchor=start&limit=100000").Squawks; len(got) != maxReadLimit {
+		t.Fatalf("page = %d, want %d", len(got), maxReadLimit)
+	}
+}
+
+// A session from before the cutover still reads (and commits past) the
+// legacy replies it hadn't processed, ahead of its new ones.
+func TestSquawksReadUnionsTheLegacyInbox(t *testing.T) {
+	f := newSqFixture(t)
+	old, err := f.legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "human", Ref: "alice"},
+		To: []intercom.Target{{Kind: "actor", Ref: f.personal.ActorID}}, Body: "before the upgrade"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.log = intercom.NewMemLog(f.legacy) // the channel log continues the legacy one
+	f.ic.lg = f.log
+	f.h = NewSquawksHandler(f.store, f.ic, f.log, f.legacy, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	f.reply(f.personal, f.alice.ID, "after the upgrade")
+
+	r := f.read(f.personal, "anchor=start")
+	if got := strings.Join(bodiesOf(r.Squawks), ","); got != "before the upgrade,after the upgrade" {
+		t.Fatalf("inbox = %q", got)
+	}
+	if s := r.Squawks[0]; s.Channel != nil || s.Author != "alice" || s.From.Kind != "user" {
+		t.Fatalf("legacy entry = %+v", s)
+	}
+	if rec := f.do(http.MethodPost, "/squawks/commit", f.personal, `{"up_to":"`+old.ID+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("commit a legacy id = %d", rec.Code)
+	}
+	if got := bodiesOf(f.read(f.personal, "").Squawks); len(got) != 1 || got[0] != "after the upgrade" {
+		t.Fatalf("after commit = %q", got)
+	}
+	if got := bodiesOf(f.read(f.personal, "anchor=end&dir=backward&limit=5").Squawks); len(got) != 2 {
+		t.Fatalf("backward from the end = %q", got)
+	}
+}
+
+func TestSquawksTargets(t *testing.T) {
+	f := newSqFixture(t, "user:*", "channel:*")
+	rec := f.do(http.MethodGet, "/squawks/targets", f.ticket, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("targets = %d", rec.Code)
+	}
+	var r struct {
+		Targets []targetOut `json:"targets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &r); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, t := range r.Targets {
+		got[t.Target] = true
+	}
+	for _, want := range []string{"ticket:ACME-7", "user:alice", "user:bob"} {
+		if !got[want] {
+			t.Errorf("targets lack %q: %+v", want, r.Targets)
+		}
+	}
+	if got["user:carol"] {
+		t.Error("a non-member is no target")
+	}
+}
+
+func TestSquawksCallInAndLeave(t *testing.T) {
+	f := newSqFixture(t, "user:*", "session:*")
+	rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, `{"who":"user:bob"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Channel Party `json:"channel"`
+		Member  Party `json:"member"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Channel.Kind != "session" || out.Member.ID != f.bob.ID || out.Member.Kind != "user" {
+		t.Fatalf("call-in response = %+v, %v", out, err)
+	}
+	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.personal.ActorID), f.alice.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for body, want := range map[string]int{
+		`not json`:             http.StatusBadRequest,
+		`{"who":""}`:           http.StatusBadRequest,
+		`{"who":"user:carol"}`: http.StatusNotFound, // not a member of the project
+		`{"who":"pigeon:x"}`:   http.StatusForbidden,
+		`{"who":"user:bob","channel":"` + string(chat.ID) + `"}`:      http.StatusConflict,
+		`{"who":"user:bob","channel":"chn_01j9q3zzzzzzzzzzzzzzzzzz"}`: http.StatusForbidden,
+	} {
+		if rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, body); rec.Code != want {
+			t.Errorf("call-in %s = %d, want %d (%s)", body, rec.Code, want, rec.Body)
+		}
+	}
+	// A session leaves a channel it joined, never its own.
+	if code, r := f.send(f.ticket, `{"body":"hi","to":"session:`+f.standing.ActorID+`"}`); code != http.StatusOK {
+		t.Fatalf("ticket → standing = %d", code)
+	} else {
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusNoContent {
+			t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+		}
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.standing, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
+			t.Fatalf("leave own home = %d", rec.Code)
+		}
+	}
+	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("leave without channel = %d", rec.Code)
+	}
+	if rec := f.do(http.MethodGet, "/squawks/call-in", f.ticket, ``); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET call-in = %d", rec.Code)
 	}
 }

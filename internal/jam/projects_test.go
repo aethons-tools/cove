@@ -46,13 +46,16 @@ func TestAdminProjectCreateListRemove(t *testing.T) {
 // operator to create the project — never an implicit creation.
 func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 	h, store := newTestAdmin(t)
+	if _, err := store.CreateUser(User{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
 	writes := []struct {
 		method, path string
 		body         any
 	}{
 		{"POST", "/admin/roles", RoleBody{Project: "ghost", Name: "worker"}},
-		{"POST", "/admin/projects/ghost/humans", Human{Name: "alice", Handle: "@alice"}},
-		{"POST", "/admin/projects/ghost/channels", Channel{Name: "eng", Ref: "ENG-1"}},
+		{"PUT", "/admin/projects/ghost/members/alice", MemberBody{}},
+		{"POST", "/admin/projects/ghost/channels", RosterChannel{Name: "eng", Ref: "ENG-1"}},
 		{"PUT", "/admin/projects/ghost/escalation", EscalationBody{}},
 		{"PUT", "/admin/projects/ghost/chat-service", ChatServiceBody{Service: "discord"}},
 	}

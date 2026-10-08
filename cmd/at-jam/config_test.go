@@ -241,6 +241,7 @@ runtime:
     known-hosts-dir: /etc/jam/known_hosts.d
     dns: ["1.1.1.1", "8.8.8.8"]
     docker: true
+    docker-context: colima-jam-b
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +254,7 @@ runtime:
 		lc.JamHost != "jam.example.com" ||
 		lc.IdentityFile != "/etc/jam/id_ed25519" ||
 		lc.KnownHostsDir != "/etc/jam/known_hosts.d" ||
-		!lc.Docker ||
+		!lc.Docker || lc.DockerContext != "colima-jam-b" ||
 		len(lc.DNS) != 2 || lc.DNS[0] != "1.1.1.1" || lc.DNS[1] != "8.8.8.8" {
 		t.Fatalf("launcher config = %+v", lc)
 	}
@@ -459,17 +460,26 @@ func TestUIOriginsParsedAndValidated(t *testing.T) {
 }
 
 func TestDevIdentityParsedAndLoopbackOnly(t *testing.T) {
-	cfg, err := parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n  human: you\n"))
+	cfg, err := parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  user: you\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.DevIdentity == nil || cfg.DevIdentity.Project != "test" || cfg.DevIdentity.Human != "you" {
-		t.Fatalf("DevIdentity = %+v, want test/you", cfg.DevIdentity)
+	if cfg.DevIdentity == nil || cfg.DevIdentity.User != "you" {
+		t.Fatalf("DevIdentity = %+v, want user you", cfg.DevIdentity)
+	}
+	// The pre-registry form {project, human} still parses, as the user named human.
+	cfg, err = parseServeConfig([]byte("admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n  human: you\n"))
+	if err != nil || cfg.DevIdentity.DeprecatedHuman != "you" || len(cfg.deprecated) == 0 {
+		t.Fatalf("deprecated form = %+v (deprecated %v), %v", cfg.DevIdentity, cfg.deprecated, err)
+	}
+	if cfg.DevIdentity.DeprecatedProject != "test" {
+		t.Fatalf("the deprecated form must keep its project for the legacy alias: %+v", cfg.DevIdentity)
 	}
 	for name, bad := range map[string]string{
-		"off-loopback admin": "admin-listen: 0.0.0.0:8081\ndev-identity:\n  project: test\n  human: you\n",
-		"missing human":      "admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n",
-		"missing project":    "admin-listen: 127.0.0.1:8081\ndev-identity:\n  human: you\n",
+		"off-loopback admin": "admin-listen: 0.0.0.0:8081\ndev-identity:\n  user: you\n",
+		"missing user":       "admin-listen: 127.0.0.1:8081\ndev-identity:\n  project: test\n",
+		"both forms":         "admin-listen: 127.0.0.1:8081\ndev-identity:\n  user: you\n  human: you\n",
+		"human, no project":  "admin-listen: 127.0.0.1:8081\ndev-identity:\n  human: you\n",
 	} {
 		if _, err := parseServeConfig([]byte(bad)); err == nil {
 			t.Errorf("%s: accepted, want an error", name)
@@ -735,6 +745,38 @@ credentials:
 	}
 }
 
+func TestValidateCredentials_ExchangeGCP(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+credentials:
+  git-pat:
+  vertex-gcp: { exchange: gcp }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := cfg.validateCredentials(); err != nil {
+		t.Fatalf("exchange: gcp should validate: %v", err)
+	}
+	if got := cfg.gcpCredentials(); len(got) != 1 || got[0] != "vertex-gcp" {
+		t.Fatalf("gcpCredentials = %v", got)
+	}
+	if got := cfg.demandedCredentials(); len(got) != 2 {
+		t.Fatalf("an exchange credential is still demanded: %v", got)
+	}
+	for name, yml := range map[string]string{
+		"unknown exchange": "credentials:\n  c: { exchange: aws }\n",
+		"pool credential":  "pool: { store: /tmp/p.json, cred-name: c }\ncredentials:\n  c: { exchange: gcp }\n",
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := cfg.validateCredentials(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestCredentialsFilePath_DefaultUnderXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	var cfg serveConfig
@@ -958,5 +1000,134 @@ func TestCredNamesMatchCredConfigured(t *testing.T) {
 	c.Pool.CredName = "gh-pat"
 	if got := c.credNames(); !slices.Equal(got, []string{"anth-key", "gh-pat"}) {
 		t.Errorf("credNames with shared pool cred = %v", got)
+	}
+}
+
+// The escalation poll interval: runtime.escalation-poll-interval wins over
+// runtime.requisitioner's key (kept for compatibility); neither = default.
+func TestEscalationPollInterval(t *testing.T) {
+	for yml, want := range map[string]time.Duration{
+		"runtime:\n  escalation-poll-interval: 10s\n  requisitioner:\n    escalation-poll-interval: 20s\n": 10 * time.Second,
+		"runtime:\n  requisitioner:\n    escalation-poll-interval: 20s\n":                                  20 * time.Second,
+		"runtime:\n  listen: x\n": 0,
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%q: %v", yml, err)
+		}
+		if got := cfg.escalationPollInterval(); got != want {
+			t.Errorf("%q = %v, want %v", yml, got, want)
+		}
+	}
+	bad, err := parseServeConfig([]byte("runtime:\n  escalation-poll-interval: soon\n"))
+	if err == nil && bad.validateWake() == nil {
+		t.Fatal("an invalid runtime.escalation-poll-interval must be refused")
+	}
+}
+
+func TestSessionWakeLimit(t *testing.T) {
+	for yml, want := range map[string]int{
+		"runtime:\n  listen: x\n":                        8,
+		"runtime:\n  wake:\n    session-wake-limit: 3\n": 3,
+		"runtime:\n  wake:\n    session-wake-limit: 0\n": 0,
+	} {
+		cfg, err := parseServeConfig([]byte(yml))
+		if err != nil || cfg.validateWake() != nil {
+			t.Fatalf("%q: %v", yml, err)
+		}
+		if got := cfg.sessionWakeLimit(); got != want {
+			t.Errorf("%q = %d, want %d", yml, got, want)
+		}
+	}
+	bad, _ := parseServeConfig([]byte("runtime:\n  wake:\n    session-wake-limit: -1\n"))
+	if bad.validateWake() == nil {
+		t.Fatal("a negative limit must be refused")
+	}
+}
+
+// display-name is optional, one line, at most 64 characters; it is trimmed.
+func TestDisplayNameConfig(t *testing.T) {
+	cfg, err := parseServeConfig([]byte("display-name: \"  Aethon  \"\nlisten: 127.0.0.1:8443\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.validateDisplayName(); err != nil || cfg.displayName() != "Aethon" {
+		t.Fatalf("display-name = %q, %v", cfg.displayName(), err)
+	}
+	if (serveConfig{}).validateDisplayName() != nil || (serveConfig{}).displayName() != "" {
+		t.Error("an unset display-name is valid and empty")
+	}
+	if (serveConfig{DisplayName: "   "}).displayName() != "" {
+		t.Error("a whitespace-only display-name is unset")
+	}
+	for _, bad := range []string{"two\nlines", "tab\there", "line\u2028sep", "zero\u200bwidth", "bidi\u202eoverride", strings.Repeat("x", 65)} {
+		if err := (serveConfig{DisplayName: bad}).validateDisplayName(); err == nil {
+			t.Errorf("display-name %q should be refused", bad)
+		}
+	}
+	if err := (serveConfig{DisplayName: strings.Repeat("é", 64)}).validateDisplayName(); err != nil {
+		t.Errorf("64 characters (not bytes) is fine: %v", err)
+	}
+}
+
+func TestValidateMetrics(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  prom-scrape:\nmetrics:\n  token-cred: prom-scrape\n  alertmanager-url: http://localhost:9093\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateMetrics(); err != nil {
+		t.Fatalf("valid metrics refused: %v", err)
+	}
+	for name, yml := range map[string]string{
+		"no token-cred":    "metrics: {}\n",
+		"undemanded cred":  "metrics:\n  token-cred: nope\n",
+		"bad alertmanager": "credentials:\n  t:\nmetrics:\n  token-cred: t\n  alertmanager-url: ftp://x\n",
+		"gcp cred":         "credentials:\n  g: { exchange: gcp }\nmetrics:\n  token-cred: g\n",
+		"pool cred":        "credentials:\n  sub:\npool: { store: /tmp/p.json, cred-name: sub }\nmetrics:\n  token-cred: sub\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := c.validateMetrics(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateMetrics(); err != nil {
+		t.Fatalf("absent metrics must validate: %v", err)
+	}
+}
+
+func TestCredFixHint(t *testing.T) {
+	c, _ := parseServeConfig([]byte("credentials:\n  vertex-gcp: { exchange: gcp }\n  git-pat:\npool: { store: /tmp/p.json, cred-name: anthropic-sub }\n"))
+	if h := c.credFixHint("vertex-gcp"); !strings.Contains(h, "gcloud auth application-default login") {
+		t.Errorf("gcp hint = %q", h)
+	}
+	if h := c.credFixHint("anthropic-sub"); !strings.Contains(h, "at-jam pool list") {
+		t.Errorf("pool hint = %q", h)
+	}
+	if h := c.credFixHint("git-pat"); !strings.Contains(h, "git-pat") || !strings.Contains(h, "credentials") {
+		t.Errorf("default hint = %q", h)
+	}
+}
+
+// docker-context must be a valid docker context name: it rides as a
+// `--context` argv value, so reject anything that could read as a flag.
+func TestValidateLauncherDockerContext(t *testing.T) {
+	for ctx, ok := range map[string]bool{
+		"":             true, // unset → the default colima context
+		"colima":       true,
+		"colima-jam-b": true,
+		"my_ctx.2":     true,
+		"-x":           false,
+		"a b":          false,
+		"colima/x":     false,
+	} {
+		c := serveConfig{}
+		c.Runtime.Launcher = &launcherConfig{RuntimeAddr: "h:443", JamHost: "h", DockerContext: ctx}
+		if err := c.validateLauncher(); (err == nil) != ok {
+			t.Errorf("docker-context %q: err=%v, want ok=%v", ctx, err, ok)
+		}
 	}
 }

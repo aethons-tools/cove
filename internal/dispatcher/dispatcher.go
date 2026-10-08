@@ -14,6 +14,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -124,10 +125,11 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		if !iss.DispatchLabeled {
 			continue // not tagged for dispatch — never claimed, counted, or raised
 		}
-		actorID := "cove-" + iss.Identifier
-		if _, ok := d.registry.GetInstance(actorID); ok {
-			continue // already raised (dedup)
+		if d.working(iss.Identifier) {
+			continue // a session is already on this ticket (dedup)
 		}
+		// Each dispatch starts a new session (a re-dispatch is a new one too).
+		actorID := string(ident.New(ident.Session))
 		granted, err := d.admitter.Grant(ctx, allocator.Request{
 			Project: d.cfg.Project, Role: d.cfg.Role, ReservationID: actorID, Kind: allocator.SessionEphemeral,
 		})
@@ -162,6 +164,17 @@ func (d *Dispatcher) tick(ctx context.Context) {
 		}
 		d.log.Info("requisitioner: raised cove", "issue", iss.Identifier, "actor", actorID)
 	}
+}
+
+// working reports whether a session is live on the ticket unit: a raised,
+// not yet gone instance whose Unit is it.
+func (d *Dispatcher) working(unit string) bool {
+	for _, inst := range d.registry.ListInstances() {
+		if inst.Unit == unit && inst.Phase != jam.PhaseGone {
+			return true
+		}
+	}
+	return false
 }
 
 // release compensates a reserved-but-not-raised slot (best-effort; the teardown

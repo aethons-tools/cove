@@ -1,0 +1,17 @@
+groups:
+  - name: jam
+    rules:
+      - alert: JamAttention
+        expr: jam_attention_condition == 1
+        annotations:
+          summary: "{{ $labels.summary }}"
+          fix: "{{ $labels.fix }}"
+      - alert: JamDown
+        expr: up{job="jam"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          key: jam.down
+        annotations:
+          summary: "Jam is unreachable from Prometheus"
+          fix: "check that at-jam serve is running and its broker listener is reachable"

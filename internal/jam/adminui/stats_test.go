@@ -12,11 +12,17 @@ func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
 	if err := st.CreateProject("acme"); err != nil {
 		t.Fatal(err)
 	}
-	for id, ph := range map[string]jam.Phase{
-		"a": jam.PhaseLive, "b": jam.PhaseLive, "c": jam.PhaseRaising,
-		"d": jam.PhaseLost, "e": jam.PhaseTerminating, "f": jam.PhaseIdled,
+	for id, i := range map[string]jam.Instance{
+		"a": {Phase: jam.PhaseLive, Activity: jam.ActivityRunning},      // running
+		"b": {Phase: jam.PhaseLive, Activity: jam.ActivityHolding},      // running
+		"g": {Phase: jam.PhaseLive, Activity: jam.ActivityBlocked},      // waiting
+		"c": {Phase: jam.PhaseRaising},                                  // setting up
+		"h": {Phase: jam.PhaseLive},                                     // setting up (orienting)
+		"d": {Phase: jam.PhaseLost}, "e": {Phase: jam.PhaseTerminating}, // attention
+		"f": {Phase: jam.PhaseIdled},
 	} {
-		if err := st.PutInstance(jam.Instance{ActorID: id, Project: "acme", Role: "w", Phase: ph}); err != nil {
+		i.ActorID, i.Project, i.Role = id, "acme", "w"
+		if err := st.PutInstance(i); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -31,7 +37,9 @@ func TestDashboardStatsCountsPhasesAndObjects(t *testing.T) {
 	}
 
 	got := dashboardStats(st)
-	want := stats{Live: 2, Raising: 1, Attention: 2, Idled: 1, Studios: 6, Projects: 1, Actors: 1, Roles: 1, Kits: 1}
+	// Agents: eight studios plus actor x, which has none. Specs: kit k plus the
+	// built-in default model-spec.
+	want := stats{Running: 2, Waiting: 1, SettingUp: 2, Attention: 2, Idled: 1, Studios: 8, Projects: 1, Agents: 9, Specs: 1 + len(st.ListModelSpecs())}
 	if got != want {
 		t.Fatalf("dashboardStats = %+v, want %+v", got, want)
 	}

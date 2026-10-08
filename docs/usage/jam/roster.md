@@ -1,7 +1,7 @@
 ---
 summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; the `role`/`grant`/`ungrant`/`roster`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
 read_when: You are deciding who can reach what on a Jam — defining roles, setting a role's raw egress, granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
-owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), and the enrollment snippet
+owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
 updated: 2026-10-06
@@ -19,7 +19,7 @@ Jam authorizes every brokered request against a **role-based** model:
   **credential** the broker injects for each (`credentials`; a destination
   without one uses its own default `cred-name` — see
   [serve.md](serve.md#destinations)), which comms `addressing` targets it may
-  message (globs, e.g. `human:*`; comms plane — see
+  message (globs, e.g. `user:*`; comms plane — see
   [comms-addressing.md](comms-addressing.md)), a default token `ttl`, and
   optionally a bound **kit** (see [kits.md](kits.md)).
 - **Grant** — assigns a Role (within a Project) to an Actor. An Actor may hold
@@ -60,7 +60,7 @@ at-jam role rm   [--project acme] guest
   grant, and on a grant/enroll `overrides` (which **replaces** the role's map).
   Writes are rejected (400) when a mapping names a destination the scope
   doesn't allow, or a credential the serve config doesn't declare.
-- `--addressing` (comma-separated comms target globs, e.g. `human:*,channel:eng-help`)
+- `--addressing` (comma-separated comms target globs, e.g. `user:*,channel:eng-help`)
   scopes which comms targets the role's actors may `send(to=…)`. This is a
   separate plane from `destinations`; see
   [comms-addressing.md](comms-addressing.md) for the target space and the
@@ -186,14 +186,14 @@ The snippet is the identity's [connector](connector.md) (also in `--json` as
 - Hardened studios usually **auto-enroll** themselves at session start rather than
   using a hand-run snippet — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 
-## The roster
+## The actors
 
 ```
-at-jam roster
+at-jam actors
 ```
 
 Lists every Actor with its grants and each grant's **effective** destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in
-[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`](../../superpowers/specs/2026-09-12-harbor-actor-roster.md).
+[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`](../../superpowers/specs/2026-09-12-harbor-actor-roster.md). The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see [comms-addressing.md](comms-addressing.md#project-members-and-rooms)) — see [`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`](../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md).

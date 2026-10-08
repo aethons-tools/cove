@@ -13,7 +13,7 @@
   .hit .s{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
   mark{background:var(--accent-soft);color:var(--accent);border-radius:3px;padding:0 1px}
 </style>
-<div class="page-head"><h1>Search</h1><span class="sub">projects, studios, roles, actors, roster, kits, destinations and squawks</span></div>
+<div class="page-head"><h1>Search</h1><span class="sub">agents, roles, projects, kits, destinations, model-specs, users, rooms and squawks</span></div>
 <form class="search-big" action="/ui/search" method="get" role="search">
   <input id="q-page" name="q" value="{{.Q}}" autocomplete="off" autofocus placeholder="Search everything…"
     hx-get="/ui/search" hx-trigger="input changed delay:200ms, search" hx-target="#search-results" hx-swap="outerHTML" hx-push-url="true">

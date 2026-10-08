@@ -3,11 +3,11 @@
 {{define "rail"}}
 <nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
   {{range .Groups}}
-    <div class="group{{if eq (printf "%s" .Bucket) "waiting"}} attention{{end}}">
+    <div class="group{{if eq (printf "%s" .Bucket) "needs-you"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
       {{range .Rows}}
         <a class="thread{{if .Selected}} sel{{end}}" href="/me/?c={{.ID}}">
-          <span class="pin {{if .Waiting}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
+          <span class="pin {{if .NeedsYou}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
           <span class="cove">{{.Label}}</span>
           {{if gt .Unread 0}}<span class="badge unread">{{.Unread}}</span>{{end}}
         </a>
@@ -30,22 +30,29 @@
     <div class="cv-head">
       <div>
         <div class="cv-title">{{.Label}}</div>
-        <div class="cv-sub">{{.Project}}{{if .Kind}} · {{.Kind}}{{end}}</div>
+        <div class="cv-sub">{{.Project}}{{if .Kind}} · {{if eq .Kind "session"}}agent{{else}}{{.Kind}}{{end}}{{end}}</div>
       </div>
       <span class="spacer"></span>
-      {{if .Waiting}}<span class="chip">Waiting on you</span>{{end}}
+      {{if .NeedsYou}}<span class="chip">Needs you</span>{{end}}
+      {{if .CallIn}}<form class="callin" hx-post="/me/call-in" hx-swap="none"><input type="hidden" name="channel" value="{{.ChannelID}}"><select name="who" aria-label="Call in">{{range .CallIn}}<option value="{{.To}}">{{.Label}} ({{.Kind}})</option>{{end}}</select><button type="submit">Call in</button></form>{{end}}
+      {{if .CanJoin}}<button type="button" hx-post="/me/join" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Join</button>{{end}}
+      {{if .CanLeave}}<button type="button" hx-post="/me/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
     </div>
     <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
     <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
+    {{if .SendTo}}
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
-        <textarea name="body" placeholder="Reply&#8230; (Enter twice to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>
-        <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send</button></div>
+        <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>
+        <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
       </form>
     </div>
+    {{else}}
+    <div class="cv-readonly">From before the upgrade: read-only.</div>
+    {{end}}
   {{else}}
     <div class="cv-empty">Select a conversation, or start a New message.</div>
   {{end}}
@@ -56,7 +63,7 @@
      like a typing indicator. It is the /me/presence refresh target, pushed by
      the `presence` event (a session's status changed). Kept on one line so an
      empty strip has no whitespace and collapses (.presence:empty). */}}
-{{define "sessions"}}{{with .Conv}}{{range .Sessions}}<div class="sess {{.Class}}"><span class="sname">{{.Label}}</span> is {{.Text}}{{if .Tool}} <b>{{.Tool}}</b>{{end}}{{if eq .Class "busy"}}<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}</div>{{end}}{{end}}{{end}}
+{{define "sessions"}}{{with .Conv}}{{range .Sessions}}<div class="sess {{.Class}}"><span class="sname">{{.Label}}</span> {{.Text}}{{if .Tool}} <b>{{.Tool}}</b>{{end}}{{if eq .Class "busy"}}<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}</div>{{end}}{{end}}{{end}}
 
 {{/* messages renders just the conversation's message list; it is the /me/stream
      poll target, so a refresh never touches the composer. */}}

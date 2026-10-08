@@ -3,68 +3,66 @@ package wakeon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// meSendStore is the participantSendStore the participant send handler needs,
-// backing the wake-on-through-the-real-send-path integration test below.
-type meSendStore struct {
-	rosters   map[string]jam.Roster
-	instances []jam.Instance
-}
-
-func (s meSendStore) GetRoster(project string) (jam.Roster, bool) {
-	r, ok := s.rosters[project]
-	return r, ok
-}
-func (s meSendStore) ListInstances() []jam.Instance { return s.instances }
-
-// TestParticipantSendWakesWaitingStudio is the COV-200 wake-on integration
-// check: a participant's send, appended to the SAME squawk Log through the real
-// jam.ParticipantSendHandler and addressed to a waiting studio's session actor,
-// wakes that studio on the next wake-on tick — exactly as a relayed reply does.
+// TestParticipantSendWakesWaitingStudio is the wake-on integration check: a
+// person's /me reply into a waiting ticket session's conversation, posted
+// through the real jam.ParticipantSendHandler, wakes the session on the next
+// wake-on tick — exactly as a relayed reply does.
 func TestParticipantSendWakesWaitingStudio(t *testing.T) {
-	lg := intercom.NewMemLog()
-
-	const issuer, subject = "https://idp.example", "sub-alice"
+	st := jam.NewMemStore()
+	if err := st.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := jam.AddPerson(st, "acme", jam.Human{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := st.LookupName(ident.User, "alice")
+	tracker, err := st.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	inst := jam.Instance{
 		ActorID: "a1", Project: "acme", Unit: "ACME-1",
 		Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
 		WaitingSince: time.Unix(1990, 0), WaitSeq: 0, // baseline: empty log tail
 	}
-	store := meSendStore{
-		rosters: map[string]jam.Roster{"acme": {Humans: []jam.Human{
-			{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: issuer, Subject: subject}}},
-		}}},
-		instances: []jam.Instance{inst},
+	if err := st.PutInstance(inst); err != nil {
+		t.Fatal(err)
 	}
+	lg := intercom.NewMemLog(nil)
+	ic := jam.NewIntercom(st, func() (ident.ID, bool) { return tracker.ID, true }, lg, nil, nil)
+	if err := ic.SetUp(inst); err != nil {
+		t.Fatal(err)
+	}
+	ticket, _ := ic.HomeChannel(inst)
 
-	// The participant replies to the waiting studio via the real send handler.
-	h := jam.NewParticipantSendHandler(store, lg, nil)
-	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"studio:ACME-1","body":"go ahead"}`))
-	r = jam.WithParticipant(r, jam.Participant{Issuer: issuer, Subject: subject, Projects: []string{"acme"}, Name: "alice"})
+	h := jam.NewParticipantSendHandler(st, ic, nil)
+	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"`+string(ticket.ID)+`","body":"go ahead"}`))
+	r = jam.WithParticipant(r, jam.Participant{UserID: alice, Projects: []string{"acme"}, Name: "alice"})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != 204 {
 		t.Fatalf("send status = %d, want 204 (%s)", w.Code, w.Body.String())
 	}
 
-	// Wake-on, reading the same Log, must wake the studio (its reply landed at
-	// Seq 1 > WaitSeq 0, external-origin, addressed to actor:a1).
 	reg := &fakeReg{insts: []jam.Instance{inst}}
 	wake := &fakeWaker{}
-	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, lg, Config{MaxWait: time.Hour, WarmTimeout: 10 * time.Minute}, nil)
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, jam.SessionInbox{Log: lg}, Config{MaxWait: time.Hour, WarmTimeout: 10 * time.Minute}, nil)
 	e.now = func() time.Time { return time.Unix(2000, 0) }
 	e.tick(context.Background())
 
 	if !contains(wake.woke, "a1") {
-		t.Fatalf("a participant reply appended through the send path must wake the studio, got wake=%v", wake.woke)
+		t.Fatalf("a person's reply posted through the send path must wake the session, got wake=%v", wake.woke)
 	}
 }
 
@@ -107,9 +105,9 @@ type fakeInbox struct {
 	byActor map[string][]intercom.Squawk // actor ref → its inbox
 }
 
-func (f *fakeInbox) ReadInboxSince(t intercom.Target, afterSeq int64, limit int) []intercom.Squawk {
+func (f *fakeInbox) Since(p ident.ID, afterSeq int64, limit int) []intercom.Squawk {
 	var out []intercom.Squawk
-	for _, m := range f.byActor[t.Ref] {
+	for _, m := range f.byActor[string(p)] {
 		if m.Seq <= afterSeq {
 			continue
 		}
@@ -130,8 +128,7 @@ func extInbound(coveID string, seq int64, id string) intercom.Squawk {
 	return intercom.Squawk{
 		Seq:  seq,
 		ID:   id,
-		From: intercom.Target{Kind: "human", Ref: "alice"},
-		To:   []intercom.Target{{Kind: "actor", Ref: coveID}},
+		From: ident.ID("human:" + "alice"),
 		Body: "reply",
 	}
 }
@@ -240,8 +237,7 @@ func TestTick_InternalOriginInbound_NoWake(t *testing.T) {
 	internal := intercom.Squawk{
 		Seq:  6,
 		ID:   "id-6",
-		From: intercom.Target{Kind: "actor", Ref: "a2"},
-		To:   []intercom.Target{{Kind: "actor", Ref: "a1"}},
+		From: ident.ID("actor:" + "a2"),
 		Body: "internal",
 	}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {internal}}}
@@ -852,8 +848,7 @@ func nagID(actor string) string { return jam.NagMessageID(actor, time.Unix(50_00
 func reply(cove string, seq int64, from, replyTo, body string) intercom.Squawk {
 	return intercom.Squawk{
 		Seq: seq, ID: "in:discord:r" + body, ReplyTo: replyTo, Body: body,
-		From: intercom.Target{Kind: "human", Ref: from},
-		To:   []intercom.Target{{Kind: "actor", Ref: cove}},
+		From: ident.ID("human:" + from),
 	}
 }
 
@@ -1757,5 +1752,179 @@ func TestTick_BlockCallHasDeadline(t *testing.T) {
 	e.tick(context.Background())
 	if tk.calls != 1 || tk.noDeadline {
 		t.Fatalf("calls=%d noDeadline=%v", tk.calls, tk.noDeadline)
+	}
+}
+
+// In the channel log a person is their user id: the owner's keep/release is
+// recognized by the session's OwnerID; the same words from anyone else are
+// an ordinary reply.
+func TestReplyToAct_OwnerByUserID(t *testing.T) {
+	inst := waitingPersonal()
+	inst.OwnerID = "usr_01j9q3aaaaaaaaaaaaaaaaaaaa"
+	byID := intercom.Squawk{Seq: 6, ID: "r1", ReplyTo: nagID("p1"), Body: "release", From: inst.OwnerID}
+	reap := &fakeReaper{}
+	k := newCmdKit(t, reap, inst, byID)
+	k.e.tick(context.Background())
+	if !contains(reap.down, "p1") || k.woke("p1") {
+		t.Fatalf("the owner's release (by user id) must release: down=%v woke=%v", reap.down, k.wake.woke)
+	}
+	other := byID
+	other.From = "usr_01j9q3bbbbbbbbbbbbbbbbbbbb"
+	reap = &fakeReaper{}
+	k = newCmdKit(t, reap, inst, other)
+	k.e.tick(context.Background())
+	if contains(reap.down, "p1") || !k.woke("p1") {
+		t.Fatalf("someone else's release must only wake: down=%v woke=%v", reap.down, k.wake.woke)
+	}
+}
+
+// A person's or an account's post wakes a waiting session; without session
+// wakes (SetSessionWakes), another session's (in a channel they share)
+// doesn't — it waits to be read — and a legacy squawk from another session
+// never does.
+func TestTick_EveryDeliveryWakes(t *testing.T) {
+	for _, tc := range []struct {
+		from ident.ID
+		wake bool
+	}{
+		{"usr_01j9q3aaaaaaaaaaaaaaaaaaaa", true},
+		{"acc_01j9q3aaaaaaaaaaaaaaaaaaaa", true},
+		{"ses_01j9q3bbbbbbbbbbbbbbbbbbbb", false},
+		{"standing-acme-impl-x", false}, // a grandfathered session id
+		{"actor:a2", false},
+	} {
+		reg := &fakeReg{insts: []jam.Instance{
+			{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(1000, 0), WaitSeq: 5},
+		}}
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {{Seq: 6, ID: "m6", From: tc.from, Body: "x"}}}}
+		wake := &fakeWaker{}
+		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+		e.now = func() time.Time { return time.Unix(2000, 0) }
+		e.tick(context.Background())
+		if got := contains(wake.woke, "a1"); got != tc.wake {
+			t.Errorf("from %s: woke = %v, want %v", tc.from, got, tc.wake)
+		}
+	}
+}
+
+// fakeHistory is a channel's log for the loop breaker.
+type fakeHistory struct {
+	byChannel map[ident.ID][]intercom.Squawk
+}
+
+func (f fakeHistory) ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk {
+	var out []intercom.Squawk
+	for _, m := range f.byChannel[ch] {
+		if beforeSeq <= 0 || m.Seq < beforeSeq {
+			out = append(out, m)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+type fakeBreaker struct{ notices []string }
+
+func (f *fakeBreaker) BreakerNotice(ch, from ident.ID, id, body string) error {
+	f.notices = append(f.notices, string(ch)+"|"+string(from)+"|"+id)
+	return nil
+}
+
+// With session wakes on, another session's post wakes a waiting session —
+// until a channel has had more than the limit of session posts in a row
+// since a person last spoke there: then it doesn't, and Jam posts a notice.
+func TestTick_SessionWakesWithBreaker(t *testing.T) {
+	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
+	run := func(history []intercom.Squawk) (bool, *fakeBreaker) {
+		last := history[len(history)-1]
+		reg := &fakeReg{insts: []jam.Instance{
+			{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: last.Seq - 1},
+		}}
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {last}}}
+		wake := &fakeWaker{}
+		br := &fakeBreaker{}
+		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: history}}, br, 3)
+		e.now = func() time.Time { return time.Unix(2000, 0) }
+		e.tick(context.Background())
+		return contains(wake.woke, "a1"), br
+	}
+	msg := func(seq int64, from ident.ID) intercom.Squawk {
+		return intercom.Squawk{Seq: seq, ID: "m" + string(rune('a'+seq)), Channel: ch, From: from, Body: "x"}
+	}
+	person := ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
+	// A person spoke, then three session posts: within the limit, it wakes.
+	if woke, br := run([]intercom.Squawk{msg(1, person), msg(2, ses), msg(3, "a1"), msg(4, ses)}); !woke || len(br.notices) != 0 {
+		t.Fatalf("within the limit: woke=%v notices=%v", woke, br.notices)
+	}
+	// Four session posts in a row: past the limit — no wake, one notice
+	// keyed by the person's last post.
+	woke, br := run([]intercom.Squawk{msg(1, person), msg(2, ses), msg(3, "a1"), msg(4, ses), msg(5, ses)})
+	if woke || len(br.notices) != 1 || br.notices[0] != string(ch)+"|a1|breaker:"+string(ch)+":1" {
+		t.Fatalf("past the limit: woke=%v notices=%v", woke, br.notices)
+	}
+	// A person's post wakes as always.
+	if woke, _ := run([]intercom.Squawk{msg(2, ses), msg(3, ses), msg(4, ses), msg(5, ses), msg(6, person)}); !woke {
+		t.Fatal("a person's post must wake")
+	}
+}
+
+// A session's notices (its nags, "ended", the breaker's) are for people:
+// they never wake another session; a session calling one in does.
+func TestTick_SessionNoticesDontWakeSessions(t *testing.T) {
+	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	for id, want := range map[string]bool{"nag:x:1": false, "notice:x:1": false, "breaker:c:1": false, "callin:c:a1:1": true, "m7": true} {
+		reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 6}}}
+		m := intercom.Squawk{Seq: 7, ID: id, Channel: "chn_01j9q3cccccccccccccccccccc", From: ses, Body: "x"}
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {m}}}
+		wake := &fakeWaker{}
+		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{m.Channel: {m}}}, &fakeBreaker{}, 8)
+		e.now = func() time.Time { return time.Unix(2000, 0) }
+		e.tick(context.Background())
+		if got := contains(wake.woke, "a1"); got != want {
+			t.Errorf("%s: woke = %v, want %v", id, got, want)
+		}
+	}
+}
+
+// countingHistory counts its reads.
+type countingHistory struct {
+	fakeHistory
+	reads int
+}
+
+func (c *countingHistory) ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk {
+	c.reads++
+	return c.fakeHistory.ChannelBefore(ch, beforeSeq, limit)
+}
+
+// A delivery's verdict can't change (earlier seqs are settled), so a
+// suppressed delivery is checked against the log once, not every tick, and
+// the notice is offered once.
+func TestTick_BreakerVerdictIsCached(t *testing.T) {
+	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
+	var history []intercom.Squawk
+	for i := int64(1); i <= 5; i++ {
+		history = append(history, intercom.Squawk{Seq: i, ID: fmt.Sprintf("m%d", i), Channel: ch, From: ses, Body: "x"})
+	}
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 4}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {history[4]}}}
+	h := &countingHistory{fakeHistory: fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: history}}}
+	br := &fakeBreaker{}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetSessionWakes(h, br, 3)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+	first := h.reads
+	for range 3 {
+		e.tick(context.Background())
+	}
+	if h.reads != first || len(br.notices) != 1 {
+		t.Fatalf("reads %d → %d over later ticks, notices %v", first, h.reads, br.notices)
 	}
 }

@@ -121,7 +121,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 				return
 			}
 			d.CanRequest = canRequest
-			renderFragment(w, "role", "role-body", d)
+			renderFragment(w, r, "role", "role-body", d)
 			if msg != "" {
 				_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
 			}
@@ -226,7 +226,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		case res.Pending:
 			return res.Reason, nil
 		}
-		return "reset standing session " + session + "; Jam raises it fresh", nil
+		return "reset standing agent " + session + "; Jam raises it fresh", nil
 	}))
 	// Upgrade: queued with the standing reconciler, which prepares the current
 	// image, waits for the session to be idle, and re-raises it keeping its
@@ -238,8 +238,8 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		case err != nil:
 			return "", err
 		case !res.Pending:
-			return "standing session " + session + " already runs the current image; nothing restarted", nil
+			return "standing agent " + session + " already runs the current image; nothing restarted", nil
 		}
-		return "upgrade of standing session " + session + " " + res.State + "; Jam restarts it once the image is ready and the session is idle", nil
+		return "upgrade of standing agent " + session + " " + res.State + "; Jam restarts it once the image is ready and the agent is idle", nil
 	}))
 }

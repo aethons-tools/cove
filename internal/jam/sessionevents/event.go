@@ -21,6 +21,9 @@ const (
 type Stamp struct {
 	Project, Role, Unit, Owner, SessionKind string
 	RaisedAt                                time.Time
+	// ProjectID and OwnerID are the project's and the personal session's
+	// owner's ids; Project and Owner are their names, as labels.
+	ProjectID, OwnerID string
 }
 
 // Index is the thin, queryable summary derived from a raw stream-json line.
@@ -96,6 +99,8 @@ type wireEvent struct {
 	Role            string          `json:"role"`
 	Unit            string          `json:"unit"`
 	Owner           string          `json:"owner"`
+	ProjectID       string          `json:"project_id,omitempty"`
+	OwnerID         string          `json:"owner_id,omitempty"`
 	SessionKind     string          `json:"session_kind"`
 	RaisedAt        time.Time       `json:"raised_at"`
 	Type            string          `json:"type"`
@@ -117,6 +122,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 	w := wireEvent{ActorID: e.ActorID, StreamID: e.StreamID, Seq: e.Seq, Kind: e.Kind, GapFrom: e.GapFrom, GapTo: e.GapTo,
 		Turn: e.Turn, ObservedAt: e.ObservedAt, ReceivedAt: e.ReceivedAt, TruncatedBytes: e.TruncatedBytes,
 		Project: e.Stamp.Project, Role: e.Stamp.Role, Unit: e.Stamp.Unit, Owner: e.Stamp.Owner,
+		ProjectID: e.Stamp.ProjectID, OwnerID: e.Stamp.OwnerID,
 		SessionKind: e.Stamp.SessionKind, RaisedAt: e.Stamp.RaisedAt,
 		Type: e.Index.Type, Subtype: e.Index.Subtype, ToolName: e.Index.ToolName, ClaudeSessionID: e.Index.ClaudeSessionID,
 		CostUSD: e.Index.CostUSD, InputTokens: e.Index.InputTokens, OutputTokens: e.Index.OutputTokens,
@@ -140,7 +146,8 @@ func (e *Event) UnmarshalJSON(b []byte) error {
 	}
 	*e = Event{ActorID: w.ActorID, StreamID: w.StreamID, Seq: w.Seq, Kind: w.Kind, GapFrom: w.GapFrom, GapTo: w.GapTo,
 		Turn: w.Turn, ObservedAt: w.ObservedAt, ReceivedAt: w.ReceivedAt, TruncatedBytes: w.TruncatedBytes,
-		Stamp: Stamp{Project: w.Project, Role: w.Role, Unit: w.Unit, Owner: w.Owner, SessionKind: w.SessionKind, RaisedAt: w.RaisedAt},
+		Stamp: Stamp{Project: w.Project, Role: w.Role, Unit: w.Unit, Owner: w.Owner, SessionKind: w.SessionKind, RaisedAt: w.RaisedAt,
+			ProjectID: w.ProjectID, OwnerID: w.OwnerID},
 		Index: Index{Type: w.Type, Subtype: w.Subtype, ToolName: w.ToolName, ClaudeSessionID: w.ClaudeSessionID,
 			CostUSD: w.CostUSD, InputTokens: w.InputTokens, OutputTokens: w.OutputTokens, DurationMS: w.DurationMS, IsError: w.IsError}}
 	switch {

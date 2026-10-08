@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -162,13 +163,13 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	// roles carry their project in a column, not the doc.
-	rows, err := s.pool.Query(ctx, `SELECT project, doc FROM roles`)
+	// roles carry their project's id in a column, not the doc.
+	rows, err := s.pool.Query(ctx, `SELECT project_id, doc FROM roles`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load roles: %w", err)
 	}
 	for rows.Next() {
-		var project string
+		var project ident.ID
 		var doc []byte
 		if err := rows.Scan(&project, &doc); err != nil {
 			rows.Close()
@@ -233,9 +234,27 @@ func (s *PostgresStore) load(ctx context.Context) error {
 		if err := json.Unmarshal(doc, &p); err != nil {
 			return err
 		}
+		if p.Status == StatusRemoved {
+			s.removedProjects[p.ID] = p
+			return nil
+		}
 		s.projects[p.Name] = p
 		return nil
 	}); err != nil {
+		return err
+	}
+	if err := s.loadRegistry(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureProjectIDs(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateHumans(ctx); err != nil {
+		if errors.Is(err, errHumansMigratedElsewhere) {
+			// Another Jam migrated first: reload what it wrote.
+			s.memState = newMemState()
+			return s.load(ctx)
+		}
 		return err
 	}
 	var jc []byte
@@ -260,24 +279,7 @@ func (s *PostgresStore) load(ctx context.Context) error {
 		}
 		s.specSchema = doc.Version
 	}
-	// intercom-UI unread cursors: (participant, channel) → last-seen Seq.
-	curs, err := s.pool.Query(ctx, `SELECT participant, channel, seq FROM intercom_unread_cursors`)
-	if err != nil {
-		return fmt.Errorf("pgstore: load intercom_unread_cursors: %w", err)
-	}
-	defer curs.Close()
-	for curs.Next() {
-		var participant, channel string
-		var seq int64
-		if err := curs.Scan(&participant, &channel, &seq); err != nil {
-			return err
-		}
-		if s.unread[participant] == nil {
-			s.unread[participant] = map[string]int64{}
-		}
-		s.unread[participant][channel] = seq
-	}
-	return curs.Err()
+	return nil
 }
 
 func (s *PostgresStore) loadDocs(ctx context.Context, table string, unmarshal func(doc []byte) error) error {
@@ -316,11 +318,7 @@ func (s *PostgresStore) execWithProjects(op string, projects []Project, sql stri
 	ctx := context.Background()
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		for _, p := range projects {
-			doc, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+			if err := insertProjectTx(ctx, tx, p); err != nil {
 				return err
 			}
 		}
@@ -348,19 +346,15 @@ func createdProjects(p Project, created bool) []Project {
 func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := checkImport(s.memState, snap); err != nil {
+	snap, plan, err := importPlan(s.memState, snap)
+	if err != nil {
 		return err
 	}
 	ctx := context.Background()
-	snap = withReferencedProjects(snap)
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		// Projects first: roles.project references projects.name.
 		for _, p := range snap.Projects {
-			doc, err := json.Marshal(p)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO projects (name, doc) VALUES ($1,$2)`, p.Name, doc); err != nil {
+			if err := insertProjectTx(ctx, tx, p); err != nil {
 				return err
 			}
 		}
@@ -379,7 +373,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				if err != nil {
 					return err
 				}
-				if _, err := tx.Exec(ctx, `INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)`, project, r.Name, doc); err != nil {
+				if _, err := tx.Exec(ctx, `INSERT INTO roles (project_id, name, doc) VALUES ($1,$2,$3)`, project, r.Name, doc); err != nil {
 					return err
 				}
 			}
@@ -434,12 +428,13 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 				return err
 			}
 		}
-		return nil
+		return writeHumanPlanTx(ctx, tx, plan)
 	})
 	if err != nil {
 		return fmt.Errorf("pgstore: ImportConfig: %w", err)
 	}
 	applyImport(s.memState, snap)
+	s.applyHumanPlan(plan)
 	return nil
 }
 
@@ -451,7 +446,7 @@ func (s *PostgresStore) AddActor(a Actor) error {
 	if s.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
-	created, err := s.grantProjects(a)
+	created, err := s.grantProjects(&a)
 	if err != nil {
 		return err
 	}
@@ -494,6 +489,7 @@ func (s *PostgresStore) AddGrant(actorID string, g Grant) error {
 	if err != nil {
 		return err
 	}
+	g.Project = string(p.ID)
 	updated := upsertGrant(a, g)
 	if err := s.putActorDoc(h, updated, createdProjects(p, created)...); err != nil {
 		return err
@@ -508,14 +504,11 @@ func (s *PostgresStore) AddGrant(actorID string, g Grant) error {
 func (s *PostgresStore) RemoveGrant(actorID, project, role string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
 	h, a, ok := s.actorByID(actorID)
 	if !ok {
 		return actorNotFoundErr(actorID)
 	}
-	updated, found := removeGrantFrom(a, project, role)
+	updated, found := removeGrantFrom(a, s.canonicalProject(project), role)
 	if !found {
 		return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
 	}
@@ -543,9 +536,6 @@ func (s *PostgresStore) PutRole(project string, r Role) error {
 	if r.Kit != "" && !s.kitExists(r.Kit) {
 		return fmt.Errorf("kit %q not found", r.Kit)
 	}
-	if project == "" {
-		project = DefaultProject
-	}
 	p, created, err := s.requireProject(project)
 	if err != nil {
 		return err
@@ -555,15 +545,15 @@ func (s *PostgresStore) PutRole(project string, r Role) error {
 		return err
 	}
 	if err := s.execWithProjects("PutRole", createdProjects(p, created),
-		`INSERT INTO roles (project, name, doc) VALUES ($1,$2,$3)
-		 ON CONFLICT (project, name) DO UPDATE SET doc = EXCLUDED.doc, version = roles.version + 1, updated_at = now()`,
-		project, r.Name, doc); err != nil {
+		`INSERT INTO roles (project_id, name, doc) VALUES ($1,$2,$3)
+		 ON CONFLICT (project_id, name) DO UPDATE SET doc = EXCLUDED.doc, version = roles.version + 1, updated_at = now()`,
+		p.ID, r.Name, doc); err != nil {
 		return err
 	}
 	if created {
 		s.applyPutProject(p)
 	}
-	s.applyPutRole(project, r)
+	s.applyPutRole(p.ID, r)
 	return nil
 }
 
@@ -573,12 +563,10 @@ func (s *PostgresStore) CreateProject(name string) error {
 	if err := s.checkCreateProject(name); err != nil {
 		return err
 	}
-	p := Project{Name: name}
-	doc, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	if err := s.exec("CreateProject", `INSERT INTO projects (name, doc) VALUES ($1,$2)`, name, doc); err != nil {
+	p := newProject(name)
+	if err := s.registryTx("CreateProject", func(ctx context.Context, tx pgx.Tx) error {
+		return insertProjectTx(ctx, tx, p)
+	}); err != nil {
 		return err
 	}
 	s.applyPutProject(p)
@@ -588,29 +576,61 @@ func (s *PostgresStore) CreateProject(name string) error {
 func (s *PostgresStore) RemoveProject(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.checkRemoveProject(name); err != nil {
+	name, err := s.checkRemoveProject(name)
+	if err != nil {
 		return err
 	}
-	if err := s.exec("RemoveProject", `DELETE FROM projects WHERE name = $1`, name); err != nil {
+	p := s.projects[name]
+	tomb := p
+	tomb.Status = StatusRemoved
+	channels := s.projectChannels(p.ID)
+	if err := s.registryTx("RemoveProject", func(ctx context.Context, tx pgx.Tx) error {
+		if err := putProjectRowTx(ctx, tx, tomb); err != nil {
+			return err
+		}
+		for _, c := range channels {
+			c.Status = StatusArchived
+			if err := putChannelTx(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	s.applyRemoveProject(name)
 	return nil
 }
 
+func (s *PostgresStore) RenameProject(ref, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, err := s.checkRenameProject(ref, name)
+	if err != nil {
+		return err
+	}
+	renamed := p
+	renamed.Name = name
+	if err := s.registryTx("RenameProject", func(ctx context.Context, tx pgx.Tx) error {
+		return putProjectRowTx(ctx, tx, renamed)
+	}); err != nil {
+		return err
+	}
+	s.applyRenameProject(p, name)
+	return nil
+}
+
 func (s *PostgresStore) RemoveRole(project, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
+	p, ok := s.resolveProject(project)
+	if _, has := s.roles[p.ID][name]; !ok || !has {
+		return fmt.Errorf("role %q not found in project %q", name, orDefaultProject(project))
 	}
-	if _, ok := s.roles[project][name]; !ok {
-		return fmt.Errorf("role %q not found in project %q", name, project)
-	}
-	if err := s.exec("RemoveRole", `DELETE FROM roles WHERE project = $1 AND name = $2`, project, name); err != nil {
+	if err := s.exec("RemoveRole", `DELETE FROM roles WHERE project_id = $1 AND name = $2`, p.ID, name); err != nil {
 		return err
 	}
-	s.applyRemoveRole(project, name)
+	s.applyRemoveRole(p.ID, name)
 	return nil
 }
 
@@ -685,6 +705,7 @@ func (s *PostgresStore) PutInstance(i Instance) error {
 	if i.ActorID == "" {
 		return fmt.Errorf("instance actor id is required")
 	}
+	i.Project = s.canonicalProject(i.Project)
 	doc, err := json.Marshal(i)
 	if err != nil {
 		return err
@@ -731,25 +752,6 @@ func (s *PostgresStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int6
 	}
 	i, _ := s.applyAdvanceCommitCursor(actorID, upToID, upToSeq)
 	return i, nil
-}
-
-func (s *PostgresStore) CommitUnread(participant, channel string, seq int64) error {
-	if participant == "" || channel == "" {
-		return fmt.Errorf("participant and channel are required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Forward-only in the DB (GREATEST), matching the cache helper below. A
-	// backward/equal seq is a harmless no-op update (the row keeps its value).
-	if err := s.exec("CommitUnread",
-		`INSERT INTO intercom_unread_cursors (participant, channel, seq) VALUES ($1,$2,$3)
-		 ON CONFLICT (participant, channel) DO UPDATE
-		   SET seq = GREATEST(intercom_unread_cursors.seq, EXCLUDED.seq), updated_at = now()`,
-		participant, channel, seq); err != nil {
-		return err
-	}
-	s.applyCommitUnread(participant, channel, seq)
-	return nil
 }
 
 func (s *PostgresStore) AddDestination(d Destination) error {
@@ -814,52 +816,6 @@ func (s *PostgresStore) RemoveModelSpec(name string) error {
 	}
 	s.applyRemoveModelSpec(name)
 	return nil
-}
-
-func (s *PostgresStore) AddHuman(project string, h Human) error {
-	if h.Name == "" {
-		return fmt.Errorf("human name required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
-	if err != nil {
-		return err
-	}
-	return s.putProject(upsertHuman(copyProject(p), h))
-}
-
-func (s *PostgresStore) AddChannel(project string, c Channel) error {
-	if c.Name == "" {
-		return fmt.Errorf("channel name required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
-	if err != nil {
-		return err
-	}
-	return s.putProject(upsertChannel(copyProject(p), c))
-}
-
-func (s *PostgresStore) RemoveHuman(project, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
-	}
-	return s.putProject(removeHumanFrom(copyProject(p), name))
-}
-
-func (s *PostgresStore) RemoveChannel(project, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
-	}
-	return s.putProject(removeChannelFrom(copyProject(p), name))
 }
 
 func (s *PostgresStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
@@ -928,26 +884,35 @@ func (s *PostgresStore) SetJamContext(l sessionctx.Layer) error {
 	return nil
 }
 
-func (s *PostgresStore) SetChatService(project, service string) error {
+func (s *PostgresStore) SetChatService(project, ref string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, _, err := s.requireProject(project)
+	p, created, err := s.prepareSetChatService(project, ref)
 	if err != nil {
 		return err
 	}
-	return s.putProject(setChatService(copyProject(p), service))
+	if err := s.registryTx("SetChatService", func(ctx context.Context, tx pgx.Tx) error {
+		for _, c := range created {
+			if err := putConnectionTx(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return upsertProjectTx(ctx, tx, p)
+	}); err != nil {
+		return err
+	}
+	for _, c := range created {
+		s.applyPutConnection(c)
+	}
+	s.applyPutProject(p)
+	return nil
 }
 
 // putProject upserts a project's row and, on success, updates the cache.
 func (s *PostgresStore) putProject(p Project) error {
-	doc, err := json.Marshal(p)
-	if err != nil {
-		return err
-	}
-	if err := s.exec("putProject",
-		`INSERT INTO projects (name, doc) VALUES ($1,$2)
-		 ON CONFLICT (name) DO UPDATE SET doc = EXCLUDED.doc, version = projects.version + 1, updated_at = now()`,
-		p.Name, doc); err != nil {
+	if err := s.registryTx("putProject", func(ctx context.Context, tx pgx.Tx) error {
+		return upsertProjectTx(ctx, tx, p)
+	}); err != nil {
 		return err
 	}
 	s.applyPutProject(p)

@@ -42,27 +42,27 @@ func TestImageStaleIsFlagged(t *testing.T) {
 	asm := "a1"
 	sup := jam.NewSupervisor(store, taggingLauncher{asm: &asm}, "test-holder", time.Minute, 30*time.Second, time.Now,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
-	id := jam.StandingActorID("acme", "review", "nightly")
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review",
 		Name: "nightly", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), sup, nil, anyCred, nil)
 
-	page := get(t, h, "/ui/coves").Body.String()
+	page := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, "<th>Image</th>") || !strings.Contains(page, "<td>ok</td>") {
 		t.Fatalf("fresh image not shown ok; page:\n%s", page)
 	}
-	if strings.Contains(get(t, h, "/ui/roles/acme/review").Body.String(), "image stale") {
+	if strings.Contains(get(t, h, "/ui/projects/acme/roles/review").Body.String(), "image stale") {
 		t.Fatal("a fresh standing studio must not be flagged")
 	}
 
 	asm = "a2" // a Jam-side rebuild: every raised image is now stale
-	page = get(t, h, "/ui/coves").Body.String()
+	page = get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(page, `title="raised on an older image than its role would run now">stale</span>`) {
 		t.Fatalf("stale image not flagged; page:\n%s", page)
 	}
-	if !strings.Contains(get(t, h, "/ui/roles/acme/review").Body.String(), ">image stale</span>") {
+	if !strings.Contains(get(t, h, "/ui/projects/acme/roles/review").Body.String(), ">image stale</span>") {
 		t.Fatal("stale standing studio not flagged on the role page")
 	}
 }
@@ -103,7 +103,7 @@ func TestEditStandingUpgrade(t *testing.T) {
 	asm := "a1"
 	sup := jam.NewSupervisor(store, taggingLauncher{asm: &asm}, "test-holder", time.Minute, 30*time.Second, time.Now,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
-	id := jam.StandingActorID("acme", "review", "nightly")
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,8 +114,8 @@ func TestEditStandingUpgrade(t *testing.T) {
 	const flash = `<div id="flash" hx-swap-oob="innerHTML"><p class="ok">`
 	const path = "/ui/roles/acme/review/standing/nightly/upgrade"
 
-	body := get(t, h, "/ui/roles/acme/review").Body.String()
-	if !strings.Contains(body, `<button class="small" `+btn) || !strings.Contains(body, `hx-confirm="Upgrade standing session nightly?`) {
+	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
+	if !strings.Contains(body, `<button class="small" `+btn) || !strings.Contains(body, `hx-confirm="Upgrade standing agent nightly?`) {
 		t.Fatalf("role page lacks a confirmed upgrade button:\n%s", body)
 	}
 	if rec := post(t, h, path, url.Values{}); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), flash) ||
@@ -124,7 +124,7 @@ func TestEditStandingUpgrade(t *testing.T) {
 	}
 
 	asm = "a2" // stale
-	if body := get(t, h, "/ui/roles/acme/review").Body.String(); !strings.Contains(body, `<button class="small primary" `+btn) {
+	if body := get(t, h, "/ui/projects/acme/roles/review").Body.String(); !strings.Contains(body, `<button class="small primary" `+btn) {
 		t.Fatalf("a stale studio's upgrade button must be emphasized:\n%s", body)
 	}
 	rec := post(t, h, path, url.Values{})
@@ -142,7 +142,7 @@ func TestEditStandingUpgrade(t *testing.T) {
 	}
 
 	ro := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	if strings.Contains(get(t, ro, "/ui/roles/acme/review").Body.String(), "/standing/nightly/upgrade") {
+	if strings.Contains(get(t, ro, "/ui/projects/acme/roles/review").Body.String(), "/standing/nightly/upgrade") {
 		t.Error("no supervisor: the upgrade button must be hidden")
 	}
 	if rec := post(t, ro, path, url.Values{}); rec.Code != http.StatusServiceUnavailable {

@@ -26,7 +26,7 @@ func (fs *MemStore) AddActor(a Actor) error {
 	if fs.actorIDExists(a.ID) {
 		return fmt.Errorf("actor %q already exists", a.ID)
 	}
-	created, err := fs.grantProjects(a)
+	created, err := fs.grantProjects(&a)
 	if err != nil {
 		return err
 	}
@@ -60,6 +60,7 @@ func (fs *MemStore) AddGrant(actorID string, g Grant) error {
 	if created {
 		fs.applyPutProject(p)
 	}
+	g.Project = string(p.ID)
 	fs.applyPutActor(upsertGrant(a, g))
 	return nil
 }
@@ -67,14 +68,11 @@ func (fs *MemStore) AddGrant(actorID string, g Grant) error {
 func (fs *MemStore) RemoveGrant(actorID, project, role string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
 	_, a, ok := fs.actorByID(actorID)
 	if !ok {
 		return actorNotFoundErr(actorID)
 	}
-	updated, found := removeGrantFrom(a, project, role)
+	updated, found := removeGrantFrom(a, fs.canonicalProject(project), role)
 	if !found {
 		return fmt.Errorf("actor %q has no grant %s/%s", actorID, project, role)
 	}
@@ -95,7 +93,7 @@ func (fs *MemStore) PutRole(project string, r Role) error {
 	if created {
 		fs.applyPutProject(p)
 	}
-	fs.applyPutRole(project, r)
+	fs.applyPutRole(p.ID, r)
 	return nil
 }
 
@@ -105,27 +103,37 @@ func (fs *MemStore) CreateProject(name string) error {
 	if err := fs.checkCreateProject(name); err != nil {
 		return err
 	}
-	fs.applyPutProject(Project{Name: name})
+	fs.applyPutProject(newProject(name))
 	return nil
 }
 
 func (fs *MemStore) RemoveProject(name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if err := fs.checkRemoveProject(name); err != nil {
+	name, err := fs.checkRemoveProject(name)
+	if err != nil {
 		return err
 	}
 	fs.applyRemoveProject(name)
 	return nil
 }
 
+func (fs *MemStore) RenameProject(ref, name string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	p, err := fs.checkRenameProject(ref, name)
+	if err != nil {
+		return err
+	}
+	fs.applyRenameProject(p, name)
+	return nil
+}
+
 func (fs *MemStore) RemoveRole(project, name string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if project == "" {
-		project = DefaultProject
-	}
-	if !fs.applyRemoveRole(project, name) {
+	p, ok := fs.resolveProject(project)
+	if !ok || !fs.applyRemoveRole(p.ID, name) {
 		return fmt.Errorf("role %q not found in project %q", name, project)
 	}
 	return nil
@@ -170,6 +178,7 @@ func (fs *MemStore) PutInstance(i Instance) error {
 	if i.ActorID == "" {
 		return fmt.Errorf("instance actor id is required")
 	}
+	i.Project = fs.canonicalProject(i.Project)
 	fs.applyPutInstance(i)
 	return nil
 }
@@ -196,19 +205,6 @@ func (fs *MemStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (
 		return i, nil
 	}
 	return i, nil
-}
-
-func (fs *MemStore) CommitUnread(participant, channel string, seq int64) error {
-	if participant == "" || channel == "" {
-		return fmt.Errorf("participant and channel are required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	if _, changed := fs.applyCommitUnread(participant, channel, seq); !changed {
-		// No-op advance (backward/equal seq): nothing changed.
-		return nil
-	}
-	return nil
 }
 
 func (fs *MemStore) AddDestination(d Destination) error {
@@ -248,56 +244,6 @@ func (fs *MemStore) RemoveModelSpec(name string) error {
 	return nil
 }
 
-func (fs *MemStore) AddHuman(project string, h Human) error {
-	if h.Name == "" {
-		return fmt.Errorf("human name required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p, _, err := fs.requireProject(project)
-	if err != nil {
-		return err
-	}
-	fs.applyPutProject(upsertHuman(p, h))
-	return nil
-}
-
-func (fs *MemStore) AddChannel(project string, c Channel) error {
-	if c.Name == "" {
-		return fmt.Errorf("channel name required")
-	}
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p, _, err := fs.requireProject(project)
-	if err != nil {
-		return err
-	}
-	fs.applyPutProject(upsertChannel(p, c))
-	return nil
-}
-
-func (fs *MemStore) RemoveHuman(project, name string) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p, ok := fs.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
-	}
-	fs.applyPutProject(removeHumanFrom(p, name))
-	return nil
-}
-
-func (fs *MemStore) RemoveChannel(project, name string) error {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
-	p, ok := fs.projects[project]
-	if !ok {
-		return fmt.Errorf("project %q not found", project)
-	}
-	fs.applyPutProject(removeChannelFrom(p, name))
-	return nil
-}
-
 func (fs *MemStore) SetEscalationPolicy(project, category string, tiers []EscalationTier) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -334,13 +280,16 @@ func (fs *MemStore) SetJamContext(l sessionctx.Layer) error {
 	return nil
 }
 
-func (fs *MemStore) SetChatService(project, service string) error {
+func (fs *MemStore) SetChatService(project, ref string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	p, _, err := fs.requireProject(project)
+	p, created, err := fs.prepareSetChatService(project, ref)
 	if err != nil {
 		return err
 	}
-	fs.applyPutProject(setChatService(p, service))
+	for _, c := range created {
+		fs.applyPutConnection(c)
+	}
+	fs.applyPutProject(p)
 	return nil
 }

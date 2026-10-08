@@ -48,7 +48,7 @@ func TestSuggestKinds(t *testing.T) {
 		"kind=kits":                 {"web"},
 		"kind=destinations":         {"git"},
 		"kind=credentials":          {"anth-key", "gh-pat"},
-		"kind=targets&project=acme": {"channel:*", "channel:eng", "human:*", "human:alice"},
+		"kind=targets&project=acme": {"channel:*", "channel:eng", "user:*", "user:alice"},
 		"kind=services":             {"discord"},
 	} {
 		if got := suggestions(t, h, query); !slices.Equal(got, want) {

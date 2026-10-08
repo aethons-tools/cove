@@ -5,6 +5,10 @@ import "github.com/aethons-tools/cove/internal/jam/sessionctx"
 // Store records enrolled actors (by token hash), roles (by project+name), and the
 // destination table, and the model-spec table.
 type Store interface {
+	RegistryStore
+	StandingSessionStore
+	ChannelStore
+
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)
 	RemoveActor(id string) error
@@ -25,6 +29,10 @@ type Store interface {
 	// project to exist, except DefaultProject, which they materialize.
 	CreateProject(name string) error
 	RemoveProject(name string) error
+	// RenameProject renames a live project (by name or id): one record
+	// changes, as everything refers to it by id. ErrProjectExists for a taken
+	// name; the default project is never renamed.
+	RenameProject(ref, name string) error
 	ListProjects() []string
 
 	PushKit(name, config string) (int, error)
@@ -40,15 +48,6 @@ type Store interface {
 	ListInstances() []Instance
 	RemoveInstance(actorID string) error
 	AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) // monotonic forward on upToSeq; no-op if upToSeq <= current CommitSeq; error if actor absent
-
-	// CommitUnread advances the intercom-UI unread cursor for (participant,
-	// channel) to seq. Monotonic forward-only: a backward/equal seq is a no-op
-	// success. participant and channel are free-form (no backing entity); both
-	// must be non-empty. UnreadCursor reads one pair; UnreadCursors reads all of
-	// a participant's channel cursors (the map ProjectChannels consumes).
-	CommitUnread(participant, channel string, seq int64) error
-	UnreadCursor(participant, channel string) (int64, bool)
-	UnreadCursors(participant string) map[string]int64
 
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
@@ -74,14 +73,11 @@ type Store interface {
 	// entries, or ErrUnsupportedConfigVersion for a bad version.
 	ImportConfig(s ConfigSnapshot) error
 
-	AddHuman(project string, h Human) error // upsert by name
-	AddChannel(project string, c Channel) error
-	RemoveHuman(project, name string) error
-	RemoveChannel(project, name string) error
 	GetProject(name string) (Project, bool)
-	GetRoster(project string) (Roster, bool)
 	SetEscalationPolicy(project, category string, tiers []EscalationTier) error
-	SetChatService(project, service string) error
+	// SetChatService sets project's chat service to a connection, by id or
+	// name, or by chat kind for its implicit connection ("" clears).
+	SetChatService(project, ref string) error
 	// SetProjectContext replaces a project's authored session context and
 	// resources (ErrProjectNotFound for an unknown project).
 	SetProjectContext(project string, l sessionctx.Layer, rs []sessionctx.Resource) error

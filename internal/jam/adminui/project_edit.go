@@ -3,17 +3,20 @@ package adminui
 import (
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// humanRow is a roster human plus their delivery and identity in the edit
-// form's line syntax.
-type humanRow struct {
-	jam.Human
-	DeliverySpec, IdentitySpec string
+// memberRow is a project member: their user, their tracker handle,
+// and their delivery here in the edit form's line syntax.
+type memberRow struct {
+	UserID       ident.ID
+	Name         string
+	Handle       string
+	Delivery     []jam.DeliveryProfile
+	DeliverySpec string
 }
 
 // targetView is one escalation target; Unknown marks one that names nobody on
@@ -35,9 +38,6 @@ type chainView struct {
 	Spec     string // one targets@timeout per line
 }
 
-// chatServices are the chat-service choices; "" = tracker @-mentions only.
-var chatServices = []string{"", "discord"}
-
 func lines[T any](xs []T, f func(T) string) string {
 	out := make([]string, len(xs))
 	for i, x := range xs {
@@ -46,24 +46,28 @@ func lines[T any](xs []T, f func(T) string) string {
 	return strings.Join(out, "\n")
 }
 
-// targetKnown reports whether an escalation target names someone on r.
-func targetKnown(target string, r jam.Roster) bool {
-	kind, name, _ := strings.Cut(target, ":")
-	switch kind {
-	case "human":
-		return slices.ContainsFunc(r.Humans, func(h jam.Human) bool { return h.Name == name })
-	case "channel":
-		return slices.ContainsFunc(r.Channels, func(c jam.Channel) bool { return c.Name == name })
+// knownTargets is the set of escalation targets that name someone in a
+// project: user:<name|id> for each member (human: is the pre-registry alias),
+// channel:<name> for each room.
+func knownTargets(members []jam.Member, rooms []jam.RoomView) map[string]bool {
+	known := map[string]bool{}
+	for _, m := range members {
+		for _, k := range []string{"user:", "human:"} {
+			known[k+m.User.Name], known[k+string(m.User.ID)] = true, true
+		}
 	}
-	return false
+	for _, r := range rooms {
+		known["channel:"+r.Name] = true
+	}
+	return known
 }
 
-func chain(category string, tiers []jam.EscalationTier, r jam.Roster) chainView {
+func chain(category string, tiers []jam.EscalationTier, known map[string]bool) chainView {
 	c := chainView{Category: category, Spec: lines(tiers, jam.FormatEscalationTierSpec)}
 	for _, t := range tiers {
 		tv := tierView{Timeout: fmtDur(t.Timeout)}
 		for _, x := range t.Targets {
-			tv.Targets = append(tv.Targets, targetView{Text: x, Unknown: !targetKnown(x, r)})
+			tv.Targets = append(tv.Targets, targetView{Text: x, Unknown: !known[x]})
 		}
 		c.Tiers = append(c.Tiers, tv)
 	}
@@ -81,33 +85,30 @@ func splitSpecLines(s string) []string {
 	return out
 }
 
-func humanFromForm(r *http.Request) (jam.Human, error) {
-	h := jam.Human{
-		Name:   strings.TrimSpace(r.FormValue("name")),
-		Handle: strings.TrimSpace(r.FormValue("handle")),
-		Login:  strings.TrimSpace(r.FormValue("login")),
-	}
+// memberDeliveryFromForm parses a member's delivery lines (service:address;
+// a Discord user id is an account, bound on the user's page).
+func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
+	var out []jam.DeliveryProfile
 	for _, l := range splitSpecLines(r.FormValue("delivery")) {
 		p, err := jam.ParseDeliverySpec(l)
 		if err != nil {
-			return jam.Human{}, badRequest("delivery " + `"` + l + `": ` + err.Error())
+			return nil, badRequest("delivery " + `"` + l + `": ` + err.Error())
 		}
-		h.Delivery = append(h.Delivery, p)
-	}
-	for _, l := range splitSpecLines(r.FormValue("identity")) {
-		id, err := jam.ParseOIDCSpec(l)
-		if err != nil {
-			return jam.Human{}, badRequest("identity " + `"` + l + `": ` + err.Error())
+		if p.UserID != "" {
+			return nil, badRequest("delivery " + `"` + l + `": a Discord user id is an account — add it on the user's page`)
 		}
-		h.Identity = append(h.Identity, id)
+		out = append(out, p)
 	}
-	return h, nil
+	return out, nil
 }
 
 // registerProjectEdits mounts the project page's section writes. Each answers
-// with the re-rendered project body.
-func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	edit := func(what string, apply func(r *http.Request, project string) error) http.HandlerFunc {
+// with the re-rendered section body plus the tree, out of band (a write can
+// change what the tree lists, e.g. its rooms).
+func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+	// edit applies one project write and answers with the section it belongs
+	// to re-rendered, for the page's #project swap.
+	edit := func(what string, section projectSection, apply func(r *http.Request, project string) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !guardWrite(w, r) {
 				return
@@ -126,53 +127,71 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 				return
 			}
 			log.Info("ui project "+what, "operator", jam.OperatorID(r), "project", project)
-			d, ok := buildProjectDetail(store, img, project)
+			d, ok := buildProjectDetail(store, img, msgs, project, section)
 			if !ok {
 				renderError(w, http.StatusNotFound, "project no longer exists")
 				return
 			}
-			renderFragment(w, "project", "project-body", d)
+			renderFragment(w, r, "project", "project-"+string(section), d)
 		}
 	}
 
-	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", sectionOverview, func(r *http.Request, project string) error {
 		b, err := parseContextForm(r)
 		if err != nil {
 			return err
 		}
 		return jam.SetProjectContextChecked(store, project, b)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", sectionOverview, func(r *http.Request, project string) error {
 		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/humans", edit("human put", func(r *http.Request, project string) error {
-		h, err := humanFromForm(r)
+	mux.HandleFunc("POST /ui/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
+		uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(r.FormValue("user")))
+		if err != nil {
+			return registryErr(err)
+		}
+		delivery, err := memberDeliveryFromForm(r)
 		if err != nil {
 			return err
 		}
-		return jam.PutRosterHuman(store, project, h)
+		p, _ := store.GetProject(project)
+		// "Add member" for someone already a member, with no delivery given,
+		// keeps their delivery (the per-member Edit form replaces it).
+		if r.FormValue("add") != "" && delivery == nil {
+			if ms, ok := store.GetMembership(p.ID, uid); ok {
+				delivery = ms.Delivery
+			}
+		}
+		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/humans/{name}", edit("human removed", func(r *http.Request, project string) error {
-		return store.RemoveHuman(project, r.PathValue("name"))
+	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
+		uid, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
+		if err != nil {
+			return registryErr(err)
+		}
+		p, _ := store.GetProject(project)
+		return registryErr(store.RemoveMember(p.ID, uid))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("channel put", func(r *http.Request, project string) error {
-		c := jam.Channel{
-			Name:    strings.TrimSpace(r.FormValue("name")),
-			Service: strings.TrimSpace(r.FormValue("service")),
-			Ref:     strings.TrimSpace(r.FormValue("ref")),
+	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
+		b := jam.RoomBody{
+			Name:       strings.TrimSpace(r.FormValue("name")),
+			Connection: strings.TrimSpace(r.FormValue("service")),
+			Ref:        strings.TrimSpace(r.FormValue("ref")),
 		}
-		if c.Name == "" || c.Service == "" || c.Ref == "" {
-			return badRequest("channel name, service and ref are required")
+		if b.Name == "" || b.Connection == "" || b.Ref == "" {
+			return badRequest("room name, connection and ref are required")
 		}
-		return store.AddChannel(project, c)
+		_, _, err := jam.PutRoom(store, project, b)
+		return registryErr(err)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("channel removed", func(r *http.Request, project string) error {
-		return store.RemoveChannel(project, r.PathValue("name"))
+	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
+		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
 		var tiers []jam.EscalationTier
 		for _, l := range splitSpecLines(r.FormValue("tiers")) {
 			t, err := jam.ParseEscalationTierSpec(l)
@@ -186,11 +205,11 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 		return store.SetEscalationPolicy(project, strings.TrimSpace(r.FormValue("category")), tiers)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/escalation", edit("escalation cleared", func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /ui/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
 		return store.SetEscalationPolicy(project, r.URL.Query().Get("category"), nil)
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/chat-service", edit("chat service set", func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /ui/projects/{project}/chat-service", edit("chat service set", sectionOverview, func(r *http.Request, project string) error {
 		return store.SetChatService(project, strings.TrimSpace(r.FormValue("service")))
 	}))
 }

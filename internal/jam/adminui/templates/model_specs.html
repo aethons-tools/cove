@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-head"><h1>Model-specs</h1><span class="sub">How a studio runs its agent — harness, principal, model and policy; open one to edit it</span></div>
+<div class="page-head"><h1>Model-specs</h1><span class="sub">How an agent runs — harness, principal, model and policy; open one to edit it</span></div>
 <details class="panel">
   <summary>New model-spec</summary>
   <form hx-post="/ui/model-specs" hx-target="#model-specs" hx-swap="outerHTML">
@@ -13,7 +13,7 @@
 {{define "model-specs-table"}}
 <div class="card" id="model-specs">
 <table>
-  <thead><tr><th>Name</th><th>Type</th><th>Version</th><th>Principal</th><th>Model</th><th>Policy</th><th>Provider</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Type</th><th>Version</th><th>Principal</th><th>Model</th><th>Policy</th><th>Provider</th><th>Used by</th><th></th></tr></thead>
   <tbody>
     {{range .Specs}}
     <tr data-id="{{.Name}}">
@@ -24,11 +24,12 @@
       <td>{{if .Model.ID}}<span class="mono">{{.Model.ID}}</span>{{if .Model.Effort}} <span class="chip">{{.Model.Effort}}</span>{{end}}{{else}}<span class="none">default</span>{{end}}</td>
       <td>{{if .Policy.Mode}}<span class="mono">{{.Policy.Mode}}</span>{{else}}<span class="none">default</span>{{end}}</td>
       <td>{{with .Claude}}<span class="mono">{{.Provider}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{with index $.UsedBy .Name}}{{.}}{{else}}<span class="none">0</span>{{end}}</td>
       <td class="actions"><button class="danger small" hx-delete="/ui/model-specs/{{.Name}}" hx-target="#model-specs" hx-swap="outerHTML"
           hx-confirm="Delete model-spec {{.Name}}?">Delete</button></td>
     </tr>
     {{else}}
-    <tr><td colspan="8" class="empty">No model-specs.</td></tr>
+    <tr><td colspan="9" class="empty">No model-specs.</td></tr>
     {{end}}
   </tbody>
 </table>

@@ -50,37 +50,53 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 		"credentials": func(string) []string { return credNames },
 		// targets: a project's addressable roster, plus the per-kind globs.
 		"targets": func(p string) []string {
-			out := []string{"human:*", "channel:*"}
-			if r, ok := store.GetRoster(orDefaultProject(p)); ok {
-				for _, h := range r.Humans {
-					out = append(out, "human:"+h.Name)
+			out := []string{"user:*", "channel:*"}
+			if pr, ok := store.GetProject(orDefaultProject(p)); ok {
+				for _, m := range jam.MembersOf(store, pr.ID) {
+					out = append(out, "user:"+m.User.Name)
 				}
-				for _, c := range r.Channels {
-					out = append(out, "channel:"+c.Name)
+				for _, c := range store.ListChannels(pr.ID, jam.SourceRoom) {
+					out = append(out, "channel:"+c.Key)
 				}
 			}
 			return out
 		},
-		// participants: anyone a squawk can be from or to, across projects.
+		// participants: who a squawk can be from and where it can be — users,
+		// sessions and channels by id (the channel log), and the legacy log's
+		// kind:ref forms.
 		"participants": func(string) []string {
 			var out []string
-			for _, name := range store.ListProjects() {
-				if r, ok := store.GetRoster(name); ok {
-					for _, h := range r.Humans {
-						out = append(out, "human:"+h.Name)
-					}
-					for _, c := range r.Channels {
-						out = append(out, "channel:"+c.Name)
-					}
-				}
+			for _, u := range store.ListUsers() {
+				out = append(out, string(u.ID))
 			}
 			for _, i := range store.ListInstances() {
-				out = append(out, "actor:"+i.ActorID)
+				out = append(out, i.ActorID, "actor:"+i.ActorID)
+			}
+			for _, name := range store.ListProjects() {
+				p, _ := store.GetProject(name)
+				for _, k := range []jam.SourceKind{jam.SourceTicket, jam.SourceRoom, jam.SourceChat, jam.SourceSession} {
+					for _, c := range store.ListChannels(p.ID, k) {
+						out = append(out, string(c.ID))
+					}
+				}
+				for _, m := range jam.MembersOf(store, p.ID) {
+					out = append(out, "human:"+m.User.Name)
+				}
+				for _, c := range store.ListChannels(p.ID, jam.SourceRoom) {
+					out = append(out, "channel:"+c.Key)
+				}
+			}
+			return out
+		},
+		"users": func(string) []string {
+			var out []string
+			for _, u := range store.ListUsers() {
+				out = append(out, u.Name)
 			}
 			return out
 		},
 		"services": func(string) []string {
-			return slices.DeleteFunc(slices.Clone(chatServices), func(s string) bool { return s == "" })
+			return slices.Clone(jam.ChatKinds)
 		},
 	}
 }

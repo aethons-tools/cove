@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-07
 ---
 
 # Backing up and restoring Jam config
@@ -17,10 +17,26 @@ control-plane aggregates:
 - **kits** (all versions **and** the pin)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
-- **projects** (roster, escalation policy, chat service, session context and resources)
+- **projects** (escalation policy, chat service, session context and resources)
+- the **identity registry** — users (removed ones too: their ids back history),
+  connections, accounts, project memberships and the legacy human aliases — with
+  their ids, so a restore keeps every reference valid
+- the **channel registry**: rooms (a project's channels, archived ones too)
+  with their bindings and ids. Channel membership and session channels are
+  runtime state and are not exported.
 - the **Jam-wide session context**
 
-Import applies the admin API's authoring rules to session context (layer budgets,
+The format is `version: 4`, which names projects by id in roles and grants; an
+older Jam can't read it. Older backups still import: their project names become
+ids, a `version: 1` backup's per-project humans are merged into users the way an
+upgrade does ([comms-addressing.md](comms-addressing.md#project-members-and-rooms)),
+and a `version: 1` or `2` backup's project channels become rooms.
+
+Import requires an empty target, registry included — except connections, which
+a starting serve creates: a backup's connection of the same name takes over —
+and checks the registry is consistent (unique live names and identities,
+references that resolve). It
+applies the admin API's authoring rules to session context (layer budgets,
 leaf names, resources), destination notes and
 [header specs](header-specs.md), and model-spec structure (credential
 names are not checked — they are serve-config, not backup, state); a snapshot
@@ -29,8 +45,8 @@ check `identity_in`/`apply`, so a backup may hold a value this Jam doesn't
 know: the error names the destination and field — fix it in the file
 (a preset, or `custom` plus a spec) and re-import.
 
-They deliberately **exclude** runtime/studio state (raised instances), intercom
-unread cursors, the intercom squawk log, and allocator events. A backup restores
+They deliberately **exclude** runtime/studio state (raised instances), the
+intercom's log, read cursors and channel memberships, and allocator events. A backup restores
 *who can reach what*, not *what is currently running*.
 
 ## Export

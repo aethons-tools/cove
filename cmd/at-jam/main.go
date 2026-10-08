@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	_ "time/tzdata" // IANA zones for role time zones, whatever the image ships
 
@@ -35,6 +36,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/intercom/intercompg"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -43,6 +45,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/condition"
+	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
@@ -77,16 +81,21 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
+			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list or remove projects (create|list|rm), or manage a project's roster (roster add-human|add-channel|list|rm-human|rm-channel), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
+			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
+			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
+			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
-			{Name: "roster", Brief: "list actors and their grants", Run: cmdRoster},
+			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
@@ -97,6 +106,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
+			{Name: "update", Brief: "update the cove installation (at-jam, at-cove, at-mint) to the latest release", Run: cmdUpdate(getenv)},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
@@ -325,6 +335,10 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		envKV = append(envKV, s)
 		return nil
 	})
+	fs.Func("allow-path", "path.Match pattern (after the route) the broker may forward; repeatable; none = any path", func(s string) error {
+		d.AllowPaths = append(d.AllowPaths, s)
+		return nil
+	})
 	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
 	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -370,6 +384,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			ob := ""
 			if len(dd.Env) > 0 {
 				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			}
+			if len(dd.AllowPaths) > 0 {
+				ob += fmt.Sprintf(", %d allow-paths", len(dd.AllowPaths))
 			}
 			if dd.Git {
 				ob += ", git"
@@ -431,7 +448,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	name := fs.String("name", "", "role name")
 	dests := fs.String("destinations", "", "comma-separated destination names, each optionally name=credential (the credential the broker injects; default: the destination's cred-name)")
-	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. human:*,channel:eng-help")
+	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. user:*,channel:eng-help (user:<name> or user:<usr_id>; human: is read as user:)")
 	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
 	kitName := fs.String("kit", "", "bind a registered kit (name)")
 	modelSpec := fs.String("model-spec", "", "bind a model-spec (name); empty = "+jam.DefaultModelSpec)
@@ -518,15 +535,16 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's roster (humans + channels), escalation
-// policy, or chat service via the admin API. Roster subcommands nest under
-// "roster": `project roster add-human|add-channel|list|rm-human|rm-channel`.
+// cmdProject manages a project's members, escalation policy, or chat service
+// via the admin API. Member subcommands nest under "member"
+// (cmdProjectMember): `project member add|list|rm`. (A project's channels
+// are rooms: cmdRoom.)
 // Escalation subcommands nest under "escalation" and are handled by
 // cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
 // subcommands nest under "chat-service" and are handled by
 // cmdProjectChatService: `project chat-service set|clear|show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm") {
+	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm" || args[0] == "rename") {
 		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
 	}
 	if len(args) >= 1 && args[0] == "escalation" {
@@ -535,124 +553,11 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "chat-service" {
 		return cmdProjectChatService(args[1:], stdout, stderr)
 	}
-	if len(args) < 2 || args[0] != "roster" {
-		fmt.Fprintln(stderr, "at-jam project: expected create|list|rm, roster add-human|add-channel|list|rm-human|rm-channel, escalation set|list|clear, or chat-service set|clear|show")
-		return 2
+	if len(args) >= 1 && args[0] == "member" {
+		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	sub, rest := args[1], args[2:]
-	fs := flag.NewFlagSet("project roster "+sub, flag.ContinueOnError)
-	app := fs.String("app", defaultApp, "settings/token profile")
-	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
-	name := fs.String("name", "", "roster-local name (add-human|add-channel)")
-	handle := fs.String("handle", "", "tracker @-mention handle (add-human)")
-	login := fs.String("login", "", "link the human to their admin login: the operator identity (OIDC sub, or \"local\" on loopback) (add-human)")
-	ref := fs.String("ref", "", "tracker issue identifier the channel posts to (add-channel)")
-	service := fs.String("service", "linear", "channel service (add-channel)")
-	var delivery multiFlag
-	fs.Var(&delivery, "delivery", "per-service delivery target, `service:address[:user-id]` (repeatable, add-human), e.g. discord:<inbox-channel-id>:<your-discord-user-id>; the user id (discord only) binds the human to their Discord account")
-	var oidc multiFlag
-	fs.Var(&oidc, "oidc", "OIDC identity binding, `issuer:subject` (repeatable, add-human); binds a browser OIDC subject to this roster human. issuer and subject must be non-empty; issuer may itself contain colons (a URL), the subject is the text after the final colon")
-	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
-	if !ok {
-		return code
-	}
-	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-jam project:", err)
-		return 2
-	}
-	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
-	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
-	switch sub {
-	case "add-human":
-		if len(pos) != 1 || *name == "" || *handle == "" {
-			fmt.Fprintln(stderr, "at-jam project roster add-human: expected <project> --name and --handle")
-			return 2
-		}
-		var profiles []jam.DeliveryProfile
-		for _, d := range delivery {
-			p, err := jam.ParseDeliverySpec(d)
-			if err != nil {
-				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --delivery %q: %v\n", d, err)
-				return 2
-			}
-			profiles = append(profiles, p)
-		}
-		var identities []jam.OIDCIdentity
-		for _, o := range oidc {
-			id, err := jam.ParseOIDCSpec(o)
-			if err != nil {
-				fmt.Fprintf(stderr, "at-jam project roster add-human: invalid --oidc %q: %v\n", o, err)
-				return 2
-			}
-			identities = append(identities, id)
-		}
-		if err := c.AddHuman(pos[0], jam.Human{Name: *name, Handle: *handle, Login: *login, Delivery: profiles, Identity: identities}); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added human", *name, "to", pos[0])
-	case "add-channel":
-		if len(pos) != 1 || *name == "" || *ref == "" {
-			fmt.Fprintln(stderr, "at-jam project roster add-channel: expected <project> --name and --ref")
-			return 2
-		}
-		if err := c.AddChannel(pos[0], jam.Channel{Name: *name, Service: *service, Ref: *ref}); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added channel", *name, "to", pos[0])
-	case "list":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "at-jam project roster list: expected one project name")
-			return 2
-		}
-		rr, err := c.GetRoster(pos[0])
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		for _, h := range rr.Humans {
-			line := fmt.Sprintf("human\t%s\thandle=%s", h.Name, h.Handle)
-			if h.Login != "" {
-				line += "\tlogin=" + h.Login
-			}
-			if d, ok := h.DeliveryFor("discord"); ok && d.UserID != "" {
-				line += "\tdiscord-user=" + d.UserID
-			}
-			for _, id := range h.Identity {
-				line += "\toidc=" + id.Issuer + ":" + id.Subject
-			}
-			fmt.Fprintln(stdout, line)
-		}
-		for _, ch := range rr.Channels {
-			fmt.Fprintf(stdout, "channel\t%s\tservice=%s\tref=%s\n", ch.Name, ch.Service, ch.Ref)
-		}
-	case "rm-human":
-		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-jam project roster rm-human: expected <project> <name>")
-			return 2
-		}
-		if err := c.RemoveHuman(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed human", pos[1], "from", pos[0])
-	case "rm-channel":
-		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "at-jam project roster rm-channel: expected <project> <name>")
-			return 2
-		}
-		if err := c.RemoveChannel(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed channel", pos[1], "from", pos[0])
-	default:
-		fmt.Fprintln(stderr, "at-jam project roster: unknown subcommand", sub)
-		return 2
-	}
-	return 0
+	fmt.Fprintln(stderr, "at-jam project: expected create|list|rename|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: at-jam room)")
+	return 2
 }
 
 // cmdProjectEscalation manages a project's escalation policy via the admin
@@ -743,10 +648,13 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	if !ok {
 		return code
 	}
-	if want := map[string]int{"create": 1, "list": 0, "rm": 1}[sub]; len(pos) != want {
-		if want == 1 {
+	if want := map[string]int{"create": 1, "list": 0, "rm": 1, "rename": 2}[sub]; len(pos) != want {
+		switch want {
+		case 2:
+			fmt.Fprintf(stderr, "at-jam project %s: expected <project> <new-name>\n", sub)
+		case 1:
 			fmt.Fprintf(stderr, "at-jam project %s: expected <project>\n", sub)
-		} else {
+		default:
 			fmt.Fprintf(stderr, "at-jam project %s: unexpected arguments\n", sub)
 		}
 		return 2
@@ -770,6 +678,12 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed project", pos[0])
+	case "rename":
+		if err := c.RenameProject(pos[0], pos[1]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "renamed project", pos[0], "to", pos[1])
 	case "list":
 		names, err := c.ListProjects()
 		if err != nil {
@@ -1102,7 +1016,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "raised %s (phase=%s)\n", res.ID, res.Phase)
+		fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
@@ -1110,8 +1024,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, cv := range coves {
-			fmt.Fprintf(stdout, "%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
-				cv.ID, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
+			fmt.Fprintf(stdout, "%s\tname=%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
+				cv.ID, cv.Name, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
 		}
 	case "status":
 		if *id == "" || *activity == "" {
@@ -1145,7 +1059,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // cmdSession requests, lists and releases the caller's personal sessions. The
-// caller is the roster human linked (`project roster add-human --login`) to the
+// caller is the project member whose user holds the login (`user add --login`) of the
 // operator identity the admin API authenticates.
 func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -1270,7 +1184,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "declared standing session %s/%s/%s (%s)\n", proj, *role, *name, jam.StandingActorID(proj, *role, *name))
+		fmt.Fprintf(stdout, "declared standing session %s/%s/%s\n", proj, *role, *name)
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
@@ -1288,8 +1202,11 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			running[cv.ID] = cv
 		}
 		for _, s := range list {
-			id := jam.StandingActorID(proj, *role, s.Name)
+			id := s.SessionID
 			phase, image := "-", "-" // no studio running for this name
+			if id == "" {
+				id = "-" // never raised: no session yet
+			}
 			if cv, ok := running[id]; ok {
 				phase, image = cv.Phase, imageOrUnknown(cv.Image)
 			}
@@ -1390,7 +1307,14 @@ func waitStandingUpgrade(c *adminclient.Client, proj, role, name string, timeout
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	id := jam.StandingActorID(proj, role, name)
+	var id string
+	if list, err := c.ListStanding(proj, role); err == nil {
+		for _, s := range list {
+			if s.Name == name {
+				id = s.SessionID
+			}
+		}
+	}
 	phase, image := "-", "-"
 	for _, cv := range coves {
 		if cv.ID == id {
@@ -1562,8 +1486,8 @@ func grantCommon(args []string, stdout, stderr io.Writer, remove bool) int {
 	return 0
 }
 
-func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("roster", flag.ContinueOnError)
+func cmdActors(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("actors", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
@@ -1572,15 +1496,15 @@ func cmdRoster(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err := validateApp(*app); err != nil {
-		fmt.Fprintln(stderr, "at-jam roster:", err)
+		fmt.Fprintln(stderr, "at-jam actors:", err)
 		return 2
 	}
 	if len(pos) > 0 {
-		fmt.Fprintln(stderr, "at-jam roster: takes no positional arguments")
+		fmt.Fprintln(stderr, "at-jam actors: takes no positional arguments")
 		return 2
 	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
-	roster, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Roster()
+	roster, err := adminclient.New(adminURL, resolveToken(*app, *token, stderr)).Actors()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1619,21 +1543,6 @@ func (placeholderLauncher) ApplyEgress(context.Context, jam.Instance, *jam.Egres
 // so the supervisor never asks it to prepare a kit.
 func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
 	return jam.KitStatus{State: jam.KitReady}, nil
-}
-
-// linearCommenter adapts *linear.Client to escalate.Pinger (the escalation
-// engine's ticket-comment capability). It exists here, rather than in
-// internal/jam, so Jam core never imports internal/dispatch/linear or
-// internal/dispatch/scheduler (see AGENTS.md boundary rules): the concrete
-// tracker type is a wiring-layer concern.
-type linearCommenter struct{ c *linear.Client }
-
-func (l linearCommenter) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
-	return l.c.IssueByIdentifier(ctx, identifier)
-}
-
-func (l linearCommenter) PostComment(ctx context.Context, issueID, body string) error {
-	return l.c.PostComment(ctx, issueID, body)
 }
 
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
@@ -1692,7 +1601,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateDisplayName(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validateWake(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	if err := cfg.validateMetrics(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
@@ -1768,7 +1685,32 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
-	base := jam.NewSecretResolver(runner.OS{}, specs)
+	// Operator-attention conditions (docs/usage/jam/monitoring.md): persisted
+	// alongside the store; a load failure starts empty rather than failing serve.
+	condStore, err := conditionpg.New(context.Background(), pgPool, log)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam: conditions store:", err)
+		return 1
+	}
+	conds := condition.New(condition.Options{Persister: condStore, Log: log})
+	if err := conds.Load(context.Background()); err != nil {
+		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
+	}
+	clearStaleCredConditions(conds, cfg.credNames())
+	go conds.Run(context.Background(), 5*time.Second)
+
+	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
+	if names := cfg.gcpCredentials(); len(names) > 0 {
+		// exchange: gcp — the supplied Google credentials JSON stays on this host;
+		// destinations get short-lived access tokens, refreshed on demand.
+		gcp := jam.NewGCPTokenResolver(base, names, log)
+		if err := gcp.Load(); err != nil {
+			fmt.Fprintln(stderr, "at-jam: credentials:", err)
+			return 1
+		}
+		base = gcp
+		log.Info("GCP token exchange enabled", "creds", names) // names only
+	}
 	var creds jam.CredResolver = base
 	if cfg.Pool != nil {
 		poolStore, err := jam.NewFilePoolStore(cfg.Pool.Store)
@@ -1781,11 +1723,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		interval, margin, _ := cfg.poolDurations() // validated above
 		refresher := jam.NewRefresher(poolStore, jam.RefresherOptions{
 			TokenURL: cfg.Pool.TokenURL, ClientID: cfg.Pool.ClientID, Scope: cfg.Pool.Scope,
-			Margin: margin, Log: log,
+			Margin: margin, Log: log, Conditions: conds,
 		})
 		go refresher.Run(context.Background(), interval)
 		log.Info("Jam subscription pool enabled", "store", cfg.Pool.Store, "cred", cfg.Pool.CredName) // never tokens
 	}
+	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
 
 	ttl, reconcile, err := cfg.runtimeDurations()
@@ -1797,11 +1740,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var defaultRef jam.KitRef
 	var haveDefaultKit bool
 	if lc := cfg.Runtime.Launcher; lc != nil {
-		be, ok := colima.New(runner.OS{}).(launcher.Backend) // colima.New returns backend.Backend; *Colima also satisfies DispatchOps+GetStatus
-		if !ok {
-			fmt.Fprintln(stderr, "at-jam: colima backend does not satisfy launcher.Backend")
-			return 1
-		}
+		// docker-context picks the colima instance (profile) studios run in.
+		var be launcher.Backend = colima.NewWithContext(runner.OS{}, lc.DockerContext)
 		// The launcher builds each studio kit's image on demand, so it needs the
 		// public half of the SSH identity to bake into the image's authorized_keys
 		// (the same key at-cove install baked; its private half is IdentityFile). No
@@ -1852,21 +1792,34 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
-	// Message Log: opened once (handle held for the serve lifetime) and shared
-	// between the /squawks writer (dual-write shadow, below) and the admin UI's
-	// read-only reader (further down). Postgres (the shared control-plane pool).
-	ml, err := intercompg.New(context.Background(), pgPool, log)
+	// The intercom's channel log, opened once for the serve lifetime in the
+	// shared control-plane Postgres; it continues the frozen legacy log (ml),
+	// which inboxes and the UIs' History still read.
+	pglog, err := intercompg.New(context.Background(), pgPool, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam: message log (postgres):", err)
 		return 1
 	}
-	var intercomLog intercom.Store = ml // Close is a no-op; the store owns the pool
+	ml := pglog.Legacy()
 	log.Info("Jam message log: postgres (shared control-plane database)")
-	// Every writer (agent send, relay ingress, /me/send, escalation) shares this
-	// one handle, so wrapping it lets live views (/me/events) see each append.
-	logChanges := intercom.NewNotifier(intercomLog)
-	intercomLog = logChanges
-	sup.SetTailReader(intercomLog)
+	// Every writer (agent send, relay ingress, /me/send, Jam's notices) shares
+	// this one handle, so wrapping it lets live views (/me/events) see each append.
+	logChanges := intercom.NewNotifier(pglog)
+	var chlog intercom.Store = logChanges
+	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
+	// Sessions follow their tickets' channels (intercom slice 2a); ticket
+	// channels key on the requisitioner's tracker connection, resolved below
+	// (until then, or with no requisitioner, the linear connection if any).
+	var trackerConn atomic.Value // ident.ID
+	icTracker := func() (ident.ID, bool) {
+		if id, ok := trackerConn.Load().(ident.ID); ok {
+			return id, true
+		}
+		c, ok := st.ConnectionOfKind("linear")
+		return c.ID, ok
+	}
+	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
+	sup.SetSessionChannels(ic)
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
@@ -1876,6 +1829,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	log.Info("Jam session events: postgres (shared control-plane database)")
+	// Events recorded before they carried ids get them from their labels
+	// (1b-2b), in the background: it never holds up serving.
+	go func(projects, owners map[string]string) {
+		if n, err := sessStore.BackfillIDs(context.Background(), projects, owners); err != nil {
+			log.Warn("session events: backfilling project/owner ids failed", "err", err.Error())
+		} else if n > 0 {
+			log.Info("session events: backfilled project/owner ids", "rows", n)
+		}
+	}(ledgerRefs(st))
 	sessHub := sessionevents.NewHub()
 	// Derived per-session status for /me's presence strip, fed by every event.
 	sessPresence := sessionevents.NewPresence(nil)
@@ -1907,9 +1869,28 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		// Streams are keyed by project id and personal owners by user id
+		// (1b-2a): re-key what an older Jam recorded by name, before any grant.
+		projects, owners := ledgerRefs(st)
+		if n, err := as.RewriteRefs(context.Background(), projects, owners, personalOwners(st)); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		} else if n > 0 {
+			log.Info("allocator: re-keyed ledger events by project and user id", "rows", n)
+		}
 		ledger = as
 	}
-	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner), ledger)
+	var reqProject string // the Requisitioner's project, by id
+	if cfg.Runtime.Requisitioner != nil {
+		reqProject = resolveRequisitionerProject(st, cfg.Runtime.Requisitioner, log)
+	}
+	alloc := allocator.New(jam.InstanceCounter{Store: st}, newRosterPolicy(st, cfg.Runtime.Requisitioner, reqProject), ledger)
+	alloc.SetProjectKey(func(ref string) string {
+		if id, ok := jam.ProjectIDOf(st, ref); ok {
+			return string(id)
+		}
+		return ref
+	})
 	alloc.SetLogger(log)
 	sup.SetReleaser(alloc) // actual-state-out: teardown records ReservationReleased (frees the slot)
 	// Reconcile sweep (slice 5): with the authoritative ledger, a crash between a
@@ -1953,7 +1934,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, intercomLog, dc != nil, tickets, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
+	if cfg.Metrics != nil {
+		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: metrics.token-cred:", err)
+			return 1
+		}
+		httpHandler = withMetrics(httpHandler, condition.MetricsHandler(conds, tok[cfg.Metrics.TokenCred], func() []condition.Gauge {
+			return []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
+		}))
+		log.Info("Jam metrics: mounted", "path", "/metrics") // never the token
+	}
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
@@ -1962,12 +1954,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// idle ladder (nag the owner, optionally reclaim). Resident for the lifetime
 	// of the process. Settings: runtime.wake > runtime.requisitioner > defaults.
 	wcfg := cfg.wakeSettings()
-	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, intercomLog /*Inbox*/, wcfg, log)
+	eng := wakeon.New(st, rsrv /*ControlSink Waker*/, sup /*Reaper*/, sup /*Idler*/, jam.SessionInbox{Log: chlog, Legacy: ml} /*Inbox*/, wcfg, log)
 	// Personal-session idle ladder: nag the owner past the role's idle-after
 	// (squawks sent as the cove, delivered by the relay), optionally reclaim
 	// past reclaim-after.
-	nagger := intercomNagger{log: intercomLog, roster: st}
+	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
+	// Sessions wake sessions (intercom slice 3c), with the loop breaker:
+	// past runtime.wake.session-wake-limit session posts in a row in a
+	// channel, they stop waking until a person posts there (0: never wake).
+	if limit := cfg.sessionWakeLimit(); limit > 0 {
+		eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, limit)
+	}
+
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
 	eng.SetRunningWake(sup /*Cursor*/)
@@ -1986,7 +1985,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st, log: log}
+	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker}
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord {
@@ -2003,20 +2002,49 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
 			return 1
 		}
+		// Cursors are kept by project id (1b-2b); one stored by name is re-keyed.
+		if err := relayCursors.keyedBy(func(ref string) string {
+			if id, ok := jam.ProjectIDOf(st, ref); ok {
+				return string(id)
+			}
+			return ref
+		}); err != nil {
+			fmt.Fprintln(stderr, "at-jam: relay cursors:", err)
+			return 1
+		}
 		if relayMarkers, err = newFileMarkers(markersPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay markers:", err)
 			return 1
+		}
+		// The relays render only the channel log: a mark still in the legacy
+		// log moves to the cutover (see intercom.md, the cutover).
+		for _, service := range []string{"linear", "discord"} {
+			skipped, err := relayMarkers.settleCutover(service, chlog.CutoverSeq(), chlog.SeqOf)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: relay markers:", err)
+				return 1
+			}
+			if skipped > 0 {
+				log.Warn("relay: legacy squawks not yet delivered at the cutover are skipped", "service", service, "seqs", skipped)
+			}
 		}
 	}
 	var discordReceipts *fileReceipts
 	if runDiscord {
 		_, _, receiptsPath := relayStatePaths(stateDir)
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Runtime.Discord.BotTokenCred]})
+		dconn, dcred, err := resolveServeConnection(st, "runtime.discord", "discord", cfg.Runtime.Discord.Connection, cfg.Runtime.Discord.BotTokenCred, cfg.Credentials)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: discord bot-token:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		discordTok = tokEnv[cfg.Runtime.Discord.BotTokenCred]
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[dcred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: discord connection credential:", err)
+			return 1
+		}
+		discordTok = tokEnv[dcred]
+		log.Info("Jam relay (discord): connection", "connection", dconn.Name, "id", dconn.ID)
+		dir.discord = dconn.ID
 		if discordReceipts, err = newFileReceipts(receiptsPath); err != nil {
 			fmt.Fprintln(stderr, "at-jam: relay receipts:", err)
 			return 1
@@ -2026,12 +2054,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	if dc != nil {
 		// Resolve Jam's own tracker token (never injected into a cove, never logged).
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[dc.TrackerTokenCred]})
+		lconn, lcred, err := resolveServeConnection(st, "runtime.requisitioner", "linear", dc.Connection, dc.TrackerTokenCred, cfg.Credentials)
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: requisitioner tracker-token:", err)
+			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		token := tokEnv[dc.TrackerTokenCred]
+		trackerConn.Store(lconn.ID)
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[lcred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: requisitioner connection credential:", err)
+			return 1
+		}
+		token := tokEnv[lcred]
+		log.Info("requisitioner: connection", "connection", lconn.Name, "id", lconn.ID)
 		// linear.New wants a full kit.Config; wrap the configured LinearTracker.
 		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
 		tracker, err := linear.New(kitShell, token, nil)
@@ -2042,7 +2077,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → Requisitioner default
 		// The Requisitioner's (project, role), normalized the same way as the
 		// Allocator's fallback (see requisitionerProject).
-		project := requisitionerProject(dc)
+		project := reqProject
 		if r, ok := st.GetRole(project, dc.Role); ok && r.Allocation.MaxEphemeral > 0 && r.Allocation.MaxEphemeral != dc.MaxConcurrent {
 			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
@@ -2054,19 +2089,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		go disp.Run(context.Background())
 		log.Info("requisitioner: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// Escalation engine: while a managed cove is Waiting on a ticket, pings
-		// ordered human tiers of its Project escalation policy on per-tier timers
-		// by @-mentioning them on the cove's own ticket. Reply-detection, waking,
-		// and max-wait teardown stay wake-on's job (above); the two engines
-		// share only the Instance.Activity==Waiting gate. Resident for the
-		// lifetime of the process.
-		epoll, _ := time.ParseDuration(dc.EscalationPollInterval) // "" or invalid → 0 → engine default
-		eeng := escalate.New(st /*Registry*/, st /*Projects*/, sup /*State*/, linearCommenter{tracker} /*Pinger*/, escalate.Config{PollInterval: epoll}, log)
-		go eeng.Run(context.Background())
-		log.Info("Jam escalation engine: resident", "poll-interval", epoll)
-
 		// relay linear engine: polls the team-scoped comments feed and
-		// appends inbound human replies to the intercomLog opened above
+		// posts inbound replies into the channel log opened above
 		// (ingress), and delivers outbound Log messages to Linear (egress,
 		// COV-176 Task 4) — the Log is the single source of truth for both
 		// directions.
@@ -2074,7 +2098,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if err != nil {
 			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
 		}
-		dir.project = firstNonEmpty(dc.Project, jam.DefaultProject)
+		dir.project = reqProject // by id: the relays' cursors and polling outlive a rename
 		dir.selfIdentity = self
 		surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
 		// Seed once: skip everything the 1a dual-write already delivered live,
@@ -2086,16 +2110,35 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// low-water as LastMsg, a string) upgrading in place — see
 		// fileMarkers.needsSeed.
 		if relayMarkers.needsSeed("linear") {
-			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
 				return 1
 			}
 		}
-		eng := relay.New(surf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go eng.Run(context.Background())
 		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
 
 	}
+	// Every live session gets its home channel — a ticket session its ticket
+	// channel, bound to the issue on the tracker connection resolved above —
+	// so replies have somewhere to land before it sends.
+	if err := ic.Reconcile(); err != nil {
+		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
+	}
+
+	// Escalation engine (intercom slice 4), started once the tracker
+	// connection is resolved and live sessions have their home channels
+	// (above): while a session is Waiting and has asked for a person, calls
+	// ordered tiers of its Project's escalation policy into its home channel
+	// on per-tier timers; the relays deliver the notice (a ticket's issue
+	// @-mentions the tier). Reply-detection, waking and teardown stay
+	// wake-on's job. Runs with or without a Requisitioner.
+	epoll := cfg.escalationPollInterval()
+	eeng := escalate.New(st /*Registry*/, jam.ProjectMembers{Store: st} /*Projects*/, sup /*State*/, ic /*Caller*/, escalate.Config{PollInterval: epoll}, log)
+	go eeng.Run(context.Background())
+	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
+
 	// relay discord engine: a resident engine over the same Log, markers file,
 	// cursors, and directory as the Linear one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for
@@ -2113,12 +2156,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log:         log,
 		}
 		if relayMarkers.needsSeed("discord") { // seed: don't re-deliver the backlog to Discord (see needsSeed doc)
-			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(intercomLog)}); err != nil {
+			if err := relayMarkers.SetEgress("discord", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: discord egress seed:", err)
 				return 1
 			}
 		}
-		deng := relay.New(dsurf, intercomLog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		deng := relay.New(dsurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go deng.Run(context.Background())
 		log.Info("Jam relay (discord): resident, egress ON")
 	}
@@ -2163,7 +2206,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
 		// read-only reader.
-		var squawkReader adminui.SquawkReader = intercomLog
+		squawkReader := adminui.NewSquawkReader(st, ic, chlog, ml)
 
 		uiMux := http.NewServeMux()
 		gate := browserauth.Gate{
@@ -2173,13 +2216,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Log:           log,
 		}
 		// dev-identity (DEV ONLY; parse refuses it off-loopback): loopback
-		// requests act as one roster human with no login, on /ui and /me.
+		// requests act as one user with no login, on /ui and /me.
 		var dev *browserauth.DevIdentity
 		if d := cfg.DevIdentity; d != nil {
-			dev = &browserauth.DevIdentity{Store: st, Project: d.Project, Human: d.Human}
+			dev = &browserauth.DevIdentity{Store: st, User: d.User, LegacyProject: d.DeprecatedProject, LegacyHuman: d.DeprecatedHuman}
 			gate.LoopbackTrust = dev.OperatorLoopbackTrust()
-			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a roster human with no login; never use in production",
-				"project", d.Project, "human", d.Human)
+			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
+				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
 		}
 
 		// Participant intercom plane (/me): mapped to a roster human (no operator
@@ -2230,21 +2273,24 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// It writes to the same intercom Log the agent send + relay ingress
 			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
-			sendH := jam.NewParticipantSendHandler(st, intercomLog, log)
+			sendH := jam.NewParticipantSendHandler(st, ic, log)
 			meSurface.Handle("/me/send", sendH)
-			// The inbox reads the same intercom Log.
-			var meLog jam.LogReader = intercomLog
+			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(st, meLog, log, meOpts...))
-			meMux.Handle("/me/", meGate.Wrap(meSurface))
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
+			// Writes (/me/send, /me/read, /me/join|leave|call-in) must come from
+			// the page itself: the session cookie alone (SameSite=Lax) lets a
+			// sibling subdomain post as the user.
+			meMux.Handle("/me/", meGate.Wrap(browserauth.RequireSameOrigin(cfg.UIOrigins, meSurface)))
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil))))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)))))
 
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
+			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
 		go func() {
 			if cfg.adminUsesTLS() {
@@ -2287,7 +2333,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // logTailSeq returns the Seq of the last (newest) message in lg, or 0 when
 // the Log is empty. Used to seed the egress low-water at cutover so already-
 // delivered shadow history is skipped.
-func logTailSeq(lg intercom.Store) int64 {
+func logTailSeq(lg interface{ TailSeq() (int64, bool) }) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
 }

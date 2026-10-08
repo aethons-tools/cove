@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/switchboard"
 )
@@ -49,7 +50,7 @@ func (s *discordSurface) Deliver(ctx context.Context, d relay.Delivery, m interc
 		return "", fmt.Errorf("discord deliver: post to %q: %w", d.Address, err)
 	}
 	if id != "" {
-		if err := s.receipts.Record(id, m.From.Ref, m.ID); err != nil {
+		if err := s.receipts.Record(id, string(m.From), m.ID, string(m.Channel)); err != nil {
 			// warn only (no body/token); a lost receipt only means a future
 			// reply to THIS message won't route — never a double-post.
 			if s.log != nil {
@@ -123,45 +124,47 @@ func encodeCursors(m map[string]string) string {
 	return string(data)
 }
 
-// discordPolledChannels returns the distinct non-empty discord channel ids the
-// discord engine's ingress polls for replies: each roster human's discord
-// delivery (inbox) channel AND each roster channel whose Service is "discord"
-// (its Ref). Without the latter, a reply to a `channel:<name>` send would never
-// be seen — egress posts to the channel but ingress never polls it.
-func discordPolledChannels(store instanceRoster, project string) []string {
-	r, ok := store.GetRoster(project)
+// discordPolledChannels returns the distinct Discord channels the discord
+// relay polls for a project: each member's inbox and each room's channel on
+// a discord connection. Without the rooms, a reply in a room's channel would
+// never be seen.
+func discordPolledChannels(store jam.Store, project string) []string {
+	p, ok := store.GetProject(project)
 	if !ok {
 		return nil
 	}
 	seen := map[string]bool{}
 	var out []string
 	add := func(id string) {
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	for _, h := range r.Humans {
-		if p, ok := h.DeliveryFor("discord"); ok {
-			add(p.Address)
+		if id != "" && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
 		}
 	}
-	for _, c := range r.Channels {
-		if c.Service == "discord" {
-			add(c.Ref)
+	for _, m := range jam.MembersOf(store, p.ID) {
+		if inbox, ok := m.Inbox("discord"); ok {
+			add(inbox)
+		}
+	}
+	for _, ch := range store.ListChannels(p.ID, jam.SourceRoom) {
+		for _, b := range ch.Bindings {
+			if c, ok := store.GetConnection(b.ConnectionID); ok && c.Kind == "discord" {
+				add(b.Ref)
+			}
 		}
 	}
 	return out
 }
 
-// receipt is what Jam remembers about one message it posted to Discord:
-// the sending cove (so a reply routes back to it) and the posted squawk's id
-// (so the reply's ReplyTo names the message it answers). Message is "" for a
-// legacy receipt written before receipts carried it.
+// receipt is what Jam remembers about one message it posted to Discord: the
+// channel it was in (a reply joins that conversation), the posted squawk's id
+// (the reply's ReplyTo) and its author. A receipt from before the channel log
+// has no Channel (and maybe no Message): its reply goes to the author
+// session's default channel while that session lives.
 type receipt struct {
 	Actor   string `json:"actor"`
 	Message string `json:"message,omitempty"`
+	Channel string `json:"channel,omitempty"`
 }
 
 // UnmarshalJSON accepts both the current object form and the legacy bare
@@ -215,12 +218,12 @@ func newFileReceipts(path string) (*fileReceipts, error) {
 	return r, nil
 }
 
-// Record associates discordMsgID with the sending actor and the posted
-// squawk's id, and persists the store.
-func (r *fileReceipts) Record(discordMsgID, actorID, messageID string) error {
+// Record associates discordMsgID with the posted squawk (its author, id and
+// channel), and persists the store.
+func (r *fileReceipts) Record(discordMsgID, author, messageID, channel string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.m[discordMsgID] = receipt{Actor: actorID, Message: messageID}
+	r.m[discordMsgID] = receipt{Actor: author, Message: messageID, Channel: channel}
 	data, err := json.MarshalIndent(r.m, "", "  ")
 	if err != nil {
 		return err

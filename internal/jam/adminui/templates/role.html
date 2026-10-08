@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
 <div class="page-head"><h1>Role not found</h1></div>
-<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="/ui/roles">Back to roles</a></div>
+<div class="banner">No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>. <a href="{{.RolesHref}}">Back to roles</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -31,7 +31,7 @@
   .form-actions .left{margin-right:auto}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/projects">Projects</a> / <a href="{{projectURL .Project}}">{{.Project}}</a> / <a href="/ui/roles">Roles</a></div>
+{{template "crumbs" .Crumbs}}
 {{template "role-body" .}}
 {{end}}
 {{end}}
@@ -39,22 +39,22 @@
 {{/* role-body is the swappable part of the role page: every section write
      answers with it re-rendered. */}}
 {{define "role-body"}}
-{{$base := printf "/ui/roles/%s/%s" .Project .Name}}
+{{$base := .WriteBase}}
 <div id="role">
 <div class="page-head">
   <h1>{{.Name}}</h1>
   <div class="facts">
     <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
-    {{if .Role.Kit}}<span>kit <a class="chip accent" href="/ui/kits">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
+    {{if .Role.Kit}}<span>kit <a class="chip accent" href="{{kitURL .Role.Kit}}">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
     <span>model-spec <a class="chip" href="/ui/model-specs/{{.Role.ModelSpecName}}">{{.Role.ModelSpecName}}</a>{{if not .Role.ModelSpec}} <span class="unset">default</span>{{end}}</span>
     <span>TTL {{ttl .Role.Scope.TTL}}</span>
   </div>
   <span class="spacer"></span>
   {{if .CanRequest}}<button class="primary" hx-post="{{$base}}/request" hx-target="#flash" hx-swap="innerHTML"
-      title="Raise a personal session of this role for you">Request session</button>{{end}}
+      title="Raise a personal agent of this role for you">Request agent</button>{{end}}
   <button class="danger" hx-delete="{{$base}}" hx-swap="none"
       hx-confirm="Delete role {{.Name}} from {{.Project}}?"
-      hx-on::after-request="if(event.detail.successful) location.href='/ui/roles'">Delete</button>
+      hx-on::after-request="if(event.detail.successful) location.href='{{.RolesHref}}'">Delete</button>
 </div>
 
 <div class="sections">
@@ -122,7 +122,7 @@
   {{template "context-panel" .Context}}
 
   <section class="card">
-    <header><h2>Allocation</h2><span class="sub">session caps and the personal-session idle ladder</span></header>
+    <header><h2>Allocation</h2><span class="sub">agent caps and the personal-agent idle ladder</span></header>
     <div class="body">
       <dl class="kv">
         {{range .Allocation}}<dt>{{.Label}}</dt><dd{{if .Unset}} class="unset"{{end}}>{{.Value}}</dd>{{end}}
@@ -146,29 +146,29 @@
   </section>
 
   <section class="card full">
-    <header><h2>Standing sessions</h2><span class="sub">kept running, one studio per name</span></header>
+    <header><h2>Standing agents</h2><span class="sub">kept running, one per name</span></header>
     <table>
-      <thead><tr><th>Name</th><th>Prompt</th><th>Studio</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Prompt</th><th>Agent</th><th></th></tr></thead>
       <tbody>
         {{range .Standing}}
         <tr data-id="{{.Name}}">
           <td><span class="mono">{{.Name}}</span></td>
           <td class="prompt">{{.Prompt}}</td>
-          <td>{{if .Phase}}{{template "phase" .Phase}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}}{{if .Upgrade}} <span class="pill phase-raising" title="pending upgrade (Jam restarts it on the current image once ready and idle)">upgrade: {{.Upgrade}}</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
+          <td>{{if .Phase}}{{template "status" (statusOf .Phase .Activity true)}}{{if eq .Image "stale"}} <span class="pill phase-raising" title="raised on an older image than this role would run now">image stale</span>{{end}}{{else}}<span class="unset">not running</span>{{end}}{{if .Upgrade}} <span class="pill phase-raising" title="pending upgrade (Jam restarts it on the current image once ready and idle)">upgrade: {{.Upgrade}}</span>{{end}} <span class="mono unset">{{.ActorID}}</span></td>
           <td class="actions">{{if $.CanRequest}}<button class="small{{if eq .Image "stale"}} primary{{end}}" hx-post="{{$base}}/standing/{{.Name}}/upgrade" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Upgrade standing session {{.Name}}? Its studio is restarted on the current image; its conversation and workspace are kept.">Upgrade</button>
+              hx-confirm="Upgrade standing agent {{.Name}}? It restarts on the current image; its conversation and workspace are kept.">Upgrade</button>
             <button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Reset standing session {{.Name}}? Its studio, conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
+              hx-confirm="Reset standing agent {{.Name}}? Its conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
             <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Dismiss standing session {{.Name}}? Its studio, conversation and workspace are deleted.">Dismiss</button></td>
+              hx-confirm="Dismiss standing agent {{.Name}}? It stops, and its conversation and workspace are deleted.">Dismiss</button></td>
         </tr>
         {{else}}
-        <tr><td colspan="4" class="empty">No standing sessions.</td></tr>
+        <tr><td colspan="4" class="empty">No standing agents.</td></tr>
         {{end}}
       </tbody>
     </table>
     <details class="edit">
-      <summary>Declare standing session</summary>
+      <summary>Declare standing agent</summary>
       <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML">
         <div class="grid">
           <label>Name <span class="req">required</span><input name="name" required></label>
@@ -180,14 +180,14 @@
   </section>
 
   <section class="card">
-    <header><h2>Holders</h2><span class="sub">actors granted this role — manage grants on the <a href="/ui/roster">Roster</a></span></header>
+    <header><h2>Holders</h2><span class="sub">agents granted this role — open one to manage its grants</span></header>
     <div class="body">
-      {{range .Holders}}<span class="chip">{{.ID}}{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No actors hold this role.</span>{{end}}
+      {{range .Holders}}<span class="chip"><a href="{{agentHref .ID ""}}" style="color:inherit">{{.ID}}</a>{{if .Override}} <span class="unset" title="This grant overrides part of the role's scope">override</span>{{end}}</span>{{else}}<span class="unset">No agents hold this role.</span>{{end}}
     </div>
   </section>
 
   <section class="card full">
-    <header><h2>Studios</h2><span class="sub">running studios of this role</span></header>
+    <header><h2>Running</h2><span class="sub">this role's running agents</span></header>
     {{template "coves-tbl" .}}
   </section>
 </div>

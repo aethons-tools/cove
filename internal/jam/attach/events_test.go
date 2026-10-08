@@ -2,11 +2,12 @@ package attach
 
 import (
 	"errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"sync"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"

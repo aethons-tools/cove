@@ -1,11 +1,12 @@
 package install
 
 import (
-	"github.com/aethons-tools/cove/internal/assemble"
 	"os"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+
+	"github.com/aethons-tools/cove/internal/assemble"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 )

@@ -1,25 +1,28 @@
 ---
-summary: The intercom MCP — Jam-brokered read/commit/send/list_targets/escalate tools a managed studio's agent uses to converse on its own Linear ticket (and, via an addressed target, elsewhere). Tokens stay in Jam; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
+summary: The intercom MCP — Jam-brokered read/commit/send/list_targets/escalate tools a managed studio's agent uses to converse in channels (its ticket's, a chat, a room) on the channel log. Tokens stay in Jam; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
 read_when: You want a raised studio's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating Jam `/squawks` endpoint and its cove-side MCP delivery, tuning wake-on (`runtime.wake`), or running the intercom on a Jam with no Requisitioner.
-owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
-prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to its owner; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
+owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
+prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-07
 ---
 
 # The intercom MCP
 
 A managed studio's agent gets **Jam-brokered** tools — `read`, `send`,
-`list_targets`, and `escalate` — centered on **its own Linear ticket**. Jam holds the tracker token, does the platform I/O, and attributes the sender; the studio never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
+`list_targets`, and `escalate` — over Jam's **channel log**: every squawk is in
+one channel (a ticket's conversation, a session's own channel, a chat with people, a room) and reaches
+that channel's members. Jam holds the tracker token, does the platform I/O, and attributes the sender; the studio never holds a channel token, exactly like the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
 
 ## What the tools do
 
-- **`send(text, to?, content_type?)`** — appends the squawk to Jam's durable squawk Log and returns; a resident egress loop delivers it to Linear shortly after (see [Enabling it](#enabling-it) below for the async delivery contract). With no `to`, it goes to the studio's **default recipient**: its own ticket when it has one (the original, unchanged addressing); for a ticketless [personal session](personal-sessions.md), its owner (`human:<owner>`); with neither (e.g. a [standing session](standing-sessions.md#messaging)), the send answers `400 no default recipient: pass "to"`. With a `to`, it addresses a human or channel from the Project roster instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it). The body is markdown unless `content_type` opts out; see [Content type](#content-type-markdown-or-plain-text).
-- **`read(anchor?, id?, dir?, limit?)`** — reads the studio's inbox **as a queue**: by default the next unprocessed squawks after the studio's durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. **Reading never advances the cursor.** **Always self-scoped to the studio's own ticket** — `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
+- **`send(text, to?, content_type?)`** — posts the squawk to a channel of the channel log and returns its id and channel (`200 {"id", "channel": {id, kind, label}}`; a studio on an older image just sees success); the relays render it onto Linear/Discord shortly after (see [Enabling it](#enabling-it)). With no `to`, it goes to the studio's **home channel**, the channel it is always in: its ticket's conversation when it has one, else its own **session channel** (for a [personal session](personal-sessions.md) the person who started it is in it; people can join a [standing session](standing-sessions.md#messaging)'s). With a `to` (`user:`, `chat:`, `channel:`, `ticket:`, `session:`) it goes to that channel instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it). The body is markdown unless `content_type` opts out; see [Content type](#content-type-markdown-or-plain-text).
+- **`read(anchor?, id?, dir?, limit?)`** — reads the studio's inbox **as a queue**: the squawks delivered to it (others' posts in its channels), by default the next unprocessed ones after its durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. Each entry has `channel` (`{id, kind, label}`; absent on a squawk from before the cutover) and `from` (`{id, kind: session|user|account, label}`), and keeps `author` (the sender's label) for older clients. **Reading never advances the cursor.** Self-scoped: `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the studio has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
-- **`list_targets()`** — lists the humans/channels this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
+- **`list_targets()`** — lists the people, rooms and sessions this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
+- **`call_in(who, channel?)`** and **`leave(channel)`** — membership (`POST /squawks/call-in` → `200 {channel, member}`, `POST /squawks/leave` → `204`); see [Channel membership](#channel-membership).
 - **`report(state, summary, pr?)`**, **`end(reason)`**, **`idle_timeout(duration, scope)`** and **`alarm_set` / `alarm_clear` / `alarm_list`** — report a ticket's state, end the session at turn end, tune how long it may sit idle after one, or set named alarms that wake it; see [turn-end.md](turn-end.md).
-- **`escalate(category)`** — declares the studio's current block category, routing the (auto-on-Waiting) escalation ping to that category's tier chain; see [escalation.md](escalation.md#categories-routing-by-block-kind) for the semantics — it's a separate brokered endpoint (`/escalate`), documented there rather than duplicated here.
+- **`escalate(category)`** — asks for a person: declares the block's category (picking the escalation tier chain) and, until the session is next woken, opens an escalation once it waits — its tiers are called into the session's channel; see [escalation.md](escalation.md#when-it-opens-waiting-and-asking-for-a-person).
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.
 
@@ -57,68 +60,68 @@ literally.
 
 ## How it's brokered and scoped
 
-- **Endpoint:** Jam serves `/squawks` on its cove-facing `:443` mux. A request carries the studio's identity token (`Authorization: Bearer`); Jam resolves the actor, derives **that actor's own ticket** (`Instance.Unit`), and calls Linear.
-- **`read` is self-scoped by construction:** it carries no target, so it can only ever return the caller's own ticket. **`send` is self-scoped by default and explicitly authorized when addressed:** an omitted `to` behaves exactly as before; a present `to` is checked against the comms access-graph before delivery — see [comms-addressing.md](comms-addressing.md).
+- **Endpoint:** Jam serves `/squawks` on its cove-facing `:443` mux. A request carries the studio's identity token (`Authorization: Bearer`); Jam resolves the session from it — never from the body.
+- **`read` is self-scoped by construction:** it carries no target, so it can only ever return the caller's own inbox. **`send` is authorized:** the home channel is always allowed; a `to` is checked against the role's addressing before anything else — see [comms-addressing.md](comms-addressing.md).
 - **Tokens stay in Jam:** the Linear token lives in Jam's `SecretResolver`; the studio holds only its identity token. Nothing is logged that could leak either.
 
 ## Delivery to the agent
 
 The studio's `claude` is pointed at a stdio MCP server named `messaging` in the per-run `--mcp-config` that cove-master's harness generates (alongside any kit [`mcp-servers`](kits.md#mcp-servers-cov-240), which can never replace it), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to Jam `/squawks` (and `/squawks/targets`) over TLS through the studio's squid proxy, using the identity token + Jam address already in the studio's environment. No new binary, no new secret in the studio.
 
+## Channel membership
+
+Who hears a channel is its members. A member **calls someone in** (`call_in`, or **Call in…** in [`/me`](intercom-ui.md)): `who` is `user:<name|id>` or `session:<label|id>` of the channel's project, and a session inviter's addressing must allow it, as for a send (`403` before `404`); a person may call in only a session they could message themselves (never someone else's personal session). The invitee joins from now on and hears the inviter's "called in" notice, which reaches people's inboxes but is never posted onto a ticket's issue or a room's surface. A **chat** never takes new members (`409`), a **room** takes people but not sessions, and calling in a member does nothing. People also **join** a channel they can see (a ticket, a room, a standing session's channel — never a personal session's, which is invite-only) by posting or with **Join**. Anyone **leaves** (`leave`, **Leave**) except a session from its own channel or ticket, and nobody leaves a chat; what was delivered stays.
+
 ## Enabling it
 
-`/squawks` (and `/escalate`) are always mounted: the intercom is always on, backed by the Postgres squawk Log (`store-postgres` is required — [serve.md](serve.md#the-serve-config)), with or without a [Requisitioner](requisitioner.md), so a [personal session](personal-sessions.md) can converse on a Jam with none. The Linear relay below still needs the Requisitioner's tracker; the Discord relay and wake-on do not.
+`/squawks` (and `/escalate`) are always mounted: the intercom is always on, backed by the Postgres channel log (`store-postgres` is required — [serve.md](serve.md#the-serve-config)), with or without a [Requisitioner](requisitioner.md), so a [personal session](personal-sessions.md) can converse on a Jam with none. The Linear relay needs the Requisitioner's tracker; the Discord relay and wake-on do not.
 
-**Outbound is Log→egress (asynchronous, at-least-once).** A `send` appends the squawk to Jam's durable squawk Log and returns `204`; a resident egress loop then delivers it to Linear (≈ the egress poll interval later). An append failure returns `502` (the append *is* the delivery). The Log entry — visible in the read-only [admin intercom view](ui.md#intercom) — appears as soon as it's appended, ahead of the Linear post landing.
+**The channel log.** Each squawk is in one channel, from one participant (a session, a user, or an *account* — an unlinked sender on Linear or Discord), and its audience — the channel's members but the author, at that moment — is recorded with it. A **ticket channel** is created when a session is set up on a ticket (or at serve startup for one already running), bound to the issue; the session joins it, and a re-dispatched ticket's new session joins the same channel (with an empty inbox). A session with no ticket gets its own **session channel** when it is set up (or at serve startup for one already running): the session is in it for good, a personal session's starter is called in once (and may leave), and it is archived when the session ends — after Jam's notice about the end, which its members still get. A **chat** is a fixed set of people and sessions; a **room** is a project's named channel ([comms-addressing.md](comms-addressing.md#project-members-and-rooms)).
 
-**Read is Log-backed and tracker-independent.** `GET /squawks` returns the studio's **inbox** — the inbound squawks addressed to it (human replies), from Jam's durable squawk Log — not a live Linear query. It returns squawks sent **to** the studio (not the studio's own sent squawks), and reflects the Log from when ingestion began; pre-Log ticket history is not included. Because wake-on only wakes a studio once a reply is in the Log, the reply is always present by the time the studio reads.
+**The cutover.** Upgrading to the channel log freezes the earlier log as **legacy history**, read-only: the admin view's Legacy tab and `/me`'s History show it, and seqs carry on from its tail. A session already running at the upgrade still reads (and commits past) the legacy replies to it it hadn't processed, ahead of new ones. Squawks the relays hadn't yet delivered at the upgrade are not delivered. Stop every older Jam before starting this one, and don't roll back past it.
 
-When a Requisitioner (its tracker) is configured, Jam also runs a resident **relay linear engine**: on the inbound side it polls the team-scoped Linear comments feed and appends inbound human replies into that same Log, idempotently; on the outbound side it drains the Log's egressable squawks (the `send` path above) and posts them to Linear, at-least-once per squawk. Both directions are visible in the admin intercom view. Wake-on reads replies from this Log.
+**Outbound is log→egress (asynchronous, at-least-once).** A `send` appends to the log and returns; a resident egress loop per relay then renders it onto its channel's surfaces (≈ the egress poll interval later). An append failure returns `502`. Every author's squawks are rendered — a person's `/me` post too — but never back onto the surface it came from.
 
-**Discord runs as a second, independent relay engine, egress AND ingress,** when `runtime.discord.bot-token-cred` is configured — with or without a Requisitioner — see [serve.md](serve.md#the-serve-config) for the config block. It shares the same Log and the same relay cursors/markers files (in [`state-dir`](serve.md#the-serve-config)) as the linear engine above, keyed separately (`EgressMark` is keyed by `Service()`, so `"linear"` and `"discord"` don't collide). On the outbound side it drains the Log's egressable squawks addressed to a discord-project's human DMs or discord roster channels — see [discord.md](discord.md) for delivery semantics; on first enable its egress mark is seeded to the Log's tail so turning it on never redelivers the Log's backlog to Discord. On the inbound side it polls the Discord inbox channels of **every project whose chat service is `discord`** (plus the Requisitioner's project, if any) and routes a human's **reply** (Discord's own reply-to-message feature) back to the studio whose squawk it replies to, appending it to the Log — see [discord.md](discord.md#egress-the-reply-loop) for the reply-loop mechanics, who a reply is attributed to,, the only-a-reply-routes constraint, and the unpruned-receipts caveat. Wake-on (below) picks up a routed Discord reply exactly like a Linear one.
+**Relays.** When a Requisitioner is configured, the **Linear relay** posts a ticket's conversation as comments on its issue (a person's prefixed `<name>: `, a session's as written), renders a room bound to an issue the same way, and @-mentions a chat's people who have no Discord inbox on the ticket of a session in the chat. Inbound, it polls the team's comments feed and posts each comment on an issue a channel is bound to into that channel (idempotently); a comment on any other issue is dropped. The **Discord relay** (when `runtime.discord` names its connection, with or without a Requisitioner) renders chats and session channels onto their people's inbox channels and rooms onto their bound channels, and routes replies back into the conversation of the post they answer — see [discord.md](discord.md). Both relays share the cursors/markers files in [`state-dir`](serve.md#the-serve-config), keyed by Service; a first-enabled relay's mark is seeded to the log's tail, so it never redelivers the backlog. Wake-on reads what they post.
 
-> **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. Jam targets the schema captured during development; if it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**. This can't be exercised in an egress-locked build environment.
+> **Before relying on inbound (reply) delivery, confirm the Linear `comments` feed schema against your live Linear workspace** — specifically the `$since` scalar (`DateTimeOrDuration` vs `DateTime`) and the `issue → team → key` filter path. If it differs, the ingress `Poll` errors and its cursor holds (no data loss, inbound stalls) while **egress is unaffected**.
+>
+> An inbound author is recorded as an **account** on its connection by their
+> service user id only (labelled with their display name — never matched by it).
+> Once an operator links that account to a user (`at-jam account list
+> --connection linear`, then `account link`), a post in a project the user is a
+> member of is theirs; until then it's the account's.
 
 ## The inbox as a durable queue
 
-A studio's inbox is a **durable, acked queue** over the squawk Log, not a snapshot
-view — it's a conversation to process in order, not an email list.
+A studio's inbox is a **durable, acked queue** over the log — the squawks
+delivered to it, a conversation to process in order, not an email list.
 
-> **Ordering is by a monotonic append sequence, not by squawk id.** Every Log
-> squawk carries an internal append `seq`; "oldest-first", "forward",
-> "tail", and the monotonic commit/wake cursors are all defined by that `seq`.
-> Squawk **ids are identifiers, not ordering keys** — ingress ids
-> (`in:linear:<uuid>`, `in:discord:<snowflake>`) are deterministic for
-> idempotent dedup and are **not** lexically sortable against each other or the
-> internal time-based ids, so cursors compare by sequence. The wire stays in
-> squawk ids (`committed_cursor`/`page_first`/`page_last`/`up_to` are ids the
-> studio echoes back); Jam resolves id↔seq at the boundary.
+> **Ordering is by a monotonic append sequence, not by squawk id.** Every squawk
+> carries an internal append `seq` (continuing across the cutover);
+> "oldest-first", "forward", "tail", and the commit/wake cursors are all defined
+> by it. Squawk **ids are identifiers, not ordering keys** — ingress ids
+> (`in:linear:<uuid>`, `in:discord:<snowflake>`) are deterministic for idempotent
+> dedup and don't sort against generated ids. The wire stays in ids
+> (`committed_cursor`/`page_first`/`page_last`/`up_to`); Jam resolves id↔seq.
 
-- **Commit cursor.** Each studio has a durable commit cursor (its last *processed*
-  squawk id) stored on its instance in the Jam store. It is **initialized at
-  raise to the Log's current tail**, so a freshly-raised studio consumes squawks
-  addressed to it from that point forward, not the whole prior history. It is
-  **separate from the wake-on `WaitSeq`** ([below](#waiting-for-a-reply-wake-on)):
-  one is the consume offset, the other the reply-wake baseline.
-- **Seekable reads that never commit.** `read` (default) returns the next
-  squawks after the commit cursor, oldest-first. `anchor` (`cursor`/`start`/`end`/`id`)
-  × `dir` (`forward`/`backward`) × `limit` let the studio page anywhere —
-  re-read processed history, jump to the start/end, or walk from a given id.
-  Reading is pure: it never moves the cursor.
-- **Explicit commit.** When the studio has durably handled squawks, it calls
-  `commit(up_to)` to advance the cursor past them (monotonic, forward-only,
-  idempotent). Until it commits, uncommitted squawks remain in the queue — so a
-  studio that restarts before committing re-consumes them (at-least-once).
-- **Nothing is pruned** — the Log is a durable audit/research record; the cursor
-  is only a position into an ever-growing log, so backward/`start` reads always
-  work. (Date-anchored reads are a planned addition.)
+- **Commit cursor.** Each studio has a durable commit cursor (its last
+  *processed* squawk id), **initialized at raise to the log's tail**, so a
+  freshly-raised studio consumes what reaches it from then on. It is **separate
+  from the wake-on `WaitSeq`** ([below](#waiting-for-a-reply-wake-on)).
+- **Seekable reads that never commit.** `anchor` × `dir` × `limit` page anywhere
+  — re-read processed history, jump to the start/end, walk from an id.
+- **Explicit commit.** `commit(up_to)` advances the cursor (monotonic,
+  forward-only, idempotent); a studio that restarts before committing
+  re-consumes (at-least-once).
+- **Nothing is pruned** — backward/`start` reads always work.
 
 ## Waiting for a reply (wake-on)
 
 A raised studio is not one-shot. When its agent's turn ends (typically after asking
 a question via `send`), the studio **suspends** — it reports Activity `waiting` and
 blocks instead of ending ([turn-end.md](turn-end.md)). Jam's resident **wake-on engine**
-watches the studio's ticket and, when a **new comment** (a reply) arrives, **wakes** it
+watches the studio's inbox and, when a reply arrives, **wakes** it
 over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. When its [session context](session-context.md#refresh) changed
 meanwhile, the wake text says so. A **`wait-max`** bounds the wait — a studio with no reply within it is
@@ -127,8 +130,8 @@ torn down (no zombies), paused or not — unless the role's
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
 after every turn and is never torn down for `wait-max` (it is still paused at
 `warm-timeout` and woken on a reply). A personal session instead climbs the
-[idle ladder](personal-sessions.md#the-idle-ladder) — nags to its owner, and an
-optional reclaim. The owner's `keep`/`release` reply to a nag is acted on by Jam
+[idle ladder](personal-sessions.md#the-idle-ladder) — nags into its channel, and an
+optional reclaim. Its starter's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
 A standing session has no owner, so it gets no nags.
 
@@ -161,12 +164,12 @@ field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback 
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid Requisitioner value still falls back to the default.
 
-The wake trigger is **an external-origin squawk addressed to the studio landing in
-the durable squawk Log** after a `WaitSeq` baseline: when a run starts (at raise, and
+The wake trigger is **a squawk delivered to the studio** — from a person, an
+account, or another session — after a `WaitSeq`
+baseline: when a run starts (at raise, and
 whenever the studio enters `running`) the supervisor stamps `WaitSeq` to the Log's
 current tail sequence — the starting agent reads its inbox itself — and any later
-external-origin squawk addressed to the studio (append `seq` > `WaitSeq`) counts as a
-reply. Waking a `running` studio advances `WaitSeq` past the replies it was woken for;
+delivery (append `seq` > `WaitSeq`) counts as a reply. Waking a `running` studio advances `WaitSeq` past the replies it was woken for;
 entering `waiting` leaves `WaitSeq` alone, so a reply that landed during the run and was
 not yet woken for wakes the studio as soon as it waits. It is an append-sequence compare,
 not a wall-clock one (`WaitingSince` is unchanged, but now drives only
@@ -175,13 +178,20 @@ by the relay ingress engine above, so a Waiting studio wakes on a reply only onc
 has ingested it; with no relay configured, it's bounded only by `wait-max` teardown
 (pausing at `warm-timeout` still happens).
 
-A Project may also configure an **escalation policy** that actively pings ordered
-human tiers on their own per-tier timers while a studio waits, instead of leaving it
-to wait passively — a separate, independent clock from `wait-max` above; see
+**Sessions wake sessions, with a loop breaker.** Another session's post wakes a
+waiting studio — but once a channel has had more than **8** (`runtime.wake.session-wake-limit`; `0` turns session wakes off) session posts in a
+row since a person or account last posted there, session posts in it stop
+waking anyone (they are still delivered, and read at the next `read`), and Jam posts one notice there on every surface, a ticket's issue too ("Jam
+paused agent-to-agent wakes here … Reply here to resume"); a person's post resets it. A session's notices — its nags, its
+"ended" notice, the breaker's — are for people and never wake another session;
+a session calling another in does.
+
+A Project may also configure an **escalation policy** that calls ordered tiers of
+people into a waiting session's channel on their own per-tier timers when it asks
+for a person, instead of leaving it to wait passively — a separate, independent clock from `wait-max` above; see
 [escalation.md](escalation.md).
 
 ## Not yet (later comms slices)
 
 - **Explicit `wake-on` triggers:** `exit { wake-on: squawks | ticket-event | timer(n) }` (timer + ticket-event beyond the implicit "a reply arrived").
 - **Discord receipt pruning:** see [discord.md](discord.md#egress-the-reply-loop) — the discord-msg-id→studio receipt store the reply loop uses is currently unpruned.
-- **Actor/role-to-actor addressing** (the `human`/`channel` target space shipped in C1; see [comms-addressing.md](comms-addressing.md)).

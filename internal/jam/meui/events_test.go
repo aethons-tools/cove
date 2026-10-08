@@ -51,9 +51,9 @@ func readUntil(t *testing.T, sc *bufio.Scanner, want string) {
 }
 
 func TestEventsStreamsChangedOnEachSignal(t *testing.T) {
-	store, log, p := fixture()
+	e, p := fixture()
 	fc := &fakeChanges{ch: make(chan struct{}, 1)}
-	srv := eventsServer(t, Handler(store, log, nil, WithChanges(fc)), p)
+	srv := eventsServer(t, Handler(e.Deps, nil, WithChanges(fc)), p)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -75,8 +75,8 @@ func TestEventsStreamsChangedOnEachSignal(t *testing.T) {
 
 func TestEventsWithoutChangeSourceIs204(t *testing.T) {
 	// 204 tells EventSource to stop reconnecting; the page falls back to polling.
-	store, log, p := fixture()
-	srv := eventsServer(t, Handler(store, log, nil), p)
+	e, p := fixture()
+	srv := eventsServer(t, Handler(e.Deps, nil), p)
 	resp, err := http.Get(srv.URL + "/me/events")
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +88,8 @@ func TestEventsWithoutChangeSourceIs204(t *testing.T) {
 }
 
 func TestEventsRequiresParticipant(t *testing.T) {
-	store, log, _ := fixture()
-	h := Handler(store, log, nil, WithChanges(&fakeChanges{ch: make(chan struct{})}))
+	e, _ := fixture()
+	h := Handler(e.Deps, nil, WithChanges(&fakeChanges{ch: make(chan struct{})}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/me/events", nil))
 	if rec.Code != http.StatusForbidden {

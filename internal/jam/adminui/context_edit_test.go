@@ -25,8 +25,8 @@ func roleStore(t *testing.T) jam.Store {
 func TestRoleContextPanelShowsAndEdits(t *testing.T) {
 	store := roleStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
-	body := get(t, h, "/ui/roles/acme/review").Body.String()
-	for _, want := range []string{"Session context", `hx-post="/ui/roles/acme/review/context"`, "0 / 1200 bytes"} {
+	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
+	for _, want := range []string{"Agent context", `hx-post="/ui/roles/acme/review/context"`, "0 / 1200 bytes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role page missing %q", want)
 		}
@@ -40,7 +40,7 @@ func TestRoleContextPanelShowsAndEdits(t *testing.T) {
 	if r.Context.Core != "Review every PR within a day." || len(r.Context.Leaves) != 1 {
 		t.Fatalf("stored = %+v", r.Context)
 	}
-	page := get(t, h, "/ui/roles/acme/review").Body.String()
+	page := get(t, h, "/ui/projects/acme/roles/review").Body.String()
 	for _, want := range []string{"Review every PR within a day.", "style.md", "you are commenting on style", "29 / 1200 bytes"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("panel missing %q", want)
@@ -127,7 +127,7 @@ func TestProjectAndJamContextPanels(t *testing.T) {
 // (which has none of the role/project page styles) and wraps long cores.
 func TestContextCardStyledEverywhere(t *testing.T) {
 	h := adminui.Handler(roleStore(t), testLogger(), nil, nil, credAny, nil)
-	for _, path := range []string{"/ui/", "/ui/roles/acme/review", "/ui/projects/acme"} {
+	for _, path := range []string{"/ui/", "/ui/projects/acme/roles/review", "/ui/projects/acme"} {
 		body := get(t, h, path).Body.String()
 		for _, want := range []string{`class="card full ctx-card"`, ".ctx-card>header", ".ctx-card .ctx-core{white-space:pre-wrap"} {
 			if !strings.Contains(body, want) {

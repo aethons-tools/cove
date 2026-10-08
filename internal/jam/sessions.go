@@ -2,14 +2,15 @@ package jam
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // SessionKindPersonal is Instance.SessionKind for a human's personal session
@@ -68,6 +69,7 @@ type PersonalSessionBody struct {
 // a cove raise it never carries the identity token or launch secret.
 type PersonalSessionResult struct {
 	ID      string `json:"id"`
+	Name    string `json:"name"` // its display name, <role>-NN (reservePersonalName)
 	Owner   string `json:"owner"`
 	Project string `json:"project"`
 	Role    string `json:"role"`
@@ -104,18 +106,18 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 
 	mux.HandleFunc("GET /admin/sessions/personal", func(w http.ResponseWriter, r *http.Request) {
 		project := orDefaultProject(r.URL.Query().Get("project"))
-		human, ok := HumanByLogin(store, project, OperatorID(r))
+		human, ok := MemberByLogin(store, project, OperatorID(r))
 		if !ok {
-			http.Error(w, fmt.Sprintf("no roster human in %s is linked to your login", project), http.StatusForbidden)
+			http.Error(w, fmt.Sprintf("no member of %s is linked to your login", project), http.StatusForbidden)
 			return
 		}
 		out := []PersonalSessionSummary{}
 		for _, i := range store.ListInstances() {
-			if i.SessionKind != SessionKindPersonal || i.Project != project || i.Owner != human.Name {
+			if i.SessionKind != SessionKindPersonal || !SameProject(store, i.Project, project) || !ownedBy(i, human) {
 				continue
 			}
 			out = append(out, PersonalSessionSummary{
-				ID: i.ActorID, Owner: i.Owner, Project: i.Project, Role: i.Role,
+				ID: i.ActorID, Owner: i.Owner, Project: ProjectName(store, i.Project), Role: i.Role,
 				Phase: string(i.Phase), Activity: string(i.Activity), RaisedAt: i.RaisedAt,
 			})
 		}
@@ -133,8 +135,8 @@ func registerPersonalSessions(mux *http.ServeMux, store Store, sup *Supervisor, 
 			http.Error(w, fmt.Sprintf("no personal session %q", id), http.StatusNotFound)
 			return
 		}
-		human, ok := HumanByLogin(store, inst.Project, OperatorID(r))
-		if !ok || human.Name != inst.Owner {
+		human, ok := MemberByLogin(store, inst.Project, OperatorID(r))
+		if !ok || !ownedBy(inst, human) {
 			http.Error(w, "only the session's owner may release it", http.StatusForbidden)
 			return
 		}
@@ -183,9 +185,9 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		return refuse(http.StatusBadRequest, "role is required")
 	}
 	project := orDefaultProject(b.Project)
-	human, ok := HumanByLogin(store, project, login)
+	human, ok := MemberByLogin(store, project, login)
 	if !ok {
-		return refuse(http.StatusForbidden, "no roster human in %s is linked to your login", project)
+		return refuse(http.StatusForbidden, "no member of %s is linked to your login", project)
 	}
 	if _, ok := store.GetRole(project, b.Role); !ok {
 		return refuse(http.StatusBadRequest, "role %s/%s does not exist", project, b.Role)
@@ -197,23 +199,22 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	if msg := personalDeliveryProblem(store, project, human); msg != "" {
 		return refuse(http.StatusBadRequest, "%s", msg)
 	}
-	id, err := personalSessionID(human.Name)
-	if err != nil {
-		return PersonalSessionResult{}, err
-	}
-	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, human.Name)
+	id := string(ident.New(ident.Session)) // each request starts a new session
+	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, string(human.User.ID))
 	switch {
 	case errors.Is(err, ErrNeedsLedger):
 		return refuse(http.StatusConflict, "%s", ErrNeedsLedger.Error())
 	case err != nil:
-		log.Warn("personal session grant failed", "operator", login, "project", project, "role", b.Role, "owner", human.Name, "err", err.Error())
+		log.Warn("personal session grant failed", "operator", login, "project", project, "role", b.Role, "owner", human.User.Name, "err", err.Error())
 		return refuse(http.StatusBadGateway, "allocation failed: %s", err.Error())
 	case !granted:
-		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.Name)
+		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.User.Name)
 	}
+	name, release := reservePersonalName(store, b.Role)
+	defer release()
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
-		ActorID: id, Project: project, Role: b.Role, Prompt: b.Prompt,
-		Owner: human.Name, SessionKind: SessionKindPersonal,
+		ActorID: id, Name: name, Project: project, Role: b.Role, Prompt: b.Prompt,
+		Owner: human.User.Name, OwnerID: human.User.ID, SessionKind: SessionKindPersonal,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.
@@ -223,40 +224,58 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		log.Warn("personal session raise failed", "operator", login, "id", id, "err", err.Error())
 		return refuse(http.StatusBadGateway, "raise failed: %s", err.Error())
 	}
-	log.Info("admin personal session raised", "operator", login, "id", id, "owner", human.Name, "project", project, "role", b.Role)
-	return PersonalSessionResult{ID: id, Owner: human.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
+	log.Info("admin personal session raised", "operator", login, "id", id, "owner", human.User.Name, "project", project, "role", b.Role)
+	return PersonalSessionResult{ID: id, Name: name, Owner: human.User.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
+}
+
+// personalName is a personal session's n-th candidate name: <role>-01, -02, …
+// (three digits and up past 99).
+func personalName(role string, n int) string { return fmt.Sprintf("%s-%02d", role, n) }
+
+// pendingNames are names picked for personal sessions whose raise hasn't
+// finished, so two requests in flight can't pick the same one.
+var pendingNames = struct {
+	sync.Mutex
+	m map[string]bool
+}{m: map[string]bool{}}
+
+// reservePersonalName picks the first free <role>-NN — not carried by a live
+// non-standing session (sessionLabelTaken, the manual-label rule) nor reserved
+// by a request in flight — and reserves it until release is called.
+func reservePersonalName(store Store, role string) (name string, release func()) {
+	pendingNames.Lock()
+	defer pendingNames.Unlock()
+	for n := 1; ; n++ {
+		if name = personalName(role, n); !pendingNames.m[name] && !sessionLabelTaken(store, name) {
+			break
+		}
+	}
+	pendingNames.m[name] = true
+	return name, func() {
+		pendingNames.Lock()
+		defer pendingNames.Unlock()
+		delete(pendingNames.m, name)
+	}
 }
 
 // personalDeliveryProblem returns why the owner of a personal session in
 // project could not be messaged — the project's chat service isn't discord, or
 // the owner has no discord delivery profile — with the command that fixes it;
 // "" when delivery is possible.
-func personalDeliveryProblem(store Store, project string, owner Human) string {
+func personalDeliveryProblem(store Store, project string, owner Member) string {
 	p, _ := store.GetProject(project)
-	if p.ChatService != "discord" {
+	if ChatKind(store, p) != "discord" {
 		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-jam project chat-service set --project %s --service discord)", project, project)
 	}
-	if _, ok := owner.DeliveryFor("discord"); !ok {
-		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project roster add-human %s --name %s --handle %s --login %s --delivery discord:<inbox-channel>)",
-			owner.Name, project, project, owner.Name, owner.Handle, owner.Login)
+	if _, ok := owner.Inbox("discord"); !ok {
+		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project member add %s %s --delivery discord:<inbox-channel>)",
+			owner.User.Name, project, project, owner.User.Name)
 	}
 	return ""
 }
 
-// personalSessionID mints a personal session's actor/reservation id:
-// "personal-<owner>-<8 hex>". The id is used as an actor id and in URL paths, so
-// characters outside [A-Za-z0-9._-] in the owner name become '-'; the real owner
-// is recorded on the Instance.
-func personalSessionID(owner string) (string, error) {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return "personal-" + safeIDPart(owner) + "-" + hex.EncodeToString(b[:]), nil
-}
-
 // safeIDPart maps characters outside [A-Za-z0-9._-] to '-', so s can be part of
-// an actor id (used in URL paths).
+// a pre-registry standing id (StandingActorID).
 func safeIDPart(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -266,4 +285,13 @@ func safeIDPart(s string) string {
 			return '-'
 		}
 	}, s)
+}
+
+// ownedBy reports whether a personal session belongs to the roster person h:
+// by user id, or by name for an instance raised before owners had ids.
+func ownedBy(inst Instance, m Member) bool {
+	if inst.OwnerID != "" {
+		return inst.OwnerID == m.User.ID
+	}
+	return inst.Owner != "" && inst.Owner == m.User.Name
 }

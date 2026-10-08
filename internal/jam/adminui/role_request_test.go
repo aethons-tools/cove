@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
 )
@@ -41,7 +42,7 @@ func requestKit(t *testing.T) (jam.Store, *promptLauncher, *grantingAlloc, http.
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|alice",
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "auth0|alice",
 		Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,9 +69,9 @@ func requestAs(t *testing.T, h http.Handler, op, path string) *httptest.Response
 
 func TestRolesPageOffersRequest(t *testing.T) {
 	_, _, _, h := requestKit(t)
-	body := get(t, h, "/ui/roles").Body.String()
+	body := get(t, h, "/ui/projects/acme/agents").Body.String()
 	if !strings.Contains(body, `hx-post="/ui/roles/acme/pair/request"`) {
-		t.Errorf("roles page should offer a Request action per role; got:\n%s", body)
+		t.Errorf("a project's roles should offer a Request action per role; got:\n%s", body)
 	}
 }
 
@@ -80,8 +81,9 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("request = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
-	if len(a.grants) != 1 || a.grants[0] != "acme/pair/alice" {
-		t.Errorf("grants = %v, want one acme/pair/alice", a.grants)
+	alice, _ := store.LookupName(ident.User, "alice")
+	if len(a.grants) != 1 || a.grants[0] != "acme/pair/"+string(alice) {
+		t.Errorf("grants = %v, want one acme/pair/<alice's id>", a.grants)
 	}
 	var inst jam.Instance
 	for _, i := range store.ListInstances() {
@@ -90,11 +92,11 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	if inst.Owner != "alice" || inst.SessionKind != jam.SessionKindPersonal {
 		t.Fatalf("instance = %+v, want a personal session owned by alice", inst)
 	}
-	if len(l.prompts) != 1 || !strings.HasSuffix(l.prompts[0], "Squawk me (human:alice) and we will get to work.") {
+	if len(l.prompts) != 1 || !strings.HasSuffix(l.prompts[0], "Squawk me (user:alice) and we will get to work.") {
 		t.Errorf("prompt = %q, want it to end with the squawk-me request", l.prompts)
 	}
-	if !strings.Contains(rec.Body.String(), inst.ActorID) {
-		t.Errorf("response should name the new session %s; got: %s", inst.ActorID, rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "Requested agent pair-01 ("+inst.ActorID+")") || inst.Name != "pair-01" {
+		t.Errorf("response should name the new agent pair-01 (%s); got: %s", inst.ActorID, rec.Body.String())
 	}
 }
 

@@ -48,7 +48,7 @@
 <div class="banner error conflict">
   <strong>Connector conflict in {{len .ConflictRoles}} role(s):
     {{range $i, $r := .ConflictRoles}}{{if $i}}, {{end}}<span class="conflict-role mono">{{$r}}</span>{{end}}</strong>
-  <span>Studios holding these roles can't assemble a connector (Jam fails closed with 409) until one side changes:</span>
+  <span>Agents holding these roles can't assemble a connector (Jam fails closed with 409) until one side changes:</span>
   <ul>{{range .Conflicts}}<li><a href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}</a>: this and <a href="{{destURL .Other}}">{{.Other}}</a> {{.What}}</li>{{end}}</ul>
 </div>
 {{end}}
@@ -65,13 +65,14 @@
         {{with .Dest.IdentityInSpec}}<dt>Identity-in spec</dt><dd class="mono">header {{.Header}}{{with .Encoding}} · encoding {{.}}{{end}}{{range .Prefixes}} · prefix “{{.}}”{{end}}</dd>{{end}}
         {{with .Dest.ApplySpec}}<dt>Apply spec</dt><dd class="mono">header {{.Header}} · template “{{.Template}}”{{with .Encoding}} · encoding {{.}}{{end}}{{with .BasicUser}} · user {{.}}{{end}}</dd>{{end}}
         <dt>Default credential</dt><dd>{{if .Dest.CredName}}<span class="mono">{{.Dest.CredName}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Allowed paths</dt><dd>{{range .Dest.AllowPaths}}<div class="mono">{{.}}</div>{{else}}<span class="unset">any</span>{{end}}</dd>
         <dt>Note</dt><dd>{{if .Dest.Note}}{{.Dest.Note}}{{else}}<span class="unset">none</span>{{end}}</dd>
       </dl>
     </div>
   </section>
 
   <section class="card">
-    <header><h2>Studio connector</h2><span class="sub">what a studio sets to use this destination</span></header>
+    <header><h2>Agent connector</h2><span class="sub">what an agent sets to use this destination</span></header>
     <table>
       <thead><tr><th>Env</th><th>Template</th></tr></thead>
       <tbody>

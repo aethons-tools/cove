@@ -1,0 +1,19 @@
+{{/* attention-card lists a scope's attention items (frame.Items): each with
+     its why, linked to where to fix it. */}}
+{{define "attention-card"}}
+<section class="card full attn-card">
+  <header><h2>Needs attention</h2>{{with .}}<span class="sub">{{len .}} item(s)</span>{{end}}</header>
+  <div class="body">
+    {{range .}}<div class="attn-row"><span class="attn-flag{{if eq .Kind "broken"}} red{{end}}">⚠</span> <a href="{{.Href}}">{{.Why}}</a> <span class="chip">{{if eq .Kind "broken"}}broken{{else if eq .Kind "stale"}}out of date{{else if eq .Kind "alert"}}warning{{else}}config{{end}}</span></div>
+    {{else}}<span class="unset">Nothing needs attention.</span>{{end}}
+  </div>
+</section>
+<style>
+  .attn-card{overflow:visible}
+  .attn-card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .attn-card>header h2{margin:0}
+  .attn-card>.body{padding:10px 16px}
+  .attn-row{padding:4px 0}
+  .attn-card .unset{color:var(--faint)}
+</style>
+{{end}}

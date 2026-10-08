@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-07
 ---
 
 # Development notes
@@ -105,8 +105,10 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   `diff_id`-prefix `DescendsFrom` check matches OCI reality. Needs Docker + network (pulls alpine).
 - `JAM_TEST_POSTGRES_DSN=… go test -tags integration ./internal/jam/... ./internal/intercom/...`
   runs the **Postgres store** conformance + fail-closed suite (`PostgresStore`)
-  and the **Postgres squawk log** (`intercompg`) conformance suite against a real
-  Postgres; both **skip** when `JAM_TEST_POSTGRES_DSN` is unset. Jam is Postgres-only; hermetic
+  and the **Postgres squawk log** (`intercompg`) conformance suites — the channel
+  log and the legacy log, each case in a fresh schema of its own, so the cutover
+  migration runs over a populated legacy log — against a real Postgres; both
+  **skip** when `JAM_TEST_POSTGRES_DSN` is unset. Jam is Postgres-only; hermetic
   tests (`go test ./...`) use the in-memory stores `jam.NewMemStore`, `intercom.NewMemLog`,
   and `sessionevents.NewMemStore` (test-only, never constructed by `serve`). Example DSN:
   `host=localhost port=5432 dbname=jam user=jam password=jam sslmode=disable`.
@@ -240,7 +242,7 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   → rebuild the base **and** cove-image (downstream) **and** re-cut at-cove (its
   new digest becomes the default base + blessed-list head);
   `images/cove-image/**` → rebuild just cove-image (FROM the current published
-  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` → re-cut at-cove
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut at-cove
   (blessed list recomputed from the registry head). Docs-only → nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task +
@@ -250,7 +252,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; at-cove is built by
-  `goreleaser --snapshot` (archives + checksums, stamped `<N>-<MMDD>`) and the
+  `goreleaser --snapshot` (one archive per os/arch carrying at-cove + at-mint +
+  at-jam, plus checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
 - **at-task and at-switchboard are embedded**, not shipped standalone —
   re-cutting at-cove re-cuts both embedded binaries

@@ -177,7 +177,7 @@ func colimaCheckDocker(args []string, r runner.Runner, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "at-jam colima check-docker: unexpected argument %q\n", pos[0])
 		return 2
 	}
-	ok, err := colima.HasSysboxRuntime(r)
+	ok, err := colima.NewWithContext(r, "").HasSysboxRuntime() // the default profile's context
 	if err != nil {
 		fmt.Fprintf(stderr, "at-jam colima check-docker: %v — is colima running? (colima start)\n", err)
 		return 1

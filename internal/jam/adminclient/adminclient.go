@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
 // ErrNotFound wraps a 404 from the admin API, so callers can distinguish "this
@@ -208,17 +209,23 @@ func (c *Client) CreateProject(name string) error {
 	return c.do("POST", "/admin/projects", jam.ProjectBody{Name: name}, nil)
 }
 
+// RenameProject renames a project; ErrConflict for a taken name, ErrNotFound
+// if absent.
+func (c *Client) RenameProject(project, name string) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/name", jam.ProjectBody{Name: name}, nil)
+}
+
 // RemoveProject deletes a project; ErrConflict while a role or grant still
 // references it, ErrNotFound if absent.
 func (c *Client) RemoveProject(name string) error {
 	return c.do("DELETE", "/admin/projects/"+url.PathEscape(name), nil, nil)
 }
 
-// Roster lists every enrolled actor with its resolved effective grants — never
+// Actors lists every enrolled actor with its resolved effective grants — never
 // a token or hash.
-func (c *Client) Roster() ([]jam.ActorSummary, error) {
+func (c *Client) Actors() ([]jam.ActorSummary, error) {
 	var out []jam.ActorSummary
-	err := c.do("GET", "/admin/roster", nil, &out)
+	err := c.do("GET", "/admin/actors", nil, &out)
 	return out, err
 }
 
@@ -286,31 +293,28 @@ func (c *Client) RemoveKit(name string) error {
 	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }
 
-// AddHuman upserts a roster human (by name) within project.
-func (c *Client) AddHuman(project string, h jam.Human) error {
-	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/humans", h, nil)
+// PutRoom adds project's room b.Name, or rebinds it.
+func (c *Client) PutRoom(project string, b jam.RoomBody) (jam.RoomView, error) {
+	var v jam.RoomView
+	err := c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/rooms", b, &v)
+	return v, err
 }
 
-// AddChannel upserts a roster channel (by name) within project.
-func (c *Client) AddChannel(project string, ch jam.Channel) error {
-	return c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/channels", ch, nil)
+// ListRooms lists project's rooms.
+func (c *Client) ListRooms(project string) ([]jam.RoomView, error) {
+	var out []jam.RoomView
+	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/rooms", nil, &out)
+	return out, err
 }
 
-// GetRoster fetches project's addressable roster (humans + channels).
-func (c *Client) GetRoster(project string) (jam.Roster, error) {
-	var rr jam.Roster
-	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/roster", nil, &rr)
-	return rr, err
+// RenameRoom renames project's room (a name or an id).
+func (c *Client) RenameRoom(project, room, name string) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room)+"/name", jam.RenameBody{Name: name}, nil)
 }
 
-// RemoveHuman removes a human (by name) from project's roster.
-func (c *Client) RemoveHuman(project, name string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/humans/"+url.PathEscape(name), nil, nil)
-}
-
-// RemoveChannel removes a channel (by name) from project's roster.
-func (c *Client) RemoveChannel(project, name string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/channels/"+url.PathEscape(name), nil, nil)
+// RemoveRoom removes project's room (a name or an id).
+func (c *Client) RemoveRoom(project, room string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room), nil, nil)
 }
 
 // SetEscalationPolicy replaces the tier chain for project's category wholesale
@@ -540,4 +544,126 @@ func (c *Client) ExportConfig() (jam.ConfigSnapshot, error) {
 // surfaces as ErrConflict.
 func (c *Client) ImportConfig(s jam.ConfigSnapshot) error {
 	return c.do("POST", "/admin/config", s, nil)
+}
+
+// ListUsers lists the live users.
+func (c *Client) ListUsers() ([]jam.UserView, error) {
+	var out []jam.UserView
+	err := c.do("GET", "/admin/users", nil, &out)
+	return out, err
+}
+
+// CreateUser creates a user.
+func (c *Client) CreateUser(b jam.UserBody) (jam.UserView, error) {
+	var out jam.UserView
+	err := c.do("POST", "/admin/users", b, &out)
+	return out, err
+}
+
+// GetUser fetches a user by name or id.
+func (c *Client) GetUser(user string) (jam.UserView, error) {
+	var out jam.UserView
+	err := c.do("GET", "/admin/users/"+url.PathEscape(user), nil, &out)
+	return out, err
+}
+
+// RenameUser renames a user (by name or id).
+func (c *Client) RenameUser(user, name string) error {
+	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/name", jam.RenameBody{Name: name}, nil)
+}
+
+// SetUserLogins replaces a user's logins.
+func (c *Client) SetUserLogins(user string, logins []string) error {
+	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/logins", jam.LoginsBody{Logins: logins}, nil)
+}
+
+// SetUserOIDC replaces a user's OIDC bindings.
+func (c *Client) SetUserOIDC(user string, ids []jam.OIDCIdentity) error {
+	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/oidc", jam.OIDCBody{OIDC: ids}, nil)
+}
+
+// RemoveUser removes (tombstones) a user.
+func (c *Client) RemoveUser(user string) error {
+	return c.do("DELETE", "/admin/users/"+url.PathEscape(user), nil, nil)
+}
+
+// ListMembers lists project's members.
+func (c *Client) ListMembers(project string) ([]jam.MemberView, error) {
+	var out []jam.MemberView
+	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/members", nil, &out)
+	return out, err
+}
+
+// PutMember adds user to project, or replaces their delivery there.
+func (c *Client) PutMember(project, user string, delivery []jam.DeliveryProfile) error {
+	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), jam.MemberBody{Delivery: delivery}, nil)
+}
+
+// RemoveMember ends user's membership of project.
+func (c *Client) RemoveMember(project, user string) error {
+	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), nil, nil)
+}
+
+// ListConnections lists the live connections.
+func (c *Client) ListConnections() ([]jam.Connection, error) {
+	var out []jam.Connection
+	err := c.do("GET", "/admin/connections", nil, &out)
+	return out, err
+}
+
+// ListAccounts lists accounts, on one connection (by name or id) or all ("").
+func (c *Client) ListAccounts(connection string) ([]jam.AccountView, error) {
+	path := "/admin/accounts"
+	if connection != "" {
+		path += "?connection=" + url.QueryEscape(connection)
+	}
+	var out []jam.AccountView
+	err := c.do("GET", path, nil, &out)
+	return out, err
+}
+
+// AddAccount upserts an account, linking it when b.User is set.
+func (c *Client) AddAccount(b jam.AccountBody) (jam.AccountView, error) {
+	var out jam.AccountView
+	err := c.do("POST", "/admin/accounts", b, &out)
+	return out, err
+}
+
+// LinkAccount links an account to a user.
+func (c *Client) LinkAccount(account, user string) error {
+	return c.do("PUT", "/admin/accounts/"+url.PathEscape(account)+"/user", jam.LinkBody{User: user}, nil)
+}
+
+// UnlinkAccount unlinks an account from its user.
+func (c *Client) UnlinkAccount(account string) error {
+	return c.do("DELETE", "/admin/accounts/"+url.PathEscape(account)+"/user", nil, nil)
+}
+
+// CreateConnection creates a connection (an external service instance).
+func (c *Client) CreateConnection(b jam.ConnectionBody) (jam.Connection, error) {
+	var out jam.Connection
+	err := c.do("POST", "/admin/connections", b, &out)
+	return out, err
+}
+
+// RenameConnection renames a connection (by name or id).
+func (c *Client) RenameConnection(conn, name string) error {
+	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/name", jam.RenameBody{Name: name}, nil)
+}
+
+// SetConnectionCred names the credential a connection uses.
+func (c *Client) SetConnectionCred(conn, cred string) error {
+	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/cred", jam.CredBody{Cred: cred}, nil)
+}
+
+// RemoveConnection removes (tombstones) a connection.
+func (c *Client) RemoveConnection(conn string) error {
+	return c.do("DELETE", "/admin/connections/"+url.PathEscape(conn), nil, nil)
+}
+
+// ListConditions lists operator-attention conditions (state: open|resolved|all).
+func (c *Client) ListConditions(state string) ([]condition.Condition, error) {
+	var out []condition.Condition
+	err := c.do("GET", "/admin/attention?state="+url.QueryEscape(state), nil, &out)
+	return out, err
 }

@@ -9,10 +9,10 @@ import (
 
 // fakeLog is the msglog fake the pure projection reads: an ordered, in-memory
 // slice of squawks. It satisfies jam.LogReader without a file, network, or VM.
-type fakeLog []intercom.Squawk
+type fakeLog []intercom.LegacySquawk
 
-func (f fakeLog) ListSince(afterSeq int64, limit int) []intercom.Squawk {
-	var out []intercom.Squawk
+func (f fakeLog) ListSince(afterSeq int64, limit int) []intercom.LegacySquawk {
+	var out []intercom.LegacySquawk
 	for _, m := range f {
 		if m.Seq <= afterSeq {
 			continue
@@ -35,10 +35,10 @@ func channel(ref string) intercom.Target { return intercom.Target{Kind: "channel
 func projectionFixture() (fakeLog, jam.Roster, []jam.Instance) {
 	roster := jam.Roster{
 		Humans:   []jam.Human{{Name: "alice"}, {Name: "bob"}},
-		Channels: []jam.Channel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
+		Channels: []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
 	}
 	instances := []jam.Instance{
-		{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
+		{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, EscalationAsked: true},
 		{ActorID: "cove-2", Project: "acme", Unit: "ACME-2", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "cove-3", Project: "acme", Unit: "ACME-3", Phase: jam.PhaseIdled},
 	}
@@ -90,8 +90,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if studio.Kind != jam.ChannelStudio {
 		t.Fatalf("studio kind = %q", studio.Kind)
 	}
-	if studio.Project != "acme" || studio.Phase != string(jam.PhaseLive) || !studio.Waiting {
-		t.Fatalf("studio tags = %+v; want project acme, phase live, waiting true", studio)
+	if studio.Project != "acme" || studio.Phase != string(jam.PhaseLive) || !studio.NeedsYou {
+		t.Fatalf("studio tags = %+v; want project acme, phase live, needs-you true", studio)
 	}
 	if studio.LastSeq != 2 {
 		t.Fatalf("studio lastSeq = %d, want 2", studio.LastSeq)
@@ -101,8 +101,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if studio.Unread != 1 {
 		t.Fatalf("studio unread = %d, want 1", studio.Unread)
 	}
-	if studio.Bucket() != jam.BucketWaiting {
-		t.Fatalf("studio bucket = %q, want waiting", studio.Bucket())
+	if studio.Bucket() != jam.BucketNeedsYou {
+		t.Fatalf("studio bucket = %q, want needs-you", studio.Bucket())
 	}
 
 	dm, ok := got[jam.DMChannelID(human("alice"), actor("cove-2"))]
@@ -112,8 +112,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if dm.Kind != jam.ChannelDM {
 		t.Fatalf("dm kind = %q", dm.Kind)
 	}
-	if dm.Project != "acme" || dm.Phase != string(jam.PhaseLive) || dm.Waiting {
-		t.Fatalf("dm tags = %+v; want project acme, phase live, waiting false", dm)
+	if dm.Project != "acme" || dm.Phase != string(jam.PhaseLive) || dm.NeedsYou {
+		t.Fatalf("dm tags = %+v; want project acme, phase live, needs-you false", dm)
 	}
 	if dm.LastSeq != 4 {
 		t.Fatalf("dm lastSeq = %d, want 4", dm.LastSeq)
@@ -138,117 +138,11 @@ func TestProjectChannelsBobSeesNamedChannel(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing named channel; got %v", keys(got))
 	}
-	if eng.Kind != jam.ChannelNamed || eng.Waiting {
+	if eng.Kind != jam.ChannelNamed || eng.NeedsYou {
 		t.Fatalf("named channel tags = %+v", eng)
 	}
 	if eng.Bucket() != jam.BucketChannels {
 		t.Fatalf("named bucket = %q, want channels", eng.Bucket())
-	}
-}
-
-func TestActiveRecipientsDirectory(t *testing.T) {
-	_, roster, instances := projectionFixture()
-	recs := jam.ActiveRecipients(roster, instances)
-	// 2 humans + 1 named channel + 3 active instances × (session + studio) = 9.
-	if len(recs) != 9 {
-		t.Fatalf("recipients = %d, want 9: %+v", len(recs), recs)
-	}
-	want := map[string]string{
-		"human:alice":    "human",
-		"human:bob":      "human",
-		"channel:eng":    "channel",
-		"actor:cove-1":   "session",
-		"channel:ACME-1": "studio",
-		"actor:cove-2":   "session",
-		"channel:ACME-2": "studio",
-		"actor:cove-3":   "session",
-		"channel:ACME-3": "studio",
-	}
-	for _, r := range recs {
-		kind, ok := want[r.Target.String()]
-		if !ok {
-			t.Fatalf("unexpected recipient %q", r.Target.String())
-		}
-		if r.Kind != kind {
-			t.Fatalf("recipient %q kind = %q, want %q", r.Target.String(), r.Kind, kind)
-		}
-		delete(want, r.Target.String())
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing recipients: %v", want)
-	}
-}
-
-func TestActiveRecipientsSkipsGoneStudios(t *testing.T) {
-	roster := jam.Roster{}
-	instances := []jam.Instance{
-		{ActorID: "live", Unit: "U1", Phase: jam.PhaseLive},
-		{ActorID: "gone", Unit: "U2", Phase: jam.PhaseGone},
-		{ActorID: "terminating", Unit: "U3", Phase: jam.PhaseTerminating},
-	}
-	recs := jam.ActiveRecipients(roster, instances)
-	// only the live instance contributes (session + studio); gone/terminating skipped.
-	if len(recs) != 2 {
-		t.Fatalf("recipients = %d, want 2: %+v", len(recs), recs)
-	}
-}
-
-func TestResolveSendTarget(t *testing.T) {
-	_, roster, instances := projectionFixture()
-	self := human("alice")
-	tests := []struct {
-		name   string
-		ref    string
-		want   intercom.Target // ignored when !wantOK
-		wantOK bool
-	}{
-		// A studio — whether addressed as a recipient target ("channel:<unit>") or
-		// a channel id ("studio:<unit>") — resolves to its SESSION actor, so an
-		// external reply wakes it exactly as a relayed reply does.
-		{"studio channel id → session actor", "studio:ACME-1", actor("cove-1"), true},
-		{"studio recipient target → session actor", "channel:ACME-1", actor("cove-1"), true},
-		{"running studio also resolves", "channel:ACME-2", actor("cove-2"), true},
-		// A session DM is already the actor.
-		{"session recipient → actor", "actor:cove-2", actor("cove-2"), true},
-		// Named channels stay channel targets (external surface).
-		{"named channel id", "named:eng", channel("eng"), true},
-		{"named recipient target", "channel:eng", channel("eng"), true},
-		// Humans stay human targets.
-		{"human recipient", "human:bob", human("bob"), true},
-		// Replying to a DM addresses the OTHER endpoint.
-		{"dm with a session → the session actor", jam.DMChannelID(human("alice"), actor("cove-2")), actor("cove-2"), true},
-		{"dm with a human → the other human", jam.DMChannelID(human("alice"), human("bob")), human("bob"), true},
-		// Non-members and unknowns fail closed.
-		{"dm the participant is not part of", jam.DMChannelID(human("bob"), actor("cove-2")), intercom.Target{}, false},
-		{"unknown human", "human:nobody", intercom.Target{}, false},
-		{"unknown studio unit", "channel:NOPE-9", intercom.Target{}, false},
-		{"unknown session", "actor:ghost", intercom.Target{}, false},
-		{"no kind prefix", "alice", intercom.Target{}, false},
-		{"empty ref value", "human:", intercom.Target{}, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := jam.ResolveSendTarget(tc.ref, self, roster, instances)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v (got target %q)", ok, tc.wantOK, got.String())
-			}
-			if tc.wantOK && got != tc.want {
-				t.Fatalf("target = %q, want %q", got.String(), tc.want.String())
-			}
-		})
-	}
-}
-
-func TestResolveSendTargetSkipsInactiveStudio(t *testing.T) {
-	roster := jam.Roster{}
-	instances := []jam.Instance{
-		{ActorID: "gone", Unit: "U-GONE", Phase: jam.PhaseGone},
-		{ActorID: "term", Unit: "U-TERM", Phase: jam.PhaseTerminating},
-	}
-	for _, ref := range []string{"studio:U-GONE", "channel:U-GONE", "actor:gone", "studio:U-TERM"} {
-		if got, ok := jam.ResolveSendTarget(ref, human("alice"), roster, instances); ok {
-			t.Fatalf("ref %q resolved to %q; an inactive studio must not be addressable", ref, got.String())
-		}
 	}
 }
 
@@ -264,8 +158,8 @@ func TestProjectChannelsSessions(t *testing.T) {
 	log, roster, instances := projectionFixture()
 	// cove-3 and cove-1 take part in #eng; a human never counts as a session.
 	log = append(log,
-		intercom.Squawk{Seq: 6, From: actor("cove-3"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
-		intercom.Squawk{Seq: 7, From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+		intercom.LegacySquawk{Seq: 6, From: actor("cove-3"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
+		intercom.LegacySquawk{Seq: 7, From: actor("cove-1"), To: []intercom.Target{channel("eng")}, Body: "hi", Project: "acme"},
 	)
 	alice := byID(jam.ProjectChannels(human("alice"), log, roster, instances, nil))
 	if got := alice[jam.StudioChannelID("ACME-1")].Sessions; len(got) != 1 || got[0] != "cove-1" {
@@ -277,5 +171,30 @@ func TestProjectChannelsSessions(t *testing.T) {
 	bob := byID(jam.ProjectChannels(human("bob"), log, roster, instances, nil))
 	if got := bob[jam.NamedChannelID("eng")].Sessions; len(got) != 2 || got[0] != "cove-1" || got[1] != "cove-3" {
 		t.Errorf("named sessions = %v, want [cove-1 cove-3] (sorted)", got)
+	}
+}
+
+// A session whose turn merely ended is idle; it needs a person only when it
+// asked for one or is blocked, and only while live.
+func TestNeedsPerson(t *testing.T) {
+	asked := &jam.TicketReport{State: jam.ReportNeedsInput}
+	cases := []struct {
+		name string
+		inst jam.Instance
+		want bool
+	}{
+		{"idle", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting}, false},
+		{"escalate called", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
+		{"needs-input report", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Report: asked}, true},
+		{"blocked", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityBlocked}, true},
+		{"running after asking", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityRunning, EscalationAsked: true}, false},
+		{"paused", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting}, false},
+		{"paused after asking", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
+		{"gone after asking", jam.Instance{Phase: jam.PhaseGone, Activity: jam.ActivityWaiting, EscalationAsked: true}, false},
+	}
+	for _, c := range cases {
+		if got := jam.NeedsPerson(c.inst); got != c.want {
+			t.Errorf("%s: NeedsPerson = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

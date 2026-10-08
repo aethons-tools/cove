@@ -1,0 +1,86 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>User not found</h1></div>
+<div class="banner">No user <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/users">Back to users</a></div>
+{{else}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  .sections .full{grid-column:1/-1}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>.body{padding:12px 16px}
+  section.card table th:first-child,section.card table td:first-child{padding-left:16px}
+  .unset{color:var(--faint)}
+  @media (max-width:720px){.sections{grid-template-columns:1fr}}
+</style>
+<div class="crumbs"><a href="/ui/users">Users</a></div>
+{{template "user-body" .}}
+{{end}}
+{{end}}
+
+{{define "user-body"}}
+{{$u := .User}}{{$base := userURL $u.ID}}
+<div id="user">
+<div class="page-head"><h1 class="mono">{{$u.Name}}</h1><span class="sub mono">{{$u.ID}}{{if .Removed}} · removed{{end}}</span><span class="spacer"></span>
+  {{if not .Removed}}<button class="danger" hx-delete="{{$base}}" hx-confirm="Remove user {{$u.Name}}? They leave every project; history keeps showing them as removed.">Remove user</button>{{end}}</div>
+{{if .Removed}}<div class="banner">This user was removed. Their id still labels history as <span class="mono">{{$u.Name}} (removed)</span>; nothing here can be changed.</div>
+{{else}}
+<div class="sections">
+  <section class="card">
+    <header><h2>Name</h2><span class="sub">Jam-wide; escalation tiers still name people (<code>human:&lt;name&gt;</code>) — update them after a rename</span></header>
+    <div class="body"><form hx-post="{{$base}}/name" hx-target="#user" hx-swap="outerHTML">
+      <div class="grid"><label>Name <span class="req">required</span><input name="name" value="{{$u.Name}}" required></label></div>
+      <div class="form-actions"><button type="submit" class="primary small">Rename</button></div>
+    </form></div>
+  </section>
+  <section class="card">
+    <header><h2>Projects</h2><span class="sub">add or remove members on the project page</span></header>
+    <div class="body">{{range $u.Projects}}<a class="chip" href="{{projectURL .}}">{{.}}</a> {{else}}<span class="unset">Not a member of any project.</span>{{end}}</div>
+  </section>
+  <section class="card">
+    <header><h2>Logins</h2><span class="sub">operator identities this person signs in as — they own personal agents</span></header>
+    <div class="body"><form hx-post="{{$base}}/logins" hx-target="#user" hx-swap="outerHTML">
+      <label>Logins <span class="hint">one per line; the set is replaced</span><textarea name="logins" spellcheck="false">{{.LoginSpec}}</textarea></label>
+      <div class="form-actions"><button type="submit" class="primary small">Save logins</button></div>
+    </form></div>
+  </section>
+  <section class="card">
+    <header><h2>OIDC identities</h2><span class="sub">browser logins mapped to this person (the /me inbox)</span></header>
+    <div class="body"><form hx-post="{{$base}}/oidc" hx-target="#user" hx-swap="outerHTML">
+      <label>Identities <span class="hint">one per line, <code>issuer:subject</code>; the set is replaced</span><textarea name="oidc" spellcheck="false">{{.OIDCSpec}}</textarea></label>
+      <div class="form-actions"><button type="submit" class="primary small">Save identities</button></div>
+    </form></div>
+  </section>
+  <section class="card full">
+    <header><h2>Accounts</h2><span class="sub">this person on connected services: a tracker handle, a Discord user id</span></header>
+    <table>
+      <thead><tr><th>Connection</th><th>User id</th><th>Handle</th><th>Account</th><th></th></tr></thead>
+      <tbody>
+        {{range $u.Accounts}}<tr><td><span class="chip">{{.Connection}}</span></td>
+          <td class="mono">{{if .ServiceUID}}{{.ServiceUID}}{{else}}<span class="unset">—</span>{{end}}</td>
+          <td class="mono">{{if .Handle}}@{{.Handle}}{{else}}<span class="unset">—</span>{{end}}</td>
+          <td class="mono">{{.ID}}</td>
+          <td class="actions"><button class="danger small" hx-delete="/ui/accounts/{{.ID}}/user?user={{$u.ID}}" hx-target="#user" hx-swap="outerHTML"
+            hx-confirm="Unlink this {{.Connection}} account from {{$u.Name}}?">Unlink</button></td></tr>
+        {{else}}<tr><td colspan="5" class="empty">No accounts.</td></tr>{{end}}
+      </tbody>
+    </table>
+    <details class="panel">
+      <summary>Add account</summary>
+      <form hx-post="{{$base}}/accounts" hx-target="#user" hx-swap="outerHTML">
+        <div class="grid">
+          <label>Connection <span class="req">required</span><select name="connection" required>{{range .Connections}}<option value="{{.Name}}">{{.Name}} ({{.Kind}})</option>{{end}}</select></label>
+          <label>User id <span class="hint">the service's id, e.g. a Discord user id</span><input name="uid"></label>
+          <label>Handle <span class="hint">the service's mention handle, without the @</span><input name="handle"></label>
+        </div>
+        <div class="form-actions"><button type="submit" class="primary small">Add account</button></div>
+      </form>
+    </details>
+  </section>
+</div>
+{{end}}
+</div>
+{{end}}

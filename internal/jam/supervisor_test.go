@@ -1152,8 +1152,8 @@ func TestRaisePersonalGetsOwnerOnlyAddressing(t *testing.T) {
 		grants[a.ID] = a.Grants
 	}
 	p := grants["p1"]
-	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "human:alice" {
-		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [human:alice]", p)
+	if len(p) != 1 || p[0].Overrides == nil || len(p[0].Overrides.Addressing) != 1 || p[0].Overrides.Addressing[0] != "user:alice" {
+		t.Fatalf("personal cove grant = %+v; want an Addressing override of exactly [user:alice] (a name-only owner; ids are user:<usr_id>)", p)
 	}
 	if w := grants["w1"]; len(w) != 1 || w[0].Overrides != nil {
 		t.Fatalf("Requisitioner cove grant = %+v; want no override", w)
@@ -1307,13 +1307,13 @@ func TestRaiseConnectorConflictRollsBack(t *testing.T) {
 func TestRaiseContextStudioNamesOwner(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	if err := store.AddHuman("default", Human{Name: "alice", Handle: "alice"}); err != nil {
+	if err := AddPerson(store, "default", Human{Name: "alice", Handle: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "guest", Owner: "alice", SessionKind: SessionKindPersonal, Prompt: "P"}); err != nil {
 		t.Fatal(err)
 	}
-	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`human:alice` — your owner") {
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "`user:alice` — started you") {
 		t.Fatalf("studio layer must name the owner: %+v", c)
 	}
 }
@@ -2012,5 +2012,64 @@ func TestSetReport(t *testing.T) {
 	}
 	if inst, _ := store.GetInstance("w1"); inst.Report == nil || *inst.Report != r {
 		t.Fatalf("report = %+v", inst.Report)
+	}
+}
+
+type fakeSessionChannels struct{ calls []string }
+
+func (f *fakeSessionChannels) SetUp(inst Instance) error {
+	f.calls = append(f.calls, "setup "+inst.ActorID+" "+inst.Unit)
+	return nil
+}
+
+func (f *fakeSessionChannels) Ended(inst Instance) error {
+	f.calls = append(f.calls, "ended "+inst.ActorID+" "+inst.Unit)
+	return errors.New("best effort: a failure doesn't fail the teardown")
+}
+
+// A session joins its channels when set up and leaves them when it ends.
+func TestSupervisorFollowsSessionChannels(t *testing.T) {
+	sup, _, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	fc := &fakeSessionChannels{}
+	sup.SetSessionChannels(fc)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatalf("Teardown: %v", err)
+	}
+	if want := []string{"setup w1 AET-1", "ended w1 AET-1"}; !slices.Equal(fc.calls, want) {
+		t.Fatalf("calls = %q, want %q", fc.calls, want)
+	}
+}
+
+// escalate asks for a person until the session is next woken: the ask holds
+// through the turn end and is cleared when a new turn starts.
+func TestEscalateAsksUntilWoken(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if err := sup.SetEscalationCategory("w1", "infra"); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked || inst.EscalationCategory != "infra" {
+		t.Fatalf("after escalate + turn end = %+v", inst)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); inst.EscalationAsked || inst.EscalationCategory != "infra" {
+		t.Fatalf("a new turn clears the ask but keeps the category: %+v", inst)
+	}
+}
+
+// An escalate ask made before a Holding stretch (background tasks running
+// past the turn) survives the resume: only a wake from Waiting answers it.
+func TestEscalateAskSurvivesHolding(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	_ = sup.SetEscalationCategory("w1", "")
+	_ = sup.Report(context.Background(), "w1", ActivityHolding)
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked {
+		t.Fatal("resuming from Holding cleared the ask")
 	}
 }

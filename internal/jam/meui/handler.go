@@ -2,12 +2,15 @@ package meui
 
 import (
 	"embed"
+	"errors"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -41,11 +44,11 @@ type inboxPage struct {
 // Handler serves the participant intercom inbox under /me. It reads identity per
 // request from jam.ParticipantFrom (the /me gate injects it) — never a
 // constructor argument — so one handler serves every participant. lg may be nil.
-func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) http.Handler {
+func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
 		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	h := &handler{store: store, log: log, lg: lg}
+	h := &handler{d: d, lg: lg}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -54,6 +57,9 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 	mux.HandleFunc("GET /me/rail", h.rail)
 	mux.HandleFunc("GET /me/stream", h.stream)
 	mux.HandleFunc("POST /me/read", h.markRead)
+	mux.HandleFunc("POST /me/join", h.join)
+	mux.HandleFunc("POST /me/leave", h.leave)
+	mux.HandleFunc("POST /me/call-in", h.callIn)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/events", h.events)
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
@@ -62,8 +68,7 @@ func Handler(store Store, log jam.LogReader, lg *slog.Logger, opts ...Option) ht
 }
 
 type handler struct {
-	store    Store
-	log      jam.LogReader
+	d        Deps
 	lg       *slog.Logger
 	changes  Changes  // nil = no `changed` push
 	presence Presence // nil = no `presence` push; live sessions read "working"
@@ -79,12 +84,12 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 	sel := r.URL.Query().Get("c")
 	page := inboxPage{
 		Me:         p.Name,
-		Groups:     Rail(p, h.store, h.log, sel),
-		Recipients: newMessageOptions(p, h.store),
+		Groups:     Rail(p, h.d, sel),
+		Recipients: newMessageOptions(p, h.d),
 	}
 	if sel != "" {
-		if conv, ok := conversation(p, h.store, h.log, sel); ok {
-			conv.Sessions = sessionRows(conv.SessionIDs, h.store.ListInstances(), h.presence)
+		if conv, ok := conversation(p, h.d, sel); ok {
+			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
 			page.Conv = &conv
 		}
 	}
@@ -145,8 +150,8 @@ func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "sessions", page)
 }
 
-// markRead advances the participant's unread cursor for a channel to seq, under
-// the self ref of that channel's project (matching how the rail queried it).
+// markRead advances the participant's read cursor on a channel to seq (a
+// History channel has none: it is all read).
 func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
@@ -159,12 +164,60 @@ func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty channel", http.StatusBadRequest)
 		return
 	}
-	if conv, ok := conversation(p, h.store, h.log, channel); ok {
-		if ref := selfRefForProject(p, h.store, conv.Project); ref != "" {
-			if err := h.store.CommitUnread(ref, channel, seq); err != nil {
-				h.lg.Warn("meui mark-read failed", "channel", channel, "error", err.Error())
-			}
+	if strings.HasPrefix(channel, legacyPrefix) || h.d.Log == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ident.ID(channel)); ok {
+		if err := h.d.Store.CommitChannelRead(p.UserID, ident.ID(channel), seq); err != nil {
+			h.lg.Warn("meui mark-read failed", "channel", channel, "error", err.Error())
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// join, leave and callIn are the conversation's membership controls: 204,
+// then the page reloads (HX-Refresh), so the header shows the new state. A refusal never says
+// whether the channel exists.
+func (h *handler) join(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error { return h.d.Intercom.JoinChannel(p.UserID, ch) })
+}
+
+func (h *handler) leave(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error { return h.d.Intercom.LeaveChannel(p.UserID, ch) })
+}
+
+func (h *handler) callIn(w http.ResponseWriter, r *http.Request) {
+	h.membership(w, r, func(p jam.Participant, ch ident.ID) error {
+		_, _, err := h.d.Intercom.CallIn(jam.Poster{ID: p.UserID}, ch, r.FormValue("who"))
+		return err
+	})
+}
+
+func (h *handler) membership(w http.ResponseWriter, r *http.Request, act func(jam.Participant, ident.ID) error) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	channel := r.FormValue("channel")
+	if channel == "" || h.d.Intercom == nil {
+		http.Error(w, "channel required", http.StatusBadRequest)
+		return
+	}
+	err := act(p, ident.ID(channel))
+	switch {
+	case err == nil:
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, jam.ErrSendDenied):
+		http.Error(w, "not allowed", http.StatusForbidden)
+	case errors.Is(err, jam.ErrSendUnresolved), errors.Is(err, jam.ErrRemoved):
+		http.Error(w, "not found", http.StatusNotFound)
+	case errors.Is(err, jam.ErrFixedMembers):
+		http.Error(w, "this channel's members are fixed", http.StatusConflict)
+	default:
+		h.lg.Error("meui membership change failed", "channel", channel, "error", err.Error())
+		http.Error(w, "failed", http.StatusInternalServerError)
+	}
 }

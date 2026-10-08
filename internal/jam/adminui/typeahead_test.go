@@ -20,24 +20,19 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com"}); err != nil {
 		t.Fatal(err)
 	}
-	log := newIntercomLog(t, intercom.Squawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
+	log := newIntercomLog(t, intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, log)
 	for page, wants := range map[string][]string{
-		"/ui/coves": {
-			`name="project" data-ta="projects"`,
-			`name="role" data-ta="roles" data-ta-project="@form"`,
-		},
-		"/ui/roster": {
+		"/ui/agents": { // the Raise and Enroll forms
 			`name="project" data-ta="projects"`,
 			`name="role" data-ta="roles" data-ta-project="@form"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/roles": {
-			`name="project" data-ta="projects"`,
+		"/ui/projects/acme/agents": {
 			`name="kit" data-ta="kits"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/roles/acme/dev": {
+		"/ui/projects/acme/roles/dev": {
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 			`name="addressing" data-ta="targets" data-ta-list data-ta-project="acme"`,
 			`name="kit" data-ta="kits"`,
@@ -45,8 +40,10 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 		"/ui/destinations": {
 			`name="cred-name" data-ta="credentials"`,
 		},
-		"/ui/projects/acme": {
+		"/ui/projects/acme/escalation": {
 			`name="tiers" data-ta="targets" data-ta-list data-ta-project="acme"`,
+		},
+		"/ui/projects/acme/intercom": {
 			`name="service" data-ta="services"`,
 		},
 		"/ui/intercom": {

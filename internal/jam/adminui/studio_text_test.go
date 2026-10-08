@@ -14,12 +14,12 @@ func TestUISaysStudioAndJam(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
-	page := get(t, h, "/ui/coves")
+	page := get(t, h, "/ui/agents")
 	if page.Code != http.StatusOK {
 		t.Fatalf("GET /ui/coves = %d", page.Code)
 	}
 	body := page.Body.String()
-	for _, want := range []string{"<title>Jam — Studios</title>", "<h1>Studios</h1>", `<a href="/ui/coves" aria-current="page">Studios</a>`, "No studios."} {
+	for _, want := range []string{"<title>Jam — Agents</title>", "<h1>Agents</h1>", `<a href="/ui/agents" aria-current="page">Agents</a>`, "No agents."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("studios page missing %q; got:\n%s", want, body)
 		}
@@ -31,7 +31,7 @@ func TestUISaysStudioAndJam(t *testing.T) {
 	}
 
 	dash := get(t, h, "/ui/").Body.String()
-	if !strings.Contains(dash, "Live studios") || strings.Contains(dash, "Live coves") {
-		t.Errorf("dashboard should say Live studios; got:\n%s", dash)
+	if !strings.Contains(dash, "<span>Running</span>") || strings.Contains(dash, "Live coves") {
+		t.Errorf("dashboard should say Running; got:\n%s", dash)
 	}
 }

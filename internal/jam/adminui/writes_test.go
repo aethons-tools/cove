@@ -61,7 +61,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 		t.Fatalf("captured token looks too short to be real: %q", token)
 	}
 	// ...but never appears on the roster afterward.
-	roster := get(t, h, "/ui/roster").Body.String()
+	roster := get(t, h, "/ui/agents").Body.String()
 	if !strings.Contains(roster, "spider-1") {
 		t.Error("roster should list the new actor")
 	}
@@ -267,8 +267,8 @@ func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 		t.Fatalf("stored role = %+v", r)
 	}
 	// Credential names are references, not secret values: the table shows the mapping.
-	if !strings.Contains(rec.Body.String(), "known-cred") {
-		t.Errorf("roles table should show the credential mapping; got:\n%s", rec.Body.String())
+	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, "known-cred") {
+		t.Errorf("roles table should show the credential mapping; got:\n%s", body)
 	}
 	for _, bad := range []string{"git=unknown-cred", "git="} {
 		if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {

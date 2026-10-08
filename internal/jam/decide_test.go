@@ -1,9 +1,11 @@
 package jam
 
 import (
-	"errors"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 func roleScopes(t *testing.T, scopes ...Scope) []Scope { t.Helper(); return scopes }
@@ -82,96 +84,69 @@ func TestEffectiveScopeAddressingReplaces(t *testing.T) {
 	}
 }
 
-func TestDecideSend(t *testing.T) {
-	roles := map[string]map[string]Role{
-		"acme": {
-			"impl":   {Name: "impl", Scope: Scope{Addressing: []string{"human:*", "channel:eng-help"}}},
-			"noaddr": {Name: "noaddr"},
-		},
-	}
-	rosters := map[string]Roster{
-		"acme": {
-			Humans:   []Human{{Name: "alice", Handle: "alice.h"}},
-			Channels: []Channel{{Name: "eng-help", Service: "linear", Ref: "ACME-1"}},
-		},
-	}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	now := time.Unix(1_000, 0)
-
-	actor := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}
-
-	// authorized human → resolves handle
-	st, err := DecideSend(actor, getRole, getRoster, "human:alice", now)
-	if err != nil || st.Kind != "human" || st.Handle != "alice.h" || st.Project != "acme" {
-		t.Fatalf("human: %+v err=%v", st, err)
-	}
-	// authorized channel → resolves ref
-	st, err = DecideSend(actor, getRole, getRoster, "channel:eng-help", now)
-	if err != nil || st.Kind != "channel" || st.Ref != "ACME-1" {
-		t.Fatalf("channel: %+v err=%v", st, err)
-	}
-	// glob does not authorize channel:other → denied (403), and never leaks existence
-	if _, err := DecideSend(actor, getRole, getRoster, "channel:other", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied, got %v", err)
-	}
-	// authorized-in-form (human:*) but not in roster → unresolved (404)
-	if _, err := DecideSend(actor, getRole, getRoster, "human:bob", now); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("expected unresolved, got %v", err)
-	}
-	// malformed target → denied
-	if _, err := DecideSend(actor, getRole, getRoster, "alice", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied for malformed, got %v", err)
-	}
-	// no-addressing role → denied
-	na := Actor{ID: "n", Grants: []Grant{{Project: "acme", Role: "noaddr"}}}
-	if _, err := DecideSend(na, getRole, getRoster, "human:alice", now); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("expected denied for no addressing, got %v", err)
-	}
-	// expired actor → denied
-	exp := Actor{ID: "e", Expiry: now.Add(-time.Hour), Grants: []Grant{{Project: "acme", Role: "impl"}}}
-	if _, err := DecideSend(exp, getRole, getRoster, "human:alice", now); err == nil {
-		t.Fatal("expected expired actor denied")
-	}
-}
-
-func TestDecideSendPerGrantExistential(t *testing.T) {
-	// grant A authorizes humans in acme; grant B authorizes channels in beta.
-	roles := map[string]map[string]Role{
-		"acme": {"a": {Name: "a", Scope: Scope{Addressing: []string{"human:*"}}}},
-		"beta": {"b": {Name: "b", Scope: Scope{Addressing: []string{"channel:*"}}}},
-	}
-	rosters := map[string]Roster{
-		"acme": {Humans: []Human{{Name: "alice", Handle: "h"}}},
-		"beta": {Channels: []Channel{{Name: "ops", Ref: "BETA-9"}}},
-	}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
-	a := Actor{ID: "x", Grants: []Grant{{Project: "acme", Role: "a"}, {Project: "beta", Role: "b"}}}
-	now := time.Unix(1, 0)
-	if st, err := DecideSend(a, getRole, getRoster, "channel:ops", now); err != nil || st.Ref != "BETA-9" {
-		t.Fatalf("beta channel via grant B: %+v %v", st, err)
-	}
-	// a human that only exists in beta's project is not addressable (acme grant authorizes humans but acme has no bob; beta grant doesn't authorize humans)
-	if _, err := DecideSend(a, getRole, getRoster, "human:ops", now); err == nil {
-		t.Fatal("expected cross-project recombination to fail")
-	}
-}
-
 func TestListTargets(t *testing.T) {
-	roles := map[string]map[string]Role{"acme": {"impl": {Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}}}
-	rosters := map[string]Roster{"acme": {Humans: []Human{{Name: "alice", Handle: "h"}, {Name: "bob", Handle: "h2"}}, Channels: []Channel{{Name: "eng", Ref: "R"}}}}
-	getRole := func(p, r string) (Role, bool) { rr, ok := roles[p][r]; return rr, ok }
-	getRoster := func(p string) (Roster, bool) { rr, ok := rosters[p]; return rr, ok }
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"alice", "bob"} {
+		if err := AddPerson(s, "acme", Human{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.PutRole("acme", Role{Name: "impl", Scope: Scope{Addressing: []string{"human:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PutRoom(s, "acme", RoomBody{Name: "eng", Ref: "R"}); err != nil {
+		t.Fatal(err)
+	}
 	a := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}
-	got := ListTargets(a, getRole, getRoster, time.Unix(1, 0))
-	// only humans are addressable (channel not in addressing)
 	names := map[string]bool{}
-	for _, tg := range got {
+	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
 		names[tg.Kind+":"+tg.Name] = true
 	}
-	if !names["human:alice"] || !names["human:bob"] || names["channel:eng"] {
-		t.Fatalf("unexpected targets: %+v", got)
+	// Only people: the room isn't in the addressing (human: reads as user:).
+	if len(names) != 2 || !names["user:alice"] || !names["user:bob"] {
+		t.Fatalf("targets: %v", names)
+	}
+	expired := a
+	expired.Expiry = time.Unix(0, 1)
+	if got := ListTargets(s, expired, time.Unix(1, 0)); got != nil {
+		t.Fatalf("an expired actor has no targets: %+v", got)
+	}
+}
+
+// Sessions are targets too, by unique label (else by id), when the
+// addressing allows them; never the caller itself or an ended one.
+func TestListTargetsSessions(t *testing.T) {
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRole("acme", Role{Name: "impl", Scope: Scope{Addressing: []string{"session:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	dup := string(ident.New(ident.Session))
+	for _, inst := range []Instance{
+		{ActorID: "me", Project: "acme", Name: "me"},
+		{ActorID: "s1", Project: "acme", Name: "spider", Phase: PhaseLive},
+		{ActorID: dup, Project: "acme", Name: "twin", Phase: PhaseLive},
+		{ActorID: "s3", Project: "acme", Name: "twin", Phase: PhaseLive},
+		{ActorID: "s4", Project: "acme", Name: "gone", Phase: PhaseGone},
+		{ActorID: "s5", Project: "other", Name: "elsewhere", Phase: PhaseLive},
+	} {
+		if err := s.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := Actor{ID: "me", Grants: []Grant{{Project: "acme", Role: "impl"}}}
+	var got []string
+	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
+		got = append(got, tg.Kind+":"+tg.Name)
+	}
+	slices.Sort(got)
+	if want := []string{"session:s3", "session:" + dup, "session:spider"}; !slices.Equal(got, func() []string { slices.Sort(want); return want }()) {
+		t.Fatalf("targets = %v, want %v", got, want)
 	}
 }
 

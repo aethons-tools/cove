@@ -39,7 +39,8 @@ type specChoices struct {
 type specDetail struct {
 	Title       string
 	Spec        jam.ModelSpec
-	Provider    string // Spec.Claude.Provider, "" when no body
+	Uses        []kitUse // roles that run this model-spec (Implicit: unbound, so the default)
+	Provider    string   // Spec.Claude.Provider, "" when no body
 	Form        specForm
 	Choices     specChoices
 	NotFound    bool
@@ -73,7 +74,7 @@ func (u specUI) choices(current string) specChoices {
 }
 
 func (u specUI) detail(m jam.ModelSpec) specDetail {
-	d := specDetail{Title: "Model-specs", Spec: m, Choices: u.choices(m.Principal.Credential)}
+	d := specDetail{Title: "Model-specs", Spec: m, Choices: u.choices(m.Principal.Credential), Uses: specUses(u.store, m.Name)}
 	d.Form.Allow = strings.Join(m.Policy.Allow, "\n")
 	d.Form.Deny = strings.Join(m.Policy.Deny, "\n")
 	d.Form.Headers = formatHeaderRules(m.Principal.Headers)
@@ -94,9 +95,28 @@ func (u specUI) detail(m jam.ModelSpec) specDetail {
 	return d
 }
 
+// specUses lists the roles that run model-spec name: those bound to it and,
+// for the default spec, those bound to none.
+func specUses(store jam.Store, name string) []kitUse {
+	var out []kitUse
+	for _, p := range store.ListProjects() {
+		for _, r := range store.ListRoles(p) {
+			if r.ModelSpecName() == name {
+				out = append(out, kitUse{Project: p, Role: r.Name, Implicit: r.ModelSpec == ""})
+			}
+		}
+	}
+	return out
+}
+
 func (u specUI) tableData() map[string]any {
+	used := map[string]int{}
+	for _, m := range u.store.ListModelSpecs() {
+		used[m.Name] = len(specUses(u.store, m.Name))
+	}
 	return map[string]any{
-		"Specs": u.store.ListModelSpecs(),
+		"Specs":  u.store.ListModelSpecs(),
+		"UsedBy": used,
 		// New seeds the create form: claude on the anthropic provider.
 		"New": u.detail(jam.ModelSpec{Type: jam.HarnessClaude, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}),
 	}
@@ -264,16 +284,16 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 	mux.HandleFunc("GET /ui/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		data := u.tableData()
 		data["Title"] = "Model-specs"
-		render(w, "model-specs", data)
+		render(w, r, "model-specs", data)
 	})
 
 	mux.HandleFunc("GET /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := u.store.GetModelSpec(r.PathValue("name"))
 		if !ok {
-			renderStatus(w, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
+			renderStatus(w, r, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
-		render(w, "model-spec", u.detail(m))
+		render(w, r, "model-spec", u.detail(m))
 	})
 
 	// Create only: an existing model-spec is edited on its page.
@@ -299,7 +319,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 		}
 		log.Info("ui model-spec created", "operator", jam.OperatorID(r), "name", m.Name, "type", string(m.Type))
 		w.Header().Set("HX-Redirect", specURL(m.Name))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 
 	mux.HandleFunc("POST /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +344,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			renderError(w, http.StatusNotFound, "model-spec no longer exists")
 			return
 		}
-		renderFragment(w, "model-spec", "spec-body", u.detail(stored))
+		renderFragment(w, r, "model-spec", "spec-body", u.detail(stored))
 	})
 
 	mux.HandleFunc("DELETE /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -336,6 +356,6 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			return
 		}
 		log.Info("ui model-spec deleted", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, "model-specs", "model-specs-table", u.tableData())
+		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 }

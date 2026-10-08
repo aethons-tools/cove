@@ -212,16 +212,12 @@ const JamLabel = "harbor.cove.jam"
 // agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).
 const agentDataPath = "/agent-data"
 
-// stateVolumes names a cove's state volumes, given its container name: the
-// at-cove create path's <container>-agent-data and <container>-workspace, plus
-// with docker the <container>-docker /var/lib/docker cache (which the backend
-// mounts itself). The one source for the raise and the purge.
-func stateVolumes(name string, docker bool) []string {
-	vols := []string{naming.AgentDataVolume(name), naming.WorkspaceVolume(name)}
-	if docker {
-		vols = append(vols, naming.DockerVolume(name))
-	}
-	return vols
+// stateVolumes names a session's state volumes, given its container name: the
+// at-cove create path's <container>-agent-data and <container>-workspace. The
+// <container>-docker /var/lib/docker cache (which the backend mounts itself)
+// is the studio's, not the session's: Teardown removes it.
+func stateVolumes(name string) []string {
+	return []string{naming.AgentDataVolume(name), naming.WorkspaceVolume(name)}
 }
 
 // stateMounts creates every state volume (labeled with the actor id and this
@@ -234,7 +230,7 @@ func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount
 	if spec.SessionKind != jam.SessionKindStanding {
 		return nil, nil
 	}
-	vols := stateVolumes(name, l.cfg.Docker)
+	vols := stateVolumes(name)
 	for _, v := range vols {
 		// -v would auto-create the volume, but without the labels the sweep keys on.
 		if err := l.cfg.Ops.CreateVolume(v, StateLabel+"="+spec.ActorID, JamLabel+"="+l.cfg.JamID); err != nil {
@@ -244,13 +240,13 @@ func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount
 	return []backend.Mount{{Volume: vols[0], Target: agentDataPath}, {Volume: vols[1], Target: l.cfg.WorkDir}}, nil
 }
 
-// PurgeState deletes actorID's state volumes (the -docker cache included,
-// whatever the current docker setting) so its next raise starts fresh. A
-// volume still in use by a container errors (the caller retries later); an
-// absent one is fine.
+// PurgeState deletes actorID's state volumes (and any -docker cache, e.g. one
+// labelled as state before the cache became the studio's) so its next raise
+// starts fresh. A volume still in use by a container errors (the caller
+// retries later); an absent one is fine.
 func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
 	name := naming.CoveContainer(actorID)
-	if err := l.cfg.Ops.RemoveVolumes(stateVolumes(name, true)...); err != nil {
+	if err := l.cfg.Ops.RemoveVolumes(append(stateVolumes(name), naming.DockerVolume(name))...); err != nil {
 		return fmt.Errorf("purge %s state: %w", name, err)
 	}
 	l.cfg.Log.Info("cove state purged", "id", actorID, "container", name)
@@ -327,14 +323,25 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 		l.cfg.Log.Warn("teardown: unpause before capture failed (continuing)", "id", inst.ActorID, "error", err.Error())
 	}
 	// Post-mortem insurance: before the container is removed (a standing
-	// session's state volumes survive it; only PurgeState deletes them), grab the tail of cove-master's log and record it, so a cove
+	// session's agent-data and workspace volumes survive it; only PurgeState
+	// deletes them), grab the tail of cove-master's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
 	if tail := l.captureAgentLog(inst.Location); tail != "" {
 		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
 	}
-	return l.cfg.Ops.RemoveContainer(inst.Location)
+	if err := l.cfg.Ops.RemoveContainer(inst.Location); err != nil {
+		return err
+	}
+	// The -docker cache is the studio's: it goes with the container, so the
+	// session's next studio starts with a clean Docker store. Best-effort.
+	if l.cfg.Docker {
+		if err := l.cfg.Ops.RemoveVolumes(naming.DockerVolume(inst.Location)); err != nil {
+			l.cfg.Log.Warn("teardown: removing the studio's docker cache failed", "id", inst.ActorID, "error", err.Error())
+		}
+	}
+	return nil
 }
 
 // captureAgentLog returns the last few KB of cove-master's log from the cove, or

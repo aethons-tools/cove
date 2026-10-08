@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // Decision is the outcome of the three-question pipeline for one request.
@@ -74,15 +76,6 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 	return Decision{Dest: dest, NeedCred: cred != "", CredName: cred, Apply: dest.Apply}, nil
 }
 
-// SendTarget is a resolved comms recipient: how Jam should deliver a send.
-type SendTarget struct {
-	Kind    string // "human" | "channel"
-	Name    string // roster-local name
-	Handle  string // human @-mention handle (Kind=="human")
-	Ref     string // channel thread identifier (Kind=="channel")
-	Project string // the project whose grant authorized+resolved this target
-}
-
 // ErrSendDenied means no grant's addressing authorizes the target's form (403);
 // it never reveals whether the target exists. ErrSendUnresolved means the target
 // was authorized-in-form but is absent from the roster of every authorizing
@@ -92,109 +85,145 @@ var (
 	ErrSendUnresolved = errors.New("comms: send target not found")
 )
 
-func parseTarget(target string) (kind, name string, ok bool) {
-	k, n, found := strings.Cut(target, ":")
-	if !found || n == "" || (k != "human" && k != "channel") {
-		return "", "", false
+// normalizeGlob reads a pre-registry "human:" addressing glob as "user:".
+func normalizeGlob(g string) string {
+	if rest, ok := strings.CutPrefix(g, "human:"); ok {
+		return "user:" + rest
 	}
-	return k, n, true
+	return g
 }
 
-func targetAllowed(target string, globs []string) bool {
+// anyAllowed reports whether some glob matches some of a target's forms (a
+// person is "user:<name>" and "user:<usr_id>"; a channel "channel:<name>").
+// An id form is matched only by that exact id, "user:*" or "*": a name glob
+// never matches an id ("usr_…"), so it can't reach every member. A session
+// ("session:<label|id>") is matched only by a session: glob — "*" predates
+// session addressing and never reaches one.
+func anyAllowed(forms []string, globs []string) bool {
 	for _, g := range globs {
-		if ok, _ := path.Match(g, target); ok {
-			return true
+		g = normalizeGlob(g)
+		for _, f := range forms {
+			if strings.HasPrefix(f, "session:") && !strings.HasPrefix(g, "session:") {
+				continue // sessions are reached only by an explicit session: glob, never "*"
+			}
+			if isIDForm(f) {
+				if g == f || g == "user:*" || g == "*" {
+					return true
+				}
+				continue
+			}
+			if ok, _ := path.Match(g, f); ok {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func resolveInRoster(kind, name string, r Roster) (SendTarget, bool) {
-	switch kind {
-	case "human":
-		for _, h := range r.Humans {
-			if h.Name == name {
-				return SendTarget{Kind: "human", Name: name, Handle: h.Handle}, true
-			}
-		}
-	case "channel":
-		for _, c := range r.Channels {
-			if c.Name == name {
-				return SendTarget{Kind: "channel", Name: name, Ref: c.Ref}, true
-			}
-		}
-	}
-	return SendTarget{}, false
-}
-
-// DecideSend authorizes actor a to send to target and resolves delivery. Live,
-// additive across grants, per-grant existential, fail-closed. See ErrSendDenied
-// / ErrSendUnresolved for the 403/404 split (authz checked before existence).
-func DecideSend(a Actor, getRole func(project, role string) (Role, bool), getRoster func(project string) (Roster, bool), target string, now time.Time) (SendTarget, error) {
-	if !a.Expiry.IsZero() && now.After(a.Expiry) {
-		return SendTarget{}, fmt.Errorf("actor %q expired", a.ID)
-	}
-	kind, name, ok := parseTarget(target)
+// isIDForm reports whether a target form names a person by user id.
+func isIDForm(f string) bool {
+	ref, ok := strings.CutPrefix(f, "user:")
 	if !ok {
-		return SendTarget{}, ErrSendDenied
+		return false
 	}
-	authorized := false
-	for _, g := range a.Grants {
-		role, ok := getRole(g.Project, g.Role)
-		if !ok {
-			continue
-		}
-		if !targetAllowed(target, EffectiveScope(g, role).Addressing) {
-			continue
-		}
-		authorized = true
-		roster, ok := getRoster(g.Project)
-		if !ok {
-			continue
-		}
-		if st, ok := resolveInRoster(kind, name, roster); ok {
-			st.Project = g.Project
-			return st, nil
-		}
-	}
-	if authorized {
-		return SendTarget{}, ErrSendUnresolved
-	}
-	return SendTarget{}, ErrSendDenied
+	id, err := ident.Parse(ref)
+	return err == nil && id.Kind() == ident.User
 }
 
-// ListTargets returns the actor's authorized-and-resolvable targets (dedup by
-// kind:name). Order is grant-then-roster order.
-func ListTargets(a Actor, getRole func(project, role string) (Role, bool), getRoster func(project string) (Roster, bool), now time.Time) []SendTarget {
+// Target is one address a session may send to: a person ("user", by name),
+// a room ("channel") or a session ("session", by label, or by id when its
+// label is shared), in the project of the grant that allows it.
+type Target struct {
+	Kind    string // "user" | "channel" | "session"
+	Name    string
+	Project string
+}
+
+// ListTargets returns the actor's allowed-and-resolvable targets: the members,
+// rooms and other live sessions of each grant's project its addressing allows
+// (dedup by kind:name, grant then name order). An expired actor has none.
+func ListTargets(store Store, a Actor, now time.Time) []Target {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return nil
 	}
 	seen := map[string]bool{}
-	var out []SendTarget
+	var out []Target
 	for _, g := range a.Grants {
-		role, ok := getRole(g.Project, g.Role)
+		role, ok := store.GetRole(g.Project, g.Role)
 		if !ok {
 			continue
 		}
 		globs := EffectiveScope(g, role).Addressing
-		roster, ok := getRoster(g.Project)
+		p, ok := store.GetProject(orDefaultProject(g.Project))
 		if !ok {
 			continue
 		}
-		for _, h := range roster.Humans {
-			key := "human:" + h.Name
-			if !seen[key] && targetAllowed(key, globs) {
+		for _, m := range MembersOf(store, p.ID) {
+			key := "user:" + m.User.Name
+			if !seen[key] && anyAllowed([]string{key, "user:" + string(m.User.ID)}, globs) {
 				seen[key] = true
-				out = append(out, SendTarget{Kind: "human", Name: h.Name, Handle: h.Handle, Project: g.Project})
+				out = append(out, Target{Kind: "user", Name: m.User.Name, Project: g.Project})
 			}
 		}
-		for _, c := range roster.Channels {
-			key := "channel:" + c.Name
-			if !seen[key] && targetAllowed(key, globs) {
+		for _, c := range store.ListChannels(p.ID, SourceRoom) {
+			key := "channel:" + c.Key
+			if !seen[key] && anyAllowed([]string{key}, globs) {
 				seen[key] = true
-				out = append(out, SendTarget{Kind: "channel", Name: c.Name, Ref: c.Ref, Project: g.Project})
+				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
+			}
+		}
+		tracker, hasTracker := store.ConnectionOfKind("linear")
+		self, _ := store.GetInstance(a.ID)
+		for _, inst := range liveSessionsOf(store, p.Name) {
+			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, tracker.ID, self, inst, globs) {
+				continue
+			}
+			name := sessionAddressName(store, inst)
+			key := "session:" + name
+			if !seen[key] && anyAllowed([]string{"session:" + sessionLabel(inst), "session:" + inst.ActorID}, globs) {
+				seen[key] = true
+				out = append(out, Target{Kind: "session", Name: name, Project: g.Project})
 			}
 		}
 	}
 	return out
+}
+
+// sessionTicketAllowed reports whether a session whose addressing is globs
+// may reach target where target's home is its ticket (on tracker): no ticket,
+// the poster's own ticket, or a ticket: glob in any form resolveTicket takes
+// — the bare key, or scoped to the tracker connection by name or id.
+func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
+	if target.Unit == "" || target.Unit == poster.Unit {
+		return true
+	}
+	forms := []string{"ticket:" + target.Unit, "ticket:" + string(tracker) + "/" + target.Unit}
+	if c, ok := store.GetConnection(tracker); ok {
+		forms = append(forms, "ticket:"+c.Name+"/"+target.Unit)
+	}
+	return anyAllowed(forms, globs)
+}
+
+// liveSessionsOf lists the live sessions of the project named project, by id.
+func liveSessionsOf(store Store, project string) []Instance {
+	var out []Instance
+	for _, inst := range store.ListInstances() {
+		if inst.Phase != PhaseGone && SameProject(store, inst.Project, project) {
+			out = append(out, inst)
+		}
+	}
+	slices.SortFunc(out, func(a, b Instance) int { return strings.Compare(a.ActorID, b.ActorID) })
+	return out
+}
+
+// sessionAddressName is how a session:<name> address names inst: its label
+// when no other live session of its project shares it, else its id.
+func sessionAddressName(store Store, inst Instance) string {
+	label := sessionLabel(inst)
+	for _, other := range liveSessionsOf(store, inst.Project) {
+		if other.ActorID != inst.ActorID && sessionLabel(other) == label {
+			return inst.ActorID
+		}
+	}
+	return label
 }

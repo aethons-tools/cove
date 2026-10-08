@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/intercom"
-	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -64,6 +63,7 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 			ForeignID:      c.ID,
 			Surface:        c.IssueIdentifier,
 			Author:         c.Author,
+			AuthorID:       c.AuthorID,
 			Body:           c.Body,
 			ReplyToForeign: c.ParentID,
 			At:             c.CreatedAt,
@@ -109,240 +109,78 @@ func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m interco
 
 func (s *linearSurface) Close() error { return nil }
 
-// instanceRoster is the slice of jam.Store that the Linear directory reads:
-// live instances (own-ticket / sender resolution) and the project roster
-// (human handles, channel refs). Any jam.Store satisfies it (PostgresStore in serve; MemStore in tests).
-type instanceRoster interface {
-	ListInstances() []jam.Instance
-	GetRoster(project string) (jam.Roster, bool)
-	GetProject(name string) (jam.Project, bool)
-	ListProjects() []string
-}
-
-// directory is the concrete relay.Directory mapping the Linear feed and
-// Discord replies into the actor model, over jam.Store (narrowed to
-// instanceRoster). project and selfIdentity are the Requisitioner's (Linear
-// routing only runs with a Requisitioner); both are "" without one, and the
-// Discord path needs neither.
-type directory struct {
-	store        instanceRoster
-	project      string
-	selfIdentity string        // Jam's Linear viewer displayName (self-post filter)
-	receipts     *fileReceipts // discord-msg-id → {actorID, squawk id} (nil when discord unconfigured; routeLinear never touches it)
-	log          *slog.Logger  // optional (nil = silent): debug attribution notes
-}
-
-// Projects lists the projects a relay engine polls. Discord covers every store
-// project whose chat service is discord — personal sessions live in any such
-// project, with or without a Requisitioner — plus the Requisitioner's project (whose
-// roster discord channels were always polled). Linear keeps the Requisitioner's
-// single project.
-func (d *directory) Projects(service string) []string {
-	if service != "discord" {
-		return []string{d.project}
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, name := range d.store.ListProjects() {
-		if p, ok := d.store.GetProject(name); ok && p.ChatService == "discord" && !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	if d.project != "" && !seen[d.project] {
-		out = append(out, d.project)
-	}
-	return out
-}
-
-// Route dispatches to the service-appropriate routing logic: discord replies
-// route via the receipt store (routeDiscord); everything else preserves the
-// original Linear-shaped routing (routeLinear), byte-identical to before
-// Route became service-aware.
-func (d *directory) Route(service, project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
-	if service == "discord" {
-		return d.routeDiscord(project, e)
-	}
-	return d.routeLinear(project, e)
-}
-
-// routeDiscord maps a human's Discord reply to the cove it replies to, via
-// the receipt store. A message that is NOT a reply, or replies to an unknown
-// id (not a receipt), is unroutable and dropped — which also drops Jam's
-// own non-reply posts (the self-post filter). The reply's ReplyTo is the id of
-// the squawk it answers (so threads work); a legacy receipt carries no squawk
-// id and keeps the opaque in:discord:<id>.
-//
-// The sender is the roster human jam.DiscordAuthor attributes the reply to —
-// by its immutable author id when bound, else by an unbound owner's own inbox
-// channel; never a bot, never by the spoofable display name. Otherwise it is
-// human:<Discord display name>, an ordinary reply.
-func (d *directory) routeDiscord(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
-	if e.ReplyToForeign == "" {
-		return intercom.Target{}, nil, "", false
-	}
-	rc, ok := d.receipts.Lookup(e.ReplyToForeign)
-	if !ok {
-		return intercom.Target{}, nil, "", false
-	}
-	replyTo = rc.Message
-	if replyTo == "" {
-		replyTo = "in:discord:" + e.ReplyToForeign
-	}
-	from = intercom.Target{Kind: "human", Ref: e.Author}
-	if r, ok := d.store.GetRoster(project); ok {
-		if name, by, ok := jam.DiscordAuthor(r, e.Surface, e.AuthorID, e.AuthorBot); ok {
-			from.Ref = name
-			if d.log != nil { // ids and names only — never the body
-				d.log.Debug("relay: discord reply attributed", "project", project, "human", name, "by", by)
-			}
-		}
-	}
-	return from, []intercom.Target{{Kind: "actor", Ref: rc.Actor}}, replyTo, true
-}
-
-// routeLinear drops any comment authored by Jam's own Linear identity (a
-// cove's brokered outbound, echoed back on the feed), then maps the ticket
-// the comment landed on to either a live cove's own ticket (Instance.Unit
-// match → actor) or a configured channel (Channel.Ref match → channel).
-// Unroutable events return ok=false so the cursor still advances without
-// appending anything.
-func (d *directory) routeLinear(project string, e relay.Event) (from intercom.Target, to []intercom.Target, replyTo string, ok bool) {
-	if e.Author == d.selfIdentity {
-		return intercom.Target{}, nil, "", false
-	}
-	from = intercom.Target{Kind: "human", Ref: e.Author}
-	for _, inst := range d.store.ListInstances() {
-		if inst.Unit == e.Surface {
-			to = []intercom.Target{{Kind: "actor", Ref: inst.ActorID}}
-			break
-		}
-	}
-	if to == nil {
-		if r, ok2 := d.store.GetRoster(project); ok2 {
-			for _, ch := range r.Channels {
-				if ch.Ref == e.Surface {
-					to = []intercom.Target{{Kind: "channel", Ref: ch.Name}}
-					break
-				}
-			}
-		}
-	}
-	if to == nil {
-		return intercom.Target{}, nil, "", false
-	}
-	if e.ReplyToForeign != "" {
-		replyTo = "in:linear:" + e.ReplyToForeign
-	}
-	return from, to, replyTo, true
-}
-
-// Resolve maps an External Log target (+ sender) to a concrete Delivery on
-// whichever service owns it. Pure: roster/instance/project lookups only, no
-// network (each surface's Deliver does the actual API calls).
-func (d *directory) Resolve(service, project string, to, from intercom.Target) (relay.Delivery, bool) {
-	switch to.Kind {
-	case "human":
-		return d.resolveHuman(service, project, to, from)
-	case "channel":
-		return d.resolveChannel(service, project, to, from)
-	default: // actor → internal, in-band, never egressed
-		return relay.Delivery{}, false
-	}
-}
-
-// instanceOf finds the live Instance whose ActorID matches from.Ref (when
-// from is an actor target).
-func (d *directory) instanceOf(from intercom.Target) (jam.Instance, bool) {
-	if from.Kind != "actor" {
-		return jam.Instance{}, false
-	}
-	for _, inst := range d.store.ListInstances() {
-		if inst.ActorID == from.Ref {
-			return inst, true
-		}
-	}
-	return jam.Instance{}, false
-}
-
-// findHuman looks up a roster Human by its roster-local Name.
-func findHuman(r jam.Roster, name string) (jam.Human, bool) {
-	for _, h := range r.Humans {
-		if h.Name == name {
-			return h, true
-		}
-	}
-	return jam.Human{}, false
-}
-
-// resolveHuman picks the service the project uses for human DMs, falling
-// back to a Linear @-mention on the sender's own ticket (the pre-cutover
-// behavior, preserved byte-for-byte). The Discord DM path resolves from the
-// squawk's project alone — never the sender's live Instance — so a personal
-// session's reclaim notice is still delivered after the cove is torn down.
-func (d *directory) resolveHuman(service, project string, to, from intercom.Target) (relay.Delivery, bool) {
-	self, haveSelf := d.instanceOf(from)
-	r, _ := d.store.GetRoster(project)
-	h, hok := findHuman(r, to.Ref)
-	proj, _ := d.store.GetProject(project)
-	// Discord DM: project uses discord AND the human has a discord profile.
-	if proj.ChatService == "discord" && hok {
-		if p, ok := h.DeliveryFor("discord"); ok {
-			if service != "discord" {
-				return relay.Delivery{}, false // the linear engine doesn't own this target
-			}
-			return relay.Delivery{Service: "discord", Address: p.Address, BodyPrefix: from.Ref + ": "}, true
-		}
-		// discord project but no profile → fall through to Linear @mention.
-	}
-	// Linear @mention on the SENDER's own ticket (today's behavior).
-	if service != "linear" {
-		return relay.Delivery{}, false
-	}
-	if !haveSelf || !hok {
-		return relay.Delivery{}, false
-	}
-	return relay.Delivery{Service: "linear", Address: self.Unit, BodyPrefix: "@" + h.Handle + " "}, true
-}
-
-// resolveChannel routes by the roster channel's own Service (the COV-179
-// fix: a channel resolves only for the engine that owns it); a target that
-// isn't a roster channel name is the cove's own ticket, delivered via
-// Linear with NO dependency on a live Instance — an own-ticket report must
-// still be delivered after the cove has been torn down.
-func (d *directory) resolveChannel(service, project string, to, from intercom.Target) (relay.Delivery, bool) {
-	if r, ok := d.store.GetRoster(project); ok {
-		for _, ch := range r.Channels {
-			if ch.Name != to.Ref {
-				continue
-			}
-			chSvc := ch.Service
-			if chSvc == "" {
-				chSvc = "linear" // back-compat: existing channels had no Service
-			}
-			if service != chSvc {
-				return relay.Delivery{}, false // another engine owns it
-			}
-			if chSvc == "discord" {
-				return relay.Delivery{Service: "discord", Address: ch.Ref, BodyPrefix: from.Ref + ": "}, true
-			}
-			return relay.Delivery{Service: "linear", Address: ch.Ref}, true // raw, no prefix (parity)
-		}
-	}
-	// Not a roster channel → the cove's own ticket (channel:<Unit>) → Linear.
-	if service != "linear" {
-		return relay.Delivery{}, false
-	}
-	return relay.Delivery{Service: "linear", Address: to.Ref}, true
-}
-
 // fileCursors is a small file-backed relay.Cursors: a JSON
-// map["service/project"]→cursor, mutex-guarded, loaded at open, saved on
-// every SetIngress.
+// map["service/<project id>"]→cursor, mutex-guarded, loaded at open, saved on
+// every SetIngress. key maps a project reference to the id it is stored
+// under (nil: as given).
 type fileCursors struct {
 	path string
 	mu   sync.Mutex
 	m    map[string]string
+	key  func(string) string
+}
+
+// keyedBy sets how projects are keyed, and re-keys entries an older Jam
+// stored by project name (once, keeping the old file as <path>.bak).
+func (c *fileCursors) keyedBy(key func(string) string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.key = key
+	rekeyed := map[string]string{}
+	changed := false
+	for k, v := range c.m { // keys already by id first: they win over a re-keyed name
+		if _, project, ok := strings.Cut(k, "/"); !ok || key(project) == project {
+			rekeyed[k] = v
+		}
+	}
+	for k, v := range c.m {
+		service, project, ok := strings.Cut(k, "/")
+		if !ok || key(project) == project {
+			continue
+		}
+		changed = true
+		if nk := cursorKey(service, key(project)); rekeyed[nk] == "" {
+			rekeyed[nk] = v
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if _, err := os.Stat(c.path + ".bak"); os.IsNotExist(err) { // keep the first
+		if old, err := os.ReadFile(c.path); err == nil {
+			if err := writeFileAtomic(c.path+".bak", old); err != nil {
+				return err
+			}
+		}
+	}
+	c.m = rekeyed
+	return c.save()
+}
+
+// writeFileAtomic writes data to path by a temp file renamed over it, so a
+// crash never leaves a torn file.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func (c *fileCursors) projectKey(project string) string {
+	if c.key == nil {
+		return project
+	}
+	return c.key(project)
+}
+
+// save writes the map (atomically). Caller holds mu.
+func (c *fileCursors) save() error {
+	data, err := json.MarshalIndent(c.m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(c.path, data)
 }
 
 // newFileCursors loads path (tolerating a missing or corrupt/torn file —
@@ -361,7 +199,10 @@ func newFileCursors(path string) (*fileCursors, error) {
 	}
 	var m map[string]string
 	if err := json.Unmarshal(data, &m); err != nil {
-		// torn/corrupt file: tolerate, start empty.
+		// torn/corrupt file: fall back to the re-key's backup, else start empty.
+		if bak, berr := os.ReadFile(path + ".bak"); berr == nil && json.Unmarshal(bak, &m) == nil {
+			c.m = m
+		}
 		return c, nil
 	}
 	c.m = m
@@ -373,18 +214,14 @@ func cursorKey(service, project string) string { return service + "/" + project 
 func (c *fileCursors) Ingress(service, project string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.m[cursorKey(service, project)]
+	return c.m[cursorKey(service, c.projectKey(project))]
 }
 
 func (c *fileCursors) SetIngress(service, project, cursor string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.m[cursorKey(service, project)] = cursor
-	data, err := json.MarshalIndent(c.m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(c.path, data, 0o600)
+	c.m[cursorKey(service, c.projectKey(project))] = cursor
+	return c.save()
 }
 
 // fileMarkers is a file-backed relay.Markers: a JSON map[service]EgressMark,
@@ -476,4 +313,31 @@ func (fm *fileMarkers) has(service string) bool {
 // ListSince(0) — re-delivering the entire backlog to the Service.
 func (fm *fileMarkers) needsSeed(service string) bool {
 	return !fm.has(service) || fm.Egress(service).LastSeq == 0
+}
+
+// settleCutover moves service's egress mark onto the channel log: legacy
+// squawks it had not yet delivered at the cutover (above LastSeq, below
+// cutover) are not delivered — the relays render only the channel log — and
+// in-flight bookkeeping for legacy ids is dropped. It reports how many legacy
+// seqs it skipped (0: the mark was already settled).
+func (fm *fileMarkers) settleCutover(service string, cutover int64, seqOf func(id string) (int64, bool)) (int64, error) {
+	if !fm.has(service) {
+		return 0, nil // unseeded: seeded to the tail elsewhere
+	}
+	mk := fm.Egress(service)
+	var skipped int64
+	if mk.LastSeq < cutover-1 {
+		skipped, mk.LastSeq = cutover-1-mk.LastSeq, cutover-1
+	}
+	changed := skipped > 0
+	for id := range mk.Pending {
+		if seq, ok := seqOf(id); !ok || seq < cutover {
+			delete(mk.Pending, id)
+			changed = true
+		}
+	}
+	if !changed {
+		return 0, nil
+	}
+	return skipped, fm.SetEgress(service, mk)
 }

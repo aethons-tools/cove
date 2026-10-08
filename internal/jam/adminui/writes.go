@@ -11,31 +11,8 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/browserauth"
 )
-
-// sameOrigin reports whether a state-changing request's Origin (or, absent that,
-// Referer) is the request's own Host, or exactly one of the trusted extra
-// origins (scheme://host[:port], e.g. a dev proxy fronting the admin listener).
-// Fail-closed: neither header → false.
-func sameOrigin(r *http.Request, trusted map[string]bool) bool {
-	check := func(v string) (bool, bool) {
-		if v == "" {
-			return false, false
-		}
-		u, err := url.Parse(v)
-		if err != nil {
-			return false, true
-		}
-		return u.Host == r.Host || trusted[u.Scheme+"://"+u.Host], true
-	}
-	if ok, present := check(r.Header.Get("Origin")); present {
-		return ok
-	}
-	if ok, present := check(r.Header.Get("Referer")); present {
-		return ok
-	}
-	return false
-}
 
 // originGuard returns the CSRF Origin check for state-changing requests: it
 // writes a 403 and returns false when the request must be refused.
@@ -45,7 +22,7 @@ func originGuard(trustedOrigins []string) func(http.ResponseWriter, *http.Reques
 		trusted[o] = true
 	}
 	return func(w http.ResponseWriter, r *http.Request) bool {
-		if !sameOrigin(r, trusted) {
+		if !browserauth.SameOrigin(r, trusted) {
 			http.Error(w, "cross-origin request refused", http.StatusForbidden)
 			return false
 		}
@@ -139,7 +116,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui enrolled", "operator", jam.OperatorID(r), "id", id, "project", project, "role", role)
-		renderFragment(w, "roster", "enroll-result", map[string]any{"ID": id, "Token": token})
+		renderFragment(w, r, "agents", "enroll-result", map[string]any{"ID": id, "Token": token})
 	})
 
 	mux.HandleFunc("DELETE /ui/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +129,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui revoked", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page navigates to the agents list on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/roles", func(w http.ResponseWriter, r *http.Request) {
@@ -213,9 +191,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
 			return
 		}
+		// The new role's page is where it is edited; htmx follows the redirect.
 		w.Header().Set("HX-Redirect", roleURL(project, name))
 		log.Info("ui role created", "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +222,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant added", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page reloads on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("DELETE /ui/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +235,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui grant removed", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", r.PathValue("project"), "role", r.PathValue("role"))
-		renderFragment(w, "roster", "roster-table", rosterData(store))
+		// The agent page reloads on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +249,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			return
 		}
 		log.Info("ui role removed", "operator", jam.OperatorID(r), "project", project, "role", name)
-		renderFragment(w, "roles", "roles-table", rolesData(store, sup != nil))
+		// The role page navigates to its project's roles on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
 	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {
@@ -296,16 +278,16 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		project := strings.TrimSpace(r.FormValue("project"))
 		// Discard the returned identity token + launch secret: with a real launcher
 		// Jam consumes them internally; they must never reach the browser or a log.
-		_, _, _, err := sup.Raise(r.Context(), jam.RaiseSpec{
-			ActorID: id, Project: project, Role: role,
+		_, sid, _, _, err := jam.RaiseManual(r.Context(), store, sup, id, jam.RaiseSpec{
+			Project: project, Role: role,
 			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),
 		})
 		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
-		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", id, "project", orDefaultProject(project), "role", role)
-		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
+		log.Info("ui cove raised", "operator", jam.OperatorID(r), "id", sid, "label", id, "project", orDefaultProject(project), "role", role)
+		renderFragment(w, r, "agents", "agents-table", newAgentsData(store, sup, currentStatus(r), true))
 	})
 
 	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -316,13 +298,25 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			http.Error(w, "runtime supervisor not configured", http.StatusServiceUnavailable)
 			return
 		}
-		id := r.PathValue("id")
+		id := jam.ResolveSession(store, r.PathValue("id"))
 		if err := sup.Teardown(r.Context(), id); err != nil {
 			renderError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		log.Info("ui cove torn down", "operator", jam.OperatorID(r), "id", id)
-		renderFragment(w, "coves", "coves-table", covesData(store, sup, true))
+		// Pages that offer Teardown reload on success.
+		w.WriteHeader(http.StatusOK)
 	})
 
+}
+
+// currentStatus is the status filter of the Agents page the request came from
+// (htmx sends the page's URL as HX-Current-URL), so a refreshed table keeps
+// its filter; "" when the header is missing or unparseable.
+func currentStatus(r *http.Request) string {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil {
+		return ""
+	}
+	return statusFilter(&http.Request{URL: u})
 }

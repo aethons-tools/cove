@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -11,6 +12,7 @@ import (
 // roleReader is the slice of jam.Store the roster policy reads.
 type roleReader interface {
 	GetRole(project, name string) (jam.Role, bool)
+	GetProject(ref string) (jam.Project, bool)
 }
 
 // rosterPolicy is the Allocator's PolicySource: the roster Role is the source of
@@ -29,7 +31,14 @@ var _ allocator.PolicySource = rosterPolicy{}
 
 // Policy implements allocator.PolicySource.
 func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
+	// The fallback is keyed by the Requisitioner project's id (by name in a
+	// hand-built table).
 	fb, hasFallback := p.fallback.Policy(project, role)
+	if id, ok := jam.ProjectIDOf(p.store, project); ok && !hasFallback {
+		if fb, hasFallback = p.fallback.Policy(string(id), role); !hasFallback {
+			fb, hasFallback = p.fallback.Policy(jam.ProjectName(p.store, project), role)
+		}
+	}
 	r, hasRole := p.store.GetRole(project, role)
 	if !hasRole {
 		return fb, hasFallback
@@ -57,20 +66,46 @@ func (p rosterPolicy) Policy(project, role string) (allocator.Policy, bool) {
 // when a Requisitioner is configured (dc != nil); without one the roster alone
 // decides. The Requisitioner project is normalized (see requisitionerProject) so
 // grants and releases land on the same (project, role) stream.
-func newRosterPolicy(store roleReader, dc *requisitionerConfig) rosterPolicy {
+// project is the Requisitioner's project as resolveRequisitionerProject
+// returns it.
+func newRosterPolicy(store roleReader, dc *requisitionerConfig, project string) rosterPolicy {
 	p := rosterPolicy{store: store}
 	if dc != nil {
-		p.fallback = allocator.StaticPolicy{{Project: requisitionerProject(dc), Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
+		p.fallback = allocator.StaticPolicy{{Project: project, Role: dc.Role}: {MaxEphemeral: dc.MaxConcurrent}}
 	}
 	return p
 }
 
-// requisitionerProject is the Requisitioner's project, normalized: grants use this value
-// (via dispatcher.Config.Project → Grant), and the Supervisor stores
-// inst.Project = orDefaultProject(spec.Project) = jam.DefaultProject when
-// empty, which is what RecordRelease keys off on teardown. Leaving it as
-// dc.Project ("") would split them across "/role" and "default/role" — they'd
-// never reconcile.
+// projectCreator is the slice of jam.Store resolveRequisitionerProject uses.
+type projectCreator interface {
+	GetProject(ref string) (jam.Project, bool)
+	CreateProject(name string) error
+}
+
+// resolveRequisitionerProject is the Requisitioner's project as its id —
+// stable across a rename while serve runs — creating the default project if
+// the config names it (or none) and it doesn't exist yet. A named project
+// that doesn't exist stays as named (its raises fail until it is created).
+func resolveRequisitionerProject(st projectCreator, dc *requisitionerConfig, log *slog.Logger) string {
+	name := requisitionerProject(dc)
+	if _, ok := st.GetProject(name); !ok && name == jam.DefaultProject {
+		if err := st.CreateProject(name); err != nil && log != nil {
+			log.Warn("requisitioner: creating the default project failed", "err", err.Error())
+		}
+	}
+	if id, ok := jam.ProjectIDOf(st, name); ok {
+		return string(id)
+	}
+	if log != nil {
+		log.Warn("requisitioner: its project doesn't exist; raises fail until it is created", "project", name)
+	}
+	return name
+}
+
+// requisitionerProject is the Requisitioner's project by name, normalized
+// ("" is jam.DefaultProject): it keys the fallback policy. Ledger streams are
+// keyed by the project's id either way (the Allocator's project key), so a
+// grant by name and a release by the instance's id meet on one stream.
 func requisitionerProject(dc *requisitionerConfig) string {
 	if dc.Project == "" {
 		return jam.DefaultProject
@@ -101,4 +136,34 @@ func (p personalAllocator) GrantPersonal(ctx context.Context, project, role, res
 // RecordRelease implements jam.SessionAllocator.
 func (p personalAllocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
 	return p.a.RecordRelease(ctx, project, role, reservationID)
+}
+
+// ledgerRefs maps every project's and live user's name to its id, for
+// re-keying allocation events an older Jam recorded by name.
+func ledgerRefs(st jam.Store) (projects, owners map[string]string) {
+	projects, owners = map[string]string{}, map[string]string{}
+	for _, name := range st.ListProjects() {
+		if p, ok := st.GetProject(name); ok && p.ID != "" {
+			projects[name] = string(p.ID)
+		}
+	}
+	for _, u := range st.ListUsers() {
+		if u.Status == jam.StatusLive {
+			owners[u.Name] = string(u.ID)
+		}
+	}
+	return projects, owners
+}
+
+// personalOwners maps each personal session's reservation (its actor id) to
+// its owner's user id, so the ledger counts it against the right owner
+// whatever name it was recorded under.
+func personalOwners(st jam.Store) map[string]string {
+	out := map[string]string{}
+	for _, inst := range st.ListInstances() {
+		if inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID != "" {
+			out[inst.ActorID] = string(inst.OwnerID)
+		}
+	}
+	return out
 }

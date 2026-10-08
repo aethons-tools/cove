@@ -6,45 +6,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// squawkAppender is the write side of the intercom log the nagger needs.
-// Satisfied by intercom.Store (*intercom.Log, the Postgres store).
-type squawkAppender interface {
-	Append(m intercom.Squawk) (intercom.Squawk, error)
+// notifier posts a notice as a session into its default channel: for a
+// personal session, the chat with its owner. jam.Intercom.Notify.
+type notifier interface {
+	Notify(inst jam.Instance, id, body string) (intercom.Squawk, error)
 }
 
-// intercomNagger is wake-on's Nagger over the intercom log: each nag, and the
-// final reclaim notice, is a squawk sent AS the cove (actor:<id>) to its owner
-// (human:<owner>), stamped with the cove's project. The relay delivers it like
-// any cove message — so the owner's reply routes back to the cove and wakes it
-// — and resolves the owner from the squawk's project, so the reclaim notice is
-// still delivered after the cove has been torn down.
+// intercomNagger is wake-on's Nagger over the intercom: each nag, and the
+// final reclaim notice, is a squawk posted AS the session into its chat with
+// its owner. The relays deliver it like any squawk in that chat — so the
+// owner's reply comes back to the session and wakes it — and the chat
+// outlives the session, so the reclaim notice still arrives after teardown.
 //
 // Each nag carries the id jam.NagMessageID, so wake-on can tell an owner's
 // "keep"/"release" reply to a nag from any other reply. The nag advertises
 // those replies only when the owner could send one wake-on will act on: the
 // project chats over discord and a reply from the owner is attributed to them
-// (jam.DiscordAuthor) — they are bound to their Discord user id, or, unbound,
+// (jam.DiscordAuthorOf) — they are bound to their Discord user id, or, unbound,
 // their discord inbox is theirs alone.
 type intercomNagger struct {
-	log    squawkAppender
-	roster nagRoster
+	log    notifier
+	roster jam.Store        // nil: never offer keep/release
 	now    func() time.Time // nil = time.Now
-}
-
-// nagRoster is the slice of jam.Store the nagger reads to decide whether a
-// nag offers keep/release. Any jam.Store satisfies it (PostgresStore in serve; MemStore in tests).
-type nagRoster interface {
-	GetRoster(project string) (jam.Roster, bool)
-	GetProject(name string) (jam.Project, bool)
 }
 
 func (n intercomNagger) Nag(_ context.Context, inst jam.Instance, idle time.Duration) error {
 	body := fmt.Sprintf(
-		"Your personal session %s (%s) has been waiting on you for %s. Reply to this message to pick it back up, or release it with: at-jam session release %s",
+		"Your personal session %s (%s) has been idle for %s. Reply to this message to pick it back up, or release it with: at-jam session release %s",
 		inst.ActorID, inst.Role, formatIdle(idle), inst.ActorID)
 	if n.ownerAttributable(inst) {
 		body += ` Reply "keep" to keep it, or "release" to end it.`
@@ -75,7 +68,7 @@ func (n intercomNagger) NotifyReleased(_ context.Context, inst jam.Instance) err
 // NotifyEnded tells a personal session's owner that it ended itself. A
 // session with no owner (standing, ticket) gets no notice: wake-on logs it.
 func (n intercomNagger) NotifyEnded(_ context.Context, inst jam.Instance, reason string) error {
-	if inst.Owner == "" {
+	if inst.OwnerID == "" && inst.Owner == "" {
 		return nil
 	}
 	return n.send(inst, "", fmt.Sprintf("Your personal session %s (%s) ended itself: %s", inst.ActorID, inst.Role, reason))
@@ -83,31 +76,34 @@ func (n intercomNagger) NotifyEnded(_ context.Context, inst jam.Instance, reason
 
 // ownerAttributable reports whether, in a discord-chat project, a reply from
 // inst's owner to a nag in their inbox would be attributed to them
-// (jam.DiscordAuthor, by their bound id or by their unshared inbox) — the
+// (jam.DiscordAuthorOf, by their bound id or by their unshared inbox) — the
 // condition under which the reply can act on the session.
 func (n intercomNagger) ownerAttributable(inst jam.Instance) bool {
 	if n.roster == nil {
 		return false
 	}
-	if p, ok := n.roster.GetProject(inst.Project); !ok || p.ChatService != "discord" {
+	p, ok := n.roster.GetProject(inst.Project)
+	if !ok || jam.ChatKind(n.roster, p) != "discord" {
 		return false
 	}
-	r, ok := n.roster.GetRoster(inst.Project)
+	owner := inst.OwnerID
+	if owner == "" {
+		if owner, ok = n.roster.LookupName(ident.User, inst.Owner); !ok {
+			return false
+		}
+	}
+	m, ok := jam.MemberOf(n.roster, p.ID, owner)
 	if !ok {
 		return false
 	}
-	h, ok := findHuman(r, inst.Owner)
-	if !ok {
-		return false
-	}
-	p, ok := h.DeliveryFor("discord")
+	inbox, ok := m.Inbox("discord")
 	if !ok {
 		return false
 	}
 	// Ask the attribution rule itself about a reply from the owner's own
 	// account (their bound id, or none) in their own inbox.
-	owner, _, ok := jam.DiscordAuthor(r, p.Address, p.UserID, false)
-	return ok && owner == inst.Owner
+	got, _, ok := jam.DiscordAuthorOf(n.roster, p.ID, inbox, m.DiscordUID)
+	return ok && got.User.ID == m.User.ID
 }
 
 func (n intercomNagger) clock() time.Time {
@@ -117,18 +113,13 @@ func (n intercomNagger) clock() time.Time {
 	return time.Now()
 }
 
-// send appends body as the cove to its owner; id "" lets the log assign one.
+// send posts body as the session into its home channel; id "" gets a
+// notice:… id (jam.Intercom.Notify).
 func (n intercomNagger) send(inst jam.Instance, id, body string) error {
-	if inst.Owner == "" {
+	if inst.OwnerID == "" && inst.Owner == "" {
 		return fmt.Errorf("nag %s: no owner", inst.ActorID)
 	}
-	_, err := n.log.Append(intercom.Squawk{
-		ID:      id,
-		From:    intercom.Target{Kind: "actor", Ref: inst.ActorID},
-		To:      []intercom.Target{{Kind: "human", Ref: inst.Owner}},
-		Body:    body,
-		Project: inst.Project,
-	})
+	_, err := n.log.Notify(inst, id, body)
 	return err
 }
 

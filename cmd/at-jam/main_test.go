@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -196,7 +197,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	// roster shows both grants
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"roster", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+	if code := run([]string{"actors", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("roster: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "spider-1\tP/guest") || !strings.Contains(out.String(), "spider-1\tP/admin") {
@@ -215,7 +216,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	// roster no longer shows the ungranted role
 	out.Reset()
 	errb.Reset()
-	if code := run([]string{"roster", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
+	if code := run([]string{"actors", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("roster (after ungrant): exit=%d stderr=%s", code, errb.String())
 	}
 	if strings.Contains(out.String(), "P/admin") {
@@ -230,7 +231,7 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	}
 }
 
-func TestProjectRosterCommands(t *testing.T) {
+func TestProjectMemberAndRoomCommands(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
@@ -240,61 +241,50 @@ func TestProjectRosterCommands(t *testing.T) {
 
 	var out, errb bytes.Buffer
 
-	// project roster add-human
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-		"--name", "alice", "--handle", "alice.h", "--login", "auth0|abc",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster add-human: exit=%d stderr=%s", code, errb.String())
+	// user add + project member add
+	for _, argv := range [][]string{
+		{"user", "add", "--admin-url", ts.URL, "--login", "auth0|abc", "alice"},
+		{"project", "member", "add", "--admin-url", ts.URL, "acme", "alice"},
+	} {
+		out.Reset()
+		errb.Reset()
+		if code := run(argv, getenv, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit=%d stderr=%s", argv, code, errb.String())
+		}
 	}
-	if hu, ok := jam.HumanByLogin(store, "acme", "auth0|abc"); !ok || hu.Name != "alice" {
-		t.Fatalf("add-human --login did not link alice: %+v,%v", hu, ok)
-	}
-
-	// project roster add-channel
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "roster", "add-channel", "--admin-url", ts.URL, "acme",
-		"--name", "eng-help", "--ref", "ACME-1", "--service", "linear",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster add-channel: exit=%d stderr=%s", code, errb.String())
+	if m, ok := jam.MemberByLogin(store, "acme", "auth0|abc"); !ok || m.User.Name != "alice" {
+		t.Fatalf("user add --login + member add did not link alice: %+v,%v", m, ok)
 	}
 
-	// project roster list reflects both
+	// connection add + room add/list/rename/rm
+	steps := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"connection", "add", "--admin-url", ts.URL, "--kind", "linear", "--name", "linear-acme"}, ""},
+		{[]string{"room", "add", "--admin-url", ts.URL, "--ref", "ACME-1", "acme", "eng-help"}, "room\teng-help\tchn_"},
+		{[]string{"room", "list", "--admin-url", ts.URL, "acme"}, "linear-acme\tref=ACME-1"},
+		{[]string{"room", "rename", "--admin-url", ts.URL, "acme", "eng-help", "help"}, "renamed room eng-help to help"},
+		{[]string{"project", "member", "list", "--admin-url", ts.URL, "acme"}, "member\talice\tusr_"},
+		{[]string{"project", "member", "rm", "--admin-url", ts.URL, "acme", "alice"}, ""},
+		{[]string{"room", "rm", "--admin-url", ts.URL, "acme", "help"}, "removed room help"},
+	}
+	for _, st := range steps {
+		out.Reset()
+		errb.Reset()
+		if code := run(st.argv, getenv, &out, &errb); code != 0 {
+			t.Fatalf("%v: exit=%d stderr=%s", st.argv, code, errb.String())
+		}
+		if !strings.Contains(out.String(), st.want) {
+			t.Fatalf("%v: output %q lacks %q", st.argv, out.String(), st.want)
+		}
+	}
 	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster list: exit=%d stderr=%s", code, errb.String())
+	if code := run([]string{"room", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 || out.Len() != 0 {
+		t.Fatalf("room list after rm: exit=%d out=%q", code, out.String())
 	}
-	if !strings.Contains(out.String(), "human\talice\thandle=alice.h\tlogin=auth0|abc") || !strings.Contains(out.String(), "channel\teng-help\tservice=linear\tref=ACME-1") {
-		t.Fatalf("project roster list output missing expected fields:\n%s", out.String())
-	}
-
-	// project roster rm-human
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "rm-human", "--admin-url", ts.URL, "acme", "alice"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster rm-human: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// project roster rm-channel
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "rm-channel", "--admin-url", ts.URL, "acme", "eng-help"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster rm-channel: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// project roster list is now empty
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster list (after removal): exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.Contains(out.String(), "alice") || strings.Contains(out.String(), "eng-help") {
-		t.Fatalf("project roster list still shows removed entries:\n%s", out.String())
+	if code := run([]string{"room", "add", "--admin-url", ts.URL, "acme", "x"}, getenv, &out, &errb); code != 2 {
+		t.Fatalf("room add without --ref: exit=%d, want 2", code)
 	}
 
 	// role add --addressing plumbs through to the role's Scope.Addressing
@@ -579,200 +569,6 @@ func TestProjectChatServiceCommands(t *testing.T) {
 	}
 }
 
-// TestProjectRosterAddHumanDelivery exercises `project roster add-human
-// --delivery service:address` (repeatable) end-to-end, including its
-// malformed-input errors.
-func TestProjectRosterAddHumanDelivery(t *testing.T) {
-	store := jam.NewMemStore()
-	mustCreateProject(t, store, "acme")
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-
-	var out, errb bytes.Buffer
-
-	// valid --delivery reaches the roster
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-		"--name", "dave", "--handle", "dave.h",
-		"--delivery", "discord:chan-9",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster add-human --delivery: exit=%d stderr=%s", code, errb.String())
-	}
-	rr, ok := store.GetRoster("acme")
-	if !ok {
-		t.Fatal("GetRoster acme")
-	}
-	var dave jam.Human
-	for _, hu := range rr.Humans {
-		if hu.Name == "dave" {
-			dave = hu
-		}
-	}
-	if d, ok := dave.DeliveryFor("discord"); !ok || d.Address != "chan-9" {
-		t.Fatalf("dave delivery = %+v, ok=%v", d, ok)
-	}
-
-	// malformed --delivery values are rejected with exit 2, roster unchanged
-	for _, bad := range []string{"discord:", ":x", "x"} {
-		out.Reset()
-		errb.Reset()
-		code := run([]string{
-			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-			"--name", "eve", "--handle", "eve.h",
-			"--delivery", bad,
-		}, getenv, &out, &errb)
-		if code != 2 {
-			t.Fatalf("project roster add-human --delivery %q: exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
-		}
-	}
-	rr, ok = store.GetRoster("acme")
-	if !ok {
-		t.Fatal("GetRoster acme")
-	}
-	for _, hu := range rr.Humans {
-		if hu.Name == "eve" {
-			t.Fatalf("eve should not have been added with a malformed --delivery: %+v", hu)
-		}
-	}
-}
-
-// TestProjectRosterAddHumanOIDC exercises `project roster add-human --oidc
-// <issuer>:<subject>` (repeatable): it binds the human's OIDC identities, a
-// malformed value exits 2 with the roster unchanged, and `roster list` shows
-// the bindings.
-func TestProjectRosterAddHumanOIDC(t *testing.T) {
-	store := jam.NewMemStore()
-	mustCreateProject(t, store, "acme")
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-	var out, errb bytes.Buffer
-
-	// valid --oidc (repeatable, issuer is a URL with a colon) reaches the roster
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-		"--name", "dave", "--handle", "dave.h",
-		"--oidc", "https://accounts.google.com:dave-sub",
-		"--oidc", "https://login.microsoftonline.com:dave-ms",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project roster add-human --oidc: exit=%d stderr=%s", code, errb.String())
-	}
-	rr, ok := store.GetRoster("acme")
-	if !ok {
-		t.Fatal("GetRoster acme")
-	}
-	var dave jam.Human
-	for _, hu := range rr.Humans {
-		if hu.Name == "dave" {
-			dave = hu
-		}
-	}
-	if len(dave.Identity) != 2 ||
-		dave.Identity[0].Issuer != "https://accounts.google.com" || dave.Identity[0].Subject != "dave-sub" ||
-		dave.Identity[1].Issuer != "https://login.microsoftonline.com" || dave.Identity[1].Subject != "dave-ms" {
-		t.Fatalf("dave identity = %+v", dave.Identity)
-	}
-
-	// malformed --oidc values are rejected with exit 2, roster unchanged
-	for _, bad := range []string{"noseparator", "https://issuer:", ":subject", ""} {
-		out.Reset()
-		errb.Reset()
-		code := run([]string{
-			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-			"--name", "eve", "--handle", "eve.h",
-			"--oidc", bad,
-		}, getenv, &out, &errb)
-		if code != 2 {
-			t.Fatalf("project roster add-human --oidc %q: exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
-		}
-	}
-	rr, _ = store.GetRoster("acme")
-	for _, hu := range rr.Humans {
-		if hu.Name == "eve" {
-			t.Fatalf("eve should not have been added with a malformed --oidc: %+v", hu)
-		}
-	}
-
-	// roster list shows the binding
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("roster list exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "oidc=https://accounts.google.com:dave-sub") {
-		t.Fatalf("roster list does not show the oidc binding:\n%s", out.String())
-	}
-}
-
-// TestProjectRosterAddHumanDiscordUser exercises `--delivery
-// discord:<channel>:<user-id>`: the optional third part binds the human's
-// Discord user id; it must be all digits, and only discord accepts it. `roster
-// list` shows the binding.
-func TestProjectRosterAddHumanDiscordUser(t *testing.T) {
-	store := jam.NewMemStore()
-	mustCreateProject(t, store, "acme")
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-	var out, errb bytes.Buffer
-	add := func(name, delivery string) int {
-		out.Reset()
-		errb.Reset()
-		return run([]string{
-			"project", "roster", "add-human", "--admin-url", ts.URL, "acme",
-			"--name", name, "--handle", name + ".h", "--delivery", delivery,
-		}, getenv, &out, &errb)
-	}
-	if code := add("dave", "discord:chan-9:123456789"); code != 0 {
-		t.Fatalf("discord:C:U exit=%d stderr=%s", code, errb.String())
-	}
-	if code := add("erin", "discord:chan-8"); code != 0 {
-		t.Fatalf("discord:C exit=%d stderr=%s", code, errb.String())
-	}
-	rr, _ := store.GetRoster("acme")
-	got := map[string]jam.DeliveryProfile{}
-	for _, hu := range rr.Humans {
-		got[hu.Name], _ = hu.DeliveryFor("discord")
-	}
-	if got["dave"].Address != "chan-9" || got["dave"].UserID != "123456789" {
-		t.Fatalf("dave = %+v", got["dave"])
-	}
-	if got["erin"].Address != "chan-8" || got["erin"].UserID != "" {
-		t.Fatalf("erin = %+v", got["erin"])
-	}
-	for _, bad := range []string{"discord:C:abc", "discord:C:", "discord:C:1:2", "linear:X:123"} {
-		if code := add("frank", bad); code != 2 {
-			t.Fatalf("--delivery %q exit=%d, want 2 (stderr=%s)", bad, code, errb.String())
-		}
-	}
-	rr, _ = store.GetRoster("acme")
-	for _, hu := range rr.Humans {
-		if hu.Name == "frank" {
-			t.Fatalf("frank should not have been added: %+v", hu)
-		}
-	}
-
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "roster", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("roster list exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "human\tdave\thandle=dave.h\tdiscord-user=123456789") {
-		t.Fatalf("roster list does not show the binding:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "erin.h\tdiscord-user") {
-		t.Fatalf("roster list shows a binding for unbound erin:\n%s", out.String())
-	}
-}
-
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {
@@ -956,10 +752,10 @@ func TestStudioCommandsRoundTrip(t *testing.T) {
 	}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("studio raise: exit=%d stderr=%s", code, errb.String())
 	}
-	// Only id+phase may be printed — proves the minted identity token never
-	// reaches stdout.
-	if out.String() != "raised w1 (phase=live)\n" {
-		t.Fatalf("studio raise output = %q, want exactly %q (must not leak the identity token)", out.String(), "raised w1 (phase=live)\n")
+	// Only label, session id and phase may be printed — proves the minted
+	// identity token never reaches stdout.
+	if !regexp.MustCompile(`^raised w1 as session ses_[0-9a-z]{26} \(phase=live\)\n$`).MatchString(out.String()) {
+		t.Fatalf("studio raise output = %q, want \"raised w1 as session <ses_id> (phase=live)\" (must not leak the identity token)", out.String())
 	}
 
 	// studio list reflects the raised cove
@@ -1046,7 +842,7 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Personal sessions are delivered over Discord (request-time check).
-	if err := store.AddHuman("acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
+	if err := jam.AddPerson(store, "acme", jam.Human{Name: "alice", Handle: "@alice", Login: "local", Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "111"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetChatService("acme", "discord"); err != nil {
@@ -1068,7 +864,7 @@ func TestSessionCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("session request: exit=%d stderr=%s", code, errb.String())
 	}
 	id := strings.TrimSpace(out.String())
-	if !strings.HasPrefix(id, "personal-alice-") || strings.ContainsAny(id, " \t\n") {
+	if !strings.HasPrefix(id, "ses_") || strings.ContainsAny(id, " \t\n") {
 		t.Fatalf("session request must print only the session id, got %q", out.String())
 	}
 	if inst, ok := store.GetInstance(id); !ok || inst.Owner != "alice" || inst.SessionKind != "personal" {
@@ -1175,7 +971,7 @@ func TestStandingResetCommand(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	rs := &teardownResetter{sup: sup}
 	sup.SetStandingResetter(rs)
-	id := jam.StandingActorID("acme", "reviewer", "alice-bot")
+	id := jam.SeedStandingSession(store, "acme", "reviewer", "alice-bot")
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "reviewer", Name: "alice-bot", SessionKind: jam.SessionKindStanding}); err != nil {
 		t.Fatal(err)
 	}
@@ -1247,6 +1043,7 @@ func TestStandingUpgradeCommand(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
+	jam.SeedStandingSession(store, "acme", "reviewer", "alice-bot") // a session to upgrade (down)
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -1301,7 +1098,7 @@ func waitServer(t *testing.T, pending int, image string) *httptest.Server {
 			_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Pending: true, State: jam.UpgradeQueued})
 		case strings.HasSuffix(r.URL.Path, "/standing"):
 			polls++
-			st := jam.StandingStatus{StandingSession: jam.StandingSession{Name: "bot", Prompt: "p"}}
+			st := jam.StandingStatus{StandingSession: jam.StandingSession{Name: "bot", Prompt: "p"}, SessionID: jam.StandingActorID(jam.DefaultProject, "dev", "bot")}
 			if polls <= pending {
 				st.Upgrade = jam.UpgradePreparing
 			}
@@ -1370,7 +1167,7 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), jam.StandingActorID("acme", "reviewer", "alice-bot")) {
+	if !strings.Contains(out.String(), "alice-bot") || !strings.Contains(out.String(), "id=-") {
 		t.Fatalf("standing list output:\n%s", out.String())
 	}
 
@@ -1759,4 +1556,78 @@ func TestRoleAddModelSpec(t *testing.T) {
 		!strings.Contains(errb.String(), "does not exist") {
 		t.Fatalf("unknown spec: exit=%d stderr=%s", code, errb.String())
 	}
+}
+
+// TestUserMemberAccountCommands drives the registry verbs end to end against a
+// real admin handler: a user with a login and OIDC binding, a project member
+// with a Discord inbox, and the user's Discord account.
+func TestUserMemberAccountCommands(t *testing.T) {
+	store := jam.NewMemStore()
+	mustCreateProject(t, store, "acme")
+	if _, err := store.CreateConnection(jam.Connection{Kind: "discord", Name: "discord"}); err != nil {
+		t.Fatal(err)
+	}
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	exec := func(want int, argv ...string) string {
+		t.Helper()
+		out.Reset()
+		errb.Reset()
+		n := 2 // verb + subcommand; "project member <sub>" is three words
+		if argv[0] == "project" {
+			n = 3
+		}
+		argv = append(argv[:n:n], append([]string{"--admin-url", ts.URL}, argv[n:]...)...)
+		if code := run(argv, getenv, &out, &errb); code != want {
+			t.Fatalf("%v: exit=%d, want %d; stderr=%s", argv, code, want, errb.String())
+		}
+		return out.String()
+	}
+	exec(0, "user", "add", "--login", "auth0|d", "--oidc", "https://accounts.google.com:dave-sub", "dave")
+	exec(0, "project", "member", "add", "--delivery", "discord:chan-9", "acme", "dave")
+	exec(0, "account", "add", "--connection", "discord", "--uid", "123456789", "--user", "dave")
+
+	m, ok := jam.MemberByLogin(store, "acme", "auth0|d")
+	if !ok || m.User.Name != "dave" || len(m.User.OIDC) != 1 || m.DiscordUID != "123456789" {
+		t.Fatalf("dave = %+v, %v", m, ok)
+	}
+	if d, ok := m.Inbox("discord"); !ok || d != "chan-9" {
+		t.Fatalf("inbox = %q, %v", d, ok)
+	}
+	show := exec(0, "user", "show", "dave")
+	if !strings.Contains(show, "login=auth0|d") || !strings.Contains(show, "projects=acme") || !strings.Contains(show, "uid=123456789") {
+		t.Fatalf("user show:\n%s", show)
+	}
+	if list := exec(0, "project", "member", "list", "acme"); !strings.Contains(list, "delivery=discord:chan-9") {
+		t.Fatalf("member list:\n%s", list)
+	}
+	exec(0, "user", "rename", "dave", "david")
+	exec(0, "user", "login", "david")
+	if u := exec(0, "user", "list"); !strings.Contains(u, "user\tdavid") || strings.Contains(u, "login=") {
+		t.Fatalf("user list after rename + clearing logins:\n%s", u)
+	}
+	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tdiscord") {
+		t.Fatalf("connection list:\n%s", conns)
+	}
+	exec(0, "connection", "add", "--kind", "linear", "--name", "linear-acme", "--cred", "lin-tok")
+	exec(0, "connection", "rename", "linear-acme", "linear-main")
+	exec(0, "connection", "cred", "linear-main", "lin-tok-2")
+	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tlinear-main") || !strings.Contains(conns, "cred=lin-tok-2") {
+		t.Fatalf("connection list after add/rename/cred:\n%s", conns)
+	}
+	exec(0, "connection", "rm", "linear-main")
+	exec(2, "connection", "add", "--kind", "linear")
+
+	exec(2, "user", "add", "--oidc", "no-colon", "erin")
+	exec(2, "user", "login", "--login", "x", "david")    // --login is add's; the set is positional
+	exec(0, "project", "member", "add", "acme", "david") // no --delivery: keeps the inbox
+	if list := exec(0, "project", "member", "list", "acme"); !strings.Contains(list, "delivery=discord:chan-9") {
+		t.Fatalf("member add without --delivery dropped the inbox:\n%s", list)
+	}
+	exec(2, "project", "member", "add", "--delivery", "discord:chan:123", "acme", "david")
+	exec(2, "account", "add", "--connection", "discord")
+	exec(1, "user", "add", "david")
 }
