@@ -316,3 +316,24 @@ func TestBrokerStripsInboundIdentityHeader(t *testing.T) {
 		})
 	}
 }
+
+// An operator surface path (/admin/, /ui/, /me/) that no destination claims
+// gets a 404 saying this is the agent listener and where the admin API is —
+// the usual cause is an --admin-url pointed at `listen`. Other unknown paths
+// keep the plain answer, and a destination's own route still wins.
+func TestBrokerPointsOperatorPathsAtAdminListen(t *testing.T) {
+	b, _, _ := newTestBroker(t, "http://unused.invalid", "http://unused.invalid")
+	for _, path := range []string{"/admin/kits", "/admin/", "/ui/", "/ui/agents", "/me/"} {
+		rec := httptest.NewRecorder()
+		b.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		body := rec.Body.String()
+		if rec.Code != http.StatusNotFound || !strings.Contains(body, "Jam's agent listener") || !strings.Contains(body, "admin-listen") || !strings.Contains(body, "--admin-url") {
+			t.Errorf("%s = %d %q, want 404 pointing at admin-listen", path, rec.Code, body)
+		}
+	}
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope/x", nil))
+	if rec.Code != http.StatusNotFound || strings.TrimSpace(rec.Body.String()) != "no such destination" {
+		t.Errorf("an unknown non-operator path = %d %q, want the plain 404", rec.Code, rec.Body.String())
+	}
+}
