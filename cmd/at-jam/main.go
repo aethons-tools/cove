@@ -102,6 +102,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
+			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: cmdColima(getenv, runner.OS{})},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},

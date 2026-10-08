@@ -125,23 +125,35 @@ func initArgs(docker bool) []string {
 	return []string{"--init"}
 }
 
-// requireSysboxRuntime fails fast with an actionable message when the colima VM's
-// docker daemon does not register the sysbox-runc runtime, which a docker:true
-// instance needs (COV-117). at-cove detects but never installs Sysbox — the
-// message points at the VM-side prerequisite. It parses `docker info -f '{{json
-// .Runtimes}}'`, a map of runtime name → config, and checks for the sysbox-runc
-// key. Preflight has already confirmed the daemon is reachable.
-func (c *Colima) requireSysboxRuntime() error {
+// HasSysboxRuntime reports whether the docker daemon behind c's pinned context
+// registers the sysbox-runc runtime a docker:true instance needs (COV-117). It
+// parses `docker info -f '{{json .Runtimes}}'`, a map of runtime name → config.
+// An unreachable daemon or unparseable output is an error. Shared by the
+// at-cove preflight and `at-jam colima check-docker`, so the two can't drift.
+func (c *Colima) HasSysboxRuntime() (bool, error) {
 	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
-		return fmt.Errorf("colima: cannot query docker runtimes for the docker:true preflight (docker: %v)", err)
+		return false, fmt.Errorf("colima: cannot query docker runtimes (docker: %v)", err)
 	}
 	var runtimes map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &runtimes); err != nil {
-		return fmt.Errorf("colima: cannot parse docker runtimes %q: %w", strings.TrimSpace(out), err)
+		return false, fmt.Errorf("colima: cannot parse docker runtimes %q: %w", strings.TrimSpace(out), err)
 	}
-	if _, ok := runtimes["sysbox-runc"]; !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. at-cove detects but does not install it — install Sysbox CE in the colima Lima VM and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md §H.")
+	_, ok := runtimes["sysbox-runc"]
+	return ok, nil
+}
+
+// requireSysboxRuntime fails fast with an actionable message when the colima VM
+// lacks the sysbox-runc runtime. at-cove detects but never installs Sysbox — the
+// message points at the VM-side prerequisite. Preflight has already confirmed
+// the daemon is reachable.
+func (c *Colima) requireSysboxRuntime() error {
+	ok, err := c.HasSysboxRuntime()
+	if err != nil {
+		return fmt.Errorf("docker:true preflight: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. at-cove detects but does not install it — run `at-jam colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
 	}
 	return nil
 }
