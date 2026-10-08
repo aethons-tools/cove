@@ -214,6 +214,75 @@ func TestTrackerNilSafe(t *testing.T) {
 	}
 }
 
+func TestTrackerConcurrentFlushOrdering(t *testing.T) {
+	c := &clock{t: time.Unix(1, 0)}
+	p := newFake()
+	block := make(chan struct{})
+	p.block = block
+	tr := newTracker(p, c)
+
+	// Raise a condition
+	tr.Raise(cond("k:a", Critical))
+
+	// Start first Flush in a goroutine; it will block on Save
+	flushDone := make(chan error)
+	go func() { flushDone <- tr.Flush(context.Background()) }()
+
+	// Let the blocked Save start
+	time.Sleep(10 * time.Millisecond)
+
+	// While first Flush is blocked on Save, Clear the condition and raise it again (new Since)
+	tr.Clear("k:a")
+	c.add(time.Hour)
+	tr.Raise(cond("k:a", Critical))
+
+	// Unblock the first Flush
+	close(block)
+
+	// Wait for first Flush to complete
+	if err := <-flushDone; err != nil {
+		t.Fatalf("first flush: %v", err)
+	}
+
+	// Now flush again to save the new state
+	if err := tr.Flush(context.Background()); err != nil {
+		t.Fatalf("second flush: %v", err)
+	}
+
+	// Verify that the final saved state is the new occurrence (raised at c.t + 1 hour),
+	// not the old one. The persister should have two entries (old resolved, new open).
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.saved) != 2 {
+		t.Fatalf("expected 2 saved occurrences, got %d", len(p.saved))
+	}
+
+	// Check that both old and new occurrences are present
+	var oldSince, newSince time.Time
+	for _, cond := range p.saved {
+		if cond.ResolvedAt != nil {
+			oldSince = cond.Since
+		} else {
+			newSince = cond.Since
+		}
+	}
+
+	// The new one should have a later Since than the old one
+	if !newSince.After(oldSince) {
+		t.Fatalf("new occurrence should have later Since: old=%v, new=%v", oldSince, newSince)
+	}
+
+	// Verify the new one is open and old one is resolved
+	for _, cond := range p.saved {
+		if cond.Since == oldSince && cond.ResolvedAt == nil {
+			t.Fatal("old occurrence should be resolved")
+		}
+		if cond.Since == newSince && cond.ResolvedAt != nil {
+			t.Fatal("new occurrence should be open")
+		}
+	}
+}
+
 func keys(cs []Condition) []string {
 	var out []string
 	for _, c := range cs {

@@ -39,6 +39,7 @@ type Tracker struct {
 	resolved []Condition // newest resolution first
 	fails    map[string]int
 	dirty    map[string]Condition // occurrence id → latest state, awaiting Save
+	flushMu  sync.Mutex           // serializes Flush saves to prevent reordering
 }
 
 // New builds a Tracker, filling defaults.
@@ -236,6 +237,10 @@ func (t *Tracker) Flush(ctx context.Context) error {
 	batch := t.dirty
 	t.dirty = map[string]Condition{}
 	t.mu.Unlock()
+
+	t.flushMu.Lock()
+	defer t.flushMu.Unlock()
+
 	var errs []error
 	for id, c := range batch {
 		if err := t.opt.Persister.Save(ctx, c); err != nil {
@@ -260,6 +265,7 @@ func (t *Tracker) Run(ctx context.Context, every time.Duration) {
 	defer tick.Stop()
 	var lastPrune time.Time
 	failing := false
+	pruneFailing := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -277,7 +283,16 @@ func (t *Tracker) Run(ctx context.Context, every time.Duration) {
 			t.opt.Log.Info("conditions persisted again")
 		}
 		if now := t.opt.Now(); t.opt.Persister != nil && now.Sub(lastPrune) > time.Hour {
-			if err := t.opt.Persister.Prune(ctx, now.Add(-t.opt.Retention)); err == nil {
+			if err := t.opt.Persister.Prune(ctx, now.Add(-t.opt.Retention)); err != nil {
+				if !pruneFailing {
+					t.opt.Log.Warn("conditions history not pruned; retrying", "reason", err.Error())
+				}
+				pruneFailing = true
+			} else {
+				if pruneFailing {
+					t.opt.Log.Info("conditions history pruned again")
+				}
+				pruneFailing = false
 				lastPrune = now
 			}
 		}
