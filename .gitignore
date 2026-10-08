@@ -22,3 +22,6 @@
 
 # Per-command build outputs in cmd/*/
 /cmd/*/at-*
+
+# local monitoring secrets
+/deploy/monitoring/.local/

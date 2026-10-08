@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+rule_files: [/etc/prometheus/jam-rules.yml]
+alerting:
+  alertmanagers:
+    - static_configs: [{targets: ["alertmanager:9093"]}]
+scrape_configs:
+  - job_name: jam
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/scrape-token
+    tls_config:
+      ca_file: /etc/prometheus/secrets/jam-ca.pem
+      server_name: "@JAM_HOST@"
+    static_configs: [{targets: ["@JAM_HOST@:443"]}]

@@ -157,3 +157,14 @@ lint:
 # install dev/test tooling (podman, shellcheck, hadolint, jq, just)
 setup:
     ./scripts/setup-test-tools.sh
+
+# operator-attention monitoring: local Prometheus + Alertmanager scraping <jam-host>
+# (put scrape-token, jam-ca.pem and discord-webhook in deploy/monitoring/.local/ first)
+monitoring-up jam_host:
+    mkdir -p deploy/monitoring/.local
+    for f in scrape-token jam-ca.pem discord-webhook; do test -s deploy/monitoring/.local/$f || { echo "missing deploy/monitoring/.local/$f (see docs/usage/jam/monitoring.md)"; exit 1; }; done
+    sed 's/@JAM_HOST@/{{jam_host}}/g' deploy/monitoring/prometheus.yml > deploy/monitoring/.local/prometheus.yml
+    JAM_HOST={{jam_host}} docker compose -f deploy/monitoring/compose.yml up -d
+
+monitoring-down:
+    JAM_HOST=unused docker compose -f deploy/monitoring/compose.yml down
