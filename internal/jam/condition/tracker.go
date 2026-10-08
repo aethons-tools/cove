@@ -233,13 +233,13 @@ func (t *Tracker) Flush(ctx context.Context) error {
 	if t == nil || t.opt.Persister == nil {
 		return nil
 	}
+	t.flushMu.Lock()
+	defer t.flushMu.Unlock()
+
 	t.mu.Lock()
 	batch := t.dirty
 	t.dirty = map[string]Condition{}
 	t.mu.Unlock()
-
-	t.flushMu.Lock()
-	defer t.flushMu.Unlock()
 
 	var errs []error
 	for id, c := range batch {

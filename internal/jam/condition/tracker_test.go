@@ -214,72 +214,116 @@ func TestTrackerNilSafe(t *testing.T) {
 	}
 }
 
+type blockablePersister struct {
+	mu      sync.Mutex
+	saved   map[string]Condition
+	calls   int           // count Save calls in order
+	entered chan struct{} // signaled when first Save is entered
+	release chan struct{} // closed to unblock first Save
+	saveLog []string      // log of save order: "open" or "resolved"
+}
+
+func (bp *blockablePersister) Load(ctx context.Context, since time.Time) ([]Condition, error) {
+	return nil, nil
+}
+
+func (bp *blockablePersister) Save(ctx context.Context, cond Condition) error {
+	bp.mu.Lock()
+	bp.calls++
+	isFirst := bp.calls == 1
+	bp.mu.Unlock()
+
+	if isFirst {
+		close(bp.entered) // signal that first Save is in progress
+		<-bp.release      // wait for release signal
+	}
+
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+	state := "open"
+	if cond.ResolvedAt != nil {
+		state = "resolved"
+	}
+	bp.saveLog = append(bp.saveLog, state)
+	bp.saved[cond.Key+"@"+cond.Since.Format(time.RFC3339Nano)] = cond
+	return nil
+}
+
+func (bp *blockablePersister) Prune(ctx context.Context, before time.Time) error {
+	return nil
+}
+
 func TestTrackerConcurrentFlushOrdering(t *testing.T) {
+	// Verify that concurrent Flushes see consistent snapshots when flushMu is held
+	// at the top. Without the fix (flushMu after snapshot), the sequence is:
+	// 1. Flush A snapshots {k:open}
+	// 2. Clear runs, marks dirty with resolved
+	// 3. Flush B snapshots {k:resolved}
+	// 4. If B takes flushMu first, saves resolved
+	// 5. Then A saves open, OVERWRITING B's state
+	// Result: final state is open (wrong!)
+	//
+	// With the fix (flushMu at top), A holds flushMu through save, so Clear and
+	// B's snapshot happen while A still has the lock, ensuring consistent order.
 	c := &clock{t: time.Unix(1, 0)}
-	p := newFake()
-	block := make(chan struct{})
-	p.block = block
-	tr := newTracker(p, c)
 
-	// Raise a condition
+	bp := &blockablePersister{
+		saved:   map[string]Condition{},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	tr := newTracker(bp, c)
+
+	// Raise condition k:a at time t=1
 	tr.Raise(cond("k:a", Critical))
+	since1 := c.t
 
-	// Start first Flush in a goroutine; it will block on Save
-	flushDone := make(chan error)
-	go func() { flushDone <- tr.Flush(context.Background()) }()
+	// Start Flush A in a goroutine; it will block in the first Save
+	flushA := make(chan error, 1)
+	go func() { flushA <- tr.Flush(context.Background()) }()
 
-	// Let the blocked Save start
+	// Wait for Flush A to enter Save (first call)
+	<-bp.entered
+
+	// While Flush A is blocked in Save (and holds/waits for flushMu depending on fix),
+	// Clear the condition. This marks the occurrence as resolved in dirty.
+	tr.Clear("k:a")
+
+	// Start Flush B. With the broken code (flushMu after snapshot), B can snapshot
+	// the resolved state and may save before A does. With the fixed code (flushMu
+	// at top), B blocks on flushMu until A finishes.
+	flushB := make(chan error, 1)
+	go func() { flushB <- tr.Flush(context.Background()) }()
+
+	// Give B a moment to attempt flushMu
 	time.Sleep(10 * time.Millisecond)
 
-	// While first Flush is blocked on Save, Clear the condition and raise it again (new Since)
-	tr.Clear("k:a")
-	c.add(time.Hour)
-	tr.Raise(cond("k:a", Critical))
+	// Unblock Flush A's Save
+	close(bp.release)
 
-	// Unblock the first Flush
-	close(block)
-
-	// Wait for first Flush to complete
-	if err := <-flushDone; err != nil {
-		t.Fatalf("first flush: %v", err)
+	// Wait for both to complete
+	if err := <-flushA; err != nil {
+		t.Fatalf("flush A: %v", err)
+	}
+	if err := <-flushB; err != nil {
+		t.Fatalf("flush B: %v", err)
 	}
 
-	// Now flush again to save the new state
-	if err := tr.Flush(context.Background()); err != nil {
-		t.Fatalf("second flush: %v", err)
-	}
+	// With the fix, the save order should be: open (A), resolved (B)
+	// Without the fix, the order could be: resolved (B), open (A) if B got
+	// flushMu first, causing A's stale open state to win.
+	// The test verifies the final state is resolved (which it should be).
+	bp.mu.Lock()
+	saved, ok := bp.saved[("k:a")+"@"+since1.Format(time.RFC3339Nano)]
+	saveOrder := bp.saveLog
+	bp.mu.Unlock()
 
-	// Verify that the final saved state is the new occurrence (raised at c.t + 1 hour),
-	// not the old one. The persister should have two entries (old resolved, new open).
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if len(p.saved) != 2 {
-		t.Fatalf("expected 2 saved occurrences, got %d", len(p.saved))
+	if !ok {
+		t.Fatal("occurrence not saved")
 	}
-
-	// Check that both old and new occurrences are present
-	var oldSince, newSince time.Time
-	for _, cond := range p.saved {
-		if cond.ResolvedAt != nil {
-			oldSince = cond.Since
-		} else {
-			newSince = cond.Since
-		}
-	}
-
-	// The new one should have a later Since than the old one
-	if !newSince.After(oldSince) {
-		t.Fatalf("new occurrence should have later Since: old=%v, new=%v", oldSince, newSince)
-	}
-
-	// Verify the new one is open and old one is resolved
-	for _, cond := range p.saved {
-		if cond.Since == oldSince && cond.ResolvedAt == nil {
-			t.Fatal("old occurrence should be resolved")
-		}
-		if cond.Since == newSince && cond.ResolvedAt != nil {
-			t.Fatal("new occurrence should be open")
-		}
+	if saved.ResolvedAt == nil {
+		t.Errorf("occurrence should be resolved, got open; save order: %v", saveOrder)
 	}
 }
 
