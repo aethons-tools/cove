@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # Admin UI entity pages
@@ -68,7 +68,7 @@ studio's phase (Jam's) and the agent's reported activity into one axis:
 | pending | no studio (enrolled only, or never raised) |
 | setting up · orienting | its studio is being raised · is up, but the agent hasn't reported yet |
 | running · holding | in a turn · turn over, background tasks still running |
-| waiting · blocked | waiting on a person · says it can't proceed |
+| waiting · blocked | turn over, waiting for its next message (it may or may not have asked for a person) · says it can't proceed |
 | idled · done | paused · reported done (teardown next) |
 | terminating · lost · gone | being torn down · declared dead · torn down |
 

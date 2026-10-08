@@ -34,41 +34,41 @@ const (
 	ChannelNamed  ChannelKind = "named"
 )
 
-// AttentionBucket is the default rail grouping: waiting → active → channels.
+// AttentionBucket is the default rail grouping: needs-you → active → channels.
 type AttentionBucket string
 
 const (
-	BucketWaiting  AttentionBucket = "waiting"  // a studio waiting/idled on a human
-	BucketActive   AttentionBucket = "active"   // a live studio/session, not waiting
-	BucketChannels AttentionBucket = "channels" // everything else (named channels, human DMs)
+	BucketNeedsYou AttentionBucket = "needs-you" // a session that needs a person (NeedsPerson)
+	BucketActive   AttentionBucket = "active"    // a live studio/session, not needing anyone
+	BucketChannels AttentionBucket = "channels"  // everything else (named channels, human DMs)
 )
 
 // Channel is one projected conversation a participant is a member of, tagged so
 // a caller can group by attention (Bucket) OR by Project from the same data.
-// Phase/Waiting derive from the backing session's live Instance the same way
+// Phase/NeedsYou derive from the backing session's live Instance the same way
 // /ui/coves reads it; Unread/LastSeq derive from the Log and the caller's
 // cursor.
 type ChannelView struct {
-	ID      string // stable, deterministic channel id
-	Kind    ChannelKind
-	Label   string // display label from the viewer's perspective
-	Project string // the studio/session's project, else the squawk's project
-	Phase   string // backing session Instance.Phase; "" when no session backs it
-	Waiting bool   // backing session is waiting/idled (the attention signal)
-	Unread  int    // messages on this channel with Seq > cursor, not authored by the viewer
-	LastSeq int64  // highest append Seq seen on this channel
+	ID       string // stable, deterministic channel id
+	Kind     ChannelKind
+	Label    string // display label from the viewer's perspective
+	Project  string // the studio/session's project, else the squawk's project
+	Phase    string // backing session Instance.Phase; "" when no session backs it
+	NeedsYou bool   // a backing session needs a person (NeedsPerson; the attention signal)
+	Unread   int    // messages on this channel with Seq > cursor, not authored by the viewer
+	LastSeq  int64  // highest append Seq seen on this channel
 	// Sessions are the actor ids of the sessions taking part (sent or were
 	// addressed here, or back it), sorted.
 	Sessions []string
 }
 
-// Bucket places the channel in the attention-ordered rail. Waiting wins; a
+// Bucket places the channel in the attention-ordered rail. NeedsYou wins; a
 // live/raising/idled session-backed channel is Active; everything else is a
 // plain Channel.
 func (c ChannelView) Bucket() AttentionBucket {
 	switch {
-	case c.Waiting:
-		return BucketWaiting
+	case c.NeedsYou:
+		return BucketNeedsYou
 	case activePhase(c.Phase) && (c.Kind == ChannelStudio || c.Kind == ChannelDM):
 		return BucketActive
 	default:
@@ -133,7 +133,7 @@ func ProjectChannels(participant intercom.Target, log LogReader, roster Roster, 
 			a.members[actorRef(sessionActor)] = true
 			if inst, ok := byActor[sessionActor]; ok {
 				a.ch.Phase = string(inst.Phase)
-				a.ch.Waiting = isWaiting(inst)
+				a.ch.NeedsYou = NeedsPerson(inst)
 			}
 		}
 		accs[id] = a
@@ -224,7 +224,7 @@ func actorRef(id string) string { return intercom.Target{Kind: "actor", Ref: id}
 // then active, then plain channels; within a bucket, most-recent (LastSeq) then
 // id for stability.
 func sortChannels(chs []ChannelView) {
-	rank := map[AttentionBucket]int{BucketWaiting: 0, BucketActive: 1, BucketChannels: 2}
+	rank := map[AttentionBucket]int{BucketNeedsYou: 0, BucketActive: 1, BucketChannels: 2}
 	sort.Slice(chs, func(i, j int) bool {
 		bi, bj := rank[chs[i].Bucket()], rank[chs[j].Bucket()]
 		if bi != bj {
@@ -290,11 +290,21 @@ func sessionLabel(i Instance) string {
 	return i.ActorID
 }
 
-// isWaiting reports whether a session is soliciting a human: reported Waiting,
-// or paused (Idled — a reply unpauses it). Mirrors the presence signal
-// /ui/coves surfaces (phase + activity).
-func isWaiting(i Instance) bool {
-	return i.Activity == ActivityWaiting || i.Phase == PhaseIdled
+// AskedForPerson reports whether a session asked for a person since it was
+// last woken: a needs-input ticket report, or the escalate tool. A session
+// whose turn merely ended is idle, not asking.
+func AskedForPerson(i Instance) bool {
+	return i.EscalationAsked || i.Report != nil && i.Report.State == ReportNeedsInput
+}
+
+// NeedsPerson reports whether a session needs a person: it is blocked, or it
+// is waiting and asked for one (AskedForPerson) — live, or paused while it
+// waits (escalation keeps paging a paused asker). /me's "Needs you".
+func NeedsPerson(i Instance) bool {
+	if i.Phase != PhaseLive && i.Phase != PhaseIdled {
+		return false
+	}
+	return i.Activity == ActivityBlocked || i.Activity == ActivityWaiting && AskedForPerson(i)
 }
 
 // instanceActive reports whether a session is currently reachable: running,

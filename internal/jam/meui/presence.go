@@ -54,7 +54,7 @@ func sessionRows(actors []string, instances []jam.Instance, pr Presence) []Sessi
 }
 
 // sessionRow derives one session's line. The Instance's lifecycle wins (a
-// session raising, paused, waiting, or blocked says so whatever its last
+// session raising, paused, idle, asking for a person, or blocked says so whatever its last
 // event was); a running session shows its latest event-derived status.
 func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (SessionRow, bool) {
 	label := inst.Name // as the New message picker labels sessions
@@ -64,36 +64,39 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	row := func(text, class string) (SessionRow, bool) {
 		return SessionRow{Label: label, Text: text, Class: class}, true
 	}
+	if jam.NeedsPerson(inst) && inst.Activity != jam.ActivityBlocked {
+		return row("needs you", "wait") // asked, even once paused
+	}
 	switch inst.Phase {
 	case jam.PhaseRaising:
-		return row("starting", "busy")
+		return row("is starting", "busy")
 	case jam.PhaseIdled:
-		return row("paused", "dim")
+		return row("is paused", "dim")
 	case jam.PhaseLive:
 	default:
 		return SessionRow{}, false // terminating, lost, gone
 	}
 	switch inst.Activity {
 	case jam.ActivityWaiting:
-		return row("waiting on you", "wait")
+		return row("is idle", "dim") // asking was handled above
 	case jam.ActivityHolding:
-		return row("working in the background", "busy")
+		return row("is working in the background", "busy")
 	case jam.ActivityBlocked:
-		return row("blocked", "wait")
+		return row("is blocked", "wait")
 	case jam.ActivityDone:
-		return row("done", "dim")
+		return row("is done", "dim")
 	}
 	if !known {
-		return row("working", "busy")
+		return row("is working", "busy")
 	}
 	switch st.State {
 	case sessionevents.StatusRunning:
-		return SessionRow{Label: label, Text: "running", Tool: st.Tool, Class: "busy"}, true
+		return SessionRow{Label: label, Text: "is running", Tool: st.Tool, Class: "busy"}, true
 	case sessionevents.StatusWriting:
-		return row("writing", "busy")
+		return row("is writing", "busy")
 	case sessionevents.StatusIdle:
-		return row("idle", "dim")
+		return row("is idle", "dim")
 	default:
-		return row("thinking", "busy")
+		return row("is thinking", "busy")
 	}
 }

@@ -38,7 +38,7 @@ func projectionFixture() (fakeLog, jam.Roster, []jam.Instance) {
 		Channels: []jam.RosterChannel{{Name: "eng", Service: "linear", Ref: "ACME-9"}},
 	}
 	instances := []jam.Instance{
-		{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
+		{ActorID: "cove-1", Project: "acme", Unit: "ACME-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, EscalationAsked: true},
 		{ActorID: "cove-2", Project: "acme", Unit: "ACME-2", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "cove-3", Project: "acme", Unit: "ACME-3", Phase: jam.PhaseIdled},
 	}
@@ -90,8 +90,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if studio.Kind != jam.ChannelStudio {
 		t.Fatalf("studio kind = %q", studio.Kind)
 	}
-	if studio.Project != "acme" || studio.Phase != string(jam.PhaseLive) || !studio.Waiting {
-		t.Fatalf("studio tags = %+v; want project acme, phase live, waiting true", studio)
+	if studio.Project != "acme" || studio.Phase != string(jam.PhaseLive) || !studio.NeedsYou {
+		t.Fatalf("studio tags = %+v; want project acme, phase live, needs-you true", studio)
 	}
 	if studio.LastSeq != 2 {
 		t.Fatalf("studio lastSeq = %d, want 2", studio.LastSeq)
@@ -101,8 +101,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if studio.Unread != 1 {
 		t.Fatalf("studio unread = %d, want 1", studio.Unread)
 	}
-	if studio.Bucket() != jam.BucketWaiting {
-		t.Fatalf("studio bucket = %q, want waiting", studio.Bucket())
+	if studio.Bucket() != jam.BucketNeedsYou {
+		t.Fatalf("studio bucket = %q, want needs-you", studio.Bucket())
 	}
 
 	dm, ok := got[jam.DMChannelID(human("alice"), actor("cove-2"))]
@@ -112,8 +112,8 @@ func TestProjectChannelsMembershipAndTags(t *testing.T) {
 	if dm.Kind != jam.ChannelDM {
 		t.Fatalf("dm kind = %q", dm.Kind)
 	}
-	if dm.Project != "acme" || dm.Phase != string(jam.PhaseLive) || dm.Waiting {
-		t.Fatalf("dm tags = %+v; want project acme, phase live, waiting false", dm)
+	if dm.Project != "acme" || dm.Phase != string(jam.PhaseLive) || dm.NeedsYou {
+		t.Fatalf("dm tags = %+v; want project acme, phase live, needs-you false", dm)
 	}
 	if dm.LastSeq != 4 {
 		t.Fatalf("dm lastSeq = %d, want 4", dm.LastSeq)
@@ -138,7 +138,7 @@ func TestProjectChannelsBobSeesNamedChannel(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing named channel; got %v", keys(got))
 	}
-	if eng.Kind != jam.ChannelNamed || eng.Waiting {
+	if eng.Kind != jam.ChannelNamed || eng.NeedsYou {
 		t.Fatalf("named channel tags = %+v", eng)
 	}
 	if eng.Bucket() != jam.BucketChannels {
@@ -171,5 +171,30 @@ func TestProjectChannelsSessions(t *testing.T) {
 	bob := byID(jam.ProjectChannels(human("bob"), log, roster, instances, nil))
 	if got := bob[jam.NamedChannelID("eng")].Sessions; len(got) != 2 || got[0] != "cove-1" || got[1] != "cove-3" {
 		t.Errorf("named sessions = %v, want [cove-1 cove-3] (sorted)", got)
+	}
+}
+
+// A session whose turn merely ended is idle; it needs a person only when it
+// asked for one or is blocked, and only while live.
+func TestNeedsPerson(t *testing.T) {
+	asked := &jam.TicketReport{State: jam.ReportNeedsInput}
+	cases := []struct {
+		name string
+		inst jam.Instance
+		want bool
+	}{
+		{"idle", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting}, false},
+		{"escalate called", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
+		{"needs-input report", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Report: asked}, true},
+		{"blocked", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityBlocked}, true},
+		{"running after asking", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityRunning, EscalationAsked: true}, false},
+		{"paused", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting}, false},
+		{"paused after asking", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
+		{"gone after asking", jam.Instance{Phase: jam.PhaseGone, Activity: jam.ActivityWaiting, EscalationAsked: true}, false},
+	}
+	for _, c := range cases {
+		if got := jam.NeedsPerson(c.inst); got != c.want {
+			t.Errorf("%s: NeedsPerson = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

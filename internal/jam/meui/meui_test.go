@@ -8,10 +8,10 @@ import (
 
 func TestGroupRail(t *testing.T) {
 	chs := []jam.ChannelView{
-		{ID: "studio:u1", Kind: jam.ChannelStudio, Label: "cove-7f3a", Waiting: true, Unread: 2, LastSeq: 50},
+		{ID: "studio:u1", Kind: jam.ChannelStudio, Label: "cove-7f3a", NeedsYou: true, Unread: 2, LastSeq: 50},
 		{ID: "studio:u2", Kind: jam.ChannelStudio, Label: "cove-9e10", Phase: string(jam.PhaseLive), LastSeq: 70},
 		{ID: "named:eng", Kind: jam.ChannelNamed, Label: "#eng", LastSeq: 30},
-		{ID: "studio:u3", Kind: jam.ChannelStudio, Label: "cove-1c22", Waiting: true, LastSeq: 40},
+		{ID: "studio:u3", Kind: jam.ChannelStudio, Label: "cove-1c22", NeedsYou: true, LastSeq: 40},
 	}
 
 	groups := groupRail(chs, "studio:u1")
@@ -20,7 +20,7 @@ func TestGroupRail(t *testing.T) {
 	if len(groups) != 3 {
 		t.Fatalf("groups = %d, want 3", len(groups))
 	}
-	wantTitles := []string{"Waiting on you", "Active", "Channels"}
+	wantTitles := []string{"Needs you", "Sessions", "Channels"}
 	for i, g := range groups {
 		if g.Title != wantTitles[i] {
 			t.Errorf("group[%d].Title = %q, want %q", i, g.Title, wantTitles[i])

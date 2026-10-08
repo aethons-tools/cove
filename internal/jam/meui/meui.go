@@ -33,14 +33,14 @@ type ChannelRow struct {
 	Label    string
 	Project  string
 	Kind     jam.ChannelKind
-	Waiting  bool
+	NeedsYou bool
 	Phase    string
 	Unread   int
 	LastSeq  int64
 	Selected bool
 }
 
-// RailGroup is one attention section of the rail (Waiting on you / Active /
+// RailGroup is one attention section of the rail (Needs you / Sessions /
 // Channels / History), non-empty.
 type RailGroup struct {
 	Bucket jam.AttentionBucket
@@ -52,13 +52,13 @@ type RailGroup struct {
 const bucketHistory jam.AttentionBucket = "history"
 
 var bucketTitle = map[jam.AttentionBucket]string{
-	jam.BucketWaiting:  "Waiting on you",
-	jam.BucketActive:   "Active",
+	jam.BucketNeedsYou: "Needs you",
+	jam.BucketActive:   "Sessions",
 	jam.BucketChannels: "Channels",
 	bucketHistory:      "History (before the upgrade)",
 }
 
-var bucketOrder = []jam.AttentionBucket{jam.BucketWaiting, jam.BucketActive, jam.BucketChannels}
+var bucketOrder = []jam.AttentionBucket{jam.BucketNeedsYou, jam.BucketActive, jam.BucketChannels}
 
 // legacyNames is how the legacy log named the participant in each of their
 // projects: as their user name (the name the roster view gave them). Never a
@@ -110,14 +110,14 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 				continue
 			}
 			seen[ch.ID] = true
-			ch.ID, ch.Unread, ch.Phase, ch.Waiting = legacyPrefix+ch.ID, 0, "", false
+			ch.ID, ch.Unread, ch.Phase, ch.NeedsYou = legacyPrefix+ch.ID, 0, "", false
 			all = append(all, ch)
 		}
 	}
 	return all
 }
 
-// groupRail groups channels into the attention-ordered rail (Waiting on you →
+// groupRail groups channels into the attention-ordered rail (Needs you →
 // Active → Channels); within a group, most-recent first, then id. Empty groups
 // are dropped. selectedID marks the open channel.
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
@@ -132,7 +132,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			Label:    ch.Label,
 			Project:  ch.Project,
 			Kind:     ch.Kind,
-			Waiting:  ch.Waiting,
+			NeedsYou: ch.NeedsYou,
 			Phase:    ch.Phase,
 			Unread:   ch.Unread,
 			LastSeq:  ch.LastSeq,
