@@ -72,6 +72,7 @@ five pillars), see the design history:
 | [renamed-from-harbor.md](renamed-from-harbor.md) | You have a kit, config, script or env var that still says "harbor", or saw a "deprecated name" warning, and need the new name and how long the old one keeps working. |
 | [studio-kit-migration.md](studio-kit-migration.md) | Your `jam.yml` still sets `runtime.launcher.install-manifest`, or a pre-existing full-kit registry row now fails `kit show`/resolution, and you need what to change. |
 | [escalation.md](escalation.md) | You want a waiting session that asked for a person to actively reach people — configuring a Project's ordered, category-keyed escalation tiers (called into the session's channel) + per-tier timeouts, the `escalate(category)` tool, and operating the resident escalation engine. |
+| [../docker-in-sandbox.md](../docker-in-sandbox.md#prerequisite-install-sysbox-in-the-colima-vm-one-time) | You are preparing a Jam host's colima VM for `docker: true` kits — `at-jam colima setup-docker` / `check-docker`. |
 
 ## The shape of a working Jam
 
