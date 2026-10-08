@@ -4,7 +4,7 @@
 <section class="card full attn-card">
   <header><h2>Needs attention</h2>{{with .}}<span class="sub">{{len .}} item(s)</span>{{end}}</header>
   <div class="body">
-    {{range .}}<div class="attn-row"><span class="attn-flag{{if eq .Kind "broken"}} red{{end}}">⚠</span> <a href="{{.Href}}">{{.Why}}</a> <span class="chip">{{if eq .Kind "broken"}}broken{{else if eq .Kind "stale"}}out of date{{else}}config{{end}}</span></div>
+    {{range .}}<div class="attn-row"><span class="attn-flag{{if eq .Kind "broken"}} red{{end}}">⚠</span> <a href="{{.Href}}">{{.Why}}</a> <span class="chip">{{if eq .Kind "broken"}}broken{{else if eq .Kind "stale"}}out of date{{else if eq .Kind "alert"}}warning{{else}}config{{end}}</span></div>
     {{else}}<span class="unset">Nothing needs attention.</span>{{end}}
   </div>
 </section>

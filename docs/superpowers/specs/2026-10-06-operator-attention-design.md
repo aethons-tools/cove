@@ -117,15 +117,18 @@ listener** (`listen:`, TLS), which coves already reach from containers via
 
 ## 4. Health view, admin API and CLI
 
-- **`/ui/health`** — open conditions sorted critical → warning → info, then
+- **`/ui/health` (Jam "Health" tab)** — open conditions sorted critical → warning → info, then
   oldest; each row: severity chip, summary, relative `since`, `fix` in a
   copyable box, expandable `detail`. Below: resolved in the last 7 days with
   duration. htmx-polled like the other live pages.
-- **Banner** on every admin page while any critical/warning condition is open
-  ("⚠ N problems need attention" → `/ui/health`).
+- **Rail badge instead of a banner** *(amended 2026-10-07)*: open critical
+  and warning conditions are Jam-scope items in the admin UI's existing
+  attention system (#393) — red for critical, amber for warning — so they count
+  in the rail and Health-tab badges and the dashboard's "Needs attention"
+  card. Info conditions appear on the Health tab only.
 - **`GET /admin/attention?state=open|resolved|all`** (JSON, admin-gated) and
   **`at-jam attention list [--all]`** (`SEV KEY SINCE SUMMARY` + fix line).
-- **Optional** `monitoring.alertmanager-url`: the health page links to
+- **Optional** `metrics.alertmanager-url`: the health page links to
   Alertmanager's silences. Showing silenced state and a Silence button is slice 3.
 
 ## 5. Monitoring bundle: `deploy/monitoring/`

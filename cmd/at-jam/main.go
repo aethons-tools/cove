@@ -45,6 +45,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/condition"
+	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
@@ -79,6 +81,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
+			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
@@ -1605,6 +1608,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateMetrics(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1677,6 +1684,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
+	// Operator-attention conditions (docs/usage/jam/monitoring.md): persisted
+	// alongside the store; a load failure starts empty rather than failing serve.
+	condStore, err := conditionpg.New(context.Background(), pgPool, log)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam: conditions store:", err)
+		return 1
+	}
+	conds := condition.New(condition.Options{Persister: condStore, Log: log})
+	if err := conds.Load(context.Background()); err != nil {
+		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
+	}
+	clearStaleCredConditions(conds, cfg.credNames())
+	go conds.Run(context.Background(), 5*time.Second)
+
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
 	if names := cfg.gcpCredentials(); len(names) > 0 {
 		// exchange: gcp — the supplied Google credentials JSON stays on this host;
@@ -1701,11 +1722,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		interval, margin, _ := cfg.poolDurations() // validated above
 		refresher := jam.NewRefresher(poolStore, jam.RefresherOptions{
 			TokenURL: cfg.Pool.TokenURL, ClientID: cfg.Pool.ClientID, Scope: cfg.Pool.Scope,
-			Margin: margin, Log: log,
+			Margin: margin, Log: log, Conditions: conds,
 		})
 		go refresher.Run(context.Background(), interval)
 		log.Info("Jam subscription pool enabled", "store", cfg.Pool.Store, "cred", cfg.Pool.CredName) // never tokens
 	}
+	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
 
 	ttl, reconcile, err := cfg.runtimeDurations()
@@ -1915,6 +1937,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
 	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
+	if cfg.Metrics != nil {
+		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam: metrics.token-cred:", err)
+			return 1
+		}
+		httpHandler = withMetrics(httpHandler, condition.MetricsHandler(conds, tok[cfg.Metrics.TokenCred], func() []condition.Gauge {
+			return []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
+		}))
+		log.Info("Jam metrics: mounted", "path", "/metrics") // never the token
+	}
 
 	// Wake-on engine: watches Waiting instances and Wakes them over the live
 	// Attach stream (rsrv, the ControlSink) when an external-origin reply lands
@@ -2255,10 +2288,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()))))
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)))))
 
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
+			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
 		go func() {
 			if cfg.adminUsesTLS() {

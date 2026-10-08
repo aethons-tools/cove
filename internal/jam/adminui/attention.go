@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -19,6 +20,7 @@ const (
 	attnBroken attnKind = "broken" // a studio is lost, terminating or failing egress re-apply
 	attnStale  attnKind = "stale"  // a studio runs an out-of-date image or connector
 	attnConfig attnKind = "config" // configuration that names something that isn't there
+	attnAlert  attnKind = "alert"  // an operator condition at warning severity
 )
 
 // attnItem is one thing that needs an operator's attention. Scope is "" for
@@ -145,7 +147,7 @@ type attnBadge struct {
 }
 
 func badgeOf(items []attnItem) attnBadge {
-	var broken, stale, config int
+	var broken, stale, config, alert int
 	for _, it := range items {
 		switch it.Kind {
 		case attnBroken:
@@ -154,13 +156,15 @@ func badgeOf(items []attnItem) attnBadge {
 			stale++
 		case attnConfig:
 			config++
+		case attnAlert:
+			alert++
 		}
 	}
 	var parts []string
 	for _, p := range []struct {
 		n    int
 		what string
-	}{{broken, "broken"}, {stale, "out of date"}, {config, "config"}} {
+	}{{broken, "broken"}, {stale, "out of date"}, {config, "config"}, {alert, "warning"}} {
 		if p.n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.what))
 		}
@@ -175,6 +179,26 @@ func inScope(items []attnItem, scope, tab string) []attnItem {
 		if it.Scope == scope && (tab == "" || it.Tab == tab) {
 			out = append(out, it)
 		}
+	}
+	return out
+}
+
+// conditionItems turns open operator conditions into Jam-scope attention
+// items on the Health tab: critical is broken (red), warning is alert
+// (amber); info is never an item.
+func conditionItems(cs []condition.Condition) []attnItem {
+	var out []attnItem
+	for _, c := range cs {
+		var k attnKind
+		switch c.Severity {
+		case condition.Critical:
+			k = attnBroken
+		case condition.Warning:
+			k = attnAlert
+		default:
+			continue
+		}
+		out = append(out, attnItem{Kind: k, Tab: "health", Subject: "cond:" + c.Key, Href: "/ui/health", Why: c.Summary})
 	}
 	return out
 }

@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
 // Probed 2026-09-29 (see the design spec's "Refresh endpoint" section): the
@@ -29,6 +31,9 @@ type RefresherOptions struct {
 	Now        func() time.Time
 	Margin     time.Duration // refresh when ExpiresAt is within this of Now
 	Log        *slog.Logger
+	// Conditions, when set, receives pool.account.refresh:<account> conditions
+	// (warning; critical while every account is failing). nil = none.
+	Conditions *condition.Tracker
 }
 
 // Refresher rotates pool account tokens ahead of expiry, out-of-band from any
@@ -64,20 +69,74 @@ func NewRefresher(store PoolStore, opt RefresherOptions) *Refresher {
 	return &Refresher{store: store, opt: opt}
 }
 
+// PoolFailThreshold is how many consecutive failed refresh passes of one
+// account raise pool.account.refresh:<account>.
+const PoolFailThreshold = 2
+
 // RefreshDue refreshes every account whose ExpiresAt is within Margin of Now.
-// Per-account failures are logged and do not stop the others. Never logs tokens.
+// Per-account failures are logged and do not stop the others; with
+// Conditions set they raise pool.account.refresh:<account> (warning, or
+// critical while every account is failing) and a success, a fresh token (re-seed) or removal of the account clears it. Never
+// logs tokens.
 func (r *Refresher) RefreshDue(ctx context.Context) error {
 	accts, err := r.store.Accounts()
 	if err != nil {
 		return err
 	}
 	deadline := r.opt.Now().Add(r.opt.Margin)
+	t := r.opt.Conditions
 	for _, a := range accts {
+		key := condition.Key("pool.account.refresh", a.Name)
 		if a.ExpiresAt.After(deadline) {
+			t.Ok(key) // a not-due account holds a fresh token (e.g. re-seeded)
 			continue
 		}
 		if err := r.refreshOne(ctx, a); err != nil {
 			r.opt.Log.Warn("pool token refresh failed", "account", a.Name, "error", err.Error())
+			sev := condition.Warning
+			if cur, ok := t.Get(key); ok {
+				sev = cur.Severity // keep it; the all-failing pass below decides
+			}
+			t.Fail(condition.Condition{
+				Key: key, Severity: sev,
+				Summary: "pool account " + a.Name + " cannot refresh its token",
+				Detail:  err.Error(), // OAuth error code + description only (see refreshOne)
+				Fix:     "re-seed it: at-jam pool add --name " + a.Name + " --from-file <credentials.json>",
+			}, PoolFailThreshold)
+			continue
+		}
+		t.Ok(key)
+	}
+	// Accounts no longer in the store can never refresh again: drop their conditions.
+	if t != nil {
+		live := map[string]bool{}
+		for _, a := range accts {
+			live[condition.Key("pool.account.refresh", a.Name)] = true
+		}
+		for _, k := range t.OpenKeys("pool.account.refresh") {
+			if !live[k] {
+				t.Ok(k)
+			}
+		}
+	}
+	// Every account failing means the pool cannot serve: critical; otherwise warning.
+	if t != nil && len(accts) > 0 {
+		all := true
+		for _, a := range accts {
+			if !t.IsOpen(condition.Key("pool.account.refresh", a.Name)) {
+				all = false
+				break
+			}
+		}
+		want := condition.Warning
+		if all {
+			want = condition.Critical
+		}
+		for _, a := range accts {
+			if c, ok := t.Get(condition.Key("pool.account.refresh", a.Name)); ok && c.Severity != want {
+				c.Severity = want
+				t.Raise(c)
+			}
 		}
 	}
 	return nil

@@ -1,0 +1,34 @@
+{{define "content"}}
+<div class="page-head"><h1>Health</h1><span class="sub">Problems Jam has detected in itself — each with how to fix it. Pushed to operators by Alertmanager when configured.</span>{{with .Silences}} <a href="{{.}}">Silences ↗</a>{{end}}</div>
+{{template "health-body" .}}
+{{end}}
+
+{{define "health-body"}}
+<div id="health-body" hx-get="/ui/health" hx-trigger="every 10s" hx-swap="outerHTML">
+<section class="card full">
+  <header><h2>Open</h2>{{with .Open}}<span class="sub">{{len .}}</span>{{end}}</header>
+  <div class="body">
+  {{range .Open}}
+    <div class="health-row" id="cond-{{.Key}}">
+      <span class="chip sev-{{.Severity}}">{{.Severity}}</span> <strong>{{.Summary}}</strong> <span class="unset">for {{.Age}}</span>
+      {{with .Fix}}<pre class="fix">{{.}}</pre>{{end}}
+      {{with .Detail}}<details><summary>Detail</summary><pre>{{.}}</pre></details>{{end}}
+      <div class="unset mono">{{.Key}}</div>
+    </div>
+  {{else}}<span class="unset">Nothing needs attention.</span>{{end}}
+  </div>
+</section>
+<section class="card full">
+  <header><h2>Resolved (7 days)</h2></header>
+  <div class="body">
+  {{range .Resolved}}<div class="health-row"><span class="chip">{{.Severity}}</span> {{.Summary}} <span class="unset">— lasted {{.Lasted}}, resolved {{.Age}} ago</span></div>
+  {{else}}<span class="unset">None.</span>{{end}}
+  </div>
+</section>
+</div>
+<style>
+  .health-row{padding:6px 0;border-bottom:1px solid var(--border)}
+  .health-row pre.fix{margin:6px 0;padding:6px 8px;background:var(--panel, #f6f6f6);user-select:all;white-space:pre-wrap}
+  .sev-critical{background:#c62828;color:#fff}.sev-warning{background:#f9a825}.sev-info{background:#90a4ae;color:#fff}
+</style>
+{{end}}
