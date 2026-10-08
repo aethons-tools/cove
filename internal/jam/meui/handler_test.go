@@ -95,7 +95,7 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 	}
 }
 
-func TestInboxComposerSendsOnCmdEnter(t *testing.T) {
+func TestInboxComposerSendsOnShiftEnter(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
 	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
@@ -103,12 +103,12 @@ func TestInboxComposerSendsOnCmdEnter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// Cmd-Enter (Ctrl-Enter off the Mac) sends and inserts nothing; plain Enter
-	// is left alone, a newline. The handler is delegated on document so it also
+	// Shift-Enter sends and inserts nothing; plain Enter is left alone, a
+	// newline. The handler is delegated on document so it also
 	// covers the meCompose (New message) composer; the Send button shows the
 	// combo.
-	for _, want := range []string{"⌘↵ to send", "document.addEventListener('keydown'", "(mac ? e.metaKey : e.ctrlKey)", "requestSubmit()",
-		`<button type="submit">Send <kbd>⌘↵</kbd></button>`} {
+	for _, want := range []string{"⇧↵ to send", "document.addEventListener('keydown'", "!e.shiftKey", "requestSubmit()",
+		`<button type="submit">Send <kbd>⇧↵</kbd></button>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing composer key wiring %q", want)
 		}

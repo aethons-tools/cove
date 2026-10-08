@@ -232,15 +232,14 @@ function meSend(e, to){
    });
   return false;
 }
-// Composer keys: Cmd-Enter (Ctrl-Enter off the Mac) sends and inserts
-// nothing; plain Enter is left alone, so it always inserts a newline. meSend
-// trims the message's ends. Delegated on document so it covers htmx-swapped
-// and meCompose composers alike.
+// Composer keys: Shift-Enter sends and inserts nothing; plain Enter is left
+// alone, so it always inserts a newline. meSend trims the message's ends.
+// Delegated on document so it covers htmx-swapped and meCompose composers
+// alike.
 document.addEventListener('keydown', function(e){
   var t=e.target;
   if(!t.matches || !t.matches('.composer textarea')) return;
-  var mac=/Mac|iPhone|iPad/.test(navigator.platform);
-  if(e.key!=='Enter' || !(mac ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey || e.isComposing) return;
+  if(e.key!=='Enter' || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
   e.preventDefault();
   t.form.requestSubmit();
 });
@@ -281,8 +280,8 @@ function meCompose(to, label){
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'
-    +'<textarea name="body" placeholder="Message '+label+'… (⌘↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
-    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⌘↵</kbd></button></div></form></div>';
+    +'<textarea name="body" placeholder="Message '+label+'… (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>'
+    +'<div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div></form></div>';
   var form=pane.querySelector('.composer form');
   meRestoreReply(form);
   meDraftChip(form);
