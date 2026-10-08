@@ -59,7 +59,8 @@ Unset ⇒ no `/metrics`.
    `discord-webhook` (a Discord channel webhook URL).
 2. `just monitoring-up <jam-host>` — starts Prometheus (`127.0.0.1:9090`) and
    Alertmanager (`127.0.0.1:9093`), reaching Jam the way studios do
-   (`<jam-host>` → `host-gateway`).
+   (`<jam-host>` → `host-gateway`). The recipe `chmod 644`s the three files, because
+   the containers run as `nobody` and could not read 0600 files; the directory is local and gitignored.
 3. Set `metrics.alertmanager-url: http://localhost:9093` to link silences from Health.
 
 The bundle also alerts `JamDown` (critical) when Prometheus cannot scrape Jam

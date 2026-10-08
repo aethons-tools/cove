@@ -128,7 +128,7 @@ listener** (`listen:`, TLS), which coves already reach from containers via
   card. Info conditions appear on the Health tab only.
 - **`GET /admin/attention?state=open|resolved|all`** (JSON, admin-gated) and
   **`at-jam attention list [--all]`** (`SEV KEY SINCE SUMMARY` + fix line).
-- **Optional** `monitoring.alertmanager-url`: the health page links to
+- **Optional** `metrics.alertmanager-url`: the health page links to
   Alertmanager's silences. Showing silenced state and a Silence button is slice 3.
 
 ## 5. Monitoring bundle: `deploy/monitoring/`
