@@ -26,9 +26,30 @@ func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
 	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now)}
 }
 
+// operatorPathHint answers a request for an operator surface that reached the
+// broker: the usual cause is an admin URL pointed at `listen` instead of
+// `admin-listen`.
+const operatorPathHint = "not found: this is Jam's agent listener (listen). The admin API and UI are served on admin-listen (e.g. 127.0.0.1:8081) — point --admin-url, or settings.yml admin-url, there."
+
+// operatorPath reports whether path belongs to an operator surface — the admin
+// API, the admin UI or the participant intercom — which this listener never
+// serves (a destination's own route is matched before this is asked).
+func operatorPath(path string) bool {
+	for _, p := range []string{"/admin/", "/ui/", "/me/"} {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	dest, ok := b.store.Match(r.URL.Path)
 	if !ok {
+		if operatorPath(r.URL.Path) {
+			http.Error(w, operatorPathHint, http.StatusNotFound)
+			return
+		}
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return
 	}

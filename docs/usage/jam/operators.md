@@ -4,7 +4,7 @@ read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator
 owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-08
 ---
 
 # Operator sign-in & the admin client
@@ -100,6 +100,10 @@ dev-app:
 - `--admin-url` overrides the profile's `admin-url` for one invocation; passing it
   to `login` **persists** it to the profile.
 - `--base-url` (on `enroll`) overrides `base-url` for the printed snippet.
+- `admin-url` is the serve config's **`admin-listen`**; `base-url` is
+  **`listen`**, the agent listener. A command aimed at `listen` gets a 404
+  saying "this is Jam's agent listener (listen)…" — point `admin-url` at
+  `admin-listen` instead.
 
 So `at-jam --app dev-app actors` lists the dev Jam's actors using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
