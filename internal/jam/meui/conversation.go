@@ -29,7 +29,7 @@ type Conversation struct {
 	Kind        jam.ChannelKind
 	Project     string
 	Phase       string
-	Waiting     bool
+	NeedsYou    bool
 	SendTo      string // what the composer POSTs to /me/send ("" = read-only History)
 	Messages    []MessageRow
 	HasMessages bool
@@ -71,7 +71,7 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		return Conversation{}, false
 	}
 	conv := Conversation{
-		ChannelID: channelID, Label: v.Label, Kind: v.Kind, Project: v.Project, Phase: v.Phase, Waiting: v.Waiting,
+		ChannelID: channelID, Label: v.Label, Kind: v.Kind, Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
@@ -154,7 +154,6 @@ type NewMessageOption struct {
 	Label   string
 	Kind    string
 	Project string
-	Waiting bool
 }
 
 // newMessageOptions lists who the participant can start a conversation
@@ -188,14 +187,13 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			if !jam.SameProject(d.Store, inst.Project, name) || (inst.Phase != jam.PhaseLive && inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseIdled) {
 				continue
 			}
-			waiting := inst.Activity == jam.ActivityWaiting || inst.Phase == jam.PhaseIdled
 			label := d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label
 			if d.Intercom.MayReach(p.UserID, inst) {
-				add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "agent", Project: name, Waiting: waiting})
+				add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "agent", Project: name})
 			}
 			if inst.Unit != "" {
 				if ch, ok := d.Intercom.TicketChannelOf(inst); ok {
-					add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "ticket", Project: name, Waiting: waiting})
+					add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "ticket", Project: name})
 				}
 			}
 		}

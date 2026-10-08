@@ -37,7 +37,7 @@ type intercomNagger struct {
 
 func (n intercomNagger) Nag(_ context.Context, inst jam.Instance, idle time.Duration) error {
 	body := fmt.Sprintf(
-		"Your personal session %s (%s) has been waiting on you for %s. Reply to this message to pick it back up, or release it with: at-jam session release %s",
+		"Your personal session %s (%s) has been idle for %s. Reply to this message to pick it back up, or release it with: at-jam session release %s",
 		inst.ActorID, inst.Role, formatIdle(idle), inst.ActorID)
 	if n.ownerAttributable(inst) {
 		body += ` Reply "keep" to keep it, or "release" to end it.`

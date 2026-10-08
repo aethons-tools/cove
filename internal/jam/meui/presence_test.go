@@ -30,6 +30,8 @@ func presenceFixture() (*env, jam.Participant, *fakePresence) {
 		{ActorID: "busy", Name: "builder", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "idle", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
 		{ActorID: "waiting", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting},
+		{ActorID: "asking", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, EscalationAsked: true},
+		{ActorID: "stuck", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityBlocked},
 		{ActorID: "paused", Project: "proj", Phase: jam.PhaseIdled},
 		{ActorID: "gone", Project: "proj", Phase: jam.PhaseGone},
 		{ActorID: "fresh", Project: "proj", Phase: jam.PhaseLive, Activity: jam.ActivityRunning},
@@ -41,7 +43,7 @@ func presenceFixture() (*env, jam.Participant, *fakePresence) {
 		}
 	}
 	// "unknown" has no Instance at all (deregistered): not shown.
-	for _, a := range []string{"busy", "idle", "waiting", "paused", "gone", "unknown", "fresh", "background"} {
+	for _, a := range []string{"busy", "idle", "waiting", "asking", "stuck", "paused", "gone", "unknown", "fresh", "background"} {
 		if err := e.st.JoinChannel(engID, ident.ID(a), 1); err != nil {
 			panic(err)
 		}
@@ -65,7 +67,10 @@ func TestPresenceRows(t *testing.T) {
 	for _, want := range []string{
 		`<div class="sess busy"><span class="sname">builder</span> is running <b>Bash</b><span class="dots" aria-hidden="true">`,
 		`<div class="sess dim"><span class="sname">idle</span> is idle</div>`,
-		`<div class="sess wait"><span class="sname">waiting</span> is waiting on you</div>`,
+		// A turn that ended is idle; only a session that asked needs you.
+		`<div class="sess dim"><span class="sname">waiting</span> is idle</div>`,
+		`<div class="sess wait"><span class="sname">asking</span> needs you</div>`,
+		`<div class="sess wait"><span class="sname">stuck</span> is blocked</div>`,
 		`<div class="sess busy"><span class="sname">background</span> is working in the background`,
 		`<div class="sess dim"><span class="sname">paused</span> is paused</div>`,
 		// Live, but no event seen yet (e.g. just after a Jam restart).
@@ -95,7 +100,7 @@ func TestPresenceWithoutTrackerFallsBackToPhase(t *testing.T) {
 	h := Handler(e.Deps, nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape(engID), nil), p))
-	if body := rec.Body.String(); !strings.Contains(body, "builder</span> is working") || !strings.Contains(body, "waiting</span> is waiting on you") {
+	if body := rec.Body.String(); !strings.Contains(body, "builder</span> is working") || !strings.Contains(body, "asking</span> needs you") {
 		t.Errorf("without a tracker, live sessions read as working:\n%s", body)
 	}
 }

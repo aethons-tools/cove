@@ -78,7 +78,7 @@ func (e *Engine) tick(ctx context.Context) {
 		if !jam.Escalatable(inst) || inst.EndRequested != nil {
 			continue // not waiting, ending or gone, or asked to end: not soliciting anyone
 		}
-		if !askedForPerson(inst) {
+		if !jam.AskedForPerson(inst) {
 			continue // every turn ends in Waiting: only an ask opens an escalation
 		}
 		proj, ok := e.proj.GetProject(inst.Project)
@@ -100,12 +100,6 @@ func (e *Engine) tick(ctx context.Context) {
 			e.pingTier(ctx, inst, proj, chain, cur+1)
 		}
 	}
-}
-
-// askedForPerson reports whether a Waiting session asked for a person: a
-// needs-input ticket report, or the escalate tool since it was last woken.
-func askedForPerson(inst jam.Instance) bool {
-	return inst.EscalationAsked || inst.Report != nil && inst.Report.State == jam.ReportNeedsInput
 }
 
 // chainFor picks the tier chain for a cove's declared category, falling back to

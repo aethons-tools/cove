@@ -46,7 +46,7 @@ func TestIntercomNaggerAppendsSquawks(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("posted %d notices, want 2: %+v", len(got), got)
 	}
-	if want := "Your personal session pers-1 (pair) has been waiting on you for 4h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"; got[0].Body != want {
+	if want := "Your personal session pers-1 (pair) has been idle for 4h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"; got[0].Body != want {
 		t.Fatalf("nag body = %q\nwant       %q", got[0].Body, want)
 	}
 	if want := "Reclaimed your personal session pers-1 (pair) after 3d 0h 30m without a reply."; got[1].Body != want {
@@ -73,7 +73,7 @@ func TestNagCarriesNagID(t *testing.T) {
 // project chats over discord and the owner is bound to their Discord user id,
 // or (unbound) their discord inbox is theirs alone.
 func TestNagOffersKeepReleaseOnlyForUniqueInbox(t *testing.T) {
-	const base = "Your personal session pers-1 (pair) has been waiting on you for 5h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"
+	const base = "Your personal session pers-1 (pair) has been idle for 5h. Reply to this message to pick it back up, or release it with: at-jam session release pers-1"
 	const hint = ` Reply "keep" to keep it, or "release" to end it.`
 	disc := func(addr, uid string) []jam.DeliveryProfile {
 		return []jam.DeliveryProfile{{Service: "discord", Address: addr, UserID: uid}}

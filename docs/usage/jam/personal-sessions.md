@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # Personal sessions
@@ -56,7 +56,7 @@ wake-on engine walks it up a ladder set by the role:
 1. **Pause.** Past the `warm-timeout` it is paused (step 3 above).
 2. **Nag.** Once it has waited **`idle-after`** (default **4h**), Jam messages you
    *as the session*, in your Discord inbox: "Your personal session *id* (*role*) has
-   been waiting on you for *N*. Reply to this message to pick it back up, or release
+   been idle for *N*. Reply to this message to pick it back up, or release
    it with: `at-jam session release <id>`". It repeats every **`nag-every`**
    (default **24h**). **Replying to a nag is replying to the session** — it wakes and
    carries on, and the ladder starts over.
