@@ -20,6 +20,10 @@ studios points at. It does three things for the studios it serves:
   enforces.
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
+`at-jam` ships in the same release archive as `at-cove`: install it with the
+one-command installer and keep it current with `at-jam update` (see
+[installing the binaries](../../OVERVIEW.md#installing-the-binaries)).
+
 This is the *how to run and administer it* layer. For the studio side — making a
 sandbox use a Jam — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 For *why* it's built this way (threat model, the broker's boundary relocation, the

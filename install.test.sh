@@ -3,7 +3,7 @@
 #
 # No network, no Docker, no live release. We put stub `gh` and `uname`
 # executables on PATH that serve a locally-built fixture "release" (fake
-# at-cove/at-mint binaries + a real checksums.txt), then drive install.sh
+# at-cove/at-mint/at-jam binaries + a real checksums.txt), then drive install.sh
 # and assert on what it does. Pure helpers are unit-tested by sourcing
 # install.sh in lib mode (COVE_INSTALL_LIB=1), which suppresses main.
 #
@@ -50,25 +50,29 @@ RELEASE_DIR="$WORK/release" # what the stub gh "downloads" from
 STUB_BIN="$WORK/stubbin"    # stub gh/uname, first on PATH
 mkdir -p "$RELEASE_DIR" "$STUB_BIN"
 
-# build a fixture archive carrying fake at-cove + at-mint for a given os/arch
+# build a fixture archive carrying fake at-cove + at-mint + at-jam for a given
+# os/arch. Optional 3rd arg: a version (default FIXTURE_VERSION); a 4th arg of
+# "nojam" omits at-jam, like a release cut before at-jam shipped.
 build_archive() {
-  local os="$1" arch="$2"
-  local stage="$WORK/stage-$os-$arch"
+  local os="$1" arch="$2" ver="${3:-$FIXTURE_VERSION}" jam="${4:-}"
+  local stage="$WORK/stage-$ver-$os-$arch"
+  local bins=(at-cove at-mint at-jam)
+  [ "$jam" = nojam ] && bins=(at-cove at-mint)
   mkdir -p "$stage"
-  cat >"$stage/at-cove" <<EOF
+  for b in "${bins[@]}"; do
+    cat >"$stage/$b" <<EOF
 #!/bin/sh
-[ "\$1" = version ] && echo "at-cove $FIXTURE_VERSION"
+[ "\$1" = version ] && echo "$b $ver"
 EOF
-  cat >"$stage/at-mint" <<EOF
-#!/bin/sh
-[ "\$1" = version ] && echo "at-mint $FIXTURE_VERSION"
-EOF
-  chmod +x "$stage/at-cove" "$stage/at-mint"
-  tar -C "$stage" -czf "$RELEASE_DIR/cove_${FIXTURE_VERSION}_${os}_${arch}.tar.gz" at-cove at-mint
+    chmod +x "$stage/$b"
+  done
+  tar -C "$stage" -czf "$RELEASE_DIR/cove_${ver}_${os}_${arch}.tar.gz" "${bins[@]}"
 }
 
 build_archive linux amd64
 build_archive darwin arm64
+PRE_JAM_VERSION="99-0101"
+build_archive linux amd64 "$PRE_JAM_VERSION" nojam
 
 # real checksums over every archive (goreleaser format: "<sha>  <basename>")
 (
@@ -156,13 +160,20 @@ if (cd "$vc" && verify_checksum cove_x.tar.gz checksums.txt); then ok "verify_ch
 echo tampered >>"$vc/cove_x.tar.gz"
 if (cd "$vc" && verify_checksum cove_x.tar.gz checksums.txt 2>/dev/null); then bad "verify_checksum tamper -> abort"; else ok "verify_checksum tamper -> abort"; fi
 
-echo "== e2e: gh path installs both binaries =="
+echo "== e2e: gh path installs every binary =="
 BIN1="$WORK/bin1"
 out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN1" run_install 2>&1)" && rc=0 || rc=$?
 if [ "$rc" = 0 ]; then ok "install exit 0"; else bad "install exit 0" "rc=$rc" "$out"; fi
 if [ -x "$BIN1/at-cove" ]; then ok "at-cove installed + executable"; else bad "at-cove installed + executable" "$out"; fi
 if [ -x "$BIN1/at-mint" ]; then ok "at-mint installed + executable"; else bad "at-mint installed + executable" "$out"; fi
+if [ -x "$BIN1/at-jam" ]; then ok "at-jam installed + executable"; else bad "at-jam installed + executable" "$out"; fi
 if [ -e "$BIN1/at-task" ]; then bad "at-task NOT installed (embedded)"; else ok "at-task NOT installed (embedded)"; fi
+
+echo "== e2e: a pre-at-jam release still installs =="
+BIN0="$WORK/bin0"
+out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$PRE_JAM_VERSION" BINDIR="$BIN0" run_install 2>&1)" && rc=0 || rc=$?
+if [ "$rc" = 0 ] && [ -x "$BIN0/at-cove" ]; then ok "pre-at-jam release installs"; else bad "pre-at-jam release installs" "rc=$rc" "$out"; fi
+if [ -e "$BIN0/at-jam" ]; then bad "pre-at-jam release installs no at-jam"; else ok "pre-at-jam release installs no at-jam"; fi
 
 echo "== e2e: arch mapping picks darwin_arm64 asset =="
 : >"$PATTERN_LOG"
