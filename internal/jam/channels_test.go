@@ -189,6 +189,8 @@ func TestNeedsPerson(t *testing.T) {
 		{"blocked", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityBlocked}, true},
 		{"running after asking", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityRunning, EscalationAsked: true}, false},
 		{"paused", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting}, false},
+		{"paused after asking", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
+		{"gone after asking", jam.Instance{Phase: jam.PhaseGone, Activity: jam.ActivityWaiting, EscalationAsked: true}, false},
 	}
 	for _, c := range cases {
 		if got := jam.NeedsPerson(c.inst); got != c.want {

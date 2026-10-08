@@ -20,9 +20,9 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
 ## What it shows
 
 - **Left rail — channels grouped by attention:** `Needs you` (a conversation
-  with a live session that **asked for a person** — a `needs-input` report or
-  the `escalate` tool, see [escalation.md](escalation.md) — or is blocked: the
-  attention signal), then `Sessions` (conversations with a live, starting or
+  with a session that **asked for a person** — a `needs-input` report or
+  the `escalate` tool, see [escalation.md](escalation.md) — or is blocked — live, or
+  paused while it waits: the attention signal), then `Sessions` (conversations with a live, starting or
   paused session, including one that is merely idle), then `Channels`: every [channel](intercom.md#enabling-it) the person
   is in or has messages in, that they may see — chats (labelled with the others
   in them), tickets and rooms — across their projects. Leaving a project takes
@@ -142,7 +142,7 @@ once it asks.
 |--------|------|
 | starting | the session is raising |
 | paused | it is idled |
-| needs you | it is waiting and asked for a person since it was last woken (`needs-input` report or `escalate`) |
+| needs you | it is waiting (live or paused) and asked for a person since it was last woken (`needs-input` report or `escalate`); this wins over paused |
 | idle | it is waiting without having asked (its turn ended) |
 | blocked / done | its reported activity says so (this and the two above win over its events) |
 | thinking | its latest event began a turn, was a thinking block, or was a tool result |

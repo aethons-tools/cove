@@ -11,7 +11,7 @@ const (
 	StatusSettingUp   AgentStatus = "setting up"  // raising
 	StatusOrienting   AgentStatus = "orienting"   // live, but the agent hasn't reported yet
 	StatusRunning     AgentStatus = "running"     // live, in a turn
-	StatusWaiting     AgentStatus = "waiting"     // live, waiting on a person
+	StatusWaiting     AgentStatus = "waiting"     // live, turn over, waiting for its next message
 	StatusHolding     AgentStatus = "holding"     // live, turn over, background tasks running
 	StatusBlocked     AgentStatus = "blocked"     // live, says it can't proceed
 	StatusIdled       AgentStatus = "idled"       // paused

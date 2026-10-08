@@ -64,6 +64,9 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	row := func(text, class string) (SessionRow, bool) {
 		return SessionRow{Label: label, Text: text, Class: class}, true
 	}
+	if jam.NeedsPerson(inst) && inst.Activity != jam.ActivityBlocked {
+		return row("needs you", "wait") // asked, even once paused
+	}
 	switch inst.Phase {
 	case jam.PhaseRaising:
 		return row("is starting", "busy")
@@ -75,10 +78,7 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	}
 	switch inst.Activity {
 	case jam.ActivityWaiting:
-		if jam.AskedForPerson(inst) {
-			return row("needs you", "wait")
-		}
-		return row("is idle", "dim")
+		return row("is idle", "dim") // asking was handled above
 	case jam.ActivityHolding:
 		return row("is working in the background", "busy")
 	case jam.ActivityBlocked:

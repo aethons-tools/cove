@@ -297,10 +297,11 @@ func AskedForPerson(i Instance) bool {
 	return i.EscalationAsked || i.Report != nil && i.Report.State == ReportNeedsInput
 }
 
-// NeedsPerson reports whether a live session needs a person: it is blocked,
-// or it is waiting and asked for one (AskedForPerson). /me's "Needs you".
+// NeedsPerson reports whether a session needs a person: it is blocked, or it
+// is waiting and asked for one (AskedForPerson) — live, or paused while it
+// waits (escalation keeps paging a paused asker). /me's "Needs you".
 func NeedsPerson(i Instance) bool {
-	if i.Phase != PhaseLive {
+	if i.Phase != PhaseLive && i.Phase != PhaseIdled {
 		return false
 	}
 	return i.Activity == ActivityBlocked || i.Activity == ActivityWaiting && AskedForPerson(i)
