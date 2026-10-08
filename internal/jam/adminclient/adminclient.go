@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
 // ErrNotFound wraps a 404 from the admin API, so callers can distinguish "this
@@ -658,4 +659,11 @@ func (c *Client) SetConnectionCred(conn, cred string) error {
 // RemoveConnection removes (tombstones) a connection.
 func (c *Client) RemoveConnection(conn string) error {
 	return c.do("DELETE", "/admin/connections/"+url.PathEscape(conn), nil, nil)
+}
+
+// ListConditions lists operator-attention conditions (state: open|resolved|all).
+func (c *Client) ListConditions(state string) ([]condition.Condition, error) {
+	var out []condition.Condition
+	err := c.do("GET", "/admin/attention?state="+url.QueryEscape(state), nil, &out)
+	return out, err
 }
