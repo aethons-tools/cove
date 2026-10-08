@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
 // scopeKind is what a page belongs to in the rail: Jam, one project, or —
@@ -38,6 +39,7 @@ var jamTabs = []tabDef{
 	{"users", "Users", "/ui/users"},
 	{"specs", "Specs", "/ui/specs"},
 	{"intercom", "Intercom", "/ui/intercom"},
+	{"health", "Health", "/ui/health"},
 }
 
 // subTab is one sub-tab of a tab; Current marks the page's own.
@@ -126,7 +128,7 @@ func railFor(r *http.Request, src frameSource, items []attnItem) railView {
 // in no scope; an agent page is in a project's scope when linked with
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
-	items := attention(src.store, src.img)
+	items := src.items()
 	f := frame{Kind: meta.Kind, All: items, Brand: src.brand()}
 	if meta.Kind == scopeJam && meta.Tab == "agents" {
 		if p := r.URL.Query().Get("project"); p != "" {
@@ -201,6 +203,13 @@ type frameSource struct {
 	store jam.Store
 	img   jam.ImageResolver
 	name  string // the Jam's display name ("" = none)
+	conds *condition.Tracker
+}
+
+// items is every attention item: Jam's open operator conditions first, then
+// attention()'s.
+func (s frameSource) items() []attnItem {
+	return append(conditionItems(s.conds.Open()), attention(s.store, s.img)...)
 }
 
 // jamName is what the rail and Jam's scope call this Jam: its display name,

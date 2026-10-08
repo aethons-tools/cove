@@ -200,6 +200,14 @@ func (c serveConfig) validateSessionEvents() error {
 }
 
 // displayName is the trimmed display-name ("" when unset).
+// alertmanagerURL is the configured Alertmanager's base URL, or "".
+func alertmanagerURL(c serveConfig) string {
+	if c.Metrics == nil {
+		return ""
+	}
+	return c.Metrics.AlertmanagerURL
+}
+
 func (c serveConfig) displayName() string { return strings.TrimSpace(c.DisplayName) }
 
 // validateDisplayName refuses a display-name that spans lines, holds control,

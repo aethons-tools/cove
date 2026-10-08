@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -44,6 +45,7 @@ var pages = map[string]page{
 	"user":         mustParse(jamPage("users"), "user.html"),
 	"kits":         mustParse(specsPage("/ui/kits"), "kits.html"),
 	"destinations": mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destinations.html"),
+	"health":       mustParse(jamPage("health"), "health.html"),
 	"intercom":     mustParse(jamPage("intercom"), "squawks.html", "intercom.html"),
 	"session":      mustParse(jamPage("agents"), "session.html"),
 	"role":         mustParse(projPage, "coves.html", "context_panel.html", "role.html"),
@@ -130,18 +132,27 @@ func fmtDur(d time.Duration) string { return jam.FormatDuration(d) }
 type Option func(*options)
 
 type options struct {
-	trustedOrigins []string
-	sessStore      sessionevents.Store
-	sessHub        *sessionevents.Hub
-	credNames      []string
-	poolConfigured bool
-	displayName    string
+	trustedOrigins  []string
+	sessStore       sessionevents.Store
+	sessHub         *sessionevents.Hub
+	credNames       []string
+	poolConfigured  bool
+	displayName     string
+	conds           *condition.Tracker
+	alertmanagerURL string
 }
 
 // WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
 // and the rail's Jam entry "<name>" ("" keeps "Jam").
 func WithDisplayName(name string) Option {
 	return func(o *options) { o.displayName = name }
+}
+
+// WithConditions shows operator-attention conditions: open critical/warning
+// ones as Jam attention items, and all of them on the Health tab, which links
+// alertmanagerURL's silences when set.
+func WithConditions(t *condition.Tracker, alertmanagerURL string) Option {
+	return func(o *options) { o.conds, o.alertmanagerURL = t, strings.TrimRight(alertmanagerURL, "/") }
 }
 
 // WithSessions enables the live session-event timeline (/ui/agents/{id}/session).
@@ -165,7 +176,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	for _, opt := range opts {
 		opt(&o)
 	}
-	src := frameSource{store: store, img: sup, name: o.displayName}
+	src := frameSource{store: store, img: sup, name: o.displayName, conds: o.conds}
 	mux := http.NewServeMux()
 	canEdit := sup != nil
 
@@ -186,10 +197,11 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	})
 
 	registerAgents(mux, store, sup, canEdit)
+	registerHealth(mux, o.conds, o.alertmanagerURL)
 	// The rail's entry lists, re-fetched by their own poll so badges stay
 	// live on every page.
 	mux.HandleFunc("GET /ui/rail", func(w http.ResponseWriter, r *http.Request) {
-		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, attention(store, sup)))
+		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, src.items()))
 	})
 	// Specs has no page of its own: it opens on its first sub-tab.
 	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +332,7 @@ func renderFragment(w http.ResponseWriter, r *http.Request, name, tmpl string, d
 // fragmentFrame is the part of a frame a fragment reads: the attention items
 // and the scope its agent links keep.
 func fragmentFrame(r *http.Request, meta pageMeta, src frameSource) frame {
-	f := frame{Kind: meta.Kind, All: attention(src.store, src.img)}
+	f := frame{Kind: meta.Kind, All: src.items()}
 	if meta.Kind == scopeProject {
 		if f.Project, _ = projectFromRoute(r); f.Project == "" {
 			f.Kind = scopeNone
