@@ -95,7 +95,7 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 	}
 }
 
-func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
+func TestInboxComposerSendsOnCmdEnter(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
 	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
@@ -103,11 +103,19 @@ func TestInboxComposerSendsOnDoubleEnter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// Enter+Enter sends; Shift+Enter never arms it. The handler is delegated on
-	// document so it also covers the meCompose (New message) composer.
-	for _, want := range []string{"Enter twice to send", "document.addEventListener('keydown'", "e.shiftKey", "requestSubmit()"} {
+	// Cmd-Enter (Ctrl-Enter off the Mac) sends and inserts nothing; plain Enter
+	// is left alone, a newline. The handler is delegated on document so it also
+	// covers the meCompose (New message) composer; the Send button shows the
+	// combo.
+	for _, want := range []string{"⌘↵ to send", "document.addEventListener('keydown'", "(mac ? e.metaKey : e.ctrlKey)", "requestSubmit()",
+		`<button type="submit">Send <kbd>⌘↵</kbd></button>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing composer key wiring %q", want)
+		}
+	}
+	for _, gone := range []string{"Enter twice to send", "_enterArmed"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the double-Enter send is gone, but the page still has %q", gone)
 		}
 	}
 }
