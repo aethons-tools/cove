@@ -212,7 +212,7 @@ func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 // with `at-jam model-spec update` (or the admin UI).
 //
 // renovate: datasource=npm depName=@anthropic-ai/claude-code
-const DefaultClaudeVersion = "2.1.287"
+const DefaultClaudeVersion = "2.1.296"
 
 // LegacyDefaultVersion is the version constraint claude-default was seeded with
 // before the version split (COV-242); MigrateLegacy keeps it as a migrated
