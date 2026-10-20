@@ -57,7 +57,7 @@ var errPreviewAccessEnded = errors.New("preview access ended")
 // cookie, a Jam bearer and any client-sent X-Jam-User from the request, and
 // any Set-Cookie for a Jam cookie name from the response. Its pooled
 // connections are per (viewer, session, port) and registered in d.Live, so an
-// unshare, the revocation sweep or Live.CloseExposure closes them.
+// unshare, the revocation sweep or Live.CloseUnexposed closes them.
 func Preview(d Deps, auth *PreviewAuth, domain string) *PreviewHandler {
 	if d.PreviewURL == nil || d.Exposures == nil || auth == nil {
 		return &PreviewHandler{Handler: http.HandlerFunc(notExposed)}

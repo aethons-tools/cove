@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -195,27 +193,26 @@ func idTokenShaped(raw, clientID string) error {
 }
 
 // exposureFanout is the supervisor's exposure sink: it passes every change on
-// to next (the attach server's tunnel allow-lists) and closes the open preview
-// connections to any port the session no longer exposes. Like every
-// jam.ExposureSink it runs under the supervisor's notify mutex, so it only
-// diffs and signals (onChange must be as quick): CloseExposure collects under its lock and closes on its
-// own goroutine.
+// to next (the attach server's tunnel allow-lists) and has the registry close
+// the session's open preview connections to any port it no longer exposes.
+// It keeps no previous set: the registry judges its open connections against
+// the new set, so the first change after a Jam restart closes them too. Like
+// every jam.ExposureSink it runs under the supervisor's notify mutex, so it
+// only signals (onChange must be as quick): CloseUnexposed collects under its
+// lock and closes on its own goroutine.
 type exposureFanout struct {
 	next jam.ExposureSink
 	live interface {
-		CloseExposure(session string, port int) int
+		CloseUnexposed(session string, exposed []int32) int
 	}
 
 	onChange func() // called on every change, e.g. the proxy's label-cache invalidation; nil = none
-
-	mu   sync.Mutex
-	prev map[string][]int32 // each session's last-told ports
 }
 
 func newExposureFanout(next jam.ExposureSink, live interface {
-	CloseExposure(session string, port int) int
+	CloseUnexposed(session string, exposed []int32) int
 }, onChange func()) *exposureFanout {
-	return &exposureFanout{next: next, live: live, onChange: onChange, prev: map[string][]int32{}}
+	return &exposureFanout{next: next, live: live, onChange: onChange}
 }
 
 // ExposuresChanged implements jam.ExposureSink.
@@ -224,17 +221,5 @@ func (f *exposureFanout) ExposuresChanged(actorID string, ports []int32) {
 	if f.onChange != nil {
 		f.onChange() // a newly exposed session's first link must not 404 on a stale label cache
 	}
-	f.mu.Lock()
-	old := f.prev[actorID]
-	if len(ports) == 0 {
-		delete(f.prev, actorID)
-	} else {
-		f.prev[actorID] = slices.Clone(ports)
-	}
-	f.mu.Unlock()
-	for _, p := range old {
-		if !slices.Contains(ports, p) {
-			f.live.CloseExposure(actorID, int(p))
-		}
-	}
+	f.live.CloseUnexposed(actorID, ports)
 }

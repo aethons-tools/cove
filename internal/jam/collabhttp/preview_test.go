@@ -579,11 +579,14 @@ func expectEOFWithin(t *testing.T, conn net.Conn, br *bufio.Reader, d time.Durat
 func TestPreviewWebSocketClosedOnUnexpose(t *testing.T) {
 	ph := newPreviewHarness(t, wsApp(t))
 	conn, br := ph.openWS(t, ph.login(t, "alice"))
-	if n := ph.live.CloseExposure(previewSession, appPort+1); n != 0 {
-		t.Fatalf("another port closed %d", n)
+	if n := ph.live.CloseUnexposed(previewSession, []int32{appPort + 1, appPort}); n != 0 {
+		t.Fatalf("a still-exposed port closed %d", n)
 	}
-	if n := ph.live.CloseExposure(previewSession, appPort); n != 1 {
-		t.Fatalf("CloseExposure closed %d", n)
+	if n := ph.live.CloseUnexposed("ses_other", nil); n != 0 {
+		t.Fatalf("another session's change closed %d", n)
+	}
+	if n := ph.live.CloseUnexposed(previewSession, []int32{appPort + 1}); n != 1 {
+		t.Fatalf("CloseUnexposed closed %d", n)
 	}
 	expectEOFWithin(t, conn, br, time.Second)
 }
@@ -595,8 +598,8 @@ func TestPreviewOperatorClosedOnUnexpose(t *testing.T) {
 	code := ph.auth.bounce(t, "", "op-token", "https://"+appHost+"/", appHost)
 	w := ph.auth.trade(appHost, code, "/")
 	conn, br := ph.openWS(t, w.Result().Cookies()[0])
-	if n := ph.live.CloseExposure(previewSession, appPort); n != 1 {
-		t.Fatalf("CloseExposure closed %d", n)
+	if n := ph.live.CloseUnexposed(previewSession, nil); n != 1 {
+		t.Fatalf("CloseUnexposed closed %d", n)
 	}
 	expectEOFWithin(t, conn, br, time.Second)
 }

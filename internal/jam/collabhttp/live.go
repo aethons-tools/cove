@@ -101,19 +101,21 @@ func (l *Live) CloseUser(session string, user ident.ID) int {
 	return len(closing)
 }
 
-// CloseExposure closes every open preview connection (operators' included) to
-// port on session — the agent unexposed it or moved its name to another port —
-// and returns how many it closed. It only collects under the lock; the
-// closes run on their own goroutine, so a caller holding a lock (the
-// supervisor's exposure sink) never waits on a tunnel.
-func (l *Live) CloseExposure(session string, port int) int {
+// CloseUnexposed closes every open preview connection (operators' included)
+// on session to a port not in exposed — the agent unexposed it, moved its
+// name to another port, or the session went — and returns how many it
+// closed. It judges the connections themselves, not a remembered previous
+// set, so it is right on the first change after a Jam restart. It only
+// collects under the lock; the closes run on their own goroutine, so a caller
+// holding a lock (the supervisor's exposure sink) never waits on a tunnel.
+func (l *Live) CloseUnexposed(session string, exposed []int32) int {
 	if l == nil {
 		return 0
 	}
 	l.mu.Lock()
 	var closing []*liveEntry
 	for e := range l.conns {
-		if e.right == collab.Preview && e.Session == session && e.port == port {
+		if e.right == collab.Preview && e.Session == session && !slices.Contains(exposed, int32(e.port)) {
 			closing = append(closing, e)
 		}
 	}
