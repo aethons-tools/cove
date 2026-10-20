@@ -58,6 +58,10 @@ type Config struct {
 	// this Jam at — two Jams can't share it).
 	JamID string
 	Log   *slog.Logger // nil → discard
+	// SSHUserCA is Jam's SSH user-CA public key (one authorized_keys line),
+	// installed in every raised studio so its sshd accepts the short-lived
+	// certs Jam issues for human collaborators. Empty = SSH collaboration off.
+	SSHUserCA []byte
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
 	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
@@ -81,11 +85,12 @@ type Config struct {
 }
 
 type Launcher struct {
-	cfg      Config
-	inv      Inventory
-	mu       sync.Mutex             // guards inflight
-	inflight map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
-	asm      string                 // assembly fingerprint, part of every image tag
+	cfg       Config
+	inv       Inventory
+	mu        sync.Mutex             // guards inflight
+	inflight  map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
+	asm       string                 // assembly fingerprint, part of every image tag
+	sshCAWarn sync.Once              // warn once when the backend can't install the SSH CA
 }
 
 var (
@@ -174,6 +179,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if err := l.applyRoleEgress(name, spec); err != nil {
 			return err
 		}
+		l.installSSHUserCA(name, spec.ActorID)
 		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
 			Target: tgt, JamHost: l.cfg.JamHost, RuntimeAddr: l.cfg.RuntimeAddr,
 			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
@@ -279,6 +285,28 @@ func (l *Launcher) applyRoleEgress(name string, spec jam.RaiseSpec) error {
 		return nil
 	}
 	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
+}
+
+// installSSHUserCA installs Jam's SSH user-CA key in the raised studio, when
+// one is configured. Never fails the raise: without the CA the studio simply
+// has no human SSH (sshd's TrustedUserCAKeys file stays absent), so a backend
+// without the op warns once and a failed install warns for that studio.
+func (l *Launcher) installSSHUserCA(container, actorID string) {
+	if len(l.cfg.SSHUserCA) == 0 {
+		return
+	}
+	ca, ok := l.cfg.Ops.(backend.SSHCA)
+	if !ok {
+		l.sshCAWarn.Do(func() {
+			l.cfg.Log.Warn("launcher: backend cannot install the SSH user CA; SSH collaboration is unavailable in its studios")
+		})
+		return
+	}
+	if err := ca.InstallSSHUserCA(container, l.cfg.SSHUserCA); err != nil {
+		l.cfg.Log.Warn("SSH user CA install failed; SSH collaboration unavailable for this studio", "id", actorID, "error", err.Error())
+		return
+	}
+	l.cfg.Log.Info("SSH user CA installed", "id", actorID)
 }
 
 // ApplyEgress sets a running cove's egress to p (nil = the kit default), via the

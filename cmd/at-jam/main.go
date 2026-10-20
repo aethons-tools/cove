@@ -54,6 +54,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -1620,6 +1621,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateSSH(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1738,6 +1743,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
 
+	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
+	// trusts its public key; the private key stays in this process's memory.
+	// nil when the ssh block is unset (SSH collaboration off).
+	// TODO(studio-collab slice 1, task 6): the SSH cert-issuing endpoint signs
+	// with sshCA.Issue.
+	sshCA, err := resolveSSHCA(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	var sshUserCA []byte
+	if sshCA != nil {
+		sshUserCA = sshCA.PublicKey()
+		log.Info("Jam SSH user CA: loaded", "cred", cfg.SSH.CACred) // never the key
+	}
+
 	ttl, reconcile, err := cfg.runtimeDurations()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
@@ -1770,6 +1791,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// their claude authenticates as a pooled subscription principal.
 			Subscription: cfg.Pool != nil,
 			Log:          log,
+			SSHUserCA:    sshUserCA,
 		})
 		// Seed the built-in default studio kit (blessed base, Anthropic-free egress
 		// ceiling — COV-208) in the registry and hand its reference to the
@@ -2488,6 +2510,25 @@ func planCredentials(cfg serveConfig) (map[string]secret.Spec, error) {
 		specs[s.Name] = s
 	}
 	return specs, nil
+}
+
+// resolveSSHCA resolves the ssh block's CA credential (in memory only) and
+// parses it as Jam's SSH user CA. Absent ssh ⇒ nil, nil (SSH collaboration
+// off). Errors name the credential, never its value.
+func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, error) {
+	if cfg.SSH == nil {
+		return nil, nil
+	}
+	name := cfg.SSH.CACred
+	v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[name]})
+	if err != nil {
+		return nil, fmt.Errorf("ssh.ca-cred: %w", err)
+	}
+	ca, err := sshca.Parse([]byte(v[name]))
+	if err != nil {
+		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
+	}
+	return ca, nil
 }
 
 // validatePushedKit validates a studio-kit config before it is stored, so a

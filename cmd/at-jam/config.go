@@ -108,7 +108,12 @@ type serveConfig struct {
 	// Metrics, when set, serves the operator-attention exposition at /metrics
 	// on the broker listener, gated on a scrape token (a demanded credential).
 	// See docs/usage/jam/monitoring.md.
-	Metrics      *metricsConfig `yaml:"metrics"`
+	Metrics *metricsConfig `yaml:"metrics"`
+	// SSH, when set, enables studio SSH collaboration: Jam's SSH user CA (an
+	// ed25519 private key, a demanded credential) issues short-lived certs
+	// that every raised studio's sshd trusts. Absent ⇒ SSH collaboration off.
+	// See docs/usage/jam/serve.md.
+	SSH          *sshConfig `yaml:"ssh"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -310,6 +315,31 @@ func (c serveConfig) validateMetrics() error {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return fmt.Errorf("metrics.alertmanager-url %q must be an http(s) URL", m.AlertmanagerURL)
 		}
+	}
+	return nil
+}
+
+// sshConfig enables studio SSH collaboration. CACred names a demanded
+// credential whose value is Jam's ed25519 SSH CA private key.
+type sshConfig struct {
+	CACred string `yaml:"ca-cred"`
+}
+
+// validateSSH checks a set ssh block: ca-cred is required, demanded, and a
+// plain static credential (the rules validateMetrics applies to token-cred).
+func (c serveConfig) validateSSH() error {
+	s := c.SSH
+	if s == nil {
+		return nil
+	}
+	if s.CACred == "" {
+		return fmt.Errorf("ssh.ca-cred is required")
+	}
+	if _, ok := c.Credentials[s.CACred]; !ok {
+		return fmt.Errorf("ssh.ca-cred %q is not a demanded credential", s.CACred)
+	}
+	if slices.Contains(c.gcpCredentials(), s.CACred) || (c.Pool != nil && s.CACred == c.Pool.CredName) {
+		return fmt.Errorf("ssh.ca-cred %q must be a plain static credential, not a gcp-exchange or pool credential", s.CACred)
 	}
 	return nil
 }

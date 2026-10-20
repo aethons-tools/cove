@@ -827,6 +827,10 @@ Backends self-register into a registry keyed by name (at-cove defaults to `colim
   It also implements `backend.RoleEgress` — `ApplyRoleEgress` `docker exec`s the sealed
   `apply-role-egress.sh` the same way, for Jam's launcher to apply a role's egress
   at raise (see [the egress model](#egress-four-additive-allow-lists-and-a-ceiling)).
+  And `backend.SSHCA` — `InstallSSHUserCA` `docker exec`s the sealed
+  `install-ssh-ca.sh` (as root, key on stdin) to install Jam's SSH user-CA public
+  key as `/etc/ssh/jam_user_ca.pub`, which the hardening layer's sshd trusts via
+  `TrustedUserCAKeys` (absent ⇒ no cert logins; see [serve.md](usage/jam/serve.md)'s `ssh` key).
 - **Firecracker / Fly** — designed-for but not built.
   Each is "provision + reach `sshd`";
   `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.

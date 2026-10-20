@@ -1,10 +1,10 @@
 ---
 summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
-owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
+owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-08
+updated: 2026-10-20
 ---
 
 # Running Jam (`at-jam serve`)
@@ -104,6 +104,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `credentials.<name>` | as needed | The credentials the broker injects, **named only** (an empty entry); strategies live in the credentials file — see [credentials.md](credentials.md). Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. A demanded name the file doesn't supply aborts `serve`. |
 | `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `pool.store` (the path to the pool JSON file) and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `metrics` | no | Serves the operator-attention exposition at `/metrics` on the broker listener: `token-cred` (required) names a demanded credential holding the Prometheus scrape token; `alertmanager-url` (optional) is linked from the admin UI's Health tab. Unset ⇒ no `/metrics`. See [monitoring.md](monitoring.md). |
+| `ssh` | no | Enables studio SSH collaboration: Jam's SSH user CA issues short-lived (8h) certs for the studio's `agent` user, and every studio Jam raises trusts it. `ca-cred` (required) names a demanded, plain static credential whose value is the CA's **ed25519** private key (OpenSSH or PKCS#8 PEM, unencrypted), supplied by the [credentials file](credentials.md) — e.g. generate it with `ssh-keygen -t ed25519 -f jam-ssh-ca -N ''` and supply it as `{ command: ["cat", "/path/to/jam-ssh-ca"] }`. The key stays in Jam's memory and is never logged. Unset ⇒ SSH collaboration off. |
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |

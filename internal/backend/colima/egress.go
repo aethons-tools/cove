@@ -48,23 +48,24 @@ func (c *Colima) ApplySessionEgress(container string, domains []string) error {
 // per line (never argv). The helper enforces the kit's ceiling and fails —
 // changing nothing — on a domain outside it; that error surfaces here.
 func (c *Colima) ApplyRoleEgress(container string, domains []string) error {
-	return c.runRoleEgress(domainsStdin(domains), c.helperArgs(container, roleEgressHelper))
+	return c.runHelper(domainsStdin(domains), c.helperArgs(container, roleEgressHelper))
 }
 
 // ResetRoleEgress restores a running container's kit-default egress by execing
 // the sealed apply-role-egress.sh as root with --kit-default (its only argument)
 // and empty stdin. The helper copies the baked ceiling back into the active list.
 func (c *Colima) ResetRoleEgress(container string) error {
-	return c.runRoleEgress(strings.NewReader(""), append(c.helperArgs(container, roleEgressHelper), "--kit-default"))
+	return c.runHelper(strings.NewReader(""), append(c.helperArgs(container, roleEgressHelper), "--kit-default"))
 }
 
-// runRoleEgress runs one privileged apply-role-egress.sh exec.
-func (c *Colima) runRoleEgress(stdin io.Reader, args []string) error {
+// runHelper runs one privileged sealed-helper exec (apply-role-egress.sh,
+// install-ssh-ca.sh), capturing its output into any error.
+func (c *Colima) runHelper(stdin io.Reader, args []string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
 	// Capture the helper's output rather than inheriting Jam's own stdio: its
-	// rejection message names the offending domain, so it belongs in the error.
+	// rejection message names what it refused, so it belongs in the error.
 	var out bytes.Buffer
 	if err := c.r.RunIO(stdin, &out, &out, "docker", args...); err != nil {
 		if msg := strings.TrimSpace(out.String()); msg != "" {
@@ -85,9 +86,9 @@ func domainsStdin(domains []string) io.Reader {
 	return strings.NewReader(b.String())
 }
 
-// helperArgs is the privileged exec of a sealed domains helper: -i keeps stdin
-// open for the helper; -u root because the delivery op is privileged (the agent
-// user can't write the squid lists or reconfigure squid).
+// helperArgs is the privileged exec of a sealed helper: -i keeps stdin open for
+// the helper; -u root because the delivery op is privileged (the agent user
+// can't write the squid lists, reconfigure squid, or write /etc/ssh).
 func (c *Colima) helperArgs(container, helper string) []string {
 	return c.dargs("exec", "-i", "-u", "root", container, helper)
 }
