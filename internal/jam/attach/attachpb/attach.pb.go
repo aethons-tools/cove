@@ -393,6 +393,7 @@ type ControlDown struct {
 	//	*ControlDown_Rotate
 	//	*ControlDown_Ack
 	//	*ControlDown_Gate
+	//	*ControlDown_OpenTunnel
 	Msg           isControlDown_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -489,6 +490,15 @@ func (x *ControlDown) GetGate() *RunGate {
 	return nil
 }
 
+func (x *ControlDown) GetOpenTunnel() *OpenTunnel {
+	if x != nil {
+		if x, ok := x.Msg.(*ControlDown_OpenTunnel); ok {
+			return x.OpenTunnel
+		}
+	}
+	return nil
+}
+
 type isControlDown_Msg interface {
 	isControlDown_Msg()
 }
@@ -517,6 +527,10 @@ type ControlDown_Gate struct {
 	Gate *RunGate `protobuf:"bytes,6,opt,name=gate,proto3,oneof"`
 }
 
+type ControlDown_OpenTunnel struct {
+	OpenTunnel *OpenTunnel `protobuf:"bytes,7,opt,name=open_tunnel,json=openTunnel,proto3,oneof"`
+}
+
 func (*ControlDown_Wake) isControlDown_Msg() {}
 
 func (*ControlDown_Teardown) isControlDown_Msg() {}
@@ -528,6 +542,8 @@ func (*ControlDown_Rotate) isControlDown_Msg() {}
 func (*ControlDown_Ack) isControlDown_Msg() {}
 
 func (*ControlDown_Gate) isControlDown_Msg() {}
+
+func (*ControlDown_OpenTunnel) isControlDown_Msg() {}
 
 // EventAck is cumulative: every event of stream_id with seq <= this is durable.
 type EventAck struct {
@@ -979,6 +995,246 @@ func (x *GateResult) GetTruncated() bool {
 	return false
 }
 
+// OpenTunnel asks the studio to dial a Tunnel stream back, claiming id, and
+// splice it to 127.0.0.1:port inside the studio.
+type OpenTunnel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OpenTunnel) Reset() {
+	*x = OpenTunnel{}
+	mi := &file_attach_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OpenTunnel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OpenTunnel) ProtoMessage() {}
+
+func (x *OpenTunnel) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OpenTunnel.ProtoReflect.Descriptor instead.
+func (*OpenTunnel) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *OpenTunnel) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *OpenTunnel) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+type TunnelFrame struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*TunnelFrame_Open
+	//	*TunnelFrame_Data
+	//	*TunnelFrame_Close
+	Msg           isTunnelFrame_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelFrame) Reset() {
+	*x = TunnelFrame{}
+	mi := &file_attach_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelFrame) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelFrame) ProtoMessage() {}
+
+func (x *TunnelFrame) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelFrame.ProtoReflect.Descriptor instead.
+func (*TunnelFrame) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TunnelFrame) GetMsg() isTunnelFrame_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *TunnelFrame) GetOpen() *TunnelOpen {
+	if x != nil {
+		if x, ok := x.Msg.(*TunnelFrame_Open); ok {
+			return x.Open
+		}
+	}
+	return nil
+}
+
+func (x *TunnelFrame) GetData() []byte {
+	if x != nil {
+		if x, ok := x.Msg.(*TunnelFrame_Data); ok {
+			return x.Data
+		}
+	}
+	return nil
+}
+
+func (x *TunnelFrame) GetClose() *TunnelClose {
+	if x != nil {
+		if x, ok := x.Msg.(*TunnelFrame_Close); ok {
+			return x.Close
+		}
+	}
+	return nil
+}
+
+type isTunnelFrame_Msg interface {
+	isTunnelFrame_Msg()
+}
+
+type TunnelFrame_Open struct {
+	Open *TunnelOpen `protobuf:"bytes,1,opt,name=open,proto3,oneof"`
+}
+
+type TunnelFrame_Data struct {
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3,oneof"`
+}
+
+type TunnelFrame_Close struct {
+	Close *TunnelClose `protobuf:"bytes,3,opt,name=close,proto3,oneof"`
+}
+
+func (*TunnelFrame_Open) isTunnelFrame_Msg() {}
+
+func (*TunnelFrame_Data) isTunnelFrame_Msg() {}
+
+func (*TunnelFrame_Close) isTunnelFrame_Msg() {}
+
+type TunnelOpen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelOpen) Reset() {
+	*x = TunnelOpen{}
+	mi := &file_attach_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelOpen) ProtoMessage() {}
+
+func (x *TunnelOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelOpen.ProtoReflect.Descriptor instead.
+func (*TunnelOpen) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *TunnelOpen) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type TunnelClose struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TunnelClose) Reset() {
+	*x = TunnelClose{}
+	mi := &file_attach_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TunnelClose) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TunnelClose) ProtoMessage() {}
+
+func (x *TunnelClose) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TunnelClose.ProtoReflect.Descriptor instead.
+func (*TunnelClose) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *TunnelClose) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 var File_attach_proto protoreflect.FileDescriptor
 
 const file_attach_proto_rawDesc = "" +
@@ -1000,14 +1256,16 @@ const file_attach_proto_rawDesc = "" +
 	"\x10observed_unix_ms\x18\x04 \x01(\x03R\x0eobservedUnixMs\x12\x10\n" +
 	"\x03raw\x18\x05 \x01(\fR\x03raw\x12'\n" +
 	"\x0ftruncated_bytes\x18\x06 \x01(\x04R\x0etruncatedBytes\"\v\n" +
-	"\tHeartbeat\"\xcb\x02\n" +
+	"\tHeartbeat\"\x8c\x03\n" +
 	"\vControlDown\x12,\n" +
 	"\x04wake\x18\x01 \x01(\v2\x16.harbor.attach.v1.WakeH\x00R\x04wake\x128\n" +
 	"\bteardown\x18\x02 \x01(\v2\x1a.harbor.attach.v1.TeardownH\x00R\bteardown\x123\n" +
 	"\x04tier\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TierChangedH\x00R\x04tier\x127\n" +
 	"\x06rotate\x18\x04 \x01(\v2\x1d.harbor.attach.v1.RotateTokenH\x00R\x06rotate\x12.\n" +
 	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ack\x12/\n" +
-	"\x04gate\x18\x06 \x01(\v2\x19.harbor.attach.v1.RunGateH\x00R\x04gateB\x05\n" +
+	"\x04gate\x18\x06 \x01(\v2\x19.harbor.attach.v1.RunGateH\x00R\x04gate\x12?\n" +
+	"\vopen_tunnel\x18\a \x01(\v2\x1c.harbor.attach.v1.OpenTunnelH\x00R\n" +
+	"openTunnelB\x05\n" +
 	"\x03msg\"9\n" +
 	"\bEventAck\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
@@ -1037,16 +1295,31 @@ const file_attach_proto_rawDesc = "" +
 	"\x04exit\x18\x02 \x01(\x05R\x04exit\x12\x1b\n" +
 	"\ttimed_out\x18\x03 \x01(\bR\btimedOut\x12\x16\n" +
 	"\x06output\x18\x04 \x01(\fR\x06output\x12\x1c\n" +
-	"\ttruncated\x18\x05 \x01(\bR\ttruncated*b\n" +
+	"\ttruncated\x18\x05 \x01(\bR\ttruncated\"0\n" +
+	"\n" +
+	"OpenTunnel\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\x95\x01\n" +
+	"\vTunnelFrame\x122\n" +
+	"\x04open\x18\x01 \x01(\v2\x1c.harbor.attach.v1.TunnelOpenH\x00R\x04open\x12\x14\n" +
+	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x125\n" +
+	"\x05close\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TunnelCloseH\x00R\x05closeB\x05\n" +
+	"\x03msg\"\x1c\n" +
+	"\n" +
+	"TunnelOpen\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"%\n" +
+	"\vTunnelClose\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason*b\n" +
 	"\bActivity\x12\x18\n" +
 	"\x14ACTIVITY_UNSPECIFIED\x10\x00\x12\v\n" +
 	"\aRUNNING\x10\x01\x12\v\n" +
 	"\aWAITING\x10\x02\x12\v\n" +
 	"\aBLOCKED\x10\x03\x12\b\n" +
 	"\x04DONE\x10\x04\x12\v\n" +
-	"\aHOLDING\x10\x052R\n" +
+	"\aHOLDING\x10\x052\x9e\x01\n" +
 	"\aRuntime\x12G\n" +
-	"\x06Attach\x12\x1a.harbor.attach.v1.StatusUp\x1a\x1d.harbor.attach.v1.ControlDown(\x010\x01B<Z:github.com/aethons-tools/cove/internal/jam/attach/attachpbb\x06proto3"
+	"\x06Attach\x12\x1a.harbor.attach.v1.StatusUp\x1a\x1d.harbor.attach.v1.ControlDown(\x010\x01\x12J\n" +
+	"\x06Tunnel\x12\x1d.harbor.attach.v1.TunnelFrame\x1a\x1d.harbor.attach.v1.TunnelFrame(\x010\x01B<Z:github.com/aethons-tools/cove/internal/jam/attach/attachpbb\x06proto3"
 
 var (
 	file_attach_proto_rawDescOnce sync.Once
@@ -1061,7 +1334,7 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_attach_proto_goTypes = []any{
 	(Activity)(0),            // 0: harbor.attach.v1.Activity
 	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
@@ -1077,6 +1350,10 @@ var file_attach_proto_goTypes = []any{
 	(*RotateToken)(nil),      // 11: harbor.attach.v1.RotateToken
 	(*RunGate)(nil),          // 12: harbor.attach.v1.RunGate
 	(*GateResult)(nil),       // 13: harbor.attach.v1.GateResult
+	(*OpenTunnel)(nil),       // 14: harbor.attach.v1.OpenTunnel
+	(*TunnelFrame)(nil),      // 15: harbor.attach.v1.TunnelFrame
+	(*TunnelOpen)(nil),       // 16: harbor.attach.v1.TunnelOpen
+	(*TunnelClose)(nil),      // 17: harbor.attach.v1.TunnelClose
 }
 var file_attach_proto_depIdxs = []int32{
 	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
@@ -1090,14 +1367,19 @@ var file_attach_proto_depIdxs = []int32{
 	11, // 8: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
 	6,  // 9: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
 	12, // 10: harbor.attach.v1.ControlDown.gate:type_name -> harbor.attach.v1.RunGate
-	8,  // 11: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
-	1,  // 12: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	5,  // 13: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	13, // [13:14] is the sub-list for method output_type
-	12, // [12:13] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	14, // 11: harbor.attach.v1.ControlDown.open_tunnel:type_name -> harbor.attach.v1.OpenTunnel
+	8,  // 12: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
+	16, // 13: harbor.attach.v1.TunnelFrame.open:type_name -> harbor.attach.v1.TunnelOpen
+	17, // 14: harbor.attach.v1.TunnelFrame.close:type_name -> harbor.attach.v1.TunnelClose
+	1,  // 15: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	15, // 16: harbor.attach.v1.Runtime.Tunnel:input_type -> harbor.attach.v1.TunnelFrame
+	5,  // 17: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	15, // 18: harbor.attach.v1.Runtime.Tunnel:output_type -> harbor.attach.v1.TunnelFrame
+	17, // [17:19] is the sub-list for method output_type
+	15, // [15:17] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -1119,6 +1401,12 @@ func file_attach_proto_init() {
 		(*ControlDown_Rotate)(nil),
 		(*ControlDown_Ack)(nil),
 		(*ControlDown_Gate)(nil),
+		(*ControlDown_OpenTunnel)(nil),
+	}
+	file_attach_proto_msgTypes[14].OneofWrappers = []any{
+		(*TunnelFrame_Open)(nil),
+		(*TunnelFrame_Data)(nil),
+		(*TunnelFrame_Close)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1126,7 +1414,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

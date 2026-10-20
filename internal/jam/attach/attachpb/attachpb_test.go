@@ -49,3 +49,10 @@ func TestSessionEventRoundTrip(t *testing.T) {
 		t.Fatalf("ack round trip: %v %+v", err, outAck.GetAck())
 	}
 }
+
+func TestTunnelSurface(t *testing.T) {
+	_ = &ControlDown{Msg: &ControlDown_OpenTunnel{OpenTunnel: &OpenTunnel{Id: "x", Port: 2222}}}
+	_ = &TunnelFrame{Msg: &TunnelFrame_Open{Open: &TunnelOpen{Id: "x"}}}
+	_ = &TunnelFrame{Msg: &TunnelFrame_Data{Data: []byte("b")}}
+	_ = &TunnelFrame{Msg: &TunnelFrame_Close{Close: &TunnelClose{Reason: "r"}}}
+}

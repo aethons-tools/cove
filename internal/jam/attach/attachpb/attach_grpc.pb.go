@@ -13,7 +13,6 @@ package attachpb
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -26,6 +25,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	Runtime_Attach_FullMethodName = "/harbor.attach.v1.Runtime/Attach"
+	Runtime_Tunnel_FullMethodName = "/harbor.attach.v1.Runtime/Tunnel"
 )
 
 // RuntimeClient is the client API for Runtime service.
@@ -33,6 +33,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RuntimeClient interface {
 	Attach(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StatusUp, ControlDown], error)
+	// Tunnel is a studio's dial-back for one human connection (OpenTunnel): the
+	// first frame is open{id}, then raw bytes both ways until either side closes.
+	Tunnel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelFrame, TunnelFrame], error)
 }
 
 type runtimeClient struct {
@@ -56,11 +59,27 @@ func (c *runtimeClient) Attach(ctx context.Context, opts ...grpc.CallOption) (gr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Runtime_AttachClient = grpc.BidiStreamingClient[StatusUp, ControlDown]
 
+func (c *runtimeClient) Tunnel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelFrame, TunnelFrame], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Runtime_ServiceDesc.Streams[1], Runtime_Tunnel_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[TunnelFrame, TunnelFrame]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Runtime_TunnelClient = grpc.BidiStreamingClient[TunnelFrame, TunnelFrame]
+
 // RuntimeServer is the server API for Runtime service.
 // All implementations must embed UnimplementedRuntimeServer
 // for forward compatibility.
 type RuntimeServer interface {
 	Attach(grpc.BidiStreamingServer[StatusUp, ControlDown]) error
+	// Tunnel is a studio's dial-back for one human connection (OpenTunnel): the
+	// first frame is open{id}, then raw bytes both ways until either side closes.
+	Tunnel(grpc.BidiStreamingServer[TunnelFrame, TunnelFrame]) error
 	mustEmbedUnimplementedRuntimeServer()
 }
 
@@ -73,6 +92,9 @@ type UnimplementedRuntimeServer struct{}
 
 func (UnimplementedRuntimeServer) Attach(grpc.BidiStreamingServer[StatusUp, ControlDown]) error {
 	return status.Error(codes.Unimplemented, "method Attach not implemented")
+}
+func (UnimplementedRuntimeServer) Tunnel(grpc.BidiStreamingServer[TunnelFrame, TunnelFrame]) error {
+	return status.Error(codes.Unimplemented, "method Tunnel not implemented")
 }
 func (UnimplementedRuntimeServer) mustEmbedUnimplementedRuntimeServer() {}
 func (UnimplementedRuntimeServer) testEmbeddedByValue()                 {}
@@ -102,6 +124,13 @@ func _Runtime_Attach_Handler(srv interface{}, stream grpc.ServerStream) error {
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type Runtime_AttachServer = grpc.BidiStreamingServer[StatusUp, ControlDown]
 
+func _Runtime_Tunnel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeServer).Tunnel(&grpc.GenericServerStream[TunnelFrame, TunnelFrame]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Runtime_TunnelServer = grpc.BidiStreamingServer[TunnelFrame, TunnelFrame]
+
 // Runtime_ServiceDesc is the grpc.ServiceDesc for Runtime service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -113,6 +142,12 @@ var Runtime_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Attach",
 			Handler:       _Runtime_Attach_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "Tunnel",
+			Handler:       _Runtime_Tunnel_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
