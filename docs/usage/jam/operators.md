@@ -70,8 +70,8 @@ login-config endpoint returns 404 → "not OIDC-gated; no login required").
 `login --participant` runs the same device flow but signs you in as a
 **participant** (a Jam user, not an operator): it caches only the OIDC **ID
 token** (audience `device-client-id`, so `device-scope` must include `openid`),
-expiring at its own `exp`, under the separate profile
-`{app}-participant` — never touching the operator token. It is the bearer for
+expiring at its own `exp`, in its own file
+`~/.config/at-jam/{app}-participant-token.json` — never touching the operator token. It is the bearer for
 the participant collaboration routes (`/me/studios/…`), which Jam mounts only
 when `device-client-id` and [`ssh`](serve.md) are both set; your IdP login must
 be linked to a Jam user who is a project member. `logout --participant` clears

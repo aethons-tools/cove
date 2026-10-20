@@ -214,7 +214,7 @@ func saveParticipantLogin(app, adminURL string, tok deviceflow.Token, stdout, st
 		fmt.Fprintln(stderr, "at-jam login: the identity provider's ID token is unreadable or carries no expiry")
 		return 1
 	}
-	if err := saveToken(participantProfile(app), cachedToken{IDToken: tok.IDToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
+	if err := saveTokenAt(participantTokenPath(app), cachedToken{IDToken: tok.IDToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
 		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
@@ -233,11 +233,11 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam logout:", err)
 		return 2
 	}
-	profile := *app
+	path := tokenPath(*app)
 	if *participant {
-		profile = participantProfile(*app)
+		path = participantTokenPath(*app)
 	}
-	if err := clearToken(profile); err != nil {
+	if err := clearTokenAt(path); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
@@ -2374,20 +2374,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				},
 			}
 		}
-		// The participant plane's collaboration routes take a bearer ID token
-		// from `at-jam login --participant` (the device client is its
-		// audience) — not the /me cookie, and not a browser, so they sit
-		// outside meGate and RequireSameOrigin. Without device login or the
-		// SSH CA they are not mounted.
-		if lc := cfg.operatorLoginConfig(); lc != nil && sshCA != nil {
-			verify, err := collabhttp.IDTokenVerifier(context.Background(), lc.Issuer, lc.ClientID)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-jam: participant bearer:", err)
-				return 1
-			}
-			meMux.Handle("/me/studios/", collabhttp.Routes("/me", collabDeps(collabhttp.ParticipantBearer(verify, st))))
+		if mountParticipantStudios(meMux, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+			return collabhttp.Routes("/me", collabDeps(p))
+		}) {
 			meHandler = meMux
-			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/", "client-id", lc.ClientID)
+			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
@@ -2634,6 +2625,24 @@ func collabLabel(v, def string) string {
 
 // The tunnel broker is what the supervisor closes a studio's tunnels through.
 var _ jam.TunnelCloser = (*attach.TunnelBroker)(nil)
+
+// mountParticipantStudios mounts the participant plane's collaboration routes
+// at /me/studios/ on meMux and reports whether it did. They take a bearer ID
+// token from `at-jam login --participant` — not the /me cookie, and not a
+// browser — so they sit outside meGate and RequireSameOrigin. The token is
+// verified against the operator OIDC provider already discovered, with the
+// device client as audience, so no further network dependency is added.
+// Without device login (lc nil), an OIDC operator authenticator, or the SSH
+// CA, nothing is mounted: /me/studios/ stays a 404, never open.
+func mountParticipantStudios(meMux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
+	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
+	if lc == nil || !ok || ca == nil {
+		return false
+	}
+	verify := oidcAuth.IDTokenVerifier(lc.ClientID)
+	meMux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
+	return true
+}
 
 // operatorPrincipal names an operator-plane caller (behind the admin
 // authenticator): the operator, and the roster user its login links to when

@@ -210,7 +210,7 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, attach.ErrTooManyTunnels):
 			code, msg = http.StatusTooManyRequests, err.Error()
 		}
-		h.d.Log.Warn("ssh tunnel refused", "user", a.auditUser(), "session", a.inst.ActorID, "port", SSHPort, "err", err.Error())
+		h.d.Log.Warn("ssh tunnel refused", "user", a.auditUser(), "session", a.inst.ActorID, "right", "ssh", "port", SSHPort, "err", err.Error())
 		http.Error(w, msg, code)
 		return
 	}

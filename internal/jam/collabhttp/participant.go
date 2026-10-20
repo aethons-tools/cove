@@ -2,11 +2,8 @@ package collabhttp
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
@@ -45,22 +42,4 @@ func bearerToken(r *http.Request) (string, bool) {
 	}
 	tok = strings.TrimSpace(tok)
 	return tok, tok != ""
-}
-
-// IDTokenVerifier discovers issuer and returns a ParticipantBearer verify
-// func for its ID tokens: signature, issuer, expiry, and audience clientID —
-// the device-flow client at-jam login --participant signs in with.
-func IDTokenVerifier(ctx context.Context, issuer, clientID string) (func(ctx context.Context, raw string) (string, string, error), error) {
-	provider, err := oidc.NewProvider(ctx, issuer)
-	if err != nil {
-		return nil, fmt.Errorf("oidc discovery for %q: %w", issuer, err)
-	}
-	v := provider.Verifier(&oidc.Config{ClientID: clientID})
-	return func(ctx context.Context, raw string) (string, string, error) {
-		t, err := v.Verify(ctx, raw)
-		if err != nil {
-			return "", "", err
-		}
-		return t.Issuer, t.Subject, nil
-	}, nil
 }

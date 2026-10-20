@@ -163,8 +163,8 @@ func saveSettings(app string, s clientSettings) error {
 
 // cachedToken is one app's login-owned token, at ~/.config/at-jam/{app}-admin-token.json
 // (mode 0600). AdminURL records the Jam it was minted against, for display.
-// A participant login (participantProfile) holds only IDToken, and Expiry is
-// the ID token's exp.
+// A participant login lives in its own file (participantTokenPath) and holds
+// only IDToken, with Expiry the ID token's exp.
 type cachedToken struct {
 	AccessToken string    `json:"access_token,omitempty"`
 	IDToken     string    `json:"id_token,omitempty"`
@@ -175,7 +175,16 @@ type cachedToken struct {
 
 func tokenPath(app string) string { return filepath.Join(configDir(), app+"-admin-token.json") }
 
-func saveToken(app string, t cachedToken) error {
+// participantTokenPath is where `at-jam login --participant` caches app's
+// participant ID token: ~/.config/at-jam/{app}-participant-token.json. The
+// suffix differs from tokenPath's, so no app name maps one onto the other.
+func participantTokenPath(app string) string {
+	return filepath.Join(configDir(), app+"-participant-token.json")
+}
+
+func saveToken(app string, t cachedToken) error { return saveTokenAt(tokenPath(app), t) }
+
+func saveTokenAt(path string, t cachedToken) error {
 	if err := os.MkdirAll(configDir(), 0o700); err != nil {
 		return err
 	}
@@ -183,12 +192,14 @@ func saveToken(app string, t cachedToken) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(tokenPath(app), data, 0o600)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // loadToken returns the app's cached token if present and unexpired; ok=false otherwise.
-func loadToken(app string) (cachedToken, bool) {
-	data, err := os.ReadFile(tokenPath(app))
+func loadToken(app string) (cachedToken, bool) { return loadTokenAt(tokenPath(app)) }
+
+func loadTokenAt(path string) (cachedToken, bool) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return cachedToken{}, false
 	}
@@ -202,8 +213,10 @@ func loadToken(app string) (cachedToken, bool) {
 	return t, true
 }
 
-func clearToken(app string) error {
-	if err := os.Remove(tokenPath(app)); err != nil && !errors.Is(err, os.ErrNotExist) {
+func clearToken(app string) error { return clearTokenAt(tokenPath(app)) }
+
+func clearTokenAt(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -237,23 +250,19 @@ func resolveToken(app, flagVal string, warn io.Writer) string {
 	return ""
 }
 
-// participantProfile is the token profile `at-jam login --participant` caches
-// app's participant ID token under, kept apart from the operator token.
-func participantProfile(app string) string { return app + "-participant" }
-
 // resolveParticipantToken returns app's cached participant ID token — the
 // bearer for the /me/studios routes — or an error naming the login to run when
 // there is none or it has expired.
 func resolveParticipantToken(app string) (string, error) {
-	profile := participantProfile(app)
-	if t, ok := loadToken(profile); ok && t.IDToken != "" {
+	path := participantTokenPath(app)
+	if t, ok := loadTokenAt(path); ok && t.IDToken != "" {
 		return t.IDToken, nil
 	}
 	login := "at-jam login --participant"
 	if app != defaultApp {
 		login += " --app " + app
 	}
-	if _, err := os.Stat(tokenPath(profile)); err == nil {
+	if _, err := os.Stat(path); err == nil {
 		return "", fmt.Errorf("participant login expired; run: %s", login)
 	}
 	return "", fmt.Errorf("not signed in as a participant; run: %s", login)

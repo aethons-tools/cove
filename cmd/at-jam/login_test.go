@@ -232,7 +232,7 @@ func TestLoginParticipantCachesIDTokenSeparately(t *testing.T) {
 	if _, ok := loadToken("default"); ok {
 		t.Fatal("participant login cached an operator token")
 	}
-	got, ok := loadToken(participantProfile("default"))
+	got, ok := loadTokenAt(participantTokenPath("default"))
 	if !ok || got.IDToken == "" || got.AccessToken != "" || got.Sub != "auth0|alice" || got.Expiry.IsZero() || got.AdminURL != hb.URL {
 		t.Fatalf("participant token = %+v ok=%v", got, ok)
 	}
@@ -274,7 +274,7 @@ func TestLoginParticipantRefusals(t *testing.T) {
 			if !strings.Contains(errb.String(), tc.want) {
 				t.Fatalf("stderr = %q, want %q", errb.String(), tc.want)
 			}
-			if _, ok := loadToken(participantProfile("default")); ok {
+			if _, ok := loadTokenAt(participantTokenPath("default")); ok {
 				t.Fatal("a refused participant login cached a token")
 			}
 		})

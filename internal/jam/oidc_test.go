@@ -149,3 +149,33 @@ func TestVerifyTokenRawString(t *testing.T) {
 		t.Error("empty token should error")
 	}
 }
+
+// The participant ID-token verifier reuses the operator provider, bound to the
+// device client's audience: signature, issuer, audience and expiry all hold.
+func TestOIDCAuthenticatorIDTokenVerifier(t *testing.T) {
+	f := newFakeOIDC(t)
+	a, err := NewOIDCAuthenticator(context.Background(), f.url, testAud, "jam:admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verify := a.IDTokenVerifier("device-cid")
+	good := f.claims("device-cid", "alice-sub", "", time.Now().Add(time.Hour))
+	iss, sub, err := verify(context.Background(), f.mint(t, "RS256", f.kid, good, true))
+	if err != nil || iss != f.url || sub != "alice-sub" {
+		t.Fatalf("correct token: iss=%q sub=%q err=%v", iss, sub, err)
+	}
+	wrongIss := f.claims("device-cid", "alice-sub", "", time.Now().Add(time.Hour))
+	wrongIss["iss"] = "https://evil.example/"
+	for name, claims := range map[string]map[string]any{
+		"wrong audience (operator API)": f.claims(testAud, "alice-sub", "jam:admin", time.Now().Add(time.Hour)),
+		"wrong issuer":                  wrongIss,
+		"expired":                       f.claims("device-cid", "alice-sub", "", time.Now().Add(-time.Hour)),
+	} {
+		if _, _, err := verify(context.Background(), f.mint(t, "RS256", f.kid, claims, true)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, _, err := verify(context.Background(), f.mint(t, "none", f.kid, good, false)); err == nil {
+		t.Error("unsigned token accepted")
+	}
+}
