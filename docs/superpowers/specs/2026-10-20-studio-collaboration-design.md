@@ -65,11 +65,21 @@ another studio's pending id.
 
 ## 2. SSH and IDE access
 
-**Human entry point:** the **admin/UI listener** (TLS + OIDC when off-loopback);
-the cove-facing `:443` stays studio-only.
+**Human entry point:** the **admin/UI listener** (TLS + OIDC when off-loopback),
+in two planes; the cove-facing `:443` stays studio-only. *(Amended 2026-10-20,
+operator decision, option A.)*
 
-- `POST /studios/{id}/ssh/cert` — body: an ed25519 public key → a short-lived cert.
-- `GET /studios/{id}/ssh` — HTTP Upgrade to a raw byte stream, spliced to the
+- **Operators** — `/admin/studios/{id}/ssh*`, authenticated by the existing admin
+  bearer (the operator token).
+- **Participants** — `/me/studios/{id}/ssh*`, authenticated by
+  `Authorization: Bearer <OIDC ID token>` from `at-jam login --participant`,
+  verified with audience = the device client id and mapped to a Jam user
+  (`jam.ParticipantByIdentity`).
+
+On each plane:
+
+- `POST …/studios/{id}/ssh/cert` — body: an ed25519 public key → a short-lived cert.
+- `GET …/studios/{id}/ssh` — HTTP Upgrade to a raw byte stream, spliced to the
   studio's sshd over a §1 tunnel.
 
 **Jam SSH CA:** an ed25519 key supplied as a credential (`ssh: { ca-cred: <name> }`

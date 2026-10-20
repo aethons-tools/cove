@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,7 +373,7 @@ func TestReshareDroppingSSHCloses(t *testing.T) {
 // removed user — and leaves the rest (here alice, by role) open.
 func TestSweepRevokesLapsedAccess(t *testing.T) {
 	d, st, _, srv, tun := liveHarness(t)
-	var buf bytes.Buffer
+	var buf lockedBuffer // the Run goroutine logs while the test reads
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	carol, _ := st.LookupName(ident.User, "carol")
 	bob, err := st.CreateUser(jam.User{Name: "bob"})
@@ -434,4 +435,23 @@ func TestParseGrantFor(t *testing.T) {
 			t.Errorf("%q: no error", in)
 		}
 	}
+}
+
+// lockedBuffer is a bytes.Buffer safe to write from one goroutine while
+// another reads it.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

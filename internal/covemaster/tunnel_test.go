@@ -1,6 +1,7 @@
 package covemaster
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -52,7 +53,7 @@ func (f *tunnelRuntime) Tunnel(s attachpb.Runtime_TunnelServer) error {
 	return nil
 }
 
-func tunnelClient(t *testing.T, f *tunnelRuntime, dial func(context.Context, string) (net.Conn, error)) *Client {
+func tunnelClient(t *testing.T, f attachpb.RuntimeServer, dial func(context.Context, string) (net.Conn, error)) *Client {
 	t.Helper()
 	return New(Config{Addr: "bufnet", Token: "t", LaunchSecret: "s",
 		DialOptions: []grpc.DialOption{fakeHarness(t, f), grpc.WithTransportCredentials(insecure.NewCredentials())},
@@ -199,5 +200,56 @@ func TestDialBackEndsOnContextCancel(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// tailRuntime's Tunnel collects every data frame until Jam sees the close, so
+// a test can check nothing the local side wrote before closing was lost.
+type tailRuntime struct {
+	attachpb.UnimplementedRuntimeServer
+	got chan []byte
+}
+
+func (f *tailRuntime) Attach(s attachpb.Runtime_AttachServer) error {
+	_ = s.Send(&attachpb.ControlDown{Msg: &attachpb.ControlDown_OpenTunnel{OpenTunnel: &attachpb.OpenTunnel{Id: "t1", Port: 2222}}})
+	<-s.Context().Done()
+	return nil
+}
+
+func (f *tailRuntime) Tunnel(s attachpb.Runtime_TunnelServer) error {
+	if _, err := s.Recv(); err != nil {
+		return err
+	}
+	var all []byte
+	for {
+		fr, err := s.Recv()
+		if err != nil || fr.GetClose() != nil {
+			f.got <- all
+			return nil
+		}
+		all = append(all, fr.GetData()...)
+	}
+}
+
+// When the local side writes and closes at once (sshd's last bytes, then
+// EOF), every byte must still reach Jam before the tunnel ends.
+func TestDialBackDeliversTailBeforeLocalClose(t *testing.T) {
+	payload := bytes.Repeat([]byte("0123456789abcdef"), 1<<16) // 1 MiB
+	f := &tailRuntime{got: make(chan []byte, 1)}
+	c := tunnelClient(t, f, func(context.Context, string) (net.Conn, error) {
+		a, b := net.Pipe()
+		go func() { _, _ = b.Write(payload); _ = b.Close() }()
+		return a, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	runBlocked(ctx, c)
+	select {
+	case got := <-f.got:
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("Jam received %d of %d bytes", len(got), len(payload))
+		}
+	case <-ctx.Done():
+		t.Fatal("tunnel never ended")
 	}
 }

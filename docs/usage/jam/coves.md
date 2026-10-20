@@ -1,10 +1,10 @@
 ---
 summary: The managed-cove supervisor operator guide — Jam's runtime registry of raised studios (Phase/Activity, leases), the `at-jam studio raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `cove-master` client.
 read_when: You are raising or tearing down a managed studio through Jam, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or configuring/running the in-cove `cove-master` client.
-owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream, and the `cove-master` client that dials it
+owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-20
 ---
 
 # Managed studios (the supervisor)
@@ -165,6 +165,13 @@ cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 egress, no separate port required (see [serve.md](serve.md)).
 The stream also carries the agent's session events up and their acks down; see
 [session-events.md](session-events.md).
+
+For [studio collaboration](collaboration.md#how-it-works) Jam also pushes
+`OpenTunnel{id, port}` down the stream; cove-master answers by dialing a separate
+**`Tunnel`** RPC on the same `Runtime` service and connection (authenticated the
+same way), claiming the id, and piping it to `127.0.0.1:<port>` — only ports on
+its allow-list (`2222`, the studio's sshd). An older cove-master ignores the
+push, so Jam's open times out (504).
 
 ## cove-master (the in-cove client)
 

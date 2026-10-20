@@ -56,7 +56,7 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
   connections unless they still hold `ssh` another way. Below, the open SSH
   connections (who, since when). With SSH collaboration off (no
   [`ssh:`](serve.md) block) the card says so instead. Sharing itself is
-  `at-jam studio share` ([operators.md](operators.md#sharing-a-studio)).
+  `at-jam studio share` ([collaboration.md](collaboration.md#sharing)).
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
 - **Squawks** — the newest 50 squawks in its conversations (and, from before

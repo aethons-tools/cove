@@ -1,7 +1,7 @@
 ---
 summary: Operator sign-in and the admin client — gating the admin API with `operator-auth.oidc`, the `login`/`logout`/`whoami` device flow, the `--token`/env fallback, and `settings.yml` app profiles (`--app`).
-read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, SSHing into a studio with `at-jam ssh`, sharing a studio with `at-jam studio share|unshare|access`, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
-owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the `ssh-config`/`ssh-proxy`/`ssh` command rows, the `studio share`/`unshare`/`access` command rows and their sharing rules, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
+read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
+owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
 updated: 2026-10-20
@@ -67,57 +67,8 @@ user code to approve in a browser), and caches the resulting operator token at
 `login` against a Jam with no `operator-auth.oidc` exits cleanly (the
 login-config endpoint returns 404 → "not OIDC-gated; no login required").
 
-`login --participant` runs the same device flow but signs you in as a
-**participant** (a Jam user, not an operator): it caches only the OIDC **ID
-token** (audience `device-client-id`, so `device-scope` must include `openid`),
-expiring at its own `exp`, in its own file
-`~/.config/at-jam/{app}-participant-token.json` — never touching the operator token. It is the bearer for
-the participant collaboration routes (`/me/studios/…`), which Jam mounts only
-when `device-client-id` and [`ssh`](serve.md) are both set; your IdP login must
-be linked to a Jam user who is a project member. `logout --participant` clears
-it.
-
-## SSH into a studio (`ssh-config` / `ssh-proxy` / `ssh`)
-
-| Command | What it does |
-|---------|--------------|
-| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand at-jam ssh-proxy …`, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert; `--write` installs it at the top of `~/.ssh/config` (OpenSSH takes the first value, so it must precede any `Host *`) between `# >>> at-jam <studio>` markers, replacing an earlier one in place. |
-| `at-jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
-| `at-jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
-
-All three take `--app`, `--admin-url`, and `--participant` / `--operator` to pick
-the plane (`/me` with the participant login, `/admin` with the operator token);
-the default is the participant login when one is cached and unexpired, else the
-operator token, and `ssh-config` pins the choice in the ProxyCommand. The key
-(`id_ed25519`, 0600) is generated once; certs (`<studio>-cert.pub`, under `<app>/`
-for a non-default `--app`) last 8 h. OpenSSH reads the cert
-before it runs the ProxyCommand, so a renewal made by `ssh-proxy` applies from the
-next connection — `ssh` renews before connecting. Refusals print one line: 401 →
-sign in again, 403 → ask for a share, 409 not running, 503 not connected, 504
-dial-back timed out.
-
-## Sharing a studio
-
-| Command | What it does |
-|---------|--------------|
-| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes their open SSH connections, as unshare does). The grant is keyed to the session and removed when it ends. |
-| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
-| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live}`): operators, the personal session's requester, the role's policy for project members, each grant (rights, expiry, granted by), and the open SSH connections. |
-
-They pick the plane as the ssh commands do (`--participant` / `--operator`, same
-default). An operator may share anything. A participant must hold some right on
-the studio to use any of the three, may grant only rights they hold — and one
-they hold only by a grant, for no longer than that grant runs — never to
-themselves, and may remove (or share over) a grant whose rights they all hold,
-or their own. Each share and unshare is logged (`studio shared` / `studio
-unshared`: grantor, user, session, rights, expires).
-
-**Revocation.** Every minute Jam re-checks each open SSH connection (operators'
-excepted) against the rules above and closes those no longer allowed — the user
-was removed, the role's policy or the user's membership changed, the grant
-expired — logging `ssh tunnel revoked` (user, session, right, reason).
-The agent page's **Access** card shows the same, with an Unshare button
-([ui-pages.md](ui-pages.md#agent-pages)).
+`login --participant` signs a collaborator in as a participant instead, for
+studio SSH and sharing — see [collaboration.md](collaboration.md).
 
 ## How the admin token is resolved
 

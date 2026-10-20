@@ -4,7 +4,7 @@ read_when: You need what at-cove is, the kit format, the `at-cove` command surfa
 owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-20
 ---
 
 # at-cove — Project Overview
@@ -918,6 +918,8 @@ and the [Jam admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-d
 Jam was renamed this release (the historical specs keep its old name):
 [renamed-from-harbor.md](usage/jam/renamed-from-harbor.md) lists every old name — binary,
 config keys, environment variables — its new name, and which old names still work.
+People can SSH (or point an IDE) into a running studio through Jam alone — Jam-issued
+short-lived certs over a tunnel the studio dials back — see [collaboration.md](usage/jam/collaboration.md).
 A hardened cove can route its **own** Anthropic + git through a Jam broker (over TLS
 on :443, through squid) by setting a [`jam:` block](usage/at-cove-config.md#jam) in
 its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the

@@ -4,7 +4,7 @@ read_when: You are supplying the real secrets a Jam brokers or uses — writing 
 owns: the at-jam credentials-file format and location, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
 prereqs: serve.md for the serve config that demands credentials; ../at-cove-secrets.md for the shared Source/minters vocabulary
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-20
 ---
 
 # The Jam credentials file
@@ -67,6 +67,8 @@ credential:
 | a connection's credential (`at-jam connection add --cred` / `connection cred`), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
 | a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
+| `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.md](serve.md), [collaboration.md](collaboration.md)) |
+| `metrics.token-cred` | the `/metrics` scrape token ([monitoring.md](monitoring.md#metrics)) |
 
 A demand may carry one non-secret setting, **`exchange: gcp`**:
 `vertex-gcp: { exchange: gcp }`. The supplied value is then a Google credentials

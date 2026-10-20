@@ -5,6 +5,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -14,10 +15,15 @@ import (
 
 const defaultTunnelPort = 2222
 
+// tunnelDrainTimeout bounds how long a tunnel whose local side closed waits
+// for Jam to take the last frames and end the stream.
+const tunnelDrainTimeout = 5 * time.Second
+
 // dialBack serves one OpenTunnel: only allow-listed ports, only 127.0.0.1. It
 // opens a Tunnel stream to Jam (same conn and auth metadata as Attach), claims
 // the tunnel with open{id}, and pipes bytes until either side closes or ctx
-// ends. Closing the local conn is what unblocks the local→Jam read.
+// ends. Closing the local conn is what unblocks the local→Jam read; when the
+// local side closes first, the stream stays up until Jam has drained it.
 func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md metadata.MD, ot *attachpb.OpenTunnel) {
 	if !slices.Contains(c.cfg.TunnelPorts, ot.GetPort()) {
 		c.log.Warn("tunnel refused: port not allowed", "port", ot.GetPort())
@@ -49,7 +55,9 @@ func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md m
 	if err := stream.Send(&attachpb.TunnelFrame{Msg: &attachpb.TunnelFrame_Open{Open: &attachpb.TunnelOpen{Id: ot.GetId()}}}); err != nil {
 		return
 	}
-	go func() { // Jam → local
+	recvDone := make(chan struct{})
+	go func() { // Jam → local, until Jam ends the stream
+		defer close(recvDone)
 		defer cancel()
 		for {
 			fr, err := stream.Recv()
@@ -57,7 +65,10 @@ func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md m
 				return
 			}
 			if _, err := local.Write(fr.GetData()); err != nil {
-				return
+				// Local is gone: close it so the read loop below tells Jam,
+				// but keep receiving so the stream is not cancelled before
+				// Jam has the tail.
+				_ = local.Close()
 			}
 		}
 	}()
@@ -73,6 +84,15 @@ func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md m
 			if sctx.Err() == nil { // local side ended first: tell Jam
 				_ = stream.Send(&attachpb.TunnelFrame{Msg: &attachpb.TunnelFrame_Close{Close: &attachpb.TunnelClose{Reason: "local closed"}}})
 				_ = stream.CloseSend()
+				// Cancelling the stream now could discard frames still
+				// queued for Jam (sshd's last bytes, its exit status): wait,
+				// bounded, for Jam to end the stream first.
+				t := time.NewTimer(tunnelDrainTimeout)
+				defer t.Stop()
+				select {
+				case <-recvDone:
+				case <-t.C:
+				}
 			}
 			return
 		}
