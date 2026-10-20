@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"io"
 	"log/slog"
 	"net"
@@ -670,5 +671,17 @@ func TestProxyCommandNamesThisBinary(t *testing.T) {
 				t.Errorf("proxyCommand = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A 404 for "jam-<x>" hints that the ssh host alias was used as the studio id.
+func TestSSHNotFoundHintsAtHostAlias(t *testing.T) {
+	nf := &adminclient.StatusError{Code: http.StatusNotFound}
+	got := sshErrMessage(nf, sshTarget{app: defaultApp, studio: "jam-ses_a"})
+	if !strings.Contains(got, "did you mean studio ses_a?") {
+		t.Errorf("no alias hint: %q", got)
+	}
+	if got := sshErrMessage(nf, sshTarget{app: defaultApp, studio: "ses_a"}); strings.Contains(got, "did you mean") {
+		t.Errorf("hint for a plain id: %q", got)
 	}
 }

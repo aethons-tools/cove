@@ -66,7 +66,11 @@ func sshCertPath(app, studio string) string {
 	}
 	return filepath.Join(sshDir(), app, studio+"-cert.pub")
 }
-func sshHostAlias(studio string) string { return "jam-" + studio }
+
+// sshHostPrefix prefixes a studio id to make its ssh host alias.
+const sshHostPrefix = "jam-"
+
+func sshHostAlias(studio string) string { return sshHostPrefix + studio }
 
 // ensureSSHKey returns the local SSH public key, generating the private key
 // (ed25519, 0600) on first use. The key is written to a temp file and linked
@@ -257,7 +261,12 @@ func sshErrMessage(err error, t sshTarget) string {
 		}
 		return "you don't have SSH access to this studio (ask an operator: at-jam studio share …)"
 	case http.StatusNotFound:
-		return "no studio " + t.studio + " on this Jam (or SSH is not enabled on it)"
+		msg := "no studio " + t.studio + " on this Jam (or SSH is not enabled on it)"
+		if id, ok := strings.CutPrefix(t.studio, sshHostPrefix); ok && id != "" {
+			// The ssh host alias (jam-<studio>) was passed where the studio id belongs.
+			msg += "; did you mean studio " + id + "? (" + sshHostPrefix + id + " is its ssh host name)"
+		}
+		return msg
 	case http.StatusConflict:
 		return "studio " + t.studio + " is not running"
 	case http.StatusTooManyRequests:
