@@ -99,7 +99,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
-			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
+			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
@@ -1023,10 +1023,14 @@ func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 // Studio; ids, routes and the admin API still say "cove").
 func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown")
+		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown|share|unshare|access")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	switch sub {
+	case "share", "unshare", "access":
+		return cmdStudioShare(sub, rest, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("studio "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
@@ -2363,13 +2367,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)))))
+		// The open-SSH-connection registry both collaboration planes and the UI's
+		// Access card share, so an unshare anywhere closes the user's connections.
+		liveSSH := collabhttp.NewLive()
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
+		if sshCA != nil {
+			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveSSH))
+		}
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
 
 		// Studio collaboration (SSH certs + tunnels); each plane names its caller.
 		// The participant plane mounts the same routes under /me.
 		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
 			return collabhttp.Deps{
-				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal,
+				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveSSH,
 				Notify: func(inst jam.Instance, body string) {
 					if _, err := ic.Notify(inst, "", body); err != nil {
 						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())

@@ -1,6 +1,6 @@
 // Package adminclient is a typed HTTP client for Jam's loopback admin API.
-// Kept dependency-light so a future at-jamctl can reuse it; today it imports
-// internal/jam only for the wire types (Jam is stdlib-only).
+// Kept dependency-light so a future at-jamctl can reuse it; it imports
+// internal/jam and its packages (condition, collabhttp) only for the wire types.
 package adminclient
 
 import (
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
@@ -702,4 +703,32 @@ func (c *Client) IssueSSHCert(prefix, studio string, pub []byte) (cert []byte, e
 		return nil, time.Time{}, fmt.Errorf("admin API returned an unreadable certificate expiry: %w", err)
 	}
 	return []byte(out.Certificate), expires, nil
+}
+
+// ShareParams is a share grant request: user is a name, user:<name> or a
+// usr_ id; For is a Go duration or whole days ("7d"), "" for Jam's default.
+type ShareParams struct {
+	User   string   `json:"user"`
+	Rights []string `json:"rights"`
+	For    string   `json:"for,omitempty"`
+}
+
+// ShareStudio grants a user rights on studio, on the plane at prefix ("/admin"
+// or "/me").
+func (c *Client) ShareStudio(prefix, studio string, p ShareParams) (collabhttp.GrantView, error) {
+	var out collabhttp.GrantView
+	err := c.do("POST", prefix+"/studios/"+url.PathEscape(studio)+"/shares", p, &out)
+	return out, err
+}
+
+// UnshareStudio removes user's share grant on studio.
+func (c *Client) UnshareStudio(prefix, studio, user string) error {
+	return c.do("DELETE", prefix+"/studios/"+url.PathEscape(studio)+"/shares/"+url.PathEscape(user), nil, nil)
+}
+
+// StudioAccess reports who can reach studio and why, and who is connected.
+func (c *Client) StudioAccess(prefix, studio string) (collabhttp.AccessView, error) {
+	var out collabhttp.AccessView
+	err := c.do("GET", prefix+"/studios/"+url.PathEscape(studio)+"/access", nil, &out)
+	return out, err
 }

@@ -1,7 +1,7 @@
 ---
 summary: Operator sign-in and the admin client — gating the admin API with `operator-auth.oidc`, the `login`/`logout`/`whoami` device flow, the `--token`/env fallback, and `settings.yml` app profiles (`--app`).
-read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, SSHing into a studio with `at-jam ssh`, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
-owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the `ssh-config`/`ssh-proxy`/`ssh` command rows, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
+read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, SSHing into a studio with `at-jam ssh`, sharing a studio with `at-jam studio share|unshare|access`, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
+owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the `ssh-config`/`ssh-proxy`/`ssh` command rows, the `studio share`/`unshare`/`access` command rows and their sharing rules, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
 updated: 2026-10-20
@@ -95,6 +95,23 @@ before it runs the ProxyCommand, so a renewal made by `ssh-proxy` applies from t
 next connection — `ssh` renews before connecting. Refusals print one line: 401 →
 sign in again, 403 → ask for a share, 409 not running, 503 not connected, 504
 dial-back timed out.
+
+## Sharing a studio
+
+| Command | What it does |
+|---------|--------------|
+| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant. The grant is keyed to the session and removed when it ends. |
+| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
+| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live}`): operators, the personal session's requester, the role's policy for project members, each grant (rights, expiry, granted by), and the open SSH connections. |
+
+They pick the plane as the ssh commands do (`--participant` / `--operator`, same
+default). An operator may share anything. A participant must hold some right on
+the studio to use any of the three, may grant only rights they hold — and one
+they hold only by a grant, for no longer than that grant runs — and may remove a
+grant whose rights they all hold, or their own. Each share and unshare is logged
+(`studio shared` / `studio unshared`: grantor, user, session, rights, expires).
+The agent page's **Access** card shows the same, with an Unshare button
+([ui-pages.md](ui-pages.md#agent-pages)).
 
 ## How the admin token is resolved
 

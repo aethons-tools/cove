@@ -51,10 +51,15 @@ type Deps struct {
 	Now       func() time.Time
 	Log       *slog.Logger
 	Principal func(*http.Request) (collab.Principal, string, error)
+	// Live is the open-SSH-connection registry; share both planes' one so an
+	// unshare on either closes the user's connections. nil = a private one.
+	Live *Live
 }
 
-// Routes serves POST {prefix}/studios/{id}/ssh/cert and GET
-// {prefix}/studios/{id}/ssh. Mount it at {prefix}/studios/.
+// Routes serves POST {prefix}/studios/{id}/ssh/cert, GET
+// {prefix}/studios/{id}/ssh, and the sharing routes (share.go): POST
+// {prefix}/studios/{id}/shares, DELETE {prefix}/studios/{id}/shares/{user}
+// and GET {prefix}/studios/{id}/access. Mount it at {prefix}/studios/.
 func Routes(prefix string, d Deps) http.Handler {
 	if d.CA == nil {
 		return http.NotFoundHandler()
@@ -68,10 +73,16 @@ func Routes(prefix string, d Deps) http.Handler {
 	if d.Notify == nil {
 		d.Notify = func(jam.Instance, string) {}
 	}
+	if d.Live == nil {
+		d.Live = NewLive()
+	}
 	h := &handler{d: d}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+prefix+"/studios/{id}/ssh/cert", h.cert)
 	mux.HandleFunc("GET "+prefix+"/studios/{id}/ssh", h.ssh)
+	mux.HandleFunc("POST "+prefix+"/studios/{id}/shares", h.share)
+	mux.HandleFunc("DELETE "+prefix+"/studios/{id}/shares/{user}", h.unshare)
+	mux.HandleFunc("GET "+prefix+"/studios/{id}/access", h.access)
 	return mux
 }
 
@@ -96,31 +107,40 @@ func (a access) auditUser() string {
 // keyID is the cert's key-id, which sshd logs on every login.
 func (a access) keyID() string { return "user=" + a.auditUser() + " studio=" + a.inst.ActorID }
 
-// authorize resolves the caller and the studio and checks right r, writing
-// the refusal and returning false when it fails.
-func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab.Right) (access, bool) {
+// resolve names the caller and finds the studio, writing the refusal and
+// returning false when either fails.
+func (h *handler) resolve(w http.ResponseWriter, r *http.Request) (collab.Principal, string, jam.Instance, bool) {
 	p, name, err := h.d.Principal(r)
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrNoCredentials):
 		http.Error(w, "sign in required", http.StatusUnauthorized)
-		return access{}, false
+		return p, "", jam.Instance{}, false
 	case errors.Is(err, ErrInvalidToken):
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 		http.Error(w, "invalid or expired token; sign in: at-jam login --participant", http.StatusUnauthorized)
-		return access{}, false
+		return p, "", jam.Instance{}, false
 	case errors.Is(err, ErrUnbound):
 		http.Error(w, ErrUnbound.Error(), http.StatusForbidden)
-		return access{}, false
+		return p, "", jam.Instance{}, false
 	default:
 		h.d.Log.Error("collab: resolving caller failed", "err", err.Error())
 		http.Error(w, "could not resolve caller", http.StatusInternalServerError)
-		return access{}, false
+		return p, "", jam.Instance{}, false
 	}
-	id := r.PathValue("id")
-	inst, ok := h.d.Store.GetInstance(id)
+	inst, ok := h.d.Store.GetInstance(r.PathValue("id"))
 	if !ok {
 		http.Error(w, "no such studio", http.StatusNotFound)
+		return p, "", jam.Instance{}, false
+	}
+	return p, name, inst, true
+}
+
+// authorize resolves the caller and the studio and checks right r on a live
+// studio, writing the refusal and returning false when it fails.
+func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab.Right) (access, bool) {
+	p, name, inst, ok := h.resolve(w, r)
+	if !ok {
 		return access{}, false
 	}
 	reason, ok := collab.Decide(h.d.Store, h.d.Now(), p, inst, right)
@@ -228,18 +248,30 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 		_ = studio.Close()
 		return
 	}
-	h.d.Notify(a.inst, a.name+" connected over SSH")
+	var once sync.Once
+	closeBoth := func() { once.Do(func() { _ = conn.Close(); _ = studio.Close() }) }
 	start := h.d.Now()
+	remove := h.d.Live.add(&liveEntry{
+		LiveConn: LiveConn{Session: a.inst.ActorID, User: a.auditUser(), Name: a.name, Since: start},
+		userID:   a.p.UserID, operator: a.p.Operator != "", close: closeBoth,
+	})
+	defer remove()
+	// An unshare removes the grant before it closes registered connections,
+	// so re-checking once registered closes one that raced it.
+	if _, ok := collab.Decide(h.d.Store, h.d.Now(), a.p, a.inst, collab.SSH); !ok {
+		closeBoth()
+		return
+	}
+	h.d.Notify(a.inst, a.name+" connected over SSH")
 	h.d.Log.Info("ssh tunnel opened", "user", a.auditUser(), "name", a.name, "session", a.inst.ActorID, "right", "ssh", "reason", string(a.reason), "port", SSHPort)
-	splice(conn, brw.Reader, studio)
+	splice(brw.Reader, conn, studio, closeBoth)
 	h.d.Log.Info("ssh tunnel closed", "user", a.auditUser(), "session", a.inst.ActorID, "right", "ssh", "port", SSHPort, "duration", h.d.Now().Sub(start).Round(time.Second).String())
 }
 
-// splice copies both ways until either side ends, then closes both. human's
-// reads go through hr, which may hold bytes buffered past the request.
-func splice(human net.Conn, hr io.Reader, studio net.Conn) {
-	var once sync.Once
-	closeBoth := func() { once.Do(func() { _ = human.Close(); _ = studio.Close() }) }
+// splice copies both ways until either side ends, then closes both (as
+// closeBoth, which an unshare may also call). human's reads go through hr,
+// which may hold bytes buffered past the request.
+func splice(hr io.Reader, human, studio net.Conn, closeBoth func()) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() { defer wg.Done(); _, _ = io.Copy(studio, hr); closeBoth() }()

@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/ui/agents/<id>: identity, grants, studio, session, squawks), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
-read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
+summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/ui/agents/<id>: identity, grants, studio, access, session, squawks), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-08
+updated: 2026-10-20
 ---
 
 # Admin UI entity pages
@@ -48,6 +48,15 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 - **Egress** — the fingerprint of the role egress policy it runs under, and
   consecutive re-apply failures, flagged (the supervisor tears the studio down
   at its limit — see [roster.md](roster.md)).
+- **Access** — who can reach the running studio and why: operators always;
+  a personal session's requester; project members as the role's collaboration
+  policy says (`preview`/`ssh`: `members` or `none`); and each share grant
+  (user, rights, expiry, granted by) with an **Unshare** button — a
+  CSRF-guarded write that removes the grant and closes that user's open SSH
+  connections unless they still hold `ssh` another way. Below, the open SSH
+  connections (who, since when). With SSH collaboration off (no
+  [`ssh:`](serve.md) block) the card says so instead. Sharing itself is
+  `at-jam studio share` ([operators.md](operators.md#sharing-a-studio)).
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
 - **Squawks** — the newest 50 squawks in its conversations (and, from before
