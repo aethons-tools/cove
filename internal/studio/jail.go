@@ -8,11 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
-// maxRootFile caps one file read out of a root (a kit.yml or a note file).
-// Generous: the encoded context cap is the largest thing a kit.yml can carry.
+// maxRootFile caps one file read out of a root (a kit.yml). Generous: the
+// encoded context cap is the largest thing a kit.yml can carry.
 const maxRootFile = 4 << 20
+
+// maxNoteFileBytes caps the note files ResolveInRoot reads for one kit, in
+// total.
+const maxNoteFileBytes = 1 << 20
 
 // ResolveInRoot is ResolveContextDir plus ResolveNoteFiles for a kit that
 // lives in an UNTRUSTED tree (a git checkout): dir is the kit's directory,
@@ -28,6 +33,11 @@ func (sk *StudioKit) ResolveInRoot(root, dir string) error {
 	if err != nil {
 		return errors.New("kit root cannot be resolved")
 	}
+	fsRoot, err := os.OpenRoot(realRoot)
+	if err != nil {
+		return errors.New("kit root cannot be opened")
+	}
+	defer fsRoot.Close()
 	realDir, err := resolveInRoot(realRoot, realRoot, dir, "kit dir")
 	if err != nil {
 		return err
@@ -45,6 +55,7 @@ func (sk *StudioKit) ResolveInRoot(root, dir string) error {
 		}
 	}
 	bodies := make([]string, len(sk.Notes))
+	budget := int64(maxNoteFileBytes)
 	for i, n := range sk.Notes {
 		if n.File == "" {
 			continue
@@ -61,10 +72,14 @@ func (sk *StudioKit) ResolveInRoot(root, dir string) error {
 		if err != nil {
 			return err
 		}
-		raw, err := readRegular(real, field, n.File)
+		raw, err := readRegular(fsRoot, realRoot, real, field, n.File, budget)
 		if err != nil {
+			if errors.Is(err, errTooLarge) {
+				return fmt.Errorf("notes: note files exceed the %d-byte total cap (at note %q)", maxNoteFileBytes, n.Name)
+			}
 			return err
 		}
+		budget -= int64(len(raw))
 		bodies[i] = string(raw)
 	}
 
@@ -87,11 +102,20 @@ func ReadFileInRoot(root, rel string) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("root cannot be resolved")
 	}
+	fsRoot, err := os.OpenRoot(realRoot)
+	if err != nil {
+		return nil, errors.New("root cannot be opened")
+	}
+	defer fsRoot.Close()
 	real, err := resolveInRoot(realRoot, realRoot, rel, "file")
 	if err != nil {
 		return nil, err
 	}
-	return readRegular(real, "file", rel)
+	raw, err := readRegular(fsRoot, realRoot, real, "file", rel, maxRootFile)
+	if errors.Is(err, errTooLarge) {
+		return nil, fmt.Errorf("file %q: larger than %d bytes", rel, maxRootFile)
+	}
+	return raw, err
 }
 
 // packInRoot packs the context-dir cd (relative to realDir) once it resolves
@@ -105,11 +129,14 @@ func packInRoot(realRoot, realDir, cd string) (string, error) {
 	if fi, err := os.Lstat(real); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("%s %q: not a directory", field, cd)
 	}
-	// PackContextDir opens .dockerignore (following a symlink) before its walk
-	// refuses symlinks; refuse a non-regular one here so nothing outside root
-	// is read.
-	if fi, err := os.Lstat(filepath.Join(real, ".dockerignore")); err == nil && !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("%s %q: .dockerignore is not a regular file", field, cd)
+	// PackContextDir stats the root Dockerfile and opens .dockerignore, both
+	// following symlinks, before its walk refuses symlinks: refuse non-regular
+	// ones here, so nothing outside root is read and no error depends on what
+	// exists outside it.
+	for _, name := range []string{"Dockerfile", ".dockerignore"} {
+		if fi, err := os.Lstat(filepath.Join(real, name)); err == nil && !fi.Mode().IsRegular() {
+			return "", fmt.Errorf("%s %q: %s is not a regular file", field, cd, name)
+		}
 	}
 	b64, err := PackContextDir(real)
 	if err != nil {
@@ -144,30 +171,35 @@ func within(root, p string) bool {
 	return err == nil && (r == "." || filepath.IsLocal(r))
 }
 
-// readRegular reads real (already resolved and contained), refusing anything
-// but a regular file and checking the opened file is the one inspected, so a
-// swap between check and open is caught.
-func readRegular(real, field, rel string) ([]byte, error) {
-	fi, err := os.Lstat(real)
-	if err != nil || !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s %q: not a regular file", field, rel)
+// errTooLarge reports a file over readRegular's cap.
+var errTooLarge = errors.New("file too large")
+
+// readRegular reads real (already resolved and contained) through fsRoot, so
+// a symlink swapped in after the check still cannot leave root. It opens
+// non-blocking (a FIFO swapped in cannot hang it) and refuses anything but a
+// regular file, judged on the opened file. Over max bytes it returns
+// errTooLarge.
+func readRegular(fsRoot *os.Root, realRoot, real, field, rel string, max int64) ([]byte, error) {
+	inRoot, err := filepath.Rel(realRoot, real)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: cannot be read", field, rel)
 	}
-	f, err := os.Open(real)
+	f, err := fsRoot.OpenFile(inRoot, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s %q: cannot be read", field, rel)
 	}
 	defer f.Close()
-	ofi, err := f.Stat()
-	if err != nil || !os.SameFile(fi, ofi) {
-		return nil, fmt.Errorf("%s %q: changed while being read", field, rel)
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s %q: not a regular file", field, rel)
 	}
 	var buf bytes.Buffer
-	n, err := io.Copy(&buf, io.LimitReader(f, maxRootFile+1))
+	n, err := io.Copy(&buf, io.LimitReader(f, max+1))
 	if err != nil {
 		return nil, fmt.Errorf("%s %q: cannot be read", field, rel)
 	}
-	if n > maxRootFile {
-		return nil, fmt.Errorf("%s %q: larger than %d bytes", field, rel, maxRootFile)
+	if n > max {
+		return nil, errTooLarge
 	}
 	return buf.Bytes(), nil
 }

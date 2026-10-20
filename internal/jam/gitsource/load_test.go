@@ -23,6 +23,18 @@ func writeKit(t *testing.T, root, dir, body string) {
 	writeFile(t, root, filepath.Join(dir, "kit.yml"), "kind: studio\n"+body)
 }
 
+const inside = ": does not resolve to a path inside the checkout"
+
+// escapeRefusals is the exact refusal for each TestLoadRefusesEscapes case.
+var escapeRefusals = map[string]string{
+	"context-dir up":       `base.context-dir "../../OUTSIDE/ctx"` + inside,
+	"context-dir absolute": "base.context-dir: must be a relative path",
+	"context-dir symlink":  `base.context-dir "img"` + inside,
+	"note file symlink":    `note "n.md" file "n.md"` + inside,
+	"kit.yml symlink":      `file "web/kit.yml"` + inside,
+	"dir symlink":          `file "web/kit.yml"` + inside,
+}
+
 func TestLoadRefusesEscapes(t *testing.T) {
 	outside := t.TempDir()
 	os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("top secret"), 0o600)
@@ -56,6 +68,9 @@ func TestLoadRefusesEscapes(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "top secret") || strings.Contains(err.Error(), outside) {
 				t.Fatalf("error leaks outside content/path: %v", err)
+			}
+			if want := strings.ReplaceAll(escapeRefusals[name], "OUTSIDE", filepath.Base(outside)); err.Error() != want {
+				t.Fatalf("refusal = %q, want %q", err, want)
 			}
 		})
 	}
