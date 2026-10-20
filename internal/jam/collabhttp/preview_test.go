@@ -239,7 +239,7 @@ func TestPreviewStripsJamCredentials(t *testing.T) {
 	ph := newPreviewHarness(t, app)
 	sess := ph.login(t, "alice")
 	req := httptest.NewRequest("GET", "https://"+appHost+"/x", nil)
-	req.Header.Set("Cookie", "theme=dark; "+PreviewCookie+"="+sess.Value+"; jam_preview=stale; other=1")
+	req.Header.Set("Cookie", "theme=dark; "+PreviewCookie+"="+sess.Value+"; jam_preview=stale; __Host-jam_preview_login=nonce; other=1")
 	req.Header.Set("X-Jam-User", "forged")
 	req.Header.Set("Forwarded", "for=6.6.6.6;host=evil.example;proto=http")
 	req.Header.Set("X-Real-IP", "6.6.6.6")
@@ -293,6 +293,7 @@ func TestPreviewStripsJamSetCookies(t *testing.T) {
 			"__Host-jam_preview=fixed; Path=/; Secure",
 			"__host-JAM_PREVIEW=fixed; Path=/; Secure",
 			"jam_preview=fixed",
+			"__Host-jam_preview_login=fixed; Path=/; Secure",
 			"__Host-jam_oauth_state=x; Path=/; Secure",
 			"jam_oauth=x",
 			"app_session=keep; Path=/",
@@ -355,7 +356,7 @@ func TestPreviewNotExposedIs404(t *testing.T) {
 func TestPreviewLoginHostAndReservedPaths(t *testing.T) {
 	ph := newPreviewHarness(t, helloApp(t, nil))
 	rt := "https://" + appHost + "/x"
-	req := httptest.NewRequest("GET", "https://"+loginHost+"/__jam/start?return_to="+url.QueryEscape(rt), nil)
+	req := httptest.NewRequest("GET", "https://"+loginHost+"/__jam/start?return_to="+url.QueryEscape(rt)+"&bind="+strings.Repeat("0a", 32), nil)
 	rec := httptest.NewRecorder()
 	ph.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusFound || !strings.HasPrefix(rec.Header().Get("Location"), "/__jam/auth/login?") {

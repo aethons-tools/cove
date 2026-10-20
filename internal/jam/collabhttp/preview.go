@@ -527,11 +527,12 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 }
 
 // isJamCookie reports whether a cookie name is one of Jam's (the preview
-// session, or the login flow's), case-folded as browsers fold the __Host-
+// session, the preview login binding, or the login flow's), case-folded as browsers fold the __Host-
 // prefix.
 func isJamCookie(name string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
 	return n == strings.ToLower(PreviewCookie) || n == "jam_preview" ||
+		n == strings.ToLower(PreviewLoginCookie) || n == "jam_preview_login" ||
 		strings.HasPrefix(n, "__host-jam_oauth") || strings.HasPrefix(n, "jam_oauth")
 }
 

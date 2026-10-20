@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net"
@@ -26,6 +28,12 @@ const (
 	// browsers refuse it with a Domain attribute, so a sibling preview app
 	// cannot toss one.
 	PreviewCookie = "__Host-jam_preview"
+	// PreviewLoginCookie binds a login to the browser that started it: set on
+	// the preview host by LoginRedirect, its SHA-256 rides the login into the
+	// code, and the trade (/__jam/session) requires it, then clears it.
+	PreviewLoginCookie = "__Host-jam_preview_login"
+	// PreviewLoginTTL is how long a started login may take.
+	PreviewLoginTTL = 10 * time.Minute
 	// PreviewSessionTTL is how long a preview login lasts.
 	PreviewSessionTTL = 8 * time.Hour
 	// PreviewCodeTTL is how long a login code may wait to be traded.
@@ -42,7 +50,7 @@ type PreviewAuthOptions struct {
 	// exactly this one.
 	Port string
 	// Login serves the login host's /__jam/auth/* routes: the browserauth
-	// Service main builds over browserauth.PreviewMount(pa.Complete, pa.ValidReturn).
+	// Service main builds over browserauth.PreviewMount(pa.Complete, pa.ValidLoginReturn).
 	Login http.Handler
 	// Operator verifies a login's access token as an operator token.
 	Operator func(ctx context.Context, accessToken string) (operatorID string, ok bool)
@@ -70,6 +78,7 @@ type previewEntry struct {
 	name      string
 	host      string
 	expires   time.Time
+	bind      [sha256.Size]byte // a code's: SHA-256 of the starting browser's login cookie
 }
 
 // PreviewAuth logs browsers in to studio previews (docs/usage/jam/previews.md).
@@ -285,9 +294,28 @@ func (a *PreviewAuth) ValidReturn(u string) bool {
 	return ok && host == p.Hostname()
 }
 
+// ValidLoginReturn reports whether v is a login's bound return value,
+// "<bind>|<return_to>": bind the hex SHA-256 of the starting browser's login
+// cookie (validBind) and return_to as ValidReturn. It is the preview login
+// mount's ReturnTo; Complete splits it.
+func (a *PreviewAuth) ValidLoginReturn(v string) bool {
+	bind, rt, ok := strings.Cut(v, "|")
+	return ok && validBind(bind) && a.ValidReturn(rt)
+}
+
+// validBind reports whether b is a SHA-256 in lowercase hex.
+func validBind(b string) bool {
+	if len(b) != 2*sha256.Size {
+		return false
+	}
+	_, err := hex.DecodeString(b)
+	return err == nil && strings.ToLower(b) == b
+}
+
 // LoginHostHandler serves the login host jam.<domain>: the browserauth login
-// routes under /__jam/auth/, and GET /__jam/start?return_to=<preview URL>,
-// which vets return_to and starts a login for it. Any other path — and any
+// routes under /__jam/auth/, and GET /__jam/start?return_to=<preview URL>
+// &bind=<hex SHA-256 of the login cookie>, which vets both and starts a login
+// carrying them ("<bind>|<return_to>", ValidLoginReturn). Any other path — and any
 // request on another host — is 404, so a login never starts elsewhere.
 func (a *PreviewAuth) LoginHostHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -300,7 +328,12 @@ func (a *PreviewAuth) LoginHostHandler() http.Handler {
 			http.Error(w, "invalid return_to: want an https preview URL", http.StatusBadRequest)
 			return
 		}
-		http.Redirect(w, r, "/__jam/auth/login?return_to="+url.QueryEscape(rt), http.StatusFound)
+		bind := r.URL.Query().Get("bind")
+		if !validBind(bind) {
+			http.Error(w, "invalid login link: open the preview to log in", http.StatusBadRequest)
+			return
+		}
+		http.Redirect(w, r, "/__jam/auth/login?return_to="+url.QueryEscape(bind+"|"+rt), http.StatusFound)
 	})
 	mux.Handle("/", http.NotFoundHandler())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -315,18 +348,23 @@ func (a *PreviewAuth) LoginHostHandler() http.Handler {
 // Complete is the preview login mount's hook (browserauth.Mount.Complete): it
 // names the login — an operator when Operator accepts the access token, else
 // the user Participant binds the ID token to; neither is 403 — mints a
-// single-use code bound to returnTo's host, and bounces the browser there:
+// single-use code bound to returnTo's host and to the starting browser
+// (returnTo is "<bind>|<preview URL>", ValidLoginReturn), and bounces the
+// browser there:
 // https://<host>/__jam/session?code=…&return_to=<path?query>.
 func (a *PreviewAuth) Complete(w http.ResponseWriter, r *http.Request, idToken, accessToken, returnTo string) {
 	if !a.isLoginHost(r.Host) {
 		http.NotFound(w, r)
 		return
 	}
-	if !a.ValidReturn(returnTo) {
+	if !a.ValidLoginReturn(returnTo) {
 		http.Error(w, "invalid return_to: want an https preview URL", http.StatusBadRequest)
 		return
 	}
-	rt, _ := url.Parse(returnTo) // ValidReturn parsed it
+	bindHex, returnTo, _ := strings.Cut(returnTo, "|")
+	var bind [sha256.Size]byte
+	_, _ = hex.Decode(bind[:], []byte(bindHex)) // ValidLoginReturn checked it
+	rt, _ := url.Parse(returnTo)                // ValidReturn parsed it
 	host, _ := a.canonicalHost(rt.Host)
 	var e previewEntry
 	if op, ok := a.verifyOperator(r.Context(), accessToken); ok {
@@ -342,7 +380,7 @@ func (a *PreviewAuth) Complete(w http.ResponseWriter, r *http.Request, idToken, 
 		http.Error(w, "login failed", http.StatusInternalServerError)
 		return
 	}
-	e.host, e.expires = host, a.o.Now().Add(PreviewCodeTTL)
+	e.host, e.expires, e.bind = host, a.o.Now().Add(PreviewCodeTTL), bind
 	a.mu.Lock()
 	a.codes[key] = e
 	a.mu.Unlock()
@@ -369,8 +407,10 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 // PreviewHostRoutes serves Jam's reserved /__jam/ paths on a preview host and
 // passes everything else to next:
 //   - GET /__jam/session?code=…&return_to=/path trades a login code minted for
-//     this host (single use, 60 s) for a host-only __Host-jam_preview cookie
-//     and redirects to return_to, which must be a path (not "//…" or "/\…");
+//     this host (single use, 60 s) and started in this browser (its
+//     __Host-jam_preview_login cookie, then cleared) for a host-only
+//     __Host-jam_preview cookie and redirects to return_to, which must be a
+//     path (not "//…" or "/\…");
 //   - GET /__jam/logout drops the session and clears the cookie;
 //   - any other /__jam path is 404.
 func (a *PreviewAuth) PreviewHostRoutes(next http.Handler) http.Handler {
@@ -418,14 +458,21 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 		delete(a.codes, key)
 		found = false
 	}
-	// A code is consumed only on its own host: presenting it elsewhere gains
-	// nothing and must not let a third party burn it.
-	if found && e.host == host {
+	// A code is consumed only on its own host, in the browser that started
+	// its login: presenting it elsewhere gains nothing and must not let a
+	// third party burn it.
+	started := found && startedHere(r, e.bind)
+	if found && e.host == host && started {
 		delete(a.codes, key)
 	}
 	a.mu.Unlock()
 	if !found || e.host != host {
 		http.Error(w, "login link expired or not for this host; reload the page to log in again", http.StatusBadRequest)
+		return
+	}
+	if !started {
+		// Login CSRF: someone else's code, traded to sign this browser in as them.
+		http.Error(w, "login link was not started in this browser; reload the page to log in again", http.StatusBadRequest)
 		return
 	}
 	sid, skey, err := newSecret()
@@ -443,8 +490,24 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 		MaxAge: int(PreviewSessionTTL / time.Second),
 	})
+	http.SetCookie(w, &http.Cookie{
+		Name: PreviewLoginCookie, Value: "", Path: "/",
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: -1,
+	})
 	w.Header().Set("Location", rt)
 	w.WriteHeader(http.StatusFound)
+}
+
+// startedHere reports whether r carries a login cookie whose SHA-256 is bind.
+func startedHere(r *http.Request, bind [sha256.Size]byte) bool {
+	ok := false
+	for _, c := range r.Cookies() {
+		if c.Name == PreviewLoginCookie && c.Value != "" {
+			sum := sha256.Sum256([]byte(c.Value))
+			ok = ok || subtle.ConstantTimeCompare(sum[:], bind[:]) == 1
+		}
+	}
+	return ok
 }
 
 func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
@@ -470,8 +533,10 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // LoginRedirect answers a request on a preview host that has no credentials:
-// a browser (Accept includes text/html) is sent to log in on the login host
-// and return to this URL; anything else gets 401 with a Bearer challenge.
+// a browser (Accept includes text/html) gets a __Host-jam_preview_login
+// cookie (kept when it already has one, so tabs share it) and is sent to log
+// in on the login host, carrying the cookie's SHA-256 as bind, and return to
+// this URL; anything else gets 401 with a Bearer challenge.
 func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	host, ok := a.canonicalHost(r.Host)
 	if ok && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -481,9 +546,30 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 		}
 		// A "//"-led path would be refused as a return path; collapse it.
 		rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
-		http.Redirect(w, r, "https://"+login+"/__jam/start?return_to="+url.QueryEscape(rt), http.StatusFound)
+		nonce := ""
+		if c, err := r.Cookie(PreviewLoginCookie); err == nil && validNonce(c.Value) {
+			nonce = c.Value
+		} else if nonce, _, err = newSecret(); err != nil {
+			http.Error(w, "login failed", http.StatusInternalServerError)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: PreviewLoginCookie, Value: nonce, Path: "/",
+			HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+			MaxAge: int(PreviewLoginTTL / time.Second),
+		})
+		sum := sha256.Sum256([]byte(nonce))
+		q := "return_to=" + url.QueryEscape(rt) + "&bind=" + hex.EncodeToString(sum[:])
+		http.Redirect(w, r, "https://"+login+"/__jam/start?"+q, http.StatusFound)
 		return
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer realm="jam-preview"`)
 	http.Error(w, "Jam preview: log in in a browser, or send Authorization: Bearer <token> (at-jam login)", http.StatusUnauthorized)
+}
+
+// validNonce reports whether v is shaped as newSecret's value (32 random
+// bytes, unpadded base64url), so a malformed login cookie is replaced.
+func validNonce(v string) bool {
+	b, err := base64.RawURLEncoding.DecodeString(v)
+	return err == nil && len(b) == 32
 }

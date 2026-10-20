@@ -3,6 +3,8 @@ package collabhttp
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -44,6 +46,46 @@ type previewFixture struct {
 	clock *testClock
 	logs  *bytes.Buffer
 	login http.Handler
+	// started holds, per preview host, the login cookie of the browser that
+	// last started a login there (startLogin); trade presents it.
+	started map[string]*http.Cookie
+}
+
+// startLogin runs LoginRedirect on host as a browser would and returns the
+// login cookie it set and the bind value it sent to the login host.
+func (f *previewFixture) startLogin(t *testing.T, host string) (*http.Cookie, string) {
+	t.Helper()
+	r := httptest.NewRequest("GET", "https://"+host+"/", nil)
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	f.LoginRedirect(w, r)
+	var ck *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == PreviewLoginCookie {
+			ck = c
+		}
+	}
+	loc, err := url.Parse(w.Header().Get("Location"))
+	if ck == nil || err != nil {
+		t.Fatalf("LoginRedirect: cookie %v, Location %q", ck, w.Header().Get("Location"))
+	}
+	return ck, loc.Query().Get("bind")
+}
+
+// bound starts a login on returnTo's host in a fresh browser (remembered for
+// trade) and returns the login return value carrying its bind.
+func (f *previewFixture) bound(t *testing.T, returnTo string) string {
+	t.Helper()
+	u, err := url.Parse(returnTo)
+	if err != nil || u.Host == "" {
+		return returnTo // not a URL: passed through for refusal tests
+	}
+	ck, bind := f.startLogin(t, u.Host)
+	if f.started == nil {
+		f.started = map[string]*http.Cookie{}
+	}
+	f.started[u.Host] = ck
+	return bind + "|" + returnTo
 }
 
 const aliceID = ident.ID("usr_alice")
@@ -89,7 +131,7 @@ func newTestPreviewAuth(t *testing.T) *previewFixture {
 func (f *previewFixture) bounce(t *testing.T, idTok, accessTok, returnTo, wantHost string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	f.Complete(rec, httptest.NewRequest("GET", "https://"+loginHost+"/__jam/auth/callback", nil), idTok, accessTok, returnTo)
+	f.Complete(rec, httptest.NewRequest("GET", "https://"+loginHost+"/__jam/auth/callback", nil), idTok, accessTok, f.bound(t, returnTo))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("Complete = %d %s", rec.Code, rec.Body)
 	}
@@ -102,6 +144,9 @@ func (f *previewFixture) bounce(t *testing.T, idTok, accessTok, returnTo, wantHo
 
 func (f *previewFixture) trade(host, code, returnTo string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", "https://"+host+"/__jam/session?code="+url.QueryEscape(code)+"&return_to="+url.QueryEscape(returnTo), nil)
+	if ck := f.started[host]; ck != nil {
+		r.AddCookie(ck)
+	}
 	w := httptest.NewRecorder()
 	f.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(w, r)
 	return w
@@ -151,7 +196,7 @@ func TestLoginBounceRejectsForeignReturn(t *testing.T) {
 func TestCodeSingleUseAndHostBound(t *testing.T) {
 	a := newTestPreviewAuth(t)
 	rec := httptest.NewRecorder()
-	a.Complete(rec, httptest.NewRequest("GET", "https://jam.preview.jam.example/__jam/auth/callback", nil), "id-alice", "", "https://"+hostA+"/app")
+	a.Complete(rec, httptest.NewRequest("GET", "https://jam.preview.jam.example/__jam/auth/callback", nil), "id-alice", "", a.bound(t, "https://"+hostA+"/app"))
 	loc, _ := url.Parse(rec.Header().Get("Location"))
 	if loc.Host != hostA || loc.Path != "/__jam/session" {
 		t.Fatalf("bounce to %v", loc)
@@ -163,6 +208,7 @@ func TestCodeSingleUseAndHostBound(t *testing.T) {
 	h := a.PreviewHostRoutes(http.NotFoundHandler())
 	trade := func(host string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "https://"+host+"/__jam/session?code="+url.QueryEscape(code)+"&return_to=/app", nil)
+		r.AddCookie(a.started[hostA]) // the browser that started the login
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		return w
@@ -301,7 +347,7 @@ func TestCompleteOperatorAndUnbound(t *testing.T) {
 		t.Fatalf("operator Principal = %+v %v", p, err)
 	}
 	rec := httptest.NewRecorder()
-	a.Complete(rec, httptest.NewRequest("GET", "https://"+loginHost+"/__jam/auth/callback", nil), "id-bob", "not-op", "https://"+hostA+"/")
+	a.Complete(rec, httptest.NewRequest("GET", "https://"+loginHost+"/__jam/auth/callback", nil), "id-bob", "not-op", a.bound(t, "https://"+hostA+"/"))
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "not linked to a Jam user") {
 		t.Fatalf("unbound = %d %q", rec.Code, rec.Body)
 	}
@@ -319,9 +365,25 @@ func TestLoginRedirect(t *testing.T) {
 	r.Header.Set("Accept", "text/html,application/xhtml+xml")
 	w := httptest.NewRecorder()
 	a.LoginRedirect(w, r)
-	want := "https://" + loginHost + "/__jam/start?return_to=" + url.QueryEscape("https://"+hostA+"/app?x=1")
+	cks := w.Result().Cookies()
+	if len(cks) != 1 || cks[0].Name != "__Host-jam_preview_login" || cks[0].Domain != "" || cks[0].Path != "/" ||
+		!cks[0].Secure || !cks[0].HttpOnly || cks[0].SameSite != http.SameSiteLaxMode || cks[0].MaxAge != 600 || len(cks[0].Value) < 32 {
+		t.Fatalf("login cookie %+v", cks)
+	}
+	sum := sha256.Sum256([]byte(cks[0].Value))
+	bind := hex.EncodeToString(sum[:])
+	want := "https://" + loginHost + "/__jam/start?return_to=" + url.QueryEscape("https://"+hostA+"/app?x=1") + "&bind=" + bind
 	if w.Code != http.StatusFound || w.Header().Get("Location") != want {
 		t.Fatalf("browser: %d %q, want %q", w.Code, w.Header().Get("Location"), want)
+	}
+	// The same browser (another tab) keeps its login cookie.
+	r = httptest.NewRequest("GET", "https://"+hostA+"/other", nil)
+	r.Header.Set("Accept", "text/html")
+	r.AddCookie(cks[0])
+	w = httptest.NewRecorder()
+	a.LoginRedirect(w, r)
+	if again := w.Result().Cookies(); len(again) != 1 || again[0].Value != cks[0].Value || !strings.HasSuffix(w.Header().Get("Location"), "&bind="+bind) {
+		t.Fatalf("second tab: %+v %q", again, w.Header().Get("Location"))
 	}
 	// A "//"-led path still completes login (the trade refuses "//" paths).
 	r = httptest.NewRequest("GET", "https://"+hostA+"/", nil)
@@ -329,8 +391,8 @@ func TestLoginRedirect(t *testing.T) {
 	r.Header.Set("Accept", "text/html")
 	w = httptest.NewRecorder()
 	a.LoginRedirect(w, r)
-	want = "https://" + loginHost + "/__jam/start?return_to=" + url.QueryEscape("https://"+hostA+"/x/y?q=1")
-	if w.Header().Get("Location") != want {
+	want = "https://" + loginHost + "/__jam/start?return_to=" + url.QueryEscape("https://"+hostA+"/x/y?q=1") + "&bind="
+	if !strings.HasPrefix(w.Header().Get("Location"), want) {
 		t.Errorf("// path: %q, want %q", w.Header().Get("Location"), want)
 	}
 	r = httptest.NewRequest("GET", "https://"+hostA+"/api", nil)
@@ -339,6 +401,9 @@ func TestLoginRedirect(t *testing.T) {
 	a.LoginRedirect(w, r)
 	if w.Code != http.StatusUnauthorized || !strings.HasPrefix(w.Header().Get("WWW-Authenticate"), "Bearer") || w.Body.Len() == 0 {
 		t.Fatalf("non-browser: %d %v", w.Code, w.Header())
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatalf("non-browser got cookies %+v", w.Result().Cookies())
 	}
 }
 
@@ -351,14 +416,20 @@ func TestLoginHostHandler(t *testing.T) {
 		return w
 	}
 	rt := "https://" + hostA + "/app?x=1"
-	w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape(rt))
-	if w.Code != http.StatusFound || w.Header().Get("Location") != "/__jam/auth/login?return_to="+url.QueryEscape(rt) {
+	bind := strings.Repeat("ab", 32)
+	w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape(rt)+"&bind="+bind)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/__jam/auth/login?return_to="+url.QueryEscape(bind+"|"+rt) {
 		t.Fatalf("start: %d %v", w.Code, w.Header())
+	}
+	for _, b := range []string{"", "ab", strings.Repeat("AB", 32), strings.Repeat("zz", 32), bind + "00"} {
+		if w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape(rt)+"&bind="+b); w.Code != http.StatusBadRequest {
+			t.Errorf("start with bind %q: %d", b, w.Code)
+		}
 	}
 	if cks := w.Result().Cookies(); len(cks) != 0 {
 		t.Errorf("start set cookies %+v", cks)
 	}
-	if w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape("https://evil.example/")); w.Code != http.StatusBadRequest {
+	if w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape("https://evil.example/")+"&bind="+bind); w.Code != http.StatusBadRequest {
 		t.Errorf("start with foreign return_to: %d", w.Code)
 	}
 	if w := get(loginHost, "/__jam/auth/login?return_to=x"); w.Code != http.StatusTeapot || w.Header().Get("X-Login") != "/__jam/auth/login?return_to=x" {
@@ -509,5 +580,69 @@ func TestPreviewCookieCrossSiteUse(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer good")
 	if p, _, err := a.Principal(r); err != nil || p.Operator != "bearer-op" {
 		t.Fatalf("cross-site bearer: %+v %v", p, err)
+	}
+}
+
+// A login code is bound to the browser that started the login: traded in
+// another browser — an attacker's code in a victim's, to sign the victim in
+// as the attacker — it is refused (and not burned), and the trade clears the
+// login cookie.
+func TestLoginCodeBoundToStartingBrowser(t *testing.T) {
+	a := newTestPreviewAuth(t)
+	code := a.bounce(t, "id-alice", "", "https://"+hostA+"/", hostA) // the attacker's login
+	attacker := a.started[hostA]
+	victim, _ := a.startLogin(t, hostA)
+	h := a.PreviewHostRoutes(http.NotFoundHandler())
+	trade := func(cks ...*http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "https://"+hostA+"/__jam/session?code="+url.QueryEscape(code)+"&return_to=/", nil)
+		for _, c := range cks {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for name, cks := range map[string][]*http.Cookie{
+		"no login cookie":       nil,
+		"another browser's":     {victim},
+		"empty":                 {{Name: PreviewLoginCookie, Value: ""}},
+		"unprefixed attacker's": {{Name: "jam_preview_login", Value: attacker.Value}},
+	} {
+		if w := trade(cks...); w.Code != http.StatusBadRequest || len(w.Result().Cookies()) != 0 {
+			t.Errorf("%s: %d %+v", name, w.Code, w.Result().Cookies())
+		}
+	}
+	w := trade(attacker)
+	if w.Code != http.StatusFound {
+		t.Fatalf("starting browser: %d %s", w.Code, w.Body)
+	}
+	var session, cleared bool
+	for _, c := range w.Result().Cookies() {
+		switch {
+		case c.Name == PreviewCookie && c.MaxAge > 0:
+			session = true
+		case c.Name == PreviewLoginCookie && c.MaxAge < 0 && c.Path == "/" && c.Secure && c.Domain == "":
+			cleared = true
+		}
+	}
+	if !session || !cleared {
+		t.Fatalf("trade cookies %+v", w.Result().Cookies())
+	}
+	if logs := a.logs.String(); strings.Contains(logs, attacker.Value) || strings.Contains(logs, victim.Value) {
+		t.Errorf("login cookie in logs: %s", logs)
+	}
+}
+
+// The login return value carries the bind before the preview URL.
+func TestValidLoginReturn(t *testing.T) {
+	a := newTestPreviewAuth(t)
+	bind := strings.Repeat("0f", 32)
+	if !a.ValidLoginReturn(bind + "|https://" + hostA + "/x") {
+		t.Fatal("bound preview URL refused")
+	}
+	for _, v := range []string{"https://" + hostA + "/x", bind + "|https://evil.example/", "|https://" + hostA + "/", "xyz|https://" + hostA + "/", bind + "|"} {
+		if a.ValidLoginReturn(v) {
+			t.Errorf("%q accepted", v)
+		}
 	}
 }

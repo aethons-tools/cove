@@ -43,13 +43,18 @@ logged as `preview opened` (again after 10 min).
 ## Signing in (browsers)
 
 Preview hosts have no login of their own. A
-browser with no session goes to the login host `jam.<domain>`. It runs the
+browser with no session gets a `__Host-jam_preview_login` cookie (10 min)
+and goes to the login host `jam.<domain>`. It runs the
 same OIDC login as `/ui`, so operators count as operators, and anyone else's
 login must be linked to a Jam user ([roster.md](roster.md)). It then sends you
-back with a single-use code, valid 60 s and only for that preview host. The
+back with a single-use code, valid 60 s, only for that preview host and only
+in the browser holding that login cookie. Someone else's code therefore cannot
+sign you in as them (400). The
 preview host trades it for a `__Host-jam_preview` cookie: host-only,
 `Secure`, `HttpOnly`, `SameSite=Lax`. The cookie names a server-side session
-that lasts 8 h and works only on the host it was issued for. All preview
+that lasts 8 h and works only on the host it was issued for. The login's
+token is not checked again during those 8 h, also for operators, but your
+`preview` right is re-checked on every request. All preview
 hosts are one site, so `SameSite` alone would let one studio's page send your
 cookie to another's. Jam therefore honours the cookie only on a same-origin
 request (`Sec-Fetch-Site: same-origin` or `none`), on a top-level `GET`/`HEAD`

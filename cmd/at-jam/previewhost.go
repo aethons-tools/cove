@@ -117,7 +117,7 @@ func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.Opera
 		Now:          time.Now,
 		Log:          log,
 	})
-	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidReturn), nil, log)
+	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidLoginReturn), nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("preview login: %w", err)
 	}

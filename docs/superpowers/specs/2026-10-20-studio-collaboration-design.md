@@ -176,7 +176,14 @@ the user guide is [previews.md](../../usage/jam/previews.md).
    (8 h, bound to its host), never a token. The `__Host-` prefix (also on the
    login flow's temporary cookies) stops a sibling app tossing a cookie with
    `Domain`; a request carrying more than one session cookie is treated as
-   signed out (a fresh login).
+   signed out (a fresh login). *(Final review:)* the code is also bound to the
+   browser that started the login — the preview host sets a 10-minute
+   `__Host-jam_preview_login` nonce cookie before the bounce, its SHA-256 rides
+   `/__jam/start` and the login state into the code, and the trade requires the
+   matching cookie (then clears it), so an attacker's code cannot sign a
+   victim's browser in as the attacker. A session is not re-verified against
+   the IdP during its 8 h (operators included); rights are re-checked per
+   request.
 2. **Identity:** the preview login requests the same token as `/ui`, so
    operators are recognized as operators; everyone else maps to a Jam user by
    OIDC binding. Bearer callers present an operator access token or a
