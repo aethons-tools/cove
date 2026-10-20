@@ -50,8 +50,12 @@ type PreviewAuthOptions struct {
 	// Bearer names a non-browser caller from its Authorization header (an
 	// operator access token or a participant ID token). Nil: no bearer access.
 	Bearer func(*http.Request) (collab.Principal, string, error)
-	Now    func() time.Time
-	Log    *slog.Logger
+	// BearerIssuer is the issuer of Jam's own tokens (the operator IdP). The
+	// preview proxy keeps any bearer whose unverified iss names it from the
+	// app, even one that fails verification. "" = only verified bearers.
+	BearerIssuer string
+	Now          func() time.Time
+	Log          *slog.Logger
 }
 
 // previewEntry is one session or login code: who it is for, the canonical

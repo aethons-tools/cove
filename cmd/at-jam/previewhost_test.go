@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // selfSigned is a throwaway self-signed cert for dnsNames.
@@ -233,5 +236,55 @@ func TestExposureFanoutClosesRemovedPorts(t *testing.T) {
 	}
 	if want := []string{"ses_a:3000", "ses_a:5173", "ses_a:8080"}; !slices.Equal(closer.closed, want) {
 		t.Fatalf("closed %q, want %q", closer.closed, want)
+	}
+}
+
+// The admin listener speaks h2 to preview hosts but does not advertise RFC
+// 8441 extended CONNECT (SETTINGS_ENABLE_CONNECT_PROTOCOL), so a browser opens
+// a preview's WebSocket as an HTTP/1.1 Upgrade — which the preview proxy
+// carries — never as an h2 extended CONNECT, which httputil.ReverseProxy
+// cannot. Go keeps it off unless GODEBUG=http2xconnect=1 (golang/go#71128);
+// this pins that for the server main builds.
+func TestAdminListenerDoesNotAdvertiseExtendedConnect(t *testing.T) {
+	if strings.Contains(os.Getenv("GODEBUG"), "http2xconnect=1") {
+		t.Skip("GODEBUG=http2xconnect=1 turns extended CONNECT on")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.NotFoundHandler(), TLSConfig: adminTLSConfig(selfSigned(t, "jam.example"), selfSigned(t, "*."+testPreviewDomain), testPreviewDomain)}
+	go func() { _ = srv.ServeTLS(ln, "", "") }()
+	defer srv.Close()
+	host := "app--" + strings.Repeat("b", 26) + "." + testPreviewDomain
+	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{ServerName: host, NextProtos: []string{"h2", "http/1.1"}, InsecureSkipVerify: true}) //nolint:gosec // self-signed test server
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if p := conn.ConnectionState().NegotiatedProtocol; p != "h2" {
+		t.Fatalf("negotiated %q, want h2 (the test needs an h2 server)", p)
+	}
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(conn, http2.ClientPreface); err != nil {
+		t.Fatal(err)
+	}
+	fr := http2.NewFramer(conn, conn)
+	if err := fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		f, err := fr.ReadFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf, ok := f.(*http2.SettingsFrame)
+		if !ok || sf.IsAck() {
+			continue
+		}
+		if v, set := sf.Value(http2.SettingEnableConnectProtocol); set && v != 0 {
+			t.Fatalf("server advertises SETTINGS_ENABLE_CONNECT_PROTOCOL=%d", v)
+		}
+		return
 	}
 }

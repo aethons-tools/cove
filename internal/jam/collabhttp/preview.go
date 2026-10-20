@@ -3,7 +3,9 @@ package collabhttp
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,7 +34,16 @@ const (
 	previewMaxConns = 6
 	// poolSuffix ends every pool host, so one is never mistaken for a name.
 	poolSuffix = ".tunnel"
+	// labelRebuildEvery throttles rebuilding the label map on a miss, and
+	// labelMissTTL is how long an unknown label is answered 404 from memory.
+	labelRebuildEvery = time.Second
+	labelMissTTL      = 2 * time.Second
+	labelMissMax      = 4096
 )
+
+// errPreviewAccessEnded: the caller lost preview between the request's check
+// and its tunnel's registration (an unshare raced it).
+var errPreviewAccessEnded = errors.New("preview access ended")
 
 // Preview serves the previews domain (docs/usage/jam/collaboration.md#previews):
 // the login host jam.<domain> gets auth.LoginHostHandler; a preview host
@@ -56,13 +67,14 @@ func Preview(d Deps, auth *PreviewAuth, domain string) http.Handler {
 		auth:    auth,
 		domain:  strings.ToLower(domain),
 		labels:  map[string]string{},
+		misses:  map[string]time.Time{},
 		targets: map[string]previewTarget{},
 		audited: map[previewAuditKey]time.Time{},
 	}
 	p.rp = &httputil.ReverseProxy{
 		Rewrite:        p.rewrite,
 		Transport:      p.transport(),
-		ModifyResponse: func(resp *http.Response) error { stripJamSetCookies(resp.Header); return nil },
+		ModifyResponse: func(resp *http.Response) error { sanitizeResponse(resp.Header); return nil },
 		ErrorHandler:   p.proxyError,
 		// The proxy's own log lines carry no request URI (a query may carry
 		// a secret the app put there).
@@ -74,6 +86,12 @@ func Preview(d Deps, auth *PreviewAuth, domain string) http.Handler {
 		switch {
 		case auth.isLoginHost(r.Host):
 			login.ServeHTTP(w, r)
+		case isPreviewHost(r.Host, p.domain) && r.Method == http.MethodConnect:
+			// Never forwarded: not a plain CONNECT, nor an RFC 8441
+			// extended-CONNECT WebSocket (the server does not advertise it,
+			// so browsers use HTTP/1.1 Upgrade, which the proxy carries).
+			w.Header().Set("Allow", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+			http.Error(w, "CONNECT is not proxied to previews", http.StatusMethodNotAllowed)
 		case isPreviewHost(r.Host, p.domain):
 			routes.ServeHTTP(w, r)
 		default:
@@ -99,9 +117,14 @@ type previewProxy struct {
 	rp     *httputil.ReverseProxy
 
 	mu      sync.Mutex
-	labels  map[string]string        // preview label → actor id, of live and idled studios
-	targets map[string]previewTarget // pool host → what a dial to it reaches
-	audited map[previewAuditKey]time.Time
+	labels  map[string]string    // preview label → actor id, of live and idled studios
+	misses  map[string]time.Time // unknown label → when its 404 lapses
+	rebuilt time.Time            // when labels was last rebuilt
+	// rebuildMu serialises rebuilds: concurrent misses share one (each
+	// re-checks the map and the throttle once it holds the lock).
+	rebuildMu sync.Mutex
+	targets   map[string]previewTarget // pool host → what a dial to it reaches
+	audited   map[previewAuditKey]time.Time
 }
 
 // previewTarget is one viewer's way to one studio port: the transport pools
@@ -192,36 +215,75 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), proxyCtxKey{}, req)))
 }
 
-// actor maps a preview label to its live or idled studio, refreshing the
-// cached map from the store on a miss.
+// actor maps a preview label to its live or idled studio. A miss rebuilds the
+// cached map from the store — at most once per labelRebuildEvery, one rebuild
+// shared by concurrent misses — and an unknown label is remembered for
+// labelMissTTL, so a burst of made-up hosts costs one store scan. (A label
+// first asked for within a second of another rebuild may 404 once.)
 func (p *previewProxy) actor(label string) (string, bool) {
-	p.mu.Lock()
-	id, ok := p.labels[label]
-	p.mu.Unlock()
-	if ok {
-		return id, true
+	if id, ok, known := p.cached(label); known {
+		return id, ok
 	}
+	p.rebuildMu.Lock()
+	defer p.rebuildMu.Unlock()
+	if id, ok, known := p.cached(label); known {
+		return id, ok
+	}
+	now := p.h.d.Now()
+	p.mu.Lock()
+	throttled := !p.rebuilt.IsZero() && now.Sub(p.rebuilt) < labelRebuildEvery
+	p.mu.Unlock()
 	var ids []string
-	for _, inst := range p.h.d.Store.ListInstances() {
-		if inst.Phase == jam.PhaseLive || inst.Phase == jam.PhaseIdled {
-			ids = append(ids, inst.ActorID)
+	if !throttled {
+		for _, inst := range p.h.d.Store.ListInstances() {
+			if inst.Phase == jam.PhaseLive || inst.Phase == jam.PhaseIdled {
+				ids = append(ids, inst.ActorID)
+			}
 		}
-	}
-	labels := make(map[string]string, len(ids))
-	for _, id := range ids {
-		labels[preview.Label(id)] = id
 	}
 	p.mu.Lock()
-	p.labels = labels
-	// Forget pool hosts of studios that have gone (a request re-adds a live
-	// one's before it is proxied).
-	for h, t := range p.targets {
-		if _, live := labels[preview.Label(t.actorID)]; !live {
-			delete(p.targets, h)
+	defer p.mu.Unlock()
+	if !throttled {
+		p.rebuilt = now
+		p.labels = make(map[string]string, len(ids))
+		for _, id := range ids {
+			p.labels[preview.Label(id)] = id
+		}
+		clear(p.misses)
+		// Forget pool hosts of studios that have gone (a request re-adds a
+		// live one's before it is proxied).
+		for h, t := range p.targets {
+			if _, live := p.labels[preview.Label(t.actorID)]; !live {
+				delete(p.targets, h)
+			}
+		}
+		if id, ok := preview.ActorForLabel(label, ids); ok {
+			return id, true
 		}
 	}
-	p.mu.Unlock()
-	return preview.ActorForLabel(label, ids)
+	if len(p.misses) >= labelMissMax {
+		clear(p.misses)
+	}
+	p.misses[label] = now.Add(labelMissTTL)
+	return "", false
+}
+
+// cached answers label from the map or the miss cache; known is false when
+// neither knows it.
+func (p *previewProxy) cached(label string) (id string, ok, known bool) {
+	now := p.h.d.Now()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if id, ok := p.labels[label]; ok {
+		return id, true, true
+	}
+	if until, ok := p.misses[label]; ok {
+		if now.Before(until) {
+			return "", false, true
+		}
+		delete(p.misses, label)
+	}
+	return "", false, false
 }
 
 func exposedPort(exps []jam.Exposure, name string) (int, bool) {
@@ -235,8 +297,9 @@ func exposedPort(exps []jam.Exposure, name string) (int, bool) {
 
 // jamAuthorization reports whether r's Authorization is a Jam credential, to
 // be kept from the app: it named the caller (r has no preview session
-// cookie), or it is a bearer Jam's Bearer accepts. An app's own Authorization
-// beside a preview session is passed through.
+// cookie), or it is a bearer Jam's Bearer accepts, or one whose unverified
+// iss is Jam's issuer (an expired or mis-audienced Jam token is still Jam's).
+// An app's own Authorization beside a preview session is passed through.
 func (p *previewProxy) jamAuthorization(r *http.Request) bool {
 	authz := r.Header.Get("Authorization")
 	if authz == "" {
@@ -251,12 +314,42 @@ func (p *previewProxy) jamAuthorization(r *http.Request) bool {
 	if !viaCookie {
 		return true
 	}
-	scheme, _, _ := strings.Cut(authz, " ")
-	if !strings.EqualFold(scheme, "Bearer") || p.auth.o.Bearer == nil {
+	scheme, tok, _ := strings.Cut(authz, " ")
+	if !strings.EqualFold(scheme, "Bearer") {
+		return false
+	}
+	if iss := p.auth.o.BearerIssuer; iss != "" && sameIssuer(unverifiedIssuer(strings.TrimSpace(tok)), iss) {
+		return true
+	}
+	if p.auth.o.Bearer == nil {
 		return false
 	}
 	_, _, err := p.auth.o.Bearer(r)
 	return err == nil
+}
+
+// unverifiedIssuer is a JWT's iss claim, read without verifying it ("" when
+// raw is not a JWT). Only ever used to decide what to withhold from an app.
+func unverifiedIssuer(raw string) string {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	if json.Unmarshal(b, &claims) != nil {
+		return ""
+	}
+	return claims.Iss
+}
+
+func sameIssuer(a, b string) bool {
+	return a != "" && strings.TrimSuffix(a, "/") == strings.TrimSuffix(b, "/")
 }
 
 // audit logs "preview opened" for the first request of (session, user, name)
@@ -299,6 +392,10 @@ func (p *previewProxy) rewrite(pr *httputil.ProxyRequest) {
 		pr.Out.Header.Del("Authorization")
 	}
 	pr.Out.Header.Del("X-Jam-User")
+	// The app hears who forwarded only from Jam (Rewrite already drops the
+	// client's X-Forwarded-*).
+	pr.Out.Header.Del("Forwarded")
+	pr.Out.Header.Del("X-Real-Ip")
 	pr.Out.Header.Set("X-Forwarded-Proto", "https")
 	pr.Out.Header.Set("X-Forwarded-Host", pr.In.Host)
 	pr.Out.Header.Set("X-Jam-User", headerSafe(req.name))
@@ -349,7 +446,7 @@ func (p *previewProxy) dial(ctx context.Context, _, addr string) (net.Conn, erro
 	inst, ok := p.h.d.Store.GetInstance(t.actorID)
 	if _, allowed := collab.Decide(p.h.d.Store, p.h.d.Now(), t.p, inst, collab.Preview); !ok || !allowed {
 		_ = pc.Close()
-		return nil, errors.New("preview access ended")
+		return nil, errPreviewAccessEnded
 	}
 	return pc, nil
 }
@@ -384,6 +481,8 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 	}
 	code, msg := http.StatusBadGateway, fmt.Sprintf("the app at port %d is not answering", req.port)
 	switch {
+	case errors.Is(err, errPreviewAccessEnded):
+		code, msg = http.StatusForbidden, "you may not use "+string(collab.Preview)+" on this studio"
 	case errors.Is(err, attach.ErrDialBackTimeout):
 		code, msg = http.StatusGatewayTimeout, "studio could not open the preview (is its image current?)"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -434,8 +533,19 @@ func stripJamCookies(h http.Header) {
 	}
 }
 
+// sanitizeResponse keeps an app's response from reaching past its own
+// preview host: it drops Clear-Site-Data (which clears a whole site's
+// cookies — the login host's and every sibling preview's) and sanitises
+// Set-Cookie (stripJamSetCookies).
+func sanitizeResponse(h http.Header) {
+	h.Del("Clear-Site-Data")
+	stripJamSetCookies(h)
+}
+
 // stripJamSetCookies drops any Set-Cookie for a Jam cookie name, so an app
-// can neither fix nor toss a viewer's Jam session.
+// can neither fix nor toss a viewer's Jam session, and removes the Domain
+// attribute from the rest, so an app's cookies stay host-only and never land
+// on another session's preview host or the login host.
 func stripJamSetCookies(h http.Header) {
 	vals := h.Values("Set-Cookie")
 	if len(vals) == 0 {
@@ -445,14 +555,30 @@ func stripJamSetCookies(h http.Header) {
 	for _, v := range vals {
 		pair, _, _ := strings.Cut(v, ";")
 		name, _, _ := strings.Cut(pair, "=")
-		if !isJamCookie(name) {
-			kept = append(kept, v)
+		if isJamCookie(name) {
+			continue
 		}
+		kept = append(kept, withoutDomain(v))
 	}
 	h.Del("Set-Cookie")
 	for _, v := range kept {
 		h.Add("Set-Cookie", v)
 	}
+}
+
+// withoutDomain drops every Domain attribute from a Set-Cookie value, keeping
+// the rest byte-for-byte.
+func withoutDomain(v string) string {
+	parts := strings.Split(v, ";")
+	out := parts[:1]
+	for _, a := range parts[1:] {
+		name, _, _ := strings.Cut(a, "=")
+		if strings.EqualFold(strings.TrimSpace(name), "domain") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return strings.Join(out, ";")
 }
 
 // headerSafe drops control characters, so a display name is always a valid

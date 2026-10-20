@@ -87,7 +87,7 @@ Jam checks each cert request and each connection against four rules, in order:
 2. **The requester** of a personal session ([personal-sessions.md](personal-sessions.md)).
 3. **Project members**, as the role's collaboration policy says:
    `--collaborate-ssh members|none` (default `none`), `--collaborate-preview`
-   (default `members`; previews are not served yet) — see [roster.md](roster.md).
+   (default `members`; see [Previews](#previews)) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
 A removed user matches none of them. A studio that is terminating or gone

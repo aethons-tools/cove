@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -12,8 +13,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,9 +39,14 @@ type appTunnels struct {
 	addr  string
 	err   error
 	opens []string
+	// onOpen, when set, runs at the start of each Open (outside mu).
+	onOpen func()
 }
 
 func (f *appTunnels) Open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
+	if f.onOpen != nil {
+		f.onOpen()
+	}
 	f.mu.Lock()
 	f.opens = append(f.opens, fmt.Sprintf("%s:%d", actorID, port))
 	addr, err := f.addr, f.err
@@ -222,6 +230,8 @@ func TestPreviewStripsJamCredentials(t *testing.T) {
 	req := httptest.NewRequest("GET", "https://"+appHost+"/x", nil)
 	req.Header.Set("Cookie", "theme=dark; "+PreviewCookie+"="+sess.Value+"; jam_preview=stale; other=1")
 	req.Header.Set("X-Jam-User", "forged")
+	req.Header.Set("Forwarded", "for=6.6.6.6;host=evil.example;proto=http")
+	req.Header.Set("X-Real-IP", "6.6.6.6")
 	rec := httptest.NewRecorder()
 	ph.h.ServeHTTP(rec, req)
 	if rec.Code != 200 || rec.Body.String() != "hello from the app" {
@@ -232,6 +242,9 @@ func TestPreviewStripsJamCredentials(t *testing.T) {
 	}
 	if got.Get("X-Jam-User") != "alice" || got.Get("X-Forwarded-Proto") != "https" || got.Get("X-Forwarded-Host") != appHost {
 		t.Fatalf("forwarding headers %v", got)
+	}
+	if got.Get("Forwarded") != "" || got.Get("X-Real-IP") != "" {
+		t.Fatalf("client Forwarded/X-Real-IP reached the app: %v", got)
 	}
 	if len(got.Values("X-Jam-User")) != 1 {
 		t.Fatalf("X-Jam-User %v", got.Values("X-Jam-User"))
@@ -272,9 +285,12 @@ func TestPreviewStripsJamSetCookies(t *testing.T) {
 			"__Host-jam_oauth_state=x; Path=/; Secure",
 			"jam_oauth=x",
 			"app_session=keep; Path=/",
+			"theme=x; Domain=" + testDomain + "; Path=/",
+			"t2=y; domain=.jam.example",
 		} {
 			w.Header().Add("Set-Cookie", c)
 		}
+		w.Header().Set("Clear-Site-Data", `"cookies"`)
 		fmt.Fprint(w, "ok")
 	}))
 	defer app.Close()
@@ -283,8 +299,12 @@ func TestPreviewStripsJamSetCookies(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("%d %q", rec.Code, rec.Body)
 	}
-	if got := rec.Header().Values("Set-Cookie"); len(got) != 1 || got[0] != "app_session=keep; Path=/" {
-		t.Fatalf("Set-Cookie %q", got)
+	want := []string{"app_session=keep; Path=/", "theme=x; Path=/", "t2=y"}
+	if got := rec.Header().Values("Set-Cookie"); !slices.Equal(got, want) {
+		t.Fatalf("Set-Cookie %q, want %q", got, want)
+	}
+	if v := rec.Header().Values("Clear-Site-Data"); len(v) != 0 {
+		t.Fatalf("Clear-Site-Data %q reached the viewer", v)
 	}
 }
 
@@ -628,5 +648,129 @@ func TestStripJamCookies(t *testing.T) {
 	stripJamCookies(h)
 	if _, ok := h["Cookie"]; ok {
 		t.Fatalf("%q", h)
+	}
+}
+
+// countingStore counts ListInstances calls.
+type countingStore struct {
+	*jam.MemStore
+	lists atomic.Int32
+}
+
+func (c *countingStore) ListInstances() []jam.Instance {
+	c.lists.Add(1)
+	return c.MemStore.ListInstances()
+}
+
+// A burst of made-up labels costs at most one store scan; rebuilds are at
+// most one a second, and an unknown label is answered from memory for a while.
+func TestPreviewUnknownLabelsThrottleRebuilds(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	cs := &countingStore{MemStore: ph.st}
+	ph.d.Store = cs
+	ph.h = Preview(ph.d, ph.auth.PreviewAuth, testDomain)
+	unknown := func(i int) string { return fmt.Sprintf("app--%026d.%s", i, testDomain) }
+	hit := func(host string) int {
+		rec := httptest.NewRecorder()
+		ph.h.ServeHTTP(rec, httptest.NewRequest("GET", "https://"+host+"/", nil))
+		return rec.Code
+	}
+	var wg sync.WaitGroup
+	for i := range 64 {
+		wg.Go(func() {
+			if code := hit(unknown(i)); code != 404 {
+				t.Errorf("unknown label %d: %d", i, code)
+			}
+		})
+	}
+	wg.Wait()
+	if n := cs.lists.Load(); n != 1 {
+		t.Fatalf("burst: %d ListInstances, want 1", n)
+	}
+	// Within the second: a further new label is not rebuilt for.
+	hit(unknown(999))
+	if n := cs.lists.Load(); n != 1 {
+		t.Fatalf("throttled: %d ListInstances", n)
+	}
+	// Past the throttle, a label still in the miss cache is answered from it.
+	ph.clock.Add(1500 * time.Millisecond)
+	hit(unknown(1))
+	if n := cs.lists.Load(); n != 1 {
+		t.Fatalf("negative cache: %d ListInstances", n)
+	}
+	// A label not yet asked for rebuilds again; a known one never does.
+	hit(unknown(1000))
+	hit(appHost)
+	if n := cs.lists.Load(); n != 2 {
+		t.Fatalf("after throttle: %d ListInstances, want 2", n)
+	}
+}
+
+func fakeJWT(claims string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"RS256"}`)) + "." + enc([]byte(claims)) + ".c2ln"
+}
+
+// Beside a cookie session, a bearer that is Jam's — verified, or merely
+// claiming Jam's issuer — is kept from the app; an app's own bearer is not.
+func TestPreviewStripsJamBearerBesideCookie(t *testing.T) {
+	var got http.Header
+	ph := newPreviewHarness(t, helloApp(t, &got))
+	ph.auth.o.BearerIssuer = "https://idp.example/"
+	c := ph.login(t, "alice")
+	for _, tc := range []struct {
+		name, authz string
+		stripped    bool
+	}{
+		{"valid Jam bearer", "Bearer participant-token", true},
+		{"expired Jam token", "Bearer " + fakeJWT(`{"iss":"https://idp.example","exp":1}`), true},
+		{"Jam issuer, lowercase scheme", "bearer " + fakeJWT(`{"iss":"https://idp.example/"}`), true},
+		{"app's own JWT", "Bearer " + fakeJWT(`{"iss":"https://app.example"}`), false},
+		{"app's opaque token", "Bearer app-token", false},
+	} {
+		got = nil
+		req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+		req.AddCookie(c)
+		req.Header.Set("Authorization", tc.authz)
+		rec := httptest.NewRecorder()
+		ph.h.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("%s: %d %q", tc.name, rec.Code, rec.Body)
+		}
+		if a := got.Get("Authorization"); (a == "") != tc.stripped {
+			t.Errorf("%s: app saw Authorization %q", tc.name, a)
+		}
+	}
+}
+
+// Access that ends while the tunnel opens (an unshare racing the request) is
+// refused 403 and leaves no live connection.
+func TestPreviewDialRecheckRefuses(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	carol := ph.ids["carol"]
+	if err := ph.st.PutShareGrant(jam.ShareGrant{SessionID: previewSession, UserID: carol, Rights: []string{"preview"}, ExpiresAt: ph.clock.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	ph.tun.onOpen = func() { _ = ph.st.RemoveShareGrant(previewSession, carol) }
+	rec := ph.get("/", ph.login(t, "carol"))
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "hello") {
+		t.Fatalf("%d %q", rec.Code, rec.Body)
+	}
+	if n := len(ph.previewEntries()); n != 0 {
+		t.Fatalf("%d live preview entries remain", n)
+	}
+}
+
+// CONNECT (plain, or an RFC 8441 extended CONNECT) is never forwarded.
+func TestPreviewRefusesConnect(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	req := httptest.NewRequest("CONNECT", appHost+":443", nil)
+	req.Host = appHost
+	req.Header.Set(":protocol", "websocket") // as Go's h2 server would carry an extended CONNECT
+	req.AddCookie(ph.login(t, "alice"))
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed || len(ph.tun.opened()) != 0 {
+		t.Fatalf("%d, %d opens", rec.Code, len(ph.tun.opened()))
 	}
 }

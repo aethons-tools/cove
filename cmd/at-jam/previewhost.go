@@ -112,9 +112,10 @@ func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.Opera
 			u, ok := jam.UserByIdentity(st, iss, sub)
 			return u.ID, u.Name, ok
 		},
-		Bearer: previewBearer(oidcAuth, lc, st),
-		Now:    time.Now,
-		Log:    log,
+		Bearer:       previewBearer(oidcAuth, lc, st),
+		BearerIssuer: bc.Issuer,
+		Now:          time.Now,
+		Log:          log,
 	})
 	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidReturn), nil, log)
 	if err != nil {
