@@ -104,6 +104,10 @@ type RoleBody struct {
 	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
 	OnIdle             string `json:"on_idle,omitempty"`
 	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
+	// CollaboratePreview / CollaborateSSH are the role's studio-collaboration
+	// policy (Role.Collaborate): "" = default, members | none.
+	CollaboratePreview string `json:"collaborate_preview,omitempty"`
+	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -133,6 +137,10 @@ type RoleSummary struct {
 	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
 	OnIdle             string `json:"on_idle,omitempty"`
 	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
+	// CollaboratePreview / CollaborateSSH are the role's studio-collaboration
+	// policy (Role.Collaborate): "" = default, members | none.
+	CollaboratePreview string `json:"collaborate_preview,omitempty"`
+	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
 	// Egress is the role's egress policy; nil = the kit's default list.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
@@ -588,6 +596,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				IdleTimeoutSeconds:  int64(ro.TurnEnd.IdleTimeout / time.Second),
 				OnIdle:              ro.TurnEnd.OnIdle,
 				TimeZone:            ro.TurnEnd.TimeZone,
+				CollaboratePreview:  ro.Collaborate.Preview,
+				CollaborateSSH:      ro.Collaborate.SSH,
 				Egress:              ro.Scope.Egress,
 			})
 		}
@@ -609,6 +619,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		// nag_every 0 means the default, so ">= 0" also keeps a set nag_every > 0.
 		if b.IdleAfterSeconds < 0 || b.NagEverySeconds < 0 || b.ReclaimAfterSeconds < 0 {
 			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
+			return
+		}
+		collab := CollaboratePolicy{Preview: b.CollaboratePreview, SSH: b.CollaborateSSH}
+		if err := collab.Validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle, TimeZone: b.TimeZone}
@@ -633,7 +648,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
 				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
 			},
-			TurnEnd: te,
+			TurnEnd:     te,
+			Collaborate: collab,
 		}
 		if err := ValidateCredentials(role.Scope, credExists); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

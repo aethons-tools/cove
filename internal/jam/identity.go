@@ -112,6 +112,39 @@ type Role struct {
 	// role). Managed only by the context endpoints (`at-jam context … --role`);
 	// a role re-put keeps it.
 	Context sessionctx.Layer `json:"context,omitzero"`
+	// Collaborate is the role's studio-collaboration policy: which rights the
+	// project's members get on its studios. Zero = the defaults.
+	Collaborate CollaboratePolicy `json:"collaborate,omitzero"`
+}
+
+// CollaboratePolicy is a role's studio-collaboration policy: which rights the
+// project's members get on its studios. "" means the default (preview:
+// members, ssh: none).
+type CollaboratePolicy struct {
+	Preview string `json:"preview,omitempty"` // members | none
+	SSH     string `json:"ssh,omitempty"`     // members | none
+}
+
+// Allows reports whether the policy gives project members the named right
+// ("preview" or "ssh").
+func (p CollaboratePolicy) Allows(right string) bool {
+	switch right {
+	case "preview":
+		return p.Preview != "none"
+	case "ssh":
+		return p.SSH == "members"
+	}
+	return false
+}
+
+// Validate checks both fields are "", members or none.
+func (p CollaboratePolicy) Validate() error {
+	for name, v := range map[string]string{"collaborate_preview": p.Preview, "collaborate_ssh": p.SSH} {
+		if v != "" && v != "members" && v != "none" {
+			return fmt.Errorf("%s %q: want members or none", name, v)
+		}
+	}
+	return nil
 }
 
 // ModelSpecName is the model-spec the role resolves to: its binding, or

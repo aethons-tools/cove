@@ -461,6 +461,8 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
 	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
 	timeZone := fs.String("time-zone", "", "IANA time zone the role's cron alarms are evaluated in (default UTC)")
+	collabPreview := fs.String("collaborate-preview", "", "who may view this role's studio previews: members (default) | none")
+	collabSSH := fs.String("collaborate-ssh", "", "who may ssh into this role's studios: members | none (default)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -490,14 +492,19 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
 		}
+		collab := jam.CollaboratePolicy{Preview: *collabPreview, SSH: *collabSSH}
+		if err := collab.Validate(); err != nil {
+			fmt.Fprintln(stderr, "at-jam role add:", err)
+			return 2
+		}
 		ds, creds, err := jam.ParseDestinations(*dests)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
 		}
 		r := jam.Role{
-			TurnEnd: te,
-			Name:    *name, Kit: *kitName, ModelSpec: *modelSpec,
+			TurnEnd: te, Collaborate: collab,
+			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
 			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
@@ -516,7 +523,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -2501,4 +2508,12 @@ func joinOrNone(ss []string) string {
 		return "none"
 	}
 	return strings.Join(ss, ", ")
+}
+
+// collabLabel shows a collaboration policy value, spelling out the default.
+func collabLabel(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }

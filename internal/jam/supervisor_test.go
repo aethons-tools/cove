@@ -2073,3 +2073,21 @@ func TestEscalateAskSurvivesHolding(t *testing.T) {
 		t.Fatal("resuming from Holding cleared the ask")
 	}
 }
+
+func TestTeardownRemovesShareGrants(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := store.CreateUser(User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.PutShareGrant(ShareGrant{SessionID: "w1", UserID: u.ID, Rights: []string{"ssh"}, ExpiresAt: time.Now().Add(time.Hour)})
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ShareGrants("w1"); len(got) != 0 {
+		t.Fatalf("grants survived teardown: %+v", got)
+	}
+}

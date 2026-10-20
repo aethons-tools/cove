@@ -77,6 +77,9 @@ func PutRoleKeeping(store Store, project string, role Role) error {
 		role.Allocation.Standing = existing.Allocation.Standing
 		role.Scope.Egress = existing.Scope.Egress
 		role.Context = existing.Context
+		if role.Collaborate == (CollaboratePolicy{}) {
+			role.Collaborate = existing.Collaborate
+		}
 	}
 	return store.PutRole(project, role)
 }

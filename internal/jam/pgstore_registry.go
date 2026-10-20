@@ -465,6 +465,9 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := s.loadStandingSessions(ctx); err != nil {
 		return err
 	}
+	if err := s.loadShareGrants(ctx); err != nil {
+		return err
+	}
 	return s.loadChannels(ctx)
 }
 
@@ -537,6 +540,76 @@ func (s *PostgresStore) loadStandingSessions(ctx context.Context) error {
 			return err
 		}
 		s.applyPutStandingSession(ident.ID(project), role, name, id)
+	}
+	return rows.Err()
+}
+
+func (s *PostgresStore) PutShareGrant(g ShareGrant) error {
+	if err := checkShareGrant(g); err != nil {
+		return err
+	}
+	doc, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("PutShareGrant", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO share_grants (session_id, user_id, doc, expires_at) VALUES ($1,$2,$3,$4)
+			 ON CONFLICT (session_id, user_id) DO UPDATE SET doc = EXCLUDED.doc, expires_at = EXCLUDED.expires_at`,
+			g.SessionID, g.UserID, doc, g.ExpiresAt)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyPutShareGrant(g)
+	return nil
+}
+
+func (s *PostgresStore) RemoveShareGrant(sessionID string, user ident.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("RemoveShareGrant", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM share_grants WHERE session_id = $1 AND user_id = $2`, sessionID, user)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveShareGrant(sessionID, user)
+	return nil
+}
+
+func (s *PostgresStore) RemoveShareGrantsOf(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("RemoveShareGrantsOf", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM share_grants WHERE session_id = $1`, sessionID)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveShareGrantsOf(sessionID)
+	return nil
+}
+
+// loadShareGrants fills the share-grant map. load's part; no lock.
+func (s *PostgresStore) loadShareGrants(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT doc FROM share_grants`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load share_grants: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var doc []byte
+		if err := rows.Scan(&doc); err != nil {
+			return err
+		}
+		var g ShareGrant
+		if err := json.Unmarshal(doc, &g); err != nil {
+			return fmt.Errorf("pgstore: decode share_grant: %w", err)
+		}
+		s.applyPutShareGrant(g)
 	}
 	return rows.Err()
 }

@@ -164,6 +164,8 @@ func (c *Client) PutRole(project string, r jam.Role) error {
 		IdleTimeoutSeconds:  int64(r.TurnEnd.IdleTimeout / time.Second),
 		OnIdle:              r.TurnEnd.OnIdle,
 		TimeZone:            r.TurnEnd.TimeZone,
+		CollaboratePreview:  r.Collaborate.Preview,
+		CollaborateSSH:      r.Collaborate.SSH,
 	}, nil)
 }
 
@@ -186,7 +188,8 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,
 			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
 			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
-		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle, TimeZone: rs.TimeZone}})
+		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle, TimeZone: rs.TimeZone},
+			Collaborate: jam.CollaboratePolicy{Preview: rs.CollaboratePreview, SSH: rs.CollaborateSSH}})
 		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil

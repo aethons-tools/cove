@@ -1196,6 +1196,9 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
 	}
+	if err := s.store.RemoveShareGrantsOf(actorID); err != nil && s.log != nil {
+		s.log.Warn("teardown: removing the session's share grants failed (non-fatal)", "id", actorID, "err", err.Error())
+	}
 	if s.channels != nil {
 		if err := s.channels.Ended(inst); err != nil && s.log != nil {
 			s.log.Warn("teardown: leaving the session's channels failed (non-fatal)", "id", actorID, "err", err.Error())

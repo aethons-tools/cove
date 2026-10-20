@@ -944,3 +944,35 @@ func TestAdminConfigImportInvalidContext(t *testing.T) {
 		t.Fatalf("status = %d, want 400", r.StatusCode)
 	}
 }
+
+func TestAdminRoleCollaborateRoundTripAndValidation(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", CollaborateSSH: "members", CollaboratePreview: "none"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST role = %d", rec.Code)
+	}
+	var roles []RoleSummary
+	getJSON(t, h, "/admin/roles?project=acme", &roles)
+	if len(roles) != 1 || roles[0].CollaborateSSH != "members" || roles[0].CollaboratePreview != "none" {
+		t.Fatalf("roles = %+v", roles)
+	}
+	if r, _ := store.GetRole("acme", "pair"); r.Collaborate != (CollaboratePolicy{Preview: "none", SSH: "members"}) {
+		t.Fatalf("stored = %+v", r.Collaborate)
+	}
+	// A re-put that leaves the policy zero keeps it.
+	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair"}); rec.Code != http.StatusCreated {
+		t.Fatalf("re-put = %d", rec.Code)
+	}
+	if r, _ := store.GetRole("acme", "pair"); r.Collaborate.SSH != "members" {
+		t.Fatalf("re-put dropped the policy: %+v", r.Collaborate)
+	}
+	for _, b := range []RoleBody{
+		{Project: "acme", Name: "bad", CollaborateSSH: "everyone"},
+		{Project: "acme", Name: "bad", CollaboratePreview: "yes"},
+	} {
+		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad policy %+v = %d, want 400", b, rec.Code)
+		}
+	}
+}
