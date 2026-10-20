@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,5 +88,32 @@ func TestParseJWTClaims(t *testing.T) {
 	sub, gotExp, err := parseJWTClaims(token)
 	if err != nil || sub != "auth0|abc" || gotExp.Unix() != exp {
 		t.Fatalf("parseJWTClaims: sub=%q exp=%v err=%v", sub, gotExp, err)
+	}
+}
+
+func TestResolveParticipantToken(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	hint := "run: at-jam login --participant"
+	if _, err := resolveParticipantToken("default"); err == nil || !strings.Contains(err.Error(), hint) {
+		t.Fatalf("no login: err = %v, want %q", err, hint)
+	}
+	// An operator login is never a participant credential.
+	if err := saveToken("default", cachedToken{AccessToken: "OP", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveParticipantToken("default"); err == nil {
+		t.Fatal("an operator token resolved as a participant token")
+	}
+	if err := saveToken(participantProfile("default"), cachedToken{IDToken: "ID", Expiry: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveParticipantToken("default"); err == nil || !strings.Contains(err.Error(), "expired") || !strings.Contains(err.Error(), hint) {
+		t.Fatalf("expired: err = %v", err)
+	}
+	if err := saveToken(participantProfile("default"), cachedToken{IDToken: "ID", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := resolveParticipantToken("default"); err != nil || tok != "ID" {
+		t.Fatalf("valid: %q, %v", tok, err)
 	}
 }

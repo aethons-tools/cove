@@ -163,7 +163,7 @@ func (h *handler) cert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest) // sshca errors never echo key bytes
 		return
 	}
-	h.d.Log.Info("ssh cert issued", "user", a.auditUser(), "name", a.name, "session", a.inst.ActorID, "reason", string(a.reason), "expires", exp.UTC().Format(time.RFC3339))
+	h.d.Log.Info("ssh cert issued", "user", a.auditUser(), "name", a.name, "session", a.inst.ActorID, "right", "ssh", "reason", string(a.reason), "expires", exp.UTC().Format(time.RFC3339))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {
 		Certificate string `json:"certificate"`
@@ -220,6 +220,8 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "connection cannot be upgraded", http.StatusInternalServerError)
 		return
 	}
+	// The server's read/write timeouts would otherwise cut a long session.
+	_ = conn.SetDeadline(time.Time{})
 	_, _ = brw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: " + UpgradeProtocol + "\r\n\r\n")
 	if err := brw.Flush(); err != nil {
 		_ = conn.Close()
@@ -228,9 +230,9 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 	}
 	h.d.Notify(a.inst, a.name+" connected over SSH")
 	start := h.d.Now()
-	h.d.Log.Info("ssh tunnel opened", "user", a.auditUser(), "name", a.name, "session", a.inst.ActorID, "reason", string(a.reason), "port", SSHPort)
+	h.d.Log.Info("ssh tunnel opened", "user", a.auditUser(), "name", a.name, "session", a.inst.ActorID, "right", "ssh", "reason", string(a.reason), "port", SSHPort)
 	splice(conn, brw.Reader, studio)
-	h.d.Log.Info("ssh tunnel closed", "user", a.auditUser(), "session", a.inst.ActorID, "port", SSHPort, "duration", h.d.Now().Sub(start).Round(time.Second).String())
+	h.d.Log.Info("ssh tunnel closed", "user", a.auditUser(), "session", a.inst.ActorID, "right", "ssh", "port", SSHPort, "duration", h.d.Now().Sub(start).Round(time.Second).String())
 }
 
 // splice copies both ways until either side ends, then closes both. human's

@@ -1,10 +1,10 @@
 ---
 summary: Operator sign-in and the admin client — gating the admin API with `operator-auth.oidc`, the `login`/`logout`/`whoami` device flow, the `--token`/env fallback, and `settings.yml` app profiles (`--app`).
 read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
-owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
+owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-20
 ---
 
 # Operator sign-in & the admin client
@@ -66,6 +66,16 @@ user code to approve in a browser), and caches the resulting operator token at
 
 `login` against a Jam with no `operator-auth.oidc` exits cleanly (the
 login-config endpoint returns 404 → "not OIDC-gated; no login required").
+
+`login --participant` runs the same device flow but signs you in as a
+**participant** (a Jam user, not an operator): it caches only the OIDC **ID
+token** (audience `device-client-id`, so `device-scope` must include `openid`),
+expiring at its own `exp`, under the separate profile
+`{app}-participant` — never touching the operator token. It is the bearer for
+the participant collaboration routes (`/me/studios/…`), which Jam mounts only
+when `device-client-id` and [`ssh`](serve.md) are both set; your IdP login must
+be linked to a Jam user who is a project member. `logout --participant` clears
+it.
 
 ## How the admin token is resolved
 

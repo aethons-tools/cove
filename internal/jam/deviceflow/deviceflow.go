@@ -41,9 +41,11 @@ type DeviceCode struct {
 	ExpiresIn               int // seconds
 }
 
-// Token is the minted access token (only the bearer + its lifetime are needed).
+// Token is the minted access token and its lifetime, plus the OIDC ID token
+// when the provider issued one (scope openid).
 type Token struct {
 	AccessToken string
+	IDToken     string
 	ExpiresIn   int
 }
 
@@ -127,6 +129,7 @@ func PollToken(ctx context.Context, doer HTTPDoer, sleep func(time.Duration), to
 		}
 		var out struct {
 			AccessToken      string `json:"access_token"`
+			IDToken          string `json:"id_token"`
 			ExpiresIn        int    `json:"expires_in"`
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`
@@ -137,7 +140,7 @@ func PollToken(ctx context.Context, doer HTTPDoer, sleep func(time.Duration), to
 		}
 		switch {
 		case status == http.StatusOK && out.AccessToken != "":
-			return Token{AccessToken: out.AccessToken, ExpiresIn: out.ExpiresIn}, nil
+			return Token{AccessToken: out.AccessToken, IDToken: out.IDToken, ExpiresIn: out.ExpiresIn}, nil
 		case out.Error == "authorization_pending":
 			// keep polling
 		case out.Error == "slow_down":

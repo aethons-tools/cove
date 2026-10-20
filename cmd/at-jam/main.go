@@ -119,6 +119,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-jam/settings.yml)")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL; persisted to the app's settings when given")
+	participant := fs.Bool("participant", false, "sign in as a participant (a Jam user, not an operator) and cache the OIDC ID token for the /me routes")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -146,10 +147,19 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	lc, err := adminclient.New(adminURL, "").LoginConfig()
 	if err != nil {
 		if errors.Is(err, adminclient.ErrNotFound) {
+			if *participant {
+				fmt.Fprintln(stderr, "at-jam login: this Jam has no device login configured; participant login is unavailable")
+				return 1
+			}
 			fmt.Fprintln(stdout, "this Jam is not OIDC-gated; no login needed")
 			return 0
 		}
 		fmt.Fprintln(stderr, "at-jam login:", err)
+		return 1
+	}
+	// The participant bearer is the OIDC ID token, which only scope openid mints.
+	if *participant && !slices.Contains(strings.Fields(lc.Scope), "openid") {
+		fmt.Fprintf(stderr, "at-jam login: this Jam's device login scope %q lacks openid, so it mints no ID token; participant login is unavailable\n", lc.Scope)
 		return 1
 	}
 	ctx := context.Background()
@@ -177,6 +187,9 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
+	if *participant {
+		return saveParticipantLogin(*app, adminURL, tok, stdout, stderr)
+	}
 	sub, exp, _ := parseJWTClaims(tok.AccessToken)
 	if exp.IsZero() && tok.ExpiresIn > 0 {
 		exp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
@@ -189,9 +202,30 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// saveParticipantLogin caches a participant login: the ID token alone (never
+// printed), expiring at its own exp, under the app's participant profile.
+func saveParticipantLogin(app, adminURL string, tok deviceflow.Token, stdout, stderr io.Writer) int {
+	if tok.IDToken == "" {
+		fmt.Fprintln(stderr, "at-jam login: the identity provider returned no ID token; participant login needs scope openid")
+		return 1
+	}
+	sub, exp, err := parseJWTClaims(tok.IDToken)
+	if err != nil || exp.IsZero() {
+		fmt.Fprintln(stderr, "at-jam login: the identity provider's ID token is unreadable or carries no expiry")
+		return 1
+	}
+	if err := saveToken(participantProfile(app), cachedToken{IDToken: tok.IDToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
+		fmt.Fprintln(stderr, "at-jam login:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "logged in as participant %s; token expires %s\n", sub, exp.Format(time.RFC3339))
+	return 0
+}
+
 func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
+	participant := fs.Bool("participant", false, "clear the cached participant token instead of the operator token")
 	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
 		return code
 	}
@@ -199,7 +233,11 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam logout:", err)
 		return 2
 	}
-	if err := clearToken(*app); err != nil {
+	profile := *app
+	if *participant {
+		profile = participantProfile(*app)
+	}
+	if err := clearToken(profile); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
@@ -2335,6 +2373,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 					}
 				},
 			}
+		}
+		// The participant plane's collaboration routes take a bearer ID token
+		// from `at-jam login --participant` (the device client is its
+		// audience) — not the /me cookie, and not a browser, so they sit
+		// outside meGate and RequireSameOrigin. Without device login or the
+		// SSH CA they are not mounted.
+		if lc := cfg.operatorLoginConfig(); lc != nil && sshCA != nil {
+			verify, err := collabhttp.IDTokenVerifier(context.Background(), lc.Issuer, lc.ClientID)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: participant bearer:", err)
+				return 1
+			}
+			meMux.Handle("/me/studios/", collabhttp.Routes("/me", collabDeps(collabhttp.ParticipantBearer(verify, st))))
+			meHandler = meMux
+			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/", "client-id", lc.ClientID)
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),

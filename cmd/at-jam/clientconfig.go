@@ -163,8 +163,11 @@ func saveSettings(app string, s clientSettings) error {
 
 // cachedToken is one app's login-owned token, at ~/.config/at-jam/{app}-admin-token.json
 // (mode 0600). AdminURL records the Jam it was minted against, for display.
+// A participant login (participantProfile) holds only IDToken, and Expiry is
+// the ID token's exp.
 type cachedToken struct {
-	AccessToken string    `json:"access_token"`
+	AccessToken string    `json:"access_token,omitempty"`
+	IDToken     string    `json:"id_token,omitempty"`
 	Sub         string    `json:"sub"`
 	Expiry      time.Time `json:"expiry"`
 	AdminURL    string    `json:"admin_url"`
@@ -232,6 +235,28 @@ func resolveToken(app, flagVal string, warn io.Writer) string {
 		return ct.AccessToken
 	}
 	return ""
+}
+
+// participantProfile is the token profile `at-jam login --participant` caches
+// app's participant ID token under, kept apart from the operator token.
+func participantProfile(app string) string { return app + "-participant" }
+
+// resolveParticipantToken returns app's cached participant ID token — the
+// bearer for the /me/studios routes — or an error naming the login to run when
+// there is none or it has expired.
+func resolveParticipantToken(app string) (string, error) {
+	profile := participantProfile(app)
+	if t, ok := loadToken(profile); ok && t.IDToken != "" {
+		return t.IDToken, nil
+	}
+	login := "at-jam login --participant"
+	if app != defaultApp {
+		login += " --app " + app
+	}
+	if _, err := os.Stat(tokenPath(profile)); err == nil {
+		return "", fmt.Errorf("participant login expired; run: %s", login)
+	}
+	return "", fmt.Errorf("not signed in as a participant; run: %s", login)
 }
 
 // parseJWTClaims extracts sub + exp from a JWT payload WITHOUT verifying the
