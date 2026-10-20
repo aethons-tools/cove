@@ -61,6 +61,7 @@ func newTestPreviewAuth(t *testing.T) *previewFixture {
 	})
 	a := NewPreviewAuth(PreviewAuthOptions{
 		Domain: testDomain,
+		Port:   "8443",
 		Login:  login,
 		Operator: func(_ context.Context, tok string) (string, bool) {
 			return "op1", tok == "op-token"
@@ -133,13 +134,17 @@ func TestLoginBounceRejectsForeignReturn(t *testing.T) {
 		"https://vite--" + label26 + ".preview.jam.example/#frag", "https://VITE--" + label26 + ".preview.jam.example/",
 		"https://vite--" + label26 + ".preview.jam.example./", "https:vite--" + label26 + ".preview.jam.example/",
 		"https://vite--" + label26 + ".preview.jam.example\\@evil.example/", "/app", "",
+		"https://vite--" + label26 + ".preview.jam.example:443/", "https://vite--" + label26 + ".preview.jam.example:9999/",
+		"https://vite--" + label26 + ".preview.jam.example:/",
 	} {
 		if a.ValidReturn(rt) {
 			t.Errorf("accepted return_to %q", rt)
 		}
 	}
-	if !a.ValidReturn("https://vite--" + label26 + ".preview.jam.example/app?x=1") {
-		t.Fatal("valid return refused")
+	for _, ok := range []string{"https://vite--" + label26 + ".preview.jam.example/app?x=1", "https://vite--" + label26 + ".preview.jam.example:8443/app"} {
+		if !a.ValidReturn(ok) {
+			t.Errorf("valid return %q refused", ok)
+		}
 	}
 }
 
@@ -170,11 +175,18 @@ func TestCodeSingleUseAndHostBound(t *testing.T) {
 		t.Fatalf("trade: %d %v", w.Code, w.Header())
 	}
 	ck := w.Result().Cookies()[0]
-	if ck.Name != "jam_preview" || ck.Domain != "" || !ck.HttpOnly || !ck.Secure || ck.Path != "/" || ck.SameSite != http.SameSiteLaxMode {
+	if ck.Name != "__Host-jam_preview" || ck.Domain != "" || !ck.HttpOnly || !ck.Secure || ck.Path != "/" || ck.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie %+v", ck)
 	}
-	if w := trade(hostA); w.Code != http.StatusBadRequest {
+	if cc, rp := w.Header().Get("Cache-Control"), w.Header().Get("Referrer-Policy"); cc != "no-store" || rp != "no-referrer" {
+		t.Errorf("trade headers Cache-Control=%q Referrer-Policy=%q", cc, rp)
+	}
+	w = trade(hostA)
+	if w.Code != http.StatusBadRequest {
 		t.Fatalf("replayed code: %d", w.Code)
+	}
+	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Errorf("refused trade headers %v", w.Header())
 	}
 	// Neither the code nor the session id is ever logged.
 	if logs := a.logs.String(); strings.Contains(logs, code) || strings.Contains(logs, ck.Value) {
@@ -225,7 +237,7 @@ func TestSessionPrincipalExpiryAndHostBinding(t *testing.T) {
 			t.Errorf("session used on %s: %v", h, err)
 		}
 	}
-	if _, _, err := principalOn(a.PreviewAuth, hostA, &http.Cookie{Name: "jam_preview", Value: "forged"}); !errors.Is(err, ErrNoCredentials) {
+	if _, _, err := principalOn(a.PreviewAuth, hostA, &http.Cookie{Name: "__Host-jam_preview", Value: "forged"}); !errors.Is(err, ErrNoCredentials) {
 		t.Errorf("unknown session: %v", err)
 	}
 	a.clock.Add(8*time.Hour - time.Second)
@@ -243,12 +255,26 @@ func TestDuplicatePreviewCookiesAreNoCredentials(t *testing.T) {
 	ck := a.session(t)
 	// A sibling app tossing a Domain=<domain> jam_preview cookie: never pick one.
 	for _, order := range [][]*http.Cookie{
-		{ck, {Name: "jam_preview", Value: "tossed"}},
-		{{Name: "jam_preview", Value: "tossed"}, ck},
+		{ck, {Name: "__Host-jam_preview", Value: "tossed"}},
+		{{Name: "__Host-jam_preview", Value: "tossed"}, ck},
 	} {
 		if _, _, err := principalOn(a.PreviewAuth, hostA, order...); !errors.Is(err, ErrNoCredentials) {
 			t.Errorf("two jam_preview cookies: %v", err)
 		}
+	}
+}
+
+func TestPlainPreviewCookieIgnored(t *testing.T) {
+	a := newTestPreviewAuth(t)
+	ck := a.session(t)
+	// A tossable (non-__Host-) cookie is never read as a session, even one
+	// carrying a live session's value, nor counted as a duplicate.
+	plain := &http.Cookie{Name: "jam_preview", Value: ck.Value}
+	if _, _, err := principalOn(a.PreviewAuth, hostA, plain); !errors.Is(err, ErrNoCredentials) {
+		t.Errorf("plain jam_preview read as a session: %v", err)
+	}
+	if p, _, err := principalOn(a.PreviewAuth, hostA, plain, ck); err != nil || p.UserID != aliceID {
+		t.Errorf("plain cookie beside the session: %+v %v", p, err)
 	}
 }
 
@@ -297,6 +323,16 @@ func TestLoginRedirect(t *testing.T) {
 	if w.Code != http.StatusFound || w.Header().Get("Location") != want {
 		t.Fatalf("browser: %d %q, want %q", w.Code, w.Header().Get("Location"), want)
 	}
+	// A "//"-led path still completes login (the trade refuses "//" paths).
+	r = httptest.NewRequest("GET", "https://"+hostA+"/", nil)
+	r.URL.Path, r.URL.RawQuery = "//x/y", "q=1"
+	r.Header.Set("Accept", "text/html")
+	w = httptest.NewRecorder()
+	a.LoginRedirect(w, r)
+	want = "https://" + loginHost + "/__jam/start?return_to=" + url.QueryEscape("https://"+hostA+"/x/y?q=1")
+	if w.Header().Get("Location") != want {
+		t.Errorf("// path: %q, want %q", w.Header().Get("Location"), want)
+	}
 	r = httptest.NewRequest("GET", "https://"+hostA+"/api", nil)
 	r.Header.Set("Accept", "application/json")
 	w = httptest.NewRecorder()
@@ -318,6 +354,9 @@ func TestLoginHostHandler(t *testing.T) {
 	w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape(rt))
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "/__jam/auth/login?return_to="+url.QueryEscape(rt) {
 		t.Fatalf("start: %d %v", w.Code, w.Header())
+	}
+	if cks := w.Result().Cookies(); len(cks) != 0 {
+		t.Errorf("start set cookies %+v", cks)
 	}
 	if w := get(loginHost, "/__jam/start?return_to="+url.QueryEscape("https://evil.example/")); w.Code != http.StatusBadRequest {
 		t.Errorf("start with foreign return_to: %d", w.Code)
@@ -372,7 +411,7 @@ func TestPreviewHostRoutesLogoutAndPassThrough(t *testing.T) {
 	}
 	w := serve("/__jam/logout", ck)
 	cleared := w.Result().Cookies()
-	if len(cleared) != 1 || cleared[0].Name != "jam_preview" || cleared[0].MaxAge >= 0 || cleared[0].Domain != "" {
+	if len(cleared) != 1 || cleared[0].Name != "__Host-jam_preview" || cleared[0].MaxAge >= 0 || cleared[0].Domain != "" {
 		t.Fatalf("logout cookies %+v", cleared)
 	}
 	if _, _, err := principalOn(a.PreviewAuth, hostA, ck); !errors.Is(err, ErrNoCredentials) {

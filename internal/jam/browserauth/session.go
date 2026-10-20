@@ -26,15 +26,34 @@ func (m Mount) clearSession(w http.ResponseWriter) {
 	})
 }
 
-// tempCookie sets a short-lived HttpOnly cookie under the mount's /auth prefix,
-// used only across the authorize→callback round trip.
+// tempName is the mount's name for temp cookie n: "__Host-"-prefixed for a
+// HostPrefixed mount, so a sibling host cannot toss one with a Domain attribute.
+func (m Mount) tempName(n string) string {
+	if m.HostPrefixed {
+		return "__Host-" + n
+	}
+	return n
+}
+
+// tempPath scopes temp cookies to the mount's /auth prefix — or "/" for a
+// HostPrefixed mount, as the __Host- prefix requires.
+func (m Mount) tempPath() string {
+	if m.HostPrefixed {
+		return "/"
+	}
+	return m.authPrefix()
+}
+
+// tempCookie sets a short-lived HttpOnly cookie (see tempName, tempPath), used
+// only across the authorize→callback round trip. A HostPrefixed mount's
+// cookies are always Secure, as the __Host- prefix requires.
 func (m Mount) tempCookie(w http.ResponseWriter, name, value string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
-		Name: name, Value: value, Path: m.authPrefix(),
-		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 600,
+		Name: m.tempName(name), Value: value, Path: m.tempPath(),
+		HttpOnly: true, Secure: secure || m.HostPrefixed, SameSite: http.SameSiteLaxMode, MaxAge: 600,
 	})
 }
 
 func (m Mount) clearTemp(w http.ResponseWriter, name string) {
-	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: m.authPrefix(), HttpOnly: true, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: m.tempName(name), Value: "", Path: m.tempPath(), HttpOnly: true, Secure: m.HostPrefixed, MaxAge: -1})
 }

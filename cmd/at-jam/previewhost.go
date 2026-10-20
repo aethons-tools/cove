@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -83,8 +85,9 @@ func loadPreviewCert(certFile, keyFile, domain string) (tls.Certificate, error) 
 // Service over browserauth.PreviewMount, served on the login host, whose
 // redirect URI is https://jam.<domain>/__jam/auth/callback. lc (nil when there
 // is no device client) is the CLI login whose participant ID tokens a
-// non-browser caller presents as a bearer.
-func newPreviewAuth(domain string, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
+// non-browser caller presents as a bearer. port is the admin listener's, the
+// only explicit port a login may return to.
+func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
 	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
 	if !ok {
 		return nil, fmt.Errorf("previews require operator-auth.oidc")
@@ -93,6 +96,7 @@ func newPreviewAuth(domain string, bc browserauth.RawConfig, lc *jam.OperatorLog
 	var loginRoutes http.Handler // set below: the Service needs pa's hooks
 	pa := collabhttp.NewPreviewAuth(collabhttp.PreviewAuthOptions{
 		Domain: domain,
+		Port:   port,
 		Login:  http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { loginRoutes.ServeHTTP(w, r) }),
 		Operator: func(ctx context.Context, tok string) (string, bool) {
 			op, err := oidcAuth.VerifyToken(ctx, tok)
@@ -120,12 +124,20 @@ func newPreviewAuth(domain string, bc browserauth.RawConfig, lc *jam.OperatorLog
 
 // previewBearer names a non-browser preview caller from its Authorization
 // bearer: an operator access token (as on the admin API), else — when the CLI
-// login is configured — a participant ID token (as on /me/studios/).
+// login is configured — a participant ID token (as on /me/studios/). A token
+// that is not shaped as the CLI client's ID token (idTokenShaped) — e.g. an
+// access token that failed operator verification — is not retried as one.
 func previewBearer(oidcAuth *jam.OIDCAuthenticator, lc *jam.OperatorLoginConfig, st jam.Store) func(*http.Request) (collab.Principal, string, error) {
 	operator := operatorPrincipal(st)
 	var participant func(*http.Request) (collab.Principal, string, error)
 	if lc != nil {
-		participant = collabhttp.ParticipantBearer(oidcAuth.IDTokenVerifier(lc.ClientID), st)
+		verify := oidcAuth.IDTokenVerifier(lc.ClientID)
+		participant = collabhttp.ParticipantBearer(func(ctx context.Context, raw string) (string, string, error) {
+			if err := idTokenShaped(raw, lc.ClientID); err != nil {
+				return "", "", err
+			}
+			return verify(ctx, raw)
+		}, st)
 	}
 	return func(r *http.Request) (collab.Principal, string, error) {
 		if op, err := oidcAuth.Authenticate(r); err == nil {
@@ -139,4 +151,42 @@ func previewBearer(oidcAuth *jam.OIDCAuthenticator, lc *jam.OperatorLoginConfig,
 		}
 		return participant(r)
 	}
+}
+
+// idTokenShaped refuses a bearer that cannot be clientID's ID token before it
+// is verified as one: a JWT typed as an access token (typ at+jwt, RFC 9068)
+// or whose aud is anything but exactly clientID. It reads the token unverified
+// — the verifier still checks signature, issuer and expiry. (A nonce is not
+// required: the device flow that mints CLI ID tokens has none.)
+func idTokenShaped(raw, clientID string) error {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("not a JWT")
+	}
+	var hdr struct {
+		Typ string `json:"typ"`
+	}
+	var claims struct {
+		Aud json.RawMessage `json:"aud"`
+	}
+	for i, v := range []any{&hdr, &claims} {
+		b, err := base64.RawURLEncoding.DecodeString(parts[i])
+		if err != nil || json.Unmarshal(b, v) != nil {
+			return fmt.Errorf("malformed JWT")
+		}
+	}
+	if t := strings.ToLower(hdr.Typ); t == "at+jwt" || t == "application/at+jwt" {
+		return fmt.Errorf("an access token is not an ID token")
+	}
+	var one string
+	var many []string
+	if json.Unmarshal(claims.Aud, &one) == nil {
+		many = []string{one}
+	} else if json.Unmarshal(claims.Aud, &many) != nil {
+		return fmt.Errorf("malformed aud")
+	}
+	if len(many) != 1 || many[0] != clientID {
+		return fmt.Errorf("aud is not the login client")
+	}
+	return nil
 }

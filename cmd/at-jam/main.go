@@ -2447,7 +2447,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce
 			// through the login host (validatePreviews ensured browser login).
-			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
+			_, adminPort, _ := net.SplitHostPort(cfg.AdminListen)
+			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: previews:", err)
 				return 1

@@ -113,7 +113,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
-	stateCk, err := r.Cookie(stateCookie)
+	stateCk, err := r.Cookie(s.mount.tempName(stateCookie))
 	if err != nil {
 		http.Error(w, "missing login state", http.StatusBadRequest)
 		return
@@ -123,7 +123,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "state mismatch", http.StatusBadRequest)
 		return
 	}
-	pkce, err := r.Cookie(pkceCookie)
+	pkce, err := r.Cookie(s.mount.tempName(pkceCookie))
 	if err != nil {
 		http.Error(w, "missing login state", http.StatusBadRequest)
 		return
@@ -140,7 +140,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login failed", http.StatusUnauthorized)
 		return
 	}
-	nonceCk, err := r.Cookie(nonceCookie)
+	nonceCk, err := r.Cookie(s.mount.tempName(nonceCookie))
 	if err != nil || subtle.ConstantTimeCompare([]byte(verified.Nonce), []byte(nonceCk.Value)) != 1 {
 		http.Error(w, "nonce mismatch", http.StatusUnauthorized)
 		return

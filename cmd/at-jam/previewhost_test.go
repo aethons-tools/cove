@@ -173,3 +173,32 @@ func assertNoKeyMaterial(t *testing.T, err error, keyPEM []byte) {
 		}
 	}
 }
+
+func TestIDTokenShaped(t *testing.T) {
+	jwt := func(hdr, claims string) string {
+		enc := base64.RawURLEncoding.EncodeToString
+		return enc([]byte(hdr)) + "." + enc([]byte(claims)) + ".sig"
+	}
+	for name, tok := range map[string]string{
+		"id token":           jwt(`{"alg":"RS256","typ":"JWT"}`, `{"aud":"cli","sub":"a"}`),
+		"single-element aud": jwt(`{"alg":"RS256"}`, `{"aud":["cli"],"sub":"a"}`),
+	} {
+		if err := idTokenShaped(tok, "cli"); err != nil {
+			t.Errorf("%s refused: %v", name, err)
+		}
+	}
+	for name, tok := range map[string]string{
+		"at+jwt":             jwt(`{"alg":"RS256","typ":"at+jwt"}`, `{"aud":"cli"}`),
+		"AT+JWT":             jwt(`{"alg":"RS256","typ":"AT+JWT"}`, `{"aud":"cli"}`),
+		"application/at+jwt": jwt(`{"alg":"RS256","typ":"application/at+jwt"}`, `{"aud":"cli"}`),
+		"api audience":       jwt(`{"alg":"RS256"}`, `{"aud":["https://api","cli"]}`),
+		"other client":       jwt(`{"alg":"RS256"}`, `{"aud":"browser"}`),
+		"no aud":             jwt(`{"alg":"RS256"}`, `{"sub":"a"}`),
+		"not a jwt":          "opaque-token",
+		"bad base64":         "!!.!!.!!",
+	} {
+		if idTokenShaped(tok, "cli") == nil {
+			t.Errorf("%s accepted as a participant ID token", name)
+		}
+	}
+}

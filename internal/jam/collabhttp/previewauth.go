@@ -21,8 +21,10 @@ import (
 
 const (
 	// PreviewCookie names the preview session cookie: host-only, so it reaches
-	// exactly the preview host it was issued on.
-	PreviewCookie = "jam_preview"
+	// exactly the preview host it was issued on. The __Host- prefix makes
+	// browsers refuse it with a Domain attribute, so a sibling preview app
+	// cannot toss one.
+	PreviewCookie = "__Host-jam_preview"
 	// PreviewSessionTTL is how long a preview login lasts.
 	PreviewSessionTTL = 8 * time.Hour
 	// PreviewCodeTTL is how long a login code may wait to be traded.
@@ -35,6 +37,9 @@ const (
 type PreviewAuthOptions struct {
 	// Domain is the previews domain; the login host is jam.<Domain>.
 	Domain string
+	// Port is the admin listener's port: a return URL may name no port or
+	// exactly this one.
+	Port string
 	// Login serves the login host's /__jam/auth/* routes: the browserauth
 	// Service main builds over browserauth.PreviewMount(pa.Complete, pa.ValidReturn).
 	Login http.Handler
@@ -62,7 +67,7 @@ type previewEntry struct {
 // A preview host has no login of its own: a browser without a session is sent
 // to the login host (LoginRedirect), which runs the OIDC login and then
 // bounces back with a single-use code bound to the preview host (Complete);
-// the preview host trades the code for a host-only jam_preview session cookie
+// the preview host trades the code for a host-only __Host-jam_preview cookie
 // (PreviewHostRoutes). Sessions and codes live in memory, keyed by the SHA-256
 // of their random value — the raw values are never stored or logged.
 type PreviewAuth struct {
@@ -147,11 +152,11 @@ func (a *PreviewAuth) isLoginHost(host string) bool {
 	return strings.TrimSuffix(strings.ToLower(h), ".") == preview.LoginHost(a.o.Domain)
 }
 
-// Principal names the caller of a request on a preview host: its jam_preview
-// session when it carries one (unknown, expired or issued for another host ⇒
-// ErrNoCredentials; more than one jam_preview cookie — a sibling tossing a
-// Domain cookie — is also ErrNoCredentials, never a pick), else its
-// Authorization bearer via Bearer, else ErrNoCredentials.
+// Principal names the caller of a request on a preview host: its
+// __Host-jam_preview session when it carries one (unknown, expired or issued
+// for another host ⇒ ErrNoCredentials; more than one such cookie is also
+// ErrNoCredentials, never a pick; an unprefixed jam_preview is ignored), else
+// its Authorization bearer via Bearer, else ErrNoCredentials.
 func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, error) {
 	var vals []string
 	for _, c := range r.Cookies() {
@@ -188,14 +193,17 @@ func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, erro
 }
 
 // ValidReturn reports whether u may be a login's return_to: an absolute
-// https URL on a preview host (in canonical lowercase form, an optional port;
-// never the login host) with no userinfo and no fragment.
+// https URL on a preview host (in canonical lowercase form, with no port or
+// the admin listener's; never the login host) with no userinfo and no fragment.
 func (a *PreviewAuth) ValidReturn(u string) bool {
 	if strings.ContainsAny(u, "\\#") {
 		return false
 	}
 	p, err := url.Parse(u)
 	if err != nil || p.Scheme != "https" || p.Opaque != "" || p.User != nil || p.Host == "" {
+		return false
+	}
+	if port := p.Port(); strings.HasSuffix(p.Host, ":") || (port != "" && port != a.o.Port) {
 		return false
 	}
 	host, ok := a.canonicalHost(p.Host)
@@ -286,7 +294,7 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 // PreviewHostRoutes serves Jam's reserved /__jam/ paths on a preview host and
 // passes everything else to next:
 //   - GET /__jam/session?code=…&return_to=/path trades a login code minted for
-//     this host (single use, 60 s) for a host-only jam_preview session cookie
+//     this host (single use, 60 s) for a host-only __Host-jam_preview cookie
 //     and redirects to return_to, which must be a path (not "//…" or "/\…");
 //   - GET /__jam/logout drops the session and clears the cookie;
 //   - any other /__jam path is 404.
@@ -317,6 +325,9 @@ func validReturnPath(p string) bool {
 }
 
 func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
+	// The URL carries a code: never cache it or leak it onward as a Referer.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	host, ok := a.canonicalHost(r.Host)
 	rt := r.URL.Query().Get("return_to")
 	code := r.URL.Query().Get("code")
@@ -393,7 +404,8 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 		if _, port, err := net.SplitHostPort(r.Host); err == nil && port != "" {
 			self, login = net.JoinHostPort(host, port), net.JoinHostPort(login, port)
 		}
-		rt := (&url.URL{Scheme: "https", Host: self}).String() + r.URL.RequestURI()
+		// A "//"-led path would be refused as a return path; collapse it.
+		rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
 		http.Redirect(w, r, "https://"+login+"/__jam/start?return_to="+url.QueryEscape(rt), http.StatusFound)
 		return
 	}

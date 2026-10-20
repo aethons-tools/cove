@@ -27,6 +27,9 @@ const (
 // and Session are then unused, and there is no logout route). When ReturnTo is
 // set it decides which login return_to values are kept, replacing the
 // same-site prefix check (a refused value collapses to "<prefix>/" as before).
+// HostPrefixed names the login round trip's temp cookies "__Host-…" (Path=/,
+// Secure, no Domain), so sibling hosts under a shared parent domain cannot
+// toss them.
 type Mount struct {
 	Prefix        string // e.g. "/ui" or "/me"
 	SessionCookie string // e.g. "jam_session" or "jam_participant"
@@ -34,6 +37,8 @@ type Mount struct {
 
 	Complete func(w http.ResponseWriter, r *http.Request, idToken, accessToken, returnTo string)
 	ReturnTo func(returnTo string) bool
+
+	HostPrefixed bool
 }
 
 func (m Mount) authPrefix() string   { return m.Prefix + "/auth" }
@@ -53,7 +58,8 @@ func ParticipantMount() Mount {
 // PreviewMount is the previews' login mount, served on the login host
 // (jam.<previews domain>) under "/__jam": its callback hands the tokens to
 // complete (which issues the preview session itself), and returnTo vets the
-// absolute preview URL a login returns to.
+// absolute preview URL a login returns to. Its temp cookies are __Host-
+// prefixed: untrusted preview apps share the parent domain.
 func PreviewMount(complete func(w http.ResponseWriter, r *http.Request, idToken, accessToken, returnTo string), returnTo func(string) bool) Mount {
-	return Mount{Prefix: "/__jam", Complete: complete, ReturnTo: returnTo}
+	return Mount{Prefix: "/__jam", Complete: complete, ReturnTo: returnTo, HostPrefixed: true}
 }

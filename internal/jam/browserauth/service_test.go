@@ -209,37 +209,130 @@ func TestLogoutClearsSession(t *testing.T) {
 	}
 }
 
-// loginAndCallback drives svc's login (with return_to) and then its callback
-// on host, returning the callback's recorder and the return_to the state
-// cookie bound.
-func loginAndCallback(t *testing.T, idp *fakeIdP, svc *Service, host, returnTo string) (*httptest.ResponseRecorder, string) {
+// startLogin drives svc's login (with return_to) on host and returns the
+// cookies it set, the state value and the return_to the state cookie bound;
+// it points the fake IdP at the login's nonce.
+func startLogin(t *testing.T, idp *fakeIdP, svc *Service, host, returnTo string) (cookies []*http.Cookie, state, bound string) {
 	t.Helper()
-	p := svc.mount.Prefix
-	loginRec := httptest.NewRecorder()
-	loginReq := httptest.NewRequest("GET", p+"/auth/login?return_to="+url.QueryEscape(returnTo), nil)
-	loginReq.Host, loginReq.TLS = host, &tls.ConnectionState{}
-	svc.Routes().ServeHTTP(loginRec, loginReq)
-	if loginRec.Code != http.StatusFound {
-		t.Fatalf("login = %d", loginRec.Code)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", svc.mount.Prefix+"/auth/login?return_to="+url.QueryEscape(returnTo), nil)
+	req.Host, req.TLS = host, &tls.ConnectionState{}
+	svc.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("login = %d", rec.Code)
 	}
-	cookies := loginRec.Result().Cookies()
-	var stateVal, bound string
+	cookies = rec.Result().Cookies()
 	for _, c := range cookies {
 		switch c.Name {
-		case stateCookie:
-			stateVal, bound, _ = strings.Cut(c.Value, "|")
-		case nonceCookie:
+		case svc.mount.tempName(stateCookie):
+			state, bound, _ = strings.Cut(c.Value, "|")
+		case svc.mount.tempName(nonceCookie):
 			idp.idNonce = c.Value
 		}
 	}
-	cbRec := httptest.NewRecorder()
-	cbReq := httptest.NewRequest("GET", p+"/auth/callback?state="+stateVal+"&code=good", nil)
-	cbReq.Host, cbReq.TLS = host, &tls.ConnectionState{}
+	return cookies, state, bound
+}
+
+func callbackWith(svc *Service, host, state string, cookies []*http.Cookie) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", svc.mount.Prefix+"/auth/callback?state="+url.QueryEscape(state)+"&code=good", nil)
+	req.Host, req.TLS = host, &tls.ConnectionState{}
 	for _, c := range cookies {
-		cbReq.AddCookie(c)
+		req.AddCookie(c)
 	}
-	svc.Routes().ServeHTTP(cbRec, cbReq)
-	return cbRec, bound
+	svc.Routes().ServeHTTP(rec, req)
+	return rec
+}
+
+// loginAndCallback drives svc's login and then its callback on host,
+// returning the callback's recorder and the return_to the state bound.
+func loginAndCallback(t *testing.T, idp *fakeIdP, svc *Service, host, returnTo string) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	cookies, state, bound := startLogin(t, idp, svc, host, returnTo)
+	return callbackWith(svc, host, state, cookies), bound
+}
+
+// previewSvc is a Service over PreviewMount whose Complete counts its calls.
+func previewSvc(t *testing.T, idp *fakeIdP, calls *int) *Service {
+	t.Helper()
+	m := PreviewMount(func(w http.ResponseWriter, r *http.Request, _, _, _ string) {
+		*calls++
+		w.WriteHeader(http.StatusTeapot)
+	}, func(string) bool { return true })
+	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, m, nil, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc
+}
+
+func TestPreviewMountCookiesAreHostPrefixed(t *testing.T) {
+	idp := newFakeIdP(t)
+	var calls int
+	svc := previewSvc(t, idp, &calls)
+	cookies, state, _ := startLogin(t, idp, svc, "jam.preview.example", "https://x/")
+	names := map[string]bool{}
+	for _, c := range cookies {
+		names[c.Name] = true
+		if !strings.HasPrefix(c.Name, "__Host-") || c.Path != "/" || !c.Secure || !c.HttpOnly || c.Domain != "" || c.SameSite != http.SameSiteLaxMode {
+			t.Errorf("login cookie %+v, want __Host-, Path=/, Secure, HttpOnly, no Domain, Lax", c)
+		}
+	}
+	for _, n := range []string{"__Host-jam_oauth_state", "__Host-jam_oauth_nonce", "__Host-jam_oauth_pkce"} {
+		if !names[n] {
+			t.Errorf("missing %s (got %v)", n, names)
+		}
+	}
+	rec := callbackWith(svc, "jam.preview.example", state, cookies)
+	if rec.Code != http.StatusTeapot || calls != 1 {
+		t.Fatalf("callback = %d, Complete calls %d", rec.Code, calls)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if !strings.HasPrefix(c.Name, "__Host-") || c.Path != "/" || !c.Secure || c.Domain != "" || c.MaxAge >= 0 {
+			t.Errorf("callback cookie %+v, want a cleared __Host- temp cookie", c)
+		}
+	}
+	// A plain (tossable) temp cookie is not read on a HostPrefixed mount.
+	var plain []*http.Cookie
+	for _, c := range cookies {
+		plain = append(plain, &http.Cookie{Name: strings.TrimPrefix(c.Name, "__Host-"), Value: c.Value})
+	}
+	if rec := callbackWith(svc, "jam.preview.example", state, plain); rec.Code != http.StatusBadRequest || calls != 1 {
+		t.Errorf("unprefixed temp cookies accepted: %d", rec.Code)
+	}
+}
+
+func TestExistingMountsTempCookiesUnprefixed(t *testing.T) {
+	idp := newFakeIdP(t)
+	for _, m := range []Mount{OperatorUIMount(), ParticipantMount()} {
+		svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, m, nil, discard())
+		if err != nil {
+			t.Fatal(err)
+		}
+		cookies, _, _ := startLogin(t, idp, svc, "jam.test", "")
+		for _, c := range cookies {
+			if strings.HasPrefix(c.Name, "__Host-") || !strings.HasPrefix(c.Name, "jam_oauth_") || c.Path != m.Prefix+"/auth" {
+				t.Errorf("%s temp cookie %+v changed", m.Prefix, c)
+			}
+		}
+	}
+}
+
+func TestCompleteMountStillChecksStateAndNonce(t *testing.T) {
+	idp := newFakeIdP(t)
+	var calls int
+	svc := previewSvc(t, idp, &calls)
+	cookies, state, _ := startLogin(t, idp, svc, "jam.preview.example", "https://x/")
+	if rec := callbackWith(svc, "jam.preview.example", state+"x", cookies); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad state = %d, want 400", rec.Code)
+	}
+	idp.idNonce = "wrong"
+	if rec := callbackWith(svc, "jam.preview.example", state, cookies); rec.Code != http.StatusUnauthorized {
+		t.Errorf("bad nonce = %d, want 401", rec.Code)
+	}
+	if calls != 0 {
+		t.Fatalf("Complete called %d times on a refused callback", calls)
+	}
 }
 
 func TestMountCompleteReplacesSession(t *testing.T) {
