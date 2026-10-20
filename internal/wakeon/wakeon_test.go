@@ -1928,3 +1928,86 @@ func TestTick_BreakerVerdictIsCached(t *testing.T) {
 		t.Fatalf("reads %d → %d over later ticks, notices %v", first, h.reads, br.notices)
 	}
 }
+
+// fakeTunnels reports the tunnels in use per studio.
+type fakeTunnels map[string]int
+
+func (f fakeTunnels) Live(actorID string) int { return f[actorID] }
+
+// A studio with a tunnel in use (an IDE or shell over SSH) is not paused at
+// warm-timeout; one without is.
+func TestTick_TunnelInUse_NotIdled(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "busy", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(0, 0)},
+		{ActorID: "quiet", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(0, 0)},
+	}}
+	idler := &fakeIdler{}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, idler, &fakeInbox{}, Config{MaxWait: 30 * time.Minute, WarmTimeout: time.Minute}, nil)
+	e.SetTunnels(fakeTunnels{"busy": 1})
+	e.now = func() time.Time { return time.Unix(0, 0).Add(2 * time.Minute) }
+	e.tick(context.Background())
+	if len(idler.idled) != 1 || idler.idled[0] != "quiet" {
+		t.Fatalf("Idle = %v, want [quiet]", idler.idled)
+	}
+}
+
+// Live SSH is activity for the teardowns that come of waiting too: wait-max
+// and an on-idle teardown are held while a tunnel is in use (an on-idle wake
+// still fires).
+func TestTick_TunnelInUse_HoldsWaitingTeardowns(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(0, 0)},
+	}}
+	reap := &fakeReaper{}
+	e := New(reg, &fakeWaker{}, reap, &fakeIdler{}, &fakeInbox{}, Config{MaxWait: 30 * time.Minute, WarmTimeout: time.Minute}, nil)
+	tun := fakeTunnels{"a1": 1}
+	e.SetTunnels(tun)
+	e.now = func() time.Time { return time.Unix(0, 0).Add(31 * time.Minute) }
+	e.tick(context.Background())
+	if len(reap.down) != 0 {
+		t.Fatalf("wait-max tore down a studio with a tunnel in use: %v", reap.down)
+	}
+	tun["a1"] = 0
+	e.tick(context.Background())
+	if len(reap.down) != 1 {
+		t.Fatalf("wait-max after the tunnel closed: %v", reap.down)
+	}
+
+	e2, wake, reap2, _, _ := turnEndEngine([]jam.Instance{{ActorID: "t", Project: "p", Role: "t", Phase: jam.PhaseLive,
+		Activity: jam.ActivityWaiting, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)},
+		{ActorID: "w", Project: "p", Role: "w", Phase: jam.PhaseLive, SessionKind: jam.SessionKindStanding,
+			Activity: jam.ActivityWaiting, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)}},
+		nil, fakeRoles{"p/t": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute, OnIdle: jam.OnIdleTeardown}}, "p/w": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute}}})
+	e2.SetTunnels(fakeTunnels{"t": 1, "w": 1})
+	e2.tick(context.Background())
+	if len(reap2.down) != 0 {
+		t.Fatalf("on-idle teardown with a tunnel in use: %v", reap2.down)
+	}
+	if len(wake.woke) != 1 || wake.woke[0] != "w" {
+		t.Fatalf("on-idle wake with a tunnel in use: woke=%v, want [w]", wake.woke)
+	}
+}
+
+// The personal idle ladder treats live SSH as the owner being there: no nag,
+// no reclaim while a tunnel is in use; it carries on once the last closes.
+func TestIdleLadder_TunnelInUseHoldsNagsAndReclaim(t *testing.T) {
+	start := time.Unix(100_000, 0)
+	var events []string
+	n := &fakeNagger{log: &events}
+	reap := &orderedReaper{log: &events}
+	inst := personal("p1", start)
+	inst.Phase = jam.PhaseLive
+	e, _, _, setNow := ladderKit(jam.RoleAllocation{IdleAfter: time.Hour, ReclaimAfter: 72 * time.Hour}, n, reap, inst)
+	tun := fakeTunnels{"p1": 2}
+	e.SetTunnels(tun)
+	setNow(start.Add(72 * time.Hour))
+	e.tick(context.Background())
+	if len(events) != 0 || len(n.calls) != 0 {
+		t.Fatalf("ladder ran with a tunnel in use: events=%v calls=%v", events, n.calls)
+	}
+	tun["p1"] = 0
+	e.tick(context.Background())
+	if len(events) != 2 || events[1] != "teardown:p1" {
+		t.Fatalf("ladder after the tunnel closed: events=%v", events)
+	}
+}

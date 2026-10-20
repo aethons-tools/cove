@@ -11,8 +11,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"io"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -24,14 +22,16 @@ var (
 	ErrStudioNotConnected = errors.New("studio not connected")
 	ErrDialBackTimeout    = errors.New("studio did not open the tunnel in time (is its cove-master current?)")
 	ErrTooManyTunnels     = errors.New("too many open tunnels for this studio")
-	errUnknownTunnel      = errors.New("unknown or already-claimed tunnel id")
+	// ErrTunnelsClosed: the studio is pausing or stopping (CloseAll ran) and
+	// takes no tunnels until it is resumed or raised again (Reopen).
+	ErrTunnelsClosed = errors.New("studio is pausing or stopping; its tunnels are closed")
+	errUnknownTunnel = errors.New("unknown or already-claimed tunnel id")
 )
 
 type TunnelOptions struct {
 	DialBack     time.Duration
 	MaxPerStudio int
 	Idle         time.Duration
-	Log          *slog.Logger
 }
 
 type TunnelStream interface {
@@ -41,8 +41,10 @@ type TunnelStream interface {
 }
 
 type pending struct {
-	actorID string
-	ready   chan *handoff // buffered(1): Claim sends after taking the entry
+	actorID   string
+	ready     chan *handoff // buffered(1): Claim sends after taking the entry
+	cancel    chan struct{} // closed by CloseAll after it took the entry
+	cancelled bool          // guarded by TunnelBroker.mu
 }
 
 // handoff is a claimed stream passed from Claim to Open. done is closed when
@@ -63,6 +65,7 @@ type TunnelBroker struct {
 	pending map[string]*pending
 	live    map[string]map[*tunnelConn]struct{} // actorID → open human ends
 	slots   map[string]int                      // actorID → reserved tunnels (pending + live)
+	closed  map[string]bool                     // actorID → CloseAll ran; refuse until Reopen
 }
 
 func NewTunnelBroker(push func(actorID, id string, port int32) bool, opt TunnelOptions) *TunnelBroker {
@@ -75,10 +78,7 @@ func NewTunnelBroker(push func(actorID, id string, port int32) bool, opt TunnelO
 	if opt.Idle <= 0 {
 		opt.Idle = 30 * time.Minute
 	}
-	if opt.Log == nil {
-		opt.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}, slots: map[string]int{}}
+	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}, slots: map[string]int{}, closed: map[string]bool{}}
 }
 
 func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
@@ -86,13 +86,17 @@ func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.Enc
 // Open returns the human-side end of a tunnel to actorID's 127.0.0.1:port.
 func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
 	b.mu.Lock()
+	if b.closed[actorID] {
+		b.mu.Unlock()
+		return nil, ErrTunnelsClosed
+	}
 	if b.slots[actorID] >= b.opt.MaxPerStudio {
 		b.mu.Unlock()
 		return nil, ErrTooManyTunnels
 	}
 	b.slots[actorID]++
 	id := newID()
-	p := &pending{actorID: actorID, ready: make(chan *handoff, 1)}
+	p := &pending{actorID: actorID, ready: make(chan *handoff, 1), cancel: make(chan struct{})}
 	b.pending[id] = p
 	b.mu.Unlock()
 
@@ -107,7 +111,12 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 	defer t.Stop()
 	select {
 	case h := <-p.ready:
-		return b.splice(actorID, h), nil
+		return b.splice(actorID, h)
+	case <-p.cancel:
+		b.mu.Lock()
+		b.releaseLocked(actorID)
+		b.mu.Unlock()
+		return nil, ErrTunnelsClosed
 	case <-t.C:
 		return nil, b.abandon(id, p, ErrDialBackTimeout)
 	case <-ctx.Done():
@@ -115,20 +124,24 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 	}
 }
 
-// abandon gives up on a pending open. If a Claim already took the entry, the
-// handed-over stream is closed so the studio's Tunnel RPC does not leak.
 func (b *TunnelBroker) releaseLocked(actorID string) {
 	if b.slots[actorID]--; b.slots[actorID] <= 0 {
 		delete(b.slots, actorID)
 	}
 }
 
+// abandon gives up on a pending open. If a Claim already took the entry, the
+// handed-over stream is closed so the studio's Tunnel RPC does not leak.
 func (b *TunnelBroker) abandon(id string, p *pending, cause error) error {
 	b.mu.Lock()
 	_, stillPending := b.pending[id]
 	delete(b.pending, id)
+	cancelled := p.cancelled
 	b.releaseLocked(p.actorID)
 	b.mu.Unlock()
+	if cancelled {
+		return ErrTunnelsClosed
+	}
 	if !stillPending {
 		h := <-p.ready // Claim took the entry and is about to send (or has sent)
 		_ = h.stream.Send(closeFrame("open abandoned"))
@@ -154,6 +167,10 @@ func (b *TunnelBroker) Claim(actorID string, s TunnelStream) error {
 		return errors.New("first tunnel frame must be open")
 	}
 	b.mu.Lock()
+	if b.closed[actorID] {
+		b.mu.Unlock()
+		return ErrTunnelsClosed
+	}
 	p, ok := b.pending[open.GetId()]
 	if ok && p.actorID == actorID {
 		delete(b.pending, open.GetId())
@@ -174,7 +191,10 @@ func (b *TunnelBroker) Claim(actorID string, s TunnelStream) error {
 	return nil
 }
 
-func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
+// splice joins a claimed stream to a new human end. A stream claimed while
+// CloseAll ran is closed instead (ErrTunnelsClosed): the check and the live
+// registration share one lock, so no tunnel outlives a CloseAll.
+func (b *TunnelBroker) splice(actorID string, h *handoff) (net.Conn, error) {
 	s := h.stream
 	human, inner := net.Pipe()
 	tc := &tunnelConn{Conn: human}
@@ -232,6 +252,11 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
 		}
 	}()
 	b.mu.Lock()
+	if b.closed[actorID] { // CloseAll ran after the claim
+		b.mu.Unlock()
+		done("closed by Jam")
+		return nil, ErrTunnelsClosed
+	}
 	if b.live[actorID] == nil {
 		b.live[actorID] = map[*tunnelConn]struct{}{}
 	}
@@ -275,20 +300,65 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
 			}
 		}
 	}()
-	return tc
+	return tc, nil
 }
 
-// CloseAll closes every live tunnel to actorID (teardown, idle, revocation).
+// Live reports how many tunnels actorID has in use: spliced ones and opens
+// still waiting for the studio's dial-back. A studio with any is not idle.
+func (b *TunnelBroker) Live(actorID string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.slots[actorID]
+}
+
+// CloseAll closes every tunnel to actorID — spliced ones and pending opens —
+// and refuses new opens and claims for it until Reopen (teardown, pause).
 func (b *TunnelBroker) CloseAll(actorID string) {
 	b.mu.Lock()
-	var all []*tunnelConn
-	for tc := range b.live[actorID] {
-		all = append(all, tc)
-	}
+	all := b.closeLocked(actorID)
 	b.mu.Unlock()
 	for _, tc := range all {
 		tc.closeAll()
 	}
+}
+
+// CloseIfUnused closes actorID's tunnels as CloseAll does, but only when none
+// is in use (Live is 0), reporting whether it did; the check and the close are
+// one step, so an open cannot slip in between (a pause).
+func (b *TunnelBroker) CloseIfUnused(actorID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.slots[actorID] > 0 {
+		return false
+	}
+	b.closeLocked(actorID)
+	return true
+}
+
+// Reopen lets actorID take tunnels again after CloseAll or CloseIfUnused (a
+// resume, a raise, a failed pause, or forgetting a torn-down studio).
+func (b *TunnelBroker) Reopen(actorID string) {
+	b.mu.Lock()
+	delete(b.closed, actorID)
+	b.mu.Unlock()
+}
+
+// closeLocked marks actorID closed, cancels its pending opens, and returns its
+// spliced tunnels for the caller to close outside the lock.
+func (b *TunnelBroker) closeLocked(actorID string) []*tunnelConn {
+	b.closed[actorID] = true
+	for id, p := range b.pending {
+		if p.actorID == actorID {
+			delete(b.pending, id)
+			p.cancelled = true
+			close(p.cancel) // Open releases the slot
+		}
+	}
+	var all []*tunnelConn
+	for tc := range b.live[actorID] {
+		all = append(all, tc)
+	}
+	return all
 }
 
 type tunnelConn struct {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -314,5 +315,135 @@ func TestCapCountsPendingOpens(t *testing.T) {
 	// slot released after the failed open
 	if _, err := b.Open(context.Background(), "ses_a", 2222); !errors.Is(err, ErrDialBackTimeout) {
 		t.Fatalf("slot leaked: %v", err)
+	}
+}
+
+// openPending starts an Open on actor and returns its result channel and the
+// tunnel id the studio was told to claim.
+func openPending(t *testing.T, b *TunnelBroker, p *pushRec, actor string) (<-chan net.Conn, <-chan error, string) {
+	t.Helper()
+	p.mu.Lock()
+	before := len(p.ids)
+	p.mu.Unlock()
+	conns, errs := make(chan net.Conn, 1), make(chan error, 1)
+	go func() {
+		c, err := b.Open(context.Background(), actor, 2222)
+		conns <- c
+		errs <- err
+	}()
+	waitFor(t, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return len(p.ids) > before })
+	return conns, errs, p.last()[len(actor)+1:]
+}
+
+// Live counts a studio's tunnels in use: pending opens and spliced ones.
+func TestBrokerLiveCountsPendingAndLive(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: time.Second})
+	if n := b.Live("ses_a"); n != 0 {
+		t.Fatalf("Live before any open = %d", n)
+	}
+	conns, _, id := openPending(t, b, p, "ses_a")
+	if n := b.Live("ses_a"); n != 1 {
+		t.Fatalf("Live with a pending open = %d, want 1", n)
+	}
+	s := newFakeStream()
+	s.fromStudio <- openFrame(id)
+	go func() { _ = b.Claim("ses_a", s) }()
+	c := <-conns
+	if n := b.Live("ses_a"); n != 1 || b.Live("ses_b") != 0 {
+		t.Fatalf("Live with a spliced tunnel = %d (ses_b %d), want 1 (0)", n, b.Live("ses_b"))
+	}
+	_ = c.Close()
+	waitFor(t, func() bool { return b.Live("ses_a") == 0 })
+}
+
+// Once CloseAll starts, the studio takes no new opens or claims — a pending
+// open is cancelled too — until Reopen.
+func TestCloseAllClosesPendingAndRefusesUntilReopen(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 5 * time.Second})
+	_, errs, id := openPending(t, b, p, "ses_a")
+	b.CloseAll("ses_a")
+	select {
+	case err := <-errs:
+		if !errors.Is(err, ErrTunnelsClosed) {
+			t.Fatalf("pending open err = %v, want ErrTunnelsClosed", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CloseAll left a pending open waiting for its dial-back")
+	}
+	late := newFakeStream()
+	late.fromStudio <- openFrame(id)
+	if err := b.Claim("ses_a", late); err == nil {
+		t.Fatal("a claim after CloseAll was accepted")
+	}
+	if n := b.Live("ses_a"); n != 0 {
+		t.Fatalf("Live after CloseAll = %d", n)
+	}
+	if _, err := b.Open(context.Background(), "ses_a", 2222); !errors.Is(err, ErrTunnelsClosed) {
+		t.Fatalf("open after CloseAll err = %v, want ErrTunnelsClosed", err)
+	}
+	// Other studios are unaffected.
+	if _, err := (NewTunnelBroker((&pushRec{ok: false}).push, TunnelOptions{})).Open(context.Background(), "ses_b", 2222); !errors.Is(err, ErrStudioNotConnected) {
+		t.Fatalf("ses_b open err = %v", err)
+	}
+	b.Reopen("ses_a")
+	conns, _, id := openPending(t, b, p, "ses_a")
+	s := newFakeStream()
+	s.fromStudio <- openFrame(id)
+	go func() { _ = b.Claim("ses_a", s) }()
+	if c := <-conns; c == nil {
+		t.Fatal("open after Reopen failed")
+	}
+}
+
+// A claim racing CloseAll never leaves a tunnel open past it: whichever
+// wins, the human end ends, the Claim returns and no slot is held.
+func TestClaimRacingCloseAllDoesNotSurvive(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		p := &pushRec{ok: true}
+		b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 5 * time.Second})
+		conns, errs, id := openPending(t, b, p, "ses_a")
+		s := newFakeStream()
+		s.fromStudio <- openFrame(id)
+		claimed := make(chan error, 1)
+		go func() { claimed <- b.Claim("ses_a", s) }()
+		go b.CloseAll("ses_a")
+		c, err := <-conns, <-errs
+		if err == nil {
+			_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+			if _, rerr := c.Read(make([]byte, 1)); rerr == nil || errors.Is(rerr, os.ErrDeadlineExceeded) {
+				t.Fatalf("iteration %d: a tunnel claimed during CloseAll survived it (read err %v)", i, rerr)
+			}
+		} else if !errors.Is(err, ErrTunnelsClosed) {
+			t.Fatalf("iteration %d: open err = %v", i, err)
+		}
+		s.cancel()
+		select {
+		case <-claimed:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("iteration %d: Claim did not return", i)
+		}
+		waitFor(t, func() bool { return b.Live("ses_a") == 0 })
+	}
+}
+
+// CloseIfUnused closes a studio's tunnels only when none is in use, in one
+// step, so no open can slip in between the check and the close.
+func TestCloseIfUnused(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 5 * time.Second})
+	_, errs, _ := openPending(t, b, p, "ses_a")
+	if b.CloseIfUnused("ses_a") {
+		t.Fatal("closed a studio with a tunnel in use")
+	}
+	b.CloseAll("ses_a")
+	<-errs
+	b.Reopen("ses_a")
+	if !b.CloseIfUnused("ses_a") {
+		t.Fatal("did not close an unused studio")
+	}
+	if _, err := b.Open(context.Background(), "ses_a", 2222); !errors.Is(err, ErrTunnelsClosed) {
+		t.Fatalf("open after CloseIfUnused err = %v, want ErrTunnelsClosed", err)
 	}
 }

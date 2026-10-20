@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -365,4 +366,107 @@ type tunnelsFunc func()
 func (f tunnelsFunc) Open(context.Context, string, int32) (net.Conn, error) {
 	f()
 	return nil, errors.New("unexpected open")
+}
+
+// A cert or tunnel request on an idled (paused) studio: with no wake path it
+// is refused 409 saying so; with one the studio is resumed, and the request
+// waits (bounded) for it to reconnect before it proceeds.
+func TestIdledStudioWakes(t *testing.T) {
+	idle := func(t *testing.T) (collabhttp.Deps, *jam.MemStore) {
+		d, st := testDeps(t)
+		_ = st.PutInstance(jam.Instance{ActorID: "ses_a", Project: "acme", Role: "ic", Phase: jam.PhaseIdled})
+		return d, st
+	}
+	t.Run("no wake path", func(t *testing.T) {
+		d, _ := idle(t)
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "alice"))
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "studio is idle; it resumes when it gets a message") {
+			t.Fatalf("%d %q", rec.Code, rec.Body)
+		}
+	})
+	t.Run("resumed and reconnected", func(t *testing.T) {
+		d, st := idle(t)
+		var resumed atomic.Int32
+		var connected atomic.Bool
+		d.Resume = func(_ context.Context, id string) error {
+			resumed.Add(1)
+			inst, _ := st.GetInstance(id)
+			inst.Phase = jam.PhaseLive
+			_ = st.PutInstance(inst)
+			go func() { time.Sleep(50 * time.Millisecond); connected.Store(true) }() // the stream reconnects a little later
+			return nil
+		}
+		d.Connected = func(string) bool { return connected.Load() }
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "alice"))
+		if rec.Code != http.StatusOK || resumed.Load() != 1 || !connected.Load() {
+			t.Fatalf("%d %q resumed=%d connected=%v", rec.Code, rec.Body, resumed.Load(), connected.Load())
+		}
+	})
+	t.Run("resumed by someone else first", func(t *testing.T) {
+		d, st := idle(t)
+		d.Resume = func(_ context.Context, id string) error {
+			inst, _ := st.GetInstance(id) // wake-on got there first: unpause fails, but it is live
+			inst.Phase = jam.PhaseLive
+			_ = st.PutInstance(inst)
+			return errors.New("container is not paused")
+		}
+		d.Connected = func(string) bool { return true }
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "alice"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%d %q", rec.Code, rec.Body)
+		}
+	})
+	t.Run("resume fails", func(t *testing.T) {
+		d, _ := idle(t)
+		d.Resume = func(context.Context, string) error { return errors.New("docker: no") }
+		d.Connected = func(string) bool { return false }
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "alice"))
+		if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "docker") {
+			t.Fatalf("%d %q", rec.Code, rec.Body)
+		}
+	})
+	t.Run("never reconnects", func(t *testing.T) {
+		d, st := idle(t)
+		d.Resume = func(_ context.Context, id string) error {
+			inst, _ := st.GetInstance(id)
+			inst.Phase = jam.PhaseLive
+			_ = st.PutInstance(inst)
+			return nil
+		}
+		d.Connected = func(string) bool { return false }
+		d.WakeWait = 100 * time.Millisecond
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "alice"))
+		if rec.Code != http.StatusGatewayTimeout {
+			t.Fatalf("%d %q", rec.Code, rec.Body)
+		}
+	})
+	t.Run("refused callers never wake it", func(t *testing.T) {
+		d, _ := idle(t)
+		d.Resume = func(context.Context, string) error { t.Error("resumed for a caller without ssh"); return nil }
+		d.Connected = func(string) bool { return true }
+		rec := httptest.NewRecorder()
+		collabhttp.Routes("/me", d).ServeHTTP(rec, certReq(testUserPub(t), "carol"))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%d %q", rec.Code, rec.Body)
+		}
+	})
+}
+
+// A studio that is pausing or stopping refuses the tunnel with 409.
+func TestUpgradeTunnelsClosed(t *testing.T) {
+	d, _ := testDeps(t)
+	d.Tunnels = fakeTunnels{err: attach.ErrTunnelsClosed}
+	req := httptest.NewRequest("GET", "/me/studios/ses_a/ssh", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "jam-tunnel")
+	rec := httptest.NewRecorder()
+	collabhttp.Routes("/me", d).ServeHTTP(rec, withTestPrincipal(req, "alice"))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("%d %q", rec.Code, rec.Body)
+	}
 }

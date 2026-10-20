@@ -68,7 +68,7 @@ func TestStudioSSHEndToEnd(t *testing.T) {
 	}
 	asrv := attach.NewServer(store, sup, quiet)
 	sup.SetControlSink(asrv)
-	tunnels := attach.NewTunnelBroker(asrv.PushOpenTunnel, attach.TunnelOptions{Log: quiet})
+	tunnels := attach.NewTunnelBroker(asrv.PushOpenTunnel, attach.TunnelOptions{})
 	asrv.SetTunnelBroker(tunnels)
 	lis := bufconn.Listen(1 << 20)
 	gs := grpc.NewServer()

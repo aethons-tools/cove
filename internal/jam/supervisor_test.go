@@ -31,6 +31,7 @@ type fakeLauncher struct {
 	tornDown    []string
 	probed      []string
 	paused      []string
+	pauseErr    error
 	resumed     []string
 	egressed    []*EgressPolicy // policies passed to ApplyEgress, in order
 	egressErr   error
@@ -93,7 +94,7 @@ func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error)
 }
 func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
 	f.paused = append(f.paused, inst.ActorID)
-	return nil
+	return f.pauseErr
 }
 func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 	f.resumed = append(f.resumed, inst.ActorID)

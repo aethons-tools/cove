@@ -1867,7 +1867,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Studio collaboration tunnels: a human's connection reaches a studio's
 	// loopback port over a Tunnel the studio dials back; the supervisor closes
 	// a studio's tunnels before it pauses or tears it down.
-	tunnels := attach.NewTunnelBroker(rsrv.PushOpenTunnel, attach.TunnelOptions{Log: log})
+	tunnels := attach.NewTunnelBroker(rsrv.PushOpenTunnel, attach.TunnelOptions{})
 	rsrv.SetTunnelBroker(tunnels)
 	sup.SetTunnelCloser(tunnels)
 	gs := grpc.NewServer()
@@ -2054,6 +2054,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Turn end: enforce end(reason) and the role's idle timeout.
 	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/, sup /*AlarmFirer*/)
 	eng.SetGates(sup /*GateState*/, rsrv /*GateRunner*/)
+	// An open SSH connection is activity: a studio with a tunnel in use is not
+	// paused, reclaimed or torn down for waiting.
+	eng.SetTunnels(tunnels)
 	eng.SetTickets(tickets /*TicketCloser*/, sup /*ReportRecorder*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
@@ -2384,6 +2387,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
 			return collabhttp.Deps{
 				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveSSH,
+				// A request on an idled studio resumes it and waits for its stream.
+				Resume: sup.Resume, Connected: rsrv.Connected,
 				Notify: func(inst jam.Instance, body string) {
 					if _, err := ic.Notify(inst, "", body); err != nil {
 						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())
@@ -2640,8 +2645,12 @@ func collabLabel(v, def string) string {
 	return v
 }
 
-// The tunnel broker is what the supervisor closes a studio's tunnels through.
-var _ jam.TunnelCloser = (*attach.TunnelBroker)(nil)
+// The tunnel broker is what the supervisor closes a studio's tunnels through,
+// and what tells wake-on a studio has one in use.
+var (
+	_ jam.TunnelCloser = (*attach.TunnelBroker)(nil)
+	_ wakeon.Tunnels   = (*attach.TunnelBroker)(nil)
+)
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
 // at /me/studios/ on meMux and reports whether it did. They take a bearer ID

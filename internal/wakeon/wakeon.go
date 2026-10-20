@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -63,6 +64,12 @@ type BreakerNotifier interface {
 type Idler interface {
 	Idle(ctx context.Context, actorID string) error
 	Resume(ctx context.Context, actorID string) error
+}
+
+// Tunnels reports how many port tunnels (SSH connections, studio
+// collaboration) a studio has in use — implemented by *attach.TunnelBroker.
+type Tunnels interface {
+	Live(actorID string) int
 }
 
 // RoleLookup reads a Role's idle settings (RoleAllocation.PersonalIdle). Satisfied
@@ -174,6 +181,9 @@ type Engine struct {
 	tickets TicketCloser   // nil = no ticket updates on teardown
 	reports ReportRecorder // records the blocked report so it is made once
 
+	// Tunnels in use (SetTunnels); nil = none ever.
+	tunnels Tunnels
+
 	// Alarm gates (SetGates); off while either is nil.
 	gates      GateState
 	gateRunner GateRunner
@@ -240,6 +250,18 @@ func (e *Engine) SetRunningWake(cursor Cursor) { e.cursor = cursor }
 // (resuming a paused one first) and its verdict decides whether it fires; a
 // run with no result within GateTimeout+GateGrace fails. Call before Run.
 func (e *Engine) SetGates(state GateState, runner GateRunner) { e.gates, e.gateRunner = state, runner }
+
+// SetTunnels makes a studio's open tunnels count as activity: while one is in
+// use the studio is not paused at warm-timeout, not torn down for waiting
+// (wait-max, an on-idle teardown) and its personal idle ladder neither nags
+// nor reclaims — a person is working in it. Wakes still happen. Call before
+// Run.
+func (e *Engine) SetTunnels(t Tunnels) { e.tunnels = t }
+
+// tunnelsInUse reports whether inst has a tunnel in use (see SetTunnels).
+func (e *Engine) tunnelsInUse(inst jam.Instance) bool {
+	return e.tunnels != nil && e.tunnels.Live(inst.ActorID) > 0
+}
 
 // SetTickets has every teardown wake-on performs (end, idle timeout,
 // wait-max) first mark an unfinished ticket blocked, and record that as the
@@ -325,7 +347,7 @@ func (e *Engine) tick(ctx context.Context) {
 		// on-idle action decides instead, and an alarm is itself a wake
 		// condition; wait-max is the backstop when neither is set.
 		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) && !(e.alarms != nil && len(inst.Alarms) > 0) &&
-			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait {
+			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait && !e.tunnelsInUse(inst) {
 			e.blockUnfinished(ctx, inst, "wait-max")
 			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
@@ -363,11 +385,12 @@ func (e *Engine) tick(ctx context.Context) {
 		}
 		// no reply. The idle ladder is personal-only: a standing session has no
 		// owner to nag.
-		if inst.SessionKind == jam.SessionKindPersonal && e.idleLadder(ctx, inst) {
+		if inst.SessionKind == jam.SessionKindPersonal && !e.tunnelsInUse(inst) && e.idleLadder(ctx, inst) {
 			continue // reclaimed
 		}
-		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) {
-			if err := e.idler.Idle(ctx, inst.ActorID); err != nil {
+		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) && !e.tunnelsInUse(inst) {
+			// ErrStudioInUse: a tunnel opened since the check above; not a failure.
+			if err := e.idler.Idle(ctx, inst.ActorID); err != nil && !errors.Is(err, jam.ErrStudioInUse) {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
 			}
 		}
@@ -520,6 +543,9 @@ func (e *Engine) idleAction(inst jam.Instance) string {
 // every tick until the cove runs (a Wake to a cove with no stream is dropped).
 func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 	if e.idleAction(inst) == jam.OnIdleTeardown {
+		if e.tunnelsInUse(inst) {
+			return // held while a person is connected (see SetTunnels)
+		}
 		e.log.Info("wakeon: idle timeout, tearing down", "actor", inst.ActorID)
 		e.blockUnfinished(ctx, inst, "idle timeout")
 		if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {

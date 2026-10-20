@@ -38,6 +38,11 @@ const (
 
 	maxBody     = 16 << 10
 	openTimeout = 15 * time.Second
+	// DefaultWakeWait bounds how long a request on an idled studio waits for
+	// it to resume and reconnect (no longer than a tunnel's dial-back).
+	DefaultWakeWait = 10 * time.Second
+	// idleMsg refuses a request on an idled studio when there is no wake path.
+	idleMsg = "studio is idle; it resumes when it gets a message"
 )
 
 // Deps is what the routes need. Principal names the caller (and a display
@@ -55,6 +60,14 @@ type Deps struct {
 	// Live is the open-SSH-connection registry; share both planes' one so an
 	// unshare on either closes the user's connections. nil = a private one.
 	Live *Live
+	// Resume unpauses an idled studio (Supervisor.Resume) and Connected
+	// reports whether a studio's attach stream is up. With both set, an
+	// allowed cert or tunnel request on an idled studio resumes it and waits
+	// up to WakeWait (DefaultWakeWait when <= 0) for it to reconnect; with
+	// either nil it is refused 409 (idleMsg).
+	Resume    func(ctx context.Context, actorID string) error
+	Connected func(actorID string) bool
+	WakeWait  time.Duration
 }
 
 // Routes serves POST {prefix}/studios/{id}/ssh/cert, GET
@@ -76,6 +89,9 @@ func Routes(prefix string, d Deps) http.Handler {
 	}
 	if d.Live == nil {
 		d.Live = NewLive()
+	}
+	if d.WakeWait <= 0 {
+		d.WakeWait = DefaultWakeWait
 	}
 	h := &handler{d: d}
 	mux := http.NewServeMux()
@@ -151,7 +167,12 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab
 	}
 	// Only a live studio takes certs or tunnels: the supervisor closes a
 	// studio's tunnels before pausing or tearing it down, and none may open
-	// after.
+	// after. An idled one is woken for an allowed caller when it can be.
+	if inst.Phase == jam.PhaseIdled {
+		if inst, ok = h.wake(w, r, inst, p); !ok {
+			return access{}, false
+		}
+	}
 	if inst.Phase != jam.PhaseLive {
 		http.Error(w, "studio is not running", http.StatusConflict)
 		return access{}, false
@@ -161,6 +182,47 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab
 		a.name = a.auditUser()
 	}
 	return a, true
+}
+
+// wake resumes an idled studio and waits, up to WakeWait, for its attach
+// stream to reconnect, returning the studio as it then is; it writes the
+// refusal and returns false when there is no wake path or the studio does not
+// come back. A failed Resume is fine when the studio is live anyway (wake-on
+// or another request resumed it first).
+func (h *handler) wake(w http.ResponseWriter, r *http.Request, inst jam.Instance, p collab.Principal) (jam.Instance, bool) {
+	if h.d.Resume == nil || h.d.Connected == nil {
+		http.Error(w, idleMsg, http.StatusConflict)
+		return inst, false
+	}
+	who := access{p: p}.auditUser()
+	// A dropped request does not cut a resume short.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), h.d.WakeWait)
+	defer cancel()
+	if err := h.d.Resume(ctx, inst.ActorID); err != nil {
+		if cur, ok := h.d.Store.GetInstance(inst.ActorID); !ok || cur.Phase != jam.PhaseLive {
+			h.d.Log.Warn("collab: resuming idled studio failed", "user", who, "session", inst.ActorID, "err", err.Error())
+			http.Error(w, "could not resume the idle studio; try again", http.StatusServiceUnavailable)
+			return inst, false
+		}
+	} else {
+		h.d.Log.Info("collab: resumed idled studio", "user", who, "session", inst.ActorID)
+	}
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
+	for !h.d.Connected(inst.ActorID) {
+		select {
+		case <-ctx.Done():
+			http.Error(w, "studio resumed but did not reconnect in time; try again", http.StatusGatewayTimeout)
+			return inst, false
+		case <-t.C:
+		}
+	}
+	cur, ok := h.d.Store.GetInstance(inst.ActorID)
+	if !ok {
+		http.Error(w, "no such studio", http.StatusNotFound)
+		return inst, false
+	}
+	return cur, true
 }
 
 func (h *handler) cert(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +292,8 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 			code, msg = http.StatusGatewayTimeout, "studio did not open the tunnel in time"
 		case errors.Is(err, attach.ErrTooManyTunnels):
 			code, msg = http.StatusTooManyRequests, err.Error()
+		case errors.Is(err, attach.ErrTunnelsClosed):
+			code, msg = http.StatusConflict, err.Error()
 		}
 		h.d.Log.Warn("ssh tunnel refused", "user", a.auditUser(), "session", a.inst.ActorID, "right", "ssh", "port", SSHPort, "err", err.Error())
 		http.Error(w, msg, code)
