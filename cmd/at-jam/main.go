@@ -45,6 +45,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
@@ -1745,9 +1747,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
 	// trusts its public key; the private key stays in this process's memory.
-	// nil when the ssh block is unset (SSH collaboration off).
-	// TODO(studio-collab slice 1, task 6): the SSH cert-issuing endpoint signs
-	// with sshCA.Issue.
+	// nil when the ssh block is unset (SSH collaboration off); it signs the
+	// certs the collaboration routes (collabhttp) issue.
 	sshCA, err := resolveSSHCA(cfg, specs)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
@@ -1818,6 +1819,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
+	// Studio collaboration tunnels: a human's connection reaches a studio's
+	// loopback port over a Tunnel the studio dials back; the supervisor closes
+	// a studio's tunnels before it pauses or tears it down.
+	tunnels := attach.NewTunnelBroker(rsrv.PushOpenTunnel, attach.TunnelOptions{Log: log})
+	rsrv.SetTunnelBroker(tunnels)
+	sup.SetTunnelCloser(tunnels)
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
@@ -2317,9 +2324,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)))))
 
+		// Studio collaboration (SSH certs + tunnels); each plane names its caller.
+		// The participant plane mounts the same routes under /me.
+		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
+			return collabhttp.Deps{
+				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal,
+				Notify: func(inst jam.Instance, body string) {
+					if _, err := ic.Notify(inst, "", body); err != nil {
+						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())
+					}
+				},
+			}
+		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
+			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
 		go func() {
 			if cfg.adminUsesTLS() {
@@ -2557,4 +2577,24 @@ func collabLabel(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// The tunnel broker is what the supervisor closes a studio's tunnels through.
+var _ jam.TunnelCloser = (*attach.TunnelBroker)(nil)
+
+// operatorPrincipal names an operator-plane caller (behind the admin
+// authenticator): the operator, and the roster user its login links to when
+// there is one, for audit and notice names.
+func operatorPrincipal(st jam.Store) func(*http.Request) (collab.Principal, string, error) {
+	return func(r *http.Request) (collab.Principal, string, error) {
+		op := jam.OperatorID(r)
+		if op == "" {
+			return collab.Principal{}, "", collabhttp.ErrNoCredentials
+		}
+		p, name := collab.Principal{Operator: op}, op
+		if u, ok := st.UserByLogin(op); ok {
+			p.UserID, name = u.ID, u.Name
+		}
+		return p, name, nil
+	}
 }
