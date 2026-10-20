@@ -161,9 +161,25 @@ func (r Role) ModelSpecName() string {
 // references a Kit by name; the name resolves to Current. Pushing a new version
 // advances Current; pinning rolls it to an existing version.
 type Kit struct {
-	Name     string         `json:"name"`
-	Current  int            `json:"current"`
-	Versions map[int]string `json:"versions"` // version number → config.yml text (immutable)
+	Name     string                 `json:"name"`
+	Current  int                    `json:"current"`
+	Versions map[int]string         `json:"versions"`         // version number → config.yml text (immutable)
+	Meta     map[int]KitVersionMeta `json:"meta,omitempty"`   // version number → provenance; absent for legacy versions
+	Source   *KitSource             `json:"source,omitempty"` // tracked source; nil = not tracked
+}
+
+// KitSource is where a kit version came from, or a kit's tracked source.
+type KitSource struct {
+	Repo   string `json:"repo"`
+	Dir    string `json:"dir,omitempty"` // "" = repo root
+	Ref    string `json:"ref"`
+	Commit string `json:"commit,omitempty"` // set on versions; on a tracked source, the last synced commit
+}
+
+// KitVersionMeta is per-version metadata. Source nil = pushed from a local file.
+type KitVersionMeta struct {
+	PushedAt time.Time  `json:"pushed_at"`
+	Source   *KitSource `json:"source,omitempty"`
 }
 
 // Override lets one grant narrow/replace fields of its Role's scope. A nil field
