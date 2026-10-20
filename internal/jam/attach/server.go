@@ -216,16 +216,19 @@ func (s *Server) deregister(actorID string, ch chan *attachpb.ControlDown) {
 
 // enqueue is the ControlSink delivery primitive: non-blocking send under the lock
 // (so the channel can't be closed mid-send); drop if full or no stream.
-func (s *Server) enqueue(actorID string, cd *attachpb.ControlDown) {
+// It reports whether the message was queued.
+func (s *Server) enqueue(actorID string, cd *attachpb.ControlDown) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ch, ok := s.conns[actorID]
 	if !ok {
-		return
+		return false
 	}
 	select {
 	case ch <- cd:
+		return true
 	default: // buffer full — drop (best-effort)
+		return false
 	}
 }
 
@@ -296,13 +299,9 @@ func bearer(vals []string) string {
 func (s *Server) SetTunnelBroker(b *TunnelBroker) { s.tunnels = b }
 
 // PushOpenTunnel asks actorID's studio to dial a Tunnel back for id -> 127.0.0.1:port.
-// False when the studio has no live Attach stream.
+// False when the studio has no live Attach stream or its queue is full.
 func (s *Server) PushOpenTunnel(actorID, id string, port int32) bool {
-	if !s.Connected(actorID) {
-		return false
-	}
-	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_OpenTunnel{OpenTunnel: &attachpb.OpenTunnel{Id: id, Port: port}}})
-	return true
+	return s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_OpenTunnel{OpenTunnel: &attachpb.OpenTunnel{Id: id, Port: port}}})
 }
 
 // Tunnel is a studio's dial-back for one human connection, authenticated like Attach.

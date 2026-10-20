@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,14 +21,25 @@ type fakeStream struct {
 	cancel     context.CancelFunc
 	toStudio   chan *attachpb.TunnelFrame
 	fromStudio chan *attachpb.TunnelFrame
+	returned   atomic.Bool  // set once the Claim (gRPC handler) has returned
+	violations atomic.Int32 // stream ops started after return
 }
 
 func newFakeStream() *fakeStream {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &fakeStream{ctx: ctx, cancel: cancel, toStudio: make(chan *attachpb.TunnelFrame, 16), fromStudio: make(chan *attachpb.TunnelFrame, 16)}
 }
-func (f *fakeStream) Send(fr *attachpb.TunnelFrame) error { f.toStudio <- fr; return nil }
+func (f *fakeStream) Send(fr *attachpb.TunnelFrame) error {
+	if f.returned.Load() {
+		f.violations.Add(1)
+	}
+	f.toStudio <- fr
+	return nil
+}
 func (f *fakeStream) Recv() (*attachpb.TunnelFrame, error) {
+	if f.returned.Load() {
+		f.violations.Add(1)
+	}
 	select {
 	case fr := <-f.fromStudio:
 		return fr, nil
@@ -222,5 +234,85 @@ func TestOpenContextCancelDoesNotLeakClaim(t *testing.T) {
 	s.fromStudio <- openFrame(p.last()[len("ses_a/"):])
 	if err := b.Claim("ses_a", s); err == nil {
 		t.Fatal("claim of a cancelled open succeeded")
+	}
+}
+
+// claimGuarded runs Claim and marks the stream returned afterwards, so any
+// later Send/Recv is counted as a violation.
+func claimGuarded(b *TunnelBroker, actor string, s *fakeStream) <-chan error {
+	c := make(chan error, 1)
+	go func() { err := b.Claim(actor, s); s.returned.Store(true); c <- err }()
+	return c
+}
+
+func TestNoStreamOpsAfterClaimReturns(t *testing.T) {
+	for _, mode := range []string{"closeAll", "streamCtx", "humanClose"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &pushRec{ok: true}
+			b := NewTunnelBroker(p.push, TunnelOptions{DialBack: time.Second})
+			conns := make(chan net.Conn, 1)
+			go func() { c, _ := b.Open(context.Background(), "ses_a", 2222); conns <- c }()
+			waitFor(t, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return len(p.ids) == 1 })
+			s := newFakeStream()
+			s.fromStudio <- openFrame(p.last()[len("ses_a/"):])
+			claimed := claimGuarded(b, "ses_a", s)
+			c := <-conns
+			// keep the human→studio path busy while tearing down
+			go func() {
+				for i := 0; i < 50; i++ {
+					if _, err := c.Write([]byte("x")); err != nil {
+						return
+					}
+				}
+			}()
+			go func() {
+				for range s.toStudio {
+				}
+			}()
+			switch mode {
+			case "closeAll":
+				b.CloseAll("ses_a")
+			case "streamCtx":
+				s.cancel()
+			case "humanClose":
+				_ = c.Close()
+			}
+			select {
+			case <-claimed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Claim did not return")
+			}
+			time.Sleep(50 * time.Millisecond)
+			if n := s.violations.Load(); n != 0 {
+				t.Fatalf("%d stream ops after Claim returned", n)
+			}
+		})
+	}
+}
+
+func TestCapCountsPendingOpens(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 200 * time.Millisecond, MaxPerStudio: 1})
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { _, err := b.Open(context.Background(), "ses_a", 2222); errs <- err }()
+	}
+	var tooMany, timeout int
+	for i := 0; i < 2; i++ {
+		switch err := <-errs; {
+		case errors.Is(err, ErrTooManyTunnels):
+			tooMany++
+		case errors.Is(err, ErrDialBackTimeout):
+			timeout++
+		default:
+			t.Fatalf("unexpected err %v", err)
+		}
+	}
+	if tooMany != 1 || timeout != 1 {
+		t.Fatalf("tooMany=%d timeout=%d, want 1/1", tooMany, timeout)
+	}
+	// slot released after the failed open
+	if _, err := b.Open(context.Background(), "ses_a", 2222); !errors.Is(err, ErrDialBackTimeout) {
+		t.Fatalf("slot leaked: %v", err)
 	}
 }

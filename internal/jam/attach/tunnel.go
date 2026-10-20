@@ -62,6 +62,7 @@ type TunnelBroker struct {
 	mu      sync.Mutex
 	pending map[string]*pending
 	live    map[string]map[*tunnelConn]struct{} // actorID → open human ends
+	slots   map[string]int                      // actorID → reserved tunnels (pending + live)
 }
 
 func NewTunnelBroker(push func(actorID, id string, port int32) bool, opt TunnelOptions) *TunnelBroker {
@@ -77,7 +78,7 @@ func NewTunnelBroker(push func(actorID, id string, port int32) bool, opt TunnelO
 	if opt.Log == nil {
 		opt.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}}
+	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}, slots: map[string]int{}}
 }
 
 func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
@@ -85,10 +86,11 @@ func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.Enc
 // Open returns the human-side end of a tunnel to actorID's 127.0.0.1:port.
 func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
 	b.mu.Lock()
-	if len(b.live[actorID]) >= b.opt.MaxPerStudio {
+	if b.slots[actorID] >= b.opt.MaxPerStudio {
 		b.mu.Unlock()
 		return nil, ErrTooManyTunnels
 	}
+	b.slots[actorID]++
 	id := newID()
 	p := &pending{actorID: actorID, ready: make(chan *handoff, 1)}
 	b.pending[id] = p
@@ -97,6 +99,7 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 	if !b.push(actorID, id, port) {
 		b.mu.Lock()
 		delete(b.pending, id)
+		b.releaseLocked(actorID)
 		b.mu.Unlock()
 		return nil, ErrStudioNotConnected
 	}
@@ -114,10 +117,17 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 
 // abandon gives up on a pending open. If a Claim already took the entry, the
 // handed-over stream is closed so the studio's Tunnel RPC does not leak.
+func (b *TunnelBroker) releaseLocked(actorID string) {
+	if b.slots[actorID]--; b.slots[actorID] <= 0 {
+		delete(b.slots, actorID)
+	}
+}
+
 func (b *TunnelBroker) abandon(id string, p *pending, cause error) error {
 	b.mu.Lock()
 	_, stillPending := b.pending[id]
 	delete(b.pending, id)
+	b.releaseLocked(p.actorID)
 	b.mu.Unlock()
 	if !stillPending {
 		h := <-p.ready // Claim took the entry and is about to send (or has sent)
@@ -157,6 +167,9 @@ func (b *TunnelBroker) Claim(actorID string, s TunnelStream) error {
 	select {
 	case <-h.done:
 	case <-s.Context().Done():
+		// splice tears down on the stream ending; wait for it so no stream
+		// operation outlives this handler.
+		<-h.done
 	}
 	return nil
 }
@@ -165,20 +178,30 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
 	s := h.stream
 	human, inner := net.Pipe()
 	tc := &tunnelConn{Conn: human}
-	// gRPC streams do not allow concurrent Sends.
+	// gRPC streams do not allow concurrent Sends, nor any use after the
+	// handler (Claim) returns; closed (guarded by sendMu) fences both.
 	var sendMu sync.Mutex
+	closed := false
 	send := func(fr *attachpb.TunnelFrame) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
+		if closed {
+			return errors.New("tunnel closed")
+		}
 		return s.Send(fr)
 	}
+	idle := time.NewTimer(b.opt.Idle)
 	var once sync.Once
-	var idle *time.Timer
 	done := func(reason string) {
 		once.Do(func() {
-			_ = send(closeFrame(reason))
-			_ = inner.Close()
+			sendMu.Lock()
+			if !closed {
+				_ = s.Send(closeFrame(reason))
+				closed = true
+			}
 			idle.Stop()
+			sendMu.Unlock()
+			_ = inner.Close()
 			b.mu.Lock()
 			if m := b.live[actorID]; m != nil {
 				delete(m, tc)
@@ -186,14 +209,28 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
 					delete(b.live, actorID)
 				}
 			}
+			b.releaseLocked(actorID)
 			b.mu.Unlock()
 			h.finish()
 		})
 	}
 	tc.closeAll = func() { done("closed by Jam") }
-	idle = time.AfterFunc(b.opt.Idle, func() { done("idle timeout") })
-	touch := func() { idle.Reset(b.opt.Idle) }
-
+	touch := func() {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		if !closed {
+			idle.Reset(b.opt.Idle)
+		}
+	}
+	go func() {
+		select {
+		case <-idle.C:
+			done("idle timeout")
+		case <-s.Context().Done():
+			done("studio stream ended")
+		case <-h.done:
+		}
+	}()
 	b.mu.Lock()
 	if b.live[actorID] == nil {
 		b.live[actorID] = map[*tunnelConn]struct{}{}
@@ -203,6 +240,12 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) net.Conn {
 
 	go func() { // studio → human
 		for {
+			sendMu.Lock()
+			stop := closed
+			sendMu.Unlock()
+			if stop { // never start a stream op once the handler may have returned
+				return
+			}
 			fr, err := s.Recv()
 			if err != nil || fr.GetClose() != nil {
 				done("studio closed")
