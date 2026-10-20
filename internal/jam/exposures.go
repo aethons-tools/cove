@@ -43,10 +43,21 @@ func exposedPorts(exps []Exposure) []int32 {
 	return slices.Compact(ports)
 }
 
-func (s *Supervisor) notifyExposures(actorID string, exps []Exposure) {
-	if s.exposureSink != nil {
-		s.exposureSink.ExposuresChanged(actorID, exposedPorts(exps))
+// notifyExposures tells the sink the actor's CURRENT exposed ports. notifyMu is
+// held across the re-read and the call, so concurrent changes cannot deliver
+// out of order: the last call always carries the latest stored set. It is taken
+// before instMu (never while holding it), so the sink runs outside instMu.
+func (s *Supervisor) notifyExposures(actorID string) {
+	if s.exposureSink == nil {
+		return
 	}
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	s.instMu.Lock()
+	inst, _ := s.store.GetInstance(actorID)
+	exps := slices.Clone(inst.Exposures)
+	s.instMu.Unlock()
+	s.exposureSink.ExposuresChanged(actorID, exposedPorts(exps))
 }
 
 // Expose publishes port as the named preview (replacing one of the same name).
@@ -62,6 +73,10 @@ func (s *Supervisor) Expose(actorID, name string, port int) (Exposure, error) {
 	if !ok {
 		s.instMu.Unlock()
 		return Exposure{}, fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.Phase != PhaseLive && inst.Phase != PhaseIdled {
+		s.instMu.Unlock()
+		return Exposure{}, fmt.Errorf("session %q is %s: cannot expose a preview", actorID, inst.Phase)
 	}
 	e := Exposure{Name: name, Port: port, CreatedAt: s.now()}
 	exps := slices.Clone(inst.Exposures)
@@ -82,7 +97,7 @@ func (s *Supervisor) Expose(actorID, name string, port int) (Exposure, error) {
 	if s.log != nil {
 		s.log.Info("preview exposed", "session", actorID, "name", name, "port", port)
 	}
-	s.notifyExposures(actorID, exps)
+	s.notifyExposures(actorID)
 	return e, nil
 }
 
@@ -105,12 +120,11 @@ func (s *Supervisor) Unexpose(actorID, name string) error {
 		s.instMu.Unlock()
 		return err
 	}
-	exps := inst.Exposures
 	s.instMu.Unlock()
 	if s.log != nil {
 		s.log.Info("preview unexposed", "session", actorID, "name", name, "port", port)
 	}
-	s.notifyExposures(actorID, exps)
+	s.notifyExposures(actorID)
 	return nil
 }
 

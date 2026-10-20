@@ -11,7 +11,7 @@ func TestNamesAndPorts(t *testing.T) {
 			t.Errorf("ValidName(%q) = %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "-a", "a-", "A", "a_b", "a--b", "a.b", strings.Repeat("x", 31), "jam"} {
+	for _, bad := range []string{"", "-a", "a-", "A", "a_b", "a--b", "xn", "a.b", strings.Repeat("x", 31), "jam"} {
 		if ValidName(bad) == nil {
 			t.Errorf("ValidName(%q) accepted", bad)
 		}
@@ -85,5 +85,37 @@ func TestNonSessionIDsHashToStableLabels(t *testing.T) {
 	}
 	if _, ok := ActorForLabel("01m4bc9fmg5v4bc7cq3at6jp6n", ids); ok {
 		t.Fatal("unknown label matched")
+	}
+}
+
+func TestParseNormalisationAndNegatives(t *testing.T) {
+	const d = "preview.jam.example"
+	const l = "01m4bc9fmg5v4bc7cq3at6jp6n"
+	if _, got, ok := Parse("vite--"+l+"."+d+".", d); !ok || got != l {
+		t.Errorf("trailing dot: %q %v", got, ok)
+	}
+	if !IsPreviewHost("jam."+d+".", d) {
+		t.Error("FQDN login host")
+	}
+	if h, _ := Host("Preview.Jam.Example", "vite", "ses_"+l); h != "vite--"+l+"."+d {
+		t.Errorf("Host domain not lowercased: %q", h)
+	}
+	for _, bad := range []string{
+		strings.Repeat("x", 31) + "--" + l + "." + d,
+		"vite--" + strings.ToUpper(l)[:0] + "01m4bc9fmg5v4bc7cq3at6jp6!" + "." + d,
+		"vite--01m4bc9fmg5v4bc7cq3at6jp6_." + d,
+		"vite--." + d,
+		"vite--" + l + "--x." + d,
+		"vite--01m4bc9fmg5v4bc7cq3at--x." + d,
+		"xn--" + l + "." + d,
+		"example.com:8080",
+		"localhost:80",
+	} {
+		if _, _, ok := Parse(bad, d); ok {
+			t.Errorf("Parse(%q) accepted", bad)
+		}
+		if IsPreviewHost(bad, d) {
+			t.Errorf("IsPreviewHost(%q) accepted", bad)
+		}
 	}
 }

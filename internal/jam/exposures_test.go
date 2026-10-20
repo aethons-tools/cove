@@ -89,7 +89,7 @@ func TestSupervisorExposures(t *testing.T) {
 	}
 }
 
-func TestRaiseClearsExposures(t *testing.T) {
+func TestRaiseStartsWithNoExposures(t *testing.T) {
 	sup, store := exposureTestSupervisor(t, "ses_a")
 	rec := &recSink{}
 	sup.SetExposureSink(rec)
@@ -102,5 +102,51 @@ func TestRaiseClearsExposures(t *testing.T) {
 	}
 	if last := rec.last(); last.actor != "ses_a" || len(last.ports) != 0 {
 		t.Fatalf("sink not told the set is empty: %+v", last)
+	}
+}
+
+func TestExposureSinkEndsOnLatestState(t *testing.T) {
+	sup, store := exposureTestSupervisor(t, "ses_a")
+	rec := &recSink{}
+	sup.SetExposureSink(rec)
+	var wg sync.WaitGroup
+	for g := range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 50 {
+				name := fmt.Sprintf("n%d", (g+i)%6)
+				if i%3 == 2 {
+					_ = sup.Unexpose("ses_a", name)
+				} else {
+					_, _ = sup.Expose("ses_a", name, 4000+g*100+i)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	inst, _ := store.GetInstance("ses_a")
+	want := exposedPorts(inst.Exposures)
+	if last := rec.last(); !slices.Equal(last.ports, want) {
+		t.Fatalf("sink last = %v, stored = %v", last.ports, want)
+	}
+}
+
+func TestExposeRefusesDeadSession(t *testing.T) {
+	sup, store := exposureTestSupervisor(t, "ses_a")
+	inst, _ := store.GetInstance("ses_a")
+	for _, ph := range []Phase{PhaseTerminating, PhaseGone} {
+		inst.Phase = ph
+		if err := store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sup.Expose("ses_a", "app", 5173); err == nil {
+			t.Errorf("Expose accepted phase %s", ph)
+		}
+	}
+	inst.Phase = PhaseIdled
+	_ = store.PutInstance(inst)
+	if _, err := sup.Expose("ses_a", "app", 5173); err != nil {
+		t.Fatalf("idled refused: %v", err)
 	}
 }

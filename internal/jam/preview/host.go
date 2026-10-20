@@ -28,7 +28,7 @@ var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$`)
 
 // ValidName reports whether name is usable as a preview name.
 func ValidName(name string) error {
-	if !nameRE.MatchString(name) || strings.Contains(name, "--") || name == ReservedLabel {
+	if !nameRE.MatchString(name) || strings.Contains(name, "--") || name == ReservedLabel || name == "xn" { // "xn--" is the punycode prefix, not a preview
 		return fmt.Errorf("preview name %q: want 1-30 of [a-z0-9-], not starting/ending with '-', no '--', not %q", name, ReservedLabel)
 	}
 	return nil
@@ -76,21 +76,22 @@ func Host(domain, name, actorID string) (string, error) {
 	if err := ValidName(name); err != nil {
 		return "", err
 	}
-	return name + "--" + Label(actorID) + "." + domain, nil
+	return name + "--" + Label(actorID) + "." + strings.ToLower(domain), nil
 }
 
-func stripPort(host string) string {
+// normHost lowercases host and drops a :port and one trailing '.' (FQDN form).
+func normHost(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
+		host = h
 	}
-	return host
+	return strings.TrimSuffix(strings.ToLower(host), ".")
 }
 
 // Parse splits a preview host into its name and actor label (see Label); the
 // caller maps the label back to an actor (ActorForLabel). A :port is ignored
 // and case is folded; the host must be exactly one label under domain.
 func Parse(host, domain string) (name, label string, ok bool) {
-	h := strings.ToLower(stripPort(host))
+	h := normHost(host)
 	first, ok := strings.CutSuffix(h, "."+strings.ToLower(domain))
 	if !ok || strings.Contains(first, ".") {
 		return "", "", false
@@ -107,7 +108,7 @@ func LoginHost(domain string) string { return ReservedLabel + "." + strings.ToLo
 
 // IsPreviewHost reports whether host is a preview host or the login host.
 func IsPreviewHost(host, domain string) bool {
-	h := strings.ToLower(stripPort(host))
+	h := normHost(host)
 	if h == LoginHost(domain) {
 		return true
 	}
