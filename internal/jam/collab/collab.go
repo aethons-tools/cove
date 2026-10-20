@@ -45,6 +45,10 @@ func Decide(store jam.Store, now time.Time, p Principal, inst jam.Instance, r Ri
 	if p.UserID == "" {
 		return "", false
 	}
+	// A removed (tombstoned) user keeps no access, whatever rule would match.
+	if u, ok := store.GetUser(p.UserID); !ok || u.Status != jam.StatusLive {
+		return "", false
+	}
 	if inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID == p.UserID {
 		return "requester", true
 	}

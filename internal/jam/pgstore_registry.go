@@ -545,15 +545,15 @@ func (s *PostgresStore) loadStandingSessions(ctx context.Context) error {
 }
 
 func (s *PostgresStore) PutShareGrant(g ShareGrant) error {
-	if err := checkShareGrant(g); err != nil {
-		return err
-	}
 	doc, err := json.Marshal(g)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.prepareShareGrant(g); err != nil {
+		return err
+	}
 	if err := s.registryTx("PutShareGrant", func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO share_grants (session_id, user_id, doc, expires_at) VALUES ($1,$2,$3,$4)

@@ -96,6 +96,13 @@ func runShareGrantConformance(t *testing.T, newStore func(t *testing.T) jam.Stor
 		}
 	})
 
+	t.Run("share_grant_unknown_user_refused", func(t *testing.T) {
+		s, _, _ := setup(t)
+		if err := s.PutShareGrant(jam.ShareGrant{SessionID: "ses_1", UserID: ident.New(ident.User), Rights: []string{"ssh"}, ExpiresAt: exp}); err == nil {
+			t.Fatal("grant for an unknown user accepted")
+		}
+	})
+
 	t.Run("share_grant_requires_session_and_user", func(t *testing.T) {
 		s, a, _ := setup(t)
 		if err := s.PutShareGrant(jam.ShareGrant{UserID: a.ID}); err == nil {

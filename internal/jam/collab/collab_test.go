@@ -54,6 +54,16 @@ func TestDecideMatrix(t *testing.T) {
 	ic := jam.Instance{ActorID: "ses_i", Project: "acme", Role: "ic"}
 	pair := jam.Instance{ActorID: "ses_x", Project: "acme", Role: "pair"}
 	quiet := jam.Instance{ActorID: "ses_q", Project: "acme", Role: "quiet"}
+	dave := mustUser(t, st, "dave")
+	erin := mustUser(t, st, "erin", proj)
+	removedReq := jam.Instance{ActorID: "ses_r", Project: "acme", Role: "ic", SessionKind: jam.SessionKindPersonal, OwnerID: erin}
+	_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_i", UserID: dave, Rights: []string{"ssh"}, ExpiresAt: now.Add(time.Hour), GrantedBy: "op:local"})
+	if err := st.RemoveUser(dave); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveUser(erin); err != nil {
+		t.Fatal(err)
+	}
 	_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_i", UserID: carol, Rights: []string{"ssh"}, ExpiresAt: now.Add(time.Hour), GrantedBy: "op:local"})
 	_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_i", UserID: bob, Rights: []string{"ssh"}, ExpiresAt: now.Add(-time.Minute), GrantedBy: "op:local"})
 
@@ -76,6 +86,8 @@ func TestDecideMatrix(t *testing.T) {
 		{"grant other session", collab.Principal{UserID: carol}, pair, collab.SSH, "", false},
 		{"expired grant", collab.Principal{UserID: bob}, ic, collab.SSH, "", false},
 		{"grant without that right", collab.Principal{UserID: carol}, ic, collab.Preview, "", false},
+		{"removed grant holder", collab.Principal{UserID: dave}, ic, collab.SSH, "", false},
+		{"removed requester", collab.Principal{UserID: erin}, removedReq, collab.SSH, "", false},
 		{"nobody", collab.Principal{}, ic, collab.Preview, "", false},
 	} {
 		got, ok := collab.Decide(st, now, tc.p, tc.inst, tc.r)

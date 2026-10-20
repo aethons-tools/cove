@@ -3,6 +3,7 @@ package jam
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -51,9 +52,15 @@ func (m *memState) ShareGrants(sessionID string) []ShareGrant {
 	return out
 }
 
-func checkShareGrant(g ShareGrant) error {
+// prepareShareGrant validates a grant's shape and that its user exists (a
+// removed user's tombstone still counts, as with the Postgres foreign key).
+// Caller holds mu.
+func (m *memState) prepareShareGrant(g ShareGrant) error {
 	if g.SessionID == "" || g.UserID == "" {
 		return errors.New("share grant: session id and user id are required")
+	}
+	if _, ok := m.users[g.UserID]; !ok {
+		return fmt.Errorf("share grant: unknown user %s", g.UserID)
 	}
 	return nil
 }
@@ -77,11 +84,11 @@ func (m *memState) applyRemoveShareGrantsOf(sessionID string) {
 }
 
 func (fs *MemStore) PutShareGrant(g ShareGrant) error {
-	if err := checkShareGrant(g); err != nil {
-		return err
-	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	if err := fs.prepareShareGrant(g); err != nil {
+		return err
+	}
 	fs.applyPutShareGrant(g)
 	return nil
 }
