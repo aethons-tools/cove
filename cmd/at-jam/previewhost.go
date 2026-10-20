@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -189,4 +191,44 @@ func idTokenShaped(raw, clientID string) error {
 		return fmt.Errorf("aud is not the login client")
 	}
 	return nil
+}
+
+// exposureFanout is the supervisor's exposure sink: it passes every change on
+// to next (the attach server's tunnel allow-lists) and closes the open preview
+// connections to any port the session no longer exposes. Like every
+// jam.ExposureSink it runs under the supervisor's notify mutex, so it only
+// diffs and signals: CloseExposure collects under its lock and closes on its
+// own goroutine.
+type exposureFanout struct {
+	next jam.ExposureSink
+	live interface {
+		CloseExposure(session string, port int) int
+	}
+
+	mu   sync.Mutex
+	prev map[string][]int32 // each session's last-told ports
+}
+
+func newExposureFanout(next jam.ExposureSink, live interface {
+	CloseExposure(session string, port int) int
+}) *exposureFanout {
+	return &exposureFanout{next: next, live: live, prev: map[string][]int32{}}
+}
+
+// ExposuresChanged implements jam.ExposureSink.
+func (f *exposureFanout) ExposuresChanged(actorID string, ports []int32) {
+	f.next.ExposuresChanged(actorID, ports)
+	f.mu.Lock()
+	old := f.prev[actorID]
+	if len(ports) == 0 {
+		delete(f.prev, actorID)
+	} else {
+		f.prev[actorID] = slices.Clone(ports)
+	}
+	f.mu.Unlock()
+	for _, p := range old {
+		if !slices.Contains(ports, p) {
+			f.live.CloseExposure(actorID, int(p))
+		}
+	}
 }

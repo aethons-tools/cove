@@ -9,12 +9,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -200,5 +202,36 @@ func TestIDTokenShaped(t *testing.T) {
 		if idTokenShaped(tok, "cli") == nil {
 			t.Errorf("%s accepted as a participant ID token", name)
 		}
+	}
+}
+
+type recordSink struct{ calls []string }
+
+func (r *recordSink) ExposuresChanged(actorID string, ports []int32) {
+	r.calls = append(r.calls, fmt.Sprint(actorID, " ", ports))
+}
+
+type recordCloser struct{ closed []string }
+
+func (r *recordCloser) CloseExposure(session string, port int) int {
+	r.closed = append(r.closed, fmt.Sprint(session, ":", port))
+	return 0
+}
+
+// The fan-out forwards every change and closes preview connections to the
+// ports a session stopped exposing — only those, and only for that session.
+func TestExposureFanoutClosesRemovedPorts(t *testing.T) {
+	sink, closer := &recordSink{}, &recordCloser{}
+	f := newExposureFanout(sink, closer)
+	f.ExposuresChanged("ses_a", []int32{3000, 5173})
+	f.ExposuresChanged("ses_b", []int32{3000})
+	f.ExposuresChanged("ses_a", []int32{5173, 8080}) // 3000 unexposed, 8080 added
+	f.ExposuresChanged("ses_a", nil)                 // torn down
+	want := []string{"ses_a [3000 5173]", "ses_b [3000]", "ses_a [5173 8080]", "ses_a []"}
+	if !slices.Equal(sink.calls, want) {
+		t.Fatalf("forwarded %q, want %q", sink.calls, want)
+	}
+	if want := []string{"ses_a:3000", "ses_a:5173", "ses_a:8080"}; !slices.Equal(closer.closed, want) {
+		t.Fatalf("closed %q, want %q", closer.closed, want)
 	}
 }

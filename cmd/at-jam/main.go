@@ -1896,9 +1896,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
+	// The open-studio-connection registry (SSH tunnels and preview
+	// connections) both collaboration planes, the preview proxy and the UI's
+	// Access card share, so an unshare anywhere closes the user's connections.
+	liveConns := collabhttp.NewLive()
 	// Exposed preview ports reach each studio's cove-master as its dynamic
 	// tunnel allow-list; a restarted Jam seeds it from the stored exposures.
-	sup.SetExposureSink(rsrv)
+	// An unexposed port's open preview connections close at once.
+	sup.SetExposureSink(newExposureFanout(rsrv, liveConns))
 	rsrv.SetExposureSource(sup.ExposedPorts)
 	// Studio collaboration tunnels: a human's connection reaches a studio's
 	// loopback port over a Tunnel the studio dials back; the supervisor closes
@@ -2406,15 +2411,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		// The open-SSH-connection registry both collaboration planes and the UI's
-		// Access card share, so an unshare anywhere closes the user's connections.
-		liveSSH := collabhttp.NewLive()
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
 		if sshCA != nil {
-			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveSSH))
-			// Revocation: drop open SSH connections whose access has gone (a
-			// removed user, a role-policy or membership change, an expired grant).
-			go liveSSH.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
+			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns))
+		}
+		if sshCA != nil || cfg.Previews != nil {
+			// Revocation: drop open SSH and preview connections whose access has
+			// gone (a removed user, a role-policy or membership change, an
+			// expired grant).
+			go liveConns.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
 
@@ -2422,9 +2427,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// The participant plane mounts the same routes under /me.
 		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
 			return collabhttp.Deps{
-				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveSSH,
+				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveConns,
 				// A request on an idled studio resumes it and waits for its stream.
 				Resume: sup.Resume, Connected: rsrv.Connected,
+				// Previews: what each session exposes, and its URLs (nil = off).
+				Exposures: sup.Exposures, PreviewURL: previewURL,
 				Notify: func(inst jam.Instance, body string) {
 					if _, err := ic.Notify(inst, "", body); err != nil {
 						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())
@@ -2454,10 +2461,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 			go previewAuth.Run(context.Background())
-			// previewHandler serves preview and login hosts; a placeholder
-			// (every preview host 404s) until the preview proxy is wired
-			// over previewAuth.
-			var previewHandler http.Handler = http.NotFoundHandler()
+			// The preview proxy serves the login host and every preview host;
+			// it names its callers through previewAuth, not a plane's Principal.
+			previewHandler := collabhttp.Preview(collabDeps(nil), previewAuth, cfg.Previews.Domain)
 			adminServe = hostRouter(cfg.Previews.Domain, previewHandler, admin)
 		}
 		go func() {
