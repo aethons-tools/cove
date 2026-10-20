@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"io"
 	"math/big"
@@ -65,14 +66,22 @@ func TestHostRouter(t *testing.T) {
 	h := hostRouter(testPreviewDomain, tag("preview"), tag("rest"))
 	label := strings.Repeat("a", 26)
 	for host, want := range map[string]string{
-		"web--" + label + "." + testPreviewDomain:           "preview",
-		"web--" + label + "." + testPreviewDomain + ":8443": "preview",
-		"jam." + testPreviewDomain:                          "preview", // the login host
-		"jam." + testPreviewDomain + ":8443":                "preview",
-		"jam.example":                                       "rest", // the admin host
-		"jam.example:8443":                                  "rest",
-		"127.0.0.1:8443":                                    "rest",
-		"web--" + label + ".other.example":                  "rest",
+		"web--" + label + "." + testPreviewDomain:                 "preview",
+		"web--" + label + "." + testPreviewDomain + ":8443":       "preview",
+		"jam." + testPreviewDomain:                                "preview", // the login host
+		"jam." + testPreviewDomain + ":8443":                      "preview",
+		"jam.example":                                             "rest", // the admin host
+		"jam.example:8443":                                        "rest",
+		"127.0.0.1:8443":                                          "rest",
+		"web--" + label + ".other.example":                        "rest",
+		"foo." + testPreviewDomain:                                "preview", // unparseable, still not the admin API
+		"web--BAD_label." + testPreviewDomain:                     "preview",
+		"a.b." + testPreviewDomain:                                "preview",
+		testPreviewDomain:                                         "preview",
+		"WEB--" + strings.ToUpper(label) + ".Preview.Jam.Example": "preview",
+		"foo." + testPreviewDomain + ".":                          "preview",
+		"":                                                        "rest",
+		"[::1]:8443":                                              "rest",
 	} {
 		r := httptest.NewRequest("GET", "/x", nil)
 		r.Host = host
@@ -88,11 +97,14 @@ func TestAdminTLSConfigPicksBySNI(t *testing.T) {
 	adminCert := selfSigned(t, "jam.example")
 	previewCert := selfSigned(t, "*."+testPreviewDomain)
 	srv := httptest.NewUnstartedServer(http.NotFoundHandler())
-	srv.TLS = adminTLSConfig(adminCert, previewCert)
+	srv.TLS = adminTLSConfig(adminCert, previewCert, testPreviewDomain)
 	srv.StartTLS()
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "https://")
 	for sni, want := range map[string]tls.Certificate{
+		"":                         adminCert, // no SNI
+		"unknown.example":          adminCert,
+		"foo." + testPreviewDomain: previewCert,
 		"jam.example":              adminCert,
 		"jam." + testPreviewDomain: previewCert,
 		"web--" + strings.Repeat("b", 26) + "." + testPreviewDomain: previewCert,
@@ -127,14 +139,37 @@ func TestLoadPreviewCert(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "*."+testPreviewDomain) {
 		t.Fatalf("foreign cert → %v, want a coverage error naming *.%s", err, testPreviewDomain)
 	}
-	if strings.Contains(err.Error(), "PRIVATE KEY") {
-		t.Fatal("error carries key material")
-	}
+	assertNoKeyMaterial(t, err, k)
 	c, k = selfSignedPEM(t, "jam."+testPreviewDomain) // login host only, no wildcard
 	if _, err := loadPreviewCert(write("login.crt", c), write("login.key", k), testPreviewDomain); err == nil {
 		t.Fatal("non-wildcard cert accepted")
 	}
+	// A mismatched key: the load error must not echo the key either.
+	c, _ = selfSignedPEM(t, "*."+testPreviewDomain)
+	_, k2 := selfSignedPEM(t, "*."+testPreviewDomain)
+	_, err = loadPreviewCert(write("ok2.crt", c), write("mismatch.key", k2), testPreviewDomain)
+	if err == nil {
+		t.Fatal("mismatched key accepted")
+	}
+	assertNoKeyMaterial(t, err, k2)
 	if _, err := loadPreviewCert(filepath.Join(dir, "missing.crt"), filepath.Join(dir, "missing.key"), testPreviewDomain); err == nil {
 		t.Fatal("missing files accepted")
+	}
+}
+
+// assertNoKeyMaterial fails if err's text holds the key PEM header or any
+// 16-char slice of the key's base64 body.
+func assertNoKeyMaterial(t *testing.T, err error, keyPEM []byte) {
+	t.Helper()
+	msg := err.Error()
+	if strings.Contains(msg, "PRIVATE KEY") {
+		t.Fatalf("error carries a key PEM header: %s", msg)
+	}
+	blk, _ := pem.Decode(keyPEM)
+	body := base64.StdEncoding.EncodeToString(blk.Bytes)
+	for i := 0; i+16 <= len(body); i++ {
+		if strings.Contains(msg, body[i:i+16]) {
+			t.Fatalf("error carries key material: %s", msg)
+		}
 	}
 }

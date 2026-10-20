@@ -119,3 +119,17 @@ func TestParseNormalisationAndNegatives(t *testing.T) {
 		}
 	}
 }
+
+func TestUnderDomain(t *testing.T) {
+	const d = "preview.jam.example"
+	for _, h := range []string{d, "jam." + d, "foo." + d, "a.b." + d, "Foo.Preview.JAM.example", "foo." + d + ".", "foo." + d + ":8443", "bad_label." + d} {
+		if !UnderDomain(h, d) {
+			t.Errorf("UnderDomain(%q) = false", h)
+		}
+	}
+	for _, h := range []string{"", "jam.example", "xpreview.jam.example", "preview.jam.example.evil", "[::1]:8443", "127.0.0.1"} {
+		if UnderDomain(h, d) {
+			t.Errorf("UnderDomain(%q) = true", h)
+		}
+	}
+}

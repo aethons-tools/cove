@@ -115,3 +115,11 @@ func IsPreviewHost(host, domain string) bool {
 	_, _, ok := Parse(h, domain)
 	return ok
 }
+
+// UnderDomain reports whether host (case-folded, :port and one trailing '.'
+// dropped) is domain itself or any name under it — the hosts the preview
+// handler owns, parseable or not.
+func UnderDomain(host, domain string) bool {
+	h, d := normHost(host), strings.ToLower(domain)
+	return h == d || strings.HasSuffix(h, "."+d)
+}

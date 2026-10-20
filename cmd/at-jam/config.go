@@ -18,6 +18,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -379,6 +380,17 @@ func (c serveConfig) validatePreviews() error {
 	}
 	if c.browserAuthConfig() == nil {
 		return fmt.Errorf("previews requires browser login (set operator-auth.oidc.browser-client-id)")
+	}
+	// The admin API must not be reached by a name under the domain: those
+	// requests all go to the preview handler. Only names the config states
+	// can be checked (an IP or wildcard admin-listen says nothing).
+	if h, _, err := net.SplitHostPort(c.AdminListen); err == nil && h != "" && net.ParseIP(h) == nil && preview.UnderDomain(h, p.Domain) {
+		return fmt.Errorf("admin-listen host %q is under previews.domain %q; serve the admin API at a name outside it", h, p.Domain)
+	}
+	for _, h := range c.UIHosts {
+		if preview.UnderDomain(h, p.Domain) {
+			return fmt.Errorf("ui-hosts entry %q is under previews.domain %q; use a name outside it", h, p.Domain)
+		}
 	}
 	return nil
 }

@@ -15,20 +15,29 @@ import (
 // admin cert (picked by SNI), and hostRouter sends preview and login hosts to
 // the preview handler, everything else to the admin API.
 
-// adminTLSConfig serves adminCert by default and previewCert to clients whose
-// SNI it covers (crypto/tls picks the first certificate matching the name).
-func adminTLSConfig(adminCert, previewCert tls.Certificate) *tls.Config {
+// adminTLSConfig presents previewCert to a client whose SNI is the previews
+// domain or under it, and adminCert to every other client (no SNI, or any
+// other name), so the choice never depends on certificate matching order.
+func adminTLSConfig(adminCert, previewCert tls.Certificate, domain string) *tls.Config {
 	return &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		Certificates: []tls.Certificate{adminCert, previewCert},
+		MinVersion: tls.VersionTLS12,
+		// Served without consulting GetCertificate when the client sends no SNI.
+		Certificates: []tls.Certificate{adminCert},
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if hello.ServerName != "" && preview.UnderDomain(hello.ServerName, domain) {
+				return &previewCert, nil
+			}
+			return &adminCert, nil
+		},
 	}
 }
 
-// hostRouter dispatches a request on its Host: a preview host or the login
-// host under domain goes to previews, anything else to rest.
+// hostRouter dispatches a request on its Host: domain itself or any name
+// under it goes to previews (which 404s what it cannot parse), so no name
+// the wildcard cert covers ever reaches the admin API; anything else to rest.
 func hostRouter(domain string, previews, rest http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if preview.IsPreviewHost(r.Host, domain) {
+		if preview.UnderDomain(r.Host, domain) {
 			previews.ServeHTTP(w, r)
 			return
 		}

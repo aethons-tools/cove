@@ -1695,7 +1695,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "at-jam: admin TLS (%s, %s): %v\n", certFile, keyFile, err)
 			return 1
 		}
-		adminTLSCfg = adminTLSConfig(adminCert, previewCert)
+		adminTLSCfg = adminTLSConfig(adminCert, previewCert, p.Domain)
 		previewURL = func(actorID, name string) (string, error) {
 			h, err := preview.Host(p.Domain, name, actorID)
 			return "https://" + h + "/", err

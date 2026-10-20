@@ -1223,6 +1223,10 @@ func TestValidatePreviews(t *testing.T) {
 		"empty label":          base + "previews:\n  domain: a..b\n  tls: { cert: /p.crt, key: /p.key }\n",
 		"no domain":            base + "previews:\n  tls: { cert: /p.crt, key: /p.key }\n",
 		"hyphen edge":          base + "previews:\n  domain: -a.example\n  tls: { cert: /p.crt, key: /p.key }\n",
+		"admin host is login":  "admin-listen: jam.preview.jam.example:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block,
+		"admin host under":     "admin-listen: Admin.Preview.Jam.Example:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block,
+		"admin host is domain": "admin-listen: preview.jam.example:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block,
+		"ui-host under":        base + "ui-hosts: [ui.preview.jam.example]\n" + block,
 	} {
 		c, err := parseServeConfig([]byte(yml))
 		if err != nil {
@@ -1231,6 +1235,10 @@ func TestValidatePreviews(t *testing.T) {
 		if err := c.validatePreviews(); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	named, _ := parseServeConfig([]byte("admin-listen: jam.example:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block))
+	if err := named.validatePreviews(); err != nil {
+		t.Fatalf("admin host outside the domain refused: %v", err)
 	}
 	none, _ := parseServeConfig([]byte("listen: :443\n"))
 	if err := none.validatePreviews(); err != nil {
