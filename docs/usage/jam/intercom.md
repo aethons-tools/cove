@@ -148,6 +148,7 @@ CPU) and moves it to the `idled` [phase](coves.md#the-model) — a paused, inten
 idle studio whose lease-reaping is suspended (see [coves.md](coves.md) for the phase
 chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
 on a subsequent tick once it's reconnected and reporting Live + `waiting` again.
+An open SSH connection holds this off ([collaboration.md](collaboration.md#idle-studios)).
 
 The engine always runs and is configured under `runtime.wake`:
 
