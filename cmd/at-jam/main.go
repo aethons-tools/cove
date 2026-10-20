@@ -2445,8 +2445,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
+			// The previews' login: sessions, single-use codes and the bounce
+			// through the login host (validatePreviews ensured browser login).
+			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: previews:", err)
+				return 1
+			}
+			go previewAuth.Run(context.Background())
 			// previewHandler serves preview and login hosts; a placeholder
-			// (every preview host 404s) until the preview proxy is wired.
+			// (every preview host 404s) until the preview proxy is wired
+			// over previewAuth.
 			var previewHandler http.Handler = http.NotFoundHandler()
 			adminServe = hostRouter(cfg.Previews.Domain, previewHandler, admin)
 		}

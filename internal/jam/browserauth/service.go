@@ -24,8 +24,9 @@ type RawConfig struct {
 }
 
 // Service serves the <prefix>/auth/* login routes for the code+PKCE flow of one
-// Mount. Operator ("/ui") and participant ("/me") each get a Service over the
-// same RawConfig; they differ only in their Mount.
+// Mount. Operator ("/ui"), participant ("/me") and the previews' login host
+// ("/__jam", PreviewMount) each get a Service over the same RawConfig; they
+// differ only in their Mount.
 type Service struct {
 	cfg          RawConfig
 	mount        Mount
@@ -73,7 +74,9 @@ func (s *Service) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+s.mount.loginPath(), s.login)
 	mux.HandleFunc("GET "+s.mount.callbackPath(), s.callback)
-	mux.HandleFunc("GET "+s.mount.authPrefix()+"/logout", s.logout)
+	if s.mount.Complete == nil { // a Complete mount has no session cookie to clear
+		mux.HandleFunc("GET "+s.mount.authPrefix()+"/logout", s.logout)
+	}
 	return mux
 }
 
@@ -145,6 +148,10 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	for _, n := range []string{stateCookie, nonceCookie, pkceCookie} {
 		s.mount.clearTemp(w, n)
 	}
+	if s.mount.Complete != nil {
+		s.mount.Complete(w, r, idTok, accessTok, safeReturnTo(s.mount, rt))
+		return
+	}
 	// The session cookie carries the token the gate re-verifies: the access token
 	// for the operator plane (API aud + scope), the ID token for the participant
 	// plane (aud = ClientID, mapped to a roster human).
@@ -187,9 +194,16 @@ func (s *Service) ParticipantSession(store jam.ParticipantStore) func(*http.Requ
 }
 
 // safeReturnTo permits only same-site absolute paths under the mount's prefix,
-// defeating open redirects. Anything else collapses to "<prefix>/".
+// defeating open redirects — or, for a mount with ReturnTo, exactly what
+// ReturnTo accepts. Anything else collapses to "<prefix>/".
 func safeReturnTo(m Mount, p string) string {
 	home := m.Prefix + "/"
+	if m.ReturnTo != nil {
+		if p != "" && m.ReturnTo(p) {
+			return p
+		}
+		return home
+	}
 	if p == "" || !strings.HasPrefix(p, m.Prefix) {
 		return home
 	}

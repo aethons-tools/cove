@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -205,5 +206,100 @@ func TestLogoutClearsSession(t *testing.T) {
 	}
 	if !cleared {
 		t.Error("logout must clear the session cookie (MaxAge<0)")
+	}
+}
+
+// loginAndCallback drives svc's login (with return_to) and then its callback
+// on host, returning the callback's recorder and the return_to the state
+// cookie bound.
+func loginAndCallback(t *testing.T, idp *fakeIdP, svc *Service, host, returnTo string) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	p := svc.mount.Prefix
+	loginRec := httptest.NewRecorder()
+	loginReq := httptest.NewRequest("GET", p+"/auth/login?return_to="+url.QueryEscape(returnTo), nil)
+	loginReq.Host, loginReq.TLS = host, &tls.ConnectionState{}
+	svc.Routes().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusFound {
+		t.Fatalf("login = %d", loginRec.Code)
+	}
+	cookies := loginRec.Result().Cookies()
+	var stateVal, bound string
+	for _, c := range cookies {
+		switch c.Name {
+		case stateCookie:
+			stateVal, bound, _ = strings.Cut(c.Value, "|")
+		case nonceCookie:
+			idp.idNonce = c.Value
+		}
+	}
+	cbRec := httptest.NewRecorder()
+	cbReq := httptest.NewRequest("GET", p+"/auth/callback?state="+stateVal+"&code=good", nil)
+	cbReq.Host, cbReq.TLS = host, &tls.ConnectionState{}
+	for _, c := range cookies {
+		cbReq.AddCookie(c)
+	}
+	svc.Routes().ServeHTTP(cbRec, cbReq)
+	return cbRec, bound
+}
+
+func TestMountCompleteReplacesSession(t *testing.T) {
+	idp := newFakeIdP(t)
+	var gotID, gotAccess, gotRT, gotPath string
+	complete := func(w http.ResponseWriter, r *http.Request, idToken, accessToken, returnTo string) {
+		gotID, gotAccess, gotRT, gotPath = idToken, accessToken, returnTo, r.URL.Path
+		w.WriteHeader(http.StatusTeapot)
+	}
+	allow := func(u string) bool { return u == "https://app.example/x" }
+	m := PreviewMount(complete, allow)
+	if m.Prefix != "/__jam" {
+		t.Fatalf("PreviewMount prefix = %q", m.Prefix)
+	}
+	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, m, nil, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, bound := loginAndCallback(t, idp, svc, "jam.preview.example", "https://app.example/x")
+	if bound != "https://app.example/x" {
+		t.Errorf("state bound return_to %q, want the ReturnTo-accepted URL", bound)
+	}
+	if rec.Code != http.StatusTeapot {
+		t.Fatalf("callback = %d, want Complete's response", rec.Code)
+	}
+	if gotID == "" || gotAccess == "" || gotID == gotAccess {
+		t.Errorf("Complete tokens id=%q access=%q, want both", gotID, gotAccess)
+	}
+	if gotRT != "https://app.example/x" || gotPath != "/__jam/auth/callback" {
+		t.Errorf("Complete returnTo=%q path=%q", gotRT, gotPath)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge >= 0 && c.Value != "" {
+			t.Errorf("callback set cookie %s; Complete owns the session", c.Name)
+		}
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Errorf("callback redirected to %q itself", loc)
+	}
+	// The preview mount has no session cookie of its own, so no logout route.
+	lo := httptest.NewRecorder()
+	svc.Routes().ServeHTTP(lo, httptest.NewRequest("GET", "/__jam/auth/logout", nil))
+	if lo.Code != http.StatusNotFound {
+		t.Errorf("preview mount logout = %d, want 404", lo.Code)
+	}
+}
+
+func TestMountReturnToReplacesPrefixCheck(t *testing.T) {
+	allow := func(u string) bool { return strings.HasPrefix(u, "https://ok.example/") }
+	m := PreviewMount(nil, allow)
+	if got := safeReturnTo(m, "https://ok.example/a?b=1"); got != "https://ok.example/a?b=1" {
+		t.Errorf("accepted URL collapsed to %q", got)
+	}
+	for _, bad := range []string{"/__jam/x", "https://evil.example/", "//ok.example/", ""} {
+		if got := safeReturnTo(m, bad); got != "/__jam/" {
+			t.Errorf("safeReturnTo(%q) = %q, want /__jam/", bad, got)
+		}
+	}
+	// Existing mounts keep the prefix check.
+	if got := safeReturnTo(OperatorUIMount(), "https://ok.example/a"); got != "/ui/" {
+		t.Errorf("operator mount accepted %q", got)
 	}
 }

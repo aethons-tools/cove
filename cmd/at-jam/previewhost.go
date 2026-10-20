@@ -1,12 +1,20 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
@@ -67,4 +75,68 @@ func loadPreviewCert(certFile, keyFile, domain string) (tls.Certificate, error) 
 		}
 	}
 	return c, nil
+}
+
+// newPreviewAuth builds the previews' login (collabhttp.PreviewAuth) over the
+// /ui browser client (bc: same client id, scope and audience, so a login's
+// access token is the operator token). Its login routes are a browserauth
+// Service over browserauth.PreviewMount, served on the login host, whose
+// redirect URI is https://jam.<domain>/__jam/auth/callback. lc (nil when there
+// is no device client) is the CLI login whose participant ID tokens a
+// non-browser caller presents as a bearer.
+func newPreviewAuth(domain string, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
+	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
+	if !ok {
+		return nil, fmt.Errorf("previews require operator-auth.oidc")
+	}
+	browserID := oidcAuth.IDTokenVerifier(bc.ClientID)
+	var loginRoutes http.Handler // set below: the Service needs pa's hooks
+	pa := collabhttp.NewPreviewAuth(collabhttp.PreviewAuthOptions{
+		Domain: domain,
+		Login:  http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { loginRoutes.ServeHTTP(w, r) }),
+		Operator: func(ctx context.Context, tok string) (string, bool) {
+			op, err := oidcAuth.VerifyToken(ctx, tok)
+			return op.ID, err == nil
+		},
+		Participant: func(ctx context.Context, tok string) (ident.ID, string, bool) {
+			iss, sub, err := browserID(ctx, tok)
+			if err != nil {
+				return "", "", false
+			}
+			u, ok := jam.UserByIdentity(st, iss, sub)
+			return u.ID, u.Name, ok
+		},
+		Bearer: previewBearer(oidcAuth, lc, st),
+		Now:    time.Now,
+		Log:    log,
+	})
+	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidReturn), nil, log)
+	if err != nil {
+		return nil, fmt.Errorf("preview login: %w", err)
+	}
+	loginRoutes = svc.Routes()
+	return pa, nil
+}
+
+// previewBearer names a non-browser preview caller from its Authorization
+// bearer: an operator access token (as on the admin API), else — when the CLI
+// login is configured — a participant ID token (as on /me/studios/).
+func previewBearer(oidcAuth *jam.OIDCAuthenticator, lc *jam.OperatorLoginConfig, st jam.Store) func(*http.Request) (collab.Principal, string, error) {
+	operator := operatorPrincipal(st)
+	var participant func(*http.Request) (collab.Principal, string, error)
+	if lc != nil {
+		participant = collabhttp.ParticipantBearer(oidcAuth.IDTokenVerifier(lc.ClientID), st)
+	}
+	return func(r *http.Request) (collab.Principal, string, error) {
+		if op, err := oidcAuth.Authenticate(r); err == nil {
+			return operator(jam.WithOperator(r, op))
+		}
+		if participant == nil {
+			if r.Header.Get("Authorization") == "" {
+				return collab.Principal{}, "", collabhttp.ErrNoCredentials
+			}
+			return collab.Principal{}, "", collabhttp.ErrInvalidToken
+		}
+		return participant(r)
+	}
 }
