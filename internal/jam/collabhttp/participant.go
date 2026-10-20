@@ -14,7 +14,8 @@ import (
 // verify checks it and returns its issuer and subject, which name the user
 // bound to that identity. A missing or non-Bearer Authorization header is
 // ErrNoCredentials, a token verify rejects is ErrInvalidToken, and a verified
-// identity bound to no user (or one in no project) is ErrUnbound.
+// identity bound to no live user is ErrUnbound. Project membership is not
+// required — collab.Decide authorizes each request.
 func ParticipantBearer(verify func(ctx context.Context, raw string) (issuer, subject string, err error), store jam.ParticipantStore) func(*http.Request) (collab.Principal, string, error) {
 	return func(r *http.Request) (collab.Principal, string, error) {
 		raw, ok := bearerToken(r)
@@ -25,11 +26,13 @@ func ParticipantBearer(verify func(ctx context.Context, raw string) (issuer, sub
 		if err != nil {
 			return collab.Principal{}, "", ErrInvalidToken
 		}
-		p, ok := jam.ParticipantByIdentity(store, iss, sub)
+		// Bound and live is enough: collab.Decide authorizes, and a share
+		// grant may reach a user who is in no project.
+		u, ok := jam.UserByIdentity(store, iss, sub)
 		if !ok {
 			return collab.Principal{}, "", ErrUnbound
 		}
-		return collab.Principal{UserID: p.UserID}, p.Name, nil
+		return collab.Principal{UserID: u.ID}, u.Name, nil
 	}
 }
 

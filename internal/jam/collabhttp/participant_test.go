@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
@@ -121,5 +122,43 @@ func TestParticipantBearerOnRoutes(t *testing.T) {
 		if got := rec.Header().Get("WWW-Authenticate") != ""; got != tc.wwwAuth {
 			t.Errorf("%s: WWW-Authenticate set = %v, want %v", name, got, tc.wwwAuth)
 		}
+	}
+}
+
+// A share grant reaches a collaborator from outside every project: the bearer
+// resolves the user by OIDC binding alone and collab.Decide authorizes on the
+// grant.
+func TestParticipantBearerGrantHolderWithoutProject(t *testing.T) {
+	d, st := testDeps(t)
+	erin, err := st.CreateUser(jam.User{Name: "erin", OIDC: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "erin-sub"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := d.Now()
+	if err := st.PutShareGrant(jam.ShareGrant{SessionID: "ses_a", UserID: erin.ID, Rights: []string{"ssh"}, CreatedAt: now, ExpiresAt: now.Add(time.Hour), GrantedBy: "op:local"}); err != nil {
+		t.Fatal(err)
+	}
+	d.Principal = collabhttp.ParticipantBearer(func(context.Context, string) (string, string, error) {
+		return "https://idp", "erin-sub", nil
+	}, st)
+	h := collabhttp.Routes("/me", d)
+	req := certReq(testUserPub(t), "")
+	req.Header.Set("Authorization", "Bearer erin")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "certificate") {
+		t.Fatalf("grant holder without a project: %d %q, want 200 with a certificate", rec.Code, rec.Body.String())
+	}
+
+	// Without the grant, Decide (not the bearer) refuses.
+	if err := st.RemoveShareGrant("ses_a", erin.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	req = certReq(testUserPub(t), "")
+	req.Header.Set("Authorization", "Bearer erin")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "not linked") {
+		t.Fatalf("no grant: %d %q, want 403 from Decide", rec.Code, rec.Body.String())
 	}
 }

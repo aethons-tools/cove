@@ -47,6 +47,24 @@ func (h Human) HasIdentity(issuer, subject string) bool {
 	return false
 }
 
+// UserByIdentity resolves the live user bound to the OIDC identity (issuer,
+// subject), whatever their project memberships — for callers whose own
+// authorization decides access (the collaboration bearer, where a share grant
+// may reach a user in no project). The empty issuer or subject never matches.
+// The browser /me pages resolve with ParticipantByIdentity instead.
+func UserByIdentity(store interface {
+	UserByOIDC(issuer, subject string) (User, bool)
+}, issuer, subject string) (User, bool) {
+	if issuer == "" || subject == "" {
+		return User{}, false
+	}
+	u, ok := store.UserByOIDC(issuer, subject)
+	if !ok || u.Status != StatusLive {
+		return User{}, false
+	}
+	return u, true
+}
+
 // ParticipantByIdentity resolves the user bound to the browser OIDC identity
 // (issuer, subject). Projects lists every project the user is a member of, in
 // ListProjects order. The empty issuer or subject never matches, and an
