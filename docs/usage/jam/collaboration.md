@@ -64,7 +64,7 @@ Jam mounts the participant routes (`/me/studios/{id}/ssh*`) only when
 
 | Command | What it does |
 |---------|--------------|
-| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand at-jam ssh-proxy …`, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert. `--write` installs it in `~/.ssh/config` between `# >>> at-jam <studio>` markers — at the top, since OpenSSH takes the first value it finds and an earlier `Host *` would win — ending in `Match all` so options below it still apply to every host; a rerun replaces the block in place. |
+| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand <this at-jam's absolute path> ssh-proxy …` — so it works when `at-jam` isn't on ssh's PATH, e.g. a `dist/` build; rerun `ssh-config --write` after moving the binary —, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert. `--write` installs it in `~/.ssh/config` between `# >>> at-jam <studio>` markers — at the top, since OpenSSH takes the first value it finds and an earlier `Host *` would win — ending in `Match all` so options below it still apply to every host; a rerun replaces the block in place. |
 | `at-jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
 | `at-jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
 

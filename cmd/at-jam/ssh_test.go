@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -170,11 +171,12 @@ func upgradeEchoServer(t *testing.T) *httptest.Server {
 
 func TestSSHConfigBlock(t *testing.T) {
 	home := sshTestHome(t)
+	stubSSHSelf(t, "/opt/jam/dist/linux-amd64/at-jam", nil)
 	var out, errb bytes.Buffer
 	if code := run([]string{"ssh-config", "ses_a"}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	for _, want := range []string{"Host jam-ses_a", "ProxyCommand at-jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile "} {
+	for _, want := range []string{"Host jam-ses_a", "ProxyCommand /opt/jam/dist/linux-amd64/at-jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, out.String())
 		}
@@ -429,6 +431,7 @@ func TestSSHProxyRefusals(t *testing.T) {
 // pass-through args, and never puts a token on argv.
 func TestSSHExecsSSHAfterFreshCert(t *testing.T) {
 	sshTestHome(t)
+	stubSSHSelf(t, "/usr/local/bin/at-jam", nil)
 	fakeClock(t, time.Now())
 	j := newCollabJam(t)
 	t.Setenv("AT_JAM_ADMIN_TOKEN", "optok")
@@ -450,7 +453,7 @@ func TestSSHExecsSSHAfterFreshCert(t *testing.T) {
 		t.Fatalf("exec %s %v", gotPath, gotArgv)
 	}
 	joined := strings.Join(gotArgv, "\x00")
-	for _, want := range []string{"User=agent", "ProxyCommand=at-jam ssh-proxy --admin-url '" + j.URL + "' --operator ses_a", "CertificateFile=", "IdentityFile=", "jam-ses_a\x00-L\x003000:localhost:3000\x00ls"} {
+	for _, want := range []string{"User=agent", "ProxyCommand=/usr/local/bin/at-jam ssh-proxy --admin-url '" + j.URL + "' --operator ses_a", "CertificateFile=", "IdentityFile=", "jam-ses_a\x00-L\x003000:localhost:3000\x00ls"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv missing %q: %q", want, gotArgv)
 		}
@@ -636,5 +639,36 @@ func TestSSHCertPathPerApp(t *testing.T) {
 	sshTestHome(t)
 	if a, b := sshCertPath(defaultApp, "ses_a"), sshCertPath("dev", "ses_a"); a == b || filepath.Dir(b) != filepath.Join(sshDir(), "dev") {
 		t.Fatalf("default %s, dev %s", a, b)
+	}
+}
+
+func stubSSHSelf(t *testing.T, path string, err error) {
+	t.Helper()
+	old := sshSelf
+	sshSelf = func() (string, error) { return path, err }
+	t.Cleanup(func() { sshSelf = old })
+}
+
+// The ProxyCommand runs in ssh's shell, which may not have at-jam on PATH
+// (a dist/ build, a dev checkout), so it names this binary by absolute path.
+func TestProxyCommandNamesThisBinary(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		err        error
+		want       string
+	}{
+		{"absolute", "/home/me/cove/dist/darwin-arm64/at-jam", nil, "/home/me/cove/dist/darwin-arm64/at-jam ssh-proxy --operator ses_a"},
+		{"needs quoting", "/Users/me/My Tools/at-jam", nil, "'/Users/me/My Tools/at-jam' ssh-proxy --operator ses_a"},
+		{"percent escaped", "/opt/100%/at-jam", nil, "'/opt/100%%/at-jam' ssh-proxy --operator ses_a"},
+		{"unknown", "", errors.New("no /proc"), "at-jam ssh-proxy --operator ses_a"},
+		{"relative", "at-jam", nil, "at-jam ssh-proxy --operator ses_a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubSSHSelf(t, tc.path, tc.err)
+			got := sshTarget{app: defaultApp, studio: "ses_a"}.proxyCommand()
+			if got != tc.want {
+				t.Errorf("proxyCommand = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -48,6 +48,7 @@ var (
 	sshStdin    io.Reader = os.Stdin
 	sshExec               = syscall.Exec
 	sshLookPath           = exec.LookPath
+	sshSelf               = os.Executable
 )
 
 // studioIDRe constrains a studio id to what is safe as a file name, an
@@ -321,10 +322,12 @@ func (f *sshFlags) resolve(studio string, stderr io.Writer) (t sshTarget, usage 
 	return t, false, nil
 }
 
-// proxyCommand is the ssh_config ProxyCommand for t: it pins the app, an
-// explicit admin URL and the plane, so later runs are deterministic.
+// proxyCommand is the ssh_config ProxyCommand for t: it pins this at-jam
+// binary (by absolute path — ssh's shell may not have it on PATH, e.g. a
+// `dist/` build), the app, an explicit admin URL and the plane, so later runs
+// are deterministic.
 func (t sshTarget) proxyCommand() string {
-	parts := []string{"at-jam", "ssh-proxy"}
+	parts := []string{proxyBinary(), "ssh-proxy"}
 	if t.app != defaultApp {
 		parts = append(parts, "--app", t.app)
 	}
@@ -338,6 +341,22 @@ func (t sshTarget) proxyCommand() string {
 	}
 	parts = append(parts, t.studio)
 	return sshConfigEscape(strings.Join(parts, " "))
+}
+
+// proxyBinary is the running at-jam's absolute path, shell-quoted when it
+// needs it; bare "at-jam" (resolved on ssh's PATH) if it can't be found.
+func proxyBinary() string {
+	p, err := sshSelf()
+	if err != nil || !filepath.IsAbs(p) {
+		return "at-jam"
+	}
+	if strings.ContainsFunc(p, func(r rune) bool {
+		return !(r == '/' || r == '.' || r == '_' || r == '-' || r == '+' ||
+			('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9'))
+	}) {
+		return shellQuote(p)
+	}
+	return p
 }
 
 // shellQuote single-quotes s for the shell OpenSSH runs a ProxyCommand with.
