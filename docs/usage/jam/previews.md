@@ -19,7 +19,7 @@ The agent calls `expose(port, name)` ([intercom.md](intercom.md)) and gets
 `https://<name>--<label>.<domain>/`. Its session context tells it to post the
 link in its channel ([session-context.md](session-context.md)). `name` is 1–30
 of `[a-z0-9-]`: no leading or trailing `-`, no `--`, not `jam` or `xn`. The
-port is 1024–65535, not 2222 (sshd). A session may expose at most 8, and
+port is 1024–65535, not 2222 (sshd) or 3128 (the egress proxy). A session may expose at most 8, and
 exposing a name again moves it to the new port. `unexpose(name)` removes one
 and closes its open connections at once. `exposures()` lists them. Changes
 are logged (`preview exposed` / `preview unexposed`: session, name, port).

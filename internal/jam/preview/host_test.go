@@ -21,7 +21,7 @@ func TestNamesAndPorts(t *testing.T) {
 			t.Errorf("port %d refused", p)
 		}
 	}
-	for _, p := range []int{0, 80, 1023, 2222, 65536} {
+	for _, p := range []int{0, 80, 1023, 2222, 3128, 65536} {
 		if ValidPort(p) == nil {
 			t.Errorf("port %d accepted", p)
 		}
@@ -130,6 +130,14 @@ func TestUnderDomain(t *testing.T) {
 	for _, h := range []string{"", "jam.example", "xpreview.jam.example", "preview.jam.example.evil", "[::1]:8443", "127.0.0.1"} {
 		if UnderDomain(h, d) {
 			t.Errorf("UnderDomain(%q) = true", h)
+		}
+	}
+}
+
+func TestValidPortNamesReservedPorts(t *testing.T) {
+	for port, want := range map[int]string{2222: "not 2222 (sshd) or 3128 (egress proxy)", 3128: "not 2222 (sshd) or 3128 (egress proxy)"} {
+		if err := ValidPort(port); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("ValidPort(%d) = %v, want %q", port, err, want)
 		}
 	}
 }

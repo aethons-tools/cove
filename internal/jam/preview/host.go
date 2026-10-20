@@ -15,6 +15,10 @@ import (
 const (
 	// SSHPort is the in-studio sshd port; it can never be exposed.
 	SSHPort = 2222
+	// SquidPort is the studio's egress proxy (squid's http_port in the
+	// hardening layer, internal/assemble/hardening/image-files/etc/squid/
+	// squid.conf); it can never be exposed either.
+	SquidPort = 3128
 	// MaxExposures is the most previews one session may expose at once.
 	MaxExposures = 8
 	// ReservedLabel is the login host's label and so not a usable preview name.
@@ -36,8 +40,8 @@ func ValidName(name string) error {
 
 // ValidPort reports whether port may be exposed.
 func ValidPort(port int) error {
-	if port < 1024 || port > 65535 || port == SSHPort {
-		return fmt.Errorf("port %d: want 1024-65535, not %d (sshd)", port, SSHPort)
+	if port < 1024 || port > 65535 || port == SSHPort || port == SquidPort {
+		return fmt.Errorf("port %d: want 1024-65535, not %d (sshd) or %d (egress proxy)", port, SSHPort, SquidPort)
 	}
 	return nil
 }
