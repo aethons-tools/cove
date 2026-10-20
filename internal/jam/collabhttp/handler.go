@@ -19,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 )
 
@@ -252,7 +253,7 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 	closeBoth := func() { once.Do(func() { _ = conn.Close(); _ = studio.Close() }) }
 	start := h.d.Now()
 	remove := h.d.Live.add(&liveEntry{
-		LiveConn: LiveConn{Session: a.inst.ActorID, User: a.auditUser(), Name: a.name, Since: start},
+		LiveConn: collabwire.LiveConn{Session: a.inst.ActorID, User: a.auditUser(), Name: a.name, Since: start},
 		userID:   a.p.UserID, operator: a.p.Operator != "", close: closeBoth,
 	})
 	defer remove()

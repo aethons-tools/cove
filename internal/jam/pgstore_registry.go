@@ -580,6 +580,22 @@ func (s *PostgresStore) RemoveShareGrant(sessionID string, user ident.ID) error 
 	return nil
 }
 
+func (s *PostgresStore) RemoveShareGrantIf(want ShareGrant) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.matchesGrant(want) {
+		return false, nil
+	}
+	if err := s.registryTx("RemoveShareGrantIf", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM share_grants WHERE session_id = $1 AND user_id = $2`, want.SessionID, want.UserID)
+		return err
+	}); err != nil {
+		return false, err
+	}
+	s.applyRemoveShareGrant(want.SessionID, want.UserID)
+	return true, nil
+}
+
 func (s *PostgresStore) RemoveShareGrantsOf(sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

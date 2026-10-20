@@ -32,8 +32,24 @@ type ShareGrantStore interface {
 	// ShareGrants lists a session's grants, sorted by user; expired ones are
 	// included (callers compare ExpiresAt). The result is a copy.
 	ShareGrants(sessionID string) []ShareGrant
+	// RemoveShareGrantIf drops want's (session, user) grant only if it is
+	// still exactly want (compare-and-remove), reporting whether it did.
+	RemoveShareGrantIf(want ShareGrant) (bool, error)
 	// RemoveShareGrantsOf drops every grant of a session (no-op if none).
 	RemoveShareGrantsOf(sessionID string) error
+}
+
+// sameGrant reports whether a and b are the same grant, field by field.
+func sameGrant(a, b ShareGrant) bool {
+	return a.SessionID == b.SessionID && a.UserID == b.UserID && slices.Equal(a.Rights, b.Rights) &&
+		a.ExpiresAt.Equal(b.ExpiresAt) && a.CreatedAt.Equal(b.CreatedAt) && a.GrantedBy == b.GrantedBy
+}
+
+// matchesGrant reports whether the stored grant for want's (session, user)
+// is exactly want. Caller holds mu.
+func (m *memState) matchesGrant(want ShareGrant) bool {
+	g, ok := m.grants[want.SessionID][want.UserID]
+	return ok && sameGrant(g, want)
 }
 
 func (g ShareGrant) clone() ShareGrant {
@@ -98,6 +114,16 @@ func (fs *MemStore) RemoveShareGrant(sessionID string, user ident.ID) error {
 	defer fs.mu.Unlock()
 	fs.applyRemoveShareGrant(sessionID, user)
 	return nil
+}
+
+func (fs *MemStore) RemoveShareGrantIf(want ShareGrant) (bool, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if !fs.matchesGrant(want) {
+		return false, nil
+	}
+	fs.applyRemoveShareGrant(want.SessionID, want.UserID)
+	return true, nil
 }
 
 func (fs *MemStore) RemoveShareGrantsOf(sessionID string) error {

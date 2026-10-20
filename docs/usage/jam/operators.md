@@ -100,16 +100,22 @@ dial-back timed out.
 
 | Command | What it does |
 |---------|--------------|
-| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant. The grant is keyed to the session and removed when it ends. |
-| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
+| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes their open SSH connections, as unshare does). The grant is keyed to the session and removed when it ends. |
+| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
 | `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live}`): operators, the personal session's requester, the role's policy for project members, each grant (rights, expiry, granted by), and the open SSH connections. |
 
 They pick the plane as the ssh commands do (`--participant` / `--operator`, same
 default). An operator may share anything. A participant must hold some right on
 the studio to use any of the three, may grant only rights they hold — and one
-they hold only by a grant, for no longer than that grant runs — and may remove a
-grant whose rights they all hold, or their own. Each share and unshare is logged
-(`studio shared` / `studio unshared`: grantor, user, session, rights, expires).
+they hold only by a grant, for no longer than that grant runs — never to
+themselves, and may remove (or share over) a grant whose rights they all hold,
+or their own. Each share and unshare is logged (`studio shared` / `studio
+unshared`: grantor, user, session, rights, expires).
+
+**Revocation.** Every minute Jam re-checks each open SSH connection (operators'
+excepted) against the rules above and closes those no longer allowed — the user
+was removed, the role's policy or the user's membership changed, the grant
+expired — logging `ssh tunnel revoked` (user, session, right, reason).
 The agent page's **Access** card shows the same, with an Unshare button
 ([ui-pages.md](ui-pages.md#agent-pages)).
 

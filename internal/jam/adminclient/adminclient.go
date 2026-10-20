@@ -1,6 +1,6 @@
 // Package adminclient is a typed HTTP client for Jam's loopback admin API.
-// Kept dependency-light so a future at-jamctl can reuse it; it imports
-// internal/jam and its packages (condition, collabhttp) only for the wire types.
+// Kept dependency-light so a future at-jamctl can reuse it; today it imports
+// internal/jam only for the wire types (Jam is stdlib-only).
 package adminclient
 
 import (
@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
-	"github.com/aethons-tools/cove/internal/jam/collabhttp"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
@@ -715,8 +715,8 @@ type ShareParams struct {
 
 // ShareStudio grants a user rights on studio, on the plane at prefix ("/admin"
 // or "/me").
-func (c *Client) ShareStudio(prefix, studio string, p ShareParams) (collabhttp.GrantView, error) {
-	var out collabhttp.GrantView
+func (c *Client) ShareStudio(prefix, studio string, p ShareParams) (collabwire.GrantView, error) {
+	var out collabwire.GrantView
 	err := c.do("POST", prefix+"/studios/"+url.PathEscape(studio)+"/shares", p, &out)
 	return out, err
 }
@@ -727,8 +727,8 @@ func (c *Client) UnshareStudio(prefix, studio, user string) error {
 }
 
 // StudioAccess reports who can reach studio and why, and who is connected.
-func (c *Client) StudioAccess(prefix, studio string) (collabhttp.AccessView, error) {
-	var out collabhttp.AccessView
+func (c *Client) StudioAccess(prefix, studio string) (collabwire.AccessView, error) {
+	var out collabwire.AccessView
 	err := c.do("GET", prefix+"/studios/"+url.PathEscape(studio)+"/access", nil, &out)
 	return out, err
 }

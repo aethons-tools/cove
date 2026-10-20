@@ -15,6 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 )
 
 // Sharing: POST {prefix}/studios/{id}/shares {user, rights, for} grants a
@@ -26,55 +27,17 @@ import (
 // hold one only by a grant, for no longer than that grant runs), and may
 // remove a grant whose rights they all hold, or their own.
 
-// GrantView is a share grant as the API and UI show it.
-type GrantView struct {
-	User          string    `json:"user"` // the grantee's name
-	UserID        ident.ID  `json:"user_id"`
-	Rights        []string  `json:"rights"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	CreatedAt     time.Time `json:"created_at"`
-	GrantedBy     string    `json:"granted_by"`      // op:<operator-id> or usr_…
-	GrantedByName string    `json:"granted_by_name"` // the grantor's user name when a user, else GrantedBy
-	Expired       bool      `json:"expired"`
-}
-
-// UserRef names a roster user.
-type UserRef struct {
-	ID   ident.ID `json:"id"`
-	Name string   `json:"name"`
-}
-
-// RoleAccess is what the studio's role gives the project's members, per
-// right: "members" or "none" (defaults spelled out).
-type RoleAccess struct {
-	Project string `json:"project"`
-	Role    string `json:"role"`
-	Preview string `json:"preview"`
-	SSH     string `json:"ssh"`
-}
-
-// AccessView is who can reach a studio and why: operators always; the
-// personal session's requester; project members as the role says; each share
-// grant. Live lists the open SSH connections.
-type AccessView struct {
-	Session   string      `json:"session"`
-	Requester *UserRef    `json:"requester,omitempty"`
-	Role      RoleAccess  `json:"role"`
-	Grants    []GrantView `json:"grants"`
-	Live      []LiveConn  `json:"live"`
-}
-
-// AccessOf builds inst's AccessView.
-func AccessOf(store jam.Store, live *Live, now time.Time, inst jam.Instance) AccessView {
-	v := AccessView{Session: inst.ActorID, Grants: []GrantView{}, Live: live.List(inst.ActorID)}
+// AccessOf builds inst's collabwire.AccessView.
+func AccessOf(store jam.Store, live *Live, now time.Time, inst jam.Instance) collabwire.AccessView {
+	v := collabwire.AccessView{Session: inst.ActorID, Grants: []collabwire.GrantView{}, Live: live.List(inst.ActorID)}
 	if v.Live == nil {
-		v.Live = []LiveConn{}
+		v.Live = []collabwire.LiveConn{}
 	}
 	if inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID != "" {
-		v.Requester = &UserRef{ID: inst.OwnerID, Name: userName(store, inst.OwnerID, inst.Owner)}
+		v.Requester = &collabwire.UserRef{ID: inst.OwnerID, Name: userName(store, inst.OwnerID, inst.Owner)}
 	}
 	role, _ := store.GetRole(inst.Project, inst.Role)
-	v.Role = RoleAccess{Project: jam.ProjectName(store, inst.Project), Role: inst.Role, Preview: "none", SSH: "none"}
+	v.Role = collabwire.RoleAccess{Project: jam.ProjectName(store, inst.Project), Role: inst.Role, Preview: "none", SSH: "none"}
 	if role.Collaborate.Allows(string(collab.Preview)) {
 		v.Role.Preview = "members"
 	}
@@ -87,12 +50,12 @@ func AccessOf(store jam.Store, live *Live, now time.Time, inst jam.Instance) Acc
 	return v
 }
 
-func grantView(store jam.Store, now time.Time, g jam.ShareGrant) GrantView {
+func grantView(store jam.Store, now time.Time, g jam.ShareGrant) collabwire.GrantView {
 	by := g.GrantedBy
 	if id, err := ident.Parse(g.GrantedBy); err == nil && id.Kind() == ident.User {
 		by = userName(store, id, g.GrantedBy)
 	}
-	return GrantView{
+	return collabwire.GrantView{
 		User: userName(store, g.UserID, string(g.UserID)), UserID: g.UserID, Rights: g.Rights,
 		ExpiresAt: g.ExpiresAt, CreatedAt: g.CreatedAt, GrantedBy: g.GrantedBy, GrantedByName: by,
 		Expired: !now.Before(g.ExpiresAt),
@@ -106,31 +69,41 @@ func userName(store jam.Store, id ident.ID, fallback string) string {
 	return fallback
 }
 
-// Unshare removes user's grant on session as grantor (op:<id> or usr_…, for
-// the audit line) and, unless the user still holds ssh by another rule,
-// closes their open SSH connections on it. It reports whether there was a
-// grant.
-func Unshare(store jam.Store, live *Live, log *slog.Logger, now time.Time, grantor, session string, user ident.ID) (bool, error) {
-	var g jam.ShareGrant
-	found := false
-	for _, x := range store.ShareGrants(session) {
-		if x.UserID == user {
-			g, found = x, true
+// GrantOf returns user's grant on session, if any (expired ones included).
+func GrantOf(store jam.Store, session string, user ident.ID) (jam.ShareGrant, bool) {
+	for _, g := range store.ShareGrants(session) {
+		if g.UserID == user {
+			return g, true
 		}
 	}
-	if !found {
-		return false, nil
+	return jam.ShareGrant{}, false
+}
+
+// Unshare removes grant g as grantor (op:<id> or usr_…, for the audit line)
+// — only if it is still exactly g, so a caller's checks on g hold for what is
+// removed — and closes the user's open SSH connections on the studio unless
+// they still hold ssh another way. It reports whether it removed g; false
+// means the grant is gone or changed since it was read.
+func Unshare(store jam.Store, live *Live, log *slog.Logger, now time.Time, grantor string, g jam.ShareGrant) (bool, error) {
+	removed, err := store.RemoveShareGrantIf(g)
+	if err != nil || !removed {
+		return false, err
 	}
-	if err := store.RemoveShareGrant(session, user); err != nil {
-		return true, err
-	}
-	closed := 0
-	inst, ok := store.GetInstance(session)
-	if _, still := collab.Decide(store, now, collab.Principal{UserID: user}, inst, collab.SSH); !ok || !still {
-		closed = live.CloseUser(session, user)
-	}
-	log.Info("studio unshared", "grantor", grantor, "user", string(user), "session", session, "rights", strings.Join(g.Rights, ","), "expires", g.ExpiresAt.UTC().Format(time.RFC3339), "closed", closed)
+	closed := closeIfSSHLost(store, live, now, g.SessionID, g.UserID)
+	log.Info("studio unshared", "grantor", grantor, "user", string(g.UserID), "session", g.SessionID, "rights", strings.Join(g.Rights, ","), "expires", g.ExpiresAt.UTC().Format(time.RFC3339), "closed", closed)
 	return true, nil
+}
+
+// closeIfSSHLost closes user's open SSH connections on session unless they
+// still hold ssh on it, returning how many it closed.
+func closeIfSSHLost(store jam.Store, live *Live, now time.Time, session string, user ident.ID) int {
+	inst, ok := store.GetInstance(session)
+	if ok {
+		if _, still := collab.Decide(store, now, collab.Principal{UserID: user}, inst, collab.SSH); still {
+			return 0
+		}
+	}
+	return live.CloseUser(session, user)
 }
 
 var daysRe = regexp.MustCompile(`^([0-9]{1,4})d$`)
@@ -172,6 +145,24 @@ func resolveGrantee(store jam.Store, ref string) (ident.ID, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// grantOfRef finds the session's grant for a user reference: a live user
+// (as resolveGrantee), else a grant whose user has that id or name — so a
+// removed user's leftover grant can still be named.
+func grantOfRef(store jam.Store, session, ref string) (jam.ShareGrant, bool) {
+	if id, ok := resolveGrantee(store, ref); ok {
+		if g, ok := GrantOf(store, session, id); ok {
+			return g, true
+		}
+	}
+	ref = strings.TrimPrefix(ref, "user:")
+	for _, g := range store.ShareGrants(session) {
+		if string(g.UserID) == ref || userName(store, g.UserID, "") == ref {
+			return g, true
+		}
+	}
+	return jam.ShareGrant{}, false
 }
 
 // sharer resolves the caller and studio for a sharing route: an operator, or
@@ -227,9 +218,21 @@ func (h *handler) share(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	old, replacing := GrantOf(h.d.Store, inst.ActorID, user)
 	if p.Operator == "" {
+		if user == p.UserID {
+			http.Error(w, "you can't share with yourself", http.StatusForbidden)
+			return
+		}
 		for _, right := range rights {
 			if msg := h.mayShare(p, inst, collab.Right(right), g.ExpiresAt, now); msg != "" {
+				http.Error(w, msg, http.StatusForbidden)
+				return
+			}
+		}
+		// Replacing a grant removes it, so it takes what removing it takes.
+		if replacing {
+			if msg := h.mayRemove(p, inst, old, now); msg != "" {
 				http.Error(w, msg, http.StatusForbidden)
 				return
 			}
@@ -240,7 +243,11 @@ func (h *handler) share(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not store the grant", http.StatusInternalServerError)
 		return
 	}
-	h.d.Log.Info("studio shared", "grantor", g.GrantedBy, "user", string(user), "session", inst.ActorID, "rights", strings.Join(rights, ","), "expires", g.ExpiresAt.UTC().Format(time.RFC3339))
+	closed := 0
+	if replacing && slices.Contains(old.Rights, string(collab.SSH)) && !slices.Contains(rights, string(collab.SSH)) {
+		closed = closeIfSSHLost(h.d.Store, h.d.Live, now, inst.ActorID, user)
+	}
+	h.d.Log.Info("studio shared", "grantor", g.GrantedBy, "user", string(user), "session", inst.ActorID, "rights", strings.Join(rights, ","), "expires", g.ExpiresAt.UTC().Format(time.RFC3339), "replaced", replacing, "closed", closed)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(grantView(h.d.Store, now, g))
@@ -265,41 +272,48 @@ func (h *handler) mayShare(p collab.Principal, inst jam.Instance, right collab.R
 	return ""
 }
 
+// mayRemove says why participant p may not remove grant g, or "" when it
+// may: g is p's own, or p holds every right in it.
+func (h *handler) mayRemove(p collab.Principal, inst jam.Instance, g jam.ShareGrant, now time.Time) string {
+	if g.UserID == p.UserID {
+		return ""
+	}
+	for _, right := range g.Rights {
+		if _, holds := collab.Decide(h.d.Store, now, p, inst, collab.Right(right)); !holds {
+			return "you may not change or remove a grant of " + right + ": you don't hold it on this studio"
+		}
+	}
+	return ""
+}
+
 func (h *handler) unshare(w http.ResponseWriter, r *http.Request) {
 	p, inst, ok := h.sharer(w, r)
 	if !ok {
 		return
 	}
 	ref := r.PathValue("user")
-	user, ok := resolveGrantee(h.d.Store, ref)
-	var g jam.ShareGrant
-	found := false
-	if ok {
-		for _, x := range h.d.Store.ShareGrants(inst.ActorID) {
-			if x.UserID == user {
-				g, found = x, true
-			}
-		}
-	}
+	g, found := grantOfRef(h.d.Store, inst.ActorID, ref)
 	if !found {
 		http.Error(w, fmt.Sprintf("no share for %q on this studio", ref), http.StatusNotFound)
 		return
 	}
 	now := h.d.Now()
-	if p.Operator == "" && p.UserID != user {
-		for _, right := range g.Rights {
-			if _, holds := collab.Decide(h.d.Store, now, p, inst, collab.Right(right)); !holds {
-				http.Error(w, "you may not remove a grant of "+right+": you don't hold it on this studio", http.StatusForbidden)
-				return
-			}
+	if p.Operator == "" {
+		if msg := h.mayRemove(p, inst, g, now); msg != "" {
+			http.Error(w, msg, http.StatusForbidden)
+			return
 		}
 	}
-	if _, err := Unshare(h.d.Store, h.d.Live, h.d.Log, now, grantor(p), inst.ActorID, user); err != nil {
+	removed, err := Unshare(h.d.Store, h.d.Live, h.d.Log, now, grantor(p), g)
+	switch {
+	case err != nil:
 		h.d.Log.Error("collab: removing share grant failed", "session", inst.ActorID, "err", err.Error())
 		http.Error(w, "could not remove the grant", http.StatusInternalServerError)
-		return
+	case !removed:
+		http.Error(w, "the grant changed while being removed; retry", http.StatusConflict)
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) access(w http.ResponseWriter, r *http.Request) {

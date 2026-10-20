@@ -9,6 +9,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 )
 
 // WithStudioAccess shows the agent page's Access card — who can reach a
@@ -23,7 +24,7 @@ func WithStudioAccess(live *collabhttp.Live) Option {
 type accessCard struct {
 	ID      string
 	Enabled bool
-	View    collabhttp.AccessView
+	View    collabwire.AccessView
 }
 
 func buildAccessCard(store jam.Store, live *collabhttp.Live, inst jam.Instance) accessCard {
@@ -51,13 +52,18 @@ func registerAccess(mux *http.ServeMux, store jam.Store, live *collabhttp.Live, 
 			return
 		}
 		grantor := "op:" + cmp.Or(jam.OperatorID(r), "local")
-		found, err := collabhttp.Unshare(store, live, log, time.Now(), grantor, r.PathValue("id"), user)
+		g, found := collabhttp.GrantOf(store, r.PathValue("id"), user)
+		if !found {
+			renderError(w, http.StatusNotFound, "no such share on this studio")
+			return
+		}
+		removed, err := collabhttp.Unshare(store, live, log, time.Now(), grantor, g)
 		switch {
 		case err != nil:
 			renderError(w, http.StatusInternalServerError, "could not remove the grant")
 			return
-		case !found:
-			renderError(w, http.StatusNotFound, "no such share on this studio")
+		case !removed:
+			renderError(w, http.StatusConflict, "the grant changed while being removed; reload and retry")
 			return
 		}
 		// The agent page reloads on success.

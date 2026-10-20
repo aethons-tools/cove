@@ -2373,6 +2373,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
 		if sshCA != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveSSH))
+			// Revocation: drop open SSH connections whose access has gone (a
+			// removed user, a role-policy or membership change, an expired grant).
+			go liveSSH.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
 

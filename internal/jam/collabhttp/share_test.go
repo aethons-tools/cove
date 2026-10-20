@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 )
 
 func do(h http.Handler, method, path, who, body string) *httptest.ResponseRecorder {
@@ -46,7 +49,7 @@ func TestShareAPI(t *testing.T) {
 	if len(g) != 1 || g[0].UserID != carol || g[0].ExpiresAt.Sub(g[0].CreatedAt) != collab.DefaultGrant || g[0].GrantedBy != "op:local" {
 		t.Fatalf("grants %+v", g)
 	}
-	var out collabhttp.GrantView
+	var out collabwire.GrantView
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.User != "carol" || out.UserID != carol {
 		t.Fatalf("response %s (%v)", rec.Body, err)
 	}
@@ -139,8 +142,7 @@ func TestParticipantSharesOnlyRightsHeld(t *testing.T) {
 	if rec := do(h, "GET", "/me/studios/ses_a/access", "carol", ""); rec.Code != 200 {
 		t.Fatalf("grantee reads access: %d %s", rec.Code, rec.Body)
 	}
-	bob, err := st.CreateUser(jam.User{Name: "bob"})
-	if err != nil {
+	if _, err := st.CreateUser(jam.User{Name: "bob"}); err != nil {
 		t.Fatal(err)
 	}
 	if rec := do(h, "POST", "/me/studios/ses_a/shares", "carol", `{"user":"bob","rights":["ssh"],"for":"1h"}`); rec.Code != 201 {
@@ -150,14 +152,60 @@ func TestParticipantSharesOnlyRightsHeld(t *testing.T) {
 	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "beyond your own") {
 		t.Fatalf("grantee outlives her grant: %d %s", rec.Code, rec.Body)
 	}
-	if rec := do(h, "POST", "/me/studios/ses_a/shares", "carol", `{"user":"carol","rights":["ssh"],"for":"7d"}`); rec.Code != 403 {
-		t.Fatalf("grantee extends her own grant: %d %s", rec.Code, rec.Body)
+	if rec := do(h, "POST", "/me/studios/ses_a/shares", "carol", `{"user":"carol","rights":["ssh"],"for":"1h"}`); rec.Code != 403 || !strings.Contains(rec.Body.String(), "share with yourself") {
+		t.Fatalf("grantee re-shares to herself: %d %s", rec.Code, rec.Body)
 	}
 	// carol may remove the grant she holds the rights of; bob's is ssh only.
 	if rec := do(h, "DELETE", "/me/studios/ses_a/shares/bob", "carol", ""); rec.Code != 204 {
 		t.Fatalf("grantee unshares: %d %s", rec.Code, rec.Body)
 	}
-	_ = bob
+	// An operator gives bob ssh and preview: carol, lacking preview, may
+	// neither remove that grant nor shrink it by sharing over it.
+	if rec := do(collabhttp.Routes("/admin", d), "POST", "/admin/studios/ses_a/shares", "op:local", `{"user":"bob","rights":["ssh","preview"],"for":"7d"}`); rec.Code != 201 {
+		t.Fatalf("operator shares: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, "DELETE", "/me/studios/ses_a/shares/bob", "carol", ""); rec.Code != 403 || !strings.Contains(rec.Body.String(), "preview") {
+		t.Fatalf("grantee unshares a grant of preview she lacks: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(h, "POST", "/me/studios/ses_a/shares", "carol", `{"user":"bob","rights":["ssh"],"for":"1m"}`); rec.Code != 403 || !strings.Contains(rec.Body.String(), "preview") {
+		t.Fatalf("grantee shrinks a grant of preview she lacks: %d %s", rec.Code, rec.Body)
+	}
+	if g := st.ShareGrants("ses_a"); len(g) != 2 || len(g[0].Rights)+len(g[1].Rights) != 3 {
+		t.Fatalf("grants changed: %+v", g)
+	}
+}
+
+// A participant may not share with themselves: alice, holding ssh by role,
+// could otherwise keep it after the role changes.
+func TestNoSelfShare(t *testing.T) {
+	d, st := testDeps(t)
+	rec := do(collabhttp.Routes("/me", d), "POST", "/me/studios/ses_a/shares", "alice", `{"user":"alice","rights":["ssh"],"for":"7d"}`)
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "can't share with yourself") || len(st.ShareGrants("ses_a")) != 0 {
+		t.Fatalf("self-share: %d %s %+v", rec.Code, rec.Body, st.ShareGrants("ses_a"))
+	}
+}
+
+// A removed user's leftover grant can be unshared by name or usr_ id.
+func TestUnshareRemovedUser(t *testing.T) {
+	d, st := testDeps(t)
+	h := collabhttp.Routes("/admin", d)
+	carol, _ := st.LookupName(ident.User, "carol")
+	alice, _ := st.LookupName(ident.User, "alice")
+	now := d.Now()
+	for _, u := range []ident.ID{carol, alice} {
+		_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_a", UserID: u, Rights: []string{"ssh"}, CreatedAt: now, ExpiresAt: now.Add(time.Hour), GrantedBy: "op:local"})
+		if err := st.RemoveUser(u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ref := range []string{"carol", string(alice)} {
+		if rec := do(h, "DELETE", "/admin/studios/ses_a/shares/"+ref, "op:local", ""); rec.Code != 204 {
+			t.Fatalf("unshare removed %s: %d %s", ref, rec.Code, rec.Body)
+		}
+	}
+	if g := st.ShareGrants("ses_a"); len(g) != 0 {
+		t.Fatalf("grants left: %+v", g)
+	}
 }
 
 func TestAccessView(t *testing.T) {
@@ -171,7 +219,7 @@ func TestAccessView(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("access: %d %s", rec.Code, rec.Body)
 	}
-	var v collabhttp.AccessView
+	var v collabwire.AccessView
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
 		t.Fatal(err)
 	}
@@ -230,9 +278,9 @@ func TestUnshareClosesThatUsersLiveConnections(t *testing.T) {
 	_, aliceR := dialSSH(t, srv, "alice")
 	aliceStudio := <-tun.studios
 
-	waitLive := func(n int) collabhttp.AccessView {
+	waitLive := func(n int) collabwire.AccessView {
 		t.Helper()
-		var v collabhttp.AccessView
+		var v collabwire.AccessView
 		for range 200 {
 			rec := do(h, "GET", "/admin/studios/ses_a/access", "op:local", "")
 			_ = json.Unmarshal(rec.Body.Bytes(), &v)
@@ -254,8 +302,7 @@ func TestUnshareClosesThatUsersLiveConnections(t *testing.T) {
 	if rec := do(h, "DELETE", "/admin/studios/ses_a/shares/carol", "op:local", ""); rec.Code != 204 {
 		t.Fatalf("unshare carol: %d %s", rec.Code, rec.Body)
 	}
-	_ = carolConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if _, err := carolR.ReadByte(); err == nil {
+	if !closedSoon(carolConn, carolR) {
 		t.Fatal("carol's connection still open after unshare")
 	}
 	// alice keeps ssh by role, so unsharing her grant leaves her connected.
@@ -268,6 +315,111 @@ func TestUnshareClosesThatUsersLiveConnections(t *testing.T) {
 		t.Fatalf("alice's connection: %q %v", line, err)
 	}
 	_ = d.Live.CloseUser("ses_a", alice)
+}
+
+// liveHarness: the /admin routes over a shared registry with pipe tunnels.
+func liveHarness(t *testing.T) (collabhttp.Deps, *jam.MemStore, http.Handler, *httptest.Server, pipeTunnels) {
+	t.Helper()
+	d, st := testDeps(t)
+	tun := pipeTunnels{studios: make(chan net.Conn, 8)}
+	d.Tunnels = tun
+	d.Live = collabhttp.NewLive()
+	h := collabhttp.Routes("/admin", d)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return d, st, h, srv, tun
+}
+
+func waitLiveN(t *testing.T, live *collabhttp.Live, n int) {
+	t.Helper()
+	for range 400 {
+		if len(live.List("ses_a")) == n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("live = %+v, want %d", live.List("ses_a"), n)
+}
+
+func closedSoon(conn net.Conn, br *bufio.Reader) bool {
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err := br.ReadByte()
+	return err != nil && !errors.Is(err, os.ErrDeadlineExceeded) // closed, not merely quiet
+}
+
+// Sharing over a grant with one that drops ssh closes the user's connection
+// (unless they keep ssh another way).
+func TestReshareDroppingSSHCloses(t *testing.T) {
+	d, st, h, srv, tun := liveHarness(t)
+	if rec := do(h, "POST", "/admin/studios/ses_a/shares", "op:local", `{"user":"carol","rights":["ssh"]}`); rec.Code != 201 {
+		t.Fatalf("share: %d %s", rec.Code, rec.Body)
+	}
+	conn, br := dialSSH(t, srv, "carol")
+	<-tun.studios
+	waitLiveN(t, d.Live, 1)
+	if rec := do(h, "POST", "/admin/studios/ses_a/shares", "op:local", `{"user":"carol","rights":["preview"]}`); rec.Code != 201 {
+		t.Fatalf("re-share: %d %s", rec.Code, rec.Body)
+	}
+	if !closedSoon(conn, br) {
+		t.Fatal("carol's SSH survived losing ssh")
+	}
+	if g := st.ShareGrants("ses_a"); len(g) != 1 || g[0].Rights[0] != "preview" {
+		t.Fatalf("grants %+v", g)
+	}
+}
+
+// The sweep closes connections whose access has gone: an expired grant, a
+// removed user — and leaves the rest (here alice, by role) open.
+func TestSweepRevokesLapsedAccess(t *testing.T) {
+	d, st, _, srv, tun := liveHarness(t)
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	carol, _ := st.LookupName(ident.User, "carol")
+	bob, err := st.CreateUser(jam.User{Name: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := d.Now()
+	_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_a", UserID: carol, Rights: []string{"ssh"}, CreatedAt: now, ExpiresAt: now.Add(time.Hour), GrantedBy: "op:local"})
+	_ = st.PutShareGrant(jam.ShareGrant{SessionID: "ses_a", UserID: bob.ID, Rights: []string{"ssh"}, CreatedAt: now, ExpiresAt: now.Add(8 * time.Hour), GrantedBy: "op:local"})
+	carolConn, carolR := dialSSH(t, srv, "carol")
+	bobConn, bobR := dialSSH(t, srv, "bob")
+	_, aliceR := dialSSH(t, srv, "alice")
+	_, _ = <-tun.studios, <-tun.studios
+	aliceStudio := <-tun.studios
+	_, _ = dialSSH(t, srv, "op:local")
+	<-tun.studios
+	waitLiveN(t, d.Live, 4)
+
+	if n := d.Live.Sweep(st, now.Add(time.Minute), log); n != 0 {
+		t.Fatalf("sweep with all allowed closed %d", n)
+	}
+	// carol's grant expires.
+	if n := d.Live.Sweep(st, now.Add(2*time.Hour), log); n != 1 || !closedSoon(carolConn, carolR) {
+		t.Fatalf("expired grant: closed %d", n)
+	}
+	// bob is removed; Run's next tick closes him.
+	if err := st.RemoveUser(bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Live.Run(ctx, st, log, 5*time.Millisecond, func() time.Time { return now.Add(time.Minute) })
+	if !closedSoon(bobConn, bobR) {
+		t.Fatal("removed user's SSH survived the sweep")
+	}
+	cancel()
+	waitLiveN(t, d.Live, 2) // alice (role) and the operator remain
+	go func() { _, _ = aliceStudio.Write([]byte("ok\n")) }()
+	if line, err := aliceR.ReadString('\n'); err != nil || line != "ok\n" {
+		t.Fatalf("alice: %q %v", line, err)
+	}
+	logged := buf.String()
+	for _, want := range []string{`msg="ssh tunnel revoked"`, "user=" + string(carol), "reason=\"grant expired\"", "user=" + string(bob.ID), "reason=\"user removed\"", "session=ses_a", "right=ssh"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("audit lacks %q: %s", want, logged)
+		}
+	}
 }
 
 func TestParseGrantFor(t *testing.T) {

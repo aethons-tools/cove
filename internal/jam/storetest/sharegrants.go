@@ -80,6 +80,22 @@ func runShareGrantConformance(t *testing.T, newStore func(t *testing.T) jam.Stor
 		}
 	})
 
+	t.Run("share_grant_remove_if_unchanged", func(t *testing.T) {
+		s, a, _ := setup(t)
+		g := grant("ses_1", a, "ssh")
+		_ = s.PutShareGrant(g)
+		stale := grant("ses_1", a, "preview")
+		if ok, err := s.RemoveShareGrantIf(stale); err != nil || ok || len(s.ShareGrants("ses_1")) != 1 {
+			t.Fatalf("stale remove: ok=%v err=%v grants=%+v", ok, err, s.ShareGrants("ses_1"))
+		}
+		if ok, err := s.RemoveShareGrantIf(g); err != nil || !ok || len(s.ShareGrants("ses_1")) != 0 {
+			t.Fatalf("remove: ok=%v err=%v grants=%+v", ok, err, s.ShareGrants("ses_1"))
+		}
+		if ok, err := s.RemoveShareGrantIf(g); err != nil || ok {
+			t.Fatalf("remove absent: ok=%v err=%v", ok, err)
+		}
+	})
+
 	t.Run("share_grant_remove_of_session", func(t *testing.T) {
 		s, a, b := setup(t)
 		_ = s.PutShareGrant(grant("ses_1", a, "ssh"))

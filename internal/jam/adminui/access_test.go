@@ -6,10 +6,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -120,7 +122,7 @@ func TestAccessPanelUnshare(t *testing.T) {
 		t.Fatalf("unshare = %d %s, grants %v", rec.Code, rec.Body, store.ShareGrants("sess-1"))
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if _, err := br.ReadByte(); err == nil {
+	if _, err := br.ReadByte(); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal("carol's SSH connection survived the unshare")
 	}
 	if rec := del("http://example.com"); rec.Code != http.StatusNotFound {
