@@ -53,8 +53,8 @@ must include `openid`) in `~/.config/at-jam/{app}-participant-token.json`,
 never touching the operator token. Your IdP login must be linked to a Jam user
 ([roster.md](roster.md)). `logout --participant` clears it.
 
-ID tokens are short-lived (typically about 1 h) and the device flow gives no
-refresh, so when one expires (a 401), run `at-jam login --participant` again.
+ID tokens are short-lived — their lifetime is set by your IdP, typically
+about 1 h — and the device flow gives no refresh, so when one expires (a 401), run `at-jam login --participant` again.
 
 Jam mounts the participant routes (`/me/studios/{id}/ssh*`) only when
 `operator-auth.oidc.device-client-id` and `ssh:` are both set. Operators use
@@ -90,8 +90,10 @@ Jam checks each cert request and each connection against four rules, in order:
    (default `members`; previews are not served yet) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
-A removed user matches none of them. Only a running studio takes certs or
-tunnels (409 otherwise).
+A removed user matches none of them. A studio that is terminating or gone
+takes no certs or tunnels (409); a paused one is resumed for an allowed caller
+([Idle studios](#idle-studios)). The rules need no project membership: a
+share grant works for a user who is in no project.
 
 ## Sharing
 
@@ -117,6 +119,20 @@ expired — logging `ssh tunnel revoked` (user, session, right, reason). The
 agent page's **Access** card shows the same, with an Unshare button
 ([ui-pages.md](ui-pages.md#agent-pages)).
 
+## Idle studios
+
+Jam pauses a studio about a minute after its agent goes quiet. An open SSH
+connection (or one still opening) counts as activity: while there is one, Jam
+does not pause the studio, tear it down for waiting (wait-max, a role's
+on-idle teardown), or nag or reclaim a personal session — the agent is still
+woken as usual. When the last connection closes, those timers carry on from
+where they were, so a personal session already past its reclaim-after can be
+reclaimed soon after you disconnect.
+
+A cert or tunnel request on a paused studio resumes it and waits up to 10 s
+for its Attach stream to come back before going on. A studio that is pausing
+or stopping takes no new tunnels (409, retry).
+
 ## How it works
 
 1. `at-jam ssh-proxy` asks Jam's admin/UI listener for the tunnel
@@ -131,23 +147,27 @@ agent page's **Access** card shows the same, with an Unshare button
    gets a "connected over SSH" notice.
 
 The cert is signed by Jam's CA for principal `agent`, valid 8 h, key-id
-`user=<user> studio=<session>` (sshd logs it). The studio's sshd trusts the CA
+`user=<user> studio=<session>` (sshd logs it), usable only from the studio's
+loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
+tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW.md](../../OVERVIEW.md)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio, 30 min idle, 10 s for the dial-back; teardown or idling a studio
-closes its tunnels.
+studio, 30 min idle, 10 s for the dial-back; a teardown or a pause closes a
+studio's tunnels and it takes none until it is resumed or raised again.
 
 ## Troubleshooting
 
 | You see | Meaning / fix |
 |---------|---------------|
-| 401 / "participant sign-in is missing or expired" | Run `at-jam login --participant` (the ID token lasts about 1 h). |
+| 401 / "participant sign-in is missing or expired" | Run `at-jam login --participant` again (the ID token's lifetime is your IdP's). |
 | 403 "not linked to a Jam user" | Ask an operator to link your IdP login to your Jam user. |
 | 403 "you don't have SSH access" | No rule allows you; ask for a share (`at-jam studio share`). |
 | 404 | No such studio, or `ssh:` is not configured on this Jam. |
-| 409 not running | The studio is paused, terminating or gone. |
+| 409 not running / "pausing or stopping" | The studio is terminating or gone — or was mid-pause; retry, and the pause is undone. |
 | 429 too many tunnels | 16 are open to this studio; close one and retry. |
-| 503 not connected | The studio's Attach stream is down; retry shortly. |
+| 503 not connected / "could not resume" | The studio's Attach stream is down, or resuming the paused studio failed; retry shortly. |
+| 504 "resumed but did not reconnect" | The paused studio was resumed but its stream took over 10 s to return; retry. |
 | 504 dial-back timeout | The studio's image predates collaboration — re-raise it (`at-jam standing upgrade` for a standing session). |
-| `Permission denied (publickey)` on connect | The cert on disk had expired (OpenSSH read it before `ssh-proxy` renewed it); just reconnect — `at-jam ssh` renews first. |
+| `Permission denied (publickey)` on connect | Once, after a long gap: the cert on disk had expired (OpenSSH read it before `ssh-proxy` renewed it); reconnect — `at-jam ssh` renews first. Every time: the studio's sshd does not trust Jam's CA — look in serve's log for `SSH user CA install failed` for that session, then re-raise the studio — `at-jam standing upgrade --force` for a standing session (its image is current, so `--force`), else end it and raise a new one; reconnecting won't help. |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` | The studio was rebuilt or upgraded and its sshd has a new host key. Drop the old one — `ssh-keygen -R jam-<studio>` (it is pinned in `~/.ssh/known_hosts` under that alias) — and reconnect. |
 | Behind a corporate proxy, `ssh-proxy` can't reach Jam | It does not use `HTTPS_PROXY`; Jam's admin URL must be directly reachable. |
