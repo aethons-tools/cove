@@ -70,6 +70,13 @@ type collabJam struct {
 	body       string
 }
 
+// snapshot reads the recorded requests under the lock.
+func (j *collabJam) snapshot() (certCalls int, paths, tokens []string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.certCalls, append([]string(nil), j.paths...), append([]string(nil), j.tokens...)
+}
+
 func newCollabJam(t *testing.T) *collabJam {
 	t.Helper()
 	_, caPriv, _ := ed25519.GenerateKey(rand.Reader)
@@ -199,8 +206,8 @@ func TestSSHConfigParticipantFetchesCert(t *testing.T) {
 	if !strings.Contains(out.String(), "ssh-proxy --admin-url '"+j.URL+"' --participant ses_a\n") {
 		t.Errorf("ProxyCommand should pin the admin URL and participant plane:\n%s", out.String())
 	}
-	if j.certCalls != 1 || j.paths[0] != "POST /me/studios/ses_a/ssh/cert" || j.tokens[0] != "Bearer idtok" {
-		t.Fatalf("cert calls=%d paths=%v", j.certCalls, j.paths)
+	if calls, paths, tokens := j.snapshot(); calls != 1 || paths[0] != "POST /me/studios/ses_a/ssh/cert" || tokens[0] != "Bearer idtok" {
+		t.Fatalf("cert calls=%d paths=%v", calls, paths)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "at-jam", "ssh", "ses_a-cert.pub")); err != nil {
 		t.Fatal(err)
@@ -229,7 +236,7 @@ func TestSSHConfigWriteIsIdempotent(t *testing.T) {
 	}
 	data, _ := os.ReadFile(cfg)
 	s := string(data)
-	if !strings.HasPrefix(s, "Host other\n  User bob\n") || strings.Count(s, "Host jam-ses_a") != 1 || strings.Count(s, "# >>> at-jam ses_a >>>") != 1 {
+	if !strings.HasSuffix(s, "\nHost other\n  User bob\n") || strings.Count(s, "Host jam-ses_a") != 1 || strings.Count(s, "# >>> at-jam ses_a >>>") != 1 {
 		t.Fatalf("config:\n%s", s)
 	}
 	// A different studio gets its own block.
@@ -315,7 +322,7 @@ func writeCertExpiring(t *testing.T, studio string, exp time.Time) []byte {
 		t.Fatal(err)
 	}
 	data := ssh.MarshalAuthorizedKey(c)
-	if err := os.WriteFile(sshCertPath(studio), data, 0o644); err != nil {
+	if err := os.WriteFile(sshCertPath(defaultApp, studio), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return data
@@ -348,16 +355,17 @@ func TestSSHProxyRenewsCertNearExpiry(t *testing.T) {
 			if out.String() != "ping" {
 				t.Fatalf("stdout=%q", out.String())
 			}
-			got, _ := os.ReadFile(sshCertPath("ses_a"))
+			got, _ := os.ReadFile(sshCertPath(defaultApp, "ses_a"))
+			calls, _, _ := j.snapshot()
 			if tc.renew {
-				if j.certCalls != 1 || bytes.Equal(got, old) {
-					t.Fatalf("expected a renewal: calls=%d", j.certCalls)
+				if calls != 1 || bytes.Equal(got, old) {
+					t.Fatalf("expected a renewal: calls=%d", calls)
 				}
 				if until, ok := certValidUntil(got, mustKey(t)); !ok || !until.Equal(now.Add(8*time.Hour)) {
 					t.Fatalf("renewed cert until %v ok=%v", until, ok)
 				}
-			} else if j.certCalls != 0 || !bytes.Equal(got, old) {
-				t.Fatalf("expected no renewal: calls=%d", j.certCalls)
+			} else if calls != 0 || !bytes.Equal(got, old) {
+				t.Fatalf("expected no renewal: calls=%d", calls)
 			}
 		})
 	}
@@ -435,8 +443,8 @@ func TestSSHExecsSSHAfterFreshCert(t *testing.T) {
 	if code := run([]string{"ssh", "--admin-url", j.URL, "ses_a", "-L", "3000:localhost:3000", "ls"}, func(string) string { return "" }, io.Discard, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	if j.certCalls != 1 || j.tokens[0] != "Bearer optok" {
-		t.Fatalf("cert calls=%d tokens=%v", j.certCalls, j.tokens)
+	if calls, _, tokens := j.snapshot(); calls != 1 || tokens[0] != "Bearer optok" {
+		t.Fatalf("cert calls=%d tokens=%v", calls, tokens)
 	}
 	if gotPath != "/usr/bin/ssh" || gotArgv[0] != "ssh" {
 		t.Fatalf("exec %s %v", gotPath, gotArgv)
@@ -510,7 +518,7 @@ func TestSSHAgainstCollabRoutes(t *testing.T) {
 	if _, err := ensureCert(tgt, key); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(sshCertPath("ses_a"))
+	data, _ := os.ReadFile(sshCertPath(defaultApp, "ses_a"))
 	if until, ok := certValidUntil(data, key); !ok || time.Until(until) < 7*time.Hour {
 		t.Fatalf("cert until %v ok=%v", until, ok)
 	}
@@ -532,5 +540,101 @@ func TestSSHAgainstCollabRoutes(t *testing.T) {
 	_ = inW.Close()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --write puts a new block above an existing `Host *` (OpenSSH takes the
+// first value), after leading comments; a rerun keeps the block's position;
+// symlinked and CRLF configs keep their link and line endings.
+func TestSSHConfigWriteGoesOnTop(t *testing.T) {
+	home := sshTestHome(t)
+	dir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, "dotfiles-ssh-config")
+	if err := os.WriteFile(target, []byte("# mine\r\nHost *\r\n  User bob\r\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "config")); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		var errb bytes.Buffer
+		if code := run([]string{"ssh-config", "--write", "ses_a"}, func(string) string { return "" }, io.Discard, &errb); code != 0 {
+			t.Fatalf("exit %d: %s", code, errb.String())
+		}
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "config")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced: %v %v", fi, err)
+	}
+	data, _ := os.ReadFile(target)
+	s := string(data)
+	if !strings.HasPrefix(s, "# mine\r\n# >>> at-jam ses_a >>>\r\nHost jam-ses_a\r\n") || !strings.HasSuffix(s, "# <<< at-jam ses_a <<<\r\n\r\nHost *\r\n  User bob\r\n") {
+		t.Fatalf("config:\n%q", s)
+	}
+	if strings.Count(s, "Host jam-ses_a") != 1 || strings.Contains(strings.ReplaceAll(s, "\r\n", ""), "\n") {
+		t.Fatalf("duplicate block or mixed line endings:\n%q", s)
+	}
+	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o640 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+}
+
+// A begin marker without its end marker is refused rather than duplicated.
+func TestSSHConfigWriteRefusesBrokenMarkers(t *testing.T) {
+	home := sshTestHome(t)
+	cfg := filepath.Join(home, ".ssh", "config")
+	_ = os.MkdirAll(filepath.Dir(cfg), 0o700)
+	orig := "# >>> at-jam ses_a >>>\nHost jam-ses_a\n  User agent\n"
+	_ = os.WriteFile(cfg, []byte(orig), 0o600)
+	var errb bytes.Buffer
+	if code := run([]string{"ssh-config", "--write", "ses_a"}, func(string) string { return "" }, io.Discard, &errb); code != 1 || !strings.Contains(errb.String(), "fix the file by hand") {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if data, _ := os.ReadFile(cfg); string(data) != orig {
+		t.Fatalf("config changed:\n%s", data)
+	}
+}
+
+// Concurrent first runs agree on one whole key.
+func TestEnsureSSHKeyConcurrent(t *testing.T) {
+	sshTestHome(t)
+	const n = 8
+	keys := make([]ssh.PublicKey, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { keys[i], errs[i] = ensureSSHKey() })
+	}
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil || !bytes.Equal(keys[i].Marshal(), keys[0].Marshal()) {
+			t.Fatalf("run %d: err=%v", i, errs[i])
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(sshDir(), ".tmp-*")); len(left) != 0 {
+		t.Fatalf("temp files left: %v", left)
+	}
+}
+
+// An existing key readable by others is made private.
+func TestEnsureSSHKeyTightensMode(t *testing.T) {
+	sshTestHome(t)
+	mustKey(t)
+	if err := os.Chmod(sshKeyPath(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustKey(t)
+	if fi, _ := os.Stat(sshKeyPath()); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+}
+
+// A non-default app's certs live apart from the default app's.
+func TestSSHCertPathPerApp(t *testing.T) {
+	sshTestHome(t)
+	if a, b := sshCertPath(defaultApp, "ses_a"), sshCertPath("dev", "ses_a"); a == b || filepath.Dir(b) != filepath.Join(sshDir(), "dev") {
+		t.Fatalf("default %s, dev %s", a, b)
 	}
 }

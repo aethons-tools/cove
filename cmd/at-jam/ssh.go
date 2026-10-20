@@ -54,57 +54,85 @@ var (
 // ssh_config Host and a word in a ProxyCommand shell line.
 var studioIDRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
 
-func sshDir() string                    { return filepath.Join(configDir(), "ssh") }
-func sshKeyPath() string                { return filepath.Join(sshDir(), "id_ed25519") }
-func sshCertPath(studio string) string  { return filepath.Join(sshDir(), studio+"-cert.pub") }
+func sshDir() string     { return filepath.Join(configDir(), "ssh") }
+func sshKeyPath() string { return filepath.Join(sshDir(), "id_ed25519") }
+
+// sshCertPath is the studio's cert file; a non-default app's certs live in a
+// subdirectory, so two Jams with the same studio id never share one.
+func sshCertPath(app, studio string) string {
+	if app == defaultApp {
+		return filepath.Join(sshDir(), studio+"-cert.pub")
+	}
+	return filepath.Join(sshDir(), app, studio+"-cert.pub")
+}
 func sshHostAlias(studio string) string { return "jam-" + studio }
 
 // ensureSSHKey returns the local SSH public key, generating the private key
-// (ed25519, 0600) on first use.
+// (ed25519, 0600) on first use. The key is written to a temp file and linked
+// into place, so a concurrent run sees either no key or a whole one; an
+// existing key readable by others is tightened to 0600.
 func ensureSSHKey() (ssh.PublicKey, error) {
 	if err := os.MkdirAll(sshDir(), 0o700); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(sshKeyPath())
+	path := sshKeyPath()
+	fi, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		_, priv, gerr := ed25519.GenerateKey(rand.Reader)
-		if gerr != nil {
-			return nil, gerr
+		if err := createSSHKey(path); err != nil {
+			return nil, err
 		}
-		blk, merr := ssh.MarshalPrivateKey(priv, "at-jam")
-		if merr != nil {
-			return nil, merr
-		}
-		data = pem.EncodeToMemory(blk)
-		f, oerr := os.OpenFile(sshKeyPath(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		switch {
-		case errors.Is(oerr, os.ErrExist): // a concurrent run made it first
-			data, err = os.ReadFile(sshKeyPath())
-		case oerr != nil:
-			return nil, oerr
-		default:
-			_, werr := f.Write(data)
-			if cerr := f.Close(); werr == nil {
-				werr = cerr
-			}
-			if werr != nil {
-				_ = os.Remove(sshKeyPath())
-				return nil, werr
-			}
-			err = nil
+		fi, err = os.Stat(path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return nil, fmt.Errorf("%s is readable by other users and could not be made private: %w", path, err)
 		}
 	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	signer, err := ssh.ParsePrivateKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s is not a usable SSH key (remove it to generate a new one)", sshKeyPath())
+		return nil, fmt.Errorf("%s is not a usable SSH key (remove it to generate a new one)", path)
 	}
 	if signer.PublicKey().Type() != ssh.KeyAlgoED25519 {
-		return nil, fmt.Errorf("%s is not an ed25519 key (remove it to generate a new one)", sshKeyPath())
+		return nil, fmt.Errorf("%s is not an ed25519 key (remove it to generate a new one)", path)
 	}
 	return signer.PublicKey(), nil
+}
+
+// createSSHKey writes a new key to path unless one already exists there
+// (another run won the race, which is fine).
+func createSSHKey(path string) error {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	blk, err := ssh.MarshalPrivateKey(priv, "at-jam")
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-key-")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, werr := f.Write(pem.EncodeToMemory(blk)) // CreateTemp files are 0600
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return werr
+	}
+	if err := os.Link(tmp, path); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return nil
 }
 
 // certValidUntil reports when the cert line in data stops being valid, if it
@@ -146,7 +174,7 @@ func (t sshTarget) prefix() string {
 // also reports whether the existing cert is still valid for now.
 func ensureCert(t sshTarget, key ssh.PublicKey) (stillValid bool, err error) {
 	now := sshNow()
-	if data, rerr := os.ReadFile(sshCertPath(t.studio)); rerr == nil {
+	if data, rerr := os.ReadFile(sshCertPath(t.app, t.studio)); rerr == nil {
 		if until, ok := certValidUntil(data, key); ok {
 			if until.Sub(now) >= certRenewBefore {
 				return true, nil
@@ -161,13 +189,16 @@ func ensureCert(t sshTarget, key ssh.PublicKey) (stillValid bool, err error) {
 	if _, ok := certValidUntil(cert, key); !ok {
 		return stillValid, errors.New("Jam returned a certificate that is not for this key")
 	}
-	return stillValid, writeCertFile(sshCertPath(t.studio), cert)
+	if err := os.MkdirAll(filepath.Dir(sshCertPath(t.app, t.studio)), 0o700); err != nil {
+		return stillValid, err
+	}
+	return stillValid, writeFileReplace(sshCertPath(t.app, t.studio), cert, 0o644)
 }
 
-// writeCertFile replaces path via a uniquely named temp file + rename, so
-// neither a concurrent ssh nor a concurrent renewal (an IDE opens several
-// connections) sees a half-written cert.
-func writeCertFile(path string, data []byte) error {
+// writeFileReplace replaces path via a uniquely named temp file + rename, so
+// no concurrent reader (ssh, or another renewal: an IDE opens several
+// connections) sees a half-written file.
+func writeFileReplace(path string, data []byte, perm os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-"+filepath.Base(path))
 	if err != nil {
 		return err
@@ -178,7 +209,7 @@ func writeCertFile(path string, data []byte) error {
 		werr = cerr
 	}
 	if werr == nil {
-		werr = os.Chmod(tmp, 0o644)
+		werr = os.Chmod(tmp, perm)
 	}
 	if werr == nil {
 		werr = os.Rename(tmp, path)
@@ -330,7 +361,7 @@ func (t sshTarget) sshOptions() [][2]string {
 		{"User", sshUser},
 		{"ProxyCommand", t.proxyCommand()},
 		{"IdentityFile", sshConfigPath(sshKeyPath())},
-		{"CertificateFile", sshConfigPath(sshCertPath(t.studio))},
+		{"CertificateFile", sshConfigPath(sshCertPath(t.app, t.studio))},
 		{"IdentitiesOnly", "yes"},
 	}
 }
@@ -339,7 +370,9 @@ func sshBlockMarkers(studio string) (begin, end string) {
 	return "# >>> at-jam " + studio + " >>>", "# <<< at-jam " + studio + " <<<"
 }
 
-// sshConfigBlock is t's Host block, between marker comments.
+// sshConfigBlock is t's Host block, between marker comments. It ends with
+// `Match all`, so any top-level options that follow it in a config file still
+// apply to every host.
 func (t sshTarget) sshConfigBlock() string {
 	begin, end := sshBlockMarkers(t.studio)
 	var b strings.Builder
@@ -348,12 +381,16 @@ func (t sshTarget) sshConfigBlock() string {
 	for _, o := range t.sshOptions() {
 		b.WriteString("  " + o[0] + " " + o[1] + "\n")
 	}
+	b.WriteString("Match all\n")
 	b.WriteString(end + "\n")
 	return b.String()
 }
 
 // installSSHConfigBlock writes block into ~/.ssh/config: in place of an
-// earlier block for the same studio, else appended.
+// earlier block for the same studio, else at the top (after leading comments),
+// because OpenSSH takes the first value it finds and an earlier `Host *` would
+// otherwise override ours. The file (a symlink's target) is replaced atomically
+// and keeps its line endings.
 func installSSHConfigBlock(studio, block string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -363,25 +400,73 @@ func installSSHConfigBlock(studio, block string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
+	perm := os.FileMode(0o600)
 	old, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	switch {
+	case err == nil:
+		if fi, serr := os.Stat(path); serr == nil {
+			perm = fi.Mode().Perm()
+		}
+	case !errors.Is(err, os.ErrNotExist):
 		return "", err
 	}
-	s := string(old)
+	crlf := bytes.Contains(old, []byte("\r\n"))
+	s := strings.ReplaceAll(string(old), "\r\n", "\n")
+	s, err = spliceSSHConfigBlock(s, studio, block)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", path, err)
+	}
+	if crlf {
+		s = strings.ReplaceAll(s, "\n", "\r\n")
+	}
+	return path, writeFileReplace(path, []byte(s), perm)
+}
+
+// spliceSSHConfigBlock returns config (LF line endings) with block in place
+// of the studio's marked block, or inserted before the first line that is not
+// blank or a comment.
+func spliceSSHConfigBlock(config, studio, block string) (string, error) {
 	begin, end := sshBlockMarkers(studio)
-	if i := strings.Index(s, begin+"\n"); i >= 0 {
-		if j := strings.Index(s[i:], end+"\n"); j >= 0 {
-			s = s[:i] + block + s[i+j+len(end)+1:]
-			return path, os.WriteFile(path, []byte(s), 0o600)
+	lines := strings.SplitAfter(config, "\n")
+	bi, ei := -1, -1
+	for i, l := range lines {
+		switch strings.TrimSpace(l) {
+		case begin:
+			if bi >= 0 {
+				return "", fmt.Errorf("two %q markers; fix the file by hand", begin)
+			}
+			bi = i
+		case end:
+			if bi >= 0 && ei < 0 {
+				ei = i
+			}
 		}
 	}
-	if s != "" && !strings.HasSuffix(s, "\n") {
-		s += "\n"
+	if bi >= 0 {
+		if ei < 0 {
+			return "", fmt.Errorf("found %q without %q; fix the file by hand", begin, end)
+		}
+		return strings.Join(lines[:bi], "") + block + strings.Join(lines[ei+1:], ""), nil
 	}
-	if s != "" {
-		s += "\n"
+	at := len(lines)
+	for i, l := range lines {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
+			at = i
+			break
+		}
 	}
-	return path, os.WriteFile(path, []byte(s+block), 0o600)
+	head := strings.Join(lines[:at], "")
+	if head != "" && !strings.HasSuffix(head, "\n") {
+		head += "\n"
+	}
+	tail := strings.Join(lines[at:], "")
+	if tail != "" {
+		block += "\n"
+	}
+	return head + block + tail, nil
 }
 
 // sshPrepare resolves the target, ensures the key and refreshes the cert.
@@ -432,7 +517,7 @@ func cmdSSHConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	block := t.sshConfigBlock()
 	if !*write {
 		fmt.Fprint(stdout, block)
-		fmt.Fprintf(stderr, "at-jam ssh-config: add this to ~/.ssh/config (or rerun with --write), then: ssh %s\n", sshHostAlias(t.studio))
+		fmt.Fprintf(stderr, "at-jam ssh-config: put this above any `Host *` block in ~/.ssh/config (or rerun with --write), then: ssh %s\n", sshHostAlias(t.studio))
 		return 0
 	}
 	path, err := installSSHConfigBlock(t.studio, block)

@@ -81,7 +81,7 @@ it.
 
 | Command | What it does |
 |---------|--------------|
-| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand at-jam ssh-proxy …`, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert; `--write` installs it in `~/.ssh/config` between `# >>> at-jam <studio>` markers, replacing an earlier one. |
+| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand at-jam ssh-proxy …`, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert; `--write` installs it at the top of `~/.ssh/config` (OpenSSH takes the first value, so it must precede any `Host *`) between `# >>> at-jam <studio>` markers, replacing an earlier one in place. |
 | `at-jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
 | `at-jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
 
@@ -89,7 +89,8 @@ All three take `--app`, `--admin-url`, and `--participant` / `--operator` to pic
 the plane (`/me` with the participant login, `/admin` with the operator token);
 the default is the participant login when one is cached and unexpired, else the
 operator token, and `ssh-config` pins the choice in the ProxyCommand. The key
-(`id_ed25519`, 0600) is generated once; certs last 8 h. OpenSSH reads the cert
+(`id_ed25519`, 0600) is generated once; certs (`<studio>-cert.pub`, under `<app>/`
+for a non-default `--app`) last 8 h. OpenSSH reads the cert
 before it runs the ProxyCommand, so a renewal made by `ssh-proxy` applies from the
 next connection — `ssh` renews before connecting. Refusals print one line: 401 →
 sign in again, 403 → ask for a share, 409 not running, 503 not connected, 504
