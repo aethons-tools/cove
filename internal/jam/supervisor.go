@@ -249,6 +249,8 @@ type Supervisor struct {
 	// upgrader is the standing reconciler (SetStandingUpgrader); nil → a
 	// standing upgrade is unavailable (503).
 	upgrader StandingUpgrader
+	// exposureSink hears a session's exposed ports change (SetExposureSink).
+	exposureSink ExposureSink
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -441,6 +443,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise: joining the session's channels failed (non-fatal)", "id", spec.ActorID, "err", err.Error())
 		}
 	}
+	// A raise starts a fresh studio: nothing is exposed (inst.Exposures is
+	// unset), so tell the sink the set is empty.
+	s.notifyExposures(spec.ActorID, nil)
 	if s.log != nil {
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
