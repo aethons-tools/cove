@@ -9,32 +9,34 @@ import (
 )
 
 type fakeExposureSetter struct {
-	exposed  []string // "name|port"
-	removed  []string
-	list     []Exposure
+	exposed  []string // "actor|name|port"
+	removed  []string // "actor|name"
+	list     map[string][]Exposure
 	exposeEr error
 	unexpEr  error
 }
 
-func (f *fakeExposureSetter) Expose(_, n string, p int) (Exposure, error) {
+func (f *fakeExposureSetter) Expose(a, n string, p int) (Exposure, error) {
 	if f.exposeEr != nil {
 		return Exposure{}, f.exposeEr
 	}
-	f.exposed = append(f.exposed, n+"|"+strconv.Itoa(p))
+	f.exposed = append(f.exposed, a+"|"+n+"|"+strconv.Itoa(p))
 	return Exposure{Name: n, Port: p}, nil
 }
 
-func (f *fakeExposureSetter) Unexpose(_, n string) error {
-	f.removed = append(f.removed, n)
+func (f *fakeExposureSetter) Unexpose(a, n string) error {
+	f.removed = append(f.removed, a+"|"+n)
 	return f.unexpEr
 }
 
-func (f *fakeExposureSetter) Exposures(string) []Exposure { return f.list }
+func (f *fakeExposureSetter) Exposures(a string) []Exposure { return f.list[a] }
 
 func exposureFixture(urlFor func(actorID, name string) (string, error)) (*ExposureHandler, *fakeExposureSetter) {
 	st := newFakeEscStore()
 	st.actors[HashToken("tok")] = Actor{ID: "cove-1"}
 	st.instances["cove-1"] = Instance{ActorID: "cove-1"}
+	st.actors[HashToken("tok2")] = Actor{ID: "cove-2"}
+	st.instances["cove-2"] = Instance{ActorID: "cove-2"}
 	set := &fakeExposureSetter{}
 	return NewExposureHandler(st, set, urlFor, testLogger()), set
 }
@@ -54,11 +56,11 @@ func TestExposurePutDeleteGet(t *testing.T) {
 			t.Errorf("PUT body missing %s: %s", w, rec.Body)
 		}
 	}
-	if len(set.exposed) != 1 || set.exposed[0] != "web|3000" {
+	if len(set.exposed) != 1 || set.exposed[0] != "cove-1|web|3000" {
 		t.Fatalf("exposed = %v", set.exposed)
 	}
 
-	set.list = []Exposure{{Name: "web", Port: 3000}, {Name: "api", Port: 8080}}
+	set.list = map[string][]Exposure{"cove-1": {{Name: "web", Port: 3000}, {Name: "api", Port: 8080}}}
 	rec = doTurnEnd(h, "GET", "/exposures", "tok", "")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"exposures":[`) || !strings.Contains(rec.Body.String(), `"url":"https://api-cove-1.example.test/"`) {
 		t.Fatalf("GET %d %s", rec.Code, rec.Body)
@@ -70,6 +72,9 @@ func TestExposurePutDeleteGet(t *testing.T) {
 
 	if rec = doTurnEnd(h, "DELETE", "/exposures/web", "tok", ""); rec.Code != 204 {
 		t.Fatalf("DELETE %d", rec.Code)
+	}
+	if len(set.removed) != 1 || set.removed[0] != "cove-1|web" {
+		t.Fatalf("removed = %v", set.removed)
 	}
 	set.unexpEr = ErrNoExposure
 	if rec = doTurnEnd(h, "DELETE", "/exposures/gone", "tok", ""); rec.Code != 404 {
@@ -119,5 +124,39 @@ func TestExposurePreviewsOff(t *testing.T) {
 	}
 	if rec := doTurnEnd(h, "GET", "/exposures", "", ""); rec.Code != 401 {
 		t.Fatalf("unauthenticated with previews off → %d, want 401", rec.Code)
+	}
+}
+
+// Each call acts on the caller's own session: two tokens, two actors.
+func TestExposureActorScoped(t *testing.T) {
+	h, set := exposureFixture(fakeURL)
+	set.list = map[string][]Exposure{"cove-1": {{Name: "web", Port: 3000}}, "cove-2": {{Name: "api", Port: 8080}}}
+	rec := doTurnEnd(h, "PUT", "/exposures/docs", "tok2", `{"port":4000}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"url":"https://docs-cove-2.example.test/"`) {
+		t.Fatalf("PUT as cove-2 → %d %s", rec.Code, rec.Body)
+	}
+	if len(set.exposed) != 1 || set.exposed[0] != "cove-2|docs|4000" {
+		t.Fatalf("exposed = %v, want cove-2's", set.exposed)
+	}
+	for tok, want := range map[string]string{"tok": `"name":"web"`, "tok2": `"name":"api"`} {
+		rec := doTurnEnd(h, "GET", "/exposures", tok, "")
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), want) || strings.Count(rec.Body.String(), `"name"`) != 1 {
+			t.Errorf("GET as %s → %d %s, want only %s", tok, rec.Code, rec.Body, want)
+		}
+	}
+	if rec := doTurnEnd(h, "DELETE", "/exposures/api", "tok2", ""); rec.Code != 204 || len(set.removed) != 1 || set.removed[0] != "cove-2|api" {
+		t.Fatalf("DELETE as cove-2 → %d, removed = %v", rec.Code, set.removed)
+	}
+}
+
+// A name the URL mapper refuses never reaches Expose (no orphan exposure).
+func TestExposureURLErrorExposesNothing(t *testing.T) {
+	h, set := exposureFixture(func(string, string) (string, error) { return "", errors.New("preview name \"x--y\": no '--'") })
+	rec := doTurnEnd(h, "PUT", "/exposures/x--y", "tok", `{"port":3000}`)
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "no '--'") {
+		t.Fatalf("PUT → %d %s, want 400 with the reason", rec.Code, rec.Body)
+	}
+	if len(set.exposed) != 0 {
+		t.Fatalf("exposed = %v, want none", set.exposed)
 	}
 }

@@ -1197,3 +1197,46 @@ func TestValidateLauncherDockerContext(t *testing.T) {
 		}
 	}
 }
+
+func TestValidatePreviews(t *testing.T) {
+	const base = "admin-listen: 0.0.0.0:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n"
+	const block = "previews:\n  domain: preview.jam.example\n  tls: { cert: /p.crt, key: /p.key }\n"
+	ok, err := parseServeConfig([]byte(base + block))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validatePreviews(); err != nil {
+		t.Fatalf("valid previews refused: %v", err)
+	}
+	if ok.Previews == nil || ok.Previews.Domain != "preview.jam.example" || ok.Previews.TLS == nil || ok.Previews.TLS.Cert != "/p.crt" || ok.Previews.TLS.Key != "/p.key" {
+		t.Fatalf("previews parsed as %+v", ok.Previews)
+	}
+	for name, yml := range map[string]string{
+		"missing tls":          base + "previews:\n  domain: preview.jam.example\n",
+		"missing tls key":      base + "previews:\n  domain: preview.jam.example\n  tls: { cert: /p.crt }\n",
+		"admin not TLS":        "admin-listen: 127.0.0.1:8080\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block,
+		"no admin listener":    "operator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n" + block,
+		"no browser-client-id": "admin-listen: 0.0.0.0:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, device-client-id: cli }\n" + block,
+		"no oidc":              "admin-listen: 127.0.0.1:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\n" + block,
+		"uppercase domain":     base + "previews:\n  domain: Preview.Jam.Example\n  tls: { cert: /p.crt, key: /p.key }\n",
+		"single label":         base + "previews:\n  domain: example\n  tls: { cert: /p.crt, key: /p.key }\n",
+		"empty label":          base + "previews:\n  domain: a..b\n  tls: { cert: /p.crt, key: /p.key }\n",
+		"no domain":            base + "previews:\n  tls: { cert: /p.crt, key: /p.key }\n",
+		"hyphen edge":          base + "previews:\n  domain: -a.example\n  tls: { cert: /p.crt, key: /p.key }\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := c.validatePreviews(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validatePreviews(); err != nil {
+		t.Fatalf("absent previews must validate: %v", err)
+	}
+	if unknown := unknownServeKeys([]byte(base + block)); len(unknown) != 0 {
+		t.Fatalf("previews flagged unknown: %v", unknown)
+	}
+}

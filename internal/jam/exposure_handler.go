@@ -114,6 +114,12 @@ func (h *ExposureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
+		// The URL first, so a name it refuses never leaves an exposure behind.
+		u, err := h.urlFor(actor.ID, name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest) // the name: the agent reads the reason
+			return
+		}
 		e, err := h.setter.Expose(actor.ID, name, req.Port)
 		if err != nil {
 			status := http.StatusBadRequest // validation: the agent reads the reason
@@ -123,12 +129,6 @@ func (h *ExposureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), status)
 			return
 		}
-		v, err := h.view(actor.ID, e)
-		if err != nil {
-			h.log.Error("exposures: url failed", "actor", actor.ID, "error", err.Error())
-			http.Error(w, "url failed", http.StatusBadGateway)
-			return
-		}
-		writeJSON(w, http.StatusOK, v)
+		writeJSON(w, http.StatusOK, exposureView{Name: e.Name, Port: e.Port, URL: u})
 	}
 }

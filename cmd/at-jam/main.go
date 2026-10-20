@@ -53,6 +53,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -1672,6 +1673,34 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validatePreviews(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	// Previews ride the admin listener with their own wildcard cert (picked by
+	// SNI); both certs load now so a wrong or missing one fails serve.
+	var adminTLSCfg *tls.Config
+	// previewURL maps a session's preview to the URL collaborators open; nil
+	// means previews are off (no previews: block).
+	var previewURL func(actorID, name string) (string, error)
+	if p := cfg.Previews; p != nil {
+		previewCert, err := loadPreviewCert(p.TLS.Cert, p.TLS.Key, p.Domain)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		certFile, keyFile, _ := cfg.adminTLS()
+		adminCert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-jam: admin TLS (%s, %s): %v\n", certFile, keyFile, err)
+			return 1
+		}
+		adminTLSCfg = adminTLSConfig(adminCert, previewCert)
+		previewURL = func(actorID, name string) (string, error) {
+			h, err := preview.Host(p.Domain, name, actorID)
+			return "https://" + h + "/", err
+		}
+	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1856,6 +1885,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if haveDefaultKit {
 		sup.SetDefaultStudioKit(defaultRef)
 	}
+	// Before Run: session context (compiled from Run's goroutines) says
+	// whether the expose tools work.
+	sup.SetPreviewsEnabled(previewURL != nil)
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
@@ -2019,11 +2051,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	// previewURL maps a session's preview to the URL collaborators open; nil
-	// means previews are off (no domain configured). Task 4 sets it from the
-	// `previews:` serve config as "https://" + preview.Host(domain, name, actorID) + "/".
-	var previewURL func(actorID, name string) (string, error)
-	sup.SetPreviewsEnabled(previewURL != nil)
 	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
@@ -2416,17 +2443,31 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
+		var adminServe http.Handler = admin
+		if cfg.Previews != nil {
+			// previewHandler serves preview and login hosts; a placeholder
+			// (every preview host 404s) until the preview proxy is wired.
+			var previewHandler http.Handler = http.NotFoundHandler()
+			adminServe = hostRouter(cfg.Previews.Domain, previewHandler, admin)
+		}
 		go func() {
+			if adminTLSCfg != nil { // previews on: admin + wildcard preview cert by SNI
+				log.Info("Jam admin API listening (TLS, previews)", "addr", cfg.AdminListen, "previews-domain", cfg.Previews.Domain)
+				if err := (&http.Server{Addr: cfg.AdminListen, Handler: adminServe, TLSConfig: adminTLSCfg}).ListenAndServeTLS("", ""); err != nil {
+					log.Error("admin API stopped", "err", err.Error())
+				}
+				return
+			}
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()
 				log.Info("Jam admin API listening (TLS)", "addr", cfg.AdminListen)
-				if err := (&http.Server{Addr: cfg.AdminListen, Handler: admin}).ListenAndServeTLS(cert, key); err != nil {
+				if err := (&http.Server{Addr: cfg.AdminListen, Handler: adminServe}).ListenAndServeTLS(cert, key); err != nil {
 					log.Error("admin API stopped", "err", err.Error())
 				}
 				return
 			}
 			log.Info("Jam admin API listening", "addr", cfg.AdminListen)
-			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
+			if err := http.ListenAndServe(cfg.AdminListen, adminServe); err != nil {
 				log.Error("admin API stopped", "err", err.Error())
 			}
 		}()
