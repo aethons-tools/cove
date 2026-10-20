@@ -197,6 +197,16 @@ the user guide is [previews.md](../../usage/jam/previews.md).
    strips client `Forwarded`/`X-Real-IP`, and answers `CONNECT` with 405 —
    HTTP/2 WebSockets (extended CONNECT) are not offered; browsers use the
    HTTP/1.1 `Upgrade`, which passes through. Paths under `/__jam/` are Jam's.
+7. **Cross-preview requests (final review):** every `*.<domain>` host is one
+   site, so `SameSite=Lax` still sends a preview's cookie on a fetch, form,
+   iframe or WebSocket that another studio's page starts. The cookie is
+   honoured only for `Sec-Fetch-Site` `same-origin`/`none`, a top-level
+   `GET`/`HEAD` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest:
+   document`), or an `Origin` that is a preview host of the same session label;
+   a WebSocket always needs that `Origin`, and without Fetch Metadata an unsafe
+   method needs it (or such a `Referer`). Anything else is 403 "cross-site
+   request refused" (no login redirect). Bearers are no ambient credential and
+   are unaffected.
 
 ## 5. Testing
 

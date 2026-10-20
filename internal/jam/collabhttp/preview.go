@@ -215,6 +215,9 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ErrUnbound):
 		http.Error(w, ErrUnbound.Error(), http.StatusForbidden)
 		return
+	case errors.Is(err, ErrCrossSite):
+		http.Error(w, ErrCrossSite.Error(), http.StatusForbidden)
+		return
 	default:
 		p.h.d.Log.Error("preview: resolving caller failed", "session", actorID, "err", err.Error())
 		http.Error(w, "could not resolve caller", http.StatusInternalServerError)

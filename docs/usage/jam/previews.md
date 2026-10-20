@@ -49,8 +49,15 @@ login must be linked to a Jam user ([roster.md](roster.md)). It then sends you
 back with a single-use code, valid 60 s and only for that preview host. The
 preview host trades it for a `__Host-jam_preview` cookie: host-only,
 `Secure`, `HttpOnly`, `SameSite=Lax`. The cookie names a server-side session
-that lasts 8 h and works only on the host it was issued for. One studio's page
-therefore never acts as you on another. When the session ends, the next visit
+that lasts 8 h and works only on the host it was issued for. All preview
+hosts are one site, so `SameSite` alone would let one studio's page send your
+cookie to another's. Jam therefore honours the cookie only on a same-origin
+request (`Sec-Fetch-Site: same-origin` or `none`), on a top-level `GET`/`HEAD`
+navigation, or when `Origin` is a preview host of the same session. A
+WebSocket always needs such an `Origin`. A browser without Fetch Metadata
+needs one (or such a `Referer`) for any method but `GET`/`HEAD`/`OPTIONS`.
+Anything else — an iframe, or a fetch or form from another studio — gets
+403 "cross-site request refused". When the session ends, the next visit
 logs in again, without a prompt while your IdP session lasts. A request with
 more than one session cookie counts as signed out. A non-browser request (no
 `Accept: text/html`) with no credentials gets a 401.
@@ -118,6 +125,7 @@ after another lookup; reload.
 | 404 "nothing is exposed at this address" | The name is not exposed (ask the agent to `expose` it again, e.g. after a restart), the studio is gone, or the Jam has no `previews:` block (its `expose` answers 409). |
 | 401 | No credentials, or the bearer is invalid or expired: log in again. |
 | 403 | No rule gives you `preview`, or your login is not linked to a Jam user. Ask for a share. |
+| 403 "cross-site request refused" | Another page (an iframe, or another studio's fetch, form or WebSocket) used your preview session. Open the preview directly. |
 | 502 "the app at port … is not answering" | Nothing is listening on that port in the studio, or the app failed. |
 | 504 "studio could not open the preview (is its image current?)" | The studio's cove-master predates previews. Raise the studio again. |
 | 503 / 409 | The studio is not connected, or is pausing or stopping. Retry. |

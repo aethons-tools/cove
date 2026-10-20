@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -57,6 +58,10 @@ type PreviewAuthOptions struct {
 	Now          func() time.Time
 	Log          *slog.Logger
 }
+
+// ErrCrossSite: a request carried the preview session cookie in a context
+// another page may have caused (Principal) — answered 403, never a login.
+var ErrCrossSite = errors.New("cross-site request refused")
 
 // previewEntry is one session or login code: who it is for, the canonical
 // preview host it is bound to, and when it lapses.
@@ -160,13 +165,18 @@ func (a *PreviewAuth) isLoginHost(host string) bool {
 // __Host-jam_preview session when it carries one (unknown, expired or issued
 // for another host ⇒ ErrNoCredentials; more than one such cookie is also
 // ErrNoCredentials, never a pick; an unprefixed jam_preview is ignored), else
-// its Authorization bearer via Bearer, else ErrNoCredentials.
+// its Authorization bearer via Bearer, else ErrNoCredentials. A request that
+// carries the cookie in a context another site's page may have caused is
+// ErrCrossSite (cookieUseAllowed).
 func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, error) {
 	var vals []string
 	for _, c := range r.Cookies() {
 		if c.Name == PreviewCookie {
 			vals = append(vals, c.Value)
 		}
+	}
+	if len(vals) > 0 && !a.cookieUseAllowed(r) {
+		return collab.Principal{}, "", ErrCrossSite
 	}
 	switch {
 	case len(vals) > 1:
@@ -194,6 +204,67 @@ func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, erro
 		return collab.Principal{}, "", ErrNoCredentials
 	}
 	return a.o.Bearer(r)
+}
+
+// cookieUseAllowed reports whether r may be answered with its preview session
+// cookie. Every preview host is one site (*.<domain>), so SameSite=Lax still
+// sends the cookie on a fetch, form, iframe or WebSocket that another studio's
+// page starts; this refuses those. Allowed: a WebSocket only with an Origin of
+// this session's preview hosts (sameSession); else with Fetch Metadata,
+// Sec-Fetch-Site same-origin or none, a top-level GET/HEAD navigation, or a
+// sameSession Origin; else (an older browser) a safe method, or an unsafe one
+// whose Origin — or, with no Origin, Referer — is sameSession.
+func (a *PreviewAuth) cookieUseAllowed(r *http.Request) bool {
+	host, ok := a.canonicalHost(r.Host)
+	if !ok {
+		return true // not a preview host: Principal refuses the cookie anyway
+	}
+	origin, hasOrigin := r.Header.Get("Origin"), r.Header.Get("Origin") != ""
+	if isWebSocketUpgrade(r) {
+		return hasOrigin && a.sameSession(origin, host)
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+		switch {
+		case site == "same-origin" || site == "none":
+			return true
+		case r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
+			(r.Method == http.MethodGet || r.Method == http.MethodHead):
+			return true
+		}
+		return hasOrigin && a.sameSession(origin, host)
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	if hasOrigin {
+		return a.sameSession(origin, host)
+	}
+	ref := r.Header.Get("Referer")
+	return ref != "" && a.sameSession(ref, host)
+}
+
+// sameSession reports whether u (an Origin or Referer) is an https URL on
+// host or on another preview host of the same session label.
+func (a *PreviewAuth) sameSession(u, host string) bool {
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme != "https" || p.Host == "" || p.User != nil {
+		return false
+	}
+	h, ok := a.canonicalHost(p.Host)
+	if !ok {
+		return false
+	}
+	if h == host {
+		return true
+	}
+	_, l1, _ := preview.Parse(h, a.o.Domain)
+	_, l2, _ := preview.Parse(host, a.o.Domain)
+	return l1 == l2
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
 }
 
 // ValidReturn reports whether u may be a login's return_to: an absolute

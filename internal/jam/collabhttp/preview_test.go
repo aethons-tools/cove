@@ -555,7 +555,7 @@ func (ph *previewHarness) openWS(t *testing.T, c *http.Cookie) (net.Conn, *bufio
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nCookie: %s=%s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", appHost, c.Name, c.Value)
+	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: %s\r\nOrigin: https://%s\r\nCookie: %s=%s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", appHost, appHost, c.Name, c.Value)
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
@@ -797,4 +797,29 @@ func TestPreviewInvalidateLabels(t *testing.T) {
 	}
 	(*PreviewHandler)(nil).InvalidateLabels() // previews off: a no-op
 	Preview(Deps{}, nil, testDomain).InvalidateLabels()
+}
+
+// A refused cross-site use of the session cookie is a plain 403 — never the
+// app, and never a login redirect (which a framing page could ride).
+func TestPreviewCrossSiteCookieRefused(t *testing.T) {
+	app := helloApp(t, nil)
+	ph := newPreviewHarness(t, app)
+	c := ph.login(t, "alice")
+	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	req.AddCookie(c)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || strings.TrimSpace(rec.Body.String()) != "cross-site request refused" || rec.Header().Get("Location") != "" {
+		t.Fatalf("%d %q loc=%q", rec.Code, rec.Body, rec.Header().Get("Location"))
+	}
+	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("Content-Type %q", rec.Header().Get("Content-Type"))
+	}
+	if n := len(ph.tun.opened()); n != 0 {
+		t.Fatalf("%d tunnels opened for a refused request", n)
+	}
 }

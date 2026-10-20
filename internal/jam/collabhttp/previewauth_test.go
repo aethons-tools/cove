@@ -431,3 +431,83 @@ func TestPruneDropsExpired(t *testing.T) {
 		t.Fatalf("after prune: %d sessions, %d codes", len(a.sessions), len(a.codes))
 	}
 }
+
+// otherLabelHost is a preview host of another session: its page shares the
+// site (*.<domain>) with hostA but must never drive hostA as the viewer.
+var otherLabelHost = "app--" + strings.Repeat("z", 26) + "." + testDomain
+
+// The session cookie is honoured only where another preview's page cannot
+// have sent it: same-origin (or user-typed) requests, top-level GET/HEAD
+// navigations, and requests whose Origin is this session's own preview hosts;
+// a WebSocket always needs such an Origin, and without Fetch Metadata an
+// unsafe method needs one (or such a Referer).
+func TestPreviewCookieCrossSiteUse(t *testing.T) {
+	a := newTestPreviewAuth(t)
+	c := a.session(t)
+	type hdrs map[string]string
+	fetch := func(site, mode, dest string) hdrs {
+		return hdrs{"Sec-Fetch-Site": site, "Sec-Fetch-Mode": mode, "Sec-Fetch-Dest": dest}
+	}
+	with := func(h hdrs, k, v string) hdrs {
+		out := hdrs{k: v}
+		for kk, vv := range h {
+			out[kk] = vv
+		}
+		return out
+	}
+	ws := hdrs{"Connection": "Upgrade", "Upgrade": "websocket"}
+	for _, tc := range []struct {
+		name   string
+		method string
+		h      hdrs
+		ok     bool
+	}{
+		{"no metadata GET", "GET", nil, true},
+		{"same-origin fetch POST", "POST", fetch("same-origin", "cors", "empty"), true},
+		{"user-typed navigation", "GET", fetch("none", "navigate", "document"), true},
+		{"top-level navigation from a sibling", "GET", fetch("same-site", "navigate", "document"), true},
+		{"top-level HEAD from another site", "HEAD", fetch("cross-site", "navigate", "document"), true},
+		{"iframe from a sibling", "GET", fetch("same-site", "navigate", "iframe"), false},
+		{"form POST from another label", "POST", with(fetch("same-site", "navigate", "document"), "Origin", "https://"+otherLabelHost), false},
+		{"cross-label fetch", "GET", with(fetch("same-site", "cors", "empty"), "Origin", "https://"+otherLabelHost), false},
+		{"cross-label fetch with a port", "POST", with(fetch("same-site", "cors", "empty"), "Origin", "https://"+otherLabelHost+":8443"), false},
+		{"same-label fetch", "POST", with(fetch("same-site", "cors", "empty"), "Origin", "https://"+hostB), true},
+		{"same-label fetch, port", "PUT", with(fetch("same-site", "cors", "empty"), "Origin", "https://"+hostB+":8443"), true},
+		{"same-label fetch over http", "POST", with(fetch("same-site", "cors", "empty"), "Origin", "http://"+hostB), false},
+		{"login host fetch", "GET", with(fetch("same-site", "cors", "empty"), "Origin", "https://"+loginHost), false},
+		{"no-cors image from a sibling", "GET", fetch("same-site", "no-cors", "image"), false},
+		{"websocket, no Origin", "GET", with(ws, "Sec-Fetch-Site", "same-origin"), false},
+		{"websocket, other label", "GET", with(ws, "Origin", "https://"+otherLabelHost), false},
+		{"websocket, null Origin", "GET", with(ws, "Origin", "null"), false},
+		{"websocket, same host", "GET", with(with(ws, "Origin", "https://"+hostA), "Sec-Fetch-Site", "same-origin"), true},
+		{"websocket, same label", "GET", with(ws, "Origin", "https://"+hostB), true},
+		{"no metadata POST, no Origin", "POST", nil, false},
+		{"no metadata POST, other label", "POST", hdrs{"Origin": "https://" + otherLabelHost}, false},
+		{"no metadata POST, same host", "POST", hdrs{"Origin": "https://" + hostA}, true},
+		{"no metadata DELETE, same-label Referer", "DELETE", hdrs{"Referer": "https://" + hostB + "/page"}, true},
+		{"no metadata POST, other-label Referer", "POST", hdrs{"Referer": "https://" + otherLabelHost + "/"}, false},
+		{"no metadata POST, null Origin", "POST", hdrs{"Origin": "null", "Referer": "https://" + hostA + "/"}, false},
+	} {
+		r := httptest.NewRequest(tc.method, "https://"+hostA+"/app", nil)
+		for k, v := range tc.h {
+			r.Header.Set(k, v)
+		}
+		r.AddCookie(c)
+		_, _, err := a.Principal(r)
+		switch {
+		case tc.ok && err != nil:
+			t.Errorf("%s: refused: %v", tc.name, err)
+		case !tc.ok && !errors.Is(err, ErrCrossSite):
+			t.Errorf("%s: err %v, want ErrCrossSite", tc.name, err)
+		}
+	}
+	// A bearer is no ambient credential: the same contexts are fine for it.
+	r := httptest.NewRequest("POST", "https://"+hostA+"/app", nil)
+	for k, v := range with(fetch("same-site", "cors", "empty"), "Origin", "https://"+otherLabelHost) {
+		r.Header.Set(k, v)
+	}
+	r.Header.Set("Authorization", "Bearer good")
+	if p, _, err := a.Principal(r); err != nil || p.Operator != "bearer-op" {
+		t.Fatalf("cross-site bearer: %+v %v", p, err)
+	}
+}
