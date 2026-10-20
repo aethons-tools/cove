@@ -181,6 +181,12 @@ type ControlSink interface {
 	Wake(actorID string, reasons ...WakeReason)
 }
 
+// TunnelCloser closes every port tunnel a studio holds (implemented by
+// *attach.TunnelBroker). Best-effort; nil when no tunnel broker runs.
+type TunnelCloser interface {
+	CloseAll(actorID string)
+}
+
 // tailReader is the sliver of the message log the supervisor needs to baseline a
 // cove's wake-on cursor to the current log position when it enters Waiting.
 type tailReader interface {
@@ -213,6 +219,7 @@ type Supervisor struct {
 	now       func() time.Time
 	log       *slog.Logger
 	sink      ControlSink
+	tunnels   TunnelCloser // SetTunnelCloser; nil → no tunnels to close
 	tail      tailReader
 	released  Releaser
 	channels  SessionChannels
@@ -251,6 +258,10 @@ func NewHolderID() string {
 // SetControlSink installs the control sink after construction (resolving the
 // supervisor↔Attach-server cycle). nil-safe throughout.
 func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+
+// SetTunnelCloser installs the tunnel closer after construction. Like the
+// control sink it is set once at wiring time; nil-safe throughout.
+func (s *Supervisor) SetTunnelCloser(c TunnelCloser) { s.tunnels = c }
 
 // SetTailReader wires the squawk log tail source used to baseline WaitSeq on
 // entering Waiting (and CommitSeq at Raise). Called once at wiring time before
@@ -1099,6 +1110,9 @@ func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
 	if !ok || inst.Phase == PhaseGone {
 		return fmt.Errorf("idle: no live instance for %q", actorID)
 	}
+	if s.tunnels != nil {
+		s.tunnels.CloseAll(actorID) // a paused studio can't serve its tunnels
+	}
 	if err := s.launcher.Pause(ctx, inst); err != nil {
 		return err
 	}
@@ -1161,6 +1175,9 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if s.sink != nil {
 		s.sink.RequestTeardown(actorID) // best-effort cooperative nudge
+	}
+	if s.tunnels != nil {
+		s.tunnels.CloseAll(actorID)
 	}
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating
