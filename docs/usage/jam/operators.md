@@ -1,7 +1,7 @@
 ---
 summary: Operator sign-in and the admin client — gating the admin API with `operator-auth.oidc`, the `login`/`logout`/`whoami` device flow, the `--token`/env fallback, and `settings.yml` app profiles (`--app`).
-read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
-owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
+read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, SSHing into a studio with `at-jam ssh`, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
+owns: the operator-auth.oidc server block, the login/logout/whoami device flow (incl. `login --participant`), the `ssh-config`/`ssh-proxy`/`ssh` command rows, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
 updated: 2026-10-20
@@ -76,6 +76,24 @@ the participant collaboration routes (`/me/studios/…`), which Jam mounts only
 when `device-client-id` and [`ssh`](serve.md) are both set; your IdP login must
 be linked to a Jam user who is a project member. `logout --participant` clears
 it.
+
+## SSH into a studio (`ssh-config` / `ssh-proxy` / `ssh`)
+
+| Command | What it does |
+|---------|--------------|
+| `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand at-jam ssh-proxy …`, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert; `--write` installs it in `~/.ssh/config` between `# >>> at-jam <studio>` markers, replacing an earlier one. |
+| `at-jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
+| `at-jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
+
+All three take `--app`, `--admin-url`, and `--participant` / `--operator` to pick
+the plane (`/me` with the participant login, `/admin` with the operator token);
+the default is the participant login when one is cached and unexpired, else the
+operator token, and `ssh-config` pins the choice in the ProxyCommand. The key
+(`id_ed25519`, 0600) is generated once; certs last 8 h. OpenSSH reads the cert
+before it runs the ProxyCommand, so a renewal made by `ssh-proxy` applies from the
+next connection — `ssh` renews before connecting. Refusals print one line: 401 →
+sign in again, 403 → ask for a share, 409 not running, 503 not connected, 504
+dial-back timed out.
 
 ## How the admin token is resolved
 
