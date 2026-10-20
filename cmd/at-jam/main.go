@@ -1672,6 +1672,31 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validatePreviews(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	// Previews ride the admin listener with their own wildcard cert (picked by
+	// SNI); both certs load now so a wrong or missing one fails serve.
+	var adminTLSCfg *tls.Config
+	// previewURL maps a session's preview to the URL collaborators open; nil
+	// means previews are off (no previews: block).
+	var previewURL func(actorID, name string) (string, error)
+	if p := cfg.Previews; p != nil {
+		previewCert, err := loadPreviewCert(p.TLS.Cert, p.TLS.Key, p.Domain)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		certFile, keyFile, _ := cfg.adminTLS()
+		adminCert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-jam: admin TLS (%s, %s): %v\n", certFile, keyFile, err)
+			return 1
+		}
+		adminTLSCfg = adminTLSConfig(adminCert, previewCert, p.Domain)
+		previewURL = previewURLFunc(p.Domain, cfg.AdminListen)
+	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1856,6 +1881,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if haveDefaultKit {
 		sup.SetDefaultStudioKit(defaultRef)
 	}
+	// Before Run: session context (compiled from Run's goroutines) says
+	// whether the expose tools work.
+	sup.SetPreviewsEnabled(previewURL != nil)
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
@@ -1864,6 +1892,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
+	// The open-studio-connection registry (SSH tunnels and preview
+	// connections) both collaboration planes, the preview proxy and the UI's
+	// Access card share, so an unshare anywhere closes the user's connections.
+	liveConns := collabhttp.NewLive()
+	// Exposed preview ports reach each studio's cove-master as its dynamic
+	// tunnel allow-list; a restarted Jam seeds it from the stored exposures.
+	// An unexposed port's open preview connections close at once.
+	// The preview proxy (built later) drops its label cache on any change.
+	var invalidatePreviewLabels atomic.Pointer[func()]
+	sup.SetExposureSink(newExposureFanout(rsrv, liveConns, func() {
+		if f := invalidatePreviewLabels.Load(); f != nil {
+			(*f)()
+		}
+	}))
+	rsrv.SetExposureSource(sup.ExposedPorts)
 	// Studio collaboration tunnels: a human's connection reaches a studio's
 	// loopback port over a Tunnel the studio dials back; the supervisor closes
 	// a studio's tunnels before it pauses or tears it down.
@@ -2015,7 +2058,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {
@@ -2370,15 +2413,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		// The open-SSH-connection registry both collaboration planes and the UI's
-		// Access card share, so an unshare anywhere closes the user's connections.
-		liveSSH := collabhttp.NewLive()
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
-		if sshCA != nil {
-			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveSSH))
-			// Revocation: drop open SSH connections whose access has gone (a
-			// removed user, a role-policy or membership change, an expired grant).
-			go liveSSH.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
+		if sshCA != nil || previewURL != nil {
+			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
+		}
+		if sshCA != nil || cfg.Previews != nil {
+			// Revocation: drop open SSH and preview connections whose access has
+			// gone (a removed user, a role-policy or membership change, an
+			// expired grant).
+			go liveConns.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
 		}
 		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
 
@@ -2386,9 +2429,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// The participant plane mounts the same routes under /me.
 		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
 			return collabhttp.Deps{
-				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveSSH,
+				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveConns,
 				// A request on an idled studio resumes it and waits for its stream.
 				Resume: sup.Resume, Connected: rsrv.Connected,
+				// Previews: what each session exposes, and its URLs (nil = off).
+				Exposures: sup.Exposures, PreviewURL: previewURL,
 				Notify: func(inst jam.Instance, body string) {
 					if _, err := ic.Notify(inst, "", body); err != nil {
 						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())
@@ -2407,17 +2452,46 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
+		var adminServe http.Handler = admin
+		if cfg.Previews != nil {
+			// The previews' login: sessions, single-use codes and the bounce
+			// through the login host (validatePreviews ensured browser login).
+			_, adminPort, _ := net.SplitHostPort(cfg.AdminListen)
+			for _, s := range previewSharedSiteHosts(cfg.Previews.Domain, previewAdminHosts(&cfg)) {
+				log.Warn("previews: the previews domain shares a registrable domain with the admin host; preview apps can set cookies the admin site receives — use a separate registrable domain for previews",
+					"previews-domain", cfg.Previews.Domain, "admin-host", s.host, "registrable-domain", s.site)
+			}
+			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
+			if err != nil {
+				fmt.Fprintln(stderr, "at-jam: previews:", err)
+				return 1
+			}
+			go previewAuth.Run(context.Background())
+			// The preview proxy serves the login host and every preview host;
+			// it names its callers through previewAuth, not a plane's Principal.
+			previewHandler := collabhttp.Preview(collabDeps(nil), previewAuth, cfg.Previews.Domain)
+			inv := previewHandler.InvalidateLabels
+			invalidatePreviewLabels.Store(&inv)
+			adminServe = hostRouter(cfg.Previews.Domain, previewHandler, admin)
+		}
 		go func() {
+			if adminTLSCfg != nil { // previews on: admin + wildcard preview cert by SNI
+				log.Info("Jam admin API listening (TLS, previews)", "addr", cfg.AdminListen, "previews-domain", cfg.Previews.Domain)
+				if err := (&http.Server{Addr: cfg.AdminListen, Handler: adminServe, TLSConfig: adminTLSCfg}).ListenAndServeTLS("", ""); err != nil {
+					log.Error("admin API stopped", "err", err.Error())
+				}
+				return
+			}
 			if cfg.adminUsesTLS() {
 				cert, key, _ := cfg.adminTLS()
 				log.Info("Jam admin API listening (TLS)", "addr", cfg.AdminListen)
-				if err := (&http.Server{Addr: cfg.AdminListen, Handler: admin}).ListenAndServeTLS(cert, key); err != nil {
+				if err := (&http.Server{Addr: cfg.AdminListen, Handler: adminServe}).ListenAndServeTLS(cert, key); err != nil {
 					log.Error("admin API stopped", "err", err.Error())
 				}
 				return
 			}
 			log.Info("Jam admin API listening", "addr", cfg.AdminListen)
-			if err := http.ListenAndServe(cfg.AdminListen, admin); err != nil {
+			if err := http.ListenAndServe(cfg.AdminListen, adminServe); err != nil {
 				log.Error("admin API stopped", "err", err.Error())
 			}
 		}()

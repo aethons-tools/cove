@@ -18,6 +18,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
@@ -69,14 +70,8 @@ type serveConfig struct {
 	// this user with no login (see browserauth.DevIdentity). serve
 	// refuses it unless admin-listen is loopback.
 	DevIdentity *devIdentityConfig `yaml:"dev-identity"`
-	TLS         struct {
-		Cert string `yaml:"cert"`
-		Key  string `yaml:"key"`
-	} `yaml:"tls"`
-	AdminTLS struct {
-		Cert string `yaml:"cert"`
-		Key  string `yaml:"key"`
-	} `yaml:"admin-tls"`
+	TLS         tlsFiles           `yaml:"tls"`
+	AdminTLS    tlsFiles           `yaml:"admin-tls"`
 	// Store, IntercomLog and SessionEventsDir are REMOVED file backends
 	// (Postgres-only Jam, docs/usage/jam/serve.md). They are kept only so
 	// validateStorage can reject a config that still sets them.
@@ -113,7 +108,12 @@ type serveConfig struct {
 	// ed25519 private key, a demanded credential) issues short-lived certs
 	// that every raised studio's sshd trusts. Absent ⇒ SSH collaboration off.
 	// See docs/usage/jam/serve.md.
-	SSH          *sshConfig `yaml:"ssh"`
+	SSH *sshConfig `yaml:"ssh"`
+	// Previews, when set, serves studio previews at <name>--<label>.<domain>
+	// (and the login host jam.<domain>) on the admin listener, with its own
+	// wildcard cert picked by SNI. Absent ⇒ previews off. See
+	// docs/usage/jam/previews.md.
+	Previews     *previewsConfig `yaml:"previews"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -340,6 +340,57 @@ func (c serveConfig) validateSSH() error {
 	}
 	if slices.Contains(c.gcpCredentials(), s.CACred) || (c.Pool != nil && s.CACred == c.Pool.CredName) {
 		return fmt.Errorf("ssh.ca-cred %q must be a plain static credential, not a gcp-exchange or pool credential", s.CACred)
+	}
+	return nil
+}
+
+// tlsFiles names a PEM certificate (chain) and its private key on disk.
+type tlsFiles struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
+}
+
+// previewsConfig enables studio previews under Domain, served with TLS's
+// certificate (which must cover *.<domain>).
+type previewsConfig struct {
+	Domain string    `yaml:"domain"`
+	TLS    *tlsFiles `yaml:"tls"`
+}
+
+// dnsLabelRE is one lowercase DNS label (LDH, no leading/trailing '-').
+var dnsLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// validatePreviews checks a set previews block: domain is a lowercase DNS name
+// of at least two labels; tls.cert/tls.key are set; the admin listener serves
+// TLS (previews ride it); and browser login is configured (viewers sign in).
+func (c serveConfig) validatePreviews() error {
+	p := c.Previews
+	if p == nil {
+		return nil
+	}
+	labels := strings.Split(p.Domain, ".")
+	if len(labels) < 2 || len(p.Domain) > 253 || slices.ContainsFunc(labels, func(l string) bool { return !dnsLabelRE.MatchString(l) }) {
+		return fmt.Errorf("previews.domain %q must be a lowercase DNS name of at least two labels (e.g. preview.jam.example)", p.Domain)
+	}
+	if p.TLS == nil || p.TLS.Cert == "" || p.TLS.Key == "" {
+		return fmt.Errorf("previews.tls.cert and previews.tls.key are required (a certificate covering *.%s)", p.Domain)
+	}
+	if c.AdminListen == "" || !c.adminUsesTLS() {
+		return fmt.Errorf("previews requires the admin listener on TLS (set admin-listen and admin-tls)")
+	}
+	if c.browserAuthConfig() == nil {
+		return fmt.Errorf("previews requires browser login (set operator-auth.oidc.browser-client-id)")
+	}
+	// The admin API must not be reached by a name under the domain: those
+	// requests all go to the preview handler. Only names the config states
+	// can be checked (an IP or wildcard admin-listen says nothing).
+	if h, _, err := net.SplitHostPort(c.AdminListen); err == nil && h != "" && net.ParseIP(h) == nil && preview.UnderDomain(h, p.Domain) {
+		return fmt.Errorf("admin-listen host %q is under previews.domain %q; serve the admin API at a name outside it", h, p.Domain)
+	}
+	for _, h := range c.UIHosts {
+		if preview.UnderDomain(h, p.Domain) {
+			return fmt.Errorf("ui-hosts entry %q is under previews.domain %q; use a name outside it", h, p.Domain)
+		}
 	}
 	return nil
 }

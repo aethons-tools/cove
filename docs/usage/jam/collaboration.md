@@ -1,19 +1,20 @@
 ---
-summary: Studio collaboration — reaching an agent's running studio through Jam: SSH and IDEs (VS Code Remote-SSH, JetBrains Gateway) via `at-jam ssh`, who may connect (operators, the session's requester, role `collaborate` policy, share grants), and how it works (Jam-issued short-lived certs over a studio-dialed tunnel).
+summary: Studio collaboration — reaching an agent's running studio through Jam: SSH and IDEs (VS Code Remote-SSH, JetBrains Gateway) via `at-jam ssh`, who may connect to a studio (operators, the session's requester, role `collaborate` policy, share grants — for SSH and previews alike), and how it works (Jam-issued short-lived certs over a studio-dialed tunnel). Previews themselves are in previews.md.
 read_when: You want to SSH or point an IDE at an agent's studio, let a teammate in (`studio share`), set a role's `collaborate` policy, enable the `ssh:` serve config, or an `at-jam ssh` connection was refused or timed out.
-owns: the studio-collaboration user and operator guide — at-jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation), the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
+owns: the studio-collaboration user and operator guide — at-jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
 updated: 2026-10-20
 ---
 
-# Studio collaboration (SSH and IDEs)
+# Studio collaboration (SSH, IDEs and previews)
 
 A person can work *in* an agent's running studio — a shell, VS Code
-Remote-SSH, JetBrains Gateway — through Jam alone: no host drive, no new port
-in the studio. Jam decides who may connect, issues them a short-lived SSH
-certificate, and splices their connection to the studio's sshd over a tunnel
-the studio dials back.
+Remote-SSH, JetBrains Gateway — or open a web app the agent serves there
+([previews.md](previews.md)), through Jam alone: no host drive, no new port in the
+studio. Jam decides who may connect, issues them a short-lived SSH
+certificate (or signs their browser in), and splices their connection to the
+studio's port over a tunnel the studio dials back.
 
 ## Quick start
 
@@ -87,7 +88,7 @@ Jam checks each cert request and each connection against four rules, in order:
 2. **The requester** of a personal session ([personal-sessions.md](personal-sessions.md)).
 3. **Project members**, as the role's collaboration policy says:
    `--collaborate-ssh members|none` (default `none`), `--collaborate-preview`
-   (default `members`; previews are not served yet) — see [roster.md](roster.md).
+   (default `members`; see [previews.md](previews.md)) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
 A removed user matches none of them. A studio that is terminating or gone
@@ -101,7 +102,7 @@ share grant works for a user who is in no project.
 |---------|--------------|
 | `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes their open SSH connections, as unshare does). The grant is keyed to the session and removed when it ends. |
 | `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
-| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live}`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), and the open SSH connections. |
+| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live, previews_on, previews}`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), the open connections (each with its right, `ssh` or `preview`) and a `PREVIEWS` section (name, port, URL). |
 
 They pick the plane as the ssh commands do. An operator may share anything. A
 participant must hold some right on the studio to use any of the three, may
@@ -112,17 +113,19 @@ its own grant: it is bounded by the grantor's expiry when made, but it stays
 if the grantor's grant is later removed. Each share and unshare is logged
 (`studio shared` / `studio unshared`: grantor, user, session, rights, expires).
 
-**Revocation.** Every minute Jam re-checks each open SSH connection (operators'
-excepted) against the rules above and drops those no longer allowed — the user
-was removed, the role's policy or the user's membership changed, the grant
-expired — logging `ssh tunnel revoked` (user, session, right, reason). The
+**Revocation.** Every minute Jam re-checks each open SSH and preview
+connection (operators' excepted) against the rules above, for the right it
+uses, and drops those no longer allowed — the user was removed, the role's
+policy or the user's membership changed, the grant expired — logging
+`ssh tunnel revoked` / `preview connection revoked` (user, session, right,
+reason). The
 agent page's **Access** card shows the same, with an Unshare button
 ([ui-pages.md](ui-pages.md#agent-pages)).
 
 ## Idle studios
 
-Jam pauses a studio about a minute after its agent goes quiet. An open SSH
-connection (or one still opening) counts as activity: while there is one, Jam
+Jam pauses a studio about a minute after its agent goes quiet. An open SSH or
+preview connection (or one still opening) counts as activity: while there is one, Jam
 does not pause the studio, tear it down for waiting (wait-max, a role's
 on-idle teardown), or nag or reclaim a personal session — the agent is still
 woken as usual. When the last connection closes, those timers carry on from
@@ -141,7 +144,9 @@ or stopping takes no new tunnels (409, retry).
    studio's Attach stream ([coves.md](coves.md#the-attach-stream)).
 3. The studio's cove-master dials the `Tunnel` RPC back to Jam on 443 (the
    same egress as Attach), claims the id, and connects it to its loopback sshd
-   (`127.0.0.1:2222` — the only port it will dial).
+   (`127.0.0.1:2222`). It dials only loopback, and only sshd's port and the
+   ports the session exposes as [previews](previews.md)
+   ([allow-list](coves.md#the-attach-stream)).
 4. Jam answers `101` and splices the two; every allowed request is audited
    (user, session, reason, port — never a key, token or cert) and the session
    gets a "connected over SSH" notice.
@@ -152,8 +157,14 @@ loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
 tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW.md](../../OVERVIEW.md)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio, 30 min idle, 10 s for the dial-back; a teardown or a pause closes a
+studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for the dial-back; a teardown or a pause closes a
 studio's tunnels and it takes none until it is resumed or raised again.
+
+## Previews
+
+An agent can also expose a web app it serves in its studio as an HTTPS
+preview, which people open in a browser or call with a bearer token. That is
+covered in [previews.md](previews.md).
 
 ## Troubleshooting
 

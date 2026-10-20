@@ -19,13 +19,31 @@ const defaultTunnelPort = 2222
 // for Jam to take the last frames and end the stream.
 const tunnelDrainTimeout = 5 * time.Second
 
+// setTunnelPorts replaces (not merges) the dynamic part of the allow-list.
+func (c *Client) setTunnelPorts(ports []int32) {
+	c.tunnelMu.Lock()
+	c.tunnelPorts = slices.Clone(ports)
+	c.tunnelMu.Unlock()
+}
+
+// allowed reports whether Jam may open a tunnel to port: sshd's port always,
+// plus Config.TunnelPorts, plus the latest SetTunnelPorts from Jam.
+func (c *Client) allowed(port int32) bool {
+	if port == defaultTunnelPort || slices.Contains(c.cfg.TunnelPorts, port) {
+		return true
+	}
+	c.tunnelMu.Lock()
+	defer c.tunnelMu.Unlock()
+	return slices.Contains(c.tunnelPorts, port)
+}
+
 // dialBack serves one OpenTunnel: only allow-listed ports, only 127.0.0.1. It
 // opens a Tunnel stream to Jam (same conn and auth metadata as Attach), claims
 // the tunnel with open{id}, and pipes bytes until either side closes or ctx
 // ends. Closing the local conn is what unblocks the local→Jam read; when the
 // local side closes first, the stream stays up until Jam has drained it.
 func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md metadata.MD, ot *attachpb.OpenTunnel) {
-	if !slices.Contains(c.cfg.TunnelPorts, ot.GetPort()) {
+	if !c.allowed(ot.GetPort()) {
 		c.log.Warn("tunnel refused: port not allowed", "port", ot.GetPort())
 		return
 	}

@@ -235,6 +235,10 @@ func TestAccessView(t *testing.T) {
 // pipeTunnels hands each Open a fresh pipe, keeping the studio ends.
 type pipeTunnels struct{ studios chan net.Conn }
 
+func (p pipeTunnels) OpenPreview(ctx context.Context, a string, port int32) (net.Conn, error) {
+	return p.Open(ctx, a, port)
+}
+
 func (p pipeTunnels) Open(context.Context, string, int32) (net.Conn, error) {
 	studio, human := net.Pipe()
 	p.studios <- studio
@@ -454,4 +458,38 @@ func (l *lockedBuffer) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+// The access view lists the session's previews with their URLs and every live
+// connection's right; with previews off it says so.
+func TestAccessViewPreviews(t *testing.T) {
+	d, st := testDeps(t)
+	_ = st.PutInstance(jam.Instance{ActorID: "ses_a", Project: "acme", Role: "ic", Phase: jam.PhaseLive})
+	get := func(d collabhttp.Deps) collabwire.AccessView {
+		rec := do(collabhttp.Routes("/admin", d), "GET", "/admin/studios/ses_a/access", "op:local", "")
+		var v collabwire.AccessView
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &v) != nil {
+			t.Fatalf("access: %d %s", rec.Code, rec.Body)
+		}
+		return v
+	}
+	if v := get(d); v.PreviewsOn || v.Previews == nil || len(v.Previews) != 0 {
+		t.Fatalf("previews off: %+v", v)
+	}
+	d.Exposures = func(a string) []jam.Exposure {
+		if a != "ses_a" {
+			return nil
+		}
+		return []jam.Exposure{{Name: "app", Port: 5173}, {Name: "bad", Port: 1}}
+	}
+	d.PreviewURL = func(a, name string) (string, error) {
+		if name == "bad" {
+			return "", errors.New("no url")
+		}
+		return "https://" + name + "--x.preview.jam.example/", nil
+	}
+	v := get(d)
+	if !v.PreviewsOn || len(v.Previews) != 1 || v.Previews[0] != (collabwire.PreviewView{Name: "app", Port: 5173, URL: "https://app--x.preview.jam.example/"}) {
+		t.Fatalf("previews: %+v", v)
+	}
 }

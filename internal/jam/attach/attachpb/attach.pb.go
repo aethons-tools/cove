@@ -393,6 +393,7 @@ type ControlDown struct {
 	//	*ControlDown_Ack
 	//	*ControlDown_Gate
 	//	*ControlDown_OpenTunnel
+	//	*ControlDown_TunnelPorts
 	Msg           isControlDown_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -498,6 +499,15 @@ func (x *ControlDown) GetOpenTunnel() *OpenTunnel {
 	return nil
 }
 
+func (x *ControlDown) GetTunnelPorts() *SetTunnelPorts {
+	if x != nil {
+		if x, ok := x.Msg.(*ControlDown_TunnelPorts); ok {
+			return x.TunnelPorts
+		}
+	}
+	return nil
+}
+
 type isControlDown_Msg interface {
 	isControlDown_Msg()
 }
@@ -530,6 +540,10 @@ type ControlDown_OpenTunnel struct {
 	OpenTunnel *OpenTunnel `protobuf:"bytes,7,opt,name=open_tunnel,json=openTunnel,proto3,oneof"`
 }
 
+type ControlDown_TunnelPorts struct {
+	TunnelPorts *SetTunnelPorts `protobuf:"bytes,8,opt,name=tunnel_ports,json=tunnelPorts,proto3,oneof"`
+}
+
 func (*ControlDown_Wake) isControlDown_Msg() {}
 
 func (*ControlDown_Teardown) isControlDown_Msg() {}
@@ -543,6 +557,8 @@ func (*ControlDown_Ack) isControlDown_Msg() {}
 func (*ControlDown_Gate) isControlDown_Msg() {}
 
 func (*ControlDown_OpenTunnel) isControlDown_Msg() {}
+
+func (*ControlDown_TunnelPorts) isControlDown_Msg() {}
 
 // EventAck is cumulative: every event of stream_id with seq <= this is durable.
 type EventAck struct {
@@ -1048,6 +1064,53 @@ func (x *OpenTunnel) GetPort() int32 {
 	return 0
 }
 
+// SetTunnelPorts replaces the studio's dynamic tunnel allow-list: the loopback
+// ports Jam may OpenTunnel to, besides cove-master's configured ones (sshd).
+// Sent first on every Attach stream, then after each change.
+type SetTunnelPorts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ports         []int32                `protobuf:"varint,1,rep,packed,name=ports,proto3" json:"ports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetTunnelPorts) Reset() {
+	*x = SetTunnelPorts{}
+	mi := &file_attach_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetTunnelPorts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetTunnelPorts) ProtoMessage() {}
+
+func (x *SetTunnelPorts) ProtoReflect() protoreflect.Message {
+	mi := &file_attach_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetTunnelPorts.ProtoReflect.Descriptor instead.
+func (*SetTunnelPorts) Descriptor() ([]byte, []int) {
+	return file_attach_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SetTunnelPorts) GetPorts() []int32 {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
+}
+
 type TunnelFrame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Msg:
@@ -1062,7 +1125,7 @@ type TunnelFrame struct {
 
 func (x *TunnelFrame) Reset() {
 	*x = TunnelFrame{}
-	mi := &file_attach_proto_msgTypes[14]
+	mi := &file_attach_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1137,7 @@ func (x *TunnelFrame) String() string {
 func (*TunnelFrame) ProtoMessage() {}
 
 func (x *TunnelFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[14]
+	mi := &file_attach_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1087,7 +1150,7 @@ func (x *TunnelFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TunnelFrame.ProtoReflect.Descriptor instead.
 func (*TunnelFrame) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{14}
+	return file_attach_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TunnelFrame) GetMsg() isTunnelFrame_Msg {
@@ -1155,7 +1218,7 @@ type TunnelOpen struct {
 
 func (x *TunnelOpen) Reset() {
 	*x = TunnelOpen{}
-	mi := &file_attach_proto_msgTypes[15]
+	mi := &file_attach_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1230,7 @@ func (x *TunnelOpen) String() string {
 func (*TunnelOpen) ProtoMessage() {}
 
 func (x *TunnelOpen) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[15]
+	mi := &file_attach_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1243,7 @@ func (x *TunnelOpen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TunnelOpen.ProtoReflect.Descriptor instead.
 func (*TunnelOpen) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{15}
+	return file_attach_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *TunnelOpen) GetId() string {
@@ -1199,7 +1262,7 @@ type TunnelClose struct {
 
 func (x *TunnelClose) Reset() {
 	*x = TunnelClose{}
-	mi := &file_attach_proto_msgTypes[16]
+	mi := &file_attach_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1211,7 +1274,7 @@ func (x *TunnelClose) String() string {
 func (*TunnelClose) ProtoMessage() {}
 
 func (x *TunnelClose) ProtoReflect() protoreflect.Message {
-	mi := &file_attach_proto_msgTypes[16]
+	mi := &file_attach_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1224,7 +1287,7 @@ func (x *TunnelClose) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TunnelClose.ProtoReflect.Descriptor instead.
 func (*TunnelClose) Descriptor() ([]byte, []int) {
-	return file_attach_proto_rawDescGZIP(), []int{16}
+	return file_attach_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TunnelClose) GetReason() string {
@@ -1255,7 +1318,7 @@ const file_attach_proto_rawDesc = "" +
 	"\x10observed_unix_ms\x18\x04 \x01(\x03R\x0eobservedUnixMs\x12\x10\n" +
 	"\x03raw\x18\x05 \x01(\fR\x03raw\x12'\n" +
 	"\x0ftruncated_bytes\x18\x06 \x01(\x04R\x0etruncatedBytes\"\v\n" +
-	"\tHeartbeat\"\x8c\x03\n" +
+	"\tHeartbeat\"\xd3\x03\n" +
 	"\vControlDown\x12,\n" +
 	"\x04wake\x18\x01 \x01(\v2\x16.harbor.attach.v1.WakeH\x00R\x04wake\x128\n" +
 	"\bteardown\x18\x02 \x01(\v2\x1a.harbor.attach.v1.TeardownH\x00R\bteardown\x123\n" +
@@ -1264,7 +1327,8 @@ const file_attach_proto_rawDesc = "" +
 	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ack\x12/\n" +
 	"\x04gate\x18\x06 \x01(\v2\x19.harbor.attach.v1.RunGateH\x00R\x04gate\x12?\n" +
 	"\vopen_tunnel\x18\a \x01(\v2\x1c.harbor.attach.v1.OpenTunnelH\x00R\n" +
-	"openTunnelB\x05\n" +
+	"openTunnel\x12E\n" +
+	"\ftunnel_ports\x18\b \x01(\v2 .harbor.attach.v1.SetTunnelPortsH\x00R\vtunnelPortsB\x05\n" +
 	"\x03msg\"9\n" +
 	"\bEventAck\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
@@ -1298,7 +1362,9 @@ const file_attach_proto_rawDesc = "" +
 	"\n" +
 	"OpenTunnel\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\x95\x01\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"&\n" +
+	"\x0eSetTunnelPorts\x12\x14\n" +
+	"\x05ports\x18\x01 \x03(\x05R\x05ports\"\x95\x01\n" +
 	"\vTunnelFrame\x122\n" +
 	"\x04open\x18\x01 \x01(\v2\x1c.harbor.attach.v1.TunnelOpenH\x00R\x04open\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x125\n" +
@@ -1333,7 +1399,7 @@ func file_attach_proto_rawDescGZIP() []byte {
 }
 
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_attach_proto_goTypes = []any{
 	(Activity)(0),            // 0: harbor.attach.v1.Activity
 	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
@@ -1350,9 +1416,10 @@ var file_attach_proto_goTypes = []any{
 	(*RunGate)(nil),          // 12: harbor.attach.v1.RunGate
 	(*GateResult)(nil),       // 13: harbor.attach.v1.GateResult
 	(*OpenTunnel)(nil),       // 14: harbor.attach.v1.OpenTunnel
-	(*TunnelFrame)(nil),      // 15: harbor.attach.v1.TunnelFrame
-	(*TunnelOpen)(nil),       // 16: harbor.attach.v1.TunnelOpen
-	(*TunnelClose)(nil),      // 17: harbor.attach.v1.TunnelClose
+	(*SetTunnelPorts)(nil),   // 15: harbor.attach.v1.SetTunnelPorts
+	(*TunnelFrame)(nil),      // 16: harbor.attach.v1.TunnelFrame
+	(*TunnelOpen)(nil),       // 17: harbor.attach.v1.TunnelOpen
+	(*TunnelClose)(nil),      // 18: harbor.attach.v1.TunnelClose
 }
 var file_attach_proto_depIdxs = []int32{
 	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
@@ -1367,18 +1434,19 @@ var file_attach_proto_depIdxs = []int32{
 	6,  // 9: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
 	12, // 10: harbor.attach.v1.ControlDown.gate:type_name -> harbor.attach.v1.RunGate
 	14, // 11: harbor.attach.v1.ControlDown.open_tunnel:type_name -> harbor.attach.v1.OpenTunnel
-	8,  // 12: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
-	16, // 13: harbor.attach.v1.TunnelFrame.open:type_name -> harbor.attach.v1.TunnelOpen
-	17, // 14: harbor.attach.v1.TunnelFrame.close:type_name -> harbor.attach.v1.TunnelClose
-	1,  // 15: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	15, // 16: harbor.attach.v1.Runtime.Tunnel:input_type -> harbor.attach.v1.TunnelFrame
-	5,  // 17: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	15, // 18: harbor.attach.v1.Runtime.Tunnel:output_type -> harbor.attach.v1.TunnelFrame
-	17, // [17:19] is the sub-list for method output_type
-	15, // [15:17] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	15, // 12: harbor.attach.v1.ControlDown.tunnel_ports:type_name -> harbor.attach.v1.SetTunnelPorts
+	8,  // 13: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
+	17, // 14: harbor.attach.v1.TunnelFrame.open:type_name -> harbor.attach.v1.TunnelOpen
+	18, // 15: harbor.attach.v1.TunnelFrame.close:type_name -> harbor.attach.v1.TunnelClose
+	1,  // 16: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
+	16, // 17: harbor.attach.v1.Runtime.Tunnel:input_type -> harbor.attach.v1.TunnelFrame
+	5,  // 18: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
+	16, // 19: harbor.attach.v1.Runtime.Tunnel:output_type -> harbor.attach.v1.TunnelFrame
+	18, // [18:20] is the sub-list for method output_type
+	16, // [16:18] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_attach_proto_init() }
@@ -1401,8 +1469,9 @@ func file_attach_proto_init() {
 		(*ControlDown_Ack)(nil),
 		(*ControlDown_Gate)(nil),
 		(*ControlDown_OpenTunnel)(nil),
+		(*ControlDown_TunnelPorts)(nil),
 	}
-	file_attach_proto_msgTypes[14].OneofWrappers = []any{
+	file_attach_proto_msgTypes[15].OneofWrappers = []any{
 		(*TunnelFrame_Open)(nil),
 		(*TunnelFrame_Data)(nil),
 		(*TunnelFrame_Close)(nil),
@@ -1413,7 +1482,7 @@ func file_attach_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_attach_proto_rawDesc), len(file_attach_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

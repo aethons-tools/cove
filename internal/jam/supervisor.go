@@ -249,6 +249,11 @@ type Supervisor struct {
 	// upgrader is the standing reconciler (SetStandingUpgrader); nil → a
 	// standing upgrade is unavailable (503).
 	upgrader StandingUpgrader
+	// exposureSink hears a session's exposed ports change (SetExposureSink).
+	exposureSink ExposureSink
+	// previews: studio previews are enabled on this Jam (SetPreviewsEnabled).
+	previews bool
+	notifyMu sync.Mutex // orders sink deliveries (see notifyExposures)
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -441,6 +446,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise: joining the session's channels failed (non-fatal)", "id", spec.ActorID, "err", err.Error())
 		}
 	}
+	// A raise starts a fresh studio: nothing is exposed (inst.Exposures is
+	// unset), so tell the sink the set is empty.
+	s.notifyExposures(spec.ActorID)
 	if s.log != nil {
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
@@ -1221,6 +1229,7 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if s.tunnels != nil {
 		s.tunnels.Reopen(actorID) // forget the gone studio's closed mark
 	}
+	s.notifyExposures(actorID) // instance gone → the sink forgets its port set
 	if err := s.store.RemoveShareGrantsOf(actorID); err != nil && s.log != nil {
 		s.log.Warn("teardown: removing the session's share grants failed (non-fatal)", "id", actorID, "err", err.Error())
 	}
@@ -1523,6 +1532,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
 		Kind: spec.SessionKind, Name: spec.Name, Project: ProjectName(s.store, spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+		Previews: s.previews,
 	}}
 	var kitEgress []string
 	haveKit := false

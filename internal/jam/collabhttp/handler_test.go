@@ -41,6 +41,10 @@ type fakeTunnels struct {
 	err  error
 }
 
+func (f fakeTunnels) OpenPreview(ctx context.Context, a string, p int32) (net.Conn, error) {
+	return f.Open(ctx, a, p)
+}
+
 func (f fakeTunnels) Open(context.Context, string, int32) (net.Conn, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -362,6 +366,10 @@ func TestUpgradeRefusals(t *testing.T) {
 }
 
 type tunnelsFunc func()
+
+func (f tunnelsFunc) OpenPreview(ctx context.Context, a string, p int32) (net.Conn, error) {
+	return f.Open(ctx, a, p)
+}
 
 func (f tunnelsFunc) Open(context.Context, string, int32) (net.Conn, error) {
 	f()

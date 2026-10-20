@@ -53,9 +53,12 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
   policy says (`preview`/`ssh`: `members` or `none`); and each share grant
   (user, rights, expiry, granted by) with an **Unshare** button — a
   CSRF-guarded write that removes the grant and closes that user's open SSH
-  connections unless they still hold `ssh` another way. Below, the open SSH
-  connections (who, since when). With SSH collaboration off (no
-  [`ssh:`](serve.md) block) the card says so instead. Sharing itself is
+  connections unless they still hold `ssh` another way. Below, the open
+  connections (who, right — `ssh` or `preview` — since when) and the
+  **Previews** list: each exposed [preview](previews.md) as a link opening in a new tab
+  (or "Previews are off on this Jam" without a [`previews:`](serve.md)
+  domain). With neither SSH collaboration nor previews configured the card
+  says so instead. Sharing itself is
   `at-jam studio share` ([collaboration.md](collaboration.md#sharing)).
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).

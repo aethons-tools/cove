@@ -35,13 +35,17 @@ func Boilerplate(f SessionFacts) Layer {
 			comms = strings.TrimSpace(ownChannel)
 		}
 	}
-	core := strings.Join([]string{
+	lines := []string{
 		"You are " + who + ", running in a Jam-managed at-cove sandbox.",
 		"- Sandbox: isolated filesystem; network egress is allow-listed through an in-cove proxy (`http(s)_proxy=http://127.0.0.1:3128`) and nftables drops the rest. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data (your `CLAUDE_CONFIG_DIR`: settings, history, login) persist; installed packages and env tweaks reset when the cove is rebuilt.",
 		turns,
 		"- Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. " + comms,
 		"- Changing the sandbox (a domain, a tool) is human-gated: you cannot rebuild your own cove and must never weaken the hardening. How: boilerplate/changing-the-kit.md; what no one can change from inside: boilerplate/hardening-limits.md.",
-	}, "\n")
+	}
+	if f.Previews {
+		lines = append(lines, "- Previews: `expose(port, name)` makes a port you serve reachable by your collaborators at a URL — post the link in your channel; `unexpose`/`exposures` manage them. A studio restart clears them: expose again.")
+	}
+	core := strings.Join(lines, "\n")
 	return Layer{Core: core, Leaves: []Leaf{{
 		Name:     "changing-the-kit.md",
 		ReadWhen: "you need an egress domain, tool or env var the sandbox lacks",

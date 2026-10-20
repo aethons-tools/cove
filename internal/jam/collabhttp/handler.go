@@ -48,10 +48,13 @@ const (
 // Deps is what the routes need. Principal names the caller (and a display
 // name for notices and audit), or fails with one of the Err* above.
 type Deps struct {
-	Store   jam.Store
-	CA      *sshca.CA // nil = feature off: every route 404s
+	Store jam.Store
+	CA    *sshca.CA // nil = feature off: every route 404s
+	// Tunnels opens studio tunnels: Open for SSH, OpenPreview for the
+	// preview proxy (capped below the studio's total, attach.TunnelBroker).
 	Tunnels interface {
 		Open(ctx context.Context, actorID string, port int32) (net.Conn, error)
+		OpenPreview(ctx context.Context, actorID string, port int32) (net.Conn, error)
 	}
 	Notify    func(inst jam.Instance, body string)
 	Now       func() time.Time
@@ -68,16 +71,16 @@ type Deps struct {
 	Resume    func(ctx context.Context, actorID string) error
 	Connected func(actorID string) bool
 	WakeWait  time.Duration
+	// Exposures lists a session's exposed previews (Supervisor.Exposures);
+	// the preview proxy (Preview) serves only what it names.
+	Exposures func(actorID string) []jam.Exposure
+	// PreviewURL is the URL collaborators open for a session's named preview;
+	// nil means previews are off (Preview 404s every host).
+	PreviewURL func(actorID, name string) (string, error)
 }
 
-// Routes serves POST {prefix}/studios/{id}/ssh/cert, GET
-// {prefix}/studios/{id}/ssh, and the sharing routes (share.go): POST
-// {prefix}/studios/{id}/shares, DELETE {prefix}/studios/{id}/shares/{user}
-// and GET {prefix}/studios/{id}/access. Mount it at {prefix}/studios/.
-func Routes(prefix string, d Deps) http.Handler {
-	if d.CA == nil {
-		return http.NotFoundHandler()
-	}
+// withDefaults fills d's optional fields.
+func withDefaults(d Deps) Deps {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
@@ -93,7 +96,18 @@ func Routes(prefix string, d Deps) http.Handler {
 	if d.WakeWait <= 0 {
 		d.WakeWait = DefaultWakeWait
 	}
-	h := &handler{d: d}
+	return d
+}
+
+// Routes serves POST {prefix}/studios/{id}/ssh/cert, GET
+// {prefix}/studios/{id}/ssh, and the sharing routes (share.go): POST
+// {prefix}/studios/{id}/shares, DELETE {prefix}/studios/{id}/shares/{user}
+// and GET {prefix}/studios/{id}/access. Mount it at {prefix}/studios/.
+func Routes(prefix string, d Deps) http.Handler {
+	if d.CA == nil {
+		return http.NotFoundHandler()
+	}
+	h := &handler{d: withDefaults(d)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+prefix+"/studios/{id}/ssh/cert", h.cert)
 	mux.HandleFunc("GET "+prefix+"/studios/{id}/ssh", h.ssh)
@@ -160,6 +174,14 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab
 	if !ok {
 		return access{}, false
 	}
+	return h.authorizeInst(w, r, p, name, inst, right)
+}
+
+// authorizeInst checks that the named caller p may use right on inst, waking
+// an idled studio for an allowed caller, and that the studio is live; it
+// writes the refusal (403, or the wake's 409/503/504, or 409 not running) and
+// returns false when it fails.
+func (h *handler) authorizeInst(w http.ResponseWriter, r *http.Request, p collab.Principal, name string, inst jam.Instance, right collab.Right) (access, bool) {
 	reason, ok := collab.Decide(h.d.Store, h.d.Now(), p, inst, right)
 	if !ok {
 		http.Error(w, "you may not use "+string(right)+" on this studio", http.StatusForbidden)
@@ -318,7 +340,7 @@ func (h *handler) ssh(w http.ResponseWriter, r *http.Request) {
 	start := h.d.Now()
 	remove := h.d.Live.add(&liveEntry{
 		LiveConn: collabwire.LiveConn{Session: a.inst.ActorID, User: a.auditUser(), Name: a.name, Since: start},
-		userID:   a.p.UserID, operator: a.p.Operator != "", close: closeBoth,
+		userID:   a.p.UserID, operator: a.p.Operator != "", right: collab.SSH, port: int(SSHPort), close: closeBoth,
 	})
 	defer remove()
 	// An unshare removes the grant before it closes registered connections,

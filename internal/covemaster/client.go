@@ -41,6 +41,9 @@ type Client struct {
 	connCh    chan string     // coalesced (buffer 1)
 	gates     chan GateResult // gate results awaiting the stream (buffer gateBuffer; overflow dropped)
 	events    *eventBuf
+
+	tunnelMu    sync.Mutex
+	tunnelPorts []int32 // latest SetTunnelPorts from Jam (guarded by tunnelMu)
 }
 
 func New(cfg Config, log *slog.Logger) *Client {
@@ -249,6 +252,13 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 				if a.Ack.GetStreamId() == c.events.streamID {
 					c.events.ack(a.Ack.GetSeq())
 				}
+				continue
+			}
+			if tp, ok := cd.GetMsg().(*attachpb.ControlDown_TunnelPorts); ok {
+				// Inline: ordered before any later OpenTunnel. An OpenTunnel already
+				// dispatched when a clearing set arrives may still dial; benign (the
+				// port was exposed when Jam sent it).
+				c.setTunnelPorts(tp.TunnelPorts.GetPorts())
 				continue
 			}
 			if ot, ok := cd.GetMsg().(*attachpb.ControlDown_OpenTunnel); ok {

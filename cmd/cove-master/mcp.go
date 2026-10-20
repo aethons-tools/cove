@@ -182,6 +182,27 @@ type alarmsOut struct {
 	Alarms []alarmItem `json:"alarms"`
 }
 
+// exposeIn is the "expose" tool's typed input.
+type exposeIn struct {
+	Port int    `json:"port" jsonschema:"the local port your server listens on (loopback is fine)"`
+	Name string `json:"name" jsonschema:"the preview's name, a DNS label: lowercase letters, digits and - (exposing an existing name re-points it)"`
+}
+
+// unexposeIn is the "unexpose" tool's typed input.
+type unexposeIn struct {
+	Name string `json:"name" jsonschema:"the preview to remove"`
+}
+
+// exposuresIn is the "exposures" tool's (empty) input.
+type exposuresIn struct{}
+
+// exposureItem mirrors one preview in Jam's /exposures responses.
+type exposureItem struct {
+	Name string `json:"name"`
+	Port int    `json:"port"`
+	URL  string `json:"url"`
+}
+
 // targetItem mirrors one entry of Jam's GET /squawks/targets response.
 type targetItem struct {
 	Target string `json:"target"`
@@ -256,13 +277,26 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 // generic: it never contains the bearer token, and never echoes the raw
 // response body from Jam.
 func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, error) {
+	respBody, status, err := c.doStatus(ctx, method, pathSuffix, body)
+	if err != nil {
+		return nil, err
+	}
+	if status/100 != 2 {
+		return nil, fmt.Errorf("Jam messages: unexpected status %d", status)
+	}
+	return respBody, nil
+}
+
+// doStatus performs the request and returns the (capped) body and status
+// without judging it; do and callers that surface Jam's reason build on it.
+func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, int, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+pathSuffix, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("building Jam messages request: %w", err)
+		return nil, 0, fmt.Errorf("building Jam messages request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	if body != nil {
@@ -271,15 +305,12 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Jam messages request failed")
+		return nil, 0, fmt.Errorf("Jam messages request failed")
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJamResponseBytes))
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("Jam messages: unexpected status %d", resp.StatusCode)
-	}
-	return respBody, nil
+	return respBody, resp.StatusCode, nil
 }
 
 // send posts a message via Jam: to the cove's default channel, or, when to
@@ -489,6 +520,78 @@ func (c *messagingClient) listAlarms(ctx context.Context) (alarmsOut, error) {
 	return out, nil
 }
 
+// exposureReason is Jam's one-line refusal reason for a non-2xx /exposures
+// reply: {"error":"..."} or a plain-text body.
+func exposureReason(body []byte, status int) error {
+	var e struct {
+		Error string `json:"error"`
+	}
+	msg := strings.TrimSpace(string(body))
+	if json.Unmarshal(body, &e) == nil && e.Error != "" {
+		msg = e.Error
+	}
+	if msg == "" {
+		return fmt.Errorf("Jam exposures: unexpected status %d", status)
+	}
+	return fmt.Errorf("Jam exposures: %s", msg)
+}
+
+// expose publishes a port as a named preview (PUT /exposures/{name}).
+func (c *messagingClient) expose(ctx context.Context, name string, port int) (exposureItem, error) {
+	payload, err := json.Marshal(struct {
+		Port int `json:"port"`
+	}{Port: port})
+	if err != nil {
+		return exposureItem{}, fmt.Errorf("encoding expose payload: %w", err)
+	}
+	body, status, err := c.doStatus(ctx, http.MethodPut, "/exposures/"+url.PathEscape(name), payload)
+	if err != nil {
+		return exposureItem{}, err
+	}
+	if status/100 != 2 {
+		return exposureItem{}, exposureReason(body, status)
+	}
+	var out exposureItem
+	if err := json.Unmarshal(body, &out); err != nil {
+		return exposureItem{}, fmt.Errorf("decoding Jam expose response")
+	}
+	return out, nil
+}
+
+// unexpose removes a named preview (DELETE /exposures/{name}).
+func (c *messagingClient) unexpose(ctx context.Context, name string) error {
+	body, status, err := c.doStatus(ctx, http.MethodDelete, "/exposures/"+url.PathEscape(name), nil)
+	if err != nil {
+		return err
+	}
+	if status/100 != 2 {
+		return exposureReason(body, status)
+	}
+	return nil
+}
+
+// listExposures lists the cove's previews (GET /exposures).
+func (c *messagingClient) listExposures(ctx context.Context) ([]exposureItem, error) {
+	body, status, err := c.doStatus(ctx, http.MethodGet, "/exposures", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status/100 != 2 {
+		return nil, exposureReason(body, status)
+	}
+	var out struct {
+		Exposures []exposureItem `json:"exposures"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decoding Jam exposures response")
+	}
+	return out.Exposures, nil
+}
+
+func textResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
 // newMessagingServer builds the "intercom" MCP server exposing read/send.
 //
 // Configuration errors (missing env vars, a malformed address) are captured
@@ -659,6 +762,51 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, alarmsOut{}, err
 		}
 		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "expose",
+		Description: "Make a port you serve reachable by your collaborators at a URL (a studio preview). Post the returned link in your channel. Exposing an existing name re-points it. A studio restart clears previews: expose again.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in exposeIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		e, err := client.expose(ctx, in.Name, in.Port)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(fmt.Sprintf("exposed %s → %s (post the link in your channel)", e.Name, e.URL)), nil, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "unexpose",
+		Description: "Remove a named preview.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in unexposeIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.unexpose(ctx, in.Name)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "exposures",
+		Description: "List your exposed previews with their ports and URLs.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ exposuresIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		list, err := client.listExposures(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(list) == 0 {
+			return textResult("no exposures"), nil, nil
+		}
+		lines := make([]string, 0, len(list))
+		for _, e := range list {
+			lines = append(lines, fmt.Sprintf("%s → %s (port %d)", e.Name, e.URL, e.Port))
+		}
+		return textResult(strings.Join(lines, "\n")), nil, nil
 	})
 
 	return s

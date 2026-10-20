@@ -153,14 +153,73 @@ key} }` (a wildcard cert; unset ⇒ previews off). Jam serves `*.<domain>` on th
 admin/UI listener: host → (session, name) → port → `preview` right → §1 tunnel to
 `127.0.0.1:<port>`. HTTP/1.1, HTTP/2 and WebSocket upgrades pass through.
 
-**Auth:** first visit → OIDC login → a cookie scoped to `.<domain>` only (never
-the admin UI's origin). No cookie ⇒ redirect (browsers) or 401 (APIs). API
+**Auth:** *(superseded by Amendments 1–2 below: a host-only cookie per preview
+host, via the login host `jam.<domain>`.)* First visit → OIDC login → a cookie
+scoped to `.<domain>` only (never the admin UI's origin). No cookie ⇒ redirect (browsers) or 401 (APIs). API
 clients may send `Authorization: Bearer <at-jam login token>`. Jam strips its
 cookie and `Authorization` before forwarding, and adds `X-Forwarded-Proto/Host`
 and an informational `X-Jam-User`. The studio page links each preview.
 
 **Web IDE:** a kit installing code-server lets the agent `expose(8443, "ide")` —
 no extra Jam code.
+
+**Amendments (2026-10-20, operator decision at slice-2 planning, and rulings
+made while building it).** These supersede the text above where they differ;
+the user guide is [previews.md](../../usage/jam/previews.md).
+
+1. **Cookie:** not one cookie on `.<domain>` — that would let one studio's
+   preview page drive another studio's app as the viewer. Each preview host gets
+   its own **host-only** cookie, `__Host-jam_preview` (`Secure`, `HttpOnly`,
+   `SameSite=Lax`, `Path=/`, no `Domain`), set from a **single-use code**
+   (60 s, bound to that host) that the reserved login host `jam.<domain>` hands
+   back after the OIDC login. The cookie carries a random server-side session id
+   (8 h, bound to its host), never a token. The `__Host-` prefix (also on the
+   login flow's temporary cookies) stops a sibling app tossing a cookie with
+   `Domain`; a request carrying more than one session cookie is treated as
+   signed out (a fresh login). *(Final review:)* the code is also bound to the
+   browser that started the login — the preview host sets a 10-minute
+   `__Host-jam_preview_login` nonce cookie before the bounce, its SHA-256 rides
+   `/__jam/start` and the login state into the code, and the trade requires the
+   matching cookie (then clears it), so an attacker's code cannot sign a
+   victim's browser in as the attacker. A session is not re-verified against
+   the IdP during its 8 h (operators included); rights are re-checked per
+   request.
+2. **Identity:** the preview login requests the same token as `/ui`, so
+   operators are recognized as operators; everyone else maps to a Jam user by
+   OIDC binding. Bearer callers present an operator access token or a
+   participant (`login --participant`) ID token.
+3. **Allow-list:** cove-master's dial-back allow-list is `{2222} ∪ exposed
+   ports`, pushed by Jam as `ControlDown.SetTunnelPorts` (tag 8) first on every
+   Attach stream and after each change; an older cove-master ignores it and the
+   viewer gets a 504.
+4. **Label:** `<label>` is a `ses_` session id's 26-char body; any other actor
+   id (legacy `standing-…`, manual `--id`) gets the first 26 chars of the
+   lowercase unpadded base32 of its SHA-256 — always 26 of `[a-z0-9]`.
+5. **Hosts:** every host equal to or under `<domain>` goes to the preview
+   handler (404 unless it is a preview or the login host), so the admin/UI host
+   must lie outside `<domain>`; the listener presents the wildcard cert only to
+   an SNI name under `<domain>`, the admin cert otherwise.
+6. **Responses and requests:** Jam drops app `Set-Cookie`s for Jam cookie names
+   and `Clear-Site-Data`, removes `Domain` from the app's cookies (host-only),
+   strips client `Forwarded`/`X-Real-IP`, and answers `CONNECT` with 405 —
+   HTTP/2 WebSockets (extended CONNECT) are not offered; browsers use the
+   HTTP/1.1 `Upgrade`, which passes through. Paths under `/__jam/` are Jam's.
+7. **Cross-preview requests (final review):** every `*.<domain>` host is one
+   site, so `SameSite=Lax` still sends a preview's cookie on a fetch, form,
+   iframe or WebSocket that another studio's page starts. The cookie is
+   honoured only for `Sec-Fetch-Site` `same-origin`/`none`, a top-level
+   `GET`/`HEAD` navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest:
+   document`), or an `Origin` that is a preview host of the same session label;
+   a WebSocket always needs that `Origin`, and without Fetch Metadata an unsafe
+   method needs it (or such a `Referer`). Anything else is 403 "cross-site
+   request refused" (no login redirect). Bearers are no ambient credential and
+   are unaffected.
+8. **Registrable domain (final review):** preview apps run untrusted code that
+   can set cookies on the previews domain's registrable domain (eTLD+1), so the
+   previews domain must be a registrable domain apart from the admin site's
+   (e.g. `jam-previews.example` beside `jam.example`). serve logs a WARN at
+   startup when the `admin-listen` host or a `ui-hosts` entry shares it
+   (public-suffix list, `golang.org/x/net/publicsuffix`).
 
 ## 5. Testing
 

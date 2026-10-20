@@ -84,6 +84,7 @@ type Instance struct {
 	IdleDeadline       time.Time     `json:"idle_deadline,omitempty"`       // armed at turn end from IdleOverride or the role's idle timeout; zero = none armed
 	IdleOverride       *IdleOverride `json:"idle_override,omitempty"`       // the cove's own idle-timeout override (PUT /idle)
 	Alarms             []Alarm       `json:"alarms,omitempty"`              // the cove's alarms (alarm_* tools)
+	Exposures          []Exposure    `json:"exposures,omitempty"`           // ports the session exposed as studio previews; cleared by Raise
 	EndRequested       *EndRequest   `json:"end_requested,omitempty"`       // the cove asked to end (POST /end); wake-on tears it down once Waiting
 	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
 }

@@ -489,6 +489,10 @@ func TestSSHPlaneFlagsExclusive(t *testing.T) {
 // echoTunnels opens a tunnel whose studio end echoes what it reads.
 type echoTunnels struct{}
 
+func (e echoTunnels) OpenPreview(ctx context.Context, a string, p int32) (net.Conn, error) {
+	return e.Open(ctx, a, p)
+}
+
 func (echoTunnels) Open(context.Context, string, int32) (net.Conn, error) {
 	human, studio := net.Pipe()
 	go func() { defer studio.Close(); _, _ = io.Copy(studio, studio) }()

@@ -39,19 +39,31 @@ type RoleAccess struct {
 
 // AccessView is who can reach a studio and why: operators always; the
 // personal session's requester; project members as the role says; each share
-// grant. Live lists the open SSH connections.
+// grant. Live lists the open connections (ssh and preview); Previews the
+// exposed previews with their URLs (PreviewsOn false: previews are off).
 type AccessView struct {
 	Session   string      `json:"session"`
 	Requester *UserRef    `json:"requester,omitempty"`
 	Role      RoleAccess  `json:"role"`
 	Grants    []GrantView `json:"grants"`
 	Live      []LiveConn  `json:"live"`
+	// PreviewsOn is whether this Jam serves previews at all.
+	PreviewsOn bool          `json:"previews_on"`
+	Previews   []PreviewView `json:"previews"`
 }
 
-// LiveConn is one open SSH connection into a studio.
+// PreviewView is one preview a session exposes.
+type PreviewView struct {
+	Name string `json:"name"`
+	Port int    `json:"port"`
+	URL  string `json:"url"`
+}
+
+// LiveConn is one open connection into a studio.
 type LiveConn struct {
 	Session string    `json:"session"`
 	User    string    `json:"user"` // usr_… or op:<operator-id>, as in the audit lines
 	Name    string    `json:"name"` // display name
 	Since   time.Time `json:"since"`
+	Right   string    `json:"right"` // "ssh" or "preview"
 }

@@ -203,7 +203,7 @@ func TestControlDownDelivery(t *testing.T) {
 
 	srv.RequestTeardown("w1")
 
-	msg, err := stream.Recv()
+	msg, err := recvSkippingSeed(stream)
 	if err != nil {
 		t.Fatalf("Recv failed: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestWakeDelivery(t *testing.T) {
 
 	srv.Wake("w1", jam.WakeReason{Kind: jam.WakeSquawk})
 
-	msg, err := stream.Recv()
+	msg, err := recvSkippingSeed(stream)
 	if err != nil {
 		t.Fatalf("Recv failed: %v", err)
 	}
@@ -274,6 +274,9 @@ func TestReconnectReplaces(t *testing.T) {
 	if !eventually(func() bool { return srv.connected("w1") }) {
 		t.Fatal("first stream never registered")
 	}
+	if _, err := stream1.Recv(); err != nil { // its tunnel-ports seed
+		t.Fatal(err)
+	}
 
 	// Snapshot the lease before the second Attach connects. Attach() calls
 	// register() (the channel swap) and then unconditionally renews the lease
@@ -303,7 +306,7 @@ func TestReconnectReplaces(t *testing.T) {
 	srv.RequestTeardown("w1")
 
 	// The new stream gets the pushed control message...
-	msg, err := stream2.Recv()
+	msg, err := recvSkippingSeed(stream2)
 	if err != nil {
 		t.Fatalf("stream2.Recv failed: %v", err)
 	}
@@ -404,7 +407,7 @@ func TestRunGateDelivery(t *testing.T) {
 		t.Fatal("stream never registered")
 	}
 	srv.RunGate("w1", "r1", "ci", "gh run view --exit-status", time.Minute)
-	msg, err := stream.Recv()
+	msg, err := recvSkippingSeed(stream)
 	if err != nil {
 		t.Fatal(err)
 	}
