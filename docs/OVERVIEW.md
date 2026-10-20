@@ -919,7 +919,8 @@ Jam was renamed this release (the historical specs keep its old name):
 [renamed-from-harbor.md](usage/jam/renamed-from-harbor.md) lists every old name — binary,
 config keys, environment variables — its new name, and which old names still work.
 People can SSH (or point an IDE) into a running studio through Jam alone — Jam-issued
-short-lived certs over a tunnel the studio dials back — see [collaboration.md](usage/jam/collaboration.md).
+short-lived certs over a tunnel the studio dials back — and open the web apps its agent
+exposes as HTTPS previews over the same tunnels — see [collaboration.md](usage/jam/collaboration.md).
 A hardened cove can route its **own** Anthropic + git through a Jam broker (over TLS
 on :443, through squid) by setting a [`jam:` block](usage/at-cove-config.md#jam) in
 its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the

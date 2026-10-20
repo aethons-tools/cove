@@ -162,6 +162,41 @@ and an informational `X-Jam-User`. The studio page links each preview.
 **Web IDE:** a kit installing code-server lets the agent `expose(8443, "ide")` —
 no extra Jam code.
 
+**Amendments (2026-10-20, operator decision at slice-2 planning, and rulings
+made while building it).** These supersede the text above where they differ;
+the user guide is [collaboration.md#previews](../../usage/jam/collaboration.md#previews).
+
+1. **Cookie:** not one cookie on `.<domain>` — that would let one studio's
+   preview page drive another studio's app as the viewer. Each preview host gets
+   its own **host-only** cookie, `__Host-jam_preview` (`Secure`, `HttpOnly`,
+   `SameSite=Lax`, `Path=/`, no `Domain`), set from a **single-use code**
+   (60 s, bound to that host) that the reserved login host `jam.<domain>` hands
+   back after the OIDC login. The cookie carries a random server-side session id
+   (8 h, bound to its host), never a token. The `__Host-` prefix (also on the
+   login flow's temporary cookies) stops a sibling app tossing a cookie with
+   `Domain`; a request carrying more than one session cookie is treated as
+   signed out (a fresh login).
+2. **Identity:** the preview login requests the same token as `/ui`, so
+   operators are recognized as operators; everyone else maps to a Jam user by
+   OIDC binding. Bearer callers present an operator access token or a
+   participant (`login --participant`) ID token.
+3. **Allow-list:** cove-master's dial-back allow-list is `{2222} ∪ exposed
+   ports`, pushed by Jam as `ControlDown.SetTunnelPorts` (tag 8) first on every
+   Attach stream and after each change; an older cove-master ignores it and the
+   viewer gets a 504.
+4. **Label:** `<label>` is a `ses_` session id's 26-char body; any other actor
+   id (legacy `standing-…`, manual `--id`) gets the first 26 chars of the
+   lowercase unpadded base32 of its SHA-256 — always 26 of `[a-z0-9]`.
+5. **Hosts:** every host equal to or under `<domain>` goes to the preview
+   handler (404 unless it is a preview or the login host), so the admin/UI host
+   must lie outside `<domain>`; the listener presents the wildcard cert only to
+   an SNI name under `<domain>`, the admin cert otherwise.
+6. **Responses and requests:** Jam drops app `Set-Cookie`s for Jam cookie names
+   and `Clear-Site-Data`, removes `Domain` from the app's cookies (host-only),
+   strips client `Forwarded`/`X-Real-IP`, and answers `CONNECT` with 405 —
+   HTTP/2 WebSockets (extended CONNECT) are not offered; browsers use the
+   HTTP/1.1 `Upgrade`, which passes through. Paths under `/__jam/` are Jam's.
+
 ## 5. Testing
 
 - **Unit:** tunnel splice and dial-back deadline (fake Attach + Tunnel streams);
