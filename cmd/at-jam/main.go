@@ -2461,6 +2461,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// The previews' login: sessions, single-use codes and the bounce
 			// through the login host (validatePreviews ensured browser login).
 			_, adminPort, _ := net.SplitHostPort(cfg.AdminListen)
+			for _, s := range previewSharedSiteHosts(cfg.Previews.Domain, previewAdminHosts(&cfg)) {
+				log.Warn("previews: the previews domain shares a registrable domain with the admin host; preview apps can set cookies the admin site receives — use a separate registrable domain for previews",
+					"previews-domain", cfg.Previews.Domain, "admin-host", s.host, "registrable-domain", s.site)
+			}
 			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: previews:", err)

@@ -207,6 +207,12 @@ the user guide is [previews.md](../../usage/jam/previews.md).
    method needs it (or such a `Referer`). Anything else is 403 "cross-site
    request refused" (no login redirect). Bearers are no ambient credential and
    are unaffected.
+8. **Registrable domain (final review):** preview apps run untrusted code that
+   can set cookies on the previews domain's registrable domain (eTLD+1), so the
+   previews domain must be a registrable domain apart from the admin site's
+   (e.g. `jam-previews.example` beside `jam.example`). serve logs a WARN at
+   startup when the `admin-listen` host or a `ui-hosts` entry shares it
+   (public-suffix list, `golang.org/x/net/publicsuffix`).
 
 ## 5. Testing
 

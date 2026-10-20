@@ -301,3 +301,39 @@ func TestExposureFanoutCallsOnChange(t *testing.T) {
 		t.Fatalf("onChange called %d times, want 3", n)
 	}
 }
+
+// A previews domain on the admin host's registrable domain lets preview apps
+// set cookies the admin site receives: serve warns about each such host.
+func TestPreviewSharedSiteHosts(t *testing.T) {
+	for _, tc := range []struct {
+		domain string
+		hosts  []string
+		want   []string // "<host> <registrable domain>"
+	}{
+		{"preview.jam.example", []string{"jam.example"}, []string{"jam.example jam.example"}},
+		{"preview.jam.example", []string{"admin.jam.example", "ui.other.example"}, []string{"admin.jam.example jam.example"}},
+		{"previews.example.co.uk", []string{"Admin.Example.co.uk."}, []string{"Admin.Example.co.uk. example.co.uk"}},
+		{"a.co.uk", []string{"b.co.uk"}, nil},
+		{"preview.jam-previews.example", []string{"jam.example"}, nil},
+		{"preview.jam.example", []string{"", "127.0.0.1", "::1", "localhost"}, nil},
+	} {
+		var got []string
+		for _, s := range previewSharedSiteHosts(tc.domain, tc.hosts) {
+			got = append(got, s.host+" "+s.site)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s %q: %q, want %q", tc.domain, tc.hosts, got, tc.want)
+		}
+	}
+}
+
+// The admin hosts serve judges are admin-listen's (when a name) and ui-hosts.
+func TestPreviewAdminHosts(t *testing.T) {
+	got := previewAdminHosts(&serveConfig{AdminListen: "jam.example:8443", UIHosts: []string{"ui.example"}})
+	if !slices.Equal(got, []string{"jam.example", "ui.example"}) {
+		t.Fatalf("%q", got)
+	}
+	if got := previewAdminHosts(&serveConfig{AdminListen: ":8443"}); len(got) != 0 {
+		t.Fatalf("%q", got)
+	}
+}

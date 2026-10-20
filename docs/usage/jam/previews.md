@@ -71,7 +71,7 @@ To keep the token off argv, pipe the header in:
 
 ```
 jq -r '"Authorization: Bearer " + .access_token' ~/.config/at-jam/default-admin-token.json \
-  | curl -H @- https://app--<label>.preview.jam.example/
+  | curl -H @- https://app--<label>.jam-previews.example/
 # participant: .id_token from ~/.config/at-jam/default-participant-token.json
 ```
 
@@ -91,7 +91,11 @@ HTTP/2). `CONNECT` is refused (405).
 
 ## Setting up previews (operator)
 
-1. DNS: point `*.<domain>` (e.g. `*.preview.jam.example`) at the Jam host.
+1. Pick a `<domain>` on its own registrable domain, apart from the admin
+   site: `jam-previews.example` beside `jam.example`, not
+   `preview.jam.example`. Preview apps can set cookies on their registrable
+   domain, which the admin site would then receive. serve logs a warning when
+   they share one. Point DNS `*.<domain>` at the Jam host.
 2. Get a wildcard certificate for `*.<domain>`.
 3. In the IdP, add `https://jam.<domain>/__jam/auth/callback` as a redirect
    URI of the `/ui` browser client ([operators.md](operators.md)). Add

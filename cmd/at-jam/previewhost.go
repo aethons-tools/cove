@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/preview"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Studio previews (docs/usage/jam/previews.md) ride the admin
@@ -222,4 +224,40 @@ func (f *exposureFanout) ExposuresChanged(actorID string, ports []int32) {
 		f.onChange() // a newly exposed session's first link must not 404 on a stale label cache
 	}
 	f.live.CloseUnexposed(actorID, ports)
+}
+
+// previewSharedSite is an admin host on the previews domain's registrable
+// domain (site).
+type previewSharedSite struct{ host, site string }
+
+// previewSharedSiteHosts lists the hosts (names; IPs and localhost skipped)
+// that share domain's registrable domain (public-suffix eTLD+1). Preview apps
+// can set cookies on that registrable domain, which the admin site would
+// receive, so previews belong on a separate one.
+func previewSharedSiteHosts(domain string, hosts []string) []previewSharedSite {
+	site, err := publicsuffix.EffectiveTLDPlusOne(strings.TrimSuffix(strings.ToLower(domain), "."))
+	if err != nil {
+		return nil
+	}
+	var out []previewSharedSite
+	for _, h := range hosts {
+		n := strings.TrimSuffix(strings.ToLower(h), ".")
+		if n == "" || n == "localhost" || net.ParseIP(n) != nil {
+			continue
+		}
+		if s, err := publicsuffix.EffectiveTLDPlusOne(n); err == nil && s == site {
+			out = append(out, previewSharedSite{host: h, site: site})
+		}
+	}
+	return out
+}
+
+// previewAdminHosts is the admin site's host names: admin-listen's host when
+// it is set, and ui-hosts.
+func previewAdminHosts(c *serveConfig) []string {
+	var out []string
+	if h, _, err := net.SplitHostPort(c.AdminListen); err == nil && h != "" {
+		out = append(out, h)
+	}
+	return append(out, c.UIHosts...)
 }
