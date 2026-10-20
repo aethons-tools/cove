@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -22,16 +23,26 @@ var (
 	ErrStudioNotConnected = errors.New("studio not connected")
 	ErrDialBackTimeout    = errors.New("studio did not open the tunnel in time (is its cove-master current?)")
 	ErrTooManyTunnels     = errors.New("too many open tunnels for this studio")
+	// ErrTooManyPreviewTunnels: previews hold their share of the studio's
+	// tunnels (the rest are kept for SSH). It is an ErrTooManyTunnels.
+	ErrTooManyPreviewTunnels = fmt.Errorf("%w: previews hold their share (the rest are kept for SSH)", ErrTooManyTunnels)
 	// ErrTunnelsClosed: the studio is pausing or stopping (CloseAll ran) and
 	// takes no tunnels until it is resumed or raised again (Reopen).
 	ErrTunnelsClosed = errors.New("studio is pausing or stopping; its tunnels are closed")
 	errUnknownTunnel = errors.New("unknown or already-claimed tunnel id")
 )
 
+// SSHReservedTunnels is how many of a studio's tunnels previews may never
+// take, so SSH still connects while previews are busy.
+const SSHReservedTunnels = 4
+
 type TunnelOptions struct {
 	DialBack     time.Duration
-	MaxPerStudio int
-	Idle         time.Duration
+	MaxPerStudio int // all tunnels, SSH and preview (default 16)
+	// MaxPreviewPerStudio caps OpenPreview's tunnels within MaxPerStudio
+	// (default MaxPerStudio - SSHReservedTunnels, at least 1).
+	MaxPreviewPerStudio int
+	Idle                time.Duration
 }
 
 type TunnelStream interface {
@@ -42,6 +53,7 @@ type TunnelStream interface {
 
 type pending struct {
 	actorID   string
+	preview   bool          // an OpenPreview slot
 	ready     chan *handoff // buffered(1): Claim sends after taking the entry
 	cancel    chan struct{} // closed by CloseAll after it took the entry
 	cancelled bool          // guarded by TunnelBroker.mu
@@ -65,6 +77,7 @@ type TunnelBroker struct {
 	pending map[string]*pending
 	live    map[string]map[*tunnelConn]struct{} // actorID → open human ends
 	slots   map[string]int                      // actorID → reserved tunnels (pending + live)
+	pslots  map[string]int                      // actorID → those of slots that are previews'
 	closed  map[string]bool                     // actorID → CloseAll ran; refuse until Reopen
 }
 
@@ -75,35 +88,57 @@ func NewTunnelBroker(push func(actorID, id string, port int32) bool, opt TunnelO
 	if opt.MaxPerStudio <= 0 {
 		opt.MaxPerStudio = 16
 	}
+	if opt.MaxPreviewPerStudio <= 0 {
+		opt.MaxPreviewPerStudio = max(opt.MaxPerStudio-SSHReservedTunnels, 1)
+	}
+	opt.MaxPreviewPerStudio = min(opt.MaxPreviewPerStudio, opt.MaxPerStudio)
 	if opt.Idle <= 0 {
 		opt.Idle = 30 * time.Minute
 	}
-	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}, slots: map[string]int{}, closed: map[string]bool{}}
+	return &TunnelBroker{push: push, opt: opt, pending: map[string]*pending{}, live: map[string]map[*tunnelConn]struct{}{}, slots: map[string]int{}, pslots: map[string]int{}, closed: map[string]bool{}}
 }
 
 func newID() string { b := make([]byte, 16); _, _ = rand.Read(b); return hex.EncodeToString(b) }
 
 // Open returns the human-side end of a tunnel to actorID's 127.0.0.1:port.
 func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
+	return b.open(ctx, actorID, port, false)
+}
+
+// OpenPreview is Open for a preview connection: it also counts against the
+// studio's preview cap (MaxPreviewPerStudio), so previews never take the
+// tunnels kept for SSH; past it, ErrTooManyPreviewTunnels.
+func (b *TunnelBroker) OpenPreview(ctx context.Context, actorID string, port int32) (net.Conn, error) {
+	return b.open(ctx, actorID, port, true)
+}
+
+func (b *TunnelBroker) open(ctx context.Context, actorID string, port int32, preview bool) (net.Conn, error) {
 	b.mu.Lock()
 	if b.closed[actorID] {
 		b.mu.Unlock()
 		return nil, ErrTunnelsClosed
+	}
+	if preview && b.pslots[actorID] >= b.opt.MaxPreviewPerStudio {
+		b.mu.Unlock()
+		return nil, ErrTooManyPreviewTunnels
 	}
 	if b.slots[actorID] >= b.opt.MaxPerStudio {
 		b.mu.Unlock()
 		return nil, ErrTooManyTunnels
 	}
 	b.slots[actorID]++
+	if preview {
+		b.pslots[actorID]++
+	}
 	id := newID()
-	p := &pending{actorID: actorID, ready: make(chan *handoff, 1), cancel: make(chan struct{})}
+	p := &pending{actorID: actorID, preview: preview, ready: make(chan *handoff, 1), cancel: make(chan struct{})}
 	b.pending[id] = p
 	b.mu.Unlock()
 
 	if !b.push(actorID, id, port) {
 		b.mu.Lock()
 		delete(b.pending, id)
-		b.releaseLocked(actorID)
+		b.releaseLocked(actorID, preview)
 		b.mu.Unlock()
 		return nil, ErrStudioNotConnected
 	}
@@ -111,10 +146,10 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 	defer t.Stop()
 	select {
 	case h := <-p.ready:
-		return b.splice(actorID, h)
+		return b.splice(actorID, preview, h)
 	case <-p.cancel:
 		b.mu.Lock()
-		b.releaseLocked(actorID)
+		b.releaseLocked(actorID, preview)
 		b.mu.Unlock()
 		return nil, ErrTunnelsClosed
 	case <-t.C:
@@ -124,9 +159,15 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 	}
 }
 
-func (b *TunnelBroker) releaseLocked(actorID string) {
+func (b *TunnelBroker) releaseLocked(actorID string, preview bool) {
 	if b.slots[actorID]--; b.slots[actorID] <= 0 {
 		delete(b.slots, actorID)
+	}
+	if !preview {
+		return
+	}
+	if b.pslots[actorID]--; b.pslots[actorID] <= 0 {
+		delete(b.pslots, actorID)
 	}
 }
 
@@ -137,7 +178,7 @@ func (b *TunnelBroker) abandon(id string, p *pending, cause error) error {
 	_, stillPending := b.pending[id]
 	delete(b.pending, id)
 	cancelled := p.cancelled
-	b.releaseLocked(p.actorID)
+	b.releaseLocked(p.actorID, p.preview)
 	b.mu.Unlock()
 	if cancelled {
 		return ErrTunnelsClosed
@@ -194,7 +235,7 @@ func (b *TunnelBroker) Claim(actorID string, s TunnelStream) error {
 // splice joins a claimed stream to a new human end. A stream claimed while
 // CloseAll ran is closed instead (ErrTunnelsClosed): the check and the live
 // registration share one lock, so no tunnel outlives a CloseAll.
-func (b *TunnelBroker) splice(actorID string, h *handoff) (net.Conn, error) {
+func (b *TunnelBroker) splice(actorID string, preview bool, h *handoff) (net.Conn, error) {
 	s := h.stream
 	human, inner := net.Pipe()
 	tc := &tunnelConn{Conn: human}
@@ -229,7 +270,7 @@ func (b *TunnelBroker) splice(actorID string, h *handoff) (net.Conn, error) {
 					delete(b.live, actorID)
 				}
 			}
-			b.releaseLocked(actorID)
+			b.releaseLocked(actorID, preview)
 			b.mu.Unlock()
 			h.finish()
 		})

@@ -48,10 +48,13 @@ const (
 // Deps is what the routes need. Principal names the caller (and a display
 // name for notices and audit), or fails with one of the Err* above.
 type Deps struct {
-	Store   jam.Store
-	CA      *sshca.CA // nil = feature off: every route 404s
+	Store jam.Store
+	CA    *sshca.CA // nil = feature off: every route 404s
+	// Tunnels opens studio tunnels: Open for SSH, OpenPreview for the
+	// preview proxy (capped below the studio's total, attach.TunnelBroker).
 	Tunnels interface {
 		Open(ctx context.Context, actorID string, port int32) (net.Conn, error)
+		OpenPreview(ctx context.Context, actorID string, port int32) (net.Conn, error)
 	}
 	Notify    func(inst jam.Instance, body string)
 	Now       func() time.Time

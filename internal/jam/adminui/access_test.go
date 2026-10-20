@@ -141,6 +141,10 @@ func mustLookup(t *testing.T, store jam.Store, name string) ident.ID {
 
 type pipeTunnels struct{}
 
+func (p pipeTunnels) OpenPreview(ctx context.Context, a string, port int32) (net.Conn, error) {
+	return p.Open(ctx, a, port)
+}
+
 func (pipeTunnels) Open(context.Context, string, int32) (net.Conn, error) {
 	_, human := net.Pipe()
 	return human, nil

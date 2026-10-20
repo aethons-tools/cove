@@ -114,7 +114,9 @@ comes from Jam's own connection. A TLS-terminating proxy in front breaks the
 login. A login only returns to the default port or the admin listener's own
 port, so forwarding another external port (e.g. 9443 → 8443) fails at login.
 Each viewer gets up to 6 connections per studio port, so many long-polls can
-queue. If two names share a port, unexposing one leaves connections already
+queue. A studio's previews share its 16 tunnels with SSH but hold at most 12,
+so 4 stay free for SSH. Past that a preview request gets 429. An idle pooled
+connection closes after 30 s, giving its tunnel back. If two names share a port, unexposing one leaves connections already
 open through it until they close. A brand-new preview may 404 for a moment
 after another lookup; reload.
 
@@ -128,4 +130,5 @@ after another lookup; reload.
 | 403 "cross-site request refused" | Another page (an iframe, or another studio's fetch, form or WebSocket) used your preview session. Open the preview directly. |
 | 502 "the app at port … is not answering" | Nothing is listening on that port in the studio, or the app failed. |
 | 504 "studio could not open the preview (is its image current?)" | The studio's cove-master predates previews. Raise the studio again. |
+| 429 "… kept for SSH" | The studio's previews hold all 12 of their tunnels (many viewers or long-polls). Retry once some close. |
 | 503 / 409 | The studio is not connected, or is pausing or stopping. Retry. |

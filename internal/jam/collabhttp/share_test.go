@@ -235,6 +235,10 @@ func TestAccessView(t *testing.T) {
 // pipeTunnels hands each Open a fresh pipe, keeping the studio ends.
 type pipeTunnels struct{ studios chan net.Conn }
 
+func (p pipeTunnels) OpenPreview(ctx context.Context, a string, port int32) (net.Conn, error) {
+	return p.Open(ctx, a, port)
+}
+
 func (p pipeTunnels) Open(context.Context, string, int32) (net.Conn, error) {
 	studio, human := net.Pipe()
 	p.studios <- studio

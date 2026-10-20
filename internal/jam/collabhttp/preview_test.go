@@ -44,7 +44,17 @@ type appTunnels struct {
 	onOpen func()
 }
 
+// Open is the SSH-class open; the proxy must use OpenPreview, so an Open is
+// recorded as "ssh:<actor>:<port>".
 func (f *appTunnels) Open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
+	return f.open(ctx, "ssh:"+actorID, port)
+}
+
+func (f *appTunnels) OpenPreview(ctx context.Context, actorID string, port int32) (net.Conn, error) {
+	return f.open(ctx, actorID, port)
+}
+
+func (f *appTunnels) open(ctx context.Context, actorID string, port int32) (net.Conn, error) {
 	if f.onOpen != nil {
 		f.onOpen()
 	}
@@ -430,6 +440,7 @@ func TestPreviewDialErrorPages(t *testing.T) {
 		{attach.ErrDialBackTimeout, 504, "studio could not open the preview (is its image current?)"},
 		{attach.ErrStudioNotConnected, 503, "studio not connected"},
 		{attach.ErrTooManyTunnels, 429, "too many"},
+		{attach.ErrTooManyPreviewTunnels, 429, "kept for SSH"},
 		{errors.New("connection refused"), 502, "the app at port 5173 is not answering"},
 	} {
 		ph.tun.mu.Lock()
@@ -824,5 +835,15 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	}
 	if n := len(ph.tun.opened()); n != 0 {
 		t.Fatalf("%d tunnels opened for a refused request", n)
+	}
+}
+
+// Pooled preview connections hold studio tunnels (shared with SSH), so idle
+// ones are given back after 30 s.
+func TestPreviewIdlePoolTimeout(t *testing.T) {
+	ph := newPreviewHarness(t, nil)
+	tr, ok := ph.h.p.rp.Transport.(*http.Transport)
+	if !ok || tr.IdleConnTimeout != 30*time.Second {
+		t.Fatalf("transport %T idle timeout %v, want 30s", ph.h.p.rp.Transport, tr.IdleConnTimeout)
 	}
 }

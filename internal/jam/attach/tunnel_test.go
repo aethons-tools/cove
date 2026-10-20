@@ -447,3 +447,52 @@ func TestCloseIfUnused(t *testing.T) {
 		t.Fatalf("open after CloseIfUnused err = %v, want ErrTunnelsClosed", err)
 	}
 }
+
+// Previews may hold at most 12 of a studio's 16 tunnels, so SSH always has
+// 4: with previews at their cap a preview open is ErrTooManyPreviewTunnels
+// (an ErrTooManyTunnels) while SSH still opens, up to the studio's total.
+func TestPreviewTunnelsLeaveRoomForSSH(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 10 * time.Second})
+	t.Cleanup(func() { b.CloseAll("ses_a") })
+	pushed := func() int { p.mu.Lock(); defer p.mu.Unlock(); return len(p.ids) }
+	previews := make(chan error, 16)
+	for i := 0; i < 12; i++ {
+		go func() { _, err := b.OpenPreview(context.Background(), "ses_a", 5173); previews <- err }()
+	}
+	waitFor(t, func() bool { return pushed() == 12 })
+	if _, err := b.OpenPreview(context.Background(), "ses_a", 5173); !errors.Is(err, ErrTooManyPreviewTunnels) || !errors.Is(err, ErrTooManyTunnels) {
+		t.Fatalf("13th preview open: %v, want ErrTooManyPreviewTunnels", err)
+	}
+	for i := 0; i < 4; i++ {
+		go func() { _, _ = b.Open(context.Background(), "ses_a", 2222) }()
+	}
+	waitFor(t, func() bool { return pushed() == 16 })
+	if _, err := b.Open(context.Background(), "ses_a", 2222); !errors.Is(err, ErrTooManyTunnels) || errors.Is(err, ErrTooManyPreviewTunnels) {
+		t.Fatalf("17th open: %v, want ErrTooManyTunnels", err)
+	}
+	if n := b.Live("ses_a"); n != 16 {
+		t.Fatalf("Live = %d, want 16", n)
+	}
+	// A released preview slot is a preview slot again.
+	b.CloseAll("ses_a")
+	for i := 0; i < 12; i++ {
+		if err := <-previews; !errors.Is(err, ErrTunnelsClosed) {
+			t.Fatalf("pending preview: %v", err)
+		}
+	}
+	waitFor(t, func() bool { return b.Live("ses_a") == 0 })
+	b.Reopen("ses_a")
+	go func() { _, _ = b.OpenPreview(context.Background(), "ses_a", 5173) }()
+	waitFor(t, func() bool { return pushed() == 17 })
+}
+
+// A smaller studio total keeps the same SSH reserve (and previews at least 1).
+func TestPreviewTunnelCapDefaults(t *testing.T) {
+	for total, want := range map[int]int{16: 12, 8: 4, 4: 1, 2: 1, 1: 1} {
+		b := NewTunnelBroker(func(string, string, int32) bool { return true }, TunnelOptions{MaxPerStudio: total})
+		if b.opt.MaxPreviewPerStudio != want {
+			t.Errorf("MaxPerStudio %d: preview cap %d, want %d", total, b.opt.MaxPreviewPerStudio, want)
+		}
+	}
+}

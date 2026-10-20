@@ -32,6 +32,9 @@ const (
 	previewAuditEvery = 10 * time.Minute
 	// previewMaxConns caps one viewer's pooled connections to one preview port.
 	previewMaxConns = 6
+	// previewIdleConn is how long a pooled connection may sit idle: each holds
+	// one of the studio's preview tunnels (attach.TunnelBroker.OpenPreview).
+	previewIdleConn = 30 * time.Second
 	// poolSuffix ends every pool host, so one is never mistaken for a name.
 	poolSuffix = ".tunnel"
 	// labelRebuildEvery throttles rebuilding the label map on a miss, and
@@ -427,13 +430,13 @@ func (p *previewProxy) rewrite(pr *httputil.ProxyRequest) {
 }
 
 // transport is the proxy's one connection pool: by pool host, so per
-// (viewer, session, port), HTTP/1.1 only, each dial a studio tunnel.
+// (viewer, session, port), HTTP/1.1 only, each dial a studio preview tunnel.
 func (p *previewProxy) transport() *http.Transport {
 	return &http.Transport{
 		Proxy:             nil, // never the environment's proxy
 		DialContext:       p.dial,
 		MaxConnsPerHost:   previewMaxConns,
-		IdleConnTimeout:   90 * time.Second,
+		IdleConnTimeout:   previewIdleConn,
 		ForceAttemptHTTP2: false,
 	}
 }
@@ -455,7 +458,7 @@ func (p *previewProxy) dial(ctx context.Context, _, addr string) (net.Conn, erro
 	}
 	ctx, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
-	conn, err := p.h.d.Tunnels.Open(ctx, t.actorID, int32(t.port))
+	conn, err := p.h.d.Tunnels.OpenPreview(ctx, t.actorID, int32(t.port))
 	if err != nil {
 		return nil, err
 	}
