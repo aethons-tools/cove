@@ -255,7 +255,10 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 				continue
 			}
 			if tp, ok := cd.GetMsg().(*attachpb.ControlDown_TunnelPorts); ok {
-				c.setTunnelPorts(tp.TunnelPorts.GetPorts()) // inline: ordered before any later OpenTunnel
+				// Inline: ordered before any later OpenTunnel. An OpenTunnel already
+				// dispatched when a clearing set arrives may still dial; benign (the
+				// port was exposed when Jam sent it).
+				c.setTunnelPorts(tp.TunnelPorts.GetPorts())
 				continue
 			}
 			if ot, ok := cd.GetMsg().(*attachpb.ControlDown_OpenTunnel); ok {

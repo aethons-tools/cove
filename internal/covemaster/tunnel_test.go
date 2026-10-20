@@ -347,3 +347,18 @@ func TestSetTunnelPortsReplacesAndKeepsSSHD(t *testing.T) {
 		t.Fatalf("dialed %v", got)
 	}
 }
+
+func TestSSHDPortAllowedRegardlessOfConfig(t *testing.T) {
+	f := &scriptRuntime{script: []*attachpb.ControlDown{openTunnel("t1", 2222)}, opened: make(chan string, 2)}
+	dialed := make(chan string, 2)
+	c := newTestClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
+		dialed <- addr
+		a, _ := net.Pipe()
+		return a, nil
+	})
+	c.cfg.TunnelPorts = []int32{9999}
+	runFor(t, c, time.Second)
+	if got := drain(dialed); !slices.Equal(got, []string{"127.0.0.1:2222"}) {
+		t.Fatalf("dialed %v, want sshd port allowed despite config", got)
+	}
+}

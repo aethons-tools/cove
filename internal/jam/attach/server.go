@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,12 @@ type Server struct {
 	// exposureSource seeds an actor's set on connect when none is stored
 	// (called under mu, so it must not call back into the Server).
 	exposureSource func(actorID string) []int32
+	// portsOwed marks connected actors whose stream has not yet been sent the
+	// current port set; portsNotify wakes that stream's send loop (buffer 1).
+	// Delivery is coalesced and lossless: the send loop sends the latest set
+	// before the next control message, so it precedes any later OpenTunnel.
+	portsOwed   map[string]bool
+	portsNotify map[string]chan struct{}
 
 	events  *sessionevents.Ingest
 	tunnels *TunnelBroker
@@ -86,7 +93,7 @@ var _ jam.ControlSink = (*Server)(nil)
 var _ jam.ExposureSink = (*Server)(nil)
 
 func NewServer(store jam.Store, sup *jam.Supervisor, log *slog.Logger) *Server {
-	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}, ports: map[string][]int32{}}
+	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}, ports: map[string][]int32{}, portsOwed: map[string]bool{}, portsNotify: map[string]chan struct{}{}}
 }
 
 // authenticate resolves the actorID from stream metadata: bearer identity token
@@ -119,7 +126,7 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 	if err != nil {
 		return err
 	}
-	ch := s.register(actorID)
+	ch, notify := s.register(actorID)
 	defer s.deregister(actorID, ch)
 	_ = s.sup.Heartbeat(actorID) // the cove is talking to us now
 
@@ -131,8 +138,15 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			select {
 			case <-stream.Context().Done():
 				return
+			case <-notify:
+				if !s.flushPorts(actorID, ch, stream) {
+					return
+				}
 			case cd, ok := <-ch:
 				if !ok {
+					return
+				}
+				if !s.flushPorts(actorID, ch, stream) { // the set precedes any later control (OpenTunnel)
 					return
 				}
 				if err := stream.Send(cd); err != nil {
@@ -198,7 +212,7 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 // register installs a fresh send channel for actorID, superseding (and closing)
 // any prior one — a reconnect replaces the old stream (the lease-steal analog).
 // The map always points at an OPEN channel.
-func (s *Server) register(actorID string) chan *attachpb.ControlDown {
+func (s *Server) register(actorID string) (chan *attachpb.ControlDown, chan struct{}) {
 	ch := make(chan *attachpb.ControlDown, sendBuffer)
 	s.mu.Lock()
 	old := s.conns[actorID]
@@ -206,16 +220,35 @@ func (s *Server) register(actorID string) chan *attachpb.ControlDown {
 	// Seed the studio's tunnel allow-list before anything else can be queued:
 	// ch is fresh, and every sender takes mu, so this is its first message and
 	// precedes any OpenTunnel.
-	ports, ok := s.ports[actorID]
-	if !ok && s.exposureSource != nil {
-		ports = s.exposureSource(actorID)
+	if _, ok := s.ports[actorID]; !ok && s.exposureSource != nil {
+		if ports := s.exposureSource(actorID); len(ports) > 0 {
+			s.ports[actorID] = slices.Clone(ports)
+		}
 	}
-	ch <- tunnelPortsMsg(ports)
+	notify := make(chan struct{}, 1)
+	notify <- struct{}{}
+	s.portsNotify[actorID] = notify
+	s.portsOwed[actorID] = true
 	s.mu.Unlock()
 	if old != nil {
 		close(old) // old send loop sees !ok and exits; map no longer references it
 	}
-	return ch
+	return ch, notify
+}
+
+// flushPorts sends actorID's current port set on stream if it is owed. Only
+// the stream that owns the registered channel may consume the debt, so a
+// superseded stream cannot swallow what its successor must be sent.
+func (s *Server) flushPorts(actorID string, ch chan *attachpb.ControlDown, stream attachpb.Runtime_AttachServer) bool {
+	s.mu.Lock()
+	if s.conns[actorID] != ch || !s.portsOwed[actorID] {
+		s.mu.Unlock()
+		return true
+	}
+	s.portsOwed[actorID] = false
+	ports := slices.Clone(s.ports[actorID])
+	s.mu.Unlock()
+	return stream.Send(tunnelPortsMsg(ports)) == nil
 }
 
 func (s *Server) deregister(actorID string, ch chan *attachpb.ControlDown) {
@@ -223,6 +256,8 @@ func (s *Server) deregister(actorID string, ch chan *attachpb.ControlDown) {
 	defer s.mu.Unlock()
 	if s.conns[actorID] == ch {
 		delete(s.conns, actorID)
+		delete(s.portsOwed, actorID)
+		delete(s.portsNotify, actorID)
 		close(ch)
 	}
 }
@@ -340,20 +375,22 @@ func tunnelPortsMsg(ports []int32) *attachpb.ControlDown {
 func (s *Server) SetExposureSource(f func(actorID string) []int32) { s.exposureSource = f }
 
 // ExposuresChanged implements jam.ExposureSink: record actorID's latest exposed
-// ports (an empty set forgets them) and push them to its studio if connected.
-// The supervisor calls it holding a mutex, so it only stores and enqueues
-// without blocking. A full queue drops the push; the next connect re-seeds.
+// ports (an empty set forgets them) and, if its studio is connected, mark the
+// set owed and wake the stream's send loop. It only stores and signals without
+// blocking (the supervisor calls it holding a mutex). Rapid changes coalesce
+// into one send of the latest set; nothing is dropped on a full control queue.
 func (s *Server) ExposuresChanged(actorID string, ports []int32) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(ports) == 0 {
 		delete(s.ports, actorID)
 	} else {
-		s.ports[actorID] = ports
+		s.ports[actorID] = slices.Clone(ports)
 	}
-	if ch, ok := s.conns[actorID]; ok {
+	if n, ok := s.portsNotify[actorID]; ok {
+		s.portsOwed[actorID] = true
 		select {
-		case ch <- tunnelPortsMsg(ports):
+		case n <- struct{}{}:
 		default:
 		}
 	}

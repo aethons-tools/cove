@@ -28,7 +28,9 @@ var (
 // change, after a raise clears them, and (as an empty set) after a teardown
 // removes the instance. It is called outside instMu but while holding the
 // supervisor's notify mutex, so implementations MUST be fast and non-blocking
-// (store and enqueue only) and MUST NOT call back into the Supervisor.
+// (store and signal only) and MUST NOT call back into the Supervisor. (The
+// attach server's own source call takes Server.mu then instMu, a bounded wait:
+// nothing holding instMu calls into the server.)
 type ExposureSink interface {
 	ExposuresChanged(actorID string, ports []int32)
 }
@@ -44,6 +46,11 @@ func exposedPorts(exps []Exposure) []int32 {
 	}
 	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
 	return slices.Compact(ports)
+}
+
+// ExposedPorts is the sorted distinct ports the session currently exposes.
+func (s *Supervisor) ExposedPorts(actorID string) []int32 {
+	return exposedPorts(s.Exposures(actorID))
 }
 
 // notifyExposures tells the sink the actor's CURRENT exposed ports. notifyMu is

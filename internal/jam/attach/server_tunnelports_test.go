@@ -1,7 +1,11 @@
 package attach
 
 import (
+	"fmt"
+	"strings"
+
 	"context"
+	"github.com/aethons-tools/cove/internal/jam"
 	"slices"
 	"testing"
 
@@ -98,4 +102,56 @@ func recvSkippingSeed(stream attachpb.Runtime_AttachClient) (*attachpb.ControlDo
 		return stream.Recv()
 	}
 	return cd, err
+}
+
+func TestPortsSurviveFullControlQueueAndPrecedeOpenTunnel(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTunnelPorts(t, stream) // seed
+	// Stall the send loop on flow control: big wakes the client does not read.
+	big := strings.Repeat("x", 200<<10)
+	for i := 0; i < 40; i++ {
+		srv.Wake("w1", jam.WakeReason{Kind: jam.WakeIdle, Detail: big})
+	}
+	srv.ExposuresChanged("w1", []int32{7000}) // queue is full: must not be lost
+	srv.ExposuresChanged("w1", []int32{7001}) // coalesces
+	pushed := false
+	var seq []string // "wake" | "ports:<p>" | "open"
+	for i := 0; i < 200 && !(pushed && len(seq) > 0 && seq[len(seq)-1] == "open"); i++ {
+		cd, err := stream.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch m := cd.GetMsg().(type) {
+		case *attachpb.ControlDown_Wake:
+			seq = append(seq, "wake")
+		case *attachpb.ControlDown_TunnelPorts:
+			seq = append(seq, fmt.Sprint("ports:", m.TunnelPorts.GetPorts()))
+		case *attachpb.ControlDown_OpenTunnel:
+			seq = append(seq, "open")
+		}
+		if !pushed {
+			pushed = srv.PushOpenTunnel("w1", "t1", 7001)
+		}
+	}
+	portsAt, openAt := -1, -1
+	for i, e := range seq {
+		if e == "ports:[7001]" {
+			portsAt = i
+		}
+		if e == "open" {
+			openAt = i
+		}
+		if e == "ports:[7000]" {
+			t.Fatalf("stale set delivered: %v", seq)
+		}
+	}
+	if portsAt < 0 || openAt < 0 || portsAt > openAt {
+		t.Fatalf("latest ports must arrive before the OpenTunnel: ports@%d open@%d", portsAt, openAt)
+	}
 }
