@@ -55,7 +55,7 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
   CSRF-guarded write that removes the grant and closes that user's open SSH
   connections unless they still hold `ssh` another way. Below, the open
   connections (who, right — `ssh` or `preview` — since when) and the
-  **Previews** list: each exposed preview as a link opening in a new tab
+  **Previews** list: each exposed [preview](previews.md) as a link opening in a new tab
   (or "Previews are off on this Jam" without a [`previews:`](serve.md)
   domain). With neither SSH collaboration nor previews configured the card
   says so instead. Sharing itself is

@@ -112,7 +112,7 @@ type serveConfig struct {
 	// Previews, when set, serves studio previews at <name>--<label>.<domain>
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
-	// docs/usage/jam/collaboration.md#previews.
+	// docs/usage/jam/previews.md.
 	Previews     *previewsConfig `yaml:"previews"`
 	OperatorAuth struct {
 		OIDC *struct {

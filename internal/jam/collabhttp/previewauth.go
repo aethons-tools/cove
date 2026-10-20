@@ -67,7 +67,7 @@ type previewEntry struct {
 	expires   time.Time
 }
 
-// PreviewAuth logs browsers in to studio previews (docs/usage/jam/collaboration.md#previews).
+// PreviewAuth logs browsers in to studio previews (docs/usage/jam/previews.md).
 // A preview host has no login of its own: a browser without a session is sent
 // to the login host (LoginRedirect), which runs the OIDC login and then
 // bounces back with a single-use code bound to the preview host (Complete);

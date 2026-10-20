@@ -1,5 +1,5 @@
 // Package preview names studio previews (studio collaboration slice 2,
-// docs/usage/jam/collaboration.md#previews): which ports and names an agent
+// docs/usage/jam/previews.md): which ports and names an agent
 // may expose and the host each is served at.
 package preview
 

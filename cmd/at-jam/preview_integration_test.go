@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -278,18 +279,9 @@ func TestStudioPreviewEndToEnd(t *testing.T) {
 		t.Fatal("cove-master never dialed the app port")
 	}
 
-	// A port outside the pushed set: Jam asks, cove-master refuses without
-	// dialing, the broker's dial-back times out.
-	octx, ocancel := context.WithTimeout(context.Background(), 5*time.Second)
-	c, err := tunnels.Open(octx, actor, int32(strayPort))
-	ocancel()
-	if err == nil {
-		_ = c.Close()
-		t.Fatal("a tunnel to an unexposed port opened")
-	}
-	if !strings.Contains(cmLog.String(), "port="+strconv.Itoa(strayPort)) || !strings.Contains(cmLog.String(), "tunnel refused") {
-		t.Fatalf("cove-master did not refuse port %d; log:\n%s", strayPort, cmLog.String())
-	}
+	// A port outside the pushed set: Jam asks, cove-master logs the refusal
+	// and dials nothing.
+	expectRefused(t, tunnels, actor, strayPort, &cmLog)
 
 	// A WebSocket round trip through the proxy (HTTP/1.1 Upgrade).
 	ws, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{ServerName: appHost, RootCAs: roots, NextProtos: []string{"http/1.1"}})
@@ -322,17 +314,61 @@ func TestStudioPreviewEndToEnd(t *testing.T) {
 	if resp, _ := get(bearer); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("after unexpose: %d, want 404", resp.StatusCode)
 	}
-	octx, ocancel = context.WithTimeout(context.Background(), 5*time.Second)
-	c, err = tunnels.Open(octx, actor, int32(appPort))
-	ocancel()
-	if err == nil {
-		_ = c.Close()
-		t.Fatal("a tunnel to the unexposed app port opened")
-	}
+	expectRefused(t, tunnels, actor, appPort, &cmLog)
 	if n := dialsTo(appPort); n != dialsBefore {
 		t.Fatalf("cove-master dialed the app port %d more time(s) after unexpose", n-dialsBefore)
 	}
 	if n := dialsTo(strayPort); n != 0 || strayAccepts.Load() != 0 {
 		t.Fatalf("the unexposed port was dialed %d time(s), accepted %d", n, strayAccepts.Load())
+	}
+}
+
+// expectRefused asks the broker for a tunnel to port and waits for
+// cove-master's own "tunnel refused" log line for that port — the direct proof
+// it declined without dialing — then abandons the open rather than waiting out
+// the dial-back deadline. The open must not succeed.
+func expectRefused(t *testing.T, tunnels *attach.TunnelBroker, actor string, port int, cmLog *syncBuffer) {
+	t.Helper()
+	refusals := func() int {
+		n := 0
+		for line := range strings.SplitSeq(cmLog.String(), "\n") {
+			if strings.Contains(line, `msg="tunnel refused: port not allowed"`) && slices.Contains(strings.Fields(line), "port="+strconv.Itoa(port)) {
+				n++
+			}
+		}
+		return n
+	}
+	before := refusals()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		c, err := tunnels.Open(ctx, actor, int32(port))
+		done <- result{c, err}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for refusals() == before {
+		select {
+		case r := <-done:
+			if r.err == nil {
+				_ = r.c.Close()
+				t.Fatalf("a tunnel to unexposed port %d opened", port)
+			}
+			t.Fatalf("open of port %d failed (%v) before cove-master logged a refusal; log:\n%s", port, r.err, cmLog.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cove-master logged no refusal for port %d; log:\n%s", port, cmLog.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if r := <-done; r.err == nil {
+		_ = r.c.Close()
+		t.Fatalf("a tunnel to unexposed port %d opened", port)
 	}
 }

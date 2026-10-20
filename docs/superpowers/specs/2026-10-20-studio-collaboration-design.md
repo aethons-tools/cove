@@ -153,8 +153,9 @@ key} }` (a wildcard cert; unset ⇒ previews off). Jam serves `*.<domain>` on th
 admin/UI listener: host → (session, name) → port → `preview` right → §1 tunnel to
 `127.0.0.1:<port>`. HTTP/1.1, HTTP/2 and WebSocket upgrades pass through.
 
-**Auth:** first visit → OIDC login → a cookie scoped to `.<domain>` only (never
-the admin UI's origin). No cookie ⇒ redirect (browsers) or 401 (APIs). API
+**Auth:** *(superseded by Amendments 1–2 below: a host-only cookie per preview
+host, via the login host `jam.<domain>`.)* First visit → OIDC login → a cookie
+scoped to `.<domain>` only (never the admin UI's origin). No cookie ⇒ redirect (browsers) or 401 (APIs). API
 clients may send `Authorization: Bearer <at-jam login token>`. Jam strips its
 cookie and `Authorization` before forwarding, and adds `X-Forwarded-Proto/Host`
 and an informational `X-Jam-User`. The studio page links each preview.
@@ -164,7 +165,7 @@ no extra Jam code.
 
 **Amendments (2026-10-20, operator decision at slice-2 planning, and rulings
 made while building it).** These supersede the text above where they differ;
-the user guide is [collaboration.md#previews](../../usage/jam/collaboration.md#previews).
+the user guide is [previews.md](../../usage/jam/previews.md).
 
 1. **Cookie:** not one cookie on `.<domain>` — that would let one studio's
    preview page drive another studio's app as the viewer. Each preview host gets

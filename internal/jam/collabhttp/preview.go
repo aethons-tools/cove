@@ -45,7 +45,7 @@ const (
 // and its tunnel's registration (an unshare raced it).
 var errPreviewAccessEnded = errors.New("preview access ended")
 
-// Preview serves the previews domain (docs/usage/jam/collaboration.md#previews):
+// Preview serves the previews domain (docs/usage/jam/previews.md):
 // the login host jam.<domain> gets auth.LoginHostHandler; a preview host
 // <name>--<label>.<domain> gets auth.PreviewHostRoutes over the proxy, which
 // forwards each request to the studio port the session exposes as name —

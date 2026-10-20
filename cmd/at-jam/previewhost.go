@@ -22,7 +22,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
-// Studio previews (docs/usage/jam/collaboration.md#previews) ride the admin
+// Studio previews (docs/usage/jam/previews.md) ride the admin
 // listener: its TLS config carries the previews' wildcard cert beside the
 // admin cert (picked by SNI), and hostRouter sends preview and login hosts to
 // the preview handler, everything else to the admin API.
