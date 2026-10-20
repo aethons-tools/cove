@@ -53,7 +53,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -1696,10 +1695,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		adminTLSCfg = adminTLSConfig(adminCert, previewCert, p.Domain)
-		previewURL = func(actorID, name string) (string, error) {
-			h, err := preview.Host(p.Domain, name, actorID)
-			return "https://" + h + "/", err
-		}
+		previewURL = previewURLFunc(p.Domain, cfg.AdminListen)
 	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)

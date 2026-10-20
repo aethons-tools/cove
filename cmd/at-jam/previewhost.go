@@ -44,6 +44,23 @@ func adminTLSConfig(adminCert, previewCert tls.Certificate, domain string) *tls.
 	}
 }
 
+// previewURLFunc builds the URL a collaborator opens for a preview. Previews
+// are served on the admin listener, so the URL names its port unless that is
+// 443 — a bare https:// URL would reach the cove-facing listener instead.
+func previewURLFunc(domain, adminListen string) func(actorID, name string) (string, error) {
+	_, port, _ := net.SplitHostPort(adminListen)
+	return func(actorID, name string) (string, error) {
+		h, err := preview.Host(domain, name, actorID)
+		if err != nil {
+			return "", err
+		}
+		if port != "" && port != "443" {
+			h = net.JoinHostPort(h, port)
+		}
+		return "https://" + h + "/", nil
+	}
+}
+
 // hostRouter dispatches a request on its Host: domain itself or any name
 // under it goes to previews (which 404s what it cannot parse), so no name
 // the wildcard cert covers ever reaches the admin API; anything else to rest.

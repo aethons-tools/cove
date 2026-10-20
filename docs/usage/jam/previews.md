@@ -104,7 +104,9 @@ HTTP/2). `CONNECT` is refused (405).
 2. Get a wildcard certificate for `*.<domain>`.
 3. In the IdP, add `https://jam.<domain>/__jam/auth/callback` as a redirect
    URI of the `/ui` browser client ([operators.md](operators.md)). Add
-   `:<port>` if viewers reach Jam on a port other than 443.
+   `:<port>` when the admin listener is not on 443: previews are served on
+   the admin listener, so preview URLs then carry its port (e.g.
+   `https://app--…<domain>:8443/`); `:443` is the cove-facing listener.
 4. Add the [`previews:` block](serve.md) and restart `at-jam serve`. Its row
    lists the requirements. Keep the admin API and UI on a name outside
    `<domain>`.

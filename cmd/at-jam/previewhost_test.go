@@ -337,3 +337,19 @@ func TestPreviewAdminHosts(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// Previews ride the admin listener, so a non-443 admin port must be in the
+// URL; otherwise the browser lands on the cove-facing :443 listener and its cert.
+func TestPreviewURLNamesAdminPort(t *testing.T) {
+	const id = "ses_01m4bc9fmg5v4bc7cq3at6jp6n"
+	for listen, want := range map[string]string{
+		":8443":            "https://app--01m4bc9fmg5v4bc7cq3at6jp6n.p.example:8443/",
+		"0.0.0.0:443":      "https://app--01m4bc9fmg5v4bc7cq3at6jp6n.p.example/",
+		"jam.example:9443": "https://app--01m4bc9fmg5v4bc7cq3at6jp6n.p.example:9443/",
+	} {
+		got, err := previewURLFunc("p.example", listen)(id, "app")
+		if err != nil || got != want {
+			t.Errorf("listen %q: %q, %v; want %q", listen, got, err, want)
+		}
+	}
+}
