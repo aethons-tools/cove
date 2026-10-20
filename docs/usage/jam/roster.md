@@ -89,6 +89,14 @@ at-jam role rm   [--project acme] guest
   `idle_after_seconds`/`nag_every_seconds`/`reclaim_after_seconds`; `role list`
   shows them as `idle-after=…`, `nag-every=…`, `reclaim-after=…`. What the ladder
   does: [personal-sessions.md](personal-sessions.md#the-idle-ladder). (Not to be confused with `--idle-timeout D` / `--on-idle wake|teardown` / `--time-zone Z`, API `idle_timeout_seconds`/`on_idle`/`time_zone`: the role's [turn-end policy](turn-end.md#idle-timeout).)
+- A role's **collaboration policy** says which rights the project's members get
+  on its studios: `--collaborate-preview members|none` (default `members`) and
+  `--collaborate-ssh members|none` (default `none`). Other values are refused (400).
+  The admin API carries them as `collaborate_preview`/`collaborate_ssh`; `role list`
+  shows them as `collaborate-preview=…`, `collaborate-ssh=…`. Re-running `role add`
+  without either flag keeps the stored policy. Per-session share grants are
+  removed when the session ends. How access is decided:
+  [collaboration.md](collaboration.md).
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
   `at-jam standing add|list|rm|reset|upgrade`, not with `role add` flags. Re-running

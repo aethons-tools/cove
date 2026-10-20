@@ -7,6 +7,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
@@ -25,8 +26,9 @@ type agentDetail struct {
 	Running  bool
 	Inst     jam.Instance
 	CanEdit  bool
-	Kind     string // standing | personal | ticket | manual | enrolled (agentKind)
-	EgressID string // short egress fingerprint
+	Kind     string     // standing | personal | ticket | manual | enrolled (agentKind)
+	EgressID string     // short egress fingerprint
+	Access   accessCard // while Running
 
 	Actor    jam.ActorSummary // the enrolled identity, when HasActor
 	HasActor bool
@@ -81,7 +83,7 @@ func studioSquawks(store jam.Store, msgs SquawkReader, id string) ([]squawkRow, 
 
 // buildAgentDetail gathers an agent's page; false when nothing at all is
 // known about id (no actor, not running, no session streams, no squawks).
-func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, id string, canEdit bool) (agentDetail, bool) {
+func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, live *collabhttp.Live, id string, canEdit bool) (agentDetail, bool) {
 	participant := id // the session: its squawks in the channel log, and as actor:<id> in the legacy log
 	d := agentDetail{
 		Title: id, ID: id, CanEdit: canEdit,
@@ -89,6 +91,9 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 		IntercomURL: "/ui/intercom?participant=" + url.QueryEscape(participant),
 	}
 	d.Inst, d.Running = store.GetInstance(id)
+	if d.Running {
+		d.Access = buildAccessCard(store, live, d.Inst) // before the project id becomes its name
+	}
 	d.Inst.Project = jam.ProjectName(store, d.Inst.Project) // the page names it
 	if d.Running {
 		d.EgressID = shortDigest(d.Inst.Egress)
@@ -110,9 +115,9 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 	return d, d.HasActor || d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
 }
 
-func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, canEdit bool) {
+func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, live *collabhttp.Live, canEdit bool) {
 	mux.HandleFunc("GET /ui/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildAgentDetail(store, msgs, sess, r.PathValue("id"), canEdit)
+		d, ok := buildAgentDetail(store, msgs, sess, live, r.PathValue("id"), canEdit)
 		if !ok {
 			d.NotFound = true
 			renderStatus(w, r, http.StatusNotFound, "agent", d)

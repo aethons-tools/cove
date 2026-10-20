@@ -8,6 +8,7 @@ type Store interface {
 	RegistryStore
 	StandingSessionStore
 	ChannelStore
+	ShareGrantStore
 
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
 	Lookup(tokenHash string) (Actor, bool)

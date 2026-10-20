@@ -98,3 +98,29 @@ func TestParticipantContextRoundTrip(t *testing.T) {
 		t.Errorf("participant = %+v, want %+v", got, want)
 	}
 }
+
+// UserByIdentity resolves a bound live user whatever their projects, and
+// fails closed on everything else.
+func TestUserByIdentity(t *testing.T) {
+	const idp = "https://idp.example"
+	store := participantStore(t, idp)
+	if u, ok := UserByIdentity(store, idp, "sub-dave"); !ok || u.Name != "dave" {
+		t.Fatalf("user in no project: %+v %v, want dave", u, ok)
+	}
+	for name, id := range map[string][2]string{
+		"unmapped":      {idp, "sub-nobody"},
+		"empty issuer":  {"", "sub-alice"},
+		"empty subject": {idp, ""},
+	} {
+		if _, ok := UserByIdentity(store, id[0], id[1]); ok {
+			t.Errorf("%s resolved", name)
+		}
+	}
+	bob, _ := store.LookupName(ident.User, "bob")
+	if err := store.RemoveUser(bob); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := UserByIdentity(store, idp, "sub-bob"); ok {
+		t.Error("a removed user resolved")
+	}
+}

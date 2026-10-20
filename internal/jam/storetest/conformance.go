@@ -21,6 +21,7 @@ import (
 func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runRegistryConformance(t, newStore)
 	runChannelConformance(t, newStore)
+	runShareGrantConformance(t, newStore)
 
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
 	// which most subtests write into.

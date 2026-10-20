@@ -793,3 +793,104 @@ func TestRaisePassesContextAndKind(t *testing.T) {
 		t.Fatalf("kind staged = %v, context staged = %v", kind, ctx)
 	}
 }
+
+// sshCAOps is an egressOps that also implements backend.SSHCA, recording the
+// install and whether the role egress had landed by then.
+type sshCAOps struct {
+	*egressOps
+	installs       int
+	container      string
+	key            []byte
+	callsAtInstall int
+	egressBeforeCA bool
+	installErr     error
+}
+
+func (s *sshCAOps) InstallSSHUserCA(container string, pub []byte) error {
+	s.installs++
+	s.container, s.key, s.callsAtInstall, s.egressBeforeCA = container, pub, len(s.r.Calls), s.applied
+	return s.installErr
+}
+
+var _ backend.SSHCA = (*sshCAOps)(nil)
+
+const testSSHUserCA = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+
+func newSSHCALauncher(ops Backend, r *runner.Fake, logw io.Writer, ca []byte) *Launcher {
+	l := newEgressLauncher(ops, r, logw)
+	l.cfg.SSHUserCA = ca
+	return l
+}
+
+// The CA key is installed after sshd answers and the role egress lands, and
+// before cove-master (and so the agent) starts.
+func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}}
+	l := newSSHCALauncher(ops, r, io.Discard, []byte(testSSHUserCA))
+	spec := jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Role: "r", Prompt: "go", Egress: &jam.EgressPolicy{Domains: []string{"a.com"}}}
+	if _, err := l.Raise(context.Background(), spec, jam.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.installs != 1 || ops.container != "atcove-cove-w1" || string(ops.key) != testSSHUserCA {
+		t.Fatalf("InstallSSHUserCA = %d calls, %q, %q", ops.installs, ops.container, ops.key)
+	}
+	if ops.callsAtInstall == 0 {
+		t.Fatal("CA installed before sshd answered")
+	}
+	if !ops.egressBeforeCA {
+		t.Fatal("CA installed before the role egress was applied")
+	}
+	for _, c := range r.Calls[:ops.callsAtInstall] {
+		if isCoveMasterLaunch(c) {
+			t.Fatal("cove-master launched before the CA was installed")
+		}
+	}
+}
+
+// No CA configured (SSH collaboration off): no install.
+func TestRaiseWithoutSSHUserCASkipsInstall(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}}
+	l := newSSHCALauncher(ops, r, io.Discard, nil)
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef}, jam.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.installs != 0 {
+		t.Fatal("InstallSSHUserCA called with no CA configured")
+	}
+}
+
+// A backend without the op never fails the raise: it warns once (not per
+// raise) that SSH collaboration is unavailable.
+func TestRaiseSSHUserCAUnsupportedWarnsOnce(t *testing.T) {
+	r := &runner.Fake{}
+	var logs bytes.Buffer
+	l := newSSHCALauncher(&fakeOps{}, r, &logs, []byte(testSSHUserCA))
+	for _, id := range []string{"w1", "w2"} {
+		if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Kit: testKitRef}, jam.LaunchCreds{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := strings.Count(logs.String(), "backend cannot install the SSH user CA"); n != 1 {
+		t.Fatalf("warned %d times, want once:\n%s", n, logs.String())
+	}
+}
+
+// A failed install warns and continues: the studio just lacks human SSH.
+func TestRaiseSSHUserCAInstallErrorWarnsAndContinues(t *testing.T) {
+	r := &runner.Fake{}
+	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}, installErr: errors.New("install-ssh-ca: boom")}
+	var logs bytes.Buffer
+	l := newSSHCALauncher(ops, r, &logs, []byte(testSSHUserCA))
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef}, jam.LaunchCreds{}); err != nil {
+		t.Fatalf("raise failed on a CA install error: %v", err)
+	}
+	if ops.removed != "" {
+		t.Fatalf("container removed on a CA install error: %q", ops.removed)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"level":"WARN"`) || !strings.Contains(out, "install-ssh-ca: boom") || !strings.Contains(out, `"id":"w1"`) {
+		t.Fatalf("log = %s; want a WARN naming the studio and the error", out)
+	}
+}

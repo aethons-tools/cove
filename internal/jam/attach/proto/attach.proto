@@ -8,6 +8,9 @@ option go_package = "github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 
 service Runtime {
   rpc Attach(stream StatusUp) returns (stream ControlDown);
+  // Tunnel is a studio's dial-back for one human connection (OpenTunnel): the
+  // first frame is open{id}, then raw bytes both ways until either side closes.
+  rpc Tunnel(stream TunnelFrame) returns (stream TunnelFrame);
 }
 
 message StatusUp {
@@ -52,6 +55,7 @@ message ControlDown {
     RotateToken rotate   = 4; // reserved
     EventAck    ack      = 5;
     RunGate     gate     = 6;
+    OpenTunnel  open_tunnel = 7;
   }
 }
 
@@ -95,3 +99,21 @@ message GateResult {
   bytes  output    = 4;
   bool   truncated = 5;
 }
+
+// OpenTunnel asks the studio to dial a Tunnel stream back, claiming id, and
+// splice it to 127.0.0.1:port inside the studio.
+message OpenTunnel {
+  string id   = 1;
+  int32  port = 2;
+}
+
+message TunnelFrame {
+  oneof msg {
+    TunnelOpen  open  = 1;
+    bytes       data  = 2;
+    TunnelClose close = 3;
+  }
+}
+
+message TunnelOpen  { string id = 1; }
+message TunnelClose { string reason = 1; }

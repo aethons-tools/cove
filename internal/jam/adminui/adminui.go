@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
@@ -54,7 +55,7 @@ var pages = map[string]page{
 	"model-spec":   mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_spec.html"),
 	"kit":          mustParse(specsPage("/ui/kits"), "kit.html"),
 	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
-	"agent":        mustParse(jamPage("agents"), "agent.html"),
+	"agent":        mustParse(jamPage("agents"), "access.html", "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
 }
 
@@ -140,6 +141,7 @@ type options struct {
 	displayName     string
 	conds           *condition.Tracker
 	alertmanagerURL string
+	live            *collabhttp.Live
 }
 
 // WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
@@ -221,7 +223,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
-	registerAgent(mux, store, msgs, o.sessStore, canEdit)
+	registerAgent(mux, store, msgs, o.sessStore, o.live, canEdit)
 	registerSearch(mux, store, msgs)
 	registerSuggest(mux, store, o.credNames)
 
@@ -236,6 +238,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
+	registerAccess(mux, store, o.live, log, guardWrite)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mux.ServeHTTP(w, withFrameSource(r, src))

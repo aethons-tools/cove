@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,7 +14,9 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1096,6 +1102,66 @@ func TestValidateMetrics(t *testing.T) {
 	none, _ := parseServeConfig([]byte("listen: :443\n"))
 	if err := none.validateMetrics(); err != nil {
 		t.Fatalf("absent metrics must validate: %v", err)
+	}
+}
+
+func TestValidateSSH(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  jam-ssh-ca:\nssh:\n  ca-cred: jam-ssh-ca\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateSSH(); err != nil {
+		t.Fatalf("valid ssh refused: %v", err)
+	}
+	if ok.SSH.CACred != "jam-ssh-ca" {
+		t.Fatalf("ca-cred = %q", ok.SSH.CACred)
+	}
+	for name, yml := range map[string]string{
+		"no ca-cred":      "ssh: {}\n",
+		"undemanded cred": "ssh:\n  ca-cred: nope\n",
+		"gcp cred":        "credentials:\n  g: { exchange: gcp }\nssh:\n  ca-cred: g\n",
+		"pool cred":       "credentials:\n  sub:\npool: { store: /tmp/p.json, cred-name: sub }\nssh:\n  ca-cred: sub\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := c.validateSSH(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateSSH(); err != nil {
+		t.Fatalf("absent ssh must validate: %v", err)
+	}
+}
+
+// resolveSSHCA builds the CA from the demanded credential; absent ssh is nil;
+// a bad key fails without echoing the key.
+func TestResolveSSHCA(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	block, _ := ssh.MarshalPrivateKey(priv, "")
+	// The credential value arrives trimmed of its trailing newline (command
+	// sources) — it must still parse.
+	keyPEM := strings.TrimSuffix(string(pem.EncodeToMemory(block)), "\n")
+	cfg := serveConfig{SSH: &sshConfig{CACred: "jam-ssh-ca"}}
+	ca, err := resolveSSHCA(cfg, map[string]secret.Spec{"jam-ssh-ca": {Name: "jam-ssh-ca", Literal: true, Value: keyPEM}})
+	if err != nil || ca == nil {
+		t.Fatalf("resolveSSHCA = %v, %v", ca, err)
+	}
+	want, _ := ssh.NewPublicKey(priv.Public())
+	if !bytes.Equal(ca.PublicKey(), ssh.MarshalAuthorizedKey(want)) {
+		t.Fatalf("public key = %q", ca.PublicKey())
+	}
+
+	if ca, err := resolveSSHCA(serveConfig{}, nil); ca != nil || err != nil {
+		t.Fatalf("absent ssh = %v, %v; want nil, nil", ca, err)
+	}
+
+	bad := "-----BEGIN OPENSSH PRIVATE KEY-----\nc2VjcmV0LWtleS1tYXRlcmlhbA==\n-----END OPENSSH PRIVATE KEY-----"
+	_, err = resolveSSHCA(cfg, map[string]secret.Spec{"jam-ssh-ca": {Name: "jam-ssh-ca", Literal: true, Value: bad}})
+	if err == nil || strings.Contains(err.Error(), "c2VjcmV0") || !strings.Contains(err.Error(), "jam-ssh-ca") {
+		t.Fatalf("err = %v; want a failure naming the cred, never the key", err)
 	}
 }
 

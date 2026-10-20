@@ -181,6 +181,23 @@ type ControlSink interface {
 	Wake(actorID string, reasons ...WakeReason)
 }
 
+// TunnelCloser closes the port tunnels a studio holds (implemented by
+// *attach.TunnelBroker). Once closed, a studio takes no tunnels until
+// Reopen. nil when no tunnel broker runs.
+type TunnelCloser interface {
+	// CloseAll closes every tunnel (teardown).
+	CloseAll(actorID string)
+	// CloseIfUnused closes them only if none is in use, reporting whether it
+	// did (a pause must not cut off a connected human).
+	CloseIfUnused(actorID string) bool
+	// Reopen lets the studio take tunnels again (raise, resume).
+	Reopen(actorID string)
+}
+
+// ErrStudioInUse: Idle refused to pause a studio with a tunnel in use (an
+// open SSH connection counts as activity).
+var ErrStudioInUse = errors.New("studio has a tunnel in use")
+
 // tailReader is the sliver of the message log the supervisor needs to baseline a
 // cove's wake-on cursor to the current log position when it enters Waiting.
 type tailReader interface {
@@ -213,6 +230,7 @@ type Supervisor struct {
 	now       func() time.Time
 	log       *slog.Logger
 	sink      ControlSink
+	tunnels   TunnelCloser // SetTunnelCloser; nil → no tunnels to close
 	tail      tailReader
 	released  Releaser
 	channels  SessionChannels
@@ -251,6 +269,10 @@ func NewHolderID() string {
 // SetControlSink installs the control sink after construction (resolving the
 // supervisor↔Attach-server cycle). nil-safe throughout.
 func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+
+// SetTunnelCloser installs the tunnel closer after construction. Like the
+// control sink it is set once at wiring time; nil-safe throughout.
+func (s *Supervisor) SetTunnelCloser(c TunnelCloser) { s.tunnels = c }
 
 // SetTailReader wires the squawk log tail source used to baseline WaitSeq on
 // entering Waiting (and CommitSeq at Raise). Called once at wiring time before
@@ -410,6 +432,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
 		return Instance{}, "", "", err
+	}
+	if s.tunnels != nil {
+		s.tunnels.Reopen(spec.ActorID) // the same id may have been closed by an earlier teardown
 	}
 	if s.channels != nil {
 		if err := s.channels.SetUp(inst); err != nil && s.log != nil {
@@ -1099,7 +1124,15 @@ func (s *Supervisor) Idle(ctx context.Context, actorID string) error {
 	if !ok || inst.Phase == PhaseGone {
 		return fmt.Errorf("idle: no live instance for %q", actorID)
 	}
+	// A paused studio can't serve tunnels; one with a tunnel in use is not
+	// paused at all. The check and the close are one step in the broker.
+	if s.tunnels != nil && !s.tunnels.CloseIfUnused(actorID) {
+		return fmt.Errorf("idle %s: %w", actorID, ErrStudioInUse)
+	}
 	if err := s.launcher.Pause(ctx, inst); err != nil {
+		if s.tunnels != nil {
+			s.tunnels.Reopen(actorID) // still running
+		}
 		return err
 	}
 	if _, ok := s.patchInstance(actorID, func(i *Instance) { i.Phase = PhaseIdled }); !ok {
@@ -1146,6 +1179,9 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 	}); !ok {
 		return fmt.Errorf("resume: record %q failed", actorID)
 	}
+	if s.tunnels != nil {
+		s.tunnels.Reopen(actorID)
+	}
 	return nil
 }
 
@@ -1161,6 +1197,9 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if s.sink != nil {
 		s.sink.RequestTeardown(actorID) // best-effort cooperative nudge
+	}
+	if s.tunnels != nil {
+		s.tunnels.CloseAll(actorID)
 	}
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating
@@ -1178,6 +1217,12 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	}
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
+	}
+	if s.tunnels != nil {
+		s.tunnels.Reopen(actorID) // forget the gone studio's closed mark
+	}
+	if err := s.store.RemoveShareGrantsOf(actorID); err != nil && s.log != nil {
+		s.log.Warn("teardown: removing the session's share grants failed (non-fatal)", "id", actorID, "err", err.Error())
 	}
 	if s.channels != nil {
 		if err := s.channels.Ended(inst); err != nil && s.log != nil {

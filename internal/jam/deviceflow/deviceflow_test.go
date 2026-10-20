@@ -54,7 +54,7 @@ func newFakeProvider(t *testing.T, pending int, token string) *fakeProvider {
 			json.NewEncoder(w).Encode(map[string]any{"error": "authorization_pending"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"access_token": f.tokenToReturn, "expires_in": 3600})
+		json.NewEncoder(w).Encode(map[string]any{"access_token": f.tokenToReturn, "id_token": "ID-" + f.tokenToReturn, "expires_in": 3600})
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -88,6 +88,9 @@ func TestPollTokenPendingThenSuccess(t *testing.T) {
 	}
 	if tok.AccessToken != "ACCESS-TOK" {
 		t.Fatalf("token = %q", tok.AccessToken)
+	}
+	if tok.IDToken != "ID-ACCESS-TOK" {
+		t.Fatalf("id token = %q", tok.IDToken)
 	}
 	if slept < 2 {
 		t.Fatalf("expected to sleep between polls, slept=%d", slept)

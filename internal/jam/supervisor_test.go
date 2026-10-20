@@ -31,6 +31,7 @@ type fakeLauncher struct {
 	tornDown    []string
 	probed      []string
 	paused      []string
+	pauseErr    error
 	resumed     []string
 	egressed    []*EgressPolicy // policies passed to ApplyEgress, in order
 	egressErr   error
@@ -93,7 +94,7 @@ func (f *fakeLauncher) Probe(_ context.Context, inst Instance) (Liveness, error)
 }
 func (f *fakeLauncher) Pause(_ context.Context, inst Instance) error {
 	f.paused = append(f.paused, inst.ActorID)
-	return nil
+	return f.pauseErr
 }
 func (f *fakeLauncher) Unpause(_ context.Context, inst Instance) error {
 	f.resumed = append(f.resumed, inst.ActorID)
@@ -2071,5 +2072,23 @@ func TestEscalateAskSurvivesHolding(t *testing.T) {
 	_ = sup.Report(context.Background(), "w1", ActivityRunning)
 	if inst, _ := store.GetInstance("w1"); !inst.EscalationAsked {
 		t.Fatal("resuming from Holding cleared the ask")
+	}
+}
+
+func TestTeardownRemovesShareGrants(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := store.CreateUser(User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.PutShareGrant(ShareGrant{SessionID: "w1", UserID: u.ID, Rights: []string{"ssh"}, ExpiresAt: time.Now().Add(time.Hour)})
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ShareGrants("w1"); len(got) != 0 {
+		t.Fatalf("grants survived teardown: %+v", got)
 	}
 }

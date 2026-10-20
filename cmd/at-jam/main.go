@@ -45,6 +45,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
@@ -54,6 +56,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -96,13 +99,16 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
-			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API", Run: cmdStudio},
+			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: cmdColima(getenv, runner.OS{})},
+			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
+			{Name: "ssh-proxy", Brief: "the ssh ProxyCommand: renew the studio's SSH certificate when under 1 h remains, then tunnel stdio through Jam (OpenSSH reads the certificate before running it, so a renewal applies from the next connection)", Run: cmdSSHProxy},
+			{Name: "ssh", Brief: "SSH into a studio: renew its certificate if needed, then exec ssh jam-<studio> with any extra ssh args", Run: cmdSSH},
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
@@ -116,6 +122,7 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-jam/settings.yml)")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL; persisted to the app's settings when given")
+	participant := fs.Bool("participant", false, "sign in as a participant (a Jam user, not an operator) and cache the OIDC ID token for the /me routes")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -143,10 +150,19 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	lc, err := adminclient.New(adminURL, "").LoginConfig()
 	if err != nil {
 		if errors.Is(err, adminclient.ErrNotFound) {
+			if *participant {
+				fmt.Fprintln(stderr, "at-jam login: this Jam has no device login configured; participant login is unavailable")
+				return 1
+			}
 			fmt.Fprintln(stdout, "this Jam is not OIDC-gated; no login needed")
 			return 0
 		}
 		fmt.Fprintln(stderr, "at-jam login:", err)
+		return 1
+	}
+	// The participant bearer is the OIDC ID token, which only scope openid mints.
+	if *participant && !slices.Contains(strings.Fields(lc.Scope), "openid") {
+		fmt.Fprintf(stderr, "at-jam login: this Jam's device login scope %q lacks openid, so it mints no ID token; participant login is unavailable\n", lc.Scope)
 		return 1
 	}
 	ctx := context.Background()
@@ -174,6 +190,9 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam login:", err)
 		return 1
 	}
+	if *participant {
+		return saveParticipantLogin(*app, adminURL, tok, stdout, stderr)
+	}
 	sub, exp, _ := parseJWTClaims(tok.AccessToken)
 	if exp.IsZero() && tok.ExpiresIn > 0 {
 		exp = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
@@ -186,9 +205,30 @@ func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// saveParticipantLogin caches a participant login: the ID token alone (never
+// printed), expiring at its own exp, under the app's participant profile.
+func saveParticipantLogin(app, adminURL string, tok deviceflow.Token, stdout, stderr io.Writer) int {
+	if tok.IDToken == "" {
+		fmt.Fprintln(stderr, "at-jam login: the identity provider returned no ID token; participant login needs scope openid")
+		return 1
+	}
+	sub, exp, err := parseJWTClaims(tok.IDToken)
+	if err != nil || exp.IsZero() {
+		fmt.Fprintln(stderr, "at-jam login: the identity provider's ID token is unreadable or carries no expiry")
+		return 1
+	}
+	if err := saveTokenAt(participantTokenPath(app), cachedToken{IDToken: tok.IDToken, Sub: sub, Expiry: exp, AdminURL: adminURL}); err != nil {
+		fmt.Fprintln(stderr, "at-jam login:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "logged in as participant %s; token expires %s\n", sub, exp.Format(time.RFC3339))
+	return 0
+}
+
 func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
+	participant := fs.Bool("participant", false, "clear the cached participant token instead of the operator token")
 	if _, code, ok := cli.ParseFlags(fs, args, stdout, stderr); !ok {
 		return code
 	}
@@ -196,7 +236,11 @@ func cmdLogout(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam logout:", err)
 		return 2
 	}
-	if err := clearToken(*app); err != nil {
+	path := tokenPath(*app)
+	if *participant {
+		path = participantTokenPath(*app)
+	}
+	if err := clearTokenAt(path); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
@@ -461,6 +505,8 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
 	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
 	timeZone := fs.String("time-zone", "", "IANA time zone the role's cron alarms are evaluated in (default UTC)")
+	collabPreview := fs.String("collaborate-preview", "", "who may view this role's studio previews: members (default) | none")
+	collabSSH := fs.String("collaborate-ssh", "", "who may ssh into this role's studios: members | none (default)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -490,14 +536,19 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
 		}
+		collab := jam.CollaboratePolicy{Preview: *collabPreview, SSH: *collabSSH}
+		if err := collab.Validate(); err != nil {
+			fmt.Fprintln(stderr, "at-jam role add:", err)
+			return 2
+		}
 		ds, creds, err := jam.ParseDestinations(*dests)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam role add:", err)
 			return 2
 		}
 		r := jam.Role{
-			TurnEnd: te,
-			Name:    *name, Kit: *kitName, ModelSpec: *modelSpec,
+			TurnEnd: te, Collaborate: collab,
+			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
 			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
 			Allocation: jam.RoleAllocation{
 				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
@@ -516,7 +567,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"))
 		}
 	case "rm":
 		if len(pos) != 1 {
@@ -972,10 +1023,14 @@ func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 // Studio; ids, routes and the admin API still say "cove").
 func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown")
+		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown|share|unshare|access")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	switch sub {
+	case "share", "unshare", "access":
+		return cmdStudioShare(sub, rest, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("studio "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
@@ -1613,6 +1668,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateSSH(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1731,6 +1790,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
 
+	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
+	// trusts its public key; the private key stays in this process's memory.
+	// nil when the ssh block is unset (SSH collaboration off); it signs the
+	// certs the collaboration routes (collabhttp) issue.
+	sshCA, err := resolveSSHCA(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	var sshUserCA []byte
+	if sshCA != nil {
+		sshUserCA = sshCA.PublicKey()
+		log.Info("Jam SSH user CA: loaded", "cred", cfg.SSH.CACred) // never the key
+	}
+
 	ttl, reconcile, err := cfg.runtimeDurations()
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
@@ -1763,6 +1837,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// their claude authenticates as a pooled subscription principal.
 			Subscription: cfg.Pool != nil,
 			Log:          log,
+			SSHUserCA:    sshUserCA,
 		})
 		// Seed the built-in default studio kit (blessed base, Anthropic-free egress
 		// ceiling — COV-208) in the registry and hand its reference to the
@@ -1789,6 +1864,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
+	// Studio collaboration tunnels: a human's connection reaches a studio's
+	// loopback port over a Tunnel the studio dials back; the supervisor closes
+	// a studio's tunnels before it pauses or tears it down.
+	tunnels := attach.NewTunnelBroker(rsrv.PushOpenTunnel, attach.TunnelOptions{})
+	rsrv.SetTunnelBroker(tunnels)
+	sup.SetTunnelCloser(tunnels)
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
 
@@ -1973,6 +2054,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Turn end: enforce end(reason) and the role's idle timeout.
 	eng.SetTurnEnd(st /*RoleLookup*/, nagger /*Ender*/, sup /*AlarmFirer*/)
 	eng.SetGates(sup /*GateState*/, rsrv /*GateRunner*/)
+	// An open SSH connection is activity: a studio with a tunnel in use is not
+	// paused, reclaimed or torn down for waiting.
+	eng.SetTunnels(tunnels)
 	eng.SetTickets(tickets /*TicketCloser*/, sup /*ReportRecorder*/)
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
@@ -2286,11 +2370,42 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)))))
+		// The open-SSH-connection registry both collaboration planes and the UI's
+		// Access card share, so an unshare anywhere closes the user's connections.
+		liveSSH := collabhttp.NewLive()
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
+		if sshCA != nil {
+			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveSSH))
+			// Revocation: drop open SSH connections whose access has gone (a
+			// removed user, a role-policy or membership change, an expired grant).
+			go liveSSH.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
+		}
+		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
 
+		// Studio collaboration (SSH certs + tunnels); each plane names its caller.
+		// The participant plane mounts the same routes under /me.
+		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
+			return collabhttp.Deps{
+				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveSSH,
+				// A request on an idled studio resumes it and waits for its stream.
+				Resume: sup.Resume, Connected: rsrv.Connected,
+				Notify: func(inst jam.Instance, body string) {
+					if _, err := ic.Notify(inst, "", body); err != nil {
+						log.Warn("collab: session notice failed", "actor", inst.ActorID, "err", err.Error())
+					}
+				},
+			}
+		}
+		if mountParticipantStudios(meMux, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+			return collabhttp.Routes("/me", collabDeps(p))
+		}) {
+			meHandler = meMux
+			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
+		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
+			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
 		go func() {
 			if cfg.adminUsesTLS() {
@@ -2483,6 +2598,25 @@ func planCredentials(cfg serveConfig) (map[string]secret.Spec, error) {
 	return specs, nil
 }
 
+// resolveSSHCA resolves the ssh block's CA credential (in memory only) and
+// parses it as Jam's SSH user CA. Absent ssh ⇒ nil, nil (SSH collaboration
+// off). Errors name the credential, never its value.
+func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, error) {
+	if cfg.SSH == nil {
+		return nil, nil
+	}
+	name := cfg.SSH.CACred
+	v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[name]})
+	if err != nil {
+		return nil, fmt.Errorf("ssh.ca-cred: %w", err)
+	}
+	ca, err := sshca.Parse([]byte(v[name]))
+	if err != nil {
+		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
+	}
+	return ca, nil
+}
+
 // validatePushedKit validates a studio-kit config before it is stored, so a
 // malformed kit is caught at push, not at raise.
 func validatePushedKit(data []byte) error {
@@ -2501,4 +2635,54 @@ func joinOrNone(ss []string) string {
 		return "none"
 	}
 	return strings.Join(ss, ", ")
+}
+
+// collabLabel shows a collaboration policy value, spelling out the default.
+func collabLabel(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+// The tunnel broker is what the supervisor closes a studio's tunnels through,
+// and what tells wake-on a studio has one in use.
+var (
+	_ jam.TunnelCloser = (*attach.TunnelBroker)(nil)
+	_ wakeon.Tunnels   = (*attach.TunnelBroker)(nil)
+)
+
+// mountParticipantStudios mounts the participant plane's collaboration routes
+// at /me/studios/ on meMux and reports whether it did. They take a bearer ID
+// token from `at-jam login --participant` — not the /me cookie, and not a
+// browser — so they sit outside meGate and RequireSameOrigin. The token is
+// verified against the operator OIDC provider already discovered, with the
+// device client as audience, so no further network dependency is added.
+// Without device login (lc nil), an OIDC operator authenticator, or the SSH
+// CA, nothing is mounted: /me/studios/ stays a 404, never open.
+func mountParticipantStudios(meMux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
+	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
+	if lc == nil || !ok || ca == nil {
+		return false
+	}
+	verify := oidcAuth.IDTokenVerifier(lc.ClientID)
+	meMux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
+	return true
+}
+
+// operatorPrincipal names an operator-plane caller (behind the admin
+// authenticator): the operator, and the roster user its login links to when
+// there is one, for audit and notice names.
+func operatorPrincipal(st jam.Store) func(*http.Request) (collab.Principal, string, error) {
+	return func(r *http.Request) (collab.Principal, string, error) {
+		op := jam.OperatorID(r)
+		if op == "" {
+			return collab.Principal{}, "", collabhttp.ErrNoCredentials
+		}
+		p, name := collab.Principal{Operator: op}, op
+		if u, ok := st.UserByLogin(op); ok {
+			p.UserID, name = u.ID, u.Name
+		}
+		return p, name, nil
+	}
 }

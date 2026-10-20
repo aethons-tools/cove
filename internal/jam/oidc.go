@@ -12,6 +12,7 @@ import (
 // OIDCAuthenticator validates an operator's OIDC/Auth0 bearer token (signature +
 // iss + aud + exp via go-oidc), and optionally requires a scope/permission.
 type OIDCAuthenticator struct {
+	provider     *oidc.Provider
 	verifier     *oidc.IDTokenVerifier
 	requireScope string
 }
@@ -24,9 +25,26 @@ func NewOIDCAuthenticator(ctx context.Context, issuer, audience, requireScope st
 		return nil, fmt.Errorf("oidc discovery for %q: %w", issuer, err)
 	}
 	return &OIDCAuthenticator{
+		provider:     provider,
 		verifier:     provider.Verifier(&oidc.Config{ClientID: audience}),
 		requireScope: requireScope,
 	}, nil
+}
+
+// IDTokenVerifier verifies ID tokens from the same issuer for a different
+// audience, clientID (e.g. the device-flow client a participant signs in
+// with), reusing the provider already discovered — no further discovery. It
+// checks signature, issuer, audience and expiry (no operator scope) and
+// returns the token's issuer and subject.
+func (a *OIDCAuthenticator) IDTokenVerifier(clientID string) func(ctx context.Context, raw string) (issuer, subject string, err error) {
+	v := a.provider.Verifier(&oidc.Config{ClientID: clientID})
+	return func(ctx context.Context, raw string) (string, string, error) {
+		t, err := v.Verify(ctx, raw)
+		if err != nil {
+			return "", "", err
+		}
+		return t.Issuer, t.Subject, nil
+	}
 }
 
 func (a *OIDCAuthenticator) Authenticate(r *http.Request) (Operator, error) {

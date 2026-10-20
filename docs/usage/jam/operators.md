@@ -4,7 +4,7 @@ read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator
 owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-20
 ---
 
 # Operator sign-in & the admin client
@@ -66,6 +66,9 @@ user code to approve in a browser), and caches the resulting operator token at
 
 `login` against a Jam with no `operator-auth.oidc` exits cleanly (the
 login-config endpoint returns 404 → "not OIDC-gated; no login required").
+
+`login --participant` signs a collaborator in as a participant instead, for
+studio SSH and sharing — see [collaboration.md](collaboration.md).
 
 ## How the admin token is resolved
 

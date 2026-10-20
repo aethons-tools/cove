@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
@@ -27,6 +28,19 @@ var ErrNotFound = errors.New("not found")
 // ErrConflict wraps a 409 from the admin API — e.g. importing config into a
 // store that is not empty.
 var ErrConflict = errors.New("conflict")
+
+// StatusError is a non-2xx answer from the admin API, for callers that map a
+// status code to their own message (errors.AsType). Body is the server's
+// trimmed response text.
+type StatusError struct {
+	Method, Path, Status string
+	Code                 int
+	Body                 string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("admin API %s %s: %s: %s", e.Method, e.Path, e.Status, e.Body)
+}
 
 // Client talks to a running Jam's admin API (e.g. http://127.0.0.1:8081).
 type Client struct {
@@ -76,12 +90,12 @@ func (c *Client) do(method, path string, body any, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)
-		err := fmt.Errorf("admin API %s %s: %s: %s", method, path, resp.Status, strings.TrimSpace(string(msg)))
+		var err error = &StatusError{Method: method, Path: path, Status: resp.Status, Code: resp.StatusCode, Body: strings.TrimSpace(string(msg))}
 		if resp.StatusCode == http.StatusNotFound {
-			err = fmt.Errorf("%w: %s", ErrNotFound, err)
+			err = fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 		if resp.StatusCode == http.StatusConflict {
-			err = fmt.Errorf("%w: %s", ErrConflict, err)
+			err = fmt.Errorf("%w: %w", ErrConflict, err)
 		}
 		return err
 	}
@@ -164,6 +178,8 @@ func (c *Client) PutRole(project string, r jam.Role) error {
 		IdleTimeoutSeconds:  int64(r.TurnEnd.IdleTimeout / time.Second),
 		OnIdle:              r.TurnEnd.OnIdle,
 		TimeZone:            r.TurnEnd.TimeZone,
+		CollaboratePreview:  r.Collaborate.Preview,
+		CollaborateSSH:      r.Collaborate.SSH,
 	}, nil)
 }
 
@@ -186,7 +202,8 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 			IdleAfter:    time.Duration(rs.IdleAfterSeconds) * time.Second,
 			NagEvery:     time.Duration(rs.NagEverySeconds) * time.Second,
 			ReclaimAfter: time.Duration(rs.ReclaimAfterSeconds) * time.Second,
-		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle, TimeZone: rs.TimeZone}})
+		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle, TimeZone: rs.TimeZone},
+			Collaborate: jam.CollaboratePolicy{Preview: rs.CollaboratePreview, SSH: rs.CollaborateSSH}})
 		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil
@@ -665,5 +682,53 @@ func (c *Client) RemoveConnection(conn string) error {
 func (c *Client) ListConditions(state string) ([]condition.Condition, error) {
 	var out []condition.Condition
 	err := c.do("GET", "/admin/attention?state="+url.QueryEscape(state), nil, &out)
+	return out, err
+}
+
+// IssueSSHCert asks Jam to certify pub (an authorized_keys line) for SSH into
+// studio, on the plane at prefix ("/admin" for an operator, "/me" for a
+// participant), returning the certificate line and when it expires.
+func (c *Client) IssueSSHCert(prefix, studio string, pub []byte) (cert []byte, expires time.Time, err error) {
+	var out struct {
+		Certificate string `json:"certificate"`
+		ExpiresAt   string `json:"expires_at"`
+	}
+	if err := c.do("POST", prefix+"/studios/"+url.PathEscape(studio)+"/ssh/cert", struct {
+		PublicKey string `json:"public_key"`
+	}{string(pub)}, &out); err != nil {
+		return nil, time.Time{}, err
+	}
+	expires, err = time.Parse(time.RFC3339, out.ExpiresAt)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("admin API returned an unreadable certificate expiry: %w", err)
+	}
+	return []byte(out.Certificate), expires, nil
+}
+
+// ShareParams is a share grant request: user is a name, user:<name> or a
+// usr_ id; For is a Go duration or whole days ("7d"), "" for Jam's default.
+type ShareParams struct {
+	User   string   `json:"user"`
+	Rights []string `json:"rights"`
+	For    string   `json:"for,omitempty"`
+}
+
+// ShareStudio grants a user rights on studio, on the plane at prefix ("/admin"
+// or "/me").
+func (c *Client) ShareStudio(prefix, studio string, p ShareParams) (collabwire.GrantView, error) {
+	var out collabwire.GrantView
+	err := c.do("POST", prefix+"/studios/"+url.PathEscape(studio)+"/shares", p, &out)
+	return out, err
+}
+
+// UnshareStudio removes user's share grant on studio.
+func (c *Client) UnshareStudio(prefix, studio, user string) error {
+	return c.do("DELETE", prefix+"/studios/"+url.PathEscape(studio)+"/shares/"+url.PathEscape(user), nil, nil)
+}
+
+// StudioAccess reports who can reach studio and why, and who is connected.
+func (c *Client) StudioAccess(prefix, studio string) (collabwire.AccessView, error) {
+	var out collabwire.AccessView
+	err := c.do("GET", prefix+"/studios/"+url.PathEscape(studio)+"/access", nil, &out)
 	return out, err
 }

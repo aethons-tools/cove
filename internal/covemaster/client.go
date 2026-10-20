@@ -56,6 +56,9 @@ func New(cfg Config, log *slog.Logger) *Client {
 	if cfg.FlushTimeout <= 0 {
 		cfg.FlushTimeout = defaultFlushTimeout
 	}
+	if len(cfg.TunnelPorts) == 0 {
+		cfg.TunnelPorts = []int32{defaultTunnelPort}
+	}
 	return &Client{cfg: cfg, log: newLogger(log), activity: make(chan Activity, 1), connCh: make(chan string, 1), gates: make(chan GateResult, gateBuffer),
 		events: newEventBuf(newStreamID(), cfg.EventBufferEvents, cfg.EventBufferBytes)}
 }
@@ -246,6 +249,10 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 				if a.Ack.GetStreamId() == c.events.streamID {
 					c.events.ack(a.Ack.GetSeq())
 				}
+				continue
+			}
+			if ot, ok := cd.GetMsg().(*attachpb.ControlDown_OpenTunnel); ok {
+				go c.dialBack(ctx, cc, md, ot.OpenTunnel) // never block the recv loop
 				continue
 			}
 			select {

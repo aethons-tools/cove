@@ -1,0 +1,38 @@
+{{define "access-card"}}
+  <section class="card">
+    <header><h2>Access</h2><span class="sub">who can reach this studio, and why</span></header>
+    {{if not .Enabled}}<div class="body unset">SSH collaboration is off on this Jam.</div>
+    {{else}}{{$id := .ID}}{{with .View}}
+    <div class="body">
+      <dl class="kv">
+        <dt>Operators</dt><dd>always</dd>
+        {{if .Requester}}<dt>Requester</dt><dd><a href="{{userURL .Requester.ID}}">{{.Requester.Name}}</a> <span class="unset">· preview and ssh on their personal session</span></dd>{{end}}
+        <dt>Members</dt><dd>preview: {{.Role.Preview}} · ssh: {{.Role.SSH}} <span class="unset">· the <a href="{{roleURL .Role.Project .Role.Role}}">{{.Role.Project}}/{{.Role.Role}}</a> role's policy for project members</span></dd>
+      </dl>
+    </div>
+    <table>
+      <thead><tr><th>Shared with</th><th>Rights</th><th>Expires</th><th>Granted by</th><th></th></tr></thead>
+      <tbody>
+        {{range .Grants}}<tr>
+          <td><a href="{{userURL .UserID}}">{{.User}}</a></td>
+          <td>{{range $i, $r := .Rights}}{{if $i}}, {{end}}{{$r}}{{end}}</td>
+          <td>{{if .Expired}}<span class="unset">expired </span>{{end}}<time title="{{.ExpiresAt.Format "2006-01-02 15:04:05 MST"}}">{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</time></td>
+          <td><span class="mono">{{.GrantedByName}}</span></td>
+          <td><button class="danger small" hx-delete="/ui/agents/{{$id}}/shares/{{.UserID}}" hx-swap="none"
+              hx-confirm="Unshare {{$id}} from {{.User}}? Their open SSH connections close unless they have access another way."
+              hx-on::after-request="if(event.detail.successful) location.reload()">Unshare</button></td></tr>
+        {{else}}<tr><td colspan="5" class="empty">Not shared with anyone. <span class="unset">at-jam studio share {{$id}} --with user:&lt;name&gt; --rights ssh</span></td></tr>{{end}}
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Connected over SSH</th><th>Since</th></tr></thead>
+      <tbody>
+        {{range .Live}}<tr>
+          <td>{{.Name}}</td>
+          <td><time title="{{.Since.Format "2006-01-02 15:04:05 MST"}}">{{.Since.Format "Jan 2 15:04"}}</time></td></tr>
+        {{else}}<tr><td colspan="2" class="empty">No open SSH connections.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{end}}{{end}}
+  </section>
+{{end}}

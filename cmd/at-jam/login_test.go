@@ -18,8 +18,20 @@ import (
 )
 
 // fakeAuth0 serves discovery + device-code + a token endpoint that immediately
-// returns a JWT carrying the given sub.
+// returns a JWT carrying the given sub, and an ID token for it.
 func fakeAuth0(t *testing.T, sub string) *httptest.Server {
+	return fakeIdP(t, sub, testIDToken(sub))
+}
+
+// testIDToken is the (unsigned) ID token fakeAuth0 issues for sub.
+func testIDToken(sub string) string {
+	b64 := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	return b64(`{"alg":"RS256"}`) + "." + b64(`{"sub":"`+sub+`","aud":"cid","exp":`+strconv.FormatInt(time.Now().Add(30*time.Minute).Unix(), 10)+`}`) + ".idsig"
+}
+
+// fakeIdP is fakeAuth0 with the token response's id_token set to idToken
+// (omitted when empty).
+func fakeIdP(t *testing.T, sub, idToken string) *httptest.Server {
 	t.Helper()
 	b64 := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 	jwt := b64(`{"alg":"RS256"}`) + "." + b64(`{"sub":"`+sub+`","exp":`+strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)+`}`) + ".sig"
@@ -36,7 +48,11 @@ func fakeAuth0(t *testing.T, sub string) *httptest.Server {
 		})
 	})
 	mux.HandleFunc("/tok", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": jwt, "expires_in": 3600})
+		resp := map[string]any{"access_token": jwt, "expires_in": 3600}
+		if idToken != "" {
+			resp["id_token"] = idToken
+		}
+		json.NewEncoder(w).Encode(resp)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -47,9 +63,14 @@ func fakeAuth0(t *testing.T, sub string) *httptest.Server {
 // jamWithLogin stands up a Jam admin API whose login-config points at the
 // given issuer.
 func jamWithLogin(t *testing.T, issuer string) *httptest.Server {
+	return jamWithLoginScope(t, issuer, "openid")
+}
+
+// jamWithLoginScope is jamWithLogin advertising the given device scope.
+func jamWithLoginScope(t *testing.T, issuer, scope string) *httptest.Server {
 	t.Helper()
 	store := jam.NewMemStore()
-	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: "openid"}
+	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: scope}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -189,5 +210,73 @@ func TestLoginNotOIDCGated(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "not OIDC-gated") {
 		t.Fatalf("output = %q, want a 'not OIDC-gated' message", out.String())
+	}
+}
+
+func TestLoginParticipantCachesIDTokenSeparately(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	idp := fakeAuth0(t, "auth0|alice")
+	hb := jamWithLogin(t, idp.URL)
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"login", "--participant", "--admin-url", hb.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("login --participant exit = %d, stderr=%s", code, errb.String())
+	}
+	if strings.Contains(out.String()+errb.String(), ".idsig") || strings.Contains(out.String()+errb.String(), ".sig") {
+		t.Fatalf("login printed a token:\n%s%s", out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "auth0|alice") {
+		t.Fatalf("output = %q, want the signed-in subject", out.String())
+	}
+	// The operator profile is untouched: a participant login is not an operator login.
+	if _, ok := loadToken("default"); ok {
+		t.Fatal("participant login cached an operator token")
+	}
+	got, ok := loadTokenAt(participantTokenPath("default"))
+	if !ok || got.IDToken == "" || got.AccessToken != "" || got.Sub != "auth0|alice" || got.Expiry.IsZero() || got.AdminURL != hb.URL {
+		t.Fatalf("participant token = %+v ok=%v", got, ok)
+	}
+	tok, err := resolveParticipantToken("default")
+	if err != nil || tok != got.IDToken {
+		t.Fatalf("resolveParticipantToken = %q, %v", tok, err)
+	}
+
+	// logout --participant clears only the participant profile.
+	if err := saveToken("default", cachedToken{AccessToken: "OP", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"logout", "--participant"}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("logout --participant exit = %d", code)
+	}
+	if _, err := resolveParticipantToken("default"); err == nil {
+		t.Fatal("participant token still cached after logout --participant")
+	}
+	if _, ok := loadToken("default"); !ok {
+		t.Fatal("logout --participant cleared the operator token")
+	}
+}
+
+func TestLoginParticipantRefusals(t *testing.T) {
+	for name, tc := range map[string]struct {
+		idToken, scope, want string
+	}{
+		"no id token":        {"", "openid", "no ID token"},
+		"scope lacks openid": {testIDToken("auth0|alice"), "offline_access", "openid"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			idp := fakeIdP(t, "auth0|alice", tc.idToken)
+			hb := jamWithLoginScope(t, idp.URL, tc.scope)
+			var out, errb bytes.Buffer
+			if code := run([]string{"login", "--participant", "--admin-url", hb.URL}, func(string) string { return "" }, &out, &errb); code == 0 {
+				t.Fatalf("login --participant exit = 0, want failure")
+			}
+			if !strings.Contains(errb.String(), tc.want) {
+				t.Fatalf("stderr = %q, want %q", errb.String(), tc.want)
+			}
+			if _, ok := loadTokenAt(participantTokenPath("default")); ok {
+				t.Fatal("a refused participant login cached a token")
+			}
+		})
 	}
 }

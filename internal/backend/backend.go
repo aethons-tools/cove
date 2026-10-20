@@ -225,6 +225,17 @@ type RoleEgress interface {
 	ResetRoleEgress(container string) error
 }
 
+// SSHCA installs Jam's SSH user-CA public key in a running studio, so sshd
+// (TrustedUserCAKeys, baked by the hardening layer) accepts certs that CA issues
+// for the agent user. Privileged: host docker exec as root; the key on stdin.
+// Jam's launcher calls it at raise, before the agent starts.
+type SSHCA interface {
+	// InstallSSHUserCA execs the sealed install-ssh-ca.sh inside container (as
+	// root) with pub — one ssh-ed25519 authorized_keys line — on stdin. The
+	// helper validates the line and atomically replaces /etc/ssh/jam_user_ca.pub.
+	InstallSSHUserCA(container string, pub []byte) error
+}
+
 // KitImageBuilder is the managed-cove build+inventory surface a Jam launcher
 // drives on a substrate (COV-217). The launcher owns "prepare a managed kit's
 // image", which each substrate builds its own way — Colima builds locally via

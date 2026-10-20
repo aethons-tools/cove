@@ -4,7 +4,7 @@ read_when: You want to watch a running Jam in a browser — the agents and their
 owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the rail, Jam's tabs and the Specs sub-tabs, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-08
+updated: 2026-10-20
 ---
 
 # The Jam admin UI (`/ui/`)
@@ -52,8 +52,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   **auto-refreshes every 3 seconds**. Status filters
   (`?status=running|waiting|setting-up|idled|attention`; old `?phase=` links still work) match the dashboard tiles. Enroll,
   raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
-  page ([ui-pages.md](ui-pages.md#agent-pages)); `/ui/coves…` and `/ui/actors`
-  redirect here.
+  page, its **Access** card included ([ui-pages.md](ui-pages.md#agent-pages));
+  `/ui/coves…` and `/ui/actors` redirect here.
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See [Intercom](#intercom).
 - **Health** (`/ui/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).

@@ -150,7 +150,9 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 // code is not — so bump Revision whenever a change here alters the assembled
 // context, or a stale image cached under an unchanged tag is reused.
 // 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
-var Revision = "2"
+// 3: sshd trusts Jam's SSH user CA (cove.conf TrustedUserCAKeys) and ships
+// the sealed install-ssh-ca.sh helper.
+var Revision = "3"
 
 // writeDockerfile prepends the harness stage (staging its payload) to the
 // sealed hardening Dockerfile copyEmbed just wrote.

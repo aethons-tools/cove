@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,5 +88,53 @@ func TestParseJWTClaims(t *testing.T) {
 	sub, gotExp, err := parseJWTClaims(token)
 	if err != nil || sub != "auth0|abc" || gotExp.Unix() != exp {
 		t.Fatalf("parseJWTClaims: sub=%q exp=%v err=%v", sub, gotExp, err)
+	}
+}
+
+func TestResolveParticipantToken(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	hint := "run: at-jam login --participant"
+	if _, err := resolveParticipantToken("default"); err == nil || !strings.Contains(err.Error(), hint) {
+		t.Fatalf("no login: err = %v, want %q", err, hint)
+	}
+	// An operator login is never a participant credential.
+	if err := saveToken("default", cachedToken{AccessToken: "OP", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveParticipantToken("default"); err == nil {
+		t.Fatal("an operator token resolved as a participant token")
+	}
+	if err := saveTokenAt(participantTokenPath("default"), cachedToken{IDToken: "ID", Expiry: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveParticipantToken("default"); err == nil || !strings.Contains(err.Error(), "expired") || !strings.Contains(err.Error(), hint) {
+		t.Fatalf("expired: err = %v", err)
+	}
+	if err := saveTokenAt(participantTokenPath("default"), cachedToken{IDToken: "ID", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := resolveParticipantToken("default"); err != nil || tok != "ID" {
+		t.Fatalf("valid: %q, %v", tok, err)
+	}
+}
+
+// A participant token never shares a file with any operator profile — not
+// even an app literally named "<app>-participant".
+func TestParticipantTokenFileIsDistinct(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if participantTokenPath("x") == tokenPath("x-participant") || participantTokenPath("x") == tokenPath("x") {
+		t.Fatalf("participant path %q collides with an operator path", participantTokenPath("x"))
+	}
+	if err := saveTokenAt(participantTokenPath("x"), cachedToken{IDToken: "ID", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveToken("x-participant", cachedToken{AccessToken: "OP", Expiry: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := resolveParticipantToken("x"); err != nil || tok != "ID" {
+		t.Fatalf("participant token = %q, %v; an operator login for app x-participant overwrote it", tok, err)
+	}
+	if op, ok := loadToken("x-participant"); !ok || op.AccessToken != "OP" {
+		t.Fatalf("operator token for x-participant = %+v ok=%v", op, ok)
 	}
 }

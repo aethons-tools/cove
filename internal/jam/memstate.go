@@ -49,6 +49,9 @@ type memState struct {
 	// standing maps a declared standing session to its session id
 	// (standing_sessions.go).
 	standing map[standingKey]string
+	// grants is the studio share grants: session id → user id → grant
+	// (sharegrants.go).
+	grants map[string]map[ident.ID]ShareGrant
 	// channels is the channel registry, keyed by id (archived ones stay), and
 	// chanMembers each channel's membership rows (channel_registry.go).
 	channels    map[ident.ID]Channel
@@ -79,6 +82,7 @@ func newMemState() *memState {
 		members:         map[ident.ID]map[ident.ID]Membership{},
 		aliases:         map[string]map[string]ident.ID{},
 		standing:        map[standingKey]string{},
+		grants:          map[string]map[ident.ID]ShareGrant{},
 		channels:        map[ident.ID]Channel{},
 		chanMembers:     map[ident.ID][]ChannelMember{},
 		reads:           map[ident.ID]map[ident.ID]int64{},

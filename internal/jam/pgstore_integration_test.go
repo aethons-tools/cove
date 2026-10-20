@@ -5,7 +5,9 @@ package jam_test
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -353,5 +355,47 @@ func TestPostgresProjectRefsMigration(t *testing.T) {
 	}
 	if again := open(); func() bool { _, ok := again.GetRole("acme", "impl"); return !ok }() {
 		t.Fatal("reload lost the role")
+	}
+}
+
+// TestPostgresShareGrantsReload proves share grants survive a reload and that
+// removals persist.
+func TestPostgresShareGrantsReload(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.CreateUser(jam.User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Unix(2_000_000, 0).UTC()
+	g := jam.ShareGrant{SessionID: "ses_1", UserID: u.ID, Rights: []string{"preview", "ssh"}, ExpiresAt: exp, CreatedAt: exp.Add(-time.Hour), GrantedBy: "op:local"}
+	if err := s.PutShareGrant(g); err != nil {
+		t.Fatal(err)
+	}
+	again := open()
+	if got := again.ShareGrants("ses_1"); len(got) != 1 || !reflect.DeepEqual(got[0], g) {
+		t.Fatalf("reload: grants = %+v", got)
+	}
+	if err := again.RemoveShareGrantsOf("ses_1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := open().ShareGrants("ses_1"); len(got) != 0 {
+		t.Fatalf("reload after remove: grants = %+v", got)
 	}
 }

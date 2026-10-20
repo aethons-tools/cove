@@ -481,3 +481,17 @@ func TestServerConnected(t *testing.T) {
 		t.Fatal("connected with no stream")
 	}
 }
+
+func TestPushOpenTunnelFalseWithoutStream(t *testing.T) {
+	s := &Server{conns: map[string]chan *attachpb.ControlDown{}}
+	if s.PushOpenTunnel("ses_a", "id", 22) {
+		t.Fatal("push reported success with no Attach stream")
+	}
+	s.conns["ses_a"] = make(chan *attachpb.ControlDown, 1)
+	if !s.PushOpenTunnel("ses_a", "id", 22) {
+		t.Fatal("push failed with room in queue")
+	}
+	if s.PushOpenTunnel("ses_a", "id2", 22) {
+		t.Fatal("push reported success with full queue")
+	}
+}
