@@ -93,7 +93,7 @@ func (f *fakeRuntime) gotDone() bool {
 	return false
 }
 
-func fakeHarness(t *testing.T, f *fakeRuntime) grpc.DialOption {
+func fakeHarness(t *testing.T, f attachpb.RuntimeServer) grpc.DialOption {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	gs := grpc.NewServer()

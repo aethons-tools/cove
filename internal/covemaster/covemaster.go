@@ -10,6 +10,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"time"
 
 	"google.golang.org/grpc"
@@ -130,6 +131,13 @@ type Config struct {
 	EventBufferEvents int           // max buffered unacked events; default 10000
 	EventBufferBytes  int           // max buffered unacked raw bytes; default 64 MiB
 	FlushTimeout      time.Duration // Done waits this long for the final ack; default 5s
+
+	// TunnelPorts is the allow-list of loopback ports Jam may ask the cove to
+	// dial back (OpenTunnel); default {2222}. Anything else is refused.
+	TunnelPorts []int32
+	// TunnelDial opens the local connection (test seam); default is a plain
+	// TCP dial.
+	TunnelDial func(ctx context.Context, addr string) (net.Conn, error)
 }
 
 func connectorMsg(fp string) *attachpb.StatusUp {
