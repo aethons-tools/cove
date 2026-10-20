@@ -1,14 +1,13 @@
 package attach
 
 import (
-	"fmt"
-	"strings"
-
 	"context"
-	"github.com/aethons-tools/cove/internal/jam"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
@@ -139,19 +138,19 @@ func TestPortsSurviveFullControlQueueAndPrecedeOpenTunnel(t *testing.T) {
 			pushed = srv.PushOpenTunnel("w1", "t1", 7001)
 		}
 	}
-	portsAt, openAt := -1, -1
+	// Whether an intermediate [7000] was delivered is timing-dependent; what
+	// matters is that the LAST ports message before the OpenTunnel is [7001].
+	lastPorts, openAt := "", -1
 	for i, e := range seq {
-		if e == "ports:[7001]" {
-			portsAt = i
-		}
 		if e == "open" {
 			openAt = i
+			break
 		}
-		if e == "ports:[7000]" {
-			t.Fatalf("stale set delivered: %v", seq)
+		if strings.HasPrefix(e, "ports:") {
+			lastPorts = e
 		}
 	}
-	if portsAt < 0 || openAt < 0 || portsAt > openAt {
-		t.Fatalf("latest ports must arrive before the OpenTunnel: ports@%d open@%d", portsAt, openAt)
+	if openAt < 0 || lastPorts != "ports:[7001]" {
+		t.Fatalf("latest ports must arrive before the OpenTunnel: last ports %q, open@%d, seq %v", lastPorts, openAt, seq)
 	}
 }

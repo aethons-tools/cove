@@ -115,3 +115,19 @@ func TestCompiledContextCarriesSandboxRules(t *testing.T) {
 		}
 	}
 }
+
+func TestBoilerplatePreviewsLine(t *testing.T) {
+	on := Boilerplate(SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r", Previews: true}).Core
+	if !strings.Contains(on, "`expose(port, name)`") {
+		t.Errorf("Previews on: line missing:\n%s", on)
+	}
+	if off := Boilerplate(SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r"}).Core; strings.Contains(off, "expose(") {
+		t.Errorf("Previews off: line present:\n%s", off)
+	}
+	for _, k := range []string{KindEphemeral, KindPersonal, KindStanding} {
+		b := Compile(Inputs{Session: SessionFacts{Kind: k, Name: strings.Repeat("n", 64), Owner: strings.Repeat("o", 64), Project: strings.Repeat("p", 64), Role: strings.Repeat("r", 64), Previews: true}})
+		if len(b.Warnings) != 0 {
+			t.Errorf("%s: %v", k, b.Warnings)
+		}
+	}
+}

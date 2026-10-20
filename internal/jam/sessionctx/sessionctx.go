@@ -69,13 +69,14 @@ func (l Layer) Empty() bool { return strings.TrimSpace(l.Core) == "" && len(l.Le
 
 // SessionFacts identify the session the bundle is for.
 type SessionFacts struct {
-	Kind    string // KindEphemeral ("" too) | KindPersonal | KindStanding
-	Name    string // standing session name
-	Project string
-	Role    string
-	Owner   string // personal session owner
-	Unit    string // ephemeral work unit (ticket); "" = none, so no default recipient
-	Kit     string // KitRef.String(), "" = no kit
+	Kind     string // KindEphemeral ("" too) | KindPersonal | KindStanding
+	Name     string // standing session name
+	Project  string
+	Role     string
+	Owner    string // personal session owner
+	Unit     string // ephemeral work unit (ticket); "" = none, so no default recipient
+	Kit      string // KitRef.String(), "" = no kit
+	Previews bool   // studio previews are enabled on this Jam (expose/unexpose/exposures)
 }
 
 // Inputs are everything Compile needs. Later slices add Studio/Project/Role/Jam.

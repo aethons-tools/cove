@@ -38,6 +38,10 @@ type ExposureSink interface {
 // SetExposureSink wires the sink (once, at wiring; nil → nobody is told).
 func (s *Supervisor) SetExposureSink(sink ExposureSink) { s.exposureSink = sink }
 
+// SetPreviewsEnabled records that studio previews are on for this Jam, so the
+// session context tells agents about expose (once, at wiring).
+func (s *Supervisor) SetPreviewsEnabled(on bool) { s.previews = on }
+
 // exposedPorts is the sorted distinct ports of exps.
 func exposedPorts(exps []Exposure) []int32 {
 	ports := make([]int32, 0, len(exps))

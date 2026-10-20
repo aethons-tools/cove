@@ -95,7 +95,7 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["report"] || !names["call_in"] || !names["leave"] {
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["expose"] || !names["unexpose"] || !names["exposures"] || !names["report"] || !names["call_in"] || !names["leave"] {
 		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
@@ -655,5 +655,63 @@ func TestMCPCallInAndLeaveToolsForwardToJam(t *testing.T) {
 	if len(paths) != 2 || paths[0] != "/squawks/call-in" || !strings.Contains(bodies[0], `"who":"user:bob"`) ||
 		paths[1] != "/squawks/leave" || !strings.Contains(bodies[1], `"channel":"chn_2"`) {
 		t.Fatalf("requests = %q %q", paths, bodies)
+	}
+}
+
+func TestMCPExposeToolsEndToEnd(t *testing.T) {
+	var gotM, gotP, gotB string
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotM, gotP = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotB = string(b)
+		switch {
+		case status != http.StatusOK && r.Method == http.MethodPut:
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"error":"previews are not enabled on this Jam"}`)
+		case r.Method == http.MethodPut:
+			_, _ = io.WriteString(w, `{"name":"web","port":3000,"url":"https://web.example.test/"}`)
+		case r.Method == http.MethodGet:
+			_, _ = io.WriteString(w, `{"exposures":[{"name":"web","port":3000,"url":"https://web.example.test/"}]}`)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	ctx := context.Background()
+	text := func(res *mcp.CallToolResult) string {
+		if len(res.Content) == 0 {
+			return ""
+		}
+		return res.Content[0].(*mcp.TextContent).Text
+	}
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "expose", Arguments: map[string]any{"port": 3000, "name": "web"}})
+	if err != nil || res.IsError {
+		t.Fatalf("expose: %v %+v", err, res)
+	}
+	if gotM != "PUT" || gotP != "/exposures/web" || !strings.Contains(gotB, `"port":3000`) {
+		t.Fatalf("%s %s %s", gotM, gotP, gotB)
+	}
+	if got := text(res); !strings.Contains(got, "exposed web → https://web.example.test/") || !strings.Contains(got, "post the link in your channel") {
+		t.Fatalf("expose text = %q", got)
+	}
+
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "exposures", Arguments: map[string]any{}})
+	if err != nil || res.IsError || gotM != "GET" || gotP != "/exposures" || !strings.Contains(text(res), "web → https://web.example.test/ (port 3000)") {
+		t.Fatalf("exposures: %v %+v %s %s", err, res, gotM, gotP)
+	}
+
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "unexpose", Arguments: map[string]any{"name": "web"}})
+	if err != nil || res.IsError || gotM != "DELETE" || gotP != "/exposures/web" {
+		t.Fatalf("unexpose: %v %+v %s %s", err, res, gotM, gotP)
+	}
+
+	status = http.StatusConflict
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "expose", Arguments: map[string]any{"port": 3000, "name": "web"}})
+	if err != nil || !res.IsError || !strings.Contains(text(res), "previews are not enabled on this Jam") {
+		t.Fatalf("refusal reason not surfaced: %v %+v", err, res)
 	}
 }

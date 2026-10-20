@@ -33,16 +33,20 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 
 // squawksMux routes exactly "/squawks", "/squawks/targets", and
 // "/squawks/commit" to squawksH, "/escalate" to escH, and "/end" and "/idle"
-// to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, and "/report" to
+// to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, "/exposures" and "/exposures/{name}" to exposureH, and "/report" to
 // reportH; every other path goes
 // to broker unchanged. Used to mount Jam's brokered ticket-squawk
 // endpoint (its target-discovery and commit-cursor subpaths included) and its
 // brokered escalation-category endpoint on the same cove-facing handler as
 // the broker, without disturbing the broker's own routing.
-func squawksMux(squawksH, escH, turnEndH, alarmH, reportH, broker http.Handler) http.Handler {
+func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/alarms" || strings.HasPrefix(r.URL.Path, "/alarms/") {
 			alarmH.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/exposures" || strings.HasPrefix(r.URL.Path, "/exposures/") {
+			exposureH.ServeHTTP(w, r)
 			return
 		}
 		switch r.URL.Path {
@@ -74,7 +78,7 @@ type messaging struct {
 	legacy jam.LegacyInbox
 }
 
-func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, log *slog.Logger) http.Handler {
+func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, previewURL func(actorID, name string) (string, error), log *slog.Logger) http.Handler {
 	// GET /connector (the identity's client env) and GET /context (its session
 	// context, recompiled live) are always served, ahead of the broker's
 	// destination routes.
@@ -104,12 +108,14 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	log.Info("Jam messages: mounted", "path", "/squawks")
 	turnEndH := jam.NewTurnEndHandler(st, sup, log)
 	alarmH := jam.NewAlarmHandler(st, sup, log)
+	exposureH := jam.NewExposureHandler(st, sup, previewURL, log)
 	reportH := jam.NewReportHandler(st, tickets, sup, time.Now, log)
 	log.Info("Jam escalate: mounted", "path", "/escalate")
 	log.Info("Jam turn-end: mounted", "paths", "/end,/idle")
 	log.Info("Jam alarms: mounted", "paths", "/alarms,/alarms/{name}")
+	log.Info("Jam exposures: mounted", "paths", "/exposures,/exposures/{name}", "previews", previewURL != nil)
 	log.Info("Jam report: mounted", "path", "/report")
-	return withCoveEndpoints(squawksMux(squawksH, escH, turnEndH, alarmH, reportH, broker))
+	return withCoveEndpoints(squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker))
 }
 
 // withMetrics serves exactly /metrics with metrics (when non-nil) ahead of next.

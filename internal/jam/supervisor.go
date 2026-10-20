@@ -251,7 +251,9 @@ type Supervisor struct {
 	upgrader StandingUpgrader
 	// exposureSink hears a session's exposed ports change (SetExposureSink).
 	exposureSink ExposureSink
-	notifyMu     sync.Mutex // orders sink deliveries (see notifyExposures)
+	// previews: studio previews are enabled on this Jam (SetPreviewsEnabled).
+	previews bool
+	notifyMu sync.Mutex // orders sink deliveries (see notifyExposures)
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -1530,6 +1532,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
 		Kind: spec.SessionKind, Name: spec.Name, Project: ProjectName(s.store, spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
+		Previews: s.previews,
 	}}
 	var kitEgress []string
 	haveKit := false

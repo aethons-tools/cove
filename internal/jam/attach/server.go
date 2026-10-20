@@ -217,9 +217,9 @@ func (s *Server) register(actorID string) (chan *attachpb.ControlDown, chan stru
 	s.mu.Lock()
 	old := s.conns[actorID]
 	s.conns[actorID] = ch
-	// Seed the studio's tunnel allow-list before anything else can be queued:
-	// ch is fresh, and every sender takes mu, so this is its first message and
-	// precedes any OpenTunnel.
+	// Seed the studio's tunnel allow-list from the stored exposures. It is not
+	// queued on ch: the send loop delivers it through notify/flushPorts, which
+	// runs ahead of any OpenTunnel (see portsOwed).
 	if _, ok := s.ports[actorID]; !ok && s.exposureSource != nil {
 		if ports := s.exposureSource(actorID); len(ports) > 0 {
 			s.ports[actorID] = slices.Clone(ports)

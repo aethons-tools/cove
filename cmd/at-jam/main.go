@@ -2019,7 +2019,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, log)
+	// previewURL maps a session's preview to the URL collaborators open; nil
+	// means previews are off (no domain configured). Task 4 sets it from the
+	// `previews:` serve config as "https://" + preview.Host(domain, name, actorID) + "/".
+	var previewURL func(actorID, name string) (string, error)
+	sup.SetPreviewsEnabled(previewURL != nil)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {
