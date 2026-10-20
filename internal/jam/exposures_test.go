@@ -150,3 +150,18 @@ func TestExposeRefusesDeadSession(t *testing.T) {
 		t.Fatalf("idled refused: %v", err)
 	}
 }
+
+func TestTeardownTellsSinkTheSetIsEmpty(t *testing.T) {
+	sup, _ := exposureTestSupervisor(t, "ses_a")
+	rec := &recSink{}
+	sup.SetExposureSink(rec)
+	if _, err := sup.Expose("ses_a", "app", 5173); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Teardown(context.Background(), "ses_a"); err != nil {
+		t.Fatal(err)
+	}
+	if last := rec.last(); last.actor != "ses_a" || len(last.ports) != 0 {
+		t.Fatalf("sink not told the torn-down set is empty: %+v", last)
+	}
+}

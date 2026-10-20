@@ -25,7 +25,10 @@ var (
 )
 
 // ExposureSink is told a session's full set of exposed ports after every
-// change (and after a raise clears them). It is called outside instMu.
+// change, after a raise clears them, and (as an empty set) after a teardown
+// removes the instance. It is called outside instMu but while holding the
+// supervisor's notify mutex, so implementations MUST be fast and non-blocking
+// (store and enqueue only) and MUST NOT call back into the Supervisor.
 type ExposureSink interface {
 	ExposuresChanged(actorID string, ports []int32)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -251,5 +252,98 @@ func TestDialBackDeliversTailBeforeLocalClose(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("tunnel never ended")
+	}
+}
+
+// scriptRuntime's Attach sends its script in order, pausing between frames so
+// each OpenTunnel's outcome is observable before the next control arrives.
+type scriptRuntime struct {
+	attachpb.UnimplementedRuntimeServer
+	script []*attachpb.ControlDown
+	opened chan string
+}
+
+func (f *scriptRuntime) Attach(s attachpb.Runtime_AttachServer) error {
+	for _, cd := range f.script {
+		_ = s.Send(cd)
+		time.Sleep(100 * time.Millisecond)
+	}
+	<-s.Context().Done()
+	return nil
+}
+
+func (f *scriptRuntime) Tunnel(s attachpb.Runtime_TunnelServer) error {
+	fr, err := s.Recv()
+	if err != nil {
+		return err
+	}
+	f.opened <- fr.GetOpen().GetId()
+	<-s.Context().Done()
+	return nil
+}
+
+func newTestClient(t *testing.T, f attachpb.RuntimeServer, dial func(context.Context, string) (net.Conn, error)) *Client {
+	return tunnelClient(t, f, dial)
+}
+
+func runFor(t *testing.T, c *Client, d time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	<-runBlocked(ctx, c)
+}
+
+func drain[T any](ch chan T) []T {
+	var out []T
+	for {
+		select {
+		case v := <-ch:
+			out = append(out, v)
+		default:
+			return out
+		}
+	}
+}
+
+func openTunnel(id string, port int32) *attachpb.ControlDown {
+	return &attachpb.ControlDown{Msg: &attachpb.ControlDown_OpenTunnel{OpenTunnel: &attachpb.OpenTunnel{Id: id, Port: port}}}
+}
+
+func setPorts(ports ...int32) *attachpb.ControlDown {
+	return &attachpb.ControlDown{Msg: &attachpb.ControlDown_TunnelPorts{TunnelPorts: &attachpb.SetTunnelPorts{Ports: ports}}}
+}
+
+func TestDialBackFollowsSetTunnelPorts(t *testing.T) {
+	f := &scriptRuntime{script: []*attachpb.ControlDown{
+		setPorts(5173), openTunnel("t1", 5173), setPorts(), openTunnel("t2", 5173),
+	}, opened: make(chan string, 4)}
+	dialed := make(chan string, 4)
+	c := newTestClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
+		dialed <- addr
+		a, _ := net.Pipe()
+		return a, nil
+	})
+	runFor(t, c, 2*time.Second)
+	if got := drain(dialed); !slices.Equal(got, []string{"127.0.0.1:5173"}) {
+		t.Fatalf("dialed %v, want only the first (exposed) open", got)
+	}
+	if got := drain(f.opened); !slices.Equal(got, []string{"t1"}) {
+		t.Fatalf("claimed %v", got)
+	}
+}
+
+func TestSetTunnelPortsReplacesAndKeepsSSHD(t *testing.T) {
+	f := &scriptRuntime{script: []*attachpb.ControlDown{
+		setPorts(5173), setPorts(3000), openTunnel("t1", 5173), openTunnel("t2", 3000), setPorts(), openTunnel("t3", 2222),
+	}, opened: make(chan string, 4)}
+	dialed := make(chan string, 4)
+	c := newTestClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
+		dialed <- addr
+		a, _ := net.Pipe()
+		return a, nil
+	})
+	runFor(t, c, 2*time.Second)
+	if got := drain(dialed); !slices.Equal(got, []string{"127.0.0.1:3000", "127.0.0.1:2222"}) {
+		t.Fatalf("dialed %v", got)
 	}
 }

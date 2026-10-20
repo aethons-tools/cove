@@ -1227,6 +1227,7 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if s.tunnels != nil {
 		s.tunnels.Reopen(actorID) // forget the gone studio's closed mark
 	}
+	s.notifyExposures(actorID) // instance gone → the sink forgets its port set
 	if err := s.store.RemoveShareGrantsOf(actorID); err != nil && s.log != nil {
 		s.log.Warn("teardown: removing the session's share grants failed (non-fatal)", "id", actorID, "err", err.Error())
 	}

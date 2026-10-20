@@ -170,8 +170,10 @@ For [studio collaboration](collaboration.md#how-it-works) Jam also pushes
 `OpenTunnel{id, port}` down the stream; cove-master answers by dialing a separate
 **`Tunnel`** RPC on the same `Runtime` service and connection (authenticated the
 same way), claiming the id, and piping it to `127.0.0.1:<port>` — only ports on
-its allow-list (`2222`, the studio's sshd). An older cove-master ignores the
-push, so Jam's open times out (504).
+its allow-list (`2222`, the studio's sshd, plus the studio's exposed
+[previews](collaboration.md#previews), which Jam pushes as `SetTunnelPorts{ports}`
+first on every Attach stream and after each change; each push replaces the last).
+An older cove-master ignores the push, so Jam's open times out (504).
 
 ## cove-master (the in-cove client)
 

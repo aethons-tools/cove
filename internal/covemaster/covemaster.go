@@ -133,7 +133,8 @@ type Config struct {
 	FlushTimeout      time.Duration // Done waits this long for the final ack; default 5s
 
 	// TunnelPorts is the allow-list of loopback ports Jam may ask the cove to
-	// dial back (OpenTunnel); default {2222}. Anything else is refused.
+	// dial back (OpenTunnel), in addition to sshd's 2222 (always allowed) and
+	// whatever Jam last sent in SetTunnelPorts. Anything else is refused.
 	TunnelPorts []int32
 	// TunnelDial opens the local connection (test seam); default is a plain
 	// TCP dial.

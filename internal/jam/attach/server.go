@@ -37,6 +37,10 @@ type Server struct {
 	log   *slog.Logger
 	mu    sync.Mutex
 	conns map[string]chan *attachpb.ControlDown
+	ports map[string][]int32 // latest exposed-port set per actor (absent = none known)
+	// exposureSource seeds an actor's set on connect when none is stored
+	// (called under mu, so it must not call back into the Server).
+	exposureSource func(actorID string) []int32
 
 	events  *sessionevents.Ingest
 	tunnels *TunnelBroker
@@ -79,9 +83,10 @@ func stampOf(store jam.Store, inst jam.Instance) sessionevents.Stamp {
 }
 
 var _ jam.ControlSink = (*Server)(nil)
+var _ jam.ExposureSink = (*Server)(nil)
 
 func NewServer(store jam.Store, sup *jam.Supervisor, log *slog.Logger) *Server {
-	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}}
+	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}, ports: map[string][]int32{}}
 }
 
 // authenticate resolves the actorID from stream metadata: bearer identity token
@@ -198,6 +203,14 @@ func (s *Server) register(actorID string) chan *attachpb.ControlDown {
 	s.mu.Lock()
 	old := s.conns[actorID]
 	s.conns[actorID] = ch
+	// Seed the studio's tunnel allow-list before anything else can be queued:
+	// ch is fresh, and every sender takes mu, so this is its first message and
+	// precedes any OpenTunnel.
+	ports, ok := s.ports[actorID]
+	if !ok && s.exposureSource != nil {
+		ports = s.exposureSource(actorID)
+	}
+	ch <- tunnelPortsMsg(ports)
 	s.mu.Unlock()
 	if old != nil {
 		close(old) // old send loop sees !ok and exits; map no longer references it
@@ -314,4 +327,34 @@ func (s *Server) Tunnel(stream attachpb.Runtime_TunnelServer) error {
 		return err
 	}
 	return s.tunnels.Claim(actorID, stream)
+}
+
+func tunnelPortsMsg(ports []int32) *attachpb.ControlDown {
+	return &attachpb.ControlDown{Msg: &attachpb.ControlDown_TunnelPorts{TunnelPorts: &attachpb.SetTunnelPorts{Ports: ports}}}
+}
+
+// SetExposureSource lets a restarted Jam seed an actor's tunnel allow-list from
+// the store when no change has been recorded since it started (nil = none).
+// Call before serving. The source runs under the server's lock: it must be
+// fast and must not call back into the Server.
+func (s *Server) SetExposureSource(f func(actorID string) []int32) { s.exposureSource = f }
+
+// ExposuresChanged implements jam.ExposureSink: record actorID's latest exposed
+// ports (an empty set forgets them) and push them to its studio if connected.
+// The supervisor calls it holding a mutex, so it only stores and enqueues
+// without blocking. A full queue drops the push; the next connect re-seeds.
+func (s *Server) ExposuresChanged(actorID string, ports []int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(ports) == 0 {
+		delete(s.ports, actorID)
+	} else {
+		s.ports[actorID] = ports
+	}
+	if ch, ok := s.conns[actorID]; ok {
+		select {
+		case ch <- tunnelPortsMsg(ports):
+		default:
+		}
+	}
 }

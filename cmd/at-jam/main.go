@@ -1864,6 +1864,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// resident wake-on engine needs rsrv as its Waker.
 	rsrv := attach.NewServer(st, sup, log)
 	sup.SetControlSink(rsrv)
+	// Exposed preview ports reach each studio's cove-master as its dynamic
+	// tunnel allow-list; a restarted Jam seeds it from the stored exposures.
+	sup.SetExposureSink(rsrv)
+	rsrv.SetExposureSource(func(id string) []int32 {
+		exps := sup.Exposures(id)
+		ports := make([]int32, 0, len(exps))
+		for _, e := range exps {
+			ports = append(ports, int32(e.Port))
+		}
+		return ports
+	})
 	// Studio collaboration tunnels: a human's connection reaches a studio's
 	// loopback port over a Tunnel the studio dials back; the supervisor closes
 	// a studio's tunnels before it pauses or tears it down.
