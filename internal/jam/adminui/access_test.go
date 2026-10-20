@@ -70,7 +70,7 @@ func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
 		"preview: members · ssh: members",
 		`>carol</a>`, "<td>ssh</td>", exp.Format("2006-01-02 15:04 MST"), "op:local",
 		`hx-delete="/ui/agents/sess-1/shares/` + string(carol) + `"`,
-		"No open SSH connections.",
+		"No open connections.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("access panel lacks %q", want)
@@ -85,7 +85,7 @@ func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
 func TestAccessPanelOffWithoutSSH(t *testing.T) {
 	store, _, _ := accessFixture(t)
 	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/agents/sess-1").Body.String()
-	if !strings.Contains(body, "SSH collaboration is off") || strings.Contains(body, "/shares/") {
+	if !strings.Contains(body, "Studio collaboration is off") || strings.Contains(body, "/shares/") {
 		t.Fatalf("panel without SSH collaboration:\n%s", body)
 	}
 }
@@ -99,7 +99,7 @@ func TestAccessPanelUnshare(t *testing.T) {
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live))
 	conn, br := sshAs(t, store, live, "carol")
 
-	if body := get(t, h, "/ui/agents/sess-1").Body.String(); !strings.Contains(body, "<td>carol</td>") || strings.Contains(body, "No open SSH connections.") {
+	if body := get(t, h, "/ui/agents/sess-1").Body.String(); !strings.Contains(body, "<td>carol</td>") || strings.Contains(body, "No open connections.") {
 		t.Fatalf("live connection not listed:\n%s", body)
 	}
 
@@ -183,4 +183,33 @@ func sshAs(t *testing.T, store jam.Store, live *collabhttp.Live, name string) (n
 	}
 	t.Fatal("connection never registered")
 	return nil, nil
+}
+
+// With previews on the card lists each exposure as a new-tab link (names
+// escaped), and a live preview connection shows with right preview; with them
+// off it says so.
+func TestAccessPanelPreviews(t *testing.T) {
+	store, _, _ := accessFixture(t)
+	exposures := func(string) []jam.Exposure {
+		return []jam.Exposure{{Name: "app", Port: 5173}, {Name: "<b>x</b>", Port: 3000}}
+	}
+	urlFor := func(_, name string) (string, error) { return "https://" + name + "--x.preview.jam.example/", nil }
+	live := collabhttp.NewLive()
+	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live), adminui.WithStudioPreviews(exposures, urlFor))
+	body := get(t, h, "/ui/agents/sess-1").Body.String()
+	for _, want := range []string{
+		`<a href="https://app--x.preview.jam.example/" target="_blank" rel="noopener noreferrer">app</a>`,
+		`&lt;b&gt;x&lt;/b&gt;</a>`, "<td>5173</td>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("previews list lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "<b>x</b>") || strings.Contains(body, "Previews are off") {
+		t.Errorf("unescaped name or off notice:\n%s", body)
+	}
+	body = get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live)), "/ui/agents/sess-1").Body.String()
+	if !strings.Contains(body, "Previews are off on this Jam") {
+		t.Errorf("no off notice:\n%s", body)
+	}
 }

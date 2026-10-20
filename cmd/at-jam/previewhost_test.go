@@ -225,7 +225,7 @@ func (r *recordCloser) CloseExposure(session string, port int) int {
 // ports a session stopped exposing — only those, and only for that session.
 func TestExposureFanoutClosesRemovedPorts(t *testing.T) {
 	sink, closer := &recordSink{}, &recordCloser{}
-	f := newExposureFanout(sink, closer)
+	f := newExposureFanout(sink, closer, nil)
 	f.ExposuresChanged("ses_a", []int32{3000, 5173})
 	f.ExposuresChanged("ses_b", []int32{3000})
 	f.ExposuresChanged("ses_a", []int32{5173, 8080}) // 3000 unexposed, 8080 added
@@ -286,5 +286,17 @@ func TestAdminListenerDoesNotAdvertiseExtendedConnect(t *testing.T) {
 			t.Fatalf("server advertises SETTINGS_ENABLE_CONNECT_PROTOCOL=%d", v)
 		}
 		return
+	}
+}
+
+// Every change, whatever its ports, tells the proxy to drop its label cache.
+func TestExposureFanoutCallsOnChange(t *testing.T) {
+	n := 0
+	f := newExposureFanout(&recordSink{}, &recordCloser{}, func() { n++ })
+	f.ExposuresChanged("ses_a", []int32{3000})
+	f.ExposuresChanged("ses_a", []int32{3000})
+	f.ExposuresChanged("ses_a", nil)
+	if n != 3 {
+		t.Fatalf("onChange called %d times, want 3", n)
 	}
 }

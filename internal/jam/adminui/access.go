@@ -20,6 +20,13 @@ func WithStudioAccess(live *collabhttp.Live) Option {
 	return func(o *options) { o.live = live }
 }
 
+// WithStudioPreviews lists a studio's exposed previews, with their URLs, in
+// the Access card (exposures is Supervisor.Exposures; urlFor builds a
+// preview's URL). Without it the card says previews are off.
+func WithStudioPreviews(exposures func(actorID string) []jam.Exposure, urlFor func(actorID, name string) (string, error)) Option {
+	return func(o *options) { o.exposures, o.previewURL = exposures, urlFor }
+}
+
 // accessCard is the Access card's payload.
 type accessCard struct {
 	ID      string
@@ -27,10 +34,18 @@ type accessCard struct {
 	View    collabwire.AccessView
 }
 
-func buildAccessCard(store jam.Store, live *collabhttp.Live, inst jam.Instance) accessCard {
+// accessDeps is what the Access card reads beyond the store.
+type accessDeps struct {
+	live      *collabhttp.Live
+	exposures func(actorID string) []jam.Exposure
+	urlFor    func(actorID, name string) (string, error)
+}
+
+func buildAccessCard(store jam.Store, a accessDeps, inst jam.Instance) accessCard {
+	live := a.live
 	c := accessCard{ID: inst.ActorID, Enabled: live != nil}
 	if c.Enabled {
-		c.View = collabhttp.AccessOf(store, live, time.Now(), inst)
+		c.View = collabhttp.AccessOf(store, live, time.Now(), inst, a.exposures, a.urlFor)
 	}
 	return c
 }

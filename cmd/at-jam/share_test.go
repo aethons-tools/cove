@@ -24,6 +24,12 @@ import (
 // "local", over a store with live studio ses_a and user carol.
 func shareJam(t *testing.T) (*httptest.Server, *jam.MemStore) {
 	t.Helper()
+	return shareJamWith(t, nil)
+}
+
+// shareJamWith is shareJam with tweak applied to the collaboration Deps.
+func shareJamWith(t *testing.T, tweak func(*collabhttp.Deps)) (*httptest.Server, *jam.MemStore) {
+	t.Helper()
 	st := jam.NewMemStore()
 	if err := st.PutInstance(jam.Instance{ActorID: "ses_a", Project: "default", Role: "ic", Phase: jam.PhaseLive}); err != nil {
 		t.Fatal(err)
@@ -37,12 +43,16 @@ func shareJam(t *testing.T) (*httptest.Server, *jam.MemStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(collabhttp.Routes("/admin", collabhttp.Deps{
+	d := collabhttp.Deps{
 		Store: st, CA: ca, Tunnels: echoTunnels{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Principal: func(*http.Request) (collab.Principal, string, error) {
 			return collab.Principal{Operator: "local"}, "op", nil
 		},
-	}))
+	}
+	if tweak != nil {
+		tweak(&d)
+	}
+	srv := httptest.NewServer(collabhttp.Routes("/admin", d))
 	t.Cleanup(srv.Close)
 	return srv, st
 }
@@ -67,7 +77,7 @@ func TestStudioShareUnshareAccess(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("access: %d %q", code, errs)
 	}
-	for _, want := range []string{"operators\talways", "role default/ic\tpreview=members\tssh=none", "grant\tcarol\tpreview,ssh\tuntil ", "by=op:local", "live\tnone"} {
+	for _, want := range []string{"operators\talways", "role default/ic\tpreview=members\tssh=none", "grant\tcarol\tpreview,ssh\tuntil ", "by=op:local", "live\tnone", "PREVIEWS\noff\tpreviews are off on this Jam"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("access output lacks %q:\n%s", want, out)
 		}
@@ -97,5 +107,18 @@ func TestStudioShareUsage(t *testing.T) {
 		if code, _, errs := runCLI(args...); code != 2 {
 			t.Errorf("%v: exit %d (%s)", args, code, errs)
 		}
+	}
+}
+
+// `studio access` prints a PREVIEWS section: name, port and URL per preview.
+func TestStudioAccessPreviews(t *testing.T) {
+	sshTestHome(t)
+	srv, _ := shareJamWith(t, func(d *collabhttp.Deps) {
+		d.Exposures = func(string) []jam.Exposure { return []jam.Exposure{{Name: "app", Port: 5173}} }
+		d.PreviewURL = func(_, name string) (string, error) { return "https://" + name + "--x.preview.jam.example/", nil }
+	})
+	code, out, errs := runCLI("studio", "access", "--operator", "--admin-url", srv.URL, "ses_a")
+	if code != 0 || !strings.Contains(out, "PREVIEWS\napp\t5173\thttps://app--x.preview.jam.example/\n") {
+		t.Fatalf("access: %d %q %q", code, out, errs)
 	}
 }

@@ -1903,7 +1903,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Exposed preview ports reach each studio's cove-master as its dynamic
 	// tunnel allow-list; a restarted Jam seeds it from the stored exposures.
 	// An unexposed port's open preview connections close at once.
-	sup.SetExposureSink(newExposureFanout(rsrv, liveConns))
+	// The preview proxy (built later) drops its label cache on any change.
+	var invalidatePreviewLabels atomic.Pointer[func()]
+	sup.SetExposureSink(newExposureFanout(rsrv, liveConns, func() {
+		if f := invalidatePreviewLabels.Load(); f != nil {
+			(*f)()
+		}
+	}))
 	rsrv.SetExposureSource(sup.ExposedPorts)
 	// Studio collaboration tunnels: a human's connection reaches a studio's
 	// loopback port over a Tunnel the studio dials back; the supervisor closes
@@ -2412,8 +2418,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
-		if sshCA != nil {
-			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns))
+		if sshCA != nil || previewURL != nil {
+			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
 		if sshCA != nil || cfg.Previews != nil {
 			// Revocation: drop open SSH and preview connections whose access has
@@ -2464,6 +2470,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// The preview proxy serves the login host and every preview host;
 			// it names its callers through previewAuth, not a plane's Principal.
 			previewHandler := collabhttp.Preview(collabDeps(nil), previewAuth, cfg.Previews.Domain)
+			inv := previewHandler.InvalidateLabels
+			invalidatePreviewLabels.Store(&inv)
 			adminServe = hostRouter(cfg.Previews.Domain, previewHandler, admin)
 		}
 		go func() {

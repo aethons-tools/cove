@@ -24,6 +24,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 const (
@@ -65,7 +66,7 @@ func (f *appTunnels) opened() []string {
 }
 
 type previewHarness struct {
-	h     http.Handler
+	h     *PreviewHandler
 	auth  *previewFixture
 	st    *jam.MemStore
 	live  *Live
@@ -488,9 +489,10 @@ func TestPreviewUsersNeverSharePooledConns(t *testing.T) {
 	if got := ph.tun.opened(); got[0] != previewSession+":5173" {
 		t.Fatalf("opened %v", got)
 	}
-	// Preview connections are not listed as open SSH connections.
-	if l := ph.live.List(previewSession); len(l) != 0 {
-		t.Fatalf("List = %v", l)
+	// Preview connections are listed too, with their right.
+	l := ph.live.List(previewSession)
+	if len(l) != 2 || l[0].Right != "preview" || l[1].Right != "preview" {
+		t.Fatalf("List = %+v", l)
 	}
 }
 
@@ -773,4 +775,26 @@ func TestPreviewRefusesConnect(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed || len(ph.tun.opened()) != 0 {
 		t.Fatalf("%d, %d opens", rec.Code, len(ph.tun.opened()))
 	}
+}
+
+// A session exposed just after another label's rebuild would 404 on the
+// rebuild throttle; InvalidateLabels (the exposure fan-out's hook) lifts it.
+func TestPreviewInvalidateLabels(t *testing.T) {
+	ph := newPreviewHarness(t, nil)
+	if _, ok := ph.h.p.actor(preview.Label(previewSession)); !ok {
+		t.Fatal("known session not found")
+	}
+	const fresh = "ses_fresh"
+	if err := ph.st.PutInstance(jam.Instance{ActorID: fresh, Project: "acme", Role: "ic", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ph.h.p.actor(preview.Label(fresh)); ok {
+		t.Fatal("throttled rebuild should still miss")
+	}
+	ph.h.InvalidateLabels()
+	if id, ok := ph.h.p.actor(preview.Label(fresh)); !ok || id != fresh {
+		t.Fatalf("after invalidation: %q %v", id, ok)
+	}
+	(*PreviewHandler)(nil).InvalidateLabels() // previews off: a no-op
+	Preview(Deps{}, nil, testDomain).InvalidateLabels()
 }

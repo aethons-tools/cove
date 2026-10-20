@@ -101,7 +101,7 @@ share grant works for a user who is in no project.
 |---------|--------------|
 | `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes their open SSH connections, as unshare does). The grant is keyed to the session and removed when it ends. |
 | `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
-| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live}`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), and the open SSH connections. |
+| `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live, previews_on, previews}`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), the open connections (each with its right, `ssh` or `preview`) and a `PREVIEWS` section (name, port, URL). |
 
 They pick the plane as the ssh commands do. An operator may share anything. A
 participant must hold some right on the studio to use any of the three, may

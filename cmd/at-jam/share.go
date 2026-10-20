@@ -106,7 +106,17 @@ func cmdStudioShare(sub string, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "live\tnone")
 		}
 		for _, l := range v.Live {
-			fmt.Fprintf(stdout, "live\t%s\t%s\tsince %s\n", l.Name, l.User, l.Since.UTC().Format(time.RFC3339))
+			fmt.Fprintf(stdout, "live\t%s\t%s\t%s\tsince %s\n", l.Right, l.Name, l.User, l.Since.UTC().Format(time.RFC3339))
+		}
+		fmt.Fprintln(stdout, "PREVIEWS")
+		switch {
+		case !v.PreviewsOn:
+			fmt.Fprintln(stdout, "off\tpreviews are off on this Jam")
+		case len(v.Previews) == 0:
+			fmt.Fprintln(stdout, "none")
+		}
+		for _, p := range v.Previews {
+			fmt.Fprintf(stdout, "%s\t%d\t%s\n", p.Name, p.Port, p.URL)
 		}
 	}
 	return 0

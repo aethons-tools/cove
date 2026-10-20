@@ -1,7 +1,7 @@
 {{define "access-card"}}
   <section class="card">
     <header><h2>Access</h2><span class="sub">who can reach this studio, and why</span></header>
-    {{if not .Enabled}}<div class="body unset">SSH collaboration is off on this Jam.</div>
+    {{if not .Enabled}}<div class="body unset">Studio collaboration is off on this Jam.</div>
     {{else}}{{$id := .ID}}{{with .View}}
     <div class="body">
       <dl class="kv">
@@ -25,14 +25,26 @@
       </tbody>
     </table>
     <table>
-      <thead><tr><th>Connected over SSH</th><th>Since</th></tr></thead>
+      <thead><tr><th>Connected</th><th>Right</th><th>Since</th></tr></thead>
       <tbody>
         {{range .Live}}<tr>
           <td>{{.Name}}</td>
+          <td>{{.Right}}</td>
           <td><time title="{{.Since.Format "2006-01-02 15:04:05 MST"}}">{{.Since.Format "Jan 2 15:04"}}</time></td></tr>
-        {{else}}<tr><td colspan="2" class="empty">No open SSH connections.</td></tr>{{end}}
+        {{else}}<tr><td colspan="3" class="empty">No open connections.</td></tr>{{end}}
       </tbody>
     </table>
+    {{if .PreviewsOn}}
+    <table>
+      <thead><tr><th>Previews</th><th>Port</th></tr></thead>
+      <tbody>
+        {{range .Previews}}<tr>
+          <td><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.Name}}</a></td>
+          <td>{{.Port}}</td></tr>
+        {{else}}<tr><td colspan="2" class="empty">Nothing exposed.</td></tr>{{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="body unset">Previews are off on this Jam.</div>{{end}}
     {{end}}{{end}}
   </section>
 {{end}}

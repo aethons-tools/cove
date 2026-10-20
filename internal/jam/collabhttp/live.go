@@ -40,6 +40,7 @@ func NewLive() *Live { return &Live{conns: map[*liveEntry]struct{}{}} }
 
 // add registers a connection and returns its removal.
 func (l *Live) add(e *liveEntry) (remove func()) {
+	e.Right = string(e.right)
 	l.mu.Lock()
 	l.conns[e] = struct{}{}
 	l.mu.Unlock()
@@ -50,9 +51,8 @@ func (l *Live) add(e *liveEntry) (remove func()) {
 	}
 }
 
-// List returns a session's open SSH connections, oldest first (preview
-// connections are pooled per viewer, not a session a person holds open, so
-// the Access card does not list them).
+// List returns a session's open connections of every right (ssh, preview),
+// oldest first.
 func (l *Live) List(session string) []collabwire.LiveConn {
 	if l == nil {
 		return nil
@@ -61,7 +61,7 @@ func (l *Live) List(session string) []collabwire.LiveConn {
 	defer l.mu.Unlock()
 	out := []collabwire.LiveConn{}
 	for e := range l.conns {
-		if e.Session == session && e.right == collab.SSH {
+		if e.Session == session {
 			out = append(out, e.LiveConn)
 		}
 	}

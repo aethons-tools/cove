@@ -28,8 +28,19 @@ import (
 // remove a grant whose rights they all hold, or their own.
 
 // AccessOf builds inst's collabwire.AccessView.
-func AccessOf(store jam.Store, live *Live, now time.Time, inst jam.Instance) collabwire.AccessView {
-	v := collabwire.AccessView{Session: inst.ActorID, Grants: []collabwire.GrantView{}, Live: live.List(inst.ActorID)}
+//
+// Previews are listed when exposures and urlFor are both set (Deps.Exposures
+// and Deps.PreviewURL); an exposure whose URL cannot be built is left out.
+func AccessOf(store jam.Store, live *Live, now time.Time, inst jam.Instance, exposures func(string) []jam.Exposure, urlFor func(actorID, name string) (string, error)) collabwire.AccessView {
+	v := collabwire.AccessView{Session: inst.ActorID, Grants: []collabwire.GrantView{}, Live: live.List(inst.ActorID), Previews: []collabwire.PreviewView{}}
+	if exposures != nil && urlFor != nil {
+		v.PreviewsOn = true
+		for _, e := range exposures(inst.ActorID) {
+			if u, err := urlFor(inst.ActorID, e.Name); err == nil {
+				v.Previews = append(v.Previews, collabwire.PreviewView{Name: e.Name, Port: e.Port, URL: u})
+			}
+		}
+	}
 	if v.Live == nil {
 		v.Live = []collabwire.LiveConn{}
 	}
@@ -322,5 +333,5 @@ func (h *handler) access(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(AccessOf(h.d.Store, h.d.Live, h.d.Now(), inst))
+	_ = json.NewEncoder(w).Encode(AccessOf(h.d.Store, h.d.Live, h.d.Now(), inst, h.d.Exposures, h.d.PreviewURL))
 }

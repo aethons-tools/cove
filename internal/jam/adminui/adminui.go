@@ -142,6 +142,8 @@ type options struct {
 	conds           *condition.Tracker
 	alertmanagerURL string
 	live            *collabhttp.Live
+	exposures       func(actorID string) []jam.Exposure
+	previewURL      func(actorID, name string) (string, error)
 }
 
 // WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
@@ -223,7 +225,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
-	registerAgent(mux, store, msgs, o.sessStore, o.live, canEdit)
+	registerAgent(mux, store, msgs, o.sessStore, accessDeps{o.live, o.exposures, o.previewURL}, canEdit)
 	registerSearch(mux, store, msgs)
 	registerSuggest(mux, store, o.credNames)
 

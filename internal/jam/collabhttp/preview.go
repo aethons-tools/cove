@@ -58,9 +58,9 @@ var errPreviewAccessEnded = errors.New("preview access ended")
 // any Set-Cookie for a Jam cookie name from the response. Its pooled
 // connections are per (viewer, session, port) and registered in d.Live, so an
 // unshare, the revocation sweep or Live.CloseExposure closes them.
-func Preview(d Deps, auth *PreviewAuth, domain string) http.Handler {
+func Preview(d Deps, auth *PreviewAuth, domain string) *PreviewHandler {
 	if d.PreviewURL == nil || d.Exposures == nil || auth == nil {
-		return http.HandlerFunc(notExposed)
+		return &PreviewHandler{Handler: http.HandlerFunc(notExposed)}
 	}
 	p := &previewProxy{
 		h:       &handler{d: withDefaults(d)},
@@ -82,7 +82,7 @@ func Preview(d Deps, auth *PreviewAuth, domain string) http.Handler {
 	}
 	login := auth.LoginHostHandler()
 	routes := auth.PreviewHostRoutes(http.HandlerFunc(p.serve))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &PreviewHandler{p: p, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case auth.isLoginHost(r.Host):
 			login.ServeHTTP(w, r)
@@ -97,7 +97,29 @@ func Preview(d Deps, auth *PreviewAuth, domain string) http.Handler {
 		default:
 			notExposed(w, r)
 		}
-	})
+	})}
+}
+
+// PreviewHandler is the handler Preview returns.
+type PreviewHandler struct {
+	http.Handler
+	p *previewProxy // nil when previews are off
+}
+
+// InvalidateLabels forgets the proxy's rebuild throttle and remembered misses,
+// so the next request for an unknown label rescans the store at once. The
+// exposure fan-out calls it on any exposure change: a session's first
+// preview link must not 404 because another label was rebuilt a moment ago.
+// It only takes the cache lock briefly, so a caller under the supervisor's
+// notify mutex never waits on a rebuild.
+func (h *PreviewHandler) InvalidateLabels() {
+	if h == nil || h.p == nil {
+		return
+	}
+	h.p.mu.Lock()
+	h.p.rebuilt = time.Time{}
+	clear(h.p.misses)
+	h.p.mu.Unlock()
 }
 
 func isPreviewHost(host, domain string) bool {
