@@ -1,6 +1,6 @@
 # intercom: structured asks — design
 
-**Status:** approved in brainstorming (2026-10-21); not built.
+**Status:** approved in brainstorming (2026-10-21); amended 2026-10-21: ask events ride in a general message **parts** envelope (shared with the coming attachments). Not built.
 **Builds on:** the channel log ([`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md) slice 2), session channels and wake-on (slice 3), escalation as call-in (slice 4, [`2026-10-07-intercom-slice4-escalation-call-in-design.md`](2026-10-07-intercom-slice4-escalation-call-in-design.md)).
 **Scope decisions (2026-10-21):** relays are paused, so this targets `/me` only; collaboration roadmap order is asks → attachments → whiteboard.
 
@@ -25,7 +25,7 @@ An ask belongs to one channel and one asking session. It has:
 
 **Every change is a squawk in the channel log**, so ordering, inboxes, `read`, wake-on, SSE refresh, History and export all apply unchanged:
 
-- A squawk gains an optional structured field `ask` (`{event: ask|amend|withdraw|answer, ask_id, …}`). Its `body` is a plain one-line rendering ("asked: merge PR #12? (a) yes (b) no", "alice chose **b** — ship it after lunch", "withdrawn: found it"), so an older agent, an export or History still reads sensibly. Content type stays as today.
+- A squawk gains **parts**: a list of typed parts, each either **inline** (`{type, data}` — small JSON or text carried in the message) or a **reference** (`{type, ref, name, size}` — a stored blob; reserved for attachments, refused until that spec lands). An ask event is one inline part of type `application/vnd.jam.ask+json` whose data is `{event: ask|amend|withdraw|answer, ask_id, …}`; the store recognizes that type and folds it. At most one ask part per squawk; unknown part types are refused for now. The envelope is general so attachments add blob storage and reference parts without another wire or schema change, and one message can carry an image and an ask. The squawk's `body` is a plain one-line rendering ("asked: merge PR #12? (a) yes (b) no", "alice chose **b** — ship it after lunch", "withdrawn: found it"), so an older agent, an export or History still reads sensibly. Content type stays as today.
 - An `asks` read-model (one row per ask: `ask_id, channel, asker, of, version, state, answer, last_seq`) is written **in the same transaction** as the event's append. It is where the atomic checks run (Postgres: row `FOR UPDATE`; MemStore: its mutex) and where open asks are listed. It is rebuildable from the log; the log is the source of truth.
 - A chat reply about an ask carries `re: ask_id` (`Squawk.ReplyTo`), rendered as a link chip.
 
@@ -36,7 +36,7 @@ An ask belongs to one channel and one asking session. It has:
 - `withdraw(ask_id, reason?)`; only the asker, only while open.
 - `asks(state?)` → the session's own asks with their state; for picking up after a restart.
 
-An **answer reaches the agent through `read`** as an inbox entry whose `ask` field is `{event: answer, ask_id, version, choice, comment}` and whose `from` is the person; it wakes the session like any reply. Amend/withdraw events by the asker are not delivered back to it.
+An **answer reaches the agent through `read`** as an inbox entry carrying the answer as its ask part (`{event: answer, ask_id, version, choice, comment}`); the read wire lists a squawk's `parts` and whose `from` is the person; it wakes the session like any reply. Amend/withdraw events by the asker are not delivered back to it.
 
 **Needs you / escalation:** `AskedForPerson` also holds while the session has an open ask a person may answer. That flag clears when its last open ask closes (not on wake). So the `/me` "Needs you" group and the escalation engine pick up open asks with no further change.
 
@@ -56,9 +56,9 @@ An **answer reaches the agent through `read`** as an inbox entry whose `ask` fie
 
 ## 6. Data, upgrade, compatibility
 
-- Postgres: `intercompg` migration adds the `ask` jsonb column on the channel log and the `asks` table. MemStore mirrors it.
-- Export/import carry the events as squawks; import rebuilds `asks`.
-- An older Jam ignores the `ask` field and shows the body text; rolling back loses only the structure.
+- Postgres: `intercompg` migration adds a `parts` jsonb column on the channel log and the `asks` table. MemStore mirrors it.
+- `at-jam export` carries no intercom state (backup.md), so nothing changes there.
+- An older Jam ignores `parts` and shows the body text; rolling back loses only the structure.
 - **Relays** (paused) skip ask events entirely.
 
 ## 7. Testing

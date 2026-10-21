@@ -4,7 +4,7 @@
 
 **Goal:** An agent posts a one-of-N question (an *ask*) into a channel; a person answers it in `/me`; the answer reaches the agent through `read`.
 
-**Architecture:** Ask events are squawks in the channel log carrying an optional structured `Ask` field; the log store folds them into an `asks` read-model in the same serialized append (so "open only", "current version" and "first answer wins" are atomic). `jam.Intercom` adds the policy (who may ask/answer, addressing, session end), `/squawks/ask*` and four MCP tools expose it to agents, and `/me` renders cards and takes answers.
+**Architecture:** Ask events are squawks in the channel log carrying the ask as a typed inline **part** (`Squawk.Parts`, the envelope attachments will reuse); the log store folds them into an `asks` read-model in the same serialized append (so "open only", "current version" and "first answer wins" are atomic). `jam.Intercom` adds the policy (who may ask/answer, addressing, session end), `/squawks/ask*` and four MCP tools expose it to agents, and `/me` renders cards and takes answers.
 
 **Tech Stack:** Go; Postgres via pgx (`internal/intercom/intercompg`); html/template + htmx (`internal/jam/meui`); MCP go-sdk (`cmd/cove-master`).
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Relays are paused: Discord/Linear egress must **skip** squawks with `Ask != nil`; no relay rendering.
+- Relays are paused: Discord/Linear egress must **skip** squawks with any part (`len(m.Parts) > 0`); no relay rendering.
 - Options: 2–8, ids `^[a-z0-9_-]{1,32}$`, unique, never `other`; question ≤ 2048 B, label ≤ 200 B, detail ≤ 1024 B, comment ≤ 4096 B, reason ≤ 1024 B.
 - `choice: "other"` requires a non-empty comment.
 - Only the asking session amends/withdraws; only a person (`usr_…`) answers, a current member of a live channel, and in `Of` when set. Sessions never answer.
@@ -26,7 +26,7 @@
 2. A person answers after the agent amended → 409 "this ask changed", nothing recorded (store + `/me` handler test).
 3. The asking session ends with asks open → they close as withdrawn "session ended" and the session leaves "Needs you" (Intercom test).
 4. A person who left the channel, or isn't in `Of`, posts an answer by hand → 403 (Intercom + handler test).
-5. An older agent's `read` (no `ask` field support) still sees a readable one-line body for every event (fold test asserts bodies).
+5. An older agent's `read` (no `parts` support) still sees a readable one-line body for every event (fold test asserts bodies).
 
 ## PR split
 
@@ -39,10 +39,21 @@
 
 **Files:**
 - Create: `internal/intercom/ask.go`, `internal/intercom/ask_test.go`
-- Modify: `internal/intercom/channel_log.go` (add `Ask *AskEvent` to `Squawk`)
+- Modify: `internal/intercom/channel_log.go` (add `Parts []Part` to `Squawk`; `Prepare` validates parts)
 
 **Interfaces — Produces:**
 ```go
+// The message parts envelope (shared with attachments later).
+type Part struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data,omitempty"` // inline
+	Ref  string          `json:"ref,omitempty"`  // reference (attachments; refused for now)
+	Name string          `json:"name,omitempty"`
+	Size int64           `json:"size,omitempty"`
+}
+const AskPartType = "application/vnd.jam.ask+json"
+func AskPart(ev AskEvent) Part              // marshals ev inline
+func AskOf(m Squawk) (AskEvent, bool)      // the squawk's ask event, if it has one
 type AskOption struct{ ID, Label, Detail string } // json: id,label,detail
 type AskEventKind string // "ask" | "amend" | "withdraw" | "answer"
 type AskEvent struct {
@@ -66,7 +77,7 @@ type Ask struct {
 	LastSeq int64
 }
 var ErrAskNotFound, ErrAskClosed, ErrAskChanged, ErrAskForbidden error
-// ApplyAsk folds squawk m (m.Ask != nil, m.ID/From/Channel/At/Seq set) onto prev
+// ApplyAsk folds squawk m (AskOf(m) ok, m.ID/From/Channel/At/Seq set) onto prev
 // (nil for the "ask" event) and returns the new state, or an error and no change.
 func ApplyAsk(prev *Ask, m Squawk) (Ask, error)
 // AskBody is the one-line plain rendering stored as the squawk's Body.
@@ -79,7 +90,7 @@ Rules in `ApplyAsk`: `ask` needs prev==nil and valid question/options (limits ab
 
 - [ ] **Step 1: Failing tests** in `ask_test.go`: table test over `ApplyAsk` covering each rule above (valid ask; too few/many options; duplicate id; option id `other`; amend by non-asker → ErrAskForbidden; amend bumps version and records History; withdraw then answer → ErrAskClosed; answer by `ses_…` → ErrAskForbidden; answer outside Of → ErrAskForbidden; stale version → ErrAskChanged; `other` without comment → ErrInvalid; answer sets Answer{By,At,Choice,Comment}); and `AskBody` for each event is non-empty and contains the question/choice label. (Review Focus 5.)
 - [ ] **Step 2:** `go test ./internal/intercom/ -run Ask` → FAIL (undefined).
-- [ ] **Step 3:** Implement `ask.go`; add `Ask *AskEvent \`json:"ask,omitempty"\`` to `Squawk`.
+- [ ] **Step 3:** Implement `ask.go`; add `Parts []Part \`json:"parts,omitempty"\`` to `Squawk`. `Prepare` refuses (ErrInvalid) a reference part (`Ref != ""`: attachments not yet), an unknown part type, more than one ask part, or an ask part whose data doesn't decode. Tests for each refusal.
 - [ ] **Step 4:** Tests pass.
 - [ ] **Step 5:** Commit `intercom: ask model and fold`.
 
@@ -97,11 +108,11 @@ GetAsk(id string) (Ask, bool)
 ListAsks(f AskFilter) []Ask // ordered by LastSeq ascending
 type AskFilter struct{ Channel, Asker ident.ID; State AskState } // zero fields match all
 ```
-`Append` semantics: when `m.Ask != nil`, inside the existing serialized section, load the current ask (`GetAsk(m.Ask.AskID)` unless event is `ask`), call `ApplyAsk`, then insert the squawk and upsert the ask; any `ApplyAsk` error aborts the append (nothing stored). The returned squawk's `Ask.Version` is the new version (ask/amend).
+`Append` semantics: when `AskOf(m)` is ok, inside the existing serialized section, load the current ask (`GetAsk(ev.AskID)` unless event is `ask`), call `ApplyAsk`, then insert the squawk and upsert the ask; any `ApplyAsk` error aborts the append (nothing stored). The returned squawk's ask part carries the new version (ask/amend); the store rewrites the part's data with `Version` set before inserting.
 
 Migration `0005_asks.sql`:
 ```sql
-ALTER TABLE squawks ADD COLUMN ask jsonb;
+ALTER TABLE squawks ADD COLUMN parts jsonb;
 CREATE TABLE asks (
     id        text PRIMARY KEY,
     channel_id text NOT NULL,
@@ -113,9 +124,9 @@ CREATE TABLE asks (
 CREATE INDEX asks_channel_open ON asks (channel_id) WHERE state = 'open';
 CREATE INDEX asks_asker ON asks (asker_id, state);
 ```
-`squawkCols` gains `s.ask`; scan into `[]byte` and unmarshal when non-null. Mem keeps `asks map[string]Ask` beside `msgs`.
+`squawkCols` gains `s.parts`; scan into `[]byte` and unmarshal when non-null. Mem keeps `asks map[string]Ask` beside `msgs`.
 
-- [ ] **Step 1: Failing conformance cases** (run by both Mem and pg suites): ask round-trip (`GetAsk`, `ListAsks` by channel/asker/state); `read` of the squawk returns `Ask`; amend→answer; stale answer refused and not stored (`TailSeq` unchanged); answer on closed refused; **concurrent answers**: 8 goroutines answer the same ask, exactly one succeeds, the rest `ErrAskClosed` (Review Focus 1).
+- [ ] **Step 1: Failing conformance cases** (run by both Mem and pg suites): ask round-trip (`GetAsk`, `ListAsks` by channel/asker/state); reads of the squawk return its `Parts` intact; amend→answer; stale answer refused and not stored (`TailSeq` unchanged); answer on closed refused; **concurrent answers**: 8 goroutines answer the same ask, exactly one succeeds, the rest `ErrAskClosed` (Review Focus 1).
 - [ ] **Step 2:** `go test ./internal/intercom/...` → FAIL.
 - [ ] **Step 3:** Implement Mem, then pg (migration, Append branch, `GetAsk`/`ListAsks`, scan).
 - [ ] **Step 4:** Unit tests pass; reset local pg and run `JAM_TEST_POSTGRES_DSN=… go test -count=1 -p 1 -tags integration ./internal/intercom/...` → pass.
@@ -153,7 +164,7 @@ func (s *Supervisor) SetOpenAsks(actorID string, n int) error
 
 ### Task 4: Agent API (`/squawks/ask*`) and read wire
 
-**Files:** Modify `internal/jam/squawks.go`, `internal/jam/squawks_test.go`; Modify `cmd/at-jam/main.go` (wire `SetOnAsksChanged` → `sup.SetOpenAsks`); Modify `cmd/at-jam/relay_*.go` egress loops to `continue` on `m.Ask != nil` (Global Constraint), with a test in the existing relay egress test file.
+**Files:** Modify `internal/jam/squawks.go`, `internal/jam/squawks_test.go`; Modify `cmd/at-jam/main.go` (wire `SetOnAsksChanged` → `sup.SetOpenAsks`); Modify `cmd/at-jam/relay_*.go` egress loops to `continue` on `len(m.Parts) > 0` (Global Constraint), with a test in the existing relay egress test file.
 
 Routes (POST, handled like `/call-in`, before the ticket path; non-POST → 405):
 - `/squawks/ask` `{question, options[{id,label,detail}], to?, of?[]}` → `200 {ask_id, version, channel}`
@@ -163,17 +174,17 @@ Routes (POST, handled like `/call-in`, before the ticket path; non-POST → 405)
 
 Errors: `ErrInvalid` 400; `ErrSendDenied`/`ErrAskForbidden` 403; `ErrSendUnresolved`/`ErrAskNotFound` 404; `ErrAskClosed`/`ErrAskChanged` 409.
 
-Read wire: `jam.Squawk` gains `Ask *AskOut \`json:"ask,omitempty"\`` (`{event, ask_id, version, choice, comment, question}`), filled from `m.Ask` in `handleGet`.
+Read wire: `jam.Squawk` gains `Parts []intercom.Part \`json:"parts,omitempty"\``, copied from the log in `handleGet` (an ask part's data is the `AskEvent` JSON).
 
-- [ ] Step 1: failing handler tests for each route and status, and a read entry carrying `ask`. Step 2: FAIL. Step 3: implement. Step 4: pass. Step 5: commit `jam: /squawks ask endpoints`.
+- [ ] Step 1: failing handler tests for each route and status, and a read entry carrying its `parts`. Step 2: FAIL. Step 3: implement. Step 4: pass. Step 5: commit `jam: /squawks ask endpoints`.
 
 ### Task 5: MCP tools and docs for PR A
 
 **Files:** Modify `cmd/cove-master/mcp.go`, `cmd/cove-master/mcp_test.go`; docs: create `docs/usage/jam/asks.md` (leaf: what an ask is, tools, rules, Needs you/escalation, limits), add its row to `docs/usage/jam/INDEX.md`; update `intercom.md` (tool list → link to asks.md), `escalation.md` (open asks count as asking).
 
-Tools: `ask(question, options, to?, of?)`, `amend(ask_id, question?, options?)`, `withdraw(ask_id, reason?)`, `asks(state?)`; `squawkOut` gains `Ask *askOut`. Client methods mirror `callIn` (`c.do(ctx, POST, "/squawks/ask", payload)`).
+Tools: `ask(question, options, to?, of?)`, `amend(ask_id, question?, options?)`, `withdraw(ask_id, reason?)`, `asks(state?)`; `squawkOut` gains `Parts []partOut` (`{type, data}` with data as raw JSON). Client methods mirror `callIn` (`c.do(ctx, POST, "/squawks/ask", payload)`).
 
-- [ ] Step 1: failing tests: tools listed; each forwards method/path/body to the fake Jam (pattern of `TestMCPEndForwardsReason`); read decodes `ask`. Step 2: FAIL. Step 3: implement + docs. Step 4: `go test ./cmd/cove-master/ ./internal/... ./cmd/...`, `bash scripts/lint.sh`, docs audit, pg integration. Step 5: commit; open **PR A**; fresh review; merge when green.
+- [ ] Step 1: failing tests: tools listed; each forwards method/path/body to the fake Jam (pattern of `TestMCPEndForwardsReason`); read decodes `parts`. Step 2: FAIL. Step 3: implement + docs. Step 4: `go test ./cmd/cove-master/ ./internal/... ./cmd/...`, `bash scripts/lint.sh`, docs audit, pg integration. Step 5: commit; open **PR A**; fresh review; merge when green.
 
 ### Task 6: `/me` cards and answering
 
@@ -186,7 +197,7 @@ type AskCard struct {
 	Edited, CanAnswer bool; For string // "for brent" when Of excludes the viewer
 }
 ```
-- A squawk with `Ask.Event=="ask"` renders the card from `Log.GetAsk(id)` (current state). amend/withdraw/answer squawks render as a one-line system row (their `Body`), not a bubble.
+- A squawk whose `AskOf` event is `ask` renders the card from `Log.GetAsk(id)` (current state). amend/withdraw/answer squawks render as a one-line system row (their `Body`), not a bubble.
 - Answer form: `hx-post="/me/asks/{id}/answer"` with hidden `version`, a button per option (`name=choice value=<id>`), `Other…` (`choice=other`) and a `comment` textarea. Handler calls `Intercom.AnswerAsk(p.UserID, …)`: 204 + `HX-Refresh`; 409 body `this ask changed — review the new version` / `already answered by <label>: <choice>`; 403 `not allowed`; 404.
 - [ ] Steps: failing tests (card open/answered/withdrawn/edited/read-only-for; answer 204; stale 409 (Review Focus 2); already-answered 409; non-member 403) → FAIL → implement → pass → commit.
 
