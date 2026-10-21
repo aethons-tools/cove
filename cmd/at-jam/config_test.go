@@ -1316,6 +1316,9 @@ func TestValidateBlobs(t *testing.T) {
 		"no secret cred":    creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  access-key-cred: bk\n",
 		"bad size":          creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: lots\n" + base,
 		"too big":           creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 2GB\n" + base,
+		"overflow":          creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 8589934592GB\n" + base,
+		"wraps to zero":     creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 17179869184GB\n" + base,
+		"zero":              creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 0MB\n" + base,
 		"gcp cred":          "credentials:\n  g: { exchange: gcp }\n  bs:\nblobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  access-key-cred: g\n  secret-key-cred: bs\n",
 	} {
 		c, err := parseServeConfig([]byte(yml))

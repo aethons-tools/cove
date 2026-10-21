@@ -57,8 +57,16 @@ func NewS3(cfg S3Config) (*S3, error) {
 	return &S3{c: c, bucket: cfg.Bucket}, nil
 }
 
+// streamPartSize is the multipart part size for a streamed (size -1) upload:
+// the one part buffered at a time (minio-go's default is ~537 MiB).
+const streamPartSize = 16 << 20
+
+func putOptions(contentType string) minio.PutObjectOptions {
+	return minio.PutObjectOptions{ContentType: contentType, PartSize: streamPartSize}
+}
+
 func (s *S3) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-	_, err := s.c.PutObject(ctx, s.bucket, key, r, size, minio.PutObjectOptions{ContentType: contentType})
+	_, err := s.c.PutObject(ctx, s.bucket, key, r, size, putOptions(contentType))
 	return err
 }
 
@@ -102,7 +110,7 @@ func (s *S3) Check(ctx context.Context) error {
 }
 
 func notFound(err error) error {
-	if r := minio.ToErrorResponse(err); r.Code == "NoSuchKey" || r.StatusCode == 404 {
+	if minio.ToErrorResponse(err).Code == "NoSuchKey" { // not NoSuchBucket: that is a real failure
 		return ErrNotFound
 	}
 	return err

@@ -251,7 +251,7 @@ func (l *Log) DeleteBlob(id ident.ID) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if b, ok := l.blobs[id]; ok && b.State != BlobPending {
-		return errBlobAttached
+		return ErrBlobAttached
 	}
 	delete(l.blobs, id)
 	return nil

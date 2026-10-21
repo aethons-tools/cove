@@ -475,7 +475,7 @@ func (s *Store) DeleteBlob(id ident.ID) error {
 	}
 	if tag.RowsAffected() == 0 {
 		if _, ok := s.GetBlob(id); ok {
-			return fmt.Errorf("intercompg: blob %s is attached", id)
+			return fmt.Errorf("%w: %s", intercom.ErrBlobAttached, id)
 		}
 	}
 	return nil

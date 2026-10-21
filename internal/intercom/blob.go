@@ -44,8 +44,8 @@ const MaxAttachments = 10
 // own pending upload (missing, someone else's, or already attached).
 var ErrBlobNotYours = fmt.Errorf("%w: not your pending upload", ErrInvalid)
 
-// errBlobAttached refuses deleting an attached blob.
-var errBlobAttached = errors.New("intercom: blob is attached")
+// ErrBlobAttached refuses deleting an attached blob.
+var ErrBlobAttached = errors.New("intercom: blob is attached")
 
 // validateRef checks a reference part's shape.
 func validateRef(p Part) error {

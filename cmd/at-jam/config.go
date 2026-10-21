@@ -389,6 +389,9 @@ func parseByteSize(s string) (int64, error) {
 			if err != nil || n <= 0 {
 				break
 			}
+			if n > maxBlobMax/mult {
+				return 0, fmt.Errorf("over 1GB")
+			}
 			return n * mult, nil
 		}
 	}

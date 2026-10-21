@@ -382,7 +382,7 @@ func RunBlobConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixt
 		if l := s.PendingBlobsBefore(at); len(l) != 0 {
 			t.Fatalf("before creation: %+v", l)
 		}
-		if err := s.DeleteBlob(attached.ID); err == nil {
+		if err := s.DeleteBlob(attached.ID); !errors.Is(err, intercom.ErrBlobAttached) {
 			t.Fatal("deleting an attached blob should be refused")
 		}
 		if err := s.DeleteBlob(old.ID); err != nil {
