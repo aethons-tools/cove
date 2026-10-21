@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -137,8 +138,8 @@ func TestMissingParentFailsClosed(t *testing.T) {
 }
 
 // prepareKitAndRetry re-resolves the chain at the parents' current versions;
-// when that moves the digest, the fresh definition is prepared and the retried
-// raise (and the recorded kit) carries its ref.
+// when that moves the digest, the fresh definition is prepared, handed back,
+// and the retried raise carries its ref and a context compiled from it.
 func TestPrepareKitAndRetryAdoptsFreshChainDigest(t *testing.T) {
 	sup, store, fl := chainRaiseKit(t)
 	k, _ := store.GetKit("my-app")
@@ -146,18 +147,128 @@ func TestPrepareKitAndRetryAdoptsFreshChainDigest(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	web := studio.StudioKit{Kind: studio.Kind, Egress: []string{"proxy.golang.org"}}
+	web := studio.StudioKit{Kind: studio.Kind, Prompt: "FRESH PARENT", Egress: []string{"proxy.golang.org"}}
 	web.Base.Kit = "default"
 	mustEnsure(t, store, "web-dev", web) // a following parent moves
-	spec := RaiseSpec{ActorID: "w1", Kit: stale.Ref}
-	if _, err := sup.prepareKitAndRetry(context.Background(), &spec, LaunchCreds{}, nil); err != nil {
+	staleCtx := &sessionctx.Bundle{Core: "STALE"}
+	spec := RaiseSpec{ActorID: "w1", Kit: stale.Ref, Context: staleCtx}
+	_, ran, err := sup.prepareKitAndRetry(context.Background(), &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	fresh := fl.preparedDef.Ref
 	if fresh.Digest == stale.Ref.Digest || fresh.ID != "my-app" || fresh.Version != stale.Ref.Version {
 		t.Fatalf("prepared %+v, stale %+v: want the re-resolved digest", fresh, stale.Ref)
 	}
-	if spec.Kit != fresh || fl.gotSpec.Kit != fresh {
-		t.Errorf("spec.Kit %+v / retried %+v, want %+v", spec.Kit, fl.gotSpec.Kit, fresh)
+	if spec.Kit != fresh || fl.gotSpec.Kit != fresh || ran.Ref != fresh {
+		t.Errorf("spec.Kit %+v / retried %+v / returned %+v, want %+v", spec.Kit, fl.gotSpec.Kit, ran.Ref, fresh)
+	}
+	if got := chainRefs(ran.Chain); len(got) != 3 || got[1] != (KitRef{ID: "web-dev", Version: 2}) {
+		t.Errorf("returned chain = %+v, want web-dev@v2 in it", got)
+	}
+	if fl.gotSpec.Context == staleCtx || !strings.Contains(fl.gotSpec.Context.Core, "FRESH PARENT") {
+		t.Errorf("the retried raise must carry a context compiled from the fresh definition")
+	}
+}
+
+// When the re-resolve lands on the same ref, the spec is left as it was.
+func TestPrepareKitAndRetryUnchangedKeepsSpec(t *testing.T) {
+	sup, store, fl := chainRaiseKit(t)
+	k, _ := store.GetKit("my-app")
+	cur, _, err := ResolveKitDefinition(store, KitRef{ID: "my-app", Version: k.Current}, harnessinstall.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctxIn := &sessionctx.Bundle{Core: "AS RAISED"}
+	spec := RaiseSpec{ActorID: "w1", Kit: cur.Ref, Context: ctxIn}
+	_, ran, err := sup.prepareKitAndRetry(context.Background(), &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Kit != cur.Ref || spec.Context != ctxIn || fl.gotSpec.Context != ctxIn || ran.Ref != cur.Ref {
+		t.Errorf("an unchanged re-resolve must not touch the spec: %+v / %p vs %p", spec.Kit, spec.Context, ctxIn)
+	}
+}
+
+// The chained twin of TestContextForKeepsRaisedKitImage: a following parent's
+// new version reaches a running session's prompt, but its build-args and
+// egress (the image doesn't have them) do not.
+func TestContextForKeepsRaisedChainImage(t *testing.T) {
+	sup, store, _ := chainRaiseKit(t)
+	inst, err := raiseDev(t, sup, "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []KitRef{{ID: "default", Version: 1}, {ID: "web-dev", Version: 1}, {ID: "my-app", Version: 1}}
+	if stored, _ := store.GetInstance("w1"); !slices.Equal(inst.KitChain, want) || !slices.Equal(stored.KitChain, want) {
+		t.Fatalf("instance chain = %+v / stored %+v, want %+v", inst.KitChain, stored.KitChain, want)
+	}
+	web := studio.StudioKit{Kind: studio.Kind, Prompt: "NEW PARENT PROMPT", Egress: []string{"proxy.golang.org"}, BuildArgs: map[string]string{"GO_VERSION": "2.0"}}
+	web.Base.Kit = "default"
+	mustEnsure(t, store, "web-dev", web)
+	got, err := sup.ContextFor("w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Core, "NEW PARENT PROMPT") {
+		t.Errorf("the parent's prompt edit must reach the session:\n%s", got.Core)
+	}
+	tools := got.Files["kit/tools.md"]
+	if !strings.Contains(tools, "| go | 1.27.1 |") || strings.Contains(tools, "2.0") {
+		t.Errorf("tools must stay the raised image's:\n%s", tools)
+	}
+	if !strings.Contains(got.Core, "pkg.go.dev") || strings.Contains(got.Core, "proxy.golang.org") {
+		t.Errorf("egress must stay the raised image's:\n%s", got.Core)
+	}
+	if len(got.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", got.Warnings)
+	}
+}
+
+// A recorded image-chain link that can't be read drops the build facts (no
+// tool list, egress unknown) with a warning; the prompt still compiles.
+func TestContextForUnreadableImageChainFailsClosed(t *testing.T) {
+	sup, store, _ := chainRaiseKit(t)
+	if _, err := raiseDev(t, sup, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	inst, _ := store.GetInstance("w1")
+	inst.KitChain = []KitRef{{ID: "default", Version: 1}, {ID: "web-dev", Version: 9}, {ID: "my-app", Version: 1}}
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	got, err := sup.ContextFor("w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Files["kit/tools.md"]; ok || strings.Contains(got.Core, "pkg.go.dev") {
+		t.Errorf("build facts must be omitted:\n%s\n%v", got.Core, got.Files["kit/tools.md"])
+	}
+	if !strings.Contains(got.Core, "leaf prompt") {
+		t.Errorf("the prompt must still compile:\n%s", got.Core)
+	}
+	if !slices.ContainsFunc(got.Warnings, func(w string) bool { return strings.Contains(w, "web-dev@v9") }) {
+		t.Errorf("want a warning naming the missing link, got %v", got.Warnings)
+	}
+}
+
+// A parent removed under a running session: the refresh warns rather than
+// silently dropping the kit layer.
+func TestContextForMissingParentWarns(t *testing.T) {
+	sup, store, _ := chainRaiseKit(t)
+	if _, err := raiseDev(t, sup, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveKit("web-dev"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := sup.ContextFor("w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(got.Warnings, func(w string) bool {
+		return strings.Contains(w, "kit web-dev (parent of my-app) is missing")
+	}) {
+		t.Errorf("want a missing-parent warning, got %v", got.Warnings)
 	}
 }

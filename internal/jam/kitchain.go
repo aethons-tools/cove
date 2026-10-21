@@ -120,3 +120,34 @@ func KitsReferencing(store Store, parent string) (follow, pinned []string) {
 	slices.Sort(pinned)
 	return follow, pinned
 }
+
+// recordedChainKit is the merged kit of a recorded image chain, each link read
+// at its exact (immutable) version. A link no longer in the registry fails.
+func recordedChainKit(store Store, chain []KitRef) (studio.StudioKit, error) {
+	kits := make([]studio.StudioKit, 0, len(chain))
+	for _, r := range chain {
+		text, ok := store.KitConfig(r.ID, r.Version)
+		if !ok {
+			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is missing", r)
+		}
+		sk, err := studio.ParseStudioKit([]byte(text))
+		if err != nil {
+			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is invalid: %w", r, err)
+		}
+		kits = append(kits, sk)
+	}
+	return studio.Merge(kits), nil
+}
+
+// chainRefs is what an Instance records of the chain its image was built
+// from: each link's id and version, root first. nil for an unchained kit.
+func chainRefs(chain []KitLink) []KitRef {
+	if len(chain) < 2 {
+		return nil
+	}
+	out := make([]KitRef, len(chain))
+	for i, l := range chain {
+		out[i] = KitRef{ID: l.Ref.ID, Version: l.Ref.Version}
+	}
+	return out
+}
