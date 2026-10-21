@@ -267,5 +267,5 @@ func sourceMsg(what string, res jam.KitSourceResult) string {
 			with[i] += " (unchanged)"
 		}
 	}
-	return msg + ". Imported with: " + strings.Join(with, ", ")
+	return msg + ". With: " + strings.Join(with, ", ")
 }

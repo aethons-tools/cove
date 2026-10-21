@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -394,7 +395,7 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, k.Versions[view])
 	}
 	if src := k.Meta[view].Source; src != nil {
-		d.SetWith = setParents(store, d.Chain, src.Repo)
+		d.SetWith = setParents(store, d.Chain, src)
 	}
 	follow, pinned := jam.KitsReferencing(store, name)
 	for _, c := range follow {
@@ -420,12 +421,13 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 }
 
 // setParents names the chain parents whose resolved version was imported from
-// repo, comma-joined: the kits a repo import brought in together with this one.
-func setParents(store jam.Store, chain []kitParent, repo string) string {
+// own's repo at another dir, comma-joined: the kits a repo import brought in
+// together with this one.
+func setParents(store jam.Store, chain []kitParent, own *jam.KitSource) string {
 	var names []string
 	for _, p := range chain {
 		if k, ok := store.GetKit(p.Name); ok {
-			if src := k.Meta[p.Version].Source; src != nil && src.Repo == repo {
+			if src := k.Meta[p.Version].Source; src != nil && src.Repo == own.Repo && path.Clean("./"+src.Dir) != path.Clean("./"+own.Dir) {
 				names = append(names, p.Name)
 			}
 		}

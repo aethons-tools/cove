@@ -355,7 +355,28 @@ func TestKitSetImportAndSyncSurfaces(t *testing.T) {
 	f.sha = srcSHA2
 	f.files["web/kit.yml"] = srcKitV2
 	rec = post(t, h, "/ui/kits/app/sync", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Imported with: web-dev v2") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "With: web-dev v2") {
 		t.Fatalf("sync = %d, want ancestors in the flash:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A registry parent imported from the same repo and dir as the child is not
+// a set member: the kit page notes a set only for a parent at another dir.
+func TestKitSetNoteNeedsAnotherDir(t *testing.T) {
+	f := &setFetcher{t: t, sha: srcSHA1, files: map[string]string{"web/kit.yml": srcKitV1}}
+	h, store := sourceUI(t, f)
+	src, err := gitsource.Parse("https://github.com/acme/kits//web@main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jam.ImportKit(context.Background(), store, f, nil, "", src, time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	f.files["web/kit.yml"] = "kind: studio\nbase:\n  kit: web-dev\nprompt: app\n"
+	if _, err := jam.ImportKit(context.Background(), store, f, nil, "app", src, time.Unix(20, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(t, h, "/ui/kits/app").Body.String(); strings.Contains(body, "Part of a set") {
+		t.Errorf("a parent from the same dir is not a set member:\n%s", body)
 	}
 }
