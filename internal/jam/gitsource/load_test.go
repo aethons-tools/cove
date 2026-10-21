@@ -23,6 +23,8 @@ func writeKit(t *testing.T, root, dir, body string) {
 	writeFile(t, root, filepath.Join(dir, "kit.yml"), "kind: studio\n"+body)
 }
 
+const missingOrOutside = ": is missing or resolves outside the checkout"
+
 const inside = ": does not resolve to a path inside the checkout"
 
 // escapeRefusals is the exact refusal for each TestLoadRefusesEscapes case.
@@ -31,8 +33,9 @@ var escapeRefusals = map[string]string{
 	"context-dir absolute": "base.context-dir: must be a relative path",
 	"context-dir symlink":  `base.context-dir "img"` + inside,
 	"note file symlink":    `note "n.md" file "n.md"` + inside,
-	"kit.yml symlink":      `file "web/kit.yml"` + inside,
-	"dir symlink":          `file "web/kit.yml"` + inside,
+	"kit.yml symlink":      `file "web/kit.yml"` + missingOrOutside,
+	"dir symlink":          `file "web/kit.yml"` + missingOrOutside,
+	"kit.yml missing":      `file "web/kit.yml"` + missingOrOutside,
 }
 
 func TestLoadRefusesEscapes(t *testing.T) {
@@ -57,7 +60,8 @@ func TestLoadRefusesEscapes(t *testing.T) {
 			os.MkdirAll(filepath.Join(r, "web"), 0o755)
 			os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(r, "web", "kit.yml"))
 		},
-		"dir symlink": func(r string) { os.Symlink(outside, filepath.Join(r, "web")) },
+		"dir symlink":     func(r string) { os.Symlink(outside, filepath.Join(r, "web")) },
+		"kit.yml missing": func(r string) { os.MkdirAll(filepath.Join(r, "web"), 0o755) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()

@@ -333,3 +333,24 @@ func TestFetchLimitIsPerFetch(t *testing.T) {
 		}
 	}
 }
+
+// The clone's .git is Jam's, not the kit's: fn must not see it (a
+// context-dir of "." would pack it), for a branch and for a commit id.
+func TestFetchRootHasNoGitDir(t *testing.T) {
+	url, c1, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n"})
+	f := &Fetcher{Timeout: 30 * time.Second}
+	for _, ref := range []string{"main", c1} {
+		err := f.Fetch(context.Background(), Source{Repo: url, Ref: ref}, func(root, _ string) error {
+			if _, err := os.Lstat(filepath.Join(root, ".git")); !os.IsNotExist(err) {
+				t.Errorf("ref %s: .git present in the checkout root (err %v)", ref, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "kit.yml")); err != nil {
+				t.Errorf("ref %s: work tree lost: %v", ref, err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

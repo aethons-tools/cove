@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
 )
 
 // fakeFetcher serves an in-memory repo (commit -> path -> content, ref ->
@@ -333,5 +334,25 @@ func TestKitLocksPruned(t *testing.T) {
 	defer kitLocks.mu.Unlock()
 	if len(kitLocks.m) != 0 {
 		t.Fatalf("leaked %d lock entries", len(kitLocks.m))
+	}
+}
+
+// A kit whose context-dir is the repo root must not pack Jam's clone
+// metadata: refetching the same commit is then `unchanged`, not a new version.
+func TestImportRootContextDirIsDeterministic(t *testing.T) {
+	url, _, _ := gittest.Serve(t, map[string]string{
+		"kit.yml":    "kind: studio\nname: rootkit\nbase:\n  context-dir: .\n",
+		"Dockerfile": "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
+	})
+	st := NewMemStore()
+	f := &gitsource.Fetcher{Timeout: 30 * time.Second}
+	src := gitsource.Source{Repo: url, Dir: ".", Ref: "main"}
+	res, err := ImportKit(context.Background(), st, f, nil, "", src, time.Unix(10, 0))
+	if err != nil || res.Version != 1 || res.Unchanged {
+		t.Fatalf("first import: %+v %v", res, err)
+	}
+	res, err = ImportKit(context.Background(), st, f, nil, "", src, time.Unix(11, 0))
+	if err != nil || !res.Unchanged || res.Version != 1 {
+		t.Fatalf("second import of the same commit: %+v %v, want unchanged v1", res, err)
 	}
 }

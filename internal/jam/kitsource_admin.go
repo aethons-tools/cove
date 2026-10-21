@@ -63,6 +63,9 @@ func KitSourceStatus(err error) (int, string) {
 // the fetcher's already-redacted message. Audit logs carry the operator and
 // the source, never a credential.
 func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	fail := func(w http.ResponseWriter, r *http.Request, err error) {
 		status, msg := KitSourceStatus(err)
 		if status == http.StatusInternalServerError && msg == kitStoreError {

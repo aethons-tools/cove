@@ -153,7 +153,11 @@ func resolveInRoot(realRoot, base, rel, field string) (string, error) {
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("%s: must be a relative path", field)
 	}
-	outside := fmt.Errorf("%s %q: does not resolve to a path inside the checkout", field, rel)
+	reason := "does not resolve to a path inside the checkout"
+	if field == "file" { // ReadFileInRoot: a missing file reads the same as an escaping one
+		reason = "is missing or resolves outside the checkout"
+	}
+	outside := fmt.Errorf("%s %q: %s", field, rel, reason)
 	p := filepath.Join(base, rel)
 	if !within(realRoot, p) {
 		return "", outside

@@ -112,8 +112,8 @@ func TestKitGitEndToEnd(t *testing.T) {
 		t.Errorf("wrong token: code=%d out=%q stderr=%q, want an auth failure naming kit-git", code, out, errb)
 	}
 	for name, text := range map[string]string{"stdout": out, "stderr": errb, "log": badLogs.String(), "good log": logs.String()} {
-		for _, secret := range []string{wrong, token} {
-			if strings.Contains(text, secret) {
+		for _, tok := range []string{wrong, token} {
+			if strings.Contains(text, tok) {
 				t.Errorf("%s holds a token:\n%s", name, text)
 			}
 		}

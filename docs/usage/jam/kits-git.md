@@ -84,8 +84,10 @@ field, else the base of `<dir>`, else the repo's name (`kits.git` → `kits`).
   it).
 - **`sync <name>`** re-imports the tracked source. It first resolves the ref
   (no checkout); when the ref still points at the last synced commit **and**
-  the current version came from that source, it fetches nothing and prints
-  `web unchanged (<commit>)`. Otherwise it fetches and imports the new commit
+  the current version came from the same repo, dir and ref (at any commit),
+  it fetches nothing and prints `web unchanged (<commit>)`. So pinning a
+  tracked kit back to an older version (`kit pin`) and then syncing reports
+  `unchanged` and keeps the pin until the next upstream commit. Otherwise it fetches and imports the new commit
   (identical content reuses the current version) and advances the tracked
   commit. So after a `kit push` replaced current, `sync` brings the
   source's content back as a new version. A source pinned to a commit id
@@ -161,9 +163,10 @@ failure (the message is already redacted), and **500** for a store failure.
 | `auth failed for <prefix> (check kits.git cred <name>)` | The named credential's token is wrong, expired or lacks read access. |
 | `auth required for <host> (add a kits.git entry)` | A private repo with no matching prefix: add one. |
 | `repository … not found (if private, add a kits.git entry)` | Wrong URL, or private (forges often answer "not found" without auth). |
+| `repository … not found (or kits.git cred <name> cannot read it)` | Wrong URL, or the named credential's token cannot read this repo. |
 | `ref <ref> not found in …` | No such branch or tag; check spelling and that it is pushed. |
 | `commit … not found in … (or the server does not serve commits by id)` | Unknown id, or the server refuses fetch-by-commit: use a branch or tag. |
-| `file "<dir>/kit.yml": does not resolve to a path inside the checkout` | No `kit.yml` there (check `//<dir>`), or it is a symlink out. |
+| `file "<dir>/kit.yml": is missing or resolves outside the checkout` | No `kit.yml` there (check `//<dir>`), or it is a symlink out. |
 | `base.context-dir "…"` / `note "…" file "…"`: `does not resolve to a path inside the checkout` | An escape was refused: keep paths relative and inside the repo. |
 | `exceeded the <n>-byte transfer limit` / `checkout too large` / `timed out after …` | The repo is too big or too slow for one fetch: move the kit to a smaller repo. |
 | `kit has no tracked source (use kit track)` | `sync` needs `track` first. |
