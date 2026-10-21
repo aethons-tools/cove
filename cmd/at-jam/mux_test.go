@@ -65,6 +65,8 @@ func TestSquawksMuxRouting(t *testing.T) {
 		{"/squawks/ask/amend", "squawks"},
 		{"/squawks/ask/withdraw", "squawks"},
 		{"/squawks/asks", "squawks"},
+		{"/squawks/uploads", "squawks"},
+		{"/squawks/blobs/blb_x", "squawks"},
 		{"/escalate", "escalate"},
 		{"/end", "turn-end"},
 		{"/idle", "turn-end"},

@@ -45,13 +45,17 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker htt
 			alarmH.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/squawks/blobs/") {
+			squawksH.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/exposures" || strings.HasPrefix(r.URL.Path, "/exposures/") {
 			exposureH.ServeHTTP(w, r)
 			return
 		}
 		switch r.URL.Path {
 		case "/squawks", "/squawks/targets", "/squawks/commit", "/squawks/call-in", "/squawks/leave",
-			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks":
+			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks", "/squawks/uploads":
 			squawksH.ServeHTTP(w, r)
 		case "/escalate":
 			escH.ServeHTTP(w, r)
@@ -77,6 +81,7 @@ type messaging struct {
 	ic     *jam.Intercom
 	log    intercom.Store
 	legacy jam.LegacyInbox
+	att    *jam.Attachments // nil: attachments off
 }
 
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, previewURL func(actorID, name string) (string, error), log *slog.Logger) http.Handler {
@@ -104,6 +109,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	squawksH := jam.NewSquawksHandler(st, nil, nil, nil, log) // with no log, sends and reads answer 503
 	if msg != nil {
 		squawksH = jam.NewSquawksHandler(st, msg.ic, msg.log, msg.legacy, log)
+		squawksH.SetAttachments(msg.att)
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")

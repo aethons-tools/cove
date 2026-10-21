@@ -75,7 +75,8 @@ type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
 	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, ticket:<key>, or session:<name>; omit to post in your own channel — your ticket's, or your session's"`
 	// ContentType opts out of the markdown default.
-	ContentType string `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
+	Attach      []string `json:"attach,omitempty" jsonschema:"optional: paths of files in your studio to attach (each up to Jam's size cap, at most 10); the text may be empty when attaching"`
+	ContentType string   `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
 }
 
 // readIn is the "read" tool's typed input: optional seek parameters.
@@ -222,6 +223,7 @@ type messagingClient struct {
 	http    *http.Client
 	baseURL string // e.g. "https://jam.example.com", no trailing slash
 	token   string
+	home    string // the agent's home: fetch's default directory is under it
 }
 
 // jamBaseURL derives the https base URL Jam's /squawks endpoint is
@@ -271,6 +273,7 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 		http:    &http.Client{Timeout: 30 * time.Second},
 		baseURL: base,
 		token:   token,
+		home:    getenv("HOME"),
 	}, nil
 }
 
@@ -317,12 +320,17 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 
 // send posts a message via Jam: to the cove's default channel, or, when to
 // is non-empty, to the authorized target it names.
-func (c *messagingClient) send(ctx context.Context, text, to, contentType string) (sendOut, error) {
+func (c *messagingClient) send(ctx context.Context, text, to, contentType string, attach ...string) (sendOut, error) {
+	refs, err := c.uploadAll(ctx, attach)
+	if err != nil {
+		return sendOut{}, err
+	}
 	payload, err := json.Marshal(struct {
-		Body        string `json:"body"`
-		To          string `json:"to,omitempty"`
-		ContentType string `json:"content_type,omitempty"`
-	}{Body: text, To: to, ContentType: contentType})
+		Body        string   `json:"body,omitempty"`
+		To          string   `json:"to,omitempty"`
+		ContentType string   `json:"content_type,omitempty"`
+		Attachments []string `json:"attachments,omitempty"`
+	}{Body: text, To: to, ContentType: contentType, Attachments: refs})
 	if err != nil {
 		return sendOut{}, fmt.Errorf("encoding send payload: %w", err)
 	}
@@ -609,6 +617,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	s := mcp.NewServer(&mcp.Implementation{Name: "intercom", Version: "0.1.0"}, nil)
 	addAskTools(s, client, cfgErr)
+	addAttachTools(s, client, cfgErr)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
@@ -617,7 +626,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
 		}
-		out, err := client.send(ctx, in.Text, in.To, in.ContentType)
+		out, err := client.send(ctx, in.Text, in.To, in.ContentType, in.Attach...)
 		if err != nil {
 			return nil, sendOut{}, err
 		}

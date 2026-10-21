@@ -95,3 +95,7 @@ func TestMCPAskTools(t *testing.T) {
 		t.Fatalf("read out %s", b)
 	}
 }
+
+func mcpParams(name string, args map[string]any) *mcp.CallToolParams {
+	return &mcp.CallToolParams{Name: name, Arguments: args}
+}
