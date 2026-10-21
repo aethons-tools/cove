@@ -32,7 +32,8 @@ func BuildDigest(sk StudioKit, harness harnessinstall.Install) string {
 // itself last). A chain of one is exactly BuildDigest, so unchained kits keep
 // their image tags. Longer chains hash every link's own build-affecting fields
 // (base, egress, build args, MCP servers) in order plus the harness, so a
-// change anywhere up the chain changes the child's digest.
+// change anywhere up the chain changes the child's digest. chain must hold at
+// least one kit: an empty chain hashes to a meaningless digest.
 func ChainDigest(chain []StudioKit, harness harnessinstall.Install) string {
 	if len(chain) == 1 {
 		return BuildDigest(chain[0], harness)

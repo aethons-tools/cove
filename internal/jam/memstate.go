@@ -797,6 +797,10 @@ func copyKitSource(s *KitSource) *KitSource {
 
 func copyKitMeta(m KitVersionMeta) KitVersionMeta {
 	m.Source = copyKitSource(m.Source)
+	if m.Parent != nil {
+		p := *m.Parent
+		m.Parent = &p
+	}
 	return m
 }
 

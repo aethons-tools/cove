@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -38,7 +39,8 @@ func ensureStudioKitMeta(store Store, name string, sk studio.StudioKit, meta Kit
 	return ensureKit(store, name, sk, &meta, track)
 }
 
-// ensureKit validates sk and, under kitMu, reuses the current version when its
+// ensureKit validates sk, resolves its parent chain and checks the merged kit
+// (prompt, notes), then, under kitMu, reuses the current version when its
 // canonical JSON is identical, else pushes a new one (with meta when non-nil).
 func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMeta, track *KitSource) (KitRef, bool, error) {
 	if err := sk.CheckName(name); err != nil {
@@ -47,19 +49,26 @@ func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMe
 	if err := sk.Validate(); err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
-	if err := sk.CheckPrompt(); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	if err := sk.CheckNotes(); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
 	text, err := sk.ToJSON()
 	if err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())
 	}
-	digest := studio.BuildDigest(sk, harnessinstall.Default())
 	kitMu.Lock()
 	defer kitMu.Unlock()
+	// Resolve the chain under kitMu so a parent cannot move between the checks
+	// and the push.
+	chain, err := ResolveKitChain(store, name, sk)
+	if err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	merged := studio.Merge(chainKits(chain))
+	if err := merged.CheckPrompt(); err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	if err := merged.CheckNotes(); err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
 	if k, ok := store.GetKit(name); ok && k.Current != 0 {
 		if cur, ok := store.KitConfig(name, k.Current); ok && cur == string(text) {
 			if track != nil {
@@ -69,6 +78,15 @@ func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMe
 			}
 			return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
 		}
+	}
+	if len(chain) > 1 {
+		parent := chain[len(chain)-2].Ref
+		if meta == nil {
+			meta = &KitVersionMeta{PushedAt: time.Now().UTC()}
+		}
+		m := *meta
+		m.Parent = &KitParentRef{Name: parent.ID, Version: parent.Version}
+		meta = &m
 	}
 	var version int
 	if meta != nil {

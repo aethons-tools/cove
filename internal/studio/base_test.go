@@ -17,7 +17,7 @@ func TestBaseKitParse(t *testing.T) {
 			t.Errorf("%q: %q %d %v", in, n, v, err)
 		}
 	}
-	for _, bad := range []string{"../web", "./web", ".web", "web@3", "web@v0", "web@vx", "we b", "web@v1@v2", "@v1", "web@v-1"} {
+	for _, bad := range []string{"web@v01", "web@v+1", "web@", "web@v", "../web", "./web", ".web", "web@3", "web@v0", "web@vx", "we b", "web@v1@v2", "@v1", "web@v-1"} {
 		if _, _, err := (Base{Kit: bad}).ParentRef(); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
