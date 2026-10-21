@@ -104,9 +104,11 @@ func ImportKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger,
 // Accepted residual: only the top kit is locked across the fetch, so a sync
 // of app (whose set includes web-dev) and a sync of web-dev fetching
 // different commits can leave web-dev at the older commit's content until
-// its next sync. With track, src (each kit at its
-// own dir) at the fetched commit also becomes every kit's tracked source; the
-// same happens for a kit that already tracks exactly that source.
+// its next sync.
+//
+// With track, src (each kit at its own dir) at the fetched commit also becomes
+// every kit's tracked source; the same happens for a kit that already tracks
+// exactly that source.
 func importKit(ctx context.Context, store Store, f KitFetcher, name string, src gitsource.Source, now time.Time, track bool) (KitSourceResult, error) {
 	var res KitSourceResult
 	err := f.Fetch(ctx, src, func(root, commit string) error {

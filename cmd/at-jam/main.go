@@ -1049,6 +1049,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		printKitSetAncestors(stdout, res)
 		if res.Unchanged {
 			fmt.Fprintf(stdout, "%s unchanged (current v%d, %s)\n", res.Name, res.Version, shortCommit(res.Commit))
 		} else {
@@ -1077,6 +1078,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		printKitSetAncestors(stdout, res)
 		if res.Unchanged {
 			fmt.Fprintf(stdout, "%s unchanged (%s)\n", res.Name, shortCommit(res.Commit))
 		} else {
@@ -1112,6 +1114,18 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// printKitSetAncestors prints one indented line per ancestor kit of a set
+// import, track or sync (root first), ahead of the kit's own result line.
+func printKitSetAncestors(w io.Writer, res jam.KitSourceResult) {
+	for _, a := range res.Also {
+		if a.Unchanged {
+			fmt.Fprintf(w, "  %s unchanged (v%d)\n", a.Name, a.Version)
+		} else {
+			fmt.Fprintf(w, "  %s v%d (with %s)\n", a.Name, a.Version, res.Name)
+		}
+	}
 }
 
 // shortCommit is the first 12 characters of a commit id.

@@ -186,3 +186,17 @@ func TestKitShowCarriesSources(t *testing.T) {
 		t.Fatalf("after untrack: %s", body)
 	}
 }
+
+// A set import answers with the kit and its ancestors in "also".
+func TestKitSourceAdminSetAlso(t *testing.T) {
+	st := NewMemStore()
+	f := newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": {"web/kit.yml": webKit, "app/kit.yml": appKit}})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+		WithKitFetcher(st, f, log)))
+	t.Cleanup(ts.Close)
+	code, body := call(t, "POST", ts.URL+"/admin/kits/import", `{"source":"https://git.example.com/acme/kits//app@main"}`)
+	if code != 200 || !strings.Contains(body, `"name":"app"`) || !strings.Contains(body, `"also":[{"name":"web-dev","version":1`) {
+		t.Fatalf("import = %d %s", code, body)
+	}
+}

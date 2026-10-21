@@ -19,11 +19,21 @@ func kitSourceServer(t *testing.T, history bool) *httptest.Server {
 	mux.HandleFunc("POST /admin/kits/import", func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Name, Source string }
 		_ = json.NewDecoder(r.Body).Decode(&b)
+		if strings.HasSuffix(b.Source, "@set") {
+			writeJSON(w, map[string]any{"name": "app", "version": 1, "commit": commit40, "also": []map[string]any{
+				{"name": "web-dev", "version": 2, "commit": commit40}}})
+			return
+		}
 		if strings.HasSuffix(b.Source, "@same") {
 			writeJSON(w, map[string]any{"name": "web", "version": 2, "unchanged": true, "commit": commit40})
 			return
 		}
 		writeJSON(w, map[string]any{"name": "web", "version": 3, "commit": commit40})
+	})
+	mux.HandleFunc("POST /admin/kits/app/sync", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"name": "app", "version": 2, "commit": commit40, "also": []map[string]any{
+			{"name": "base", "version": 1, "unchanged": true, "commit": commit40},
+			{"name": "web-dev", "version": 2, "commit": commit40}}})
 	})
 	mux.HandleFunc("PUT /admin/kits/web/source", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"name": "web", "version": 1, "commit": commit40})
@@ -84,6 +94,25 @@ func TestKitSourceVerbs(t *testing.T) {
 		{[]string{"track", "web", "--git", src}, "imported web v1 from " + src + " (0123456789ab)\ntracking " + src + "\n"},
 		{[]string{"untrack", "web"}, "web no longer tracks a source\n"},
 		{[]string{"sync", "web"}, "synced web v4 (0123456789ab)\n"},
+	} {
+		code, out, errb := runKit(t, ts, tc.args...)
+		if code != 0 || out != tc.want {
+			t.Errorf("%v: code=%d out=%q stderr=%q, want %q", tc.args, code, out, errb, tc.want)
+		}
+	}
+}
+
+// A set import or sync prints one indented line per ancestor, root first,
+// before the kit's own line.
+func TestKitSourceSetOutput(t *testing.T) {
+	ts := kitSourceServer(t, true)
+	src := "https://g.example.com/a/kits//app@set"
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"import", "--git", src}, "  web-dev v2 (with app)\nimported app v1 from " + src + " (0123456789ab)\n"},
+		{[]string{"sync", "app"}, "  base unchanged (v1)\n  web-dev v2 (with app)\nsynced app v2 (0123456789ab)\n"},
 	} {
 		code, out, errb := runKit(t, ts, tc.args...)
 		if code != 0 || out != tc.want {

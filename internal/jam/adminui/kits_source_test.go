@@ -308,3 +308,54 @@ func TestKitSourceButtonsDisableInFlight(t *testing.T) {
 		}
 	}
 }
+
+// setFetcher serves one commit of a repo as a file tree, so a source can name
+// a kit dir whose base.kit points at a sibling.
+type setFetcher struct {
+	t     *testing.T
+	sha   string
+	files map[string]string
+}
+
+func (f *setFetcher) Resolve(context.Context, gitsource.Source) (string, error) { return f.sha, nil }
+
+func (f *setFetcher) Fetch(_ context.Context, _ gitsource.Source, fn func(root, commit string) error) error {
+	root := f.t.TempDir()
+	for p, text := range f.files {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
+			return err
+		}
+	}
+	return fn(root, f.sha)
+}
+
+// Importing and syncing a kit with a path parent lists the ancestors in the
+// success flash, and the kit page notes the set.
+func TestKitSetImportAndSyncSurfaces(t *testing.T) {
+	f := &setFetcher{t: t, sha: srcSHA1, files: map[string]string{
+		"web/kit.yml": srcKitV1,
+		"app/kit.yml": "kind: studio\nbase:\n  kit: ../web\nprompt: app\n",
+	}}
+	h, _ := sourceUI(t, f)
+	rec := post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits//app@main"}, "track": {"on"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/app" {
+		t.Fatalf("import = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
+	}
+	if body := get(t, h, "/ui/kits/app").Body.String(); !strings.Contains(body, "Part of a set with web-dev") {
+		t.Errorf("app page should note its set:\n%s", body)
+	}
+	if body := get(t, h, "/ui/kits/web-dev").Body.String(); strings.Contains(body, "Part of a set") {
+		t.Errorf("the root kit has no parents:\n%s", body)
+	}
+
+	f.sha = srcSHA2
+	f.files["web/kit.yml"] = srcKitV2
+	rec = post(t, h, "/ui/kits/app/sync", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Imported with: web-dev v2") {
+		t.Fatalf("sync = %d, want ancestors in the flash:\n%s", rec.Code, rec.Body.String())
+	}
+}

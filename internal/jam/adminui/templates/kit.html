@@ -170,6 +170,7 @@
         {{else}}
         <span class="unset">Not tracked — pushed by hand, or imported once.</span>
         {{end}}
+        {{with .SetWith}}<p class="hint">Part of a set with {{.}} — imported from the same repo.</p>{{end}}
       </div>
       {{if and $.CanSource (not .Source)}}
       <details class="edit">
