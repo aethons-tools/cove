@@ -2135,6 +2135,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		blobMax = cfg.Blobs.maxBytes()
 	}
 	att := jam.NewAttachments(chlog, blobs, ic, blobMax)
+	boards := jam.NewBoards(chlog, ic)
 	att.SetLogger(log)
 	if att.Enabled() {
 		go func() {
@@ -2273,7 +2274,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att}, dc != nil, tickets, previewURL, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att, boards: boards}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {
@@ -2621,7 +2622,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att}, log, meOpts...))
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, meOpts...))
 			// Writes (/me/send, /me/read, /me/join|leave|call-in, /me/asks/{id}/answer) must come from
 			// the page itself: the session cookie alone (SameSite=Lax) lets a
 			// sibling subdomain post as the user.

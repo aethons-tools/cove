@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -35,16 +36,21 @@ const keepAlive = 25 * time.Second
 // gap ends, so the last status always arrives.
 const presenceGap = 250 * time.Millisecond
 
+// boardAccessTTL is how long a stream trusts its check that the viewer may
+// read a board before checking again.
+const boardAccessTTL = 30 * time.Second
+
 // events streams `changed` (the log grew) and `presence` (a session status
 // changed) to the participant until they disconnect. No message content or
 // status crosses this stream — only that something changed; the page refetches
 // its own authorized fragments.
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
-	if _, ok := jam.ParticipantFrom(r); !ok {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if h.changes == nil && h.presence == nil {
+	if h.changes == nil && h.presence == nil && h.d.Boards == nil {
 		w.WriteHeader(http.StatusNoContent) // EventSource stops retrying; the page polls
 		return
 	}
@@ -63,6 +69,25 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		ch, cancel := h.presence.Subscribe()
 		defer cancel()
 		presence = ch
+	}
+	var boards <-chan ident.ID
+	if h.d.Boards != nil {
+		ch, cancel := h.d.Boards.Subscribe()
+		defer cancel()
+		boards = ch
+	}
+	type access struct {
+		ok bool
+		at time.Time
+	}
+	readable := map[ident.ID]access{}
+	mayRead := func(id ident.ID) bool {
+		if a, hit := readable[id]; hit && time.Since(a.at) < boardAccessTTL {
+			return a.ok
+		}
+		_, _, ok := h.d.Boards.CanRead(p.UserID, id)
+		readable[id] = access{ok, time.Now()}
+		return ok
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -94,6 +119,14 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			sendPresence()
 		case <-held:
 			sendPresence()
+		case id := <-boards:
+			// Only boards this viewer may read (checked at most every
+			// boardAccessTTL per board, not on every stroke); the editor
+			// refetches by seq.
+			if !mayRead(id) {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: board\ndata: %s\n\n", id)
 		case <-tick.C:
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 		}

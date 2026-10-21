@@ -24,6 +24,8 @@ type Deps struct {
 	Legacy   jam.LogReader
 	// Attachments serves uploads and blobs (nil: attachments off).
 	Attachments *jam.Attachments
+	// Boards serves whiteboards (nil: off).
+	Boards *jam.Boards
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).

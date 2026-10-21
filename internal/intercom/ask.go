@@ -176,6 +176,15 @@ func validateParts(parts []Part) error {
 			}
 			continue
 		}
+		if p.Type == BoardPartType {
+			var d struct {
+				BoardID ident.ID `json:"board_id"`
+			}
+			if err := json.Unmarshal(p.Data, &d); err != nil || d.BoardID.Kind() != ident.Board {
+				return fmt.Errorf("%w: board part", ErrInvalid)
+			}
+			continue
+		}
 		switch {
 		case p.Type != AskPartType:
 			return fmt.Errorf("%w: unsupported part type %q", ErrInvalid, p.Type)

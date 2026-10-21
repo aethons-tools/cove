@@ -22,11 +22,13 @@ type Log struct {
 	deliveries map[int64][]ident.ID // seq → audience
 	asks       map[string]Ask       // the asks read-model, by ask id
 	blobs      map[ident.ID]Blob    // attachment metadata
+	boards     map[ident.ID]Board
+	elements   map[ident.ID]map[string]Element // board → element id → element
 }
 
 // NewMemLog returns an empty channel log continuing legacy (nil: none).
 func NewMemLog(legacy LegacyStore) *Log {
-	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}, asks: map[string]Ask{}, blobs: map[ident.ID]Blob{}}
+	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}, asks: map[string]Ask{}, blobs: map[ident.ID]Blob{}, boards: map[ident.ID]Board{}, elements: map[ident.ID]map[string]Element{}}
 	if legacy != nil {
 		if tail, ok := legacy.TailSeq(); ok {
 			l.cutover = tail + 1
@@ -255,4 +257,92 @@ func (l *Log) DeleteBlob(id ident.ID) error {
 	}
 	delete(l.blobs, id)
 	return nil
+}
+
+func (l *Log) CreateBoard(b Board) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.boards[b.ID]; ok {
+		return fmt.Errorf("intercom: board %s exists", b.ID)
+	}
+	b.Seq = 0
+	l.boards[b.ID] = b
+	l.elements[b.ID] = map[string]Element{}
+	return nil
+}
+
+func (l *Log) GetBoard(id ident.ID) (Board, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.boards[id]
+	return b, ok
+}
+
+func (l *Log) ListBoards(channel ident.ID) []Board {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Board
+	for _, b := range l.boards {
+		if b.Channel == channel {
+			out = append(out, b)
+		}
+	}
+	slices.SortFunc(out, func(a, b Board) int { return a.Created.Compare(b.Created) })
+	return out
+}
+
+func (l *Log) MergeElements(board ident.ID, els []Element) (int64, []Element, error) {
+	if err := checkBatch(els); err != nil {
+		return 0, nil, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.boards[board]
+	if !ok {
+		return 0, nil, ErrNoBoard
+	}
+	stored := l.elements[board]
+	next := b.Seq + 1
+	accepted := false
+	var lost []Element
+	for _, e := range els {
+		if cur, ok := stored[e.ID]; ok && !Wins(e, cur) {
+			lost = append(lost, cur)
+			continue
+		}
+		e.Seq = next
+		stored[e.ID] = e
+		accepted = true
+	}
+	if accepted {
+		b.Seq = next
+		l.boards[board] = b
+	}
+	return b.Seq, lost, nil
+}
+
+func (l *Log) BoardElements(board ident.ID, since int64) ([]Element, int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Element
+	for _, e := range l.elements[board] {
+		if e.Seq > since {
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(a, b Element) int { return strings.Compare(a.ID, b.ID) })
+	return out, l.boards[board].Seq
+}
+
+func (l *Log) BoardsCreatedBy(p ident.ID) []Board {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Board
+	for _, b := range l.boards {
+		if b.CreatedBy == p {
+			out = append(out, b)
+		}
+	}
+	slices.SortFunc(out, func(a, b Board) int { return a.Created.Compare(b.Created) })
+	return out
 }
