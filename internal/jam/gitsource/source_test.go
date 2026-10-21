@@ -13,6 +13,7 @@ func TestParseSource(t *testing.T) {
 		"http://127.0.0.1:9/r.git@" + strings.Repeat("a", 40): {Repo: "http://127.0.0.1:9/r.git", Ref: strings.Repeat("a", 40)},
 		"http://localhost/r.git@release/2026":                 {Repo: "http://localhost/r.git", Ref: "release/2026"},
 		"https://github.com/a/b@feature/v1.2":                 {Repo: "https://github.com/a/b", Ref: "feature/v1.2"},
+		"https://git.example.com:8443/a/b@main":               {Repo: "https://git.example.com:8443/a/b", Ref: "main"},
 		"http://[::1]:8080/r.git//.@main":                     {Repo: "http://[::1]:8080/r.git", Ref: "main"},
 	} {
 		got, err := Parse(in)
@@ -34,6 +35,11 @@ func TestParseSource(t *testing.T) {
 		"https://bob:s3cretTok/x@github.com/a/b@main", "https://bob:123456/x@github.com/a/b", "https://s3cretTok@github.com/a/b@main",
 		"https://github.com/a/b?access_token=s3cretTok@main", "https://github.com/a/b#s3cretTok@main", "https://github.com@main", "https://github.com/@main",
 		"https://bob:1234/x@github.com/a/b", "https://bob:s3cretTok/x@localhost/a", "https://github.com:123456/a/b@main",
+		// Round 2: '://' after the '@' (used to panic), dotless-host pastes, quoted tails.
+		"x@y://z", "bob:pw@gitserver/a://b", "@://", "a@://", "https://bob:123456/x@gitserver/a/b", "https://bob:1234/x@gitserver/a/b",
+		"https://github.com/a b?access_token=s3cretTok@main", `https://github.com/a"b?access_token=s3cretTok@main`,
+		"https://github.com/a'b?access_token=s3cretTok@main", "https://github.com/a\tb?access_token=s3cretTok@main",
+		"https://github.com/a\x00b?access_token=s3cretTok@main", "https://github.com/a`b?access_token=s3cretTok@main",
 	} {
 		_, err := Parse(bad)
 		if err == nil {
@@ -115,4 +121,47 @@ func TestRedactURL(t *testing.T) {
 	if !strings.Contains(got, "https://git.example.com/r.git/info/refs") || !strings.Contains(got, "https://ok.example/r") {
 		t.Fatalf("redactURL mangled: %s", got)
 	}
+}
+
+// Hand-built sources with quotes or spaces are refused before quoting.
+func TestCheckRefusesUnsafeChars(t *testing.T) {
+	for _, src := range []Source{{Repo: "https://github.com/a b?access_token=s3cretTok", Ref: "main"}, {Repo: `https://github.com/a"?access_token=s3cretTok`, Ref: "main"},
+		{Repo: "https://github.com/a/b", Ref: "ma'in"}, {Repo: "https://github.com/a/b", Dir: "w eb", Ref: "main"}} {
+		err := src.check()
+		if err == nil || strings.Contains(err.Error(), "s3cretTok") {
+			t.Errorf("check(%+v) = %v", src, err)
+		}
+	}
+	// A refusal after parsing quotes only scheme, host and escaped path.
+	if err := checkRepoURL("http://example.com/a%20b?access_token=s3cretTok"); err == nil || strings.Contains(err.Error(), "s3cretTok") || !strings.Contains(err.Error(), "http://example.com/a%20b") {
+		t.Errorf("checkRepoURL: %v", err)
+	}
+}
+
+// Parse never panics, and an error never quotes what was planted after a
+// ':' in the authority (a pasted password).
+func FuzzParse(f *testing.F) {
+	for _, seed := range [][3]string{
+		{"https://github.com/a/b@main", "s3cretTok", "github.com/a/b@main"},
+		{"x@y://z", "123456", "gitserver/a/b"},
+		{"bob:pw@gitserver/a://b", "pw/x", "github.com/a b?x=1@main"},
+		{"https://u:p@h//d@", "p", "@@"},
+		{"http://[::1]:8080/r.git//.@main", "tok:en", "host:99/x@" + strings.Repeat("a", 40)},
+	} {
+		f.Add(seed[0], seed[1], seed[2])
+	}
+	f.Fuzz(func(t *testing.T, raw, secret, rest string) {
+		_, _ = Parse(raw)
+		_, _ = Parse(raw + "@" + rest)
+		// The planted secret lives in the authority: no '/' (that would end
+		// it), and long enough not to match fixed message text by chance.
+		if len(secret) < 6 || strings.ContainsAny(secret, "/") {
+			return
+		}
+		for _, in := range []string{"https://bob:" + secret + "@" + rest, "https://bob:" + secret + "@" + rest + "@main", "http://x:" + secret + "@127.0.0.1/" + rest} {
+			if _, err := Parse(in); err != nil && strings.Contains(err.Error(), secret) {
+				t.Fatalf("Parse(%q) error quotes the secret: %v", in, err)
+			}
+		}
+	})
 }

@@ -394,12 +394,13 @@ func (c *countingBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// sameHostRedirect refuses, for a Fetcher's requests, more than
-// maxRedirects hops and any redirect off the original host, so a credential is never even offered to another server
-// (go-git would strip it, but the request itself is refused). Other go-git
-// users keep go-git's own policy.
+// maxRedirects caps the redirect hops a Fetcher's request follows.
 const maxRedirects = 10
 
+// sameHostRedirect refuses, for a Fetcher's requests, more than maxRedirects
+// hops and any redirect off the original host, so a credential is never even
+// offered to another server (go-git would strip it, but the request itself
+// is refused). Other go-git users keep go-git's own policy.
 func sameHostRedirect(req *http.Request, via []*http.Request) error {
 	if _, ok := req.Context().Value(budgetKey{}).(*budget); !ok || len(via) == 0 {
 		return nil

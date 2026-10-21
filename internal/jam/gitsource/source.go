@@ -7,6 +7,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Source names a kit in a git repository: "<repo>[//<dir>]@<ref>".
@@ -21,16 +22,20 @@ type Source struct {
 // never echoed: errors quote the input only once it is known to have no
 // userinfo, and then without query or fragment.
 func Parse(s string) (Source, error) {
-	scheme := strings.Index(s, "://")
-	if scheme < 0 {
-		return Source{}, errors.New("source: want <repo>[//<dir>]@<ref> with an https repo URL")
+	// Nothing is quoted until it is known to hold no space, quote or
+	// control character, so a quoted fragment can never smuggle an
+	// unredacted URL tail past redactURL.
+	if hasUnsafeChars(s) {
+		return Source{}, errors.New("source: spaces, quotes and control characters are not allowed")
 	}
-	authority := s[scheme+3:]
-	if i := strings.IndexByte(authority, '/'); i >= 0 {
-		authority = authority[:i]
-	}
-	if strings.Contains(authority, "@") {
-		return Source{}, errors.New("source: credentials in the repo URL are refused (use a kits.git cred)")
+	if scheme := strings.Index(s, "://"); scheme >= 0 {
+		authority := s[scheme+3:]
+		if i := strings.IndexByte(authority, '/'); i >= 0 {
+			authority = authority[:i]
+		}
+		if strings.Contains(authority, "@") {
+			return Source{}, errors.New("source: credentials in the repo URL are refused (use a kits.git cred)")
+		}
 	}
 	// A ref never contains '@', and nor may the repo URL: exactly one '@'
 	// separates them. (An '@' anywhere else is most likely a pasted
@@ -44,6 +49,10 @@ func Parse(s string) (Source, error) {
 	}
 	at := strings.IndexByte(s, '@')
 	repo, ref := s[:at], s[at+1:]
+	scheme := strings.Index(repo, "://")
+	if scheme < 0 {
+		return Source{}, errors.New("source: want <repo>[//<dir>]@<ref> with an https repo URL")
+	}
 	// "https://user:pa/ss@host/path" (a password holding a raw '/') slips
 	// past the authority check and leaves "host/path" as the ref. A ref whose
 	// first component looks like a host name is refused, without echoing.
@@ -56,7 +65,7 @@ func Parse(s string) (Source, error) {
 		i += scheme + 3
 		repo, src.Dir = repo[:i], repo[i+2:]
 		if src.Dir == "" {
-			return Source{}, fmt.Errorf("source %q: empty dir after //", redactURL(s))
+			return Source{}, errors.New("source: empty dir after //")
 		}
 		if src.Dir == "." {
 			src.Dir = ""
@@ -66,7 +75,25 @@ func Parse(s string) (Source, error) {
 	if err := src.check(); err != nil {
 		return Source{}, err
 	}
+	// The same paste with a dotless host, "https://user:1234/x@gitserver/a/b",
+	// parses as host "user", port 1234, ref "gitserver/a/b". It cannot be told
+	// apart from a real port by the text alone, so an explicit port and a ref
+	// holding '/' are refused together.
+	if u, err := url.Parse(src.Repo); err == nil && u.Port() != "" && strings.Contains(src.Ref, "/") {
+		return Source{}, errors.New("source: a repo URL with an explicit port cannot take a ref containing '/' (it could be a pasted credential); refs with '/' need a portless URL")
+	}
 	return src, nil
+}
+
+// hasUnsafeChars reports whether s holds whitespace, a quote, a backtick or
+// a control character.
+func hasUnsafeChars(s string) bool {
+	for _, r := range s {
+		if r <= 0x20 || r == 0x7f || r == '"' || r == '\'' || r == '`' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // String renders s in the form Parse reads.
@@ -110,7 +137,11 @@ func checkRepoURL(raw string) error {
 	if u.User != nil || strings.Contains(raw, "@") {
 		return errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
 	}
-	shown := redactURL(raw)
+	if hasUnsafeChars(raw) {
+		return errors.New("repo: spaces, quotes and control characters are not allowed")
+	}
+	// Quoted from the parsed fields only: never userinfo, query or fragment.
+	shown := u.Scheme + "://" + u.Host + u.EscapedPath()
 	switch {
 	case u.Scheme == "https":
 	case u.Scheme == "http" && isLoopback(u.Hostname()):
@@ -150,6 +181,9 @@ func checkDir(dir string) error {
 	if dir == "" || dir == "." {
 		return nil
 	}
+	if hasUnsafeChars(dir) {
+		return errors.New("dir: spaces, quotes and control characters are not allowed")
+	}
 	if path.IsAbs(dir) || path.Clean(dir) != dir || dir == ".." || strings.HasPrefix(dir, "../") ||
 		strings.ContainsAny(dir, "\\\x00") {
 		return fmt.Errorf("dir %q: want a clean relative path inside the repository", dir)
@@ -165,6 +199,8 @@ func checkRef(ref string) error {
 	switch {
 	case ref == "":
 		return errors.New("ref: missing (want <repo>[//<dir>]@<ref>)")
+	case hasUnsafeChars(ref):
+		return errors.New("ref: spaces, quotes and control characters are not allowed")
 	case len(ref) > 255:
 		return bad("too long")
 	case strings.HasPrefix(ref, "-"), strings.HasPrefix(ref, "+"):
