@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -283,5 +284,54 @@ func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
 	wg.Wait()
 	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
 		t.Fatalf("versions=%d, want 2", len(k.Versions))
+	}
+}
+
+// An untracked import of the tracked source moves the tracked commit with it, so
+// the next sync does not mistake the kit for current.
+func TestImportOfTrackedSourceAdvancesTrackedCommit(t *testing.T) {
+	st, f := trackedFixture(t) // tracked at c1 (prompt: hi)
+	ctx := context.Background()
+	src := gitsource.Source{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main"}
+	kit := func(p string) map[string]string {
+		return map[string]string{"web/kit.yml": "kind: studio\nname: web-dev\nprompt: " + p + "\n"}
+	}
+	f.commit("main", "c2", kit("two"))
+	if _, err := SyncKit(ctx, st, f, nil, "web-dev", time.Unix(80, 0)); err != nil {
+		t.Fatal(err)
+	}
+	f.refs["main"] = "c1" // force-moved back
+	res, err := ImportKit(ctx, st, f, nil, "web-dev", src, time.Unix(81, 0))
+	if err != nil || res.Commit != "c1" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if k, _ := st.GetKit("web-dev"); k.Source.Commit != "c1" {
+		t.Fatalf("tracked commit = %s, want c1", k.Source.Commit)
+	}
+	f.refs["main"] = "c2"
+	res, err = SyncKit(ctx, st, f, nil, "web-dev", time.Unix(82, 0))
+	if err != nil || res.Unchanged {
+		t.Fatalf("sync must see c2 as changed: %+v %v", res, err)
+	}
+	k, _ := st.GetKit("web-dev")
+	if cfg, _ := st.KitConfig("web-dev", k.Current); !strings.Contains(cfg, "two") || k.Source.Commit != "c2" {
+		t.Fatalf("not on c2 content: %s %+v", cfg, k.Source)
+	}
+	// The unchanged path too: importing identical content still moves the commit.
+	f.commit("main", "c3", kit("two"))
+	if _, err := ImportKit(ctx, st, f, nil, "web-dev", src, time.Unix(83, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := st.GetKit("web-dev"); k.Source.Commit != "c3" {
+		t.Fatalf("unchanged import left tracked commit %s", k.Source.Commit)
+	}
+}
+
+func TestKitLocksPruned(t *testing.T) {
+	lockKit("a")()
+	kitLocks.mu.Lock()
+	defer kitLocks.mu.Unlock()
+	if len(kitLocks.m) != 0 {
+		t.Fatalf("leaked %d lock entries", len(kitLocks.m))
 	}
 }

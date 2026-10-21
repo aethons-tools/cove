@@ -34,25 +34,39 @@ var ErrNotTracked = errors.New("kit has no tracked source (use kit track)")
 
 // kitLocks serializes the git-sourced operations on one kit name, so
 // concurrent imports, tracks and syncs cannot interleave (or regress content).
+// Entries are refcounted and dropped when unused.
 var kitLocks struct {
 	mu sync.Mutex
-	m  map[string]*sync.Mutex
+	m  map[string]*kitLock
+}
+
+type kitLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 // lockKit takes name's lock and returns its release.
 func lockKit(name string) func() {
 	kitLocks.mu.Lock()
 	if kitLocks.m == nil {
-		kitLocks.m = map[string]*sync.Mutex{}
+		kitLocks.m = map[string]*kitLock{}
 	}
 	l := kitLocks.m[name]
 	if l == nil {
-		l = &sync.Mutex{}
+		l = &kitLock{}
 		kitLocks.m[name] = l
 	}
+	l.refs++
 	kitLocks.mu.Unlock()
-	l.Lock()
-	return l.Unlock
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		kitLocks.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(kitLocks.m, name)
+		}
+		kitLocks.mu.Unlock()
+	}
 }
 
 // ImportKit fetches src, loads its kit.yml and records it as a new version of
@@ -74,7 +88,8 @@ func ImportKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger,
 }
 
 // importKit fetches and records src; with track, src at the fetched commit also
-// becomes the kit's tracked source, atomically with the new version.
+// becomes the kit's tracked source, atomically with the new version. The same
+// happens when the kit already tracks exactly src.
 func importKit(ctx context.Context, store Store, f KitFetcher, name string, src gitsource.Source, now time.Time, track bool) (KitSourceResult, error) {
 	var res KitSourceResult
 	err := f.Fetch(ctx, src, func(root, commit string) error {
@@ -93,8 +108,12 @@ func importKit(ctx context.Context, store Store, f KitFetcher, name string, src 
 			defer lockKit(name)() // a defaulted name is only known now
 		}
 		at := &KitSource{Repo: src.Repo, Dir: src.Dir, Ref: src.Ref, Commit: commit}
+		// An import of the tracked source (same repo, dir and ref) moves the
+		// tracked commit with it, so a later sync compares against what the
+		// kit actually holds.
 		var tracked *KitSource
-		if track {
+		if k, ok := store.GetKit(name); track || (ok && k.Source != nil &&
+			k.Source.Repo == src.Repo && k.Source.Dir == src.Dir && k.Source.Ref == src.Ref) {
 			tracked = at
 		}
 		ref, unchanged, err := ensureStudioKitMeta(store, name, sk, KitVersionMeta{PushedAt: now, Source: at}, tracked)
