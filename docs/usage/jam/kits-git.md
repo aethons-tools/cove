@@ -68,6 +68,10 @@ symlink out of the checkout is refused. `context-dir` is packed into `context`
 exactly as `kit push` packs it (same caps, `.dockerignore` honored), so the
 stored kit is self-contained; the checkout is deleted after each fetch.
 
+A `kit.yml` may build on a registry kit (`base: { kit: web-dev }`), but not
+yet on a path in the same repo; see
+[kits-inheritance.md](kits-inheritance.md#kits-from-git).
+
 The kit's name, when `import` gets no `--name`: the file's legacy `name:`
 field, else the base of `<dir>`, else the repo's name (`kits.git` → `kits`).
 `track` and `sync` use the kit named on the command line.
@@ -179,6 +183,6 @@ failure (the message is already redacted), and **500** for a store failure.
 ## Future work
 
 Not in this slice: an attention signal when a tracked source has new commits
-(a poll that only reports, never imports), and kits inheriting from other
-kits — see the design,
+(a poll that only reports, never imports), and same-repo path parents — see
+the design,
 [`../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md`](../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md).

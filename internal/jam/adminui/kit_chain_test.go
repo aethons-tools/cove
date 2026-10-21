@@ -23,10 +23,33 @@ func seedChain(t *testing.T) jam.Store {
 	return store
 }
 
+// builtOnRow is the Built on row's value (the <dd> after its <dt>), or "".
+func builtOnRow(t *testing.T, body string) string {
+	t.Helper()
+	const dt = "<dt>Built on</dt><dd>"
+	i := strings.Index(body, dt)
+	if i < 0 {
+		return ""
+	}
+	row := body[i+len(dt):]
+	if j := strings.Index(row, "</dd>"); j >= 0 {
+		row = row[:j]
+	}
+	return row
+}
+
 func TestKitPageShowsChainAndEffective(t *testing.T) {
 	body := get(t, kitsHandler(seedChain(t)), "/ui/kits/child").Body.String()
+	row := builtOnRow(t, body)
+	for _, want := range []string{`href="/ui/kits/web"`, "web v2", "follows"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("Built on row missing %q:\n%s", want, row)
+		}
+	}
+	if strings.Contains(row, "pinned") {
+		t.Errorf("a following parent must not read as pinned:\n%s", row)
+	}
 	for _, want := range []string{
-		"Built on", `href="/ui/kits/web"`, "v2", "follows",
 		"Effective", "github.com", "api.acme.dev", "You work on the web and api services.", "Child prompt.",
 		"kit: web",
 	} {
@@ -44,9 +67,14 @@ func TestKitPageShowsPinnedParent(t *testing.T) {
 	if _, _, err := jam.PushStudioKit(store, "pinned", strings.Replace(kitChild, "kit: web", "kit: web@v1", 1)); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, kitsHandler(store), "/ui/kits/pinned").Body.String()
-	if !strings.Contains(body, "pinned") || !strings.Contains(body, "v1") {
-		t.Errorf("pinned parent not shown:\n%s", body)
+	row := builtOnRow(t, get(t, kitsHandler(store), "/ui/kits/pinned").Body.String())
+	for _, want := range []string{`href="/ui/kits/web"`, "web v1", "pinned"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("Built on row missing %q:\n%s", want, row)
+		}
+	}
+	if strings.Contains(row, "follows") {
+		t.Errorf("a pinned parent must not read as following:\n%s", row)
 	}
 }
 
@@ -63,17 +91,28 @@ func TestKitPageUsedByListsChildKits(t *testing.T) {
 	}
 }
 
+// A child whose parent's stored config is invalid shows the chain error in the
+// banner, HTML-escaped (the parent's bad text reaches the message).
 func TestKitPageChainErrorEscaped(t *testing.T) {
 	store := seedKits(t)
-	if _, err := store.PushKit("orphan", "kind: studio\nbase:\n  kit: gone<b>x</b>\n"); err != nil {
+	if _, err := store.PushKit("evil", "kind: studio\nbase:\n  kit: gone<b>x</b>\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PushKit("orphan", "kind: studio\nbase:\n  kit: evil\n"); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, kitsHandler(store), "/ui/kits/orphan").Body.String()
 	if strings.Contains(body, "<b>x</b>") {
 		t.Error("chain error not escaped")
 	}
-	if !strings.Contains(body, "gone") {
-		t.Errorf("chain error not shown:\n%s", body)
+	const banner = "Kit chain does not resolve: "
+	i := strings.Index(body, banner)
+	if i < 0 {
+		t.Fatalf("chain error banner not shown:\n%s", body)
+	}
+	msg, _, _ := strings.Cut(body[i+len(banner):], "</div>")
+	if !strings.Contains(msg, "evil@v1 (parent of orphan) is invalid") || !strings.Contains(msg, "gone&lt;b&gt;x&lt;/b&gt;") {
+		t.Errorf("chain error banner lacks the escaped reason: %q", msg)
 	}
 }
 

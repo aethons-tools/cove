@@ -1,6 +1,6 @@
 ---
 summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm|import|track|untrack|sync`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
-read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, or giving a kit's sessions extra MCP servers.
+read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
@@ -25,7 +25,7 @@ name itself**: its name is the registry key it is pushed under (`kit push
 
 ```yaml
 kind: studio
-base:                      # OPTIONAL — one of: image | context-files | context | context-dir | omitted
+base:                      # OPTIONAL — one of: image | context-files | context | context-dir | kit | omitted
   image: ghcr.io/acme/base@sha256:…
 egress: [github.com, pkg.go.dev]   # allow-list (capped by the ceiling, below)
 build-args: {GO_VERSION: "1.23"}   # never secrets
@@ -45,7 +45,7 @@ mcp-servers:               # extra MCP servers for the session's agent (env refs
 
 | Field | Meaning |
 |---|---|
-| `base` | The image to build FROM — **exactly one of** (or omitted for the blessed default): `image:` a gated prebuilt ref; `context-files:` an inline build context; `context:` a base64-encoded tar.gz build context (for real/binary contexts). A context is **streamed to `docker build -`** (never extracted to a host dir), so docker applies its unix file modes — an executable script keeps its `+x` bit. Every form is provenance-gated — a context's Dockerfile must `FROM ${COVE_BASE_IMAGE}` so the built base descends from the blessed base. The build injects standard args: `COVE_BASE_IMAGE` (and its alias `AT_JAM_STUDIO_BASE_IMAGE`) = the blessed base ref to build FROM, and `AT_JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. **`context-files`** is a tree: the reserved, required key `dockerfile` is the Dockerfile content; every other key is a single path segment whose value is a file (string) or a subdirectory (nested map). Inline files carry no mode, so they are packed `0644` — an inline script must be run `sh script.sh` or `chmod +x`'d in the Dockerfile. **`context`** is pre-flighted host-side under hard caps (fail-closed) before streaming: a root `Dockerfile` is required; entries that are absolute, contain `..`, or are symlinks/hardlinks/irregular are rejected; encoded ≤ 1 MiB, decompressed ≤ 64 MiB, ≤ 2000 entries. **`context-dir:`** is a client-only authoring convenience: `at-jam kit push` packs that host directory into `context` as a deterministic, **mode-preserving** tar.gz (same caps + symlink/`..` rejection, root `Dockerfile` required), resolving a relative path against the kit file's directory. A root `.dockerignore` is honored (exact `docker build` parity; the root `Dockerfile` and `.dockerignore` are always kept). It is never stored or sent to the server — the stored kit carries only the resulting `context`. |
+| `base` | The image to build FROM — **exactly one of** (or omitted for the blessed default): `kit:` a parent kit to build on ([below](#building-on-another-kit-basekit)); `image:` a gated prebuilt ref; `context-files:` an inline build context; `context:` a base64-encoded tar.gz build context (for real/binary contexts). A context is **streamed to `docker build -`** (never extracted to a host dir), so docker applies its unix file modes — an executable script keeps its `+x` bit. Every form is provenance-gated — a context's Dockerfile must `FROM ${COVE_BASE_IMAGE}` so the built base descends from the blessed base. The build injects standard args: `COVE_BASE_IMAGE` (and its alias `AT_JAM_STUDIO_BASE_IMAGE`) = the blessed base ref to build FROM, and `AT_JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. **`context-files`** is a tree: the reserved, required key `dockerfile` is the Dockerfile content; every other key is a single path segment whose value is a file (string) or a subdirectory (nested map). Inline files carry no mode, so they are packed `0644` — an inline script must be run `sh script.sh` or `chmod +x`'d in the Dockerfile. **`context`** is pre-flighted host-side under hard caps (fail-closed) before streaming: a root `Dockerfile` is required; entries that are absolute, contain `..`, or are symlinks/hardlinks/irregular are rejected; encoded ≤ 1 MiB, decompressed ≤ 64 MiB, ≤ 2000 entries. **`context-dir:`** is a client-only authoring convenience: `at-jam kit push` packs that host directory into `context` as a deterministic, **mode-preserving** tar.gz (same caps + symlink/`..` rejection, root `Dockerfile` required), resolving a relative path against the kit file's directory. A root `.dockerignore` is honored (exact `docker build` parity; the root `Dockerfile` and `.dockerignore` are always kept). It is never stored or sent to the server — the stored kit carries only the resulting `context`. |
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
@@ -73,6 +73,13 @@ the cove's own **`messaging`** server (`cove-master mcp`, the
   `/etc/cove/mcp-servers.json`, the same build-time path as the egress lists,
   so it is **build-affecting** (part of the build-digest). cove-master refuses to
   start the agent if that file is missing or the generated config can't be written.
+
+### Building on another kit (`base.kit`)
+
+`base: { kit: web-dev }` (follow its current version) or `kit: web-dev@v3` (pin)
+builds this kit on a parent kit's image and merges its definition over the
+parent's. The rules, errors, staleness and guards are in
+[kits-inheritance.md](kits-inheritance.md).
 
 The session context is compiled at raise ([session-context.md](session-context.md)),
 so it lives *outside* the image.
@@ -148,9 +155,9 @@ at-jam kit untrack web                                      # stop tracking (ver
 - `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
   `<dir>/kit.yml` from the repo itself; the source syntax, sync rules,
   credentials and errors are in [kits-git.md](kits-git.md).
-- `kit rm` is **fail-closed**: a kit that any role references can't be removed
-  (the command reports the referencing role); `ungrant`/rebind the role first, or
-  point the role at another kit.
+- `kit rm` is **fail-closed**: a kit that any role references (or another kit
+  [builds on](kits-inheritance.md#guards)) can't be removed; the command reports
+  the referencing role. Rebind the role first.
 
 The admin UI does the same from each kit's page — versions, diffs, pin, push
 ([ui-pages.md](ui-pages.md#kit-pages)).
@@ -165,18 +172,17 @@ at-jam role add --project acme --name builder --destinations anthropic,git --kit
 ```
 
 `--kit` names a registered kit (it must already exist — `role add` fails closed
-otherwise). The role then resolves to that kit's *current* version. See
+otherwise); the role resolves to its *current* version. See
 [roster.md](roster.md) for the rest of the role surface.
 
 ## Role to kit, and the default kit
 
-`role add --kit <name>` names a studio kit **directly**; a brokered cove for that
-role raises from it. Resolution is **fail-closed**: a name that is absent from the
-registry, or not tag-safe, fails the raise. A role with `--kit` unset (`""`)
-raises the built-in **`default`** studio kit — the blessed base, a minimal
-Anthropic-free egress list and a generic prompt — which Jam **seeds into the
-registry at serve start** (idempotent), so it is inspectable/versioned like any
-other (`kit show default`).
+A brokered cove for the role raises from that kit. Resolution is
+**fail-closed**: a name absent from the registry, or not tag-safe, fails the
+raise. A role with `--kit` unset (`""`) raises the built-in **`default`** studio
+kit — the blessed base, a minimal Anthropic-free egress list and a generic
+prompt — which Jam **seeds into the registry at serve start** (idempotent), so
+it is inspectable/versioned like any other (`kit show default`).
 
 The supervisor carries only a light **reference** (`<id>@v<n>`) on each raise; the
 launcher resolves it against its prepared-image inventory and, on a miss, Jam
@@ -184,13 +190,6 @@ resolves the full kit from *this* registry and calls `PrepareKit` to build it. T
 handshake is documented on the raise side in
 [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol). A `ref` base is
 **provenance-gated at build with no `--allow-unverified` escape hatch**.
-
-## Upgrades & rollback
-
-- **Upgrade** a role's kit for everyone: `kit push --name web --config <new>` —
-  *current* advances, and every role bound to `web` picks up the new version.
-- **Roll back**: `kit pin web <older-version>` — *current* moves back; bindings are
-  unchanged (they still reference `web`).
 
 Design rationale (the versioning model) lives in
 [`../../superpowers/specs/2026-09-12-harbor-kit-registry.md`](../../superpowers/specs/2026-09-12-harbor-kit-registry.md).
