@@ -291,10 +291,11 @@ func sessionLabel(i Instance) string {
 }
 
 // AskedForPerson reports whether a session asked for a person since it was
-// last woken: a needs-input ticket report, or the escalate tool. A session
+// last woken: a needs-input ticket report, or the escalate tool — or it has
+// an open ask a person may answer (OpenAsks). A session
 // whose turn merely ended is idle, not asking.
 func AskedForPerson(i Instance) bool {
-	return i.EscalationAsked || i.Report != nil && i.Report.State == ReportNeedsInput
+	return i.EscalationAsked || i.OpenAsks > 0 || i.Report != nil && i.Report.State == ReportNeedsInput
 }
 
 // NeedsPerson reports whether a session needs a person: it is blocked, or it
