@@ -31,8 +31,8 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 	return srv.ServeTLS(lis, "", "")
 }
 
-// squawksMux routes exactly "/squawks", "/squawks/targets", and
-// "/squawks/commit" to squawksH, "/escalate" to escH, and "/end" and "/idle"
+// squawksMux routes exactly "/squawks" and its subpaths (targets, commit,
+// call-in, leave, and the ask routes) to squawksH, "/escalate" to escH, and "/end" and "/idle"
 // to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, "/exposures" and "/exposures/{name}" to exposureH, and "/report" to
 // reportH; every other path goes
 // to broker unchanged. Used to mount Jam's brokered ticket-squawk
@@ -50,7 +50,8 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker htt
 			return
 		}
 		switch r.URL.Path {
-		case "/squawks", "/squawks/targets", "/squawks/commit":
+		case "/squawks", "/squawks/targets", "/squawks/commit", "/squawks/call-in", "/squawks/leave",
+			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks":
 			squawksH.ServeHTTP(w, r)
 		case "/escalate":
 			escH.ServeHTTP(w, r)
