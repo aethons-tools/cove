@@ -48,8 +48,9 @@
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
-        <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>
-        <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
+        {{if $.AttachMax}}<div class="att-chips"></div>{{end}}
+        <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)"></textarea>
+        <div class="send-col">{{if $.AttachMax}}<label class="attach-btn" title="Attach files (or paste / drop them; max {{$.AttachMax}} bytes each)">📎<input type="file" multiple hidden onchange="meAttach(this.form, this.files); this.value=''"></label>{{end}}<label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
       </form>
     </div>
     {{else}}
@@ -78,7 +79,8 @@
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
       {{with .ReAsk}}<a class="re-ask" href="#ask-{{.ID}}">re: {{.Question}}</a>{{end}}
       <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}<span class="acts"><button type="button" class="copy-text" onclick="meCopyBubble(this, false)" title="Copy the message as text">Text</button><button type="button" class="copy-md" onclick="meCopyBubble(this, true)" title="Copy the message as markdown, exactly as sent">Markdown</button></span></span>
-      <div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>
+      {{if .Body}}<div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>{{end}}
+      {{if .Files}}<div class="files">{{range .Files}}{{if .Image}}<a class="thumb" href="/me/blobs/{{.ID}}" target="_blank" rel="noopener"><img loading="lazy" src="/me/blobs/{{.ID}}" alt="{{.Name}}"></a>{{else}}<a class="file-chip" href="/me/blobs/{{.ID}}" download>📄 {{.Name}} <small>{{.Size}}</small></a>{{end}}{{end}}</div>{{end}}
       <div class="body raw">{{.Raw}}</div>
       <span class="t">{{.At}}</span>
     </div>

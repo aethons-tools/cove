@@ -140,6 +140,11 @@ html.raw .msg .body.raw{display:block}
 .discuss{margin-top:6px;font-size:12px}.sysline{font-size:12px;opacity:.75;margin:4px 0;text-align:center}
 .re-ask{display:inline-block;font-size:11.5px;margin-bottom:3px}.asks-panel{padding:6px 12px;border-bottom:1px solid var(--line,#ddd)}
 .asks-panel .ask-link{display:block;font-size:13px}.badge.asks{background:var(--wait-soft);color:var(--wait)}
+.att-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}.att-chips:empty{display:none}
+.att-chip{font-size:12px;border:1px solid var(--line,#ddd);border-radius:999px;padding:2px 8px}.att-chip.failed{color:#b00}
+.att-chip progress{width:60px;height:6px;vertical-align:middle}.att-chip button{border:0;background:none;cursor:pointer}
+.attach-btn{cursor:pointer;margin-right:6px}.files{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.thumb img{max-width:240px;max-height:180px;border-radius:6px;display:block}.file-chip{font-size:13px;border:1px solid var(--line,#ddd);border-radius:6px;padding:4px 8px}
 </style>
 </head>
 <body>
@@ -234,20 +239,60 @@ function meDiscuss(id, btn){
   if(!f.body.value) f.body.value='re: '+q+'\n';
   f.body.focus();
 }
+// meAttach uploads files to /me/uploads as pending attachments of form f:
+// one chip each (name, progress, ✕); a done chip carries its ref.
+function meAttach(f, files){
+  var box=f.querySelector('.att-chips'); if(!box||!files) return;
+  Array.prototype.forEach.call(files, function(file){
+    var chip=document.createElement('span'); chip.className='att-chip uploading';
+    chip.textContent=file.name+' ';
+    var pr=document.createElement('progress'); pr.max=100; pr.value=0; chip.appendChild(pr);
+    var x=document.createElement('button'); x.type='button'; x.textContent='✕'; x.title='Remove';
+    var xhr=new XMLHttpRequest();
+    x.onclick=function(){ xhr.abort(); chip.remove(); };
+    chip.appendChild(x); box.appendChild(chip);
+    xhr.open('POST','/me/uploads');
+    xhr.setRequestHeader('Content-Type', file.type||'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+    xhr.upload.onprogress=function(ev){ if(ev.lengthComputable) pr.value=100*ev.loaded/ev.total; };
+    xhr.onload=function(){
+      if(xhr.status===201){ chip.dataset.ref=JSON.parse(xhr.responseText).ref; chip.classList.remove('uploading'); pr.remove(); }
+      else { chip.classList.add('failed'); chip.firstChild.textContent=file.name+' — '+(xhr.responseText||('failed '+xhr.status)).trim()+' '; pr.remove(); }
+    };
+    xhr.send(file);
+  });
+}
+// Paste a file (a screenshot) or drop files onto a composer: attach them.
+document.addEventListener('paste', function(e){
+  var t=e.target, f=t.closest&&t.closest('.composer form');
+  if(!f||!f.querySelector('.att-chips')||!e.clipboardData||!e.clipboardData.files.length) return;
+  e.preventDefault(); meAttach(f, e.clipboardData.files);
+});
+document.addEventListener('dragover', function(e){ if(e.target.closest&&e.target.closest('.composer')) e.preventDefault(); });
+document.addEventListener('drop', function(e){
+  var c=e.target.closest&&e.target.closest('.composer'), f=c&&c.querySelector('form');
+  if(!f||!f.querySelector('.att-chips')||!e.dataTransfer.files.length) return;
+  e.preventDefault(); meAttach(f, e.dataTransfer.files);
+});
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
-  if(!body) return false;
+  var chips=f.querySelectorAll('.att-chip');
+  if(f.querySelector('.att-chip.uploading')){ alert('Still uploading…'); return false; }
+  var refs=Array.prototype.map.call(f.querySelectorAll('.att-chip[data-ref]'), function(c){ return c.dataset.ref; });
+  if(!body && !refs.length) return false;
   fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
     // Markdown is the default; the per-message "Plain text" box opts out.
     content_type: f.plain && f.plain.checked ? 'text/plain' : undefined,
-    reply_to: f.dataset.replyTo || undefined})})
+    reply_to: f.dataset.replyTo || undefined,
+    attachments: refs.length ? refs : undefined})})
    .then(function(r){
      if(r.status===204){
        f.reset();
        meKeepReply(f.body);
        mePopDraft(f);
        delete f.dataset.replyTo;
+       Array.prototype.forEach.call(chips, function(c){ c.remove(); });
        // Refresh only the message list of an open conversation; the rail's own
        // live-push refresh picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');

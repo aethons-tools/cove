@@ -1,6 +1,7 @@
 package meui
 
 import (
+	"fmt"
 	"html/template"
 	"strings"
 
@@ -26,6 +27,39 @@ type MessageRow struct {
 	System  bool
 	SysText string // a System row's line
 	ReAsk   *AskRef
+	// Files are the message's attachments.
+	Files []FileChip
+}
+
+// FileChip is one attachment of a message: an inline image or a download.
+type FileChip struct {
+	ID, Name, Size string
+	Image          bool
+}
+
+// fileChips are m's attachments; files-only reports whether m's text is
+// just their names (the fallback body), which then isn't shown again.
+func fileChips(m intercom.Squawk) (chips []FileChip, filesOnly bool) {
+	var names []string
+	for _, p := range m.Parts {
+		if p.Ref == "" {
+			continue
+		}
+		img := p.Type == "image/png" || p.Type == "image/jpeg" || p.Type == "image/gif" || p.Type == "image/webp"
+		chips = append(chips, FileChip{ID: p.Ref, Name: p.Name, Size: humanSize(p.Size), Image: img})
+		names = append(names, p.Name)
+	}
+	return chips, len(chips) > 0 && m.Body == strings.Join(names, ", ")
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // Conversation is the right-pane view of one open channel.
@@ -84,6 +118,12 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
 		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
 		decorateAsk(&row, p, d, m)
+		if chips, filesOnly := fileChips(m); len(chips) > 0 {
+			row.Files = chips
+			if filesOnly {
+				row.Body, row.Raw = "", ""
+			}
+		}
 		conv.Messages = append(conv.Messages, row)
 	}
 	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))

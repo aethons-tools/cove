@@ -39,6 +39,7 @@ type inboxPage struct {
 	Groups     []RailGroup
 	Conv       *Conversation
 	Recipients []NewMessageOption
+	AttachMax  int64 // per-file cap; 0 = attachments off
 }
 
 // Handler serves the participant intercom inbox under /me. It reads identity per
@@ -90,6 +91,7 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 		Me:         p.Name,
 		Groups:     Rail(p, h.d, sel),
 		Recipients: newMessageOptions(p, h.d),
+		AttachMax:  h.d.Attachments.MaxBytes(),
 	}
 	if sel != "" {
 		if conv, ok := conversation(p, h.d, sel); ok {

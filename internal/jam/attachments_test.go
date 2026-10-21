@@ -161,6 +161,17 @@ func TestAttachmentsHandleUpload(t *testing.T) {
 	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.Name != "notes.txt" || out.Size != 5 || !strings.HasPrefix(out.Ref, "blb_") {
 		t.Fatalf("upload = %d %s", rec.Code, rec.Body)
 	}
+	// A percent-encoded name (what /me sends) decodes.
+	req := httptest.NewRequest("POST", "/uploads", strings.NewReader("x"))
+	req.Header.Set("X-Filename", "r%C3%A9sum%C3%A9%201.pdf")
+	enc := httptest.NewRecorder()
+	a.HandleUpload(enc, req, f.alice.ID)
+	if !strings.Contains(enc.Body.String(), `"name":"résumé 1.pdf"`) {
+		t.Fatalf("encoded name = %s", enc.Body)
+	}
+	if false {
+		t.Fatalf("upload = %d %s", rec.Code, rec.Body)
+	}
 	if rec := up(a, "way too long"); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("over = %d", rec.Code)
 	}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -67,7 +68,7 @@ func (c *messagingClient) upload(ctx context.Context, path string) (string, erro
 		ct = "application/octet-stream"
 	}
 	req.Header.Set("Content-Type", ct)
-	req.Header.Set("X-Filename", filepath.Base(path))
+	req.Header.Set("X-Filename", url.PathEscape(filepath.Base(path)))
 	resp, err := transfers.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("attach %s: upload failed", path)
