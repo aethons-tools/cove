@@ -164,8 +164,9 @@ object's usual audit entry tagged `via: config`.
 - **Host keys** may appear only in a later file, never in the repo's `jam.yml`
   (refused at diff, apply and serve start when the first file has them):
   `listen`, `admin-listen`, `ui-hosts`, `ui-origins`, `dev-identity`, `tls`,
-  `admin-tls`, `store-postgres`, `state-dir`, `credentials-file`, `launcher`,
-  and the host path `pool.store`. The list is one table in code.
+  `admin-tls`, `store-postgres`, `state-dir`, `credentials-file`,
+  `runtime.launcher`, `pool.store` and `previews.tls`. The list is one table in
+  code (`jam.ServeHostKeys`).
 - **Diff** compares the repo's `jam.yml` with the running serve's merged config
   minus host keys and reports `same` or `differs (restart to apply)` with the
   changed key paths. Apply never changes the running serve config.

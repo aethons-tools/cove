@@ -1775,20 +1775,22 @@ func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.K
 
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	cfgPath := fs.String("config", "", "path to the serve config YAML")
+	var cfgPaths configPaths
+	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.md)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) > 0 || *cfgPath == "" {
+	if len(pos) > 0 || len(cfgPaths) == 0 {
 		fmt.Fprintln(stderr, "at-jam serve: --config is required")
 		return 2
 	}
-	data, err := os.ReadFile(*cfgPath)
+	data, portable, err := loadServeConfigs(cfgPaths, os.ReadFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	_ = portable // Task 8 hands this to WithConfig
 	cfg, err := parseServeConfig(data)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)

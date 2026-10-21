@@ -1,7 +1,7 @@
 ---
 summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
-owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
+owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-10-21
@@ -252,6 +252,31 @@ the default profile's context; `colima start --profile jam-b` creates
 their kit images and volumes) in that VM. Use it to give each Jam on one host its
 own colima instance. The build/prepare
 handshake is in [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol).
+
+## Layering serve configs
+
+`--config` is repeatable: `at-jam serve --config jam.yml --config jam.local.yml`.
+Files merge in order — maps merge by key, scalars and lists replace — so a
+later file overrides an earlier one. One `--config` behaves as before.
+
+The first file is the portable, repo-owned one (a Jam's `jam.yml`); per-host settings belong in a later file. With
+two or more `--config` files, the first may not set a **host key**; serve
+refuses to start (and `config diff`/`apply` refuse) with
+`jam.yml: listen is a host key; put it in jam.local.yml`.
+
+| Host key | Why it is per-host |
+|---|---|
+| `listen`, `admin-listen` | bind addresses |
+| `ui-hosts`, `ui-origins` | host names the UI is reached by |
+| `dev-identity` | local-only sign-in |
+| `tls`, `admin-tls`, `previews.tls` | certificate files on this host |
+| `store-postgres` | this host's database |
+| `state-dir`, `credentials-file`, `pool.store` | paths on this host |
+| `runtime.launcher` | how this host launches coves |
+
+The config diff compares the repo's `jam.yml` with the running serve's merged
+config minus host keys: `same`, `differs (restart to apply)` with dotted key
+paths, `absent` (no `jam.yml`) or `unknown` (no running serve config).
 
 ## The broker model
 
