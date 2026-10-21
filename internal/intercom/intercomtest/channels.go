@@ -466,6 +466,23 @@ func RunBoardConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fix
 		}
 	})
 
+	t.Run("docs_stored_verbatim", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := newBoard(t, s)
+		raw := json.RawMessage(`{"id":"n", "version":1,"versionNonce":1,"x":1e2,"z":{"b":1,"a":2}}`)
+		e, err := intercom.ElementOf(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := s.MergeElements(b.ID, []intercom.Element{e}); err != nil {
+			t.Fatal(err)
+		}
+		els, _ := s.BoardElements(b.ID, 0)
+		if len(els) != 1 || string(els[0].Doc) != string(raw) {
+			t.Fatalf("doc came back %s, want it verbatim", els[0].Doc)
+		}
+	})
+
 	t.Run("concurrent_merges_converge", func(t *testing.T) {
 		s := newLog(t, 0).Store
 		b := newBoard(t, s)

@@ -333,3 +333,16 @@ func (l *Log) BoardElements(board ident.ID, since int64) ([]Element, int64) {
 	slices.SortFunc(out, func(a, b Element) int { return strings.Compare(a.ID, b.ID) })
 	return out, l.boards[board].Seq
 }
+
+func (l *Log) BoardsCreatedBy(p ident.ID) []Board {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Board
+	for _, b := range l.boards {
+		if b.CreatedBy == p {
+			out = append(out, b)
+		}
+	}
+	slices.SortFunc(out, func(a, b Board) int { return a.Created.Compare(b.Created) })
+	return out
+}

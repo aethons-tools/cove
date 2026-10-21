@@ -75,6 +75,7 @@ type Store interface {
 	CreateBoard(b Board) error
 	GetBoard(id ident.ID) (Board, bool)
 	ListBoards(channel ident.ID) []Board
+	BoardsCreatedBy(p ident.ID) []Board
 	MergeElements(board ident.ID, els []Element) (seq int64, lost []Element, err error)
 	BoardElements(board ident.ID, since int64) ([]Element, int64)
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk

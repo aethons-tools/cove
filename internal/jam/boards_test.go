@@ -103,6 +103,47 @@ func TestBoardsBadDocRefused(t *testing.T) {
 	}
 }
 
+// A session that creates a board in a room it posts to (but isn't a member
+// of) can still read and edit its board.
+func TestBoardsCreatorKeepsAccess(t *testing.T) {
+	f := newICFixture(t, "channel:*")
+	bs := NewBoards(f.log, f.ic)
+	b, err := bs.Create(f.poster(f.standing), "channel:eng", "Plan", f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ses := ident.ID(f.standing.ActorID)
+	if _, _, err := bs.Merge(ses, b.ID, []json.RawMessage{rect("a", 1)}); err != nil {
+		t.Fatalf("creator writes: %v", err)
+	}
+	if l := bs.ForChannelsOf(ses); len(l) != 1 {
+		t.Fatalf("creator lists = %+v", l)
+	}
+}
+
+// A merge where nothing was accepted publishes nothing.
+func TestBoardsNoOpMergeIsQuiet(t *testing.T) {
+	f := newICFixture(t)
+	bs := NewBoards(f.log, f.ic)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := bs.Create(Poster{ID: f.alice.ID}, string(f.room.ID), "x", f.now)
+	if _, _, err := bs.Merge(f.alice.ID, b.ID, []json.RawMessage{rect("a", 2)}); err != nil {
+		t.Fatal(err)
+	}
+	sub, cancel := bs.Subscribe()
+	defer cancel()
+	if _, _, err := bs.Merge(f.alice.ID, b.ID, []json.RawMessage{rect("a", 1)}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sub:
+		t.Fatal("a merge that changed nothing published")
+	default:
+	}
+}
+
 func TestBoardsSessionCreatesAtHome(t *testing.T) {
 	f := newICFixture(t)
 	bs := NewBoards(f.log, f.ic)

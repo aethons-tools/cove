@@ -74,7 +74,9 @@ func (b *Boards) CanRead(viewer, id ident.ID) (intercom.Board, Channel, bool) {
 		return intercom.Board{}, Channel{}, false
 	}
 	if isSessionID(viewer) {
-		ok = b.ic.isMemberOf(ch, viewer)
+		// A member — or the board's creator, who may have posted it into a
+		// room it isn't a member of.
+		ok = b.ic.isMemberOf(ch, viewer) || bd.CreatedBy == viewer
 	} else {
 		ok = b.ic.CanSee(viewer, ch)
 	}
@@ -89,7 +91,7 @@ func (b *Boards) CanWrite(viewer, id ident.ID) (intercom.Board, bool) {
 		return intercom.Board{}, false
 	}
 	if isSessionID(viewer) {
-		return bd, true // a member of a live channel posts there
+		return bd, true // a member of (or the creator in) a live channel posts there
 	}
 	if _, err := b.ic.PlanChannel(Poster{ID: viewer}, ch.ID); err != nil {
 		return intercom.Board{}, false
@@ -112,6 +114,7 @@ func (b *Boards) Merge(viewer, id ident.ID, docs []json.RawMessage) (int64, []js
 		}
 		els[i] = e
 	}
+	before, _ := b.lg.GetBoard(id)
 	seq, lost, err := b.lg.MergeElements(id, els)
 	if err != nil {
 		return 0, nil, err
@@ -120,7 +123,9 @@ func (b *Boards) Merge(viewer, id ident.ID, docs []json.RawMessage) (int64, []js
 	for i, e := range lost {
 		out[i] = e.Doc
 	}
-	b.publish(id)
+	if seq != before.Seq {
+		b.publish(id) // something was accepted
+	}
 	return seq, out, nil
 }
 
@@ -140,12 +145,22 @@ func (b *Boards) Elements(viewer, id ident.ID, since int64) ([]json.RawMessage, 
 // ForChannelsOf lists the boards viewer may read, in the channels they're in.
 func (b *Boards) ForChannelsOf(viewer ident.ID) []intercom.Board {
 	var out []intercom.Board
-	for _, chID := range b.ic.store.ChannelsOf(viewer) {
-		for _, bd := range b.lg.ListBoards(chID) {
+	seen := map[ident.ID]bool{}
+	add := func(bd intercom.Board) {
+		if !seen[bd.ID] {
 			if _, _, ok := b.CanRead(viewer, bd.ID); ok {
+				seen[bd.ID] = true
 				out = append(out, bd)
 			}
 		}
+	}
+	for _, chID := range b.ic.store.ChannelsOf(viewer) {
+		for _, bd := range b.lg.ListBoards(chID) {
+			add(bd)
+		}
+	}
+	for _, bd := range b.lg.BoardsCreatedBy(viewer) { // e.g. in a room a session posts to
+		add(bd)
 	}
 	return out
 }

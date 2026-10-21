@@ -545,7 +545,7 @@ func (s *Store) MergeElements(board ident.ID, els []intercom.Element) (int64, []
 		for _, e := range els {
 			var cur intercom.Element
 			err := tx.QueryRow(ctx, `SELECT version, version_nonce, deleted, seq, doc FROM board_elements WHERE board_id = $1 AND element_id = $2`, board, e.ID).
-				Scan(&cur.Version, &cur.Nonce, &cur.Deleted, &cur.Seq, &cur.Doc)
+				Scan(&cur.Version, &cur.Nonce, &cur.Deleted, &cur.Seq, (*rawText)(&cur.Doc))
 			switch {
 			case err == nil:
 				cur.ID = e.ID
@@ -560,7 +560,7 @@ func (s *Store) MergeElements(board ident.ID, els []intercom.Element) (int64, []
 				VALUES ($1,$2,$3,$4,$5,$6,$7)
 				ON CONFLICT (board_id, element_id) DO UPDATE SET version = EXCLUDED.version, version_nonce = EXCLUDED.version_nonce,
 					deleted = EXCLUDED.deleted, seq = EXCLUDED.seq, doc = EXCLUDED.doc`,
-				board, e.ID, e.Version, e.Nonce, e.Deleted, next, []byte(e.Doc)); err != nil {
+				board, e.ID, e.Version, e.Nonce, e.Deleted, next, string(e.Doc)); err != nil {
 				return err
 			}
 			accepted = true
@@ -598,7 +598,7 @@ func (s *Store) BoardElements(board ident.ID, since int64) ([]intercom.Element, 
 		defer rows.Close()
 		for rows.Next() {
 			var e intercom.Element
-			if err := rows.Scan(&e.ID, &e.Version, &e.Nonce, &e.Deleted, &e.Seq, &e.Doc); err != nil {
+			if err := rows.Scan(&e.ID, &e.Version, &e.Nonce, &e.Deleted, &e.Seq, (*rawText)(&e.Doc)); err != nil {
 				return err
 			}
 			out = append(out, e)
@@ -612,4 +612,23 @@ func (s *Store) BoardElements(board ident.ID, since int64) ([]intercom.Element, 
 		return nil, 0
 	}
 	return out, seq
+}
+
+// rawText scans a text column into a json.RawMessage.
+type rawText json.RawMessage
+
+func (r *rawText) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		*r = rawText(v)
+	case []byte:
+		*r = append(rawText(nil), v...)
+	default:
+		return fmt.Errorf("intercompg: doc: unexpected %T", src)
+	}
+	return nil
+}
+
+func (s *Store) BoardsCreatedBy(p ident.ID) []intercom.Board {
+	return s.boards(`WHERE created_by = $1`, string(p))
 }

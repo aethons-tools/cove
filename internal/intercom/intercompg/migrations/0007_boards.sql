@@ -1,6 +1,7 @@
 -- Whiteboards (intercom whiteboards): a board in a channel, its elements one
 -- row each, merged per element; boards.seq stamps accepted changes so a
--- delta read (seq > since) never misses one.
+-- delta read (seq > since) never misses one. Element docs are stored as
+-- text, exactly as sent.
 CREATE TABLE boards (
     id         text PRIMARY KEY,
     channel_id text NOT NULL,
@@ -18,7 +19,7 @@ CREATE TABLE board_elements (
     version_nonce bigint NOT NULL,
     deleted       boolean NOT NULL,
     seq           bigint NOT NULL,
-    doc           jsonb NOT NULL,
+    doc           text NOT NULL, -- verbatim: jsonb would rewrite numbers (1e99999 expands)
     PRIMARY KEY (board_id, element_id)
 );
 CREATE INDEX board_elements_seq ON board_elements (board_id, seq);
