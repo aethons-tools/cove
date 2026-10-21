@@ -185,8 +185,8 @@ func formSource(w http.ResponseWriter, r *http.Request) (gitsource.Source, bool)
 }
 
 func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// Import from git: a new version of the named (else the kit's own) kit,
-	// not tracked.
+	// Import from git: a new version of the named (else the kit's own) kit;
+	// with the "track" box checked the kit also tracks the source (TrackKit).
 	mux.HandleFunc("POST /ui/kits/import", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
@@ -195,12 +195,17 @@ func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, l
 		if !ok {
 			return
 		}
-		res, err := jam.ImportKit(r.Context(), store, f, log, strings.TrimSpace(r.FormValue("name")), src, time.Now())
+		name, track := strings.TrimSpace(r.FormValue("name")), r.FormValue("track") != ""
+		importFn, verb := jam.ImportKit, "ui kit imported"
+		if track {
+			importFn, verb = jam.TrackKit, "ui kit tracked"
+		}
+		res, err := importFn(r.Context(), store, f, log, name, src, time.Now())
 		if err != nil {
 			kitSourceFail(w, r, log, err)
 			return
 		}
-		log.Info("ui kit imported", "operator", jam.OperatorID(r), "kit", res.Name, "source", src.String(), "version", res.Version)
+		log.Info(verb, "operator", jam.OperatorID(r), "kit", res.Name, "source", src.String(), "version", res.Version)
 		w.Header().Set("HX-Redirect", kitURL(res.Name))
 		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})

@@ -161,8 +161,9 @@ kit set). A kit whose current version won't parse is marked **invalid**. The
 **New kit** form takes a name and studio-kit YAML and validates it exactly as
 `kit push` does ([kits.md](kits.md)); an existing name is refused — push new
 versions on the kit's page. **Import from git** takes `<repo>[//<dir>]@<ref>`
-and an optional name and imports the kit as a new version (not tracked), then
-opens its page.
+and an optional name and imports the kit as a new version, then opens its
+page. Its **Track this source** box (on by default) also tracks the source,
+like `kit track`; uncheck it for a one-off `kit import`.
 
 The page has a **version rail** — every version with its short build digest
 (versions sharing one reuse one image), **Pin** to make an older or newer

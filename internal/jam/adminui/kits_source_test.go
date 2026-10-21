@@ -262,6 +262,23 @@ func TestKitImportForm(t *testing.T) {
 	}
 }
 
+// The Import form's "track" checkbox imports and tracks in one step.
+func TestKitImportAndTrack(t *testing.T) {
+	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
+	h, store := sourceUI(t, f)
+	if body := get(t, h, "/ui/kits").Body.String(); !strings.Contains(body, `name="track"`) {
+		t.Fatal("import form has no track checkbox")
+	}
+	rec := post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits@main"}, "track": {"on"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/web-dev" {
+		t.Fatalf("import+track = %d: %s", rec.Code, rec.Body.String())
+	}
+	k, _ := store.GetKit("web-dev")
+	if k.Source == nil || k.Source.Ref != "main" || k.Source.Commit != srcSHA1 || len(k.Versions) != 1 {
+		t.Fatalf("import+track must push one version and track: %+v", k)
+	}
+}
+
 func TestKitSyncUnknownKit(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	h, _ := sourceUI(t, f)
