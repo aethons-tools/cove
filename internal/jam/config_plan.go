@@ -122,6 +122,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 	p.planProjects()
 	p.planRoles()
 	p.planJamContext()
+	p.planDeletes()
 	p.planUnmanaged()
 	slices.Sort(p.plan.Refusals)
 	p.plan.Refusals = slices.Compact(p.plan.Refusals)
@@ -649,17 +650,5 @@ func (p *planner) planJamContext() {
 		p.m.applySetJamContext(layer)
 		p.w.JamContext = &layer
 		return nil
-	})
-}
-
-// planUnmanaged lists the live objects the repo neither holds nor manages.
-func (p *planner) planUnmanaged() {
-	for k := range p.live {
-		if _, managed := p.marks[k]; !managed && !p.repo[k] {
-			p.plan.Unmanaged = append(p.plan.Unmanaged, k)
-		}
-	}
-	slices.SortFunc(p.plan.Unmanaged, func(a, b ConfigKey) int {
-		return cmp.Or(strings.Compare(a.Kind, b.Kind), strings.Compare(a.Name, b.Name))
 	})
 }
