@@ -618,6 +618,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "intercom", Version: "0.1.0"}, nil)
 	addAskTools(s, client, cfgErr)
 	addAttachTools(s, client, cfgErr)
+	addBoardTools(s, client, cfgErr)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",

@@ -205,3 +205,33 @@ func TestBoardsHTTP(t *testing.T) {
 		t.Fatalf("no title = %d", rec.Code)
 	}
 }
+
+func TestBoardsAgentRoutes(t *testing.T) {
+	f := newSqFixture(t)
+	f.h.SetBoards(NewBoards(f.log, f.ic))
+	rec := f.do(http.MethodPost, "/squawks/boards", f.standing, `{"title":"Arch"}`)
+	var c struct {
+		BoardID string `json:"board_id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &c)
+	rec = f.do(http.MethodPost, "/squawks/boards/"+c.BoardID+"/apply", f.standing,
+		`{"ops":[{"op":"add","type":"rectangle","id":"api","x":0,"y":0,"text":"API"},{"op":"add","type":"rectangle","id":"db","x":300,"y":0,"text":"DB"},{"op":"add","type":"arrow","from":"api","to":"db"}]}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"added":["api","db",`) {
+		t.Fatalf("apply = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodPost, "/squawks/boards/"+c.BoardID+"/apply", f.standing, `{"ops":[{"op":"add","type":"arrow","from":"api","to":"nope"}]}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "nope") {
+		t.Fatalf("bad op = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/read", f.standing, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"from":"api","to":"db"`) || !strings.Contains(rec.Body.String(), `"text":"API"`) {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/snapshot.png", f.standing, "")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Body.Len() < 100 {
+		t.Fatalf("snapshot = %d %q %d", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
+	}
+	if rec := f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/snapshot.png", f.ticket, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("outsider snapshot = %d", rec.Code)
+	}
+}

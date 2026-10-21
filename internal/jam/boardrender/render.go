@@ -16,11 +16,11 @@ import (
 	"strconv"
 	"strings"
 
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
-	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/vector"
 )
 
@@ -84,7 +84,17 @@ func Render(docs []json.RawMessage, images func(fileID string) (image.Image, boo
 	w, h := int(math.Ceil((maxX-minX)*scale)), int(math.Ceil((maxY-minY)*scale))
 	c := &canvas{img: image.NewRGBA(image.Rect(0, 0, w, h)), ox: minX, oy: minY, s: scale}
 	draw.Draw(c.img, c.img.Bounds(), image.White, image.Point{}, draw.Src)
+	connectors := map[string]bool{}
 	for _, e := range els {
+		if e.Type == "arrow" || e.Type == "line" {
+			connectors[e.ID] = true
+		}
+	}
+	for _, e := range els {
+		if e.Type == "text" && e.ContainerID != nil && connectors[*e.ContainerID] {
+			// A connector's label sits on a white patch, off the line.
+			c.polygon([][2]float64{{e.X - 4, e.Y}, {e.X + e.Width + 4, e.Y}, {e.X + e.Width + 4, e.Y + e.Height}, {e.X - 4, e.Y + e.Height}}, color.White)
+		}
 		c.element(e, images)
 	}
 	var buf bytes.Buffer

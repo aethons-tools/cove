@@ -51,4 +51,7 @@ func TestMeBoardsRoutesAndPush(t *testing.T) {
 	if rec := do("GET", "/me/boards/"+c.BoardID+"/elements?since=0", ""); !strings.Contains(rec.Body.String(), `"r1"`) {
 		t.Fatalf("read = %s", rec.Body)
 	}
+	if rec := do("GET", "/me/boards/"+c.BoardID+"/thumb.png", ""); rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("thumb = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
 }

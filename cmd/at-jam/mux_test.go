@@ -69,6 +69,8 @@ func TestSquawksMuxRouting(t *testing.T) {
 		{"/squawks/blobs/blb_x", "squawks"},
 		{"/squawks/boards", "squawks"},
 		{"/squawks/boards/brd_x/elements", "squawks"},
+		{"/squawks/boards/brd_x/apply", "squawks"},
+		{"/squawks/boards/brd_x/snapshot.png", "squawks"},
 		{"/squawks/boardsx", "broker"},
 		{"/escalate", "escalate"},
 		{"/end", "turn-end"},

@@ -68,6 +68,7 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /me/blobs/{id}", h.blob)
 	mux.HandleFunc("POST /me/boards", h.boardCreate)
 	mux.HandleFunc("/me/boards/{id}/elements", h.boardElements)
+	mux.HandleFunc("GET /me/boards/{id}/thumb.png", h.boardThumb)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/asks", h.askPanel)
 	mux.HandleFunc("GET /me/events", h.events)
@@ -199,6 +200,21 @@ func (h *handler) boardElements(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.d.Boards.HandleElements(w, r, p.UserID, ident.ID(r.PathValue("id")))
+}
+
+// boardThumb is a board's server-rendered thumbnail (the card's).
+func (h *handler) boardThumb(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok || h.d.Boards == nil {
+		http.Error(w, "whiteboards unavailable", http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("size") == "" {
+		q := r.URL.Query()
+		q.Set("size", "480")
+		r.URL.RawQuery = q.Encode()
+	}
+	h.d.Boards.ServeSnapshot(w, r, p.UserID, ident.ID(r.PathValue("id")))
 }
 
 // markRead advances the participant's read cursor on a channel to seq (a
