@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -168,5 +169,67 @@ func TestResolveKitEntriesForest(t *testing.T) {
 	}
 	if out[1].Kit.Base.Kit != "base@v1" || out[2].Kit.Base.Kit != "base@v1" {
 		t.Fatalf("siblings not both pinned to base: %+v", out)
+	}
+}
+
+func TestLoadConfigTreeUnsafeEntryNames(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"users/bad\nname.yml":          "x",
+		"kits/\x1b[31mred/kit.yml":     "kind: studio\n",
+		"projects/app/roles/a b.yml":   "x",
+		"destinations/ok.yml.bak":      "x",
+		"\x1b[2Jtop-level-ignored.txt": "x",
+	})
+	tr, err := LoadConfigTree(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"destinations/ok.yml.bak: unexpected file",
+		"kits: an entry has an unsafe name",
+		"projects/app/roles: an entry has an unsafe name",
+		"users: an entry has an unsafe name",
+	}
+	if !slices.Equal(tr.Refusals, want) {
+		t.Fatalf("refusals:\n%q", tr.Refusals)
+	}
+	for _, r := range tr.Refusals {
+		if strings.ContainsAny(r, "\x1b\n") || strings.Contains(r, "a b") || strings.Contains(r, "red") {
+			t.Fatalf("refusal echoes a raw name: %q", r)
+		}
+	}
+}
+
+func TestLoadConfigTreeRefusesBadProjectDirName(t *testing.T) {
+	id := ident.New(ident.Project).String() // an id-shaped name: checkProjectName refuses it
+	root := writeTree(t, map[string]string{
+		"projects/" + id + "/roles/ic.yml": "kind: role\nversion: 1\n",
+	})
+	tr, _ := LoadConfigTree(root)
+	if !slices.Equal(tr.Refusals, []string{"projects/" + id + ": not a valid project name"}) || len(tr.Roles) != 0 {
+		t.Fatalf("refusals %v roles %v", tr.Refusals, tr.Roles)
+	}
+}
+
+func TestLoadKitsRefusesSymlinkedAncestor(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"elsewhere/kit.yml": "kind: studio\n",
+		"kits/app/kit.yml":  "kind: studio\nbase: {kit: ../web}\n",
+	})
+	if err := os.Symlink("../elsewhere", filepath.Join(root, "kits", "web")); err != nil {
+		t.Skip(err)
+	}
+	tr, _ := LoadConfigTree(root)
+	joined := strings.Join(tr.Refusals, "\n")
+	for _, want := range []string{
+		"kits/app/kit.yml: parent ../web is not a kit under kits/ (kits/<name>/kit.yml)",
+		"kits/web: unexpected file (kits are directories: kits/<name>/kit.yml)",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if len(tr.Kits) != 0 {
+		t.Fatalf("kits %+v", tr.Kits)
 	}
 }

@@ -40,6 +40,7 @@ type ConfigTree struct {
 // treeLoader carries one LoadConfigTree run.
 type treeLoader struct {
 	root string
+	r    *os.Root
 	fsys fs.FS
 	tr   *ConfigTree
 }
@@ -49,7 +50,10 @@ func (l *treeLoader) refuse(format string, a ...any) {
 }
 
 // readDir lists dir (slash, relative to the root) without its dot-entries;
-// a missing dir is empty.
+// a missing dir is empty. Entries whose names are unsafe to print
+// (studio.HasUnsafeChars) are dropped, with one fixed refusal for dir that
+// never echoes the name; at the top level, where unknown entries are
+// ignored, they are dropped silently.
 func (l *treeLoader) readDir(dir string) []fs.DirEntry {
 	ents, err := fs.ReadDir(l.fsys, dir)
 	if err != nil {
@@ -58,7 +62,18 @@ func (l *treeLoader) readDir(dir string) []fs.DirEntry {
 		}
 		return nil
 	}
-	return slices.DeleteFunc(ents, func(e fs.DirEntry) bool { return strings.HasPrefix(e.Name(), ".") })
+	unsafe := false
+	ents = slices.DeleteFunc(ents, func(e fs.DirEntry) bool {
+		if studio.HasUnsafeChars(e.Name()) {
+			unsafe = true
+			return true
+		}
+		return strings.HasPrefix(e.Name(), ".")
+	})
+	if unsafe && dir != "." {
+		l.refuse("%s: an entry has an unsafe name", dir)
+	}
+	return ents
 }
 
 // read reads rel through the jail (regular files only); a failure is a refusal.
@@ -80,7 +95,7 @@ func LoadConfigTree(root string) (*ConfigTree, error) {
 		return nil, fmt.Errorf("config dir %s cannot be opened: %w", root, err)
 	}
 	defer r.Close()
-	l := &treeLoader{root: root, fsys: r.FS(), tr: &ConfigTree{
+	l := &treeLoader{root: root, r: r, fsys: r.FS(), tr: &ConfigTree{
 		Destinations: map[string]DestinationFile{}, ModelSpecs: map[string]ModelSpecFile{},
 		Users: map[string]UserFile{}, Connections: map[string]ConnectionFile{},
 		Projects: map[string]ProjectFile{}, Roles: map[string]RoleFile{},
@@ -160,6 +175,10 @@ func (l *treeLoader) loadProjects() {
 			continue
 		}
 		p := pe.Name()
+		if checkProjectName(p) != nil {
+			l.refuse("%s: not a valid project name", pdir)
+			continue
+		}
 		var proj *ProjectFile
 		var ctx *sessionctx.Layer
 		ctxSeen := false
@@ -216,6 +235,12 @@ func (l *treeLoader) loadProjects() {
 	}
 }
 
+// isRealDir reports whether rel is a directory and not a symlink.
+func (l *treeLoader) isRealDir(rel string) bool {
+	fi, err := l.r.Lstat(rel)
+	return err == nil && fi.IsDir()
+}
+
 func (l *treeLoader) exists(rel string) bool {
 	_, err := fs.Stat(l.fsys, rel)
 	return err == nil
@@ -246,7 +271,7 @@ func (l *treeLoader) loadKits() {
 			l.refuse("%s/kit.yml: %s", rel, err)
 			continue
 		}
-		if msg := checkTreeKitSet(set); msg != "" {
+		if msg := l.checkTreeKitSet(set); msg != "" {
 			l.refuse("%s", msg)
 			continue
 		}
@@ -258,12 +283,13 @@ func (l *treeLoader) loadKits() {
 }
 
 // checkTreeKitSet is a loaded set's tree refusal, "" = none: an ancestor not
-// at kits/<its name>, or a root pinning a registry parent's version. set is
-// root first; it is walked from the top kit down so the refusal names the
-// file holding the bad reference.
-func checkTreeKitSet(set []kitSetEntry) string {
+// at kits/<its name> or not a real directory there (a symlink, say — the
+// same entry kits/ itself refuses), or a root pinning a registry parent's
+// version. set is root first; it is walked from the top kit down so the
+// refusal names the file holding the bad reference.
+func (l *treeLoader) checkTreeKitSet(set []kitSetEntry) string {
 	for i := len(set) - 2; i >= 0; i-- {
-		if set[i].Dir != "kits/"+set[i].Name {
+		if set[i].Dir != "kits/"+set[i].Name || !l.isRealDir(set[i].Dir) {
 			child := set[i+1]
 			return fmt.Sprintf("%s/kit.yml: parent %s is not a kit under kits/ (kits/<name>/kit.yml)", child.Dir, child.Kit.Base.Kit)
 		}
