@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,7 +50,7 @@ func TestFetchBranchTagCommitDir(t *testing.T) {
 		t.Fatalf("missing ref: %v", err)
 	}
 	missing := strings.Repeat("b", 40)
-	if err := f.Fetch(context.Background(), Source{Repo: url, Ref: missing}, func(string, string) error { return nil }); err == nil || !strings.Contains(err.Error(), "ref "+missing+" not found") {
+	if err := f.Fetch(context.Background(), Source{Repo: url, Ref: missing}, func(string, string) error { return nil }); err == nil || !strings.Contains(err.Error(), "commit "+missing+" not found in "+url+" (or the server does not serve commits by id)") {
 		t.Fatalf("missing commit: %v", err)
 	}
 	if _, err := f.Resolve(context.Background(), Source{Repo: url, Ref: "nope"}); err == nil || !strings.Contains(err.Error(), "ref nope not found") {
@@ -158,13 +159,20 @@ func TestFetchRefusesBadSource(t *testing.T) {
 	tmp := t.TempDir()
 	f := &Fetcher{MaxBytes: 1 << 20, Timeout: time.Second, TempDir: tmp}
 	for _, src := range []Source{{Repo: "http://example.com/r", Ref: "main"}, {Repo: "file:///tmp/r", Ref: "main"}, {Repo: "ssh://git@github.com/a/b", Ref: "main"},
-		{Repo: "https://u:p@github.com/a/b", Ref: "main"}, {Repo: "https://github.com/a/b", Ref: "a:b"}, {Repo: "https://github.com/a/b", Dir: "../x", Ref: "main"}} {
+		{Repo: "https://u:p@github.com/a/b", Ref: "main"}, {Repo: "https://github.com/a/b", Ref: "a:b"}, {Repo: "https://github.com/a/b", Dir: "../x", Ref: "main"},
+		{Repo: "https://github.com/a/b?access_token=SEKRIT", Ref: "main"}, {Repo: "http://example.com/r?access_token=SEKRIT", Ref: "main"},
+		{Repo: "https://bob:SEKRIT@github.com/a/b", Ref: "main"}, {Repo: "https://bob:SEKRIT", Ref: "main"}} {
 		called := false
-		if err := f.Fetch(context.Background(), src, func(string, string) error { called = true; return nil }); err == nil || called {
+		err := f.Fetch(context.Background(), src, func(string, string) error { called = true; return nil })
+		if err == nil || called {
 			t.Errorf("Fetch(%+v) accepted", src)
+		} else if strings.Contains(err.Error(), "SEKRIT") {
+			t.Errorf("Fetch error echoes the secret: %v", err)
 		}
 		if _, err := f.Resolve(context.Background(), src); err == nil {
 			t.Errorf("Resolve(%+v) accepted", src)
+		} else if strings.Contains(err.Error(), "SEKRIT") {
+			t.Errorf("Resolve error echoes the secret: %v", err)
 		}
 	}
 	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
@@ -189,6 +197,84 @@ func TestFetchLimits(t *testing.T) {
 	f2 := &Fetcher{MaxBytes: 1 << 20, Timeout: 200 * time.Millisecond, TempDir: tmp}
 	if err := f2.Fetch(context.Background(), Source{Repo: slow.URL + "/r.git", Ref: "main"}, func(string, string) error { return nil }); err == nil {
 		t.Fatal("timeout not enforced")
+	} else if !strings.Contains(err.Error(), "timed out after the Fetcher's 200ms limit") {
+		t.Fatalf("Fetcher timeout: %v", err)
+	}
+	// The caller's own deadline is reported as the caller's, not the Fetcher's.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	f3 := &Fetcher{MaxBytes: 1 << 20, Timeout: 30 * time.Second, TempDir: tmp}
+	if err := f3.Fetch(ctx, Source{Repo: slow.URL + "/r.git", Ref: "main"}, func(string, string) error { return nil }); err == nil ||
+		!strings.Contains(err.Error(), "stopped by the caller") || strings.Contains(err.Error(), "Fetcher's") {
+		t.Fatalf("caller deadline: %v", err)
+	}
+	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
+		t.Fatalf("temp dir left behind: %v", ents)
+	}
+}
+
+// A small pack can expand into a huge work tree: the checkout is capped in
+// bytes written, on the branch and the commit paths, and cleaned up.
+func TestFetchCheckoutCap(t *testing.T) {
+	url, c1, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n", "zeros.bin": strings.Repeat("\x00", 4<<20)})
+	tmp := t.TempDir()
+	f := &Fetcher{MaxBytes: 1 << 20, MaxCheckoutBytes: 1 << 20, Timeout: 30 * time.Second, TempDir: tmp}
+	for _, ref := range []string{"main", c1} {
+		err := f.Fetch(context.Background(), Source{Repo: url, Ref: ref}, func(string, string) error { return nil })
+		if err == nil || !strings.Contains(err.Error(), "checkout") || !strings.Contains(err.Error(), "exceeded the 1048576-byte limit") {
+			t.Fatalf("ref %s: %v", ref, err)
+		}
+	}
+	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
+		t.Fatalf("temp dir left behind: %v", ents)
+	}
+	roomy := &Fetcher{MaxBytes: 1 << 20, MaxCheckoutBytes: 8 << 20, Timeout: 30 * time.Second, TempDir: tmp}
+	if err := roomy.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, func(string, string) error { return nil }); err != nil {
+		t.Fatalf("under the cap: %v", err)
+	}
+}
+
+// A panic inside the checkout (e.g. in go-git) still removes the temp dir.
+func TestFetchPanicRemovesTempDir(t *testing.T) {
+	url, _, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n"})
+	tmp := t.TempDir()
+	testHookCheckout = func(string) { panic("boom") }
+	defer func() { testHookCheckout = nil }()
+	f := &Fetcher{Timeout: 30 * time.Second, TempDir: tmp}
+	func() {
+		defer func() {
+			if r := recover(); r != "boom" {
+				t.Fatalf("recovered %v", r)
+			}
+		}()
+		_ = f.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, func(string, string) error { return nil })
+	}()
+	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
+		t.Fatalf("temp dir left behind: %v", ents)
+	}
+	// The repo lock was released too.
+	testHookCheckout = nil
+	if err := f.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, func(string, string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Same-host redirects are followed at most 10 times.
+func TestFetchRedirectCap(t *testing.T) {
+	var hits atomic.Int32
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		http.Redirect(w, r, srv.URL+"/loop"+strconv.Itoa(int(n))+"/info/refs?service=git-upload-pack", http.StatusFound)
+	}))
+	defer srv.Close()
+	f := &Fetcher{Timeout: 10 * time.Second}
+	err := f.Fetch(context.Background(), Source{Repo: srv.URL + "/r.git", Ref: "main"}, func(string, string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("redirect loop: %v", err)
+	}
+	if n := hits.Load(); n > 11 {
+		t.Fatalf("followed %d hops", n-1)
 	}
 }
 

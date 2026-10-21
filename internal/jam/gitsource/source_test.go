@@ -12,6 +12,7 @@ func TestParseSource(t *testing.T) {
 		"https://github.com/acme/kits//web/dev@v1.2":          {Repo: "https://github.com/acme/kits", Dir: "web/dev", Ref: "v1.2"},
 		"http://127.0.0.1:9/r.git@" + strings.Repeat("a", 40): {Repo: "http://127.0.0.1:9/r.git", Ref: strings.Repeat("a", 40)},
 		"http://localhost/r.git@release/2026":                 {Repo: "http://localhost/r.git", Ref: "release/2026"},
+		"https://github.com/a/b@feature/v1.2":                 {Repo: "https://github.com/a/b", Ref: "feature/v1.2"},
 		"http://[::1]:8080/r.git//.@main":                     {Repo: "http://[::1]:8080/r.git", Ref: "main"},
 	} {
 		got, err := Parse(in)
@@ -28,9 +29,21 @@ func TestParseSource(t *testing.T) {
 		"https://github.com/a/b?x=1@main", "https://github.com/a/b#frag@main", "https:///a/b@main", "http://127.0.0.2/r@main",
 		"https://u@github.com/a/b@main", "HTTP://example.com/r@main",
 		"https://github.com/acme/../evil/r@main", "https://github.com/acme/%2e%2e/evil/r@main", "https://github.com/./a@main",
+		// Pasted credentials, with and without a ref, must be refused and never echoed.
+		"https://bob:s3cretTok@github.com/a/b", "https://bob:123456@github.com/a/b", "https://bob:s3cretTok@github.com/a/b@main",
+		"https://bob:s3cretTok/x@github.com/a/b@main", "https://bob:123456/x@github.com/a/b", "https://s3cretTok@github.com/a/b@main",
+		"https://github.com/a/b?access_token=s3cretTok@main", "https://github.com/a/b#s3cretTok@main", "https://github.com@main", "https://github.com/@main",
+		"https://bob:1234/x@github.com/a/b", "https://bob:s3cretTok/x@localhost/a", "https://github.com:123456/a/b@main",
 	} {
-		if _, err := Parse(bad); err == nil {
+		_, err := Parse(bad)
+		if err == nil {
 			t.Errorf("Parse(%q) accepted", bad)
+			continue
+		}
+		for _, secret := range []string{"s3cretTok", "123456"} {
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("Parse(%q) error echoes the secret: %v", bad, err)
+			}
 		}
 	}
 }
@@ -94,9 +107,9 @@ func TestCredValueNeverFormatted(t *testing.T) {
 }
 
 func TestRedactURL(t *testing.T) {
-	in := `Get "https://bob:tok@git.example.com/r.git/info/refs": x; also http://u@127.0.0.1:9/r and https://ok.example/r`
+	in := `Get "https://bob:tok@git.example.com/r.git/info/refs?access_token=SEKRIT": x; also http://u@127.0.0.1:9/r#SEKRIT2 and https://ok.example/r`
 	got := redactURL(in)
-	if strings.Contains(got, "tok") || strings.Contains(got, "bob") || strings.Contains(got, "u@") {
+	if strings.Contains(got, "tok") || strings.Contains(got, "bob") || strings.Contains(got, "u@") || strings.Contains(got, "SEKRIT") {
 		t.Fatalf("redactURL = %s", got)
 	}
 	if !strings.Contains(got, "https://git.example.com/r.git/info/refs") || !strings.Contains(got, "https://ok.example/r") {

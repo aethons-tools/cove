@@ -13,45 +13,62 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/osfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 // Fetch limits used when a Fetcher leaves them zero.
 const (
-	DefaultMaxBytes = 50 << 20
-	DefaultTimeout  = 60 * time.Second
+	DefaultMaxBytes         = 50 << 20
+	DefaultMaxCheckoutBytes = 64 << 20
+	DefaultTimeout          = 60 * time.Second
 )
 
 // Fetcher checks kit sources out of git over HTTPS with go-git. The zero
 // value is usable; it must not be copied after first use.
 type Fetcher struct {
-	Creds    Creds
-	MaxBytes int64         // response bytes per fetch; 0 = DefaultMaxBytes
-	Timeout  time.Duration // per fetch, network only; 0 = DefaultTimeout
-	TempDir  string        // "" = os.TempDir()
+	Creds            Creds
+	MaxBytes         int64         // response bytes per fetch; 0 = DefaultMaxBytes
+	MaxCheckoutBytes int64         // work-tree bytes written per fetch; 0 = DefaultMaxCheckoutBytes
+	Timeout          time.Duration // per fetch, transfer and checkout; 0 = DefaultTimeout
+	TempDir          string        // "" = os.TempDir()
 
 	mu    sync.Mutex
 	locks map[string]chan struct{} // per repo URL: fetches of one repo are serialized
 }
 
+// testHookCheckout, when set, runs inside the checkout right after the temp
+// dir exists (tests use it to panic there).
+var testHookCheckout func(root string)
+
 // Fetch checks src.Ref out shallowly into a fresh private temp dir and calls
-// fn(root, commit); the dir is removed when fn returns. fn's error is
-// returned as is; every other error is redacted (no userinfo, no token).
+// fn(root, commit); the dir is removed when fn returns, and also if the
+// checkout fails or panics. fn's error is returned as is; every other error
+// is redacted (no userinfo, query or token).
 func (f *Fetcher) Fetch(ctx context.Context, src Source, fn func(root, commit string) error) error {
 	var root, commit string
+	defer func() { // registered before the dir exists, so a panic cannot leak it
+		if root != "" {
+			_ = os.RemoveAll(root)
+		}
+	}()
 	err := f.run(ctx, src, func(ctx context.Context, auth transport.AuthMethod) (err error) {
-		root, commit, err = f.checkout(ctx, src, auth)
+		if root, err = os.MkdirTemp(f.TempDir, "jam-kit-"); err != nil {
+			root = ""
+			return err
+		}
+		commit, err = f.checkout(ctx, root, src, auth)
 		return err
 	})
-	if root != "" {
-		defer os.RemoveAll(root)
-	}
 	if err != nil {
 		return err
 	}
@@ -59,7 +76,8 @@ func (f *Fetcher) Fetch(ctx context.Context, src Source, fn func(root, commit st
 }
 
 // Resolve returns the commit src.Ref points to without a checkout
-// (ls-remote). A 40-hex ref is returned as is.
+// (ls-remote). A 40-hex ref is returned as is, lowercased, with no network
+// check at all: it is not verified to exist on the remote.
 func (f *Fetcher) Resolve(ctx context.Context, src Source) (string, error) {
 	var commit string
 	err := f.run(ctx, src, func(ctx context.Context, auth transport.AuthMethod) error {
@@ -77,6 +95,8 @@ func (f *Fetcher) Resolve(ctx context.Context, src Source) (string, error) {
 	return commit, err
 }
 
+var errFetchTimeout = errors.New("fetch time limit reached")
+
 // run checks src, takes the repo's lock, and runs op under the fetch's
 // timeout and byte budget with src's credential, if any. op's error comes
 // back explained and redacted.
@@ -86,7 +106,7 @@ func (f *Fetcher) run(ctx context.Context, src Source, op func(context.Context, 
 	}
 	unlock, err := f.lock(ctx, src.Repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("fetch %s: waiting for another fetch of it: %w", redactURL(src.Repo), err)
 	}
 	defer unlock()
 
@@ -98,7 +118,7 @@ func (f *Fetcher) run(ctx context.Context, src Source, op func(context.Context, 
 	if b.max <= 0 {
 		b.max = DefaultMaxBytes
 	}
-	ctx, cancel := context.WithTimeout(context.WithValue(ctx, budgetKey{}, b), timeout)
+	ctx, cancel := context.WithTimeoutCause(context.WithValue(ctx, budgetKey{}, b), timeout, errFetchTimeout)
 	defer cancel()
 
 	cred, hasCred := f.Creds.For(src.Repo)
@@ -131,29 +151,42 @@ func (f *Fetcher) lock(ctx context.Context, repo string) (func(), error) {
 	}
 }
 
-// checkout makes a 0700 temp dir under f.TempDir and checks src.Ref out into
-// it at depth 1. It returns the dir even on error, for the caller to remove.
-func (f *Fetcher) checkout(ctx context.Context, src Source, auth transport.AuthMethod) (root, commit string, err error) {
-	root, err = os.MkdirTemp(f.TempDir, "jam-kit-")
+// checkout checks src.Ref out at depth 1 into root, a fresh temp dir. The
+// work tree is written through a capped filesystem (see capFS), so the
+// checkout is bounded in bytes and stops when ctx ends; the object store in
+// .git holds the received pack, which the transfer budget bounds.
+func (f *Fetcher) checkout(ctx context.Context, root string, src Source, auth transport.AuthMethod) (string, error) {
+	if err := os.Chmod(root, 0o700); err != nil { // MkdirTemp's mode already; made explicit
+		return "", err
+	}
+	if testHookCheckout != nil {
+		testHookCheckout(root)
+	}
+	max := f.MaxCheckoutBytes
+	if max <= 0 {
+		max = DefaultMaxCheckoutBytes
+	}
+	wt := &capFS{Filesystem: osfs.New(root), c: &capCounter{ctx: ctx, max: max}}
+	dot, err := osfs.New(root).Chroot(git.GitDirName)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return root, "", err
-	}
+	store := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+
 	if isCommitID(src.Ref) {
-		commit, err = checkoutCommit(ctx, root, src.Repo, strings.ToLower(src.Ref), auth)
-		return root, commit, err
+		return checkoutCommit(ctx, store, wt, src.Repo, strings.ToLower(src.Ref), auth)
 	}
 	refs, err := listRefs(ctx, src.Repo, auth)
 	if err != nil {
-		return root, "", err
+		return "", err
 	}
 	name, _, err := findRef(refs, src.Ref)
 	if err != nil {
-		return root, "", err
+		return "", err
 	}
-	repo, err := git.PlainCloneContext(ctx, root, false, &git.CloneOptions{
+	// git.CloneContext is git.PlainCloneContext with the storage and work
+	// tree passed in, so the work tree can be the capped filesystem.
+	repo, err := git.CloneContext(ctx, store, wt, &git.CloneOptions{
 		URL:           src.Repo,
 		Auth:          auth,
 		ReferenceName: name,
@@ -163,27 +196,29 @@ func (f *Fetcher) checkout(ctx context.Context, src Source, auth transport.AuthM
 		Tags:          git.NoTags,
 	})
 	if err != nil {
-		return root, "", err
+		return "", err
 	}
 	head, err := repo.Head()
 	if err != nil {
-		return root, "", err
+		return "", err
 	}
 	h := head.Hash()
 	if tag, err := repo.TagObject(h); err == nil { // HEAD at an annotated tag
 		c, err := tag.Commit()
 		if err != nil {
-			return root, "", err
+			return "", err
 		}
 		h = c.Hash
 	}
-	return root, h.String(), nil
+	return h.String(), nil
 }
 
+var errCommitNotFound = errors.New("commit not found")
+
 // checkoutCommit fetches exactly sha (+sha:refs/heads/jam, depth 1) into a
-// new repository at root and checks it out.
-func checkoutCommit(ctx context.Context, root, repoURL, sha string, auth transport.AuthMethod) (string, error) {
-	repo, err := git.PlainInit(root, false)
+// new repository and checks it out.
+func checkoutCommit(ctx context.Context, store *filesystem.Storage, wt billy.Filesystem, repoURL, sha string, auth transport.AuthMethod) (string, error) {
+	repo, err := git.Init(store, wt)
 	if err != nil {
 		return "", err
 	}
@@ -198,16 +233,16 @@ func checkoutCommit(ctx context.Context, root, repoURL, sha string, auth transpo
 		Tags:     git.NoTags,
 	})
 	if errors.As(err, new(git.NoMatchingRefSpecError)) || err != nil && strings.Contains(err.Error(), "not our ref") {
-		return "", errRefNotFound // the server has no such commit (or will not serve it)
+		return "", errCommitNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	wt, err := repo.Worktree()
+	w, err := repo.Worktree()
 	if err != nil {
 		return "", err
 	}
-	if err := wt.Checkout(&git.CheckoutOptions{Branch: "refs/heads/jam"}); err != nil {
+	if err := w.Checkout(&git.CheckoutOptions{Branch: "refs/heads/jam"}); err != nil {
 		return "", err
 	}
 	return sha, nil
@@ -241,16 +276,22 @@ func findRef(refs []*plumbing.Reference, ref string) (plumbing.ReferenceName, st
 }
 
 // explain turns a fetch error into one an operator can act on, with no
-// userinfo or credential in it.
+// userinfo, query or credential in it.
 func explain(err error, ctx context.Context, b *budget, src Source, cred Cred, hasCred bool, timeout time.Duration) error {
 	repo := redactURL(src.Repo)
 	switch {
 	case b.exceeded.Load():
 		return fmt.Errorf("fetch %s: exceeded the %d-byte transfer limit", repo, b.max)
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return fmt.Errorf("fetch %s: timed out (limit %s)", repo, timeout)
+	case errors.Is(err, errCheckoutTooBig):
+		return fmt.Errorf("fetch %s: checkout %v", repo, err)
+	case errors.Is(context.Cause(ctx), errFetchTimeout):
+		return fmt.Errorf("fetch %s: timed out after the Fetcher's %s limit", repo, timeout)
+	case ctx.Err() != nil:
+		return fmt.Errorf("fetch %s: stopped by the caller: %w", repo, context.Cause(ctx))
 	case errors.Is(err, errRefNotFound):
 		return fmt.Errorf("ref %s not found in %s", src.Ref, repo)
+	case errors.Is(err, errCommitNotFound):
+		return fmt.Errorf("commit %s not found in %s (or the server does not serve commits by id)", strings.ToLower(src.Ref), repo)
 	case errors.Is(err, transport.ErrAuthenticationRequired), errors.Is(err, transport.ErrAuthorizationFailed):
 		if hasCred {
 			return fmt.Errorf("auth failed for %s (check kits.git cred %s)", redactURL(cred.Prefix), cred.Name)
@@ -353,16 +394,98 @@ func (c *countingBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// sameHostRedirect refuses, for a Fetcher's requests, any redirect off the
-// original host, so a credential is never even offered to another server
+// sameHostRedirect refuses, for a Fetcher's requests, more than
+// maxRedirects hops and any redirect off the original host, so a credential is never even offered to another server
 // (go-git would strip it, but the request itself is refused). Other go-git
 // users keep go-git's own policy.
+const maxRedirects = 10
+
 func sameHostRedirect(req *http.Request, via []*http.Request) error {
 	if _, ok := req.Context().Value(budgetKey{}).(*budget); !ok || len(via) == 0 {
 		return nil
+	}
+	if len(via) >= maxRedirects {
+		return fmt.Errorf("refused redirect: more than %d", maxRedirects)
 	}
 	if !strings.EqualFold(req.URL.Host, via[0].URL.Host) || req.URL.Scheme != via[0].URL.Scheme {
 		return fmt.Errorf("refused redirect from %s to another host or scheme (%s://%s)", via[0].URL.Host, req.URL.Scheme, req.URL.Host)
 	}
 	return nil
+}
+
+var errCheckoutTooBig = errors.New("checkout too large")
+
+// capCounter bounds the bytes one checkout writes and stops it when its
+// context ends (go-git's work-tree checkout takes no context of its own).
+type capCounter struct {
+	ctx  context.Context
+	max  int64
+	used atomic.Int64
+}
+
+func (c *capCounter) add(n int64) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+	if c.used.Add(n) > c.max {
+		return fmt.Errorf("%w: exceeded the %d-byte limit", errCheckoutTooBig, c.max)
+	}
+	return nil
+}
+
+// capFS is the checkout's work tree: an os filesystem whose files count
+// every byte written (and every Truncate growth) against one capCounter.
+type capFS struct {
+	billy.Filesystem
+	c *capCounter
+}
+
+func (fs *capFS) Create(name string) (billy.File, error) {
+	return fs.wrap(fs.Filesystem.Create(name))
+}
+
+func (fs *capFS) OpenFile(name string, flag int, perm os.FileMode) (billy.File, error) {
+	return fs.wrap(fs.Filesystem.OpenFile(name, flag, perm))
+}
+
+func (fs *capFS) TempFile(dir, prefix string) (billy.File, error) {
+	return fs.wrap(fs.Filesystem.TempFile(dir, prefix))
+}
+
+func (fs *capFS) Chroot(path string) (billy.Filesystem, error) {
+	sub, err := fs.Filesystem.Chroot(path)
+	if err != nil {
+		return nil, err
+	}
+	return &capFS{Filesystem: sub, c: fs.c}, nil
+}
+
+func (fs *capFS) wrap(f billy.File, err error) (billy.File, error) {
+	if err != nil {
+		return nil, err
+	}
+	if err := fs.c.add(0); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return &capFile{File: f, c: fs.c}, nil
+}
+
+type capFile struct {
+	billy.File
+	c *capCounter
+}
+
+func (f *capFile) Write(p []byte) (int, error) {
+	if err := f.c.add(int64(len(p))); err != nil {
+		return 0, err
+	}
+	return f.File.Write(p)
+}
+
+func (f *capFile) Truncate(size int64) error {
+	if err := f.c.add(size); err != nil {
+		return err
+	}
+	return f.File.Truncate(size)
 }

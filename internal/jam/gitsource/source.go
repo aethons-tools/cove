@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -16,20 +17,41 @@ type Source struct {
 }
 
 // Parse reads "<repo>[//<dir>]@<ref>" and refuses anything Fetch would: see
-// Source.check.
+// Source.check. A pasted credential is refused before anything else and is
+// never echoed: errors quote the input only once it is known to have no
+// userinfo, and then without query or fragment.
 func Parse(s string) (Source, error) {
-	at := strings.LastIndexByte(s, '@')
-	if at < 0 {
-		return Source{}, fmt.Errorf("source %q: want <repo>[//<dir>]@<ref>", redactURL(s))
-	}
-	repo, ref := s[:at], s[at+1:]
-	var src Source
-	src.Ref = ref
-	// The dir separator is the first "//" after the scheme's.
-	scheme := strings.Index(repo, "://")
+	scheme := strings.Index(s, "://")
 	if scheme < 0 {
-		return Source{}, fmt.Errorf("source %q: repo must be an https URL", redactURL(s))
+		return Source{}, errors.New("source: want <repo>[//<dir>]@<ref> with an https repo URL")
 	}
+	authority := s[scheme+3:]
+	if i := strings.IndexByte(authority, '/'); i >= 0 {
+		authority = authority[:i]
+	}
+	if strings.Contains(authority, "@") {
+		return Source{}, errors.New("source: credentials in the repo URL are refused (use a kits.git cred)")
+	}
+	// A ref never contains '@', and nor may the repo URL: exactly one '@'
+	// separates them. (An '@' anywhere else is most likely a pasted
+	// credential whose password holds a '/'.)
+	switch strings.Count(s, "@") {
+	case 0:
+		return Source{}, fmt.Errorf("source %q: missing @<ref> (want <repo>[//<dir>]@<ref>)", redactURL(s))
+	case 1:
+	default:
+		return Source{}, errors.New("source: '@' may appear only once, before the ref (credentials belong in a kits.git cred)")
+	}
+	at := strings.IndexByte(s, '@')
+	repo, ref := s[:at], s[at+1:]
+	// "https://user:pa/ss@host/path" (a password holding a raw '/') slips
+	// past the authority check and leaves "host/path" as the ref. A ref whose
+	// first component looks like a host name is refused, without echoing.
+	if first, _, ok := strings.Cut(ref, "/"); ok && (strings.Contains(first, ".") || first == "localhost") {
+		return Source{}, errors.New("source: the ref looks like <host>/<path>; is a credential pasted into the repo URL? (use a kits.git cred)")
+	}
+	src := Source{Ref: ref}
+	// The dir separator is the first "//" after the scheme's.
 	if i := strings.Index(repo[scheme+3:], "//"); i >= 0 {
 		i += scheme + 3
 		repo, src.Dir = repo[:i], repo[i+2:]
@@ -76,31 +98,43 @@ func (s Source) check() error {
 	return checkRef(s.Ref)
 }
 
-// checkRepoURL accepts https URLs, and http only to a loopback host, with no
-// userinfo, query or fragment.
+// checkRepoURL accepts https URLs, and http only to a loopback host, with a
+// path and no userinfo, query, fragment or dot segments. Errors never quote
+// a URL that failed to parse or carries userinfo, and quote others without
+// query or fragment.
 func checkRepoURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("repo %q: not a URL", redactURL(raw))
+		return errors.New("repo: not a valid URL")
 	}
+	if u.User != nil || strings.Contains(raw, "@") {
+		return errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
+	}
+	shown := redactURL(raw)
 	switch {
-	case u.User != nil:
-		return fmt.Errorf("repo %q: credentials in the URL are refused (use a kits.git cred)", redactURL(raw))
 	case u.Scheme == "https":
 	case u.Scheme == "http" && isLoopback(u.Hostname()):
 	case u.Scheme == "http":
-		return fmt.Errorf("repo %q: http is allowed only for loopback hosts; use https", raw)
+		return fmt.Errorf("repo %q: http is allowed only for loopback hosts; use https", shown)
 	default:
-		return fmt.Errorf("repo %q: unsupported scheme %q; use https", raw, u.Scheme)
+		return fmt.Errorf("repo %q: unsupported scheme %q; use https", shown, u.Scheme)
 	}
 	if u.Host == "" || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
-		return fmt.Errorf("repo %q: want https://<host>/<path> with no query or fragment", raw)
+		return fmt.Errorf("repo %q: want https://<host>/<path> with no query or fragment", shown)
+	}
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return errors.New("repo: invalid port")
+		}
+	}
+	if strings.Trim(u.Path, "/") == "" {
+		return fmt.Errorf("repo %q: missing the repository path", shown)
 	}
 	// Dot segments would let a repo URL match one credential prefix while
 	// naming a path outside it.
 	for _, seg := range strings.Split(u.Path, "/") {
 		if seg == "." || seg == ".." {
-			return fmt.Errorf("repo %q: '.' and '..' path segments are refused", raw)
+			return fmt.Errorf("repo %q: '.' and '..' path segments are refused", shown)
 		}
 	}
 	return nil

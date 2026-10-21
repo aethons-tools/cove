@@ -66,10 +66,12 @@ func basicAuth(repo string, c Cred) *githttp.BasicAuth {
 	return &githttp.BasicAuth{Username: "git", Password: c.Value}
 }
 
-var urlUserinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/?#@\s"']*@`)
+// urlInText matches a URL in free text: scheme, optional userinfo, the
+// host and path, and an optional query or fragment.
+var urlInText = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)(?:[^/?#@\s"']*@)?([^?#\s"']*)(?:[?#][^\s"']*)?`)
 
-// redactURL strips the userinfo from every URL in s, which may be a URL or an
-// error message that quotes one.
+// redactURL strips the userinfo, query and fragment from every URL in s,
+// which may be a URL or an error message that quotes one.
 func redactURL(s string) string {
-	return urlUserinfo.ReplaceAllString(s, "$1")
+	return urlInText.ReplaceAllString(s, "$1$2")
 }
