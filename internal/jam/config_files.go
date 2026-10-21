@@ -2,6 +2,7 @@ package jam
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -419,13 +420,16 @@ func normalizeTiers(field string, tiers []EscalationTierFile) error {
 	return nil
 }
 
-// normalize puts the file in canonical form: members and rooms sorted, a room
-// label equal to its key and a binding mode of both dropped, durations
-// canonical.
+// normalize puts the file in canonical form: members, rooms and each room's
+// bindings sorted, a room label equal to its key and a binding mode of both
+// dropped, durations canonical.
 func (f *ProjectFile) normalize() error {
 	slices.SortStableFunc(f.Members, func(a, b MemberFile) int { return strings.Compare(a.User, b.User) })
 	slices.SortStableFunc(f.Rooms, func(a, b RoomFile) int { return strings.Compare(a.Key, b.Key) })
 	for i := range f.Rooms {
+		slices.SortStableFunc(f.Rooms[i].Bindings, func(a, b RoomBindingFile) int {
+			return cmp.Or(strings.Compare(a.Connection, b.Connection), strings.Compare(a.Ref, b.Ref))
+		})
 		if f.Rooms[i].Label == f.Rooms[i].Key {
 			f.Rooms[i].Label = ""
 		}

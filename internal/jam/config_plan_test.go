@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
 
@@ -368,5 +369,65 @@ func TestCheckStandingDecl(t *testing.T) {
 	}
 	if err := checkStandingDecl(have, StandingSession{Name: "b", Prompt: "p"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// roomTree is project app (with connection acme) holding the given rooms YAML.
+func roomTree(rooms string) map[string]string {
+	return map[string]string{
+		"connections/acme.yml":     "kind: connection\nversion: 1\nservice: discord\n",
+		"projects/app/project.yml": "kind: project\nversion: 1\nrooms:\n" + rooms,
+	}
+}
+
+func TestPlanRoomRenameKeepsItsBinding(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: ops, bindings: [{connection: acme, ref: c1}]}\n")), false))
+	renamed := treeOf(t, roomTree("  - {key: operations, bindings: [{connection: acme, ref: c1}]}\n"))
+	p := planOn(t, st, renamed, false)
+	applyPlan(t, st, p)
+	proj, _ := st.GetProject("app")
+	if rooms := st.ListChannels(proj.ID, SourceRoom); len(rooms) != 1 || rooms[0].Key != "operations" || len(rooms[0].Bindings) != 1 {
+		t.Fatalf("rooms %+v", rooms)
+	}
+	if again := planOn(t, st, renamed, false); again.Counts()[ConfigUnchanged] != len(again.Ops) {
+		t.Fatalf("re-plan %+v", again.Ops)
+	}
+}
+
+func TestPlanBindingMovesBetweenRooms(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: b}\n  - {key: z, bindings: [{connection: acme, ref: c1}]}\n")), false))
+	moved := treeOf(t, roomTree("  - {key: b, bindings: [{connection: acme, ref: c1}]}\n  - {key: z}\n"))
+	p := planOn(t, st, moved, false)
+	applyPlan(t, st, p)
+	proj, _ := st.GetProject("app")
+	rooms := st.ListChannels(proj.ID, SourceRoom)
+	if len(rooms) != 2 || len(rooms[0].Bindings) != 1 || len(rooms[1].Bindings) != 0 {
+		t.Fatalf("rooms %+v", rooms)
+	}
+	// Bindings release before they are taken: a store checking the ingress
+	// uniqueness per write (Postgres) never sees c1 on two live rooms.
+	held := map[ident.ID]bool{}
+	for _, c := range p.write.Channels {
+		has := slices.ContainsFunc(c.Bindings, func(b Binding) bool { return b.Ref == "c1" }) && c.Status == StatusLive
+		delete(held, c.ID)
+		if has {
+			held[c.ID] = true
+		}
+		if len(held) > 1 {
+			t.Fatalf("c1 held twice mid-write: %+v", p.write.Channels)
+		}
+	}
+}
+
+func TestPlanRoomBindingOrderIsNotAChange(t *testing.T) {
+	st := NewMemStore()
+	files := roomTree("  - {key: ops, bindings: [{connection: acme, ref: c2}, {connection: acme, ref: c1}]}\n")
+	applyPlan(t, st, planOn(t, st, treeOf(t, files), false))
+	files["projects/app/project.yml"] = "kind: project\nversion: 1\nrooms:\n  - {key: ops, bindings: [{connection: acme, ref: c1}, {connection: acme, ref: c2}]}\n"
+	p := planOn(t, st, treeOf(t, files), false)
+	if o := opOf(p, ConfigKindProject, "app"); o.Action != ConfigUnchanged || len(p.write.Channels) != 0 {
+		t.Fatalf("%+v %+v", o, p.write.Channels)
 	}
 }

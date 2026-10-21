@@ -500,14 +500,28 @@ func (p *planner) writeMembers(pid ident.ID, members []MemberFile) error {
 	return nil
 }
 
+// sameBindings compares binding sets, order-insensitively.
+func sameBindings(a, b []Binding) bool {
+	key := func(x, y Binding) int {
+		return cmp.Or(strings.Compare(string(x.ConnectionID), string(y.ConnectionID)), strings.Compare(x.Ref, y.Ref),
+			strings.Compare(string(x.Mode), string(y.Mode)))
+	}
+	return slices.Equal(slices.SortedFunc(slices.Values(a), key), slices.SortedFunc(slices.Values(b), key))
+}
+
+// writeRooms makes pid's live rooms the file's. Bindings are released before
+// they are taken, so a room renamed with its binding or a binding moved
+// between rooms never holds an ingress binding twice — in the planned state
+// or in the write's order (a store may check that per write): a first pass
+// archives the rooms the file drops and writes each kept room minus the
+// bindings it loses; a second creates and updates.
 func (p *planner) writeRooms(pid ident.ID, rooms []RoomFile) error {
 	put := func(c Channel) {
 		p.m.applyPutChannel(c)
 		p.w.Channels = append(p.w.Channels, c)
 	}
-	inFile := map[string]bool{}
+	bindings := map[string][]Binding{}
 	for _, rf := range rooms {
-		inFile[rf.Key] = true
 		var bs []Binding
 		for _, b := range rf.Bindings {
 			c, ok := p.m.liveConnectionNamed(b.Connection)
@@ -516,9 +530,29 @@ func (p *planner) writeRooms(pid ident.ID, rooms []RoomFile) error {
 			}
 			bs = append(bs, Binding{ConnectionID: c.ID, Ref: b.Ref, Mode: cmp.Or(BindingMode(b.Mode), BindBoth)})
 		}
-		label := cmp.Or(rf.Label, rf.Key)
+		bindings[rf.Key] = bs
+	}
+	for _, c := range p.m.ListChannels(pid, SourceRoom) {
+		bs, inFile := bindings[c.Key]
+		if !inFile {
+			ch, err := p.m.prepareArchiveChannel(c.ID)
+			if err != nil {
+				return fmt.Errorf("room %s: %w", c.Key, err)
+			}
+			put(ch)
+			continue
+		}
+		kept := slices.DeleteFunc(slices.Clone(c.Bindings), func(b Binding) bool { return !slices.Contains(bs, b) })
+		if len(kept) < len(c.Bindings) {
+			ch := copyChannel(c)
+			ch.Bindings = kept
+			put(ch)
+		}
+	}
+	for _, rf := range rooms {
+		bs, label := bindings[rf.Key], cmp.Or(rf.Label, rf.Key)
 		if cur, ok := p.m.liveChannelByKey(pid, SourceRoom, rf.Key); ok {
-			if cur.Label == label && slices.Equal(cur.Bindings, bs) {
+			if cur.Label == label && sameBindings(cur.Bindings, bs) {
 				continue
 			}
 			ch := copyChannel(cur)
@@ -535,16 +569,6 @@ func (p *planner) writeRooms(pid ident.ID, rooms []RoomFile) error {
 		ch, err := p.m.prepareCreateChannel(Channel{ProjectID: pid, Kind: SourceRoom, Key: rf.Key, Label: label, Bindings: bs})
 		if err != nil {
 			return fmt.Errorf("room %s: %w", rf.Key, err)
-		}
-		put(ch)
-	}
-	for _, c := range p.m.ListChannels(pid, SourceRoom) {
-		if inFile[c.Key] {
-			continue
-		}
-		ch, err := p.m.prepareArchiveChannel(c.ID)
-		if err != nil {
-			return fmt.Errorf("room %s: %w", c.Key, err)
 		}
 		put(ch)
 	}
