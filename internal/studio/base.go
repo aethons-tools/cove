@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,10 @@ var (
 // A context Dockerfile should `FROM ${COVE_BASE_IMAGE}` so the built base
 // descends from the blessed cove-base-image (the provenance gate is ON).
 type Base struct {
+	// Kit names a parent studio kit this kit is built on: "name" follows the
+	// parent's current version, "name@v<N>" pins version N. It combines with at
+	// most one context form (the child's own stage) and excludes Image.
+	Kit          string      `yaml:"kit,omitempty" json:"kit,omitempty"`
 	Image        string      `yaml:"image,omitempty" json:"image,omitempty"`
 	ContextFiles ContextTree `yaml:"context-files,omitempty" json:"contextFiles,omitempty"`
 	Context      string      `yaml:"context,omitempty" json:"context,omitempty"` // base64 tar.gz
@@ -111,6 +116,7 @@ const (
 	BaseContextFiles                 // an inline tree
 	BaseContextZip                   // a base64 tar.gz context
 	BaseContextDir                   // a host dir (client-only; packed into a tar.gz at push)
+	BaseKit                          // `kit:` with no own context: the parent's stage as-is
 )
 
 // Kind reports which base form is set, erroring if more than one is.
@@ -128,10 +134,42 @@ func (b Base) Kind() (BaseKind, error) {
 	if b.ContextDir != "" {
 		kind, n = BaseContextDir, n+1
 	}
+	if b.Kit != "" && b.Image != "" {
+		return BaseDefault, fmt.Errorf("base: kit and image are mutually exclusive")
+	}
 	if n > 1 {
 		return BaseDefault, fmt.Errorf("base: set exactly one of image / context-files / context / context-dir")
 	}
+	if b.Kit != "" && n == 0 {
+		return BaseKit, nil
+	}
 	return kind, nil
+}
+
+// HasParent reports whether the base names a parent kit.
+func (b Base) HasParent() bool { return b.Kit != "" }
+
+// ParentRef parses Kit into the parent's registry name and pinned version
+// (0 means follow the parent's current version).
+func (b Base) ParentRef() (name string, version int, err error) {
+	ref := b.Kit
+	if strings.HasPrefix(ref, ".") {
+		return "", 0, fmt.Errorf("path parents are not supported yet; use the parent kit's registry name")
+	}
+	name = ref
+	if i := strings.IndexByte(ref, '@'); i >= 0 {
+		name = ref[:i]
+		v, ok := strings.CutPrefix(ref[i+1:], "v")
+		n, convErr := strconv.Atoi(v)
+		if !ok || convErr != nil || n < 1 || strconv.Itoa(n) != v {
+			return "", 0, fmt.Errorf("base.kit: %q: a pin must be name@v<N> with N >= 1", ref)
+		}
+		version = n
+	}
+	if !TagSafeName(name) {
+		return "", 0, fmt.Errorf("base.kit: %q is not a valid kit name", ref)
+	}
+	return name, version, nil
 }
 
 // validate enforces the base invariants (exactly-one form, the context-files
@@ -140,6 +178,11 @@ func (b Base) validate() error {
 	kind, err := b.Kind()
 	if err != nil {
 		return err
+	}
+	if b.HasParent() {
+		if _, _, err := b.ParentRef(); err != nil {
+			return err
+		}
 	}
 	switch kind {
 	case BaseContextFiles:
