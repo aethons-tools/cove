@@ -858,6 +858,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
+	own := fs.Bool("own", false, "show: print the kit's own stored YAML instead of the merged (effective) kit")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -934,7 +935,11 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, k := range kits {
-			fmt.Fprintf(stdout, "%s\tcurrent=v%d\tversions=%d\n", k.Name, k.Current, k.Versions)
+			fmt.Fprintf(stdout, "%s\tcurrent=v%d\tversions=%d", k.Name, k.Current, k.Versions)
+			if k.Parent != "" {
+				fmt.Fprintf(stdout, "\tparent=%s", k.Parent)
+			}
+			fmt.Fprintln(stdout)
 		}
 	case "show":
 		if len(pos) != 1 {
@@ -947,8 +952,14 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// Stored form is canonical JSON; render it back as YAML for the human.
-		// ParseStudioKit accepts JSON (and any YAML rows) alike.
-		sk, err := studio.ParseStudioKit([]byte(res.Config))
+		// ParseStudioKit accepts JSON (and any YAML rows) alike. The default
+		// view is the server's effective (merged) YAML; an older server sends
+		// none, so show the stored kit.
+		shown := res.Config
+		if res.Effective != "" && !*own {
+			shown = res.Effective
+		}
+		sk, err := studio.ParseStudioKit([]byte(shown))
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam kit show: stored config is not a valid studio kit:", err)
 			return 1
@@ -960,6 +971,13 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprint(stdout, kitSourceHeader(res))
+		if res.ChainError != "" {
+			fmt.Fprintf(stdout, "# chain error: %s\n", res.ChainError)
+		}
+		fmt.Fprint(stdout, kitBuiltOnHeader(res))
+		if len(res.Chain) > 0 && res.Effective != "" && !*own {
+			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own to edit and re-push")
+		}
 		fmt.Fprint(stdout, string(y))
 		ceiling, excluded := studioShowEgress(sk.Egress)
 		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
@@ -1120,6 +1138,29 @@ func kitSourceHeader(res jam.KitConfigResult) string {
 		h += fmt.Sprintf("# tracking: %s (last synced %s)\n", kitSourceText(res.Tracking), shortCommit(res.Tracking.Commit))
 	}
 	return h
+}
+
+// kitBuiltOnHeader is the "# built on:" line of a chained kit: the chain root
+// first, the direct parent annotated with how it is tracked. "" when unchained.
+func kitBuiltOnHeader(res jam.KitConfigResult) string {
+	if len(res.Chain) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(res.Chain))
+	for _, l := range res.Chain[:len(res.Chain)-1] {
+		parts = append(parts, fmt.Sprintf("%s@v%d", l.Name, l.Version))
+	}
+	last := res.Chain[len(res.Chain)-1]
+	if !last.Follow {
+		parts = append(parts, fmt.Sprintf("%s@v%d (pinned)", last.Name, last.Version))
+	} else {
+		note := fmt.Sprintf("follows, now v%d", last.Version)
+		if res.Parent != nil {
+			note += fmt.Sprintf("; pushed against v%d", res.Parent.Version)
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", last.Name, note))
+	}
+	return "# built on: " + strings.Join(parts, " → ") + "\n"
 }
 
 // readConfig reads a config file path, or stdin when path == "-".

@@ -112,8 +112,16 @@ parent's build.
 | `egress` | union |
 | `mcp-servers` | merged by name; a child entry replaces the parent's entry of the same name |
 | `secrets` (declarations) | union by name; the child's description wins |
-| `build-args` | each kit's args apply to its own base-stage build only |
+| `build-args` | merged by key; the child wins (amended in slice 2, below) |
 | `prompt`, `notes` | layered in order (root first) within the session context's existing kit-layer budget; overflow spills to leaves as today |
+
+**Amendment (slice 2, build args).** This section first said each kit's
+`build-args` apply to its own base-stage build only. But build args never reach
+a base-stage build: they go to the final (harness and hardening) build and to
+the session context's `kit/tools.md`. So slice 2 merges `build-args` by key
+(child wins), passes the merged set to the final build as before, and lists it
+in `tools.md`. A kit's context Dockerfile can't read them as `ARG`s. Slice 2
+also runs the provenance gate on every stage it builds, not only the root.
 
 **Versions and digest.**
 - **Recorded parent version:** each child version records the parent version

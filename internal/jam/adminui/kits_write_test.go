@@ -9,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // anyCred is a permissive credExists stub for tests that don't exercise
@@ -145,5 +146,50 @@ func TestDeleteKitReferenced409(t *testing.T) {
 	}
 	if _, ok := store.GetKit("base"); !ok {
 		t.Error("referenced kit must not be deleted")
+	}
+}
+
+// chainedStore holds web-dev (v1, v2) with my-app following it.
+func chainedStore(t *testing.T) jam.Store {
+	t.Helper()
+	store := newStore(t)
+	for _, p := range []string{"base", "base2"} {
+		sk := studio.StudioKit{Kind: studio.Kind, Prompt: p}
+		if _, err := jam.EnsureStudioKit(store, "web-dev", sk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	child := studio.StudioKit{Kind: studio.Kind, Prompt: "app"}
+	child.Base.Kit = "web-dev"
+	if _, err := jam.EnsureStudioKit(store, "my-app", child); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestUIKitRmGuardedByChildren(t *testing.T) {
+	store := chainedStore(t)
+	h := uiHandler(t, store)
+	req := httptest.NewRequest(http.MethodDelete, "/ui/kits/web-dev", nil)
+	req.Header.Set("Origin", "http://"+req.Host)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "kit web-dev is the parent of my-app") {
+		t.Fatalf("rm = %d %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := store.GetKit("web-dev"); !ok {
+		t.Error("kit removed despite 409")
+	}
+}
+
+func TestUIKitPinGuardedByFollowers(t *testing.T) {
+	store := chainedStore(t)
+	h := uiHandler(t, store)
+	rec := post(t, h, "/ui/kits/web-dev/pin", url.Values{"version": {"1"}})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "kit web-dev is followed by my-app") {
+		t.Fatalf("pin = %d %s", rec.Code, rec.Body.String())
+	}
+	if k, _ := store.GetKit("web-dev"); k.Current != 2 {
+		t.Errorf("current = %d, want 2", k.Current)
 	}
 }

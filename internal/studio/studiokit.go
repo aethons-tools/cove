@@ -55,6 +55,12 @@ func ParseStudioKit(data []byte) (StudioKit, error) {
 	if err := dec.Decode(&sk); err != nil {
 		return StudioKit{}, fmt.Errorf("studio kit: %w", err)
 	}
+	if sk.Base.StoredContextFiles != nil {
+		if sk.Base.ContextFiles != nil {
+			return StudioKit{}, fmt.Errorf("studio kit: base: set context-files once (both context-files and contextFiles given)")
+		}
+		sk.Base.ContextFiles, sk.Base.StoredContextFiles = sk.Base.StoredContextFiles, nil
+	}
 	if err := sk.Validate(); err != nil {
 		return StudioKit{}, err
 	}

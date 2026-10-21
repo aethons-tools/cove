@@ -147,3 +147,24 @@ func (c *Colima) resolveBaseTar(ctxTar io.Reader) (string, error) {
 	// value is ignored by streamDockerImg.Build (the context comes from stdin).
 	return baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: base}, basedigest.BlessedRefs(), os.Stderr)
 }
+
+// resolveBaseTarOn builds a kit-chain stage: ctxTar streams to `docker build -`
+// with parentRef (the previous stage) as COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE,
+// and the result runs the same provenance gate against the blessed refs (gate
+// ON — the parent descends from a blessed base, so a child built on it must
+// too). Only after the gate passes is the gated image tagged stageTag, so a
+// rejected stage leaves no stage tag for HasKitBase to find.
+func (c *Colima) resolveBaseTarOn(ctxTar io.Reader, parentRef, stageTag string) (string, error) {
+	if parentRef == "" || stageTag == "" {
+		return "", fmt.Errorf("kit stage build: parent ref and stage tag are required")
+	}
+	d := streamDockerImg{dockerImg: dockerImg{c: c, baseArg: parentRef}, ctx: ctxTar}
+	ref, err := baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: parentRef}, basedigest.BlessedRefs(), os.Stderr)
+	if err != nil {
+		return "", err
+	}
+	if err := c.r.Run("docker", c.dargs("tag", ref, stageTag)...); err != nil {
+		return "", err
+	}
+	return stageTag, nil
+}

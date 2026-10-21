@@ -37,7 +37,13 @@ func (r KitRef) String() string { return fmt.Sprintf("%s@v%d", r.ID, r.Version) 
 // PrepareKit.
 type KitDefinition struct {
 	Ref KitRef
+	// Kit is the effective kit: the chain merged (studio.Merge) — egress, MCP
+	// servers, build args, prompt and notes. Every consumer but the image
+	// build reads it.
 	Kit studio.StudioKit
+	// Chain is the resolved parent chain, root first, the kit itself last
+	// (length 1 for an unchained kit). The launcher builds from it.
+	Chain []KitLink
 	// Harness is the harness layer the image installs — the raising role's
 	// model-spec (CLI type, exact version, plugins). Ref.Digest is keyed on
 	// it too (studio.BuildDigest).

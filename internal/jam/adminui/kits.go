@@ -126,8 +126,8 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 			return
 		}
 		name := r.PathValue("name")
-		if err := store.PinKit(name, v); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
+		if err := jam.PinKitChecked(store, name, v); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusNotFound), err.Error())
 			return
 		}
 		log.Info("ui kit pinned", "operator", jam.OperatorID(r), "kit", name, "version", v)
@@ -143,12 +143,8 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 			return
 		}
 		name := r.PathValue("name")
-		if project, role, ok := store.RoleReferencingKit(name); ok {
-			renderError(w, http.StatusConflict, fmt.Sprintf("kit %q is referenced by role %s/%s", name, project, role))
-			return
-		}
-		if err := store.RemoveKit(name); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
+		if err := jam.RemoveKitChecked(store, name); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusNotFound), err.Error())
 			return
 		}
 		log.Info("ui kit removed", "operator", jam.OperatorID(r), "kit", name)

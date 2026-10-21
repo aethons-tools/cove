@@ -178,8 +178,16 @@ type KitSource struct {
 
 // KitVersionMeta is per-version metadata. Source nil = pushed from a local file.
 type KitVersionMeta struct {
-	PushedAt time.Time  `json:"pushed_at"`
-	Source   *KitSource `json:"source,omitempty"`
+	PushedAt time.Time     `json:"pushed_at"`
+	Source   *KitSource    `json:"source,omitempty"`
+	Parent   *KitParentRef `json:"parent,omitempty"` // parent version this version was resolved against; nil = no parent kit
+}
+
+// KitParentRef is the parent kit (and the version of it) a pushed kit version
+// was resolved against.
+type KitParentRef struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"`
 }
 
 // Override lets one grant narrow/replace fields of its Role's scope. A nil field

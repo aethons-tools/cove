@@ -24,7 +24,8 @@ layers, in delivery order:
 Every layer follows edits while a session runs ([Refresh](#refresh)). The kit layer
 keeps the image the session was raised with — its build-args (`kit/tools.md`) and
 egress ceiling — while a newer kit version's `prompt` and `notes` do reach it; a
-new image needs a re-raise.
+new image needs a re-raise; for a chained kit, which chain feeds which fact is in
+[kits-inheritance.md](kits-inheritance.md#staleness-and-running-studios).
 
 Raise logs a warning when the kit prompt restates an egress host or a message
 target — those belong to the Studio layer.

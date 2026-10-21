@@ -392,13 +392,8 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			spec.Kit, def = d.Ref, &d
 		}
 	}
-	bundle := s.compileContext(spec, actor, spec.Kit, def)
-	// Warnings are logged once, here — not on every GET /context refresh.
-	for _, w := range bundle.Warnings {
-		if s.log != nil {
-			s.log.Warn("raise: session context", "id", spec.ActorID, "warning", w)
-		}
-	}
+	bundle := s.compileContext(spec, actor, spec.Kit, def, nil)
+	s.logContextWarnings(spec.ActorID, bundle)
 	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
@@ -407,7 +402,10 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		// registry, unless Raise resolved it) and retry once. A still-preparing
 		// build does not block — the raise fails and the caller's reconcile
 		// retries on a later tick.
-		loc, err = s.prepareKitAndRetry(ctx, spec, creds, def)
+		var ran KitDefinition
+		if loc, ran, err = s.prepareKitAndRetry(ctx, &spec, actor, creds, def); err == nil {
+			def = &ran // the definition prepared and run
+		}
 	}
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
@@ -428,6 +426,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		Egress:    EgressFingerprint(spec.Egress),
 		Kit:       spec.Kit,
 		ImageTag:  s.imageTag(spec.Kit),
+	}
+	if def != nil && def.Ref == spec.Kit {
+		inst.KitChain = chainRefs(def.Chain)
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -467,20 +468,21 @@ func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition,
 	if err != nil || !have {
 		return KitDefinition{}, false, err
 	}
-	def, err := src.definition(h)
+	def, err := src.definition(s.store, h)
 	return def, err == nil, err
 }
 
 // kitSource is the registry entry a raise's kit comes from: its ref (no digest
-// yet) and stored config. Turning it into a definition parses and hashes.
+// yet) and stored config. Turning it into a definition parses it, resolves its
+// parent chain and hashes.
 type kitSource struct {
 	ref    KitRef
 	config string
 	named  bool // role.Kit names it (vs the wiring default) — error wording only
 }
 
-func (k kitSource) definition(h harnessinstall.Install) (KitDefinition, error) {
-	def, err := kitDefinitionFromConfig(k.ref, k.config, h)
+func (k kitSource) definition(store Store, h harnessinstall.Install) (KitDefinition, error) {
+	def, err := kitDefinitionFromConfig(store, k.ref, k.config, h)
 	if err != nil && k.named {
 		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", k.ref.ID, err)
 	}
@@ -530,7 +532,7 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 	return s.kitFor(role, h)
 }
 
-// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, harness):
+// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, parent chain, harness):
 // the UI polls the studios list every few seconds, and a kit parse + digest per
 // poll per role is waste. The launcher's assembly half of the tag is never
 // cached (ImageTag is cheap and live).
@@ -543,11 +545,22 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 	if err != nil || !have {
 		return KitRef{}, false, err
 	}
-	key := kitRefKey{ref: src.ref, config: src.config, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
+	chain := chainCacheKey(s.store, src.config)
+	if chain == chainUnresolved {
+		// Never touch the cache for a broken chain: resolve fresh, which fails
+		// with the real error (or, if the chain healed meanwhile, succeeds
+		// without storing under a key that could outlive the next break).
+		def, err := src.definition(s.store, h)
+		if err != nil {
+			return KitRef{}, false, err
+		}
+		return def.Ref, true, nil
+	}
+	key := kitRefKey{ref: src.ref, config: src.config, chain: chain, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
 	if ref, ok := s.kitRefs.get(key); ok {
 		return ref, true, nil
 	}
-	def, err := src.definition(h)
+	def, err := src.definition(s.store, h)
 	if err != nil {
 		return KitRef{}, false, err
 	}
@@ -558,6 +571,7 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 type kitRefKey struct {
 	ref     KitRef
 	config  string // the stored config itself: a removed-and-re-pushed kit can reuse a version number
+	chain   string // the parents' resolved id@version + config hash ("" unchained): a parent push changes it
 	harness string
 }
 
@@ -649,39 +663,64 @@ func (s *Supervisor) logImageErr(project, role string, err error) {
 }
 
 // prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it takes the
-// kit definition Raise resolved (else resolves it from the registry), asks the launcher to prepare it, and
-// retries the Raise once when the kit is ready. A KitPreparing status (an async
-// remote build) returns an error WITHOUT blocking — the caller's reconcile loop
-// retries the raise on a later tick, by which point the build may be done. The
-// caller (Raise) rolls back the enrollment on any error this returns.
-func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, creds LaunchCreds, resolved *KitDefinition) (string, error) {
+// kit definition Raise resolved (else resolves it from the registry), asks the
+// launcher to prepare it, and retries the Raise once when the kit is ready. It
+// returns the definition it prepared — the image that runs. A KitPreparing
+// status (an async remote build) returns an error WITHOUT blocking — the
+// caller's reconcile loop retries the raise on a later tick, by which point the
+// build may be done. The caller (Raise) rolls back the enrollment on any error
+// this returns.
+func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec *RaiseSpec, actor Actor, creds LaunchCreds, resolved *KitDefinition) (string, KitDefinition, error) {
 	var def KitDefinition
 	if resolved != nil && resolved.Ref == spec.Kit {
 		def = *resolved
 	} else {
-		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(spec))
+		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(*spec))
 		if err != nil {
-			return "", err
+			return "", KitDefinition{}, err
 		}
 		if !ok {
-			return "", fmt.Errorf("kit %s not in registry", spec.Kit)
+			return "", KitDefinition{}, fmt.Errorf("kit %s not in registry", spec.Kit)
+		}
+		// The chain was re-resolved at the following parents' current versions.
+		// If a parent moved since spec.Kit was keyed, the digest differs: the
+		// image prepared (and run) now is the fresh one, so the retried raise
+		// carries its ref and a context compiled from it, and the caller records
+		// its chain.
+		if d.Ref != spec.Kit {
+			spec.Kit = d.Ref
+			bundle := s.compileContext(*spec, actor, spec.Kit, &d, nil)
+			s.logContextWarnings(spec.ActorID, bundle)
+			spec.Context = &bundle
 		}
 		def = d
 	}
 	status, err := s.launcher.PrepareKit(ctx, def)
 	if err != nil {
-		return "", fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
+		return "", KitDefinition{}, fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
 	}
 	if status.State != KitReady {
 		if s.log != nil {
 			s.log.Info("kit preparing; deferring raise to reconcile", "id", spec.ActorID, "kit", spec.Kit.String())
 		}
-		return "", fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
+		return "", KitDefinition{}, fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
 	}
 	if s.log != nil {
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
 	}
-	return s.launcher.Raise(ctx, spec, creds)
+	loc, err := s.launcher.Raise(ctx, *spec, creds)
+	return loc, def, err
+}
+
+// logContextWarnings logs a raise's session-context warnings — once, at raise,
+// not on every GET /context refresh.
+func (s *Supervisor) logContextWarnings(actorID string, b sessionctx.Bundle) {
+	if s.log == nil {
+		return
+	}
+	for _, w := range b.Warnings {
+		s.log.Warn("raise: session context", "id", actorID, "warning", w)
+	}
 }
 
 // harnessFor is the harness layer a raise's image installs: its role's
@@ -1544,8 +1583,11 @@ func (s *Supervisor) revokeActor(actorID string) error {
 // promptKit, when it names the same kit, supplies the prompt and notes — a
 // newer version's text edits reach a running session, its image changes don't.
 // raised, when it is spec.Kit's definition (Raise resolved it), is used as is
-// rather than re-read from the registry.
-func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRef, raised *KitDefinition) sessionctx.Bundle {
+// rather than re-read from the registry. Otherwise (a refresh) imageChain, when
+// recorded, is the chain the image was built from: its build-args and egress
+// come from those exact link versions, so a following parent's later edit does
+// not reach them (its prompt and notes do, via the current-chain resolution).
+func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRef, raised *KitDefinition, imageChain []KitRef) sessionctx.Bundle {
 	// Compile the session context (Jam boilerplate → kit; later slices add
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
@@ -1553,13 +1595,16 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 		Previews: s.previews,
 	}}
 	var kitEgress []string
+	var warnings []string
 	haveKit := false
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
 		def, ok := KitDefinition{}, false
 		if raised != nil && raised.Ref == spec.Kit {
 			def, ok = *raised, true
-		} else if d, found, derr := ResolveKitDefinition(s.store, spec.Kit, harnessinstall.Default()); derr == nil && found {
+		} else if d, found, derr := ResolveKitDefinition(s.store, spec.Kit, harnessinstall.Default()); derr != nil {
+			warnings = append(warnings, fmt.Sprintf("kit layer omitted: %v", derr))
+		} else if found {
 			def, ok = d, true // only the kit text is read: the harness does not matter
 		}
 		if ok {
@@ -1569,8 +1614,20 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 					text = cur.Kit
 				}
 			}
-			in.Kit = sessionctx.KitLayer(text.Prompt, text.Leaves(), def.Kit.BuildArgs)
-			kitEgress, haveKit = def.Kit.Egress, true
+			build, buildOK := def.Kit, true
+			if raised == nil && len(imageChain) > 0 {
+				var berr error
+				if build, berr = recordedChainKit(s.store, imageChain); berr != nil {
+					buildOK = false // fail closed: no tool list, egress unknown
+					warnings = append(warnings, fmt.Sprintf("kit build facts omitted: %v", berr))
+				}
+			}
+			if buildOK {
+				in.Kit = sessionctx.KitLayer(text.Prompt, text.Leaves(), build.BuildArgs)
+				kitEgress, haveKit = build.Egress, true
+			} else {
+				in.Kit = sessionctx.KitLayer(text.Prompt, text.Leaves(), nil)
+			}
 		}
 	}
 	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
@@ -1581,7 +1638,9 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
 	}
 	in.Jam = s.store.GetJamContext()
-	return sessionctx.Compile(in)
+	b := sessionctx.Compile(in)
+	b.Warnings = append(b.Warnings, warnings...)
+	return b
 }
 
 // ContextFor recompiles the session context of a running instance from the
@@ -1620,7 +1679,7 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 			}
 		}
 	}
-	return s.compileContext(spec, actor, promptKit, nil), nil
+	return s.compileContext(spec, actor, promptKit, nil, inst.KitChain), nil
 }
 
 // ErrNoInstance means an identity has no registered instance (e.g. a

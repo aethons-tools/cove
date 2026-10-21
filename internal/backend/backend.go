@@ -271,6 +271,18 @@ type KitImageBuilder interface {
 	// from a blessed cove-base-image or this errors. The context's Dockerfile builds
 	// FROM the blessed base via the injected COVE_BASE_IMAGE build arg.
 	ResolveKitBaseTar(ctx io.Reader) (resolvedBase string, err error)
+	// ResolveKitBaseTarOn builds one stage of a kit chain: like ResolveKitBaseTar,
+	// but the context builds FROM parentRef (the parent stage, injected as
+	// COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE) instead of the blessed default.
+	// The gate is ON and unchanged — the built stage must descend from a blessed
+	// cove-base-image (the parent does, so a child built on it does too). Only
+	// once the gate passes is the result tagged stageTag, which is returned; a
+	// rejected stage leaves no stageTag behind, so HasKitBase never vouches for an
+	// ungated image.
+	ResolveKitBaseTarOn(ctx io.Reader, parentRef, stageTag string) (resolvedBase string, err error)
+	// HasKitBase reports whether a chain stage tagged tag (by ResolveKitBaseTarOn,
+	// after its gate passed) exists on this substrate. A miss is (false, nil).
+	HasKitBase(tag string) (bool, error)
 }
 
 // Factory constructs a Backend bound to a Runner.

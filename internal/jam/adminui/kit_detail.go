@@ -122,6 +122,8 @@ type kitView struct {
 	Excluded    []string
 	BuildArgs   []kv
 	Secrets     []kv
+	MCPServers  []kv // name → type
+	Notes       []kv // name → read-when
 	Prompt      string
 	Digest      string
 }
@@ -148,6 +150,20 @@ type kitUse struct {
 	Implicit      bool
 }
 
+// kitParent is one link of a "Built on" chain: a parent kit, the version it
+// resolves to, and whether the child follows its current version.
+type kitParent struct {
+	Name    string
+	Version int
+	Follow  bool
+}
+
+// kitChild is a kit whose current version builds on the page's kit.
+type kitChild struct {
+	Name   string
+	Pinned bool // pins a version; otherwise follows current
+}
+
 // kitDetail is the kit page payload.
 type kitDetail struct {
 	Title       string
@@ -157,6 +173,10 @@ type kitDetail struct {
 	View        kitView
 	Diff        *kitDiff
 	Uses        []kitUse
+	Chain       []kitParent // parents of the viewed version, root first; empty = unchained
+	ChainErr    string      // why the viewed version's chain doesn't resolve
+	Effective   *kitView    // the chain merged; nil unless chained
+	UsedByKits  []kitChild
 	IsDefault   bool
 	Source      *sourceView // tracked source; nil = not tracked
 	CanSource   bool        // import/track/sync controls are available
@@ -164,11 +184,23 @@ type kitDetail struct {
 	NotFoundFor string
 }
 
+// baseLabel names a base: its form, and for a chained kit the parent it is
+// built on ("kit: web@v2", plus " + context-files" for the kit's own stage).
 func baseLabel(b studio.Base) string {
 	k, err := b.Kind()
 	if err != nil {
 		return "invalid"
 	}
+	switch {
+	case k == studio.BaseKit:
+		return "kit: " + b.Kit
+	case b.HasParent():
+		return "kit: " + b.Kit + " + " + ownBaseLabel(k)
+	}
+	return ownBaseLabel(k)
+}
+
+func ownBaseLabel(k studio.BaseKind) string {
 	switch k {
 	case studio.BaseImage:
 		return "image"
@@ -320,6 +352,12 @@ func viewKit(n int, stored string) kitView {
 	for _, k := range slices.Sorted(maps.Keys(sk.Secrets)) {
 		v.Secrets = append(v.Secrets, kv{k, sk.Secrets[k].Description})
 	}
+	for _, k := range slices.Sorted(maps.Keys(sk.MCPServers)) {
+		v.MCPServers = append(v.MCPServers, kv{k, sk.MCPServers[k].Type})
+	}
+	for _, n := range sk.Notes {
+		v.Notes = append(v.Notes, kv{n.Name, n.ReadWhen})
+	}
 	v.Prompt = sk.Prompt
 	return v
 }
@@ -351,6 +389,17 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		d.Versions = append(d.Versions, ver)
 	}
 	d.View = viewKit(view, k.Versions[view])
+	if d.View.ParseErr == "" {
+		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, k.Versions[view])
+	}
+	follow, pinned := jam.KitsReferencing(store, name)
+	for _, c := range follow {
+		d.UsedByKits = append(d.UsedByKits, kitChild{Name: c})
+	}
+	for _, c := range pinned {
+		d.UsedByKits = append(d.UsedByKits, kitChild{Name: c, Pinned: true})
+	}
+	slices.SortFunc(d.UsedByKits, func(a, b kitChild) int { return strings.Compare(a.Name, b.Name) })
 	if from, ok := k.Versions[diff]; ok && diff != view {
 		fv := viewKit(diff, from)
 		a, b := fv.YAML, d.View.YAML
@@ -364,6 +413,27 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
 	}
 	return d, true
+}
+
+// chainOf resolves the chain of one stored kit version for display: its
+// parents root first and, when there are any, the merged effective kit. A chain
+// that doesn't resolve comes back as an error message.
+func chainOf(store jam.Store, name, config string) (chain []kitParent, eff *kitView, errMsg string) {
+	links, y, err := jam.KitChainView(store, name, config)
+	if err != nil {
+		return nil, nil, err.Error()
+	}
+	if len(links) == 0 {
+		return nil, nil, ""
+	}
+	for _, l := range links {
+		chain = append(chain, kitParent{Name: l.Name, Version: l.Version, Follow: l.Follow})
+	}
+	v := viewKit(0, y)
+	if v.ParseErr != "" {
+		return chain, nil, v.ParseErr
+	}
+	return chain, &v, ""
 }
 
 // maxDiffCells bounds the LCS table (lines(a) × lines(b)).

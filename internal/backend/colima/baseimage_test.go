@@ -201,6 +201,101 @@ func TestResolveKitBaseTarGateRejects(t *testing.T) {
 	}
 }
 
+// A chain stage builds its streamed context FROM the parent stage (both base
+// build-args carry parentRef, never the blessed default), is gated against the
+// blessed refs, and only then is tagged with its stage tag, which it returns.
+func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
+	const parentRef = "cove-kit-base:parentstage"
+	const stageTag = "cove-kit-base:0123456789abcdef0123456789abcdef"
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "sha256:child\n"},                                // docker build -q - (streamed)
+		{Stdout: `["sha256:a","sha256:b","sha256:p","sha256:c"]`}, // the built stage's layers
+		{Stdout: `["sha256:a","sha256:b"]`},                       // blessed (a prefix → descends)
+	}}
+	c := &Colima{r: f}
+	ref, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), parentRef, stageTag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != stageTag {
+		t.Fatalf("ref = %q, want the stage tag %q", ref, stageTag)
+	}
+	build := dockerCall(f.Calls, "build")
+	if build == nil || !contains(build, "-") ||
+		!contains(build, "COVE_BASE_IMAGE="+parentRef) ||
+		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+parentRef) ||
+		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
+		t.Fatalf("stage build must stream FROM the parent stage: %+v", build)
+	}
+	if contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+		t.Fatalf("a stage must not build on the blessed default: %+v", build)
+	}
+	if bc := dockerCallFull(f.Calls, "build"); bc == nil || bc.Stdin != "CTX" {
+		t.Fatalf("context must be streamed on stdin; got %q", stdinOf(bc))
+	}
+	// The gate inspected the blessed refs, and the stage tag is the LAST call
+	// (applied only after the gate passed).
+	if insp := dockerCall(f.Calls, "inspect"); insp == nil {
+		t.Fatalf("the gate must inspect layers: %+v", f.Calls)
+	}
+	last := f.Calls[len(f.Calls)-1].Args[2:]
+	if len(last) != 3 || last[0] != "tag" || last[1] != "cove-kit-base:child" || last[2] != stageTag {
+		t.Fatalf("last call = %v, want `docker tag cove-kit-base:child %s`", last, stageTag)
+	}
+	if !allPinned(f.Calls) {
+		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
+	}
+}
+
+// A stage whose built image descends from no blessed base is rejected, and its
+// stage tag is never applied — so HasKitBase can never vouch for an ungated stage.
+func TestResolveKitBaseTarOnGateRejectsWithoutStageTag(t *testing.T) {
+	const stageTag = "cove-kit-base:0123456789abcdef0123456789abcdef"
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: "sha256:child\n"},
+		{Stdout: `["sha256:x","sha256:y"]`}, // unrelated layers
+		{Stdout: `["sha256:a","sha256:b"]`}, // blessed
+	}}
+	c := &Colima{r: f}
+	ref, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "cove-kit-base:parent", stageTag)
+	if err == nil || ref != "" {
+		t.Fatalf("ResolveKitBaseTarOn = %q, %v; want a gate rejection", ref, err)
+	}
+	for _, call := range f.Calls {
+		if contains(call.Args, stageTag) {
+			t.Fatalf("a rejected stage must not be tagged %s: %+v", stageTag, f.Calls)
+		}
+	}
+}
+
+// A stage needs a parent and a stage tag; neither may be empty.
+func TestResolveKitBaseTarOnRequiresParentAndTag(t *testing.T) {
+	c := &Colima{r: &runner.Fake{}}
+	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "", "cove-kit-base:x"); err == nil {
+		t.Fatal("an empty parentRef must be refused")
+	}
+	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "cove-kit-base:p", ""); err == nil {
+		t.Fatal("an empty stageTag must be refused")
+	}
+}
+
+// HasKitBase inspects the stage tag on the pinned daemon; absence is a miss.
+func TestHasKitBase(t *testing.T) {
+	f := &runner.Fake{}
+	ok, err := New(f).(backend.KitImageBuilder).HasKitBase("cove-kit-base:stage")
+	if err != nil || !ok {
+		t.Fatalf("present: HasKitBase = %v, %v", ok, err)
+	}
+	insp := dockerCall(f.Calls, "image")
+	if insp == nil || !contains(insp, "inspect") || !contains(insp, "cove-kit-base:stage") || !allPinned(f.Calls) {
+		t.Fatalf("HasKitBase did not inspect the pinned tag: %+v", f.Calls)
+	}
+	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
+	if ok, err := New(f2).(backend.KitImageBuilder).HasKitBase("cove-kit-base:missing"); ok || err != nil {
+		t.Fatalf("absent: HasKitBase = %v, %v; want (false, nil)", ok, err)
+	}
+}
+
 // Install injects the resolved base as --build-arg BASE on the hardening build
 // (the single build path — Create is run-only, COV-38).
 func TestInstallInjectsBaseBuildArg(t *testing.T) {
