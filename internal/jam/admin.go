@@ -810,12 +810,16 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit", http.StatusNotFound)
 			return
 		}
-		out := make([]KitVersionInfo, 0, len(k.Versions))
+		vers := make([]int, 0, len(k.Versions))
 		for v := range k.Versions {
+			vers = append(vers, v)
+		}
+		sort.Ints(vers)
+		out := make([]KitVersionInfo, 0, len(vers))
+		for _, v := range vers {
 			m := k.Meta[v]
 			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
 		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {

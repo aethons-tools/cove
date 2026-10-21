@@ -95,12 +95,32 @@ func (f *Fetcher) Resolve(ctx context.Context, src Source) (string, error) {
 	return commit, err
 }
 
+// ErrFetch matches (errors.Is) every error Fetch and Resolve produce
+// themselves: a bad source, a lock wait, or a git, auth, limit or timeout
+// failure. It does not match an error returned by Fetch's callback.
+var ErrFetch = errors.New("git fetch failed")
+
+// fetchError is a fetch failure: it reads as its (already redacted) message
+// and matches ErrFetch.
+type fetchError struct{ err error }
+
+func (e *fetchError) Error() string        { return e.err.Error() }
+func (e *fetchError) Unwrap() error        { return e.err }
+func (e *fetchError) Is(target error) bool { return target == ErrFetch }
+
 var errFetchTimeout = errors.New("fetch time limit reached")
 
 // run checks src, takes the repo's lock, and runs op under the fetch's
 // timeout and byte budget with src's credential, if any. op's error comes
 // back explained and redacted.
 func (f *Fetcher) run(ctx context.Context, src Source, op func(context.Context, transport.AuthMethod) error) error {
+	if err := f.runOp(ctx, src, op); err != nil {
+		return &fetchError{err}
+	}
+	return nil
+}
+
+func (f *Fetcher) runOp(ctx context.Context, src Source, op func(context.Context, transport.AuthMethod) error) error {
 	if err := src.check(); err != nil {
 		return err
 	}

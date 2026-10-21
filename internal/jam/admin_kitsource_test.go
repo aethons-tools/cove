@@ -2,12 +2,15 @@ package jam
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
 
 const fakeToken = "ghp_SECRETTOKEN123"
@@ -101,7 +104,7 @@ func TestKitSourceAdminErrors(t *testing.T) {
 	}
 
 	// A fetch failure is 502 carrying the fetcher's (redacted) message only.
-	f.failNext = errors.New("auth failed for https://git.example.com/ (check kits.git cred gh)")
+	f.failNext = fmt.Errorf("%w", &fetchErrForTest{"auth failed for https://git.example.com/ (check kits.git cred gh)"})
 	code, body := call(t, "POST", ts.URL+"/admin/kits/import", goodSrc)
 	if code != 502 || !strings.Contains(body, "auth failed") || strings.Contains(body, fakeToken) {
 		t.Fatalf("fetch failure = %d %s", code, body)
@@ -128,5 +131,41 @@ func TestWriteStatusMapsErrNotFound(t *testing.T) {
 	}
 	if got := projectErrStatus(ErrNotFound, 500); got != http.StatusNotFound {
 		t.Fatalf("projectErrStatus(ErrNotFound) = %d, want 404", got)
+	}
+}
+
+// fetchErrForTest is an error a Fetcher would produce: its message, matching
+// gitsource.ErrFetch.
+type fetchErrForTest struct{ msg string }
+
+func (e *fetchErrForTest) Error() string        { return e.msg }
+func (e *fetchErrForTest) Is(target error) bool { return target == gitsource.ErrFetch }
+
+// A store failure is 500 with a generic body; the detail is only logged.
+func TestKitSourceAdminStoreFailure(t *testing.T) {
+	f := newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": {"kit.yml": webKit}})
+	st := &failStore{Store: NewMemStore(), failPush: true}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+		WithKitFetcher(st, f, log)))
+	defer ts.Close()
+	code, body := call(t, "POST", ts.URL+"/admin/kits/import", goodSrc)
+	if code != 500 || strings.Contains(body, "push failed") || !strings.Contains(body, "kit store error") {
+		t.Fatalf("store failure = %d %q", code, body)
+	}
+}
+
+// The history lists versions ascending.
+func TestKitHistoryOrder(t *testing.T) {
+	ts, st, _ := kitSourceAdmin(t)
+	for _, c := range []string{"kind: studio\nname: k\nprompt: a\n", "kind: studio\nname: k\nprompt: b\n", "kind: studio\nname: k\nprompt: c\n"} {
+		if _, _, err := PushStudioKit(st, "k", c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, body := call(t, "GET", ts.URL+"/admin/kits/k/history", "")
+	i1, i2, i3 := strings.Index(body, `"version":1`), strings.Index(body, `"version":2`), strings.Index(body, `"version":3`)
+	if !(0 <= i1 && i1 < i2 && i2 < i3) {
+		t.Fatalf("history order: %s", body)
 	}
 }

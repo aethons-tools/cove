@@ -74,7 +74,9 @@ const gitTimeout = 90 * time.Second
 
 // doGit is do with the git-fetch timeout.
 func (c *Client) doGit(method, path string, body any, out any) error {
-	return c.doWith(&http.Client{Timeout: gitTimeout}, method, path, body, out)
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = gitTimeout
+	return c.doWith(&hc, method, path, body, out)
 }
 
 func (c *Client) doWith(httpc *http.Client, method, path string, body any, out any) error {

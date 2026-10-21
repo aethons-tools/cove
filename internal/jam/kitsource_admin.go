@@ -43,14 +43,22 @@ type KitVersionInfo struct {
 // the fetcher's already-redacted message. Audit logs carry the operator and
 // the source, never a credential.
 func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
-	fail := func(w http.ResponseWriter, err error) {
-		status := http.StatusBadGateway
-		if errors.Is(err, ErrNotTracked) {
-			status = http.StatusConflict
-		} else {
-			status = WriteStatus(err, status)
+	// fail answers err: validation 400, unknown kit 404, untracked 409, a
+	// fetch, auth or limit failure 502 with the fetcher's already-redacted
+	// message; anything else is a store failure, 500 with a generic body.
+	fail := func(w http.ResponseWriter, r *http.Request, err error) {
+		var we *WriteError
+		switch {
+		case errors.Is(err, ErrNotTracked):
+			http.Error(w, err.Error(), http.StatusConflict)
+		case errors.As(err, &we), errors.Is(err, ErrNotFound):
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+		case errors.Is(err, gitsource.ErrFetch):
+			http.Error(w, err.Error(), http.StatusBadGateway)
+		default:
+			log.Error("admin kit source: store error", "operator", OperatorID(r), "err", err.Error())
+			http.Error(w, "kit store error", http.StatusInternalServerError)
 		}
-		http.Error(w, err.Error(), status)
 	}
 	// source decodes a {source} body and parses it, answering 400 itself.
 	source := func(w http.ResponseWriter, s string) (gitsource.Source, bool) {
@@ -73,7 +81,7 @@ func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
 			}
 			res, err := ImportKit(r.Context(), store, f, log, b.Name, src, time.Now())
 			if err != nil {
-				fail(w, err)
+				fail(w, r, err)
 				return
 			}
 			log.Info("admin kit imported", "operator", OperatorID(r), "kit", res.Name, "source", src.String(), "version", res.Version)
@@ -90,7 +98,7 @@ func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
 			}
 			res, err := TrackKit(r.Context(), store, f, log, r.PathValue("name"), src, time.Now())
 			if err != nil {
-				fail(w, err)
+				fail(w, r, err)
 				return
 			}
 			log.Info("admin kit tracked", "operator", OperatorID(r), "kit", res.Name, "source", src.String(), "version", res.Version)
@@ -98,7 +106,7 @@ func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
 		})
 		mux.HandleFunc("DELETE /admin/kits/{name}/source", func(w http.ResponseWriter, r *http.Request) {
 			if err := UntrackKit(store, log, r.PathValue("name")); err != nil {
-				fail(w, err)
+				fail(w, r, err)
 				return
 			}
 			log.Info("admin kit untracked", "operator", OperatorID(r), "kit", r.PathValue("name"))
@@ -107,7 +115,7 @@ func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
 		mux.HandleFunc("POST /admin/kits/{name}/sync", func(w http.ResponseWriter, r *http.Request) {
 			res, err := SyncKit(r.Context(), store, f, log, r.PathValue("name"), time.Now())
 			if err != nil {
-				fail(w, err)
+				fail(w, r, err)
 				return
 			}
 			log.Info("admin kit synced", "operator", OperatorID(r), "kit", res.Name, "version", res.Version, "unchanged", res.Unchanged)
