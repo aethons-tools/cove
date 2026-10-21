@@ -14,6 +14,8 @@ func TestParseSource(t *testing.T) {
 		"http://localhost/r.git@release/2026":                 {Repo: "http://localhost/r.git", Ref: "release/2026"},
 		"https://github.com/a/b@feature/v1.2":                 {Repo: "https://github.com/a/b", Ref: "feature/v1.2"},
 		"https://git.example.com:8443/a/b@main":               {Repo: "https://git.example.com:8443/a/b", Ref: "main"},
+		"HTTPS://GitHub.COM/Acme/Kits@main":                   {Repo: "https://github.com/Acme/Kits", Ref: "main"},
+		"https://gitserver/a/b@main":                          {Repo: "https://gitserver/a/b", Ref: "main"},
 		"http://[::1]:8080/r.git//.@main":                     {Repo: "http://[::1]:8080/r.git", Ref: "main"},
 	} {
 		got, err := Parse(in)
@@ -40,6 +42,11 @@ func TestParseSource(t *testing.T) {
 		"https://github.com/a b?access_token=s3cretTok@main", `https://github.com/a"b?access_token=s3cretTok@main`,
 		"https://github.com/a'b?access_token=s3cretTok@main", "https://github.com/a\tb?access_token=s3cretTok@main",
 		"https://github.com/a\x00b?access_token=s3cretTok@main", "https://github.com/a`b?access_token=s3cretTok@main",
+		// Round 3: empty ports and dotless hosts before a ref with '/'.
+		"https://bob:/s3cretTok@gitserver/a/b", "https://[::1]:/x@gitserver/a/b", "https://tok123456/x@gitserver/a/b", "https://s3cretTok:/@gitserver/a/b",
+		"https://github.com:/a/b@main", "http://127.0.0.1:9/r@release/1", "https://gitserver/a/b@release/1",
+		// Format, non-printable and invalid UTF-8 characters.
+		"https://github.com/a\u200bb@main", "https://github.com/a/b@ma\u202ein", "https://github.com/a/b@ma\u00adin", "https://github.com/a\xffb@main",
 	} {
 		_, err := Parse(bad)
 		if err == nil {
@@ -83,6 +90,26 @@ func TestCredsLongestPrefixAndUsername(t *testing.T) {
 	}
 	if a := basicAuth("https://git.other.net/k", Cred{Value: "tok"}); a.Username != "git" || a.Password != "tok" {
 		t.Errorf("plain token: %+v", a)
+	}
+}
+
+func TestCredsMatchSchemeHostCaseInsensitively(t *testing.T) {
+	c := Creds{{Prefix: "HTTPS://GitHub.com/Acme/", Name: "acme", Value: "t"}}
+	if got, ok := c.For("https://github.com/Acme/kits"); !ok || got.Name != "acme" {
+		t.Fatalf("scheme/host case: %v %v", got, ok)
+	}
+	if _, ok := c.For("https://github.com/acme/kits"); ok {
+		t.Fatal("path matched case-insensitively")
+	}
+}
+
+// Errors quote at most maxQuoted bytes of any input.
+func TestErrorsClipQuotedInput(t *testing.T) {
+	long := strings.Repeat("a", 240)
+	for _, err := range []error{checkRef(long + ".lock"), checkDir(long + "/../x"), checkRepoURL("http://example.com/" + long)} {
+		if err == nil || len(err.Error()) > maxQuoted+80 || !strings.Contains(err.Error(), "…") {
+			t.Errorf("not clipped: %v", err)
+		}
 	}
 }
 
@@ -138,30 +165,69 @@ func TestCheckRefusesUnsafeChars(t *testing.T) {
 	}
 }
 
-// Parse never panics, and an error never quotes what was planted after a
-// ':' in the authority (a pasted password).
+// Parse never panics, and a secret planted in a credential-shaped repo URL
+// (after a ':' in the authority, or as the host) never appears in an error
+// or in an accepted Source.
 func FuzzParse(f *testing.F) {
-	for _, seed := range [][3]string{
-		{"https://github.com/a/b@main", "s3cretTok", "github.com/a/b@main"},
-		{"x@y://z", "123456", "gitserver/a/b"},
-		{"bob:pw@gitserver/a://b", "pw/x", "github.com/a b?x=1@main"},
-		{"https://u:p@h//d@", "p", "@@"},
-		{"http://[::1]:8080/r.git//.@main", "tok:en", "host:99/x@" + strings.Repeat("a", 40)},
+	for _, seed := range [][4]string{
+		{"https://github.com/a/b@main", "s3cretTok1", "gitserver", "a/b"},
+		{"x@y://z", "123456abc", "github.com", "a/b"},
+		{"bob:pw@gitserver/a://b", "pw0rd99", "host", "x"},
+		{"https://u:p@h//d@", "tok123456", "h", "@@"},
+		{"http://[::1]:8080/r.git//.@main", "abc123def", "127.0.0.1:99", "x@" + strings.Repeat("a", 40)},
 	} {
-		f.Add(seed[0], seed[1], seed[2])
+		f.Add(seed[0], seed[1], seed[2], seed[3])
 	}
-	f.Fuzz(func(t *testing.T, raw, secret, rest string) {
+	f.Fuzz(func(t *testing.T, raw, secret, host, path string) {
 		_, _ = Parse(raw)
-		_, _ = Parse(raw + "@" + rest)
-		// The planted secret lives in the authority: no '/' (that would end
-		// it), and long enough not to match fixed message text by chance.
-		if len(secret) < 6 || strings.ContainsAny(secret, "/") {
+		_, _ = Parse(raw + "@" + host + "/" + path)
+		// A token-like secret: [A-Za-z0-9_-], at least 6 long, with a letter
+		// and a digit (so it cannot be a word of a fixed message), and not
+		// "localhost". A dotted secret as a host ("https://a.b/x@…") is a
+		// real repo URL as far as the text can tell, so it is out of scope.
+		if !tokenLike(secret) {
 			return
 		}
-		for _, in := range []string{"https://bob:" + secret + "@" + rest, "https://bob:" + secret + "@" + rest + "@main", "http://x:" + secret + "@127.0.0.1/" + rest} {
-			if _, err := Parse(in); err != nil && strings.Contains(err.Error(), secret) {
+		rest := host + "/" + path      // the pasted "<host>/<path>"
+		low := strings.ToLower(secret) // Parse lowercases the host
+		has := func(s string) bool { return strings.Contains(strings.ToLower(s), low) }
+		if has(rest) {
+			return
+		}
+		for _, in := range []string{
+			"https://user:/" + secret + "@" + rest,
+			"https://" + secret + ":/@" + rest,
+			"https://" + secret + "/x@" + rest,
+			"https://bob:" + secret + "@" + rest,
+			"https://bob:" + secret + "@" + rest + "@main",
+			"https://" + secret + ":443/x@" + rest,
+		} {
+			src, err := Parse(in)
+			if err != nil && has(err.Error()) {
 				t.Fatalf("Parse(%q) error quotes the secret: %v", in, err)
+			}
+			if err == nil && (has(src.Repo) || has(src.Ref) || has(src.Dir)) {
+				t.Fatalf("Parse(%q) accepted the secret: %+v", in, src)
 			}
 		}
 	})
+}
+
+func tokenLike(s string) bool {
+	if len(s) < 6 || strings.EqualFold(s, "localhost") {
+		return false
+	}
+	var letter, digit bool
+	for _, r := range s {
+		switch {
+		case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z':
+			letter = true
+		case '0' <= r && r <= '9':
+			digit = true
+		case r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+	return letter && digit
 }

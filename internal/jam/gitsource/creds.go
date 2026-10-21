@@ -24,18 +24,21 @@ func (c Cred) GoString() string {
 // Creds maps URL prefixes to credentials.
 type Creds []Cred
 
-// For returns the credential with the longest prefix matching repo. A prefix
+// For returns the credential with the longest prefix matching repo (scheme
+// and host case-insensitively, the path exactly). A prefix
 // matches only at a boundary — it ends in "/", or repo continues with "/" or
 // ends — so "https://git.example.com" never matches
 // "https://git.example.com.evil.net/r" and ".../acme" never ".../acmeevil".
 func (c Creds) For(repo string) (Cred, bool) {
 	var best Cred
 	found := false
+	repo = normalizeSchemeHost(repo)
 	for _, cr := range c {
-		if cr.Prefix == "" || !strings.HasPrefix(repo, cr.Prefix) {
+		prefix := normalizeSchemeHost(cr.Prefix) // scheme and host match case-insensitively
+		if prefix == "" || !strings.HasPrefix(repo, prefix) {
 			continue
 		}
-		if rest := repo[len(cr.Prefix):]; !strings.HasSuffix(cr.Prefix, "/") && rest != "" && rest[0] != '/' {
+		if rest := repo[len(prefix):]; !strings.HasSuffix(prefix, "/") && rest != "" && rest[0] != '/' {
 			continue
 		}
 		if !found || len(cr.Prefix) > len(best.Prefix) {

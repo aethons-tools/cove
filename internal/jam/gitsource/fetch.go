@@ -278,7 +278,7 @@ func findRef(refs []*plumbing.Reference, ref string) (plumbing.ReferenceName, st
 // explain turns a fetch error into one an operator can act on, with no
 // userinfo, query or credential in it.
 func explain(err error, ctx context.Context, b *budget, src Source, cred Cred, hasCred bool, timeout time.Duration) error {
-	repo := redactURL(src.Repo)
+	repo := clip(redactURL(src.Repo))
 	switch {
 	case b.exceeded.Load():
 		return fmt.Errorf("fetch %s: exceeded the %d-byte transfer limit", repo, b.max)
