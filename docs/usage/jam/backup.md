@@ -4,10 +4,12 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-21
 ---
 
 # Backing up and restoring Jam config
+
+For a reviewable, mergeable source of the same config in git, see [config-git.md](config-git.md).
 
 `at-jam export` and `at-jam import` snapshot and restore the Jam **config** — the
 control-plane aggregates:

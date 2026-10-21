@@ -277,6 +277,7 @@ refuses to start (and `config diff`/`apply` refuse) with
 The config diff compares the repo's `jam.yml` with the running serve's merged
 config minus host keys: `same`, `differs (restart to apply)` with dotted key
 paths, `absent` (no `jam.yml`) or `unknown` (no running serve config).
+The `config` verbs and the repo layout are in [config-git.md](config-git.md).
 
 ## The broker model
 
