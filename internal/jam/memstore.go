@@ -145,12 +145,19 @@ func (fs *MemStore) PushKit(name, config string) (int, error) {
 }
 
 func (fs *MemStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
+	return fs.PushKitTracked(name, config, meta, nil)
+}
+
+func (fs *MemStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
 	v := fs.applyPushKitMeta(name, config, meta)
+	if track != nil {
+		fs.applySetKitSource(name, track)
+	}
 	return v, nil
 }
 

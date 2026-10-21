@@ -27,19 +27,20 @@ func EnsureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, err
 var kitMu sync.Mutex
 
 func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
-	return ensureKit(store, name, sk, nil)
+	return ensureKit(store, name, sk, nil, nil)
 }
 
 // ensureStudioKitMeta is ensureStudioKit recording meta (provenance) on the new
 // version. An unchanged definition still reuses the current version and leaves
-// its provenance as it was.
-func ensureStudioKitMeta(store Store, name string, sk studio.StudioKit, meta KitVersionMeta) (KitRef, bool, error) {
-	return ensureKit(store, name, sk, &meta)
+// its provenance as it was. A non-nil track also becomes the kit's tracked
+// source: in the same write as the new version, or on its own when unchanged.
+func ensureStudioKitMeta(store Store, name string, sk studio.StudioKit, meta KitVersionMeta, track *KitSource) (KitRef, bool, error) {
+	return ensureKit(store, name, sk, &meta, track)
 }
 
 // ensureKit validates sk and, under kitMu, reuses the current version when its
 // canonical JSON is identical, else pushes a new one (with meta when non-nil).
-func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMeta) (KitRef, bool, error) {
+func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMeta, track *KitSource) (KitRef, bool, error) {
 	if err := sk.CheckName(name); err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
@@ -61,12 +62,17 @@ func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMe
 	defer kitMu.Unlock()
 	if k, ok := store.GetKit(name); ok && k.Current != 0 {
 		if cur, ok := store.KitConfig(name, k.Current); ok && cur == string(text) {
+			if track != nil {
+				if err := store.SetKitSource(name, track); err != nil {
+					return KitRef{}, false, fmt.Errorf("studio kit %q: track: %w", name, err)
+				}
+			}
 			return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
 		}
 	}
 	var version int
 	if meta != nil {
-		version, err = store.PushKitMeta(name, string(text), *meta)
+		version, err = store.PushKitTracked(name, string(text), *meta, track)
 	} else {
 		version, err = store.PushKit(name, string(text))
 	}

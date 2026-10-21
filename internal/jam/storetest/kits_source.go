@@ -33,6 +33,24 @@ func runKitSourceConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatalf("local push meta %+v", k.Meta[2])
 		}
 	})
+	t.Run("push tracked sets version and source together", func(t *testing.T) {
+		st := mk(t)
+		src := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: "c1"}
+		v, err := st.PushKitTracked("web", `{"kind":"studio"}`, jam.KitVersionMeta{PushedAt: time.Unix(5, 0).UTC(), Source: src}, src)
+		if err != nil || v != 1 {
+			t.Fatalf("push: %d %v", v, err)
+		}
+		k, _ := st.GetKit("web")
+		if !reflect.DeepEqual(k.Source, src) || !reflect.DeepEqual(k.Meta[1].Source, src) {
+			t.Fatalf("%+v", k)
+		}
+		if _, err := st.PushKitTracked("web", `{"kind":"studio","prompt":"x"}`, jam.KitVersionMeta{PushedAt: time.Unix(6, 0).UTC()}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if k, _ = st.GetKit("web"); !reflect.DeepEqual(k.Source, src) {
+			t.Fatalf("nil track must leave the source: %+v", k.Source)
+		}
+	})
 	t.Run("tracked source set/clear and copies are deep", func(t *testing.T) {
 		st := mk(t)
 		_, _ = st.PushKit("web", `{"kind":"studio"}`)

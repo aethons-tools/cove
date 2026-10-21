@@ -46,6 +46,9 @@ type Store interface {
 	PushKit(name, config string) (int, error)
 	// PushKitMeta is PushKit with explicit provenance for the new version.
 	PushKitMeta(name, config string, meta KitVersionMeta) (int, error)
+	// PushKitTracked is PushKitMeta that also sets the kit's tracked source to
+	// track in the same write — both land or neither does.
+	PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error)
 	// SetKitSource sets (or, when nil, clears) a kit's tracked source;
 	// ErrNotFound for an unknown kit.
 	SetKitSource(name string, src *KitSource) error

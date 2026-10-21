@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -151,6 +152,11 @@ func TestSyncUnchanged(t *testing.T) {
 	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 || k.Source.Commit != "c2" {
 		t.Fatalf("versions=%d commit=%s", len(k.Versions), k.Source.Commit)
 	}
+	fetched := f.fetches
+	res, err = SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(21, 5))
+	if err != nil || !res.Unchanged || res.Commit != "c2" || f.fetches != fetched {
+		t.Fatalf("second sync at c2 must not fetch: %+v %v fetches=%d want %d", res, err, f.fetches, fetched)
+	}
 	f.commit("main", "c3", map[string]string{"web/kit.yml": "kind: studio\nname: web-dev\nprompt: changed\n"})
 	if res, _ := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(22, 0)); res.Unchanged || res.Version != 2 {
 		t.Fatalf("changed: %+v", res)
@@ -204,5 +210,78 @@ func TestSyncUntrackedAndUntrack(t *testing.T) {
 	}
 	if err := UntrackKit(st, nil, "ghost"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+}
+
+// failStore fails the writes it is told to, so a test can show an operation
+// leaves nothing half-written.
+type failStore struct {
+	Store
+	failPush, failSet bool
+}
+
+func (s *failStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
+	if s.failPush {
+		return 0, errors.New("push failed")
+	}
+	return s.Store.PushKitTracked(name, config, meta, track)
+}
+
+func (s *failStore) SetKitSource(name string, src *KitSource) error {
+	if s.failSet {
+		return errors.New("set failed")
+	}
+	return s.Store.SetKitSource(name, src)
+}
+
+func TestSyncWritesVersionAndSourceTogether(t *testing.T) {
+	mem, f := trackedFixture(t)
+	st := &failStore{Store: mem}
+	f.commit("main", "c2", map[string]string{"web/kit.yml": "kind: studio\nname: web-dev\nprompt: changed\n"})
+	before, _ := mem.GetKit("web-dev")
+
+	st.failPush = true
+	if _, err := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(60, 0)); err == nil {
+		t.Fatal("expected error")
+	}
+	if after, _ := mem.GetKit("web-dev"); !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed push half-wrote: %+v", after)
+	}
+
+	// A new version never needs a second write: a failing SetKitSource is not reached.
+	st.failPush, st.failSet = false, true
+	res, err := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(61, 0))
+	if err != nil || res.Version != 2 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if k, _ := mem.GetKit("web-dev"); k.Source.Commit != "c2" || k.Meta[2].Source.Commit != "c2" {
+		t.Fatalf("version and source must move together: %+v", k)
+	}
+
+	// Unchanged content at a new commit only moves the source; if that fails, nothing changed.
+	f.commit("main", "c3", map[string]string{"web/kit.yml": "kind: studio\nname: web-dev\nprompt: changed\n"})
+	before, _ = mem.GetKit("web-dev")
+	if _, err := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(62, 0)); err == nil {
+		t.Fatal("expected error")
+	}
+	if after, _ := mem.GetKit("web-dev"); !reflect.DeepEqual(before, after) {
+		t.Fatal("failed source update changed the kit")
+	}
+}
+
+func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
+	st, f := trackedFixture(t)
+	f.commit("main", "c2", map[string]string{"web/kit.yml": "kind: studio\nname: web-dev\nprompt: changed\n"})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(70, 0))
+		}()
+	}
+	wg.Wait()
+	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
+		t.Fatalf("versions=%d, want 2", len(k.Versions))
 	}
 }

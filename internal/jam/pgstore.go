@@ -640,6 +640,10 @@ func (s *PostgresStore) PushKit(name, config string) (int, error) {
 }
 
 func (s *PostgresStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
+	return s.PushKitTracked(name, config, meta, nil)
+}
+
+func (s *PostgresStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name == "" || config == "" {
@@ -658,6 +662,9 @@ func (s *PostgresStore) PushKitMeta(name, config string, meta KitVersionMeta) (i
 	}
 	k.Meta[ver] = copyKitMeta(meta)
 	k.Current = ver
+	if track != nil {
+		k.Source = copyKitSource(track)
+	}
 	doc, err := json.Marshal(k)
 	if err != nil {
 		return 0, err
