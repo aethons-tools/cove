@@ -32,6 +32,8 @@ type Squawk struct {
 	// for a squawk posted in Jam.
 	Origin    ident.ID `json:"origin,omitempty"`
 	OriginRef string   `json:"origin_ref,omitempty"`
+	// Parts are typed parts beside the body (ask events today; see ask.go).
+	Parts []Part `json:"parts,omitempty"`
 }
 
 // ErrInvalid is a squawk Prepare refuses (no body, channel or author, or a
@@ -88,6 +90,9 @@ func Prepare(m Squawk) (Squawk, error) {
 		return Squawk{}, fmt.Errorf("%w: no author", ErrInvalid)
 	case !ValidContentType(m.ContentType):
 		return Squawk{}, fmt.Errorf("%w: unsupported content type %q", ErrInvalid, m.ContentType)
+	}
+	if err := validateParts(m.Parts); err != nil {
+		return Squawk{}, err
 	}
 	if m.At.IsZero() {
 		m.At = time.Now()

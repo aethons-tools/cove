@@ -2,6 +2,7 @@ package intercomtest
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 			t.Fatalf("read back %+v", got)
 		}
 		got[0].At = m.At
-		if got[0] != m {
+		if !reflect.DeepEqual(got[0], m) {
 			t.Fatalf("read back %#v, appended %#v", got[0], m)
 		}
 	})
