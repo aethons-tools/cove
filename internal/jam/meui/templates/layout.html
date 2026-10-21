@@ -132,6 +132,14 @@ html.raw .msg .body.raw{display:block}
 .composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
 @media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
+.askcard{border:1px solid var(--wait-line);background:var(--wait-soft);border-radius:10px;padding:10px 12px;margin:8px 0;max-width:640px}
+.askcard.answered,.askcard.withdrawn{background:transparent;border-color:var(--line,#ddd)}
+.ask-q{font-weight:600;margin-bottom:6px}.ask-q .edited,.for{font-weight:400;font-size:11.5px;opacity:.7}
+.ask-form{display:flex;flex-wrap:wrap;gap:6px}.ask-form button small{display:block;font-size:11px;opacity:.75}
+.ask-form textarea{flex-basis:100%;min-height:2.4em}.ask-opts span{margin-right:8px;opacity:.8}
+.discuss{margin-top:6px;font-size:12px}.sysline{font-size:12px;opacity:.75;margin:4px 0;text-align:center}
+.re-ask{display:inline-block;font-size:11.5px;margin-bottom:3px}.asks-panel{padding:6px 12px;border-bottom:1px solid var(--line,#ddd)}
+.asks-panel .ask-link{display:block;font-size:13px}.badge.asks{background:var(--wait-soft);color:var(--wait)}
 </style>
 </head>
 <body>
@@ -209,18 +217,29 @@ meScrollToEnd(document.getElementById('stream'));
   es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
   document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });
 })();
+// meDiscuss starts a reply about an ask: the composer carries reply_to and a
+// "re:" line.
+function meDiscuss(id, btn){
+  var f=document.querySelector('.composer form'); if(!f) return;
+  f.dataset.replyTo=id;
+  var q=btn.closest('.askcard').querySelector('.ask-q').firstChild.textContent.trim();
+  if(!f.body.value) f.body.value='re: '+q+'\n';
+  f.body.focus();
+}
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
   if(!body) return false;
   fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
     // Markdown is the default; the per-message "Plain text" box opts out.
-    content_type: f.plain && f.plain.checked ? 'text/plain' : undefined})})
+    content_type: f.plain && f.plain.checked ? 'text/plain' : undefined,
+    reply_to: f.dataset.replyTo || undefined})})
    .then(function(r){
      if(r.status===204){
        f.reset();
        meKeepReply(f.body);
        mePopDraft(f);
+       delete f.dataset.replyTo;
        // Refresh only the message list of an open conversation; the rail's own
        // live-push refresh picks up a brand-new channel. Never re-render the composer.
        var s=document.getElementById('stream');

@@ -60,7 +60,9 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /me/join", h.join)
 	mux.HandleFunc("POST /me/leave", h.leave)
 	mux.HandleFunc("POST /me/call-in", h.callIn)
+	mux.HandleFunc("POST /me/asks/{id}/answer", h.answerAsk)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
+	mux.HandleFunc("GET /me/asks", h.askPanel)
 	mux.HandleFunc("GET /me/events", h.events)
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
 	mux.Handle("GET /me/static/", uiassets.Handler("/me/static/"))
@@ -148,6 +150,16 @@ func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, "sessions", page)
+}
+
+// askPanel renders the open conversation's open-asks panel (its refresh).
+func (h *handler) askPanel(w http.ResponseWriter, r *http.Request) {
+	page, ok := h.build(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	h.render(w, "askpanel", page)
 }
 
 // markRead advances the participant's read cursor on a channel to seq (a

@@ -91,6 +91,12 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID) (
 			others = append(others, ic.PartyOf(m.ParticipantID).Label)
 		}
 	}
+	for _, a := range ic.OpenAsksIn(ch.ID) {
+		v.OpenAsks++
+		if ic.MayAnswer(u, a) {
+			v.NeedsYou = true
+		}
+	}
 	if ch.Kind == SourceChat && len(others) > 0 {
 		v.Label = strings.Join(others, ", ")
 	}
