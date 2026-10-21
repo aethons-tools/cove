@@ -199,6 +199,14 @@ func TestPlanForgetsMarkOfVanishedObject(t *testing.T) {
 	if opOf(p, ConfigKindDestination, "gh").Action != "" || !slices.Contains(p.write.RemoveMarks, ConfigKey{ConfigKindDestination, "gh"}) {
 		t.Fatalf("%+v", p)
 	}
+	if !slices.Equal(p.Forget, []ConfigKey{{ConfigKindDestination, "gh"}}) || p.Counts()[ConfigForget] != 1 || ConfigChanges(p) != 1 {
+		t.Fatalf("forget %v counts %v", p.Forget, p.Counts())
+	}
+	q := p
+	q.Forget = nil
+	if planDigest(q) == p.Digest {
+		t.Fatal("the digest ignores Forget")
+	}
 }
 
 func TestPlanUnmanagedUntouched(t *testing.T) {

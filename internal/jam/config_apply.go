@@ -78,10 +78,16 @@ func ApplyConfigTree(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApp
 
 // planChanges reports whether plan writes anything beyond re-marking
 // unchanged objects. (Every op writes a mark, so plan.write is never empty
-// when there are ops; a dropped mark has no op.)
+// when there are ops; a forgotten mark has no op.)
 func planChanges(plan ConfigPlan) bool {
+	return ConfigChanges(plan) > 0
+}
+
+// ConfigChanges is the number of changes plan makes: its creates, updates,
+// deletes and adopts, and its forgotten marks.
+func ConfigChanges(plan ConfigPlan) int {
 	n := plan.Counts()
-	return n[ConfigCreate]+n[ConfigUpdate]+n[ConfigDelete]+n[ConfigAdopt] > 0 || len(plan.write.RemoveMarks) > 0
+	return n[ConfigCreate] + n[ConfigUpdate] + n[ConfigDelete] + n[ConfigAdopt] + n[ConfigForget]
 }
 
 // configAuditMsgs is each kind's usual admin audit message by action.
@@ -110,7 +116,7 @@ func logConfigApply(log *slog.Logger, actor string, opt ConfigApplyOptions, plan
 	n := plan.Counts()
 	log.Info("config applied", "operator", actor, "source", source, "commit", opt.Commit,
 		"created", n[ConfigCreate], "updated", n[ConfigUpdate], "deleted", n[ConfigDelete],
-		"adopted", n[ConfigAdopt], "unchanged", n[ConfigUnchanged], "forced", opt.Force)
+		"adopted", n[ConfigAdopt], "forgotten", n[ConfigForget], "unchanged", n[ConfigUnchanged], "forced", opt.Force)
 	for _, op := range plan.Ops {
 		if msg, ok := configAuditMsgs[op.Kind][op.Action]; ok {
 			log.Info(msg, "operator", actor, "via", "config", "kind", op.Kind, "name", op.Name)

@@ -24,6 +24,9 @@ const (
 	ConfigDelete    = "delete"
 	ConfigUnchanged = "unchanged"
 	ConfigAdopt     = "adopt"
+	// ConfigForget is not an op: it counts ConfigPlan.Forget, the marks
+	// whose object Jam no longer has (the apply removes the mark only).
+	ConfigForget = "forget"
 )
 
 // ConfigOp is one object's planned action.
@@ -43,17 +46,22 @@ type ConfigOp struct {
 type ConfigPlan struct {
 	Ops         []ConfigOp      `json:"ops"`
 	Unmanaged   []ConfigKey     `json:"unmanaged,omitempty"`
+	Forget      []ConfigKey     `json:"forget,omitempty"` // managed marks whose object is gone from Jam and the repo
 	Refusals    []string        `json:"refusals,omitempty"`
 	ServeConfig ServeConfigDiff `json:"serve_config"`
 	Digest      string          `json:"digest"`
 	write       ConfigWrite
 }
 
-// Counts is the number of ops by action.
+// Counts is the number of ops by action, plus the forgotten marks
+// (ConfigForget).
 func (o ConfigPlan) Counts() map[string]int {
 	n := map[string]int{}
 	for _, op := range o.Ops {
 		n[op.Action]++
+	}
+	if len(o.Forget) > 0 {
+		n[ConfigForget] = len(o.Forget)
 	}
 	return n
 }
@@ -226,8 +234,9 @@ func planDigest(p ConfigPlan) string {
 	b, _ := json.Marshal(struct {
 		Ops       []ConfigOp
 		Unmanaged []ConfigKey
+		Forget    []ConfigKey
 		Refusals  []string
-	}{p.Ops, p.Unmanaged, p.Refusals})
+	}{p.Ops, p.Unmanaged, p.Forget, p.Refusals})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

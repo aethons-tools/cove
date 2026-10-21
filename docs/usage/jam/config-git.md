@@ -93,21 +93,22 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 |---|---|
 | `config write <dir> [--all] [--force]` | Render managed objects (`--all`: every live one) into `<dir>`, plus `jam.yml` whenever the serve has a portable config; remove files of managed objects Jam no longer has. Refuses a `<dir>` outside a git working tree without `--force`. |
 | `config diff --dir <path>` | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
-| `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift. |
+| `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift (the preview is planned forced too, so it shows `update … (drift)` and its digest matches the apply). |
 
 Operator loop: `config write --all` once, `git diff`, commit; afterwards edit,
 `config diff`, `config apply`. A plan with no create/update/delete/adopt
-prints `nothing to apply` and does not prompt. Without `--dir` a verb exits 2
+and no `forget` prints `nothing to apply` and does not prompt. Without `--dir` a verb exits 2
 (`--dir is required (git sources are not supported yet)`).
 
 ## The plan
 
-Printed as `action  kind name`, then `N unchanged`, `unmanaged: …`,
+Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N unchanged`, `unmanaged: …`,
 `serve-config: …`, and a `refused:` block (each refusal indented).
 
 | Action | Meaning |
 |---|---|
-| `create` / `update` | In the repo, absent / different in Jam. A managed mark whose object is gone from Jam and present in the repo is a `create`; absent from both, the mark is dropped silently. |
+| `create` / `update` | In the repo, absent / different in Jam. A managed mark whose object is gone from Jam and present in the repo is a `create`; absent from both, it is a `forget`. |
+| `forget` | A managed mark whose object is gone from Jam and the repo: apply removes the mark only, so a later unmanaged object of that name stays untouched. Counted as a change (`N forgotten`). |
 | `update` + `(drift)` | The Jam object was edited since the last apply. Printed with `jam:` and `repo:` blocks; refused without `--force`. |
 | `adopt` | An unmanaged Jam object identical to the repo's: marked managed, nothing written. The seeded `claude-default` model spec differs from the repo's → `update`, not a refusal. |
 | `delete` | Managed, no longer in the repo. Subject to the guards below. |
@@ -153,7 +154,7 @@ and the seeded `claude-default` is adopted.
 
 | Route | Does |
 |---|---|
-| `POST /admin/config/diff` | Plan an uploaded tree (`configtar` tar.gz body). |
+| `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
 | `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`). |
 

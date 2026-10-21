@@ -212,3 +212,54 @@ func TestConfigNeedsDir(t *testing.T) {
 		t.Fatalf("%d %s", code, errs)
 	}
 }
+
+func TestConfigApplyForceWritesOverDrift(t *testing.T) {
+	url, st := configServer(t)
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
+		t.Fatalf("apply: %d %s %s", code, out, errs)
+	}
+	cfgMust(t, st.SetUserLogins(findUser(t, st, "bob").ID, []string{"bob@jam"}))
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\nlogins: [bob@repo]\n", 0o644)
+	code, out, _ := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 1 || !strings.Contains(out, "user bob drifted") {
+		t.Fatalf("apply without --force: %d\n%s", code, out)
+	}
+	code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--force", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "update  user bob  (drift)") || !strings.Contains(out, "1 updated") {
+		t.Fatalf("apply --force: %d\n%s\n%s", code, out, errs)
+	}
+	if got := findUser(t, st, "bob").Logins; !reflect.DeepEqual(got, []string{"bob@repo"}) {
+		t.Fatalf("logins %v", got)
+	}
+}
+
+// A mark whose object was removed in Jam is a visible "forget" item that
+// apply removes, so a later unmanaged object of that name stays untouched.
+func TestConfigApplyForgetsStaleMark(t *testing.T) {
+	url, st := configServer(t)
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+	runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	cfgMust(t, st.RemoveUser(findUser(t, st, "bob").ID))
+	cfgMust(t, os.Remove(filepath.Join(repo, "users/bob.yml")))
+	code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "forget  user bob  (mark only)") {
+		t.Fatalf("diff: %d\n%s\n%s", code, out, errs)
+	}
+	code, out, errs = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "1 forgotten") {
+		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
+	}
+	if len(st.ListConfigMarks()) != 0 {
+		t.Fatalf("marks kept: %v", st.ListConfigMarks())
+	}
+	_, err := st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "bob", Status: jam.StatusLive})
+	cfgMust(t, err)
+	code, out, _ = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 0 || strings.Contains(out, "delete") || !strings.Contains(out, "unmanaged: user bob") {
+		t.Fatalf("re-apply: %d\n%s", code, out)
+	}
+	findUser(t, st, "bob")
+}

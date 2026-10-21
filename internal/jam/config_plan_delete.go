@@ -22,12 +22,14 @@ var configDeleteOrder = []string{ConfigKindRole, ConfigKindProject, ConfigKindKi
 
 // planDeletes plans the delete of every managed object the repo no longer
 // holds, in configDeleteOrder, each behind its guard (deleteObject) and the
-// drift check. A mark whose object Jam no longer has is dropped with no op.
+// drift check. A mark whose object Jam no longer has is dropped with no op,
+// as a plan Forget item.
 func (p *planner) planDeletes() {
 	for _, kind := range configDeleteOrder {
 		for _, key := range p.deleteKeys(kind) {
 			cur, exists := p.live[key]
 			if !exists {
+				p.plan.Forget = append(p.plan.Forget, key)
 				p.w.RemoveMarks = append(p.w.RemoveMarks, key)
 				continue
 			}

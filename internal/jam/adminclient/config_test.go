@@ -32,7 +32,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diff, err := c.ConfigDiff(tree)
+	diff, err := c.ConfigDiff(tree, false)
 	if err != nil || diff.Applied || len(diff.Plan.Ops) != 1 || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiff = %+v, %v", diff, err)
 	}

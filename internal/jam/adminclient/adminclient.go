@@ -809,10 +809,15 @@ func (c *Client) KitHistory(name string) ([]jam.KitVersionInfo, error) {
 }
 
 // ConfigDiff plans a packed config tree (configtar.Pack) against Jam without
-// writing.
-func (c *Client) ConfigDiff(tree []byte) (jam.ConfigApplyResult, error) {
+// writing. force plans as a forced apply would (drift is an update, not a
+// refusal), so its digest matches ConfigApply(tree, true, …).
+func (c *Client) ConfigDiff(tree []byte, force bool) (jam.ConfigApplyResult, error) {
+	path := "/admin/config/diff"
+	if force {
+		path += "?force=1"
+	}
 	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", "/admin/config/diff", "application/gzip", tree, &res)
+	err := c.doRaw("POST", path, "application/gzip", tree, &res)
 	return res, err
 }
 

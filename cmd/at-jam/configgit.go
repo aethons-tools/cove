@@ -95,7 +95,9 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	res, err := c.ConfigDiff(data)
+	// apply previews with its own --force, so the reviewed plan (and its
+	// digest) is the one the forced apply writes.
+	res, err := c.ConfigDiff(data, sub == "apply" && *force)
 	if err != nil {
 		return fail(err)
 	}
@@ -106,7 +108,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if sub == "diff" {
 		return 0
 	}
-	n := configChanges(res.Plan)
+	n := jam.ConfigChanges(res.Plan)
 	if n == 0 {
 		fmt.Fprintln(stdout, "nothing to apply")
 		return 0
@@ -132,14 +134,9 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 0
 	}
 	k := applied.Counts
-	fmt.Fprintf(stdout, "applied: %d created, %d updated, %d deleted, %d adopted\n",
-		k[jam.ConfigCreate], k[jam.ConfigUpdate], k[jam.ConfigDelete], k[jam.ConfigAdopt])
+	fmt.Fprintf(stdout, "applied: %d created, %d updated, %d deleted, %d adopted, %d forgotten\n",
+		k[jam.ConfigCreate], k[jam.ConfigUpdate], k[jam.ConfigDelete], k[jam.ConfigAdopt], k[jam.ConfigForget])
 	return 0
-}
-
-func configChanges(p jam.ConfigPlan) int {
-	n := p.Counts()
-	return n[jam.ConfigCreate] + n[jam.ConfigUpdate] + n[jam.ConfigDelete] + n[jam.ConfigAdopt]
 }
 
 // insideGitWorkTree reports whether dir or an ancestor holds a .git.
@@ -206,6 +203,9 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 		if op.Drift {
 			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
 		}
+	}
+	for _, k := range p.Forget {
+		fmt.Fprintf(w, "forget  %s %s  (mark only)\n", k.Kind, k.Name)
 	}
 	fmt.Fprintf(w, "%d unchanged\n", unchanged)
 	if len(p.Unmanaged) > 0 {

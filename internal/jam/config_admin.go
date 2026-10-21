@@ -19,7 +19,7 @@ const configStoreError = "config store error"
 // WithConfig mounts the config-in-git admin API (under the /admin/* operator
 // gate):
 //
-//	POST /admin/config/diff                        plan an uploaded tree (writes nothing)
+//	POST /admin/config/diff?force=1                plan an uploaded tree (writes nothing)
 //	POST /admin/config/apply?force=1&plan=<digest> apply it
 //	GET  /admin/config/export-tree?all=1           render the managed (all: every) object
 //
@@ -81,6 +81,7 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 			}
 			opt := opts()
 			opt.DryRun = true
+			opt.Force = r.URL.Query().Get("force") == "1" // plan as a forced apply would
 			res, err := ApplyConfigTree(store, tr, env, opt, log, OperatorID(r))
 			if err != nil {
 				log.Error("admin config diff: store error", "operator", OperatorID(r), "err", err.Error())
