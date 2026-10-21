@@ -160,7 +160,9 @@ count, and how many roles raise it (for `default`, that includes roles with no
 kit set). A kit whose current version won't parse is marked **invalid**. The
 **New kit** form takes a name and studio-kit YAML and validates it exactly as
 `kit push` does ([kits.md](kits.md)); an existing name is refused — push new
-versions on the kit's page.
+versions on the kit's page. **Import from git** takes `<repo>[//<dir>]@<ref>`
+and an optional name and imports the kit as a new version (not tracked), then
+opens its page.
 
 The page has a **version rail** — every version with its short build digest
 (versions sharing one reuse one image), **Pin** to make an older or newer
@@ -176,6 +178,15 @@ nothing extracted), egress with the effective ceiling and anything excluded
 prompt, the build digest, and the YAML rendered back from the stored kit (a
 packed context abbreviated) with **Copy**. A stored version that isn't a valid
 studio kit (a pre-studio row) shows its parse error and raw text instead.
+
+The **Source** card shows the tracked git source — repo (linked when `https`),
+dir, ref and the last synced commit (12 chars, linked on github.com and
+gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
+**Track…** form when the kit has none. The **Versions** table lists each
+version's push time, source and commit. The import, track, sync and untrack
+controls need the git fetcher (always present in `at-jam serve`) and follow the
+admin API's rules and errors ([kits.md](kits.md)); without one the page only
+shows provenance.
 
 **Push new version** is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals

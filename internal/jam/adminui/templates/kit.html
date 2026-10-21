@@ -131,6 +131,54 @@
     </section>
 
     <section class="card">
+      <header><h2>Source</h2><span class="sub">where this kit is imported from</span></header>
+      <div class="body">
+        {{with .Source}}
+        <dl class="kv">
+          <dt>Repo</dt><dd>{{template "src-repo" .}}</dd>
+          {{if .Dir}}<dt>Dir</dt><dd class="mono">{{.Dir}}</dd>{{end}}
+          <dt>Ref</dt><dd class="mono">{{.Ref}}</dd>
+          <dt>Last synced</dt><dd>{{template "src-commit" .}}</dd>
+        </dl>
+        {{if $.CanSource}}
+        <div class="form-actions">
+          <button class="small primary" hx-post="/ui/kits/{{$name}}/sync" hx-target="#kit" hx-swap="outerHTML">Sync</button>
+          <button class="small danger" hx-delete="/ui/kits/{{$name}}/source" hx-target="#kit" hx-swap="outerHTML"
+            hx-confirm="Stop tracking the source of {{$name}}? Its versions are kept.">Untrack</button>
+        </div>
+        {{end}}
+        {{else}}
+        <span class="unset">Not tracked — pushed by hand, or imported once.</span>
+        {{end}}
+      </div>
+      {{if and $.CanSource (not .Source)}}
+      <details class="edit">
+        <summary>Track…</summary>
+        <form hx-post="/ui/kits/{{$name}}/source" hx-target="#kit" hx-swap="outerHTML">
+          <label>Source <span class="hint"><code>https://host/org/repo[//dir]@ref</code> — imports it as a new version of {{$name}} and tracks it for Sync</span>
+            <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/kits//web@main"></label>
+          <div class="form-actions"><button type="submit" class="primary">Track</button></div>
+        </form>
+      </details>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header><h2>Versions</h2><span class="sub">and where each came from</span></header>
+      <table>
+        <thead><tr><th>Version</th><th>Pushed</th><th>Source</th><th>Commit</th></tr></thead>
+        <tbody>
+          {{range .Versions}}<tr>
+            <td><a href="{{kitURL $name}}?v={{.N}}">v{{.N}}</a>{{if .Current}} <span class="chip accent">current</span>{{end}}</td>
+            <td>{{with .Pushed}}{{.}}{{else}}<span class="unset">—</span>{{end}}</td>
+            <td>{{with .Source}}{{template "src-repo" .}}{{if .Dir}} <span class="mono">//{{.Dir}}</span>{{end}} <span class="mono">@{{.Ref}}</span>{{else}}<span class="unset">pushed</span>{{end}}</td>
+            <td>{{with .Source}}{{template "src-commit" .}}{{else}}<span class="unset">—</span>{{end}}</td>
+          </tr>{{end}}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
       <details class="edit">
         <summary>Push new version</summary>
         <form hx-post="/ui/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML">
@@ -144,3 +192,7 @@
 </div>
 </div>
 {{end}}
+
+{{define "src-repo"}}{{if .RepoLink}}<a class="mono" href="{{.RepoLink}}" rel="noopener noreferrer">{{.Repo}}</a>{{else}}<span class="mono">{{.Repo}}</span>{{end}}{{end}}
+
+{{define "src-commit"}}{{if .Commit}}{{if .CommitLink}}<a class="mono" href="{{.CommitLink}}" rel="noopener noreferrer">{{.Commit}}</a>{{else}}<span class="mono">{{.Commit}}</span>{{end}}{{else}}<span class="unset">—</span>{{end}}{{end}}

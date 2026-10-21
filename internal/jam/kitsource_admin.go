@@ -30,6 +30,26 @@ type KitVersionInfo struct {
 	Current  bool       `json:"current,omitempty"`
 }
 
+const kitStoreError = "kit store error"
+
+// KitSourceStatus maps an error from ImportKit, TrackKit, UntrackKit or
+// SyncKit to an HTTP status and a message safe to show: validation 400,
+// unknown kit 404, untracked 409, a fetch, auth or limit failure 502 with the
+// fetcher's already-redacted message; anything else is a store failure, 500
+// with a generic message (log the error itself).
+func KitSourceStatus(err error) (int, string) {
+	var we *WriteError
+	switch {
+	case errors.Is(err, ErrNotTracked):
+		return http.StatusConflict, err.Error()
+	case errors.As(err, &we), errors.Is(err, ErrNotFound):
+		return WriteStatus(err, http.StatusInternalServerError), err.Error()
+	case errors.Is(err, gitsource.ErrFetch):
+		return http.StatusBadGateway, err.Error()
+	}
+	return http.StatusInternalServerError, kitStoreError
+}
+
 // WithKitFetcher mounts the git-sourced kit admin API (under the /admin/*
 // operator gate):
 //
@@ -43,22 +63,12 @@ type KitVersionInfo struct {
 // the fetcher's already-redacted message. Audit logs carry the operator and
 // the source, never a credential.
 func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
-	// fail answers err: validation 400, unknown kit 404, untracked 409, a
-	// fetch, auth or limit failure 502 with the fetcher's already-redacted
-	// message; anything else is a store failure, 500 with a generic body.
 	fail := func(w http.ResponseWriter, r *http.Request, err error) {
-		var we *WriteError
-		switch {
-		case errors.Is(err, ErrNotTracked):
-			http.Error(w, err.Error(), http.StatusConflict)
-		case errors.As(err, &we), errors.Is(err, ErrNotFound):
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-		case errors.Is(err, gitsource.ErrFetch):
-			http.Error(w, err.Error(), http.StatusBadGateway)
-		default:
+		status, msg := KitSourceStatus(err)
+		if status == http.StatusInternalServerError && msg == kitStoreError {
 			log.Error("admin kit source: store error", "operator", OperatorID(r), "err", err.Error())
-			http.Error(w, "kit store error", http.StatusInternalServerError)
 		}
+		http.Error(w, msg, status)
 	}
 	// source decodes a {source} body and parses it, answering 400 itself.
 	source := func(w http.ResponseWriter, s string) (gitsource.Source, bool) {

@@ -2541,7 +2541,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher)}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
