@@ -65,6 +65,21 @@ type EnrollParams struct {
 }
 
 func (c *Client) do(method, path string, body any, out any) error {
+	return c.doWith(c.httpc, method, path, body, out)
+}
+
+// gitTimeout bounds a call that makes Jam fetch from git (import, track,
+// sync); the 10 s default of do is too short for a clone.
+const gitTimeout = 90 * time.Second
+
+// doGit is do with the git-fetch timeout.
+func (c *Client) doGit(method, path string, body any, out any) error {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = gitTimeout
+	return c.doWith(&hc, method, path, body, out)
+}
+
+func (c *Client) doWith(httpc *http.Client, method, path string, body any, out any) error {
 	var r io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -83,7 +98,7 @@ func (c *Client) do(method, path string, body any, out any) error {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	resp, err := c.httpc.Do(req)
+	resp, err := httpc.Do(req)
 	if err != nil {
 		return fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
 	}
@@ -730,5 +745,39 @@ func (c *Client) UnshareStudio(prefix, studio, user string) error {
 func (c *Client) StudioAccess(prefix, studio string) (collabwire.AccessView, error) {
 	var out collabwire.AccessView
 	err := c.do("GET", prefix+"/studios/"+url.PathEscape(studio)+"/access", nil, &out)
+	return out, err
+}
+
+// ImportKit imports a kit from a git source (<repo>[//<dir>]@<ref>) as a new
+// version of the kit called name ("" = the kit's own name). It does not track.
+func (c *Client) ImportKit(name, source string) (jam.KitSourceResult, error) {
+	var res jam.KitSourceResult
+	err := c.doGit("POST", "/admin/kits/import", jam.KitImportBody{Name: name, Source: source}, &res)
+	return res, err
+}
+
+// TrackKit imports the git source into kit name and tracks it for SyncKit.
+func (c *Client) TrackKit(name, source string) (jam.KitSourceResult, error) {
+	var res jam.KitSourceResult
+	err := c.doGit("PUT", "/admin/kits/"+url.PathEscape(name)+"/source", jam.KitSourceBody{Source: source}, &res)
+	return res, err
+}
+
+// UntrackKit stops tracking kit name's source; its versions are kept.
+func (c *Client) UntrackKit(name string) error {
+	return c.do("DELETE", "/admin/kits/"+url.PathEscape(name)+"/source", nil, nil)
+}
+
+// SyncKit re-imports kit name from its tracked source.
+func (c *Client) SyncKit(name string) (jam.KitSourceResult, error) {
+	var res jam.KitSourceResult
+	err := c.doGit("POST", "/admin/kits/"+url.PathEscape(name)+"/sync", nil, &res)
+	return res, err
+}
+
+// KitHistory lists a kit's versions with their provenance, ascending.
+func (c *Client) KitHistory(name string) ([]jam.KitVersionInfo, error) {
+	var out []jam.KitVersionInfo
+	err := c.do("GET", "/admin/kits/"+url.PathEscape(name)+"/history", nil, &out)
 	return out, err
 }

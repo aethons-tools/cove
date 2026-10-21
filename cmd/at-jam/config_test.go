@@ -1248,3 +1248,44 @@ func TestValidatePreviews(t *testing.T) {
 		t.Fatalf("previews flagged unknown: %v", unknown)
 	}
 }
+
+func TestValidateKits(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  gh-kits:\n  gl:\nkits:\n  git:\n    - url: https://github.com/acme/\n      cred: gh-kits\n    - url: http://127.0.0.1:3000/\n      cred: gl\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateKits(); err != nil {
+		t.Fatalf("valid kits refused: %v", err)
+	}
+	if len(ok.Kits.Git) != 2 || ok.Kits.Git[0].Cred != "gh-kits" {
+		t.Fatalf("kits = %+v", ok.Kits)
+	}
+	for name, yml := range map[string]string{
+		"http url":        "credentials:\n  c:\nkits:\n  git:\n    - {url: \"http://git.example.com/a/\", cred: c}\n",
+		"ftp url":         "credentials:\n  c:\nkits:\n  git:\n    - {url: \"ftp://git.example.com/a/\", cred: c}\n",
+		"userinfo":        "credentials:\n  c:\nkits:\n  git:\n    - {url: \"https://u:p@git.example.com/a/\", cred: c}\n",
+		"no trailing /":   "credentials:\n  c:\nkits:\n  git:\n    - {url: \"https://git.example.com/a\", cred: c}\n",
+		"single-label":    "credentials:\n  c:\nkits:\n  git:\n    - {url: \"https://gitserver/a/\", cred: c}\n",
+		"empty url":       "credentials:\n  c:\nkits:\n  git:\n    - {cred: c}\n",
+		"no cred":         "kits:\n  git:\n    - {url: \"https://git.example.com/a/\"}\n",
+		"undemanded cred": "kits:\n  git:\n    - {url: \"https://git.example.com/a/\", cred: nope}\n",
+		"gcp cred":        "credentials:\n  g: { exchange: gcp }\nkits:\n  git:\n    - {url: \"https://git.example.com/a/\", cred: g}\n",
+		"pool cred":       "credentials:\n  sub:\npool: { store: /tmp/p.json, cred-name: sub }\nkits:\n  git:\n    - {url: \"https://git.example.com/a/\", cred: sub}\n",
+		"duplicate":       "credentials:\n  c:\nkits:\n  git:\n    - {url: \"https://git.example.com/a/\", cred: c}\n    - {url: \"https://GIT.example.com/a/\", cred: c}\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		err = c.validateKits()
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if strings.Contains(err.Error(), "u:p") {
+			t.Errorf("%s: error echoes userinfo: %v", name, err)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateKits(); err != nil {
+		t.Fatalf("absent kits must validate: %v", err)
+	}
+}

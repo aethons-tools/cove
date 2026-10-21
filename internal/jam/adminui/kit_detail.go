@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,7 +34,64 @@ type kitVersion struct {
 	N       int
 	Prev    int // the version before N in the rail; 0 for the first
 	Current bool
-	Digest  string // short build digest; "" when the config won't parse
+	Digest  string      // short build digest; "" when the config won't parse
+	Source  *sourceView // where it was imported from; nil = pushed, or legacy
+	Pushed  string      // push time, "" when unrecorded
+}
+
+// sourceView is a git source shaped for display: Repo links only when it is
+// an https URL, Commit (12 chars) only when the host's commit URL is known.
+type sourceView struct {
+	Repo, RepoLink string
+	Dir, Ref       string
+	Commit         string
+	CommitLink     string
+}
+
+func newSourceView(s *jam.KitSource) *sourceView {
+	if s == nil {
+		return nil
+	}
+	v := &sourceView{Repo: s.Repo, Dir: s.Dir, Ref: s.Ref, Commit: shortCommit(s.Commit)}
+	if u := httpsRepo(s.Repo); u != nil {
+		v.RepoLink = s.Repo
+		v.CommitLink = commitLink(u, s.Commit)
+	}
+	return v
+}
+
+func shortCommit(c string) string {
+	if len(c) > 12 {
+		return c[:12]
+	}
+	return c
+}
+
+// httpsRepo parses repo when it is an https URL with a host, else nil: only
+// those are rendered as links.
+func httpsRepo(repo string) *url.URL {
+	u, err := url.Parse(repo)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return nil
+	}
+	return u
+}
+
+// commitLink is the host's page for a commit: github.com/.../commit/<sha>,
+// gitlab-like hosts .../-/commit/<sha>; "" for any other host.
+func commitLink(repo *url.URL, sha string) string {
+	if sha == "" {
+		return ""
+	}
+	base := strings.TrimSuffix(strings.TrimRight(repo.Path, "/"), ".git")
+	host := strings.ToLower(repo.Hostname())
+	switch {
+	case host == "github.com":
+		return "https://" + repo.Host + base + "/commit/" + sha
+	case strings.Contains(host, "gitlab"):
+		return "https://" + repo.Host + base + "/-/commit/" + sha
+	}
+	return ""
 }
 
 // ctxEntry is one file in a packed base.context.
@@ -100,6 +158,8 @@ type kitDetail struct {
 	Diff        *kitDiff
 	Uses        []kitUse
 	IsDefault   bool
+	Source      *sourceView // tracked source; nil = not tracked
+	CanSource   bool        // import/track/sync controls are available
 	NotFound    bool
 	NotFoundFor string
 }
@@ -274,10 +334,16 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 	if _, ok := k.Versions[view]; !ok {
 		view = k.Current
 	}
-	d := kitDetail{Title: "Kits", Name: name, Current: k.Current, IsDefault: name == studio.DefaultStudioKitID, Uses: kitUses(store, name)}
+	d := kitDetail{Title: "Kits", Name: name, Current: k.Current, IsDefault: name == studio.DefaultStudioKitID, Uses: kitUses(store, name), Source: newSourceView(k.Source)}
 	prev := 0
 	for _, n := range slices.Sorted(maps.Keys(k.Versions)) {
 		ver := kitVersion{N: n, Prev: prev, Current: n == k.Current}
+		if m, ok := k.Meta[n]; ok {
+			ver.Source = newSourceView(m.Source)
+			if !m.PushedAt.IsZero() {
+				ver.Pushed = m.PushedAt.UTC().Format("2006-01-02 15:04")
+			}
+		}
 		prev = n
 		if sk, err := studio.ParseStudioKit([]byte(k.Versions[n])); err == nil {
 			ver.Digest = shortDigest(studio.BuildDigest(sk, harnessinstall.Default()))

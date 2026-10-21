@@ -1,10 +1,10 @@
 ---
-summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
+summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm|import|track|untrack|sync`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
 read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, or giving a kit's sessions extra MCP servers.
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-21
 ---
 
 # The kit registry
@@ -115,6 +115,8 @@ versions**, behind a mutable **current** pointer:
   *current*. Upgrades don't churn role bindings.
 - **pin** *current* to an older version to **roll back** (or forward); versions
   are never mutated or deleted.
+- Each version records its **provenance** — when it was pushed and, for one
+  imported from git, the repo, dir, ref and commit (`kit versions`, `kit show`).
 
 On `push` the YAML is **parsed and validated as a studio kit, then stored as
 canonical JSON**; `kit show` renders it **back as YAML** (the config rule of
@@ -129,15 +131,22 @@ at-jam kit push --name web --config -                       # read config from s
 at-jam kit list                                             # name  current=vN  versions=K
 at-jam kit show web                                         # current version's kit + ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
-at-jam kit versions web                                     # v1, v2, v3, …
+at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
 at-jam kit pin web 1                                        # roll current back to v1
 at-jam kit rm web                                           # remove the kit (all versions)
+at-jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
+at-jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
+at-jam kit sync web                                         # re-import from the tracked source
+at-jam kit untrack web                                      # stop tracking (versions are kept)
 ```
 
 - `kit push` **validates** the file as a StudioKit before sending it — a
   malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
   full-kit row now fails `kit show`/resolution (see the [migration
   note](studio-kit-migration.md)).
+- `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
+  `<dir>/kit.yml` from the repo itself; the source syntax, sync rules,
+  credentials and errors are in [kits-git.md](kits-git.md).
 - `kit rm` is **fail-closed**: a kit that any role references can't be removed
   (the command reports the referencing role); `ungrant`/rebind the role first, or
   point the role at another kit.

@@ -543,18 +543,29 @@ func nextKitVersion(k Kit) int {
 	return next + 1
 }
 
-// applyPushKit appends config as a new version (max existing + 1), advances
+// applyPushKitMeta appends config as a new version (max existing + 1), advances
 // Current, and returns the new version number.
-func (m *memState) applyPushKit(name, config string) int {
+func (m *memState) applyPushKitMeta(name, config string, meta KitVersionMeta) int {
 	k, ok := m.kits[name]
 	if !ok {
 		k = Kit{Name: name, Versions: map[int]string{}}
 	}
+	if k.Meta == nil {
+		k.Meta = map[int]KitVersionMeta{}
+	}
 	next := nextKitVersion(k)
 	k.Versions[next] = config
+	k.Meta[next] = copyKitMeta(meta)
 	k.Current = next
 	m.kits[name] = k
 	return next
+}
+
+// applySetKitSource replaces the kit's tracked source (nil clears it).
+func (m *memState) applySetKitSource(name string, src *KitSource) {
+	k := m.kits[name]
+	k.Source = copyKitSource(src)
+	m.kits[name] = k
 }
 
 func (m *memState) applyPinKit(name string, version int) {
@@ -766,7 +777,27 @@ func copyKit(k Kit) Kit {
 	for v, c := range k.Versions {
 		vs[v] = c
 	}
-	return Kit{Name: k.Name, Current: k.Current, Versions: vs}
+	out := Kit{Name: k.Name, Current: k.Current, Versions: vs, Source: copyKitSource(k.Source)}
+	if k.Meta != nil {
+		out.Meta = make(map[int]KitVersionMeta, len(k.Meta))
+		for v, m := range k.Meta {
+			out.Meta[v] = copyKitMeta(m)
+		}
+	}
+	return out
+}
+
+func copyKitSource(s *KitSource) *KitSource {
+	if s == nil {
+		return nil
+	}
+	c := *s
+	return &c
+}
+
+func copyKitMeta(m KitVersionMeta) KitVersionMeta {
+	m.Source = copyKitSource(m.Source)
+	return m
 }
 
 // copyHumans returns a deep copy of hs: the slice plus each Human's Delivery

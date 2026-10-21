@@ -2,6 +2,7 @@ package jam
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -140,13 +141,34 @@ func (fs *MemStore) RemoveRole(project, name string) error {
 }
 
 func (fs *MemStore) PushKit(name, config string) (int, error) {
+	return fs.PushKitMeta(name, config, KitVersionMeta{PushedAt: time.Now().UTC()})
+}
+
+func (fs *MemStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
+	return fs.PushKitTracked(name, config, meta, nil)
+}
+
+func (fs *MemStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
-	v := fs.applyPushKit(name, config)
+	v := fs.applyPushKitMeta(name, config, meta)
+	if track != nil {
+		fs.applySetKitSource(name, track)
+	}
 	return v, nil
+}
+
+func (fs *MemStore) SetKitSource(name string, src *KitSource) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if _, ok := fs.kits[name]; !ok {
+		return fmt.Errorf("kit %q: %w", name, ErrNotFound)
+	}
+	fs.applySetKitSource(name, src)
+	return nil
 }
 
 func (fs *MemStore) PinKit(name string, version int) error {

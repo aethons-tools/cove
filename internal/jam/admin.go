@@ -172,6 +172,10 @@ type KitConfigResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Config  string `json:"config"`
+	// Source is where this version came from; nil = pushed from a local file.
+	Source *KitSource `json:"source,omitempty"`
+	// Tracking is the kit's tracked source (Commit = last synced); nil = untracked.
+	Tracking *KitSource `json:"tracking,omitempty"`
 }
 
 // PinBody is the POST /admin/kits/{name}/pin request.
@@ -785,11 +789,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit or version", http.StatusNotFound)
 			return
 		}
+		k, _ := store.GetKit(name)
 		if version == 0 {
-			k, _ := store.GetKit(name)
 			version = k.Current
 		}
-		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg})
+		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg,
+			Source: k.Meta[version].Source, Tracking: k.Source})
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := store.GetKit(r.PathValue("name"))
@@ -803,6 +808,24 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		sort.Ints(vers)
 		writeJSON(w, http.StatusOK, vers)
+	})
+	mux.HandleFunc("GET /admin/kits/{name}/history", func(w http.ResponseWriter, r *http.Request) {
+		k, ok := store.GetKit(r.PathValue("name"))
+		if !ok {
+			http.Error(w, "no such kit", http.StatusNotFound)
+			return
+		}
+		vers := make([]int, 0, len(k.Versions))
+		for v := range k.Versions {
+			vers = append(vers, v)
+		}
+		sort.Ints(vers)
+		out := make([]KitVersionInfo, 0, len(vers))
+		for _, v := range vers {
+			m := k.Meta[v]
+			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
 		var b PinBody
@@ -928,11 +951,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	return parent
 }
 
-// projectErrStatus maps a store error to its HTTP status: an unknown project is
-// 404, a duplicate or still-referenced one 409, anything else fallback.
+// projectErrStatus maps a store error to its HTTP status: an unknown project or
+// other record (ErrNotFound) is 404, a duplicate or still-referenced one 409, anything else fallback.
 func projectErrStatus(err error, fallback int) int {
 	switch {
-	case errors.Is(err, ErrProjectNotFound):
+	case errors.Is(err, ErrProjectNotFound), errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrProjectExists), errors.Is(err, ErrProjectInUse):
 		return http.StatusConflict

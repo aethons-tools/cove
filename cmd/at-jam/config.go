@@ -18,6 +18,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -109,6 +110,10 @@ type serveConfig struct {
 	// that every raised studio's sshd trusts. Absent ⇒ SSH collaboration off.
 	// See docs/usage/jam/serve.md.
 	SSH *sshConfig `yaml:"ssh"`
+	// Kits configures git access for kit sources: credentials by URL prefix.
+	// Absent ⇒ only anonymous public repos can be imported. See
+	// docs/usage/jam/serve.md.
+	Kits *kitsConfig `yaml:"kits"`
 	// Previews, when set, serves studio previews at <name>--<label>.<domain>
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
@@ -340,6 +345,57 @@ func (c serveConfig) validateSSH() error {
 	}
 	if slices.Contains(c.gcpCredentials(), s.CACred) || (c.Pool != nil && s.CACred == c.Pool.CredName) {
 		return fmt.Errorf("ssh.ca-cred %q must be a plain static credential, not a gcp-exchange or pool credential", s.CACred)
+	}
+	return nil
+}
+
+// kitsConfig configures kit git sources.
+type kitsConfig struct {
+	Git []kitGitCred `yaml:"git"`
+}
+
+// kitGitCred supplies a credential for the git repos under URL: a demanded
+// credential whose value is `token` or `user:token` (the longest matching
+// prefix wins).
+type kitGitCred struct {
+	URL  string `yaml:"url"`
+	Cred string `yaml:"cred"`
+}
+
+// validateKits checks the kits block: each url is a valid repo-URL prefix
+// (gitsource.ValidatePrefix: https or loopback http, trailing '/', no userinfo,
+// dotted host or loopback), unique, and each cred is demanded and a plain
+// static credential (the rules validateSSH applies to ca-cred). Errors name the
+// entry by index, never echoing a url.
+func (c serveConfig) validateKits() error {
+	if c.Kits == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for i, g := range c.Kits.Git {
+		if g.URL == "" {
+			return fmt.Errorf("kits.git[%d].url is required", i)
+		}
+		if err := gitsource.ValidatePrefix(g.URL); err != nil {
+			return fmt.Errorf("kits.git[%d].url: %w", i, err)
+		}
+		key := g.URL
+		if u, err := url.Parse(g.URL); err == nil {
+			key = strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + u.Path
+		}
+		if seen[key] {
+			return fmt.Errorf("kits.git[%d].url duplicates an earlier entry", i)
+		}
+		seen[key] = true
+		if g.Cred == "" {
+			return fmt.Errorf("kits.git[%d].cred is required", i)
+		}
+		if _, ok := c.Credentials[g.Cred]; !ok {
+			return fmt.Errorf("kits.git[%d].cred %q is not a demanded credential", i, g.Cred)
+		}
+		if slices.Contains(c.gcpCredentials(), g.Cred) || (c.Pool != nil && g.Cred == c.Pool.CredName) {
+			return fmt.Errorf("kits.git[%d].cred %q must be a plain static credential, not a gcp-exchange or pool credential", i, g.Cred)
+		}
 	}
 	return nil
 }

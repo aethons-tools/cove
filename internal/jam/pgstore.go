@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
@@ -635,6 +636,14 @@ func (s *PostgresStore) RemoveRole(project, name string) error {
 }
 
 func (s *PostgresStore) PushKit(name, config string) (int, error) {
+	return s.PushKitMeta(name, config, KitVersionMeta{PushedAt: time.Now().UTC()})
+}
+
+func (s *PostgresStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
+	return s.PushKitTracked(name, config, meta, nil)
+}
+
+func (s *PostgresStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if name == "" || config == "" {
@@ -648,7 +657,14 @@ func (s *PostgresStore) PushKit(name, config string) (int, error) {
 	}
 	ver := nextKitVersion(k)
 	k.Versions[ver] = config
+	if k.Meta == nil {
+		k.Meta = map[int]KitVersionMeta{}
+	}
+	k.Meta[ver] = copyKitMeta(meta)
 	k.Current = ver
+	if track != nil {
+		k.Source = copyKitSource(track)
+	}
 	doc, err := json.Marshal(k)
 	if err != nil {
 		return 0, err
@@ -661,6 +677,26 @@ func (s *PostgresStore) PushKit(name, config string) (int, error) {
 	}
 	s.kits[name] = k
 	return ver, nil
+}
+
+func (s *PostgresStore) SetKitSource(name string, src *KitSource) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k, ok := s.kits[name]
+	if !ok {
+		return fmt.Errorf("kit %q: %w", name, ErrNotFound)
+	}
+	k = copyKit(k) // don't mutate the cached kit before commit
+	k.Source = copyKitSource(src)
+	doc, err := json.Marshal(k)
+	if err != nil {
+		return err
+	}
+	if err := s.exec("SetKitSource", `UPDATE kits SET doc = $2, version = version + 1, updated_at = now() WHERE name = $1`, name, doc); err != nil {
+		return err
+	}
+	s.applySetKitSource(name, src)
+	return nil
 }
 
 func (s *PostgresStore) PinKit(name string, version int) error {

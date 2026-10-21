@@ -255,3 +255,34 @@ func TestImportRefusesUnknownProjectIDs(t *testing.T) {
 		}
 	}
 }
+
+// Kit provenance (per-version Meta and the tracked Source) survives export and
+// import, and neither direction aliases the store's maps and pointers.
+func TestConfigSnapshotKitProvenanceRoundTrip(t *testing.T) {
+	src := NewMemStore()
+	at := time.Unix(100, 0).UTC()
+	vsrc := &KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: "c1"}
+	if _, err := src.PushKitMeta("web", `{"kind":"studio"}`, KitVersionMeta{PushedAt: at, Source: vsrc}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.SetKitSource("web", &KitSource{Repo: vsrc.Repo, Dir: "web", Ref: "main", Commit: "c1"}); err != nil {
+		t.Fatal(err)
+	}
+	snap := src.ExportConfig()
+	snap.Kits[0].Meta[1].Source.Commit = "tampered"
+	snap.Kits[0].Source.Commit = "tampered"
+	if k, _ := src.GetKit("web"); k.Meta[1].Source.Commit != "c1" || k.Source.Commit != "c1" {
+		t.Fatalf("export aliases the store: %+v", k)
+	}
+	snap = src.ExportConfig()
+	dst := NewMemStore()
+	if err := dst.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.Kits[0].Meta[1].Source.Commit = "tampered"
+	snap.Kits[0].Source.Commit = "tampered"
+	want, _ := src.GetKit("web")
+	if got, _ := dst.GetKit("web"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("round trip (or import aliasing):\n got %+v\nwant %+v", got, want)
+	}
+}

@@ -140,7 +140,8 @@ integration-docker:
     COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
 # jam integration: real-TLS broker round-trip, real-sshd studio SSH end to end
-# (skips without sshd), + the jam packages' tagged tests
+# (skips without sshd), kit git sources end to end (skips without git), + the
+# jam packages' tagged tests
 integration-jam:
     go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
 

@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # Admin UI entity pages
@@ -160,7 +160,10 @@ count, and how many roles raise it (for `default`, that includes roles with no
 kit set). A kit whose current version won't parse is marked **invalid**. The
 **New kit** form takes a name and studio-kit YAML and validates it exactly as
 `kit push` does ([kits.md](kits.md)); an existing name is refused — push new
-versions on the kit's page.
+versions on the kit's page. **Import from git** takes `<repo>[//<dir>]@<ref>`
+and an optional name and imports the kit as a new version, then opens its
+page. Its **Track this source** box (on by default) also tracks the source,
+like `kit track`; uncheck it for a one-off `kit import`.
 
 The page has a **version rail** — every version with its short build digest
 (versions sharing one reuse one image), **Pin** to make an older or newer
@@ -176,6 +179,15 @@ nothing extracted), egress with the effective ceiling and anything excluded
 prompt, the build digest, and the YAML rendered back from the stored kit (a
 packed context abbreviated) with **Copy**. A stored version that isn't a valid
 studio kit (a pre-studio row) shows its parse error and raw text instead.
+
+The **Source** card shows the tracked git source — repo (linked when `https`),
+dir, ref and the last synced commit (12 chars, linked on github.com and
+gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
+**Track…** form when the kit has none. The **Versions** table lists each
+version's push time, source and commit. The import, track, sync and untrack
+controls need the git fetcher (always present in `at-jam serve`), disable
+their button while the fetch runs, and follow the admin API's rules and errors
+([kits-git.md](kits-git.md)); without one the page only shows provenance.
 
 **Push new version** is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals

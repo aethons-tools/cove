@@ -1,6 +1,13 @@
 package jam
 
-import "github.com/aethons-tools/cove/internal/jam/sessionctx"
+import (
+	"errors"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+)
+
+// ErrNotFound reports that a named record (e.g. a kit) does not exist.
+var ErrNotFound = errors.New("not found")
 
 // Store records enrolled actors (by token hash), roles (by project+name), and the
 // destination table, and the model-spec table.
@@ -37,6 +44,14 @@ type Store interface {
 	ListProjects() []string
 
 	PushKit(name, config string) (int, error)
+	// PushKitMeta is PushKit with explicit provenance for the new version.
+	PushKitMeta(name, config string, meta KitVersionMeta) (int, error)
+	// PushKitTracked is PushKitMeta that also sets the kit's tracked source to
+	// track in the same write — both land or neither does.
+	PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error)
+	// SetKitSource sets (or, when nil, clears) a kit's tracked source;
+	// ErrNotFound for an unknown kit.
+	SetKitSource(name string, src *KitSource) error
 	GetKit(name string) (Kit, bool)
 	KitConfig(name string, version int) (string, bool)
 	PinKit(name string, version int) error

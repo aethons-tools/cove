@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"text/tabwriter"
 	"time"
 	_ "time/tzdata" // IANA zones for role time zones, whatever the image ships
 
@@ -50,6 +51,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -92,7 +94,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
@@ -843,7 +845,7 @@ func (t *tierFlags) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|pin|rm")
+		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|pin|rm|import|track|untrack|sync")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -854,6 +856,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	name := fs.String("name", "", "kit name")
 	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
+	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -955,6 +958,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		fmt.Fprint(stdout, kitSourceHeader(res))
 		fmt.Fprint(stdout, string(y))
 		ceiling, excluded := studioShowEgress(sk.Egress)
 		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
@@ -964,13 +968,100 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit versions: expected one kit name")
 			return 2
 		}
-		vers, err := c.KitVersions(pos[0])
+		hist, err := c.KitHistory(pos[0])
+		var se *adminclient.StatusError
+		if errors.As(err, &se) && se.Code == http.StatusNotFound {
+			// An older Jam has no /history: fall back to the bare version list.
+			vers, verr := c.KitVersions(pos[0])
+			if verr != nil {
+				fmt.Fprintln(stderr, "at-jam:", verr)
+				return 1
+			}
+			for _, v := range vers {
+				fmt.Fprintf(stdout, "v%d\n", v)
+			}
+			break
+		}
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		for _, v := range vers {
-			fmt.Fprintf(stdout, "v%d\n", v)
+		tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "VERSION\tCURRENT\tPUSHED\tSOURCE\tCOMMIT")
+		for _, h := range hist {
+			cur, pushed, srcText, commit := "", "-", "local", "-"
+			if h.Current {
+				cur = "*"
+			}
+			if !h.PushedAt.IsZero() {
+				pushed = h.PushedAt.UTC().Format(time.RFC3339)
+			}
+			if h.Source != nil {
+				srcText, commit = kitSourceText(h.Source), shortCommit(h.Source.Commit)
+			}
+			fmt.Fprintf(tw, "v%d\t%s\t%s\t%s\t%s\n", h.Version, cur, pushed, srcText, commit)
+		}
+		_ = tw.Flush()
+	case "import", "track":
+		want := 0
+		if sub == "track" {
+			want = 1
+		}
+		if len(pos) != want || *gitSrc == "" {
+			if sub == "track" {
+				fmt.Fprintln(stderr, "at-jam kit track: expected <name> --git <repo>[//dir]@<ref>")
+			} else {
+				fmt.Fprintln(stderr, "at-jam kit import: expected --git <repo>[//dir]@<ref> [--name N]")
+			}
+			return 2
+		}
+		src, err := gitsource.Parse(*gitSrc)
+		if err != nil {
+			fmt.Fprintf(stderr, "at-jam kit %s: %v\n", sub, err)
+			return 2
+		}
+		var res jam.KitSourceResult
+		if sub == "track" {
+			res, err = c.TrackKit(pos[0], src.String())
+		} else {
+			res, err = c.ImportKit(*name, src.String())
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		if res.Unchanged {
+			fmt.Fprintf(stdout, "%s unchanged (current v%d, %s)\n", res.Name, res.Version, shortCommit(res.Commit))
+		} else {
+			fmt.Fprintf(stdout, "imported %s v%d from %s (%s)\n", res.Name, res.Version, src, shortCommit(res.Commit))
+		}
+		if sub == "track" {
+			fmt.Fprintf(stdout, "tracking %s\n", src)
+		}
+	case "untrack":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam kit untrack: expected one kit name")
+			return 2
+		}
+		if err := c.UntrackKit(pos[0]); err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s no longer tracks a source\n", pos[0])
+	case "sync":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam kit sync: expected one kit name")
+			return 2
+		}
+		res, err := c.SyncKit(pos[0])
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		if res.Unchanged {
+			fmt.Fprintf(stdout, "%s unchanged (%s)\n", res.Name, shortCommit(res.Commit))
+		} else {
+			fmt.Fprintf(stdout, "synced %s v%d (%s)\n", res.Name, res.Version, shortCommit(res.Commit))
 		}
 	case "pin":
 		if len(pos) != 2 {
@@ -1002,6 +1093,32 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// shortCommit is the first 12 characters of a commit id.
+func shortCommit(c string) string {
+	if c == "" {
+		return "-"
+	}
+	return c[:min(len(c), 12)]
+}
+
+// kitSourceText renders a kit source as <repo>[//dir]@<ref>.
+func kitSourceText(s *jam.KitSource) string {
+	return gitsource.Source{Repo: s.Repo, Dir: s.Dir, Ref: s.Ref}.String()
+}
+
+// kitSourceHeader is the leading comment lines of `kit show`: where the shown
+// version came from and, for a tracked kit, the tracked source.
+func kitSourceHeader(res jam.KitConfigResult) string {
+	h := "# source: local\n"
+	if res.Source != nil {
+		h = fmt.Sprintf("# source: %s (%s)\n", kitSourceText(res.Source), shortCommit(res.Source.Commit))
+	}
+	if res.Tracking != nil {
+		h += fmt.Sprintf("# tracking: %s (last synced %s)\n", kitSourceText(res.Tracking), shortCommit(res.Tracking.Commit))
+	}
+	return h
 }
 
 // readConfig reads a config file path, or stdin when path == "-".
@@ -1672,6 +1789,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateKits(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validatePreviews(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1820,6 +1941,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// nil when the ssh block is unset (SSH collaboration off); it signs the
 	// certs the collaboration routes (collabhttp) issue.
 	sshCA, err := resolveSSHCA(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	// The one long-lived git fetcher for kit sources (it serializes per repo);
+	// anonymous when no kits.git credential is configured.
+	kitFetcher, err := resolveKitFetcher(cfg, specs)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -2413,7 +2541,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg))}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher)}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
@@ -2451,7 +2579,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
-			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
+			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
+			jam.WithKitFetcher(st, kitFetcher, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce
@@ -2689,6 +2818,33 @@ func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, err
 		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
 	}
 	return ca, nil
+}
+
+// resolveKitFetcher builds the one long-lived git fetcher for kit sources,
+// resolving each kits.git credential (in memory only). Always non-nil: with no
+// kits block it fetches anonymously. Errors name the credential, never its value.
+func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsource.Fetcher, error) {
+	f := &gitsource.Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
+	if cfg.Kits == nil {
+		return f, nil
+	}
+	for i, g := range cfg.Kits.Git {
+		spec := specs[g.Cred]
+		resolve := func() (string, error) {
+			v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
+			if err != nil {
+				return "", err
+			}
+			return v[spec.Name], nil
+		}
+		// Resolve once now so a broken supply fails serve at startup, then
+		// again on every fetch so a minted or rotated token stays current.
+		if _, err := resolve(); err != nil {
+			return nil, fmt.Errorf("kits.git[%d].cred %q: %w", i, g.Cred, err)
+		}
+		f.Creds = append(f.Creds, gitsource.Cred{Prefix: g.URL, Name: g.Cred, Resolve: resolve})
+	}
+	return f, nil
 }
 
 // validatePushedKit validates a studio-kit config before it is stored, so a

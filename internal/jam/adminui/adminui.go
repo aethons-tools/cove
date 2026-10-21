@@ -144,6 +144,7 @@ type options struct {
 	live            *collabhttp.Live
 	exposures       func(actorID string) []jam.Exposure
 	previewURL      func(actorID, name string) (string, error)
+	kitFetcher      jam.KitFetcher
 }
 
 // WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
@@ -162,6 +163,13 @@ func WithConditions(t *condition.Tracker, alertmanagerURL string) Option {
 // WithSessions enables the live session-event timeline (/ui/agents/{id}/session).
 func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 	return func(o *options) { o.sessStore, o.sessHub = store, hub }
+}
+
+// WithKitFetcher enables the kit pages' git-source controls (import, track,
+// sync, untrack) using f, the same fetcher the admin API uses. Without it the
+// pages only show provenance.
+func WithKitFetcher(f jam.KitFetcher) Option {
+	return func(o *options) { o.kitFetcher = f }
 }
 
 // WithTrustedOrigins adds exact origins (scheme://host[:port]) the CSRF write
@@ -234,7 +242,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
 	registerProjects(mux, store, sup, msgs, canEdit, log, guardWrite)
 	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
-	registerKits(mux, store, log, guardWrite)
+	registerKits(mux, store, o.kitFetcher, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)

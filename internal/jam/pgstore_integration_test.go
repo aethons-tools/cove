@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -397,5 +398,47 @@ func TestPostgresShareGrantsReload(t *testing.T) {
 	}
 	if got := open().ShareGrants("ses_1"); len(got) != 0 {
 		t.Fatalf("reload after remove: grants = %+v", got)
+	}
+}
+
+// TestPostgresKitSourceReload proves kit version provenance and the tracked
+// source survive a reload.
+func TestPostgresKitSourceReload(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1_000_000, 0).UTC()
+	vsrc := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: strings.Repeat("a", 40)}
+	if _, err := s.PushKitMeta("web", `{"kind":"studio"}`, jam.KitVersionMeta{PushedAt: at, Source: vsrc}); err != nil {
+		t.Fatal(err)
+	}
+	tracked := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main"}
+	if err := s.SetKitSource("web", tracked); err != nil {
+		t.Fatal(err)
+	}
+	k, ok := open().GetKit("web")
+	if !ok {
+		t.Fatal("kit missing after reload")
+	}
+	if got := k.Meta[1]; !got.PushedAt.Equal(at) || !reflect.DeepEqual(got.Source, vsrc) {
+		t.Fatalf("reload meta = %+v", got)
+	}
+	if !reflect.DeepEqual(k.Source, tracked) {
+		t.Fatalf("reload source = %+v", k.Source)
 	}
 }

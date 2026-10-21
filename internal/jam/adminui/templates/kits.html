@@ -11,6 +11,20 @@
     <div class="form-actions"><button type="submit" class="primary">Create kit</button></div>
   </form>
 </details>
+{{if .CanSource}}
+<details class="panel">
+  <summary>Import from git</summary>
+  <form hx-post="/ui/kits/import" hx-disabled-elt="find button[type=submit]" hx-target="#kits" hx-swap="outerHTML">
+    <div class="grid">
+      <label class="wide">Source <span class="req">required</span><span class="hint"><code>https://host/org/repo[//dir]@ref</code> — a kit.yml in the repo (or dir); imported as a new version</span>
+        <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/kits//web@main"></label>
+      <label>Kit name <span class="hint">optional — defaults to the kit's own name, then its directory's or repo's</span><input name="name" pattern="[A-Za-z0-9_.\-]*" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" name="track" checked> Track this source <span class="hint">later Syncs pull new commits from it</span></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="primary">Import</button></div>
+  </form>
+</details>
+{{end}}
 {{template "kits-table" .}}
 {{end}}
 
