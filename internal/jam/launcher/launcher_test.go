@@ -66,6 +66,19 @@ type fakeOps struct {
 	resolvedTarBase string // ResolveKitBaseTar returns this (default "blessed-tar-base")
 	resolvedTar     []byte // the context tar bytes ResolveKitBaseTar was streamed
 	resolveTarErr   error  // when set, ResolveKitBaseTar fails (gate-fail simulation)
+
+	// Chain stages: ResolveKitBaseTarOn records each call and, like the real
+	// backend, makes the stage present (hasBase) once its gate passes.
+	stages      []stageCall
+	stageErrAt  int // 1-based ResolveKitBaseTarOn call that fails (gate-fail); 0 = none
+	hasBase     map[string]bool
+	hasBaseAsks []string
+}
+
+// stageCall is one recorded ResolveKitBaseTarOn.
+type stageCall struct {
+	parent, stage string
+	tar           []byte
 }
 
 func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
@@ -101,6 +114,22 @@ func (f *fakeOps) ResolveKitBaseTar(ctx io.Reader) (string, error) {
 		return f.resolvedTarBase, nil
 	}
 	return "blessed-tar-base", nil
+}
+func (f *fakeOps) ResolveKitBaseTarOn(ctx io.Reader, parentRef, stageTag string) (string, error) {
+	b, _ := io.ReadAll(ctx)
+	f.stages = append(f.stages, stageCall{parent: parentRef, stage: stageTag, tar: b})
+	if f.stageErrAt == len(f.stages) {
+		return "", errors.New("base does not descend from any blessed cove-base-image")
+	}
+	if f.hasBase == nil {
+		f.hasBase = map[string]bool{}
+	}
+	f.hasBase[stageTag] = true
+	return stageTag, nil
+}
+func (f *fakeOps) HasKitBase(tag string) (bool, error) {
+	f.hasBaseAsks = append(f.hasBaseAsks, tag)
+	return f.hasBase[tag], nil
 }
 func (f *fakeOps) Dial(container string) (backend.Endpoint, func(), error) {
 	return backend.Endpoint{Host: "127.0.0.1", Port: 2222, User: "agent"}, func() {}, nil

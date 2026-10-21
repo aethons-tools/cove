@@ -269,6 +269,17 @@ func (c *Colima) ResolveKitBaseTar(ctx io.Reader) (string, error) {
 	return c.resolveBaseTar(ctx)
 }
 
+// ResolveKitBaseTarOn builds one kit-chain stage: the context tar streams to
+// `docker build -` FROM parentRef, is gated against the blessed refs, and only
+// then is tagged stageTag (per backend.KitImageBuilder).
+func (c *Colima) ResolveKitBaseTarOn(ctx io.Reader, parentRef, stageTag string) (string, error) {
+	return c.resolveBaseTarOn(ctx, parentRef, stageTag)
+}
+
+// HasKitBase reports whether a chain stage tag exists on the colima daemon; an
+// absent tag is a (false, nil) miss, as in HasKitImage.
+func (c *Colima) HasKitBase(tag string) (bool, error) { return c.HasKitImage(tag) }
+
 // HasKitImage reports whether the tagged image exists on the colima daemon.
 // `docker image inspect` exits non-zero when absent → (false, nil), the normal
 // miss that drives PrepareKit, never surfaced as an error. Context-pinned so it
