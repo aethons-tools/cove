@@ -172,6 +172,10 @@ type KitConfigResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Config  string `json:"config"`
+	// Source is where this version came from; nil = pushed from a local file.
+	Source *KitSource `json:"source,omitempty"`
+	// Tracking is the kit's tracked source (Commit = last synced); nil = untracked.
+	Tracking *KitSource `json:"tracking,omitempty"`
 }
 
 // PinBody is the POST /admin/kits/{name}/pin request.
@@ -785,11 +789,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit or version", http.StatusNotFound)
 			return
 		}
+		k, _ := store.GetKit(name)
 		if version == 0 {
-			k, _ := store.GetKit(name)
 			version = k.Current
 		}
-		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg})
+		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg,
+			Source: k.Meta[version].Source, Tracking: k.Source})
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := store.GetKit(r.PathValue("name"))

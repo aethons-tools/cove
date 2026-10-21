@@ -169,3 +169,20 @@ func TestKitHistoryOrder(t *testing.T) {
 		t.Fatalf("history order: %s", body)
 	}
 }
+
+func TestKitShowCarriesSources(t *testing.T) {
+	ts, _, _ := kitSourceAdmin(t)
+	if code, body := call(t, "PUT", ts.URL+"/admin/kits/web-dev/source", goodSrc); code != 200 {
+		t.Fatalf("track = %d %s", code, body)
+	}
+	code, body := call(t, "GET", ts.URL+"/admin/kits/web-dev", "")
+	if code != 200 || !strings.Contains(body, `"source":{"repo":"https://git.example.com/acme/kits"`) ||
+		!strings.Contains(body, `"tracking":{"repo":"https://git.example.com/acme/kits"`) {
+		t.Fatalf("show = %d %s", code, body)
+	}
+	call(t, "DELETE", ts.URL+"/admin/kits/web-dev/source", "")
+	_, body = call(t, "GET", ts.URL+"/admin/kits/web-dev", "")
+	if strings.Contains(body, `"tracking"`) || !strings.Contains(body, `"source"`) {
+		t.Fatalf("after untrack: %s", body)
+	}
+}

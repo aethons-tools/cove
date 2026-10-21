@@ -1,5 +1,5 @@
 ---
-summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
+summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm|import|track|untrack|sync`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
 read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, or giving a kit's sessions extra MCP servers.
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
@@ -129,9 +129,13 @@ at-jam kit push --name web --config -                       # read config from s
 at-jam kit list                                             # name  current=vN  versions=K
 at-jam kit show web                                         # current version's kit + ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
-at-jam kit versions web                                     # v1, v2, v3, …
+at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
 at-jam kit pin web 1                                        # roll current back to v1
 at-jam kit rm web                                           # remove the kit (all versions)
+at-jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
+at-jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
+at-jam kit sync web                                         # re-import from the tracked source
+at-jam kit untrack web                                      # stop tracking (versions are kept)
 ```
 
 - `kit push` **validates** the file as a StudioKit before sending it — a
