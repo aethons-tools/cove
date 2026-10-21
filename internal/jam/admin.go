@@ -804,6 +804,20 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		sort.Ints(vers)
 		writeJSON(w, http.StatusOK, vers)
 	})
+	mux.HandleFunc("GET /admin/kits/{name}/history", func(w http.ResponseWriter, r *http.Request) {
+		k, ok := store.GetKit(r.PathValue("name"))
+		if !ok {
+			http.Error(w, "no such kit", http.StatusNotFound)
+			return
+		}
+		out := make([]KitVersionInfo, 0, len(k.Versions))
+		for v := range k.Versions {
+			m := k.Meta[v]
+			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
 		var b PinBody
 		if !decode(w, r, &b) {
@@ -928,11 +942,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	return parent
 }
 
-// projectErrStatus maps a store error to its HTTP status: an unknown project is
-// 404, a duplicate or still-referenced one 409, anything else fallback.
+// projectErrStatus maps a store error to its HTTP status: an unknown project or
+// other record (ErrNotFound) is 404, a duplicate or still-referenced one 409, anything else fallback.
 func projectErrStatus(err error, fallback int) int {
 	switch {
-	case errors.Is(err, ErrProjectNotFound):
+	case errors.Is(err, ErrProjectNotFound), errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrProjectExists), errors.Is(err, ErrProjectInUse):
 		return http.StatusConflict

@@ -314,3 +314,14 @@ func isCommitID(ref string) bool {
 	}
 	return true
 }
+
+// ValidatePrefix checks a credential's URL prefix (a kits.git url): it ends in
+// "/" and, with a path appended, is a repo URL Parse would accept — https (http
+// only for loopback), a dotted DNS host or loopback, no userinfo, query or
+// fragment. Errors never echo the prefix.
+func ValidatePrefix(prefix string) error {
+	if !strings.HasSuffix(prefix, "/") {
+		return errors.New("prefix: must end with '/' (so it matches whole path segments)")
+	}
+	return Source{Repo: prefix + "x", Ref: "main"}.check()
+}

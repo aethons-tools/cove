@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -95,7 +96,9 @@ func importKit(ctx context.Context, store Store, f KitFetcher, name string, src 
 	err := f.Fetch(ctx, src, func(root, commit string) error {
 		sk, hint, err := gitsource.Load(root, src.Dir)
 		if err != nil {
-			return err
+			// The kit in the repo is unusable: the operator's input, not a
+			// fetch failure.
+			return writeErr(http.StatusBadRequest, "%s", err)
 		}
 		locked := name != ""
 		if name == "" {

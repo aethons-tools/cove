@@ -50,6 +50,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -1672,6 +1673,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateKits(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validatePreviews(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1820,6 +1825,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// nil when the ssh block is unset (SSH collaboration off); it signs the
 	// certs the collaboration routes (collabhttp) issue.
 	sshCA, err := resolveSSHCA(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	// The one long-lived git fetcher for kit sources (it serializes per repo);
+	// anonymous when no kits.git credential is configured.
+	kitFetcher, err := resolveKitFetcher(cfg, specs)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -2451,7 +2463,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
-			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log))
+			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
+			jam.WithKitFetcher(st, kitFetcher, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce
@@ -2689,6 +2702,24 @@ func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, err
 		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
 	}
 	return ca, nil
+}
+
+// resolveKitFetcher builds the one long-lived git fetcher for kit sources,
+// resolving each kits.git credential (in memory only). Always non-nil: with no
+// kits block it fetches anonymously. Errors name the credential, never its value.
+func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsource.Fetcher, error) {
+	f := &gitsource.Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
+	if cfg.Kits == nil {
+		return f, nil
+	}
+	for i, g := range cfg.Kits.Git {
+		v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[g.Cred]})
+		if err != nil {
+			return nil, fmt.Errorf("kits.git[%d].cred %q: %w", i, g.Cred, err)
+		}
+		f.Creds = append(f.Creds, gitsource.Cred{Prefix: g.URL, Name: g.Cred, Value: v[g.Cred]})
+	}
+	return f, nil
 }
 
 // validatePushedKit validates a studio-kit config before it is stored, so a
