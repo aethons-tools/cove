@@ -28,7 +28,8 @@ type Source struct {
 // the port/slash-ref rule — run before any component is validated. A pasted
 // credential can therefore reach an accepted Source only through text that
 // is a valid dotted-host repo URL as far as the text can tell (the accepted
-// residual: "https://ab.cd/x@gitserver/a/b" with a dotted token as the host).
+// residual: a dotted head — a token or a user name such as "john.doe" — read
+// as the host, as in "https://ab.cd/x@gitserver/a/b").
 func Parse(s string) (Source, error) {
 	if hasUnsafeChars(s) {
 		return Source{}, errors.New("source: spaces, quotes, control and non-printable characters are not allowed")

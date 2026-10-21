@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # Admin UI entity pages
@@ -184,9 +184,9 @@ dir, ref and the last synced commit (12 chars, linked on github.com and
 gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
 **Track…** form when the kit has none. The **Versions** table lists each
 version's push time, source and commit. The import, track, sync and untrack
-controls need the git fetcher (always present in `at-jam serve`) and follow the
-admin API's rules and errors ([kits.md](kits.md)); without one the page only
-shows provenance.
+controls need the git fetcher (always present in `at-jam serve`), disable
+their button while the fetch runs, and follow the admin API's rules and errors
+([kits-git.md](kits-git.md)); without one the page only shows provenance.
 
 **Push new version** is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals

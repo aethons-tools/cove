@@ -142,7 +142,7 @@
         </dl>
         {{if $.CanSource}}
         <div class="form-actions">
-          <button class="small primary" hx-post="/ui/kits/{{$name}}/sync" hx-target="#kit" hx-swap="outerHTML">Sync</button>
+          <button class="small primary" hx-post="/ui/kits/{{$name}}/sync" hx-disabled-elt="this" hx-target="#kit" hx-swap="outerHTML">Sync</button>
           <button class="small danger" hx-delete="/ui/kits/{{$name}}/source" hx-target="#kit" hx-swap="outerHTML"
             hx-confirm="Stop tracking the source of {{$name}}? Its versions are kept.">Untrack</button>
         </div>
@@ -154,7 +154,7 @@
       {{if and $.CanSource (not .Source)}}
       <details class="edit">
         <summary>Track…</summary>
-        <form hx-post="/ui/kits/{{$name}}/source" hx-target="#kit" hx-swap="outerHTML">
+        <form hx-post="/ui/kits/{{$name}}/source" hx-disabled-elt="find button[type=submit]" hx-target="#kit" hx-swap="outerHTML">
           <label>Source <span class="hint"><code>https://host/org/repo[//dir]@ref</code> — imports it as a new version of {{$name}} and tracks it for Sync</span>
             <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/kits//web@main"></label>
           <div class="form-actions"><button type="submit" class="primary">Track</button></div>

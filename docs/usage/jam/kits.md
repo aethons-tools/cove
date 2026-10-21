@@ -4,7 +4,7 @@ read_when: You are registering a kit in Jam, pushing a new version, rolling a ki
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-21
 ---
 
 # The kit registry
@@ -115,6 +115,8 @@ versions**, behind a mutable **current** pointer:
   *current*. Upgrades don't churn role bindings.
 - **pin** *current* to an older version to **roll back** (or forward); versions
   are never mutated or deleted.
+- Each version records its **provenance** — when it was pushed and, for one
+  imported from git, the repo, dir, ref and commit (`kit versions`, `kit show`).
 
 On `push` the YAML is **parsed and validated as a studio kit, then stored as
 canonical JSON**; `kit show` renders it **back as YAML** (the config rule of
@@ -142,6 +144,9 @@ at-jam kit untrack web                                      # stop tracking (ver
   malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
   full-kit row now fails `kit show`/resolution (see the [migration
   note](studio-kit-migration.md)).
+- `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
+  `<dir>/kit.yml` from the repo itself; the source syntax, sync rules,
+  credentials and errors are in [kits-git.md](kits-git.md).
 - `kit rm` is **fail-closed**: a kit that any role references can't be removed
   (the command reports the referencing role); `ungrant`/rebind the role first, or
   point the role at another kit.

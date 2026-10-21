@@ -154,8 +154,9 @@ func TestKitSourceNoFetcherNoButtons(t *testing.T) {
 	if strings.Contains(get(t, h, "/ui/kits").Body.String(), "/ui/kits/import") {
 		t.Error("no fetcher: no import form")
 	}
-	if rec := post(t, h, "/ui/kits/web-dev/sync", nil); rec.Code == http.StatusOK {
-		t.Errorf("sync without fetcher = %d", rec.Code)
+	// Without a fetcher the source routes are not mounted at all.
+	if rec := post(t, h, "/ui/kits/web-dev/sync", nil); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("sync without fetcher = %d, want 404 or 405", rec.Code)
 	}
 }
 
@@ -266,5 +267,27 @@ func TestKitSyncUnknownKit(t *testing.T) {
 	h, _ := sourceUI(t, f)
 	if rec := post(t, h, "/ui/kits/ghost/sync", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown kit sync = %d, want 404", rec.Code)
+	}
+}
+
+// TestKitSourceButtonsDisableInFlight: Sync, Track and Import start a git
+// fetch that can take a while, so each disables its button while the request
+// runs (no double submit). htmx reads hx-disabled-elt from the element that
+// issues the request: the Sync button itself, or the Track/Import form.
+func TestKitSourceButtonsDisableInFlight(t *testing.T) {
+	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
+	h, store := sourceUI(t, f)
+	trackedKit(t, store, f, "https://github.com/acme/kits")
+	if _, err := store.PushKit("plain", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	for page, want := range map[string]string{
+		"/ui/kits/web-dev": `hx-post="/ui/kits/web-dev/sync" hx-disabled-elt="this"`,
+		"/ui/kits/plain":   `hx-post="/ui/kits/plain/source" hx-disabled-elt="find button[type=submit]"`,
+		"/ui/kits":         `hx-post="/ui/kits/import" hx-disabled-elt="find button[type=submit]"`,
+	} {
+		if body := get(t, h, page).Body.String(); !strings.Contains(body, want) {
+			t.Errorf("%s: missing %q", page, want)
+		}
 	}
 }

@@ -14,7 +14,7 @@
 {{if .CanSource}}
 <details class="panel">
   <summary>Import from git</summary>
-  <form hx-post="/ui/kits/import" hx-target="#kits" hx-swap="outerHTML">
+  <form hx-post="/ui/kits/import" hx-disabled-elt="find button[type=submit]" hx-target="#kits" hx-swap="outerHTML">
     <div class="grid">
       <label class="wide">Source <span class="req">required</span><span class="hint"><code>https://host/org/repo[//dir]@ref</code> — a kit.yml in the repo (or dir); imported as a new version, not tracked</span>
         <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/kits//web@main"></label>

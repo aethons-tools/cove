@@ -4,7 +4,7 @@ read_when: You need what at-cove is, the kit format, the `at-cove` command surfa
 owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # at-cove — Project Overview
@@ -883,7 +883,8 @@ and `at-jam` (a standalone **host** credential-broker + control-plane service �
 `serve` runs a client-addressed-TLS reverse proxy that swaps an enrolled actor's
 identity token for Jam's real Anthropic/git credentials, plus a loopback admin
 API; `enroll`/`revoke`/`destination`/`model-spec`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are
-admin-API clients that manage actors, roles, grants, destinations, and kits at
+admin-API clients that manage actors, roles, grants, destinations, and kits (pushed from a file or
+imported and synced from git — [kits-git.md](usage/jam/kits-git.md)) at
 runtime against one live Postgres store — no restart (Jam is Postgres-only; `store-postgres` is required). An actor is granted
 roles within projects, a role owns the security scope (`destinations` and the credential injected for each, `ttl`)
 and, optionally, a named kit (resolved to that kit's current version); the broker

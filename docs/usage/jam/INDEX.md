@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
 # `at-jam` — operating the central service
@@ -46,6 +46,7 @@ five pillars), see the design history:
 | [projects.md](projects.md) | You are starting a new project on a Jam, a role/grant/roster/escalation write failed with "project not found", you want to delete a project, or you upgraded a Jam whose projects used to exist only as names. |
 | [roster.md](roster.md) | Deciding who can reach what: `role`/`grant`/`ungrant`/`actors` and `enroll`/`revoke` — the Actor→Role RBAC model in practice — and a role's raw egress (`egress set`/`show`/`clear`). |
 | [kits.md](kits.md) | Authoring or versioning a studio kit (base, egress, build-args, secrets, prompt, mcp-servers; the Anthropic-excluding egress ceiling): `kit push\|list\|show\|versions\|pin\|rm`, and binding one to a role with `role add --kit` (unset → `default`). |
+| [kits-git.md](kits-git.md) | You want a kit to come from a git repo (`kit import\|track\|sync\|untrack`), are writing a `<repo>[//dir]@<ref>` source, giving Jam a `kits.git` token for a private repo, wondering why a sync said `unchanged`, or an import/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded). |
 | [model-specs.md](model-specs.md) | You are authoring, changing or deleting a model-spec (how a cove runs its agent: harness, exact version pin + runtime constraint, plugins built into the image, principal credential, model, permission policy), binding a role to one, a model-spec write/delete was refused, or a cove failed its claude version check. |
 | [model-spec-harness.md](model-spec-harness.md) | You are changing a model-spec's version or plugins and want to know when coves get them, a plugin is missing or unexpectedly enabled in a cove, you need to know where a Claude setting (theme, remote control, permissions default) comes from, or Jam logged a model-spec migration warning after an upgrade. |
 | [model-spec-policy.md](model-spec-policy.md) | You are setting a model-spec's policy.mode / allow / deny, or a cove's agent was denied (or allowed) a tool and you need the claude flags it ran with. |
