@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -203,5 +204,76 @@ func TestBoardsHTTP(t *testing.T) {
 	}
 	if rec := do("POST", "/boards", `{"channel":"`+string(f.room.ID)+`","title":""}`, Poster{ID: f.alice.ID}, ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("no title = %d", rec.Code)
+	}
+}
+
+func TestBoardsAgentRoutes(t *testing.T) {
+	f := newSqFixture(t)
+	f.h.SetBoards(NewBoards(f.log, f.ic))
+	rec := f.do(http.MethodPost, "/squawks/boards", f.standing, `{"title":"Arch"}`)
+	var c struct {
+		BoardID string `json:"board_id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &c)
+	rec = f.do(http.MethodPost, "/squawks/boards/"+c.BoardID+"/apply", f.standing,
+		`{"ops":[{"op":"add","type":"rectangle","id":"api","x":0,"y":0,"text":"API"},{"op":"add","type":"rectangle","id":"db","x":300,"y":0,"text":"DB"},{"op":"add","type":"arrow","from":"api","to":"db"}]}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"added":["api","db",`) {
+		t.Fatalf("apply = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodPost, "/squawks/boards/"+c.BoardID+"/apply", f.standing, `{"ops":[{"op":"add","type":"arrow","from":"api","to":"nope"}]}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "nope") {
+		t.Fatalf("bad op = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/read", f.standing, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"from":"api","to":"db"`) || !strings.Contains(rec.Body.String(), `"text":"API"`) {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/snapshot.png", f.standing, "")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Body.Len() < 100 {
+		t.Fatalf("snapshot = %d %q %d", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
+	}
+	if rec := f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/snapshot.png", f.ticket, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("outsider snapshot = %d", rec.Code)
+	}
+}
+
+// Agent applies and human merges on one board serialize: no apply reports a
+// half-applied batch.
+func TestBoardsApplySerializedWithMerges(t *testing.T) {
+	f := newICFixture(t)
+	bs := NewBoards(f.log, f.ic)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := bs.Create(Poster{ID: f.alice.ID}, string(f.room.ID), "x", f.now)
+	if _, _, err := bs.Apply(f.alice.ID, b.ID, []BoardOp{{Op: "add", Type: "rectangle", ID: "s", X: fptr(0), Y: fptr(0)}}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := range 20 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _, err := bs.Apply(f.alice.ID, b.ID, []BoardOp{{Op: "update", ID: "s", X: fptr(float64(i))}})
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			els, _, _ := bs.Elements(f.alice.ID, b.ID, 0)
+			var m map[string]any
+			_ = json.Unmarshal(els[0], &m)
+			m["version"] = m["version"].(float64) + 1
+			d, _ := json.Marshal(m)
+			_, _, err := bs.Merge(f.alice.ID, b.ID, []json.RawMessage{d})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent write: %v", err)
+		}
 	}
 }

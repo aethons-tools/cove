@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/boardrender"
 )
 
 // Whiteboards (docs/usage/jam/whiteboards.md): a board lives in a channel and
@@ -23,13 +24,30 @@ type Boards struct {
 	lg intercom.Store
 	ic *Intercom
 
-	mu   sync.Mutex
-	subs map[chan ident.ID]bool
+	mu      sync.Mutex
+	subs    map[chan ident.ID]bool
+	renders map[string][]byte // PNG snapshots by board/seq/size
+	locks   map[ident.ID]*sync.Mutex
+	render  chan struct{} // bounds concurrent renders
+}
+
+// lock serializes writes to board id in this process: an agent's apply
+// (read, compute, merge) never interleaves with another write.
+func (b *Boards) lock(id ident.ID) func() {
+	b.mu.Lock()
+	l, ok := b.locks[id]
+	if !ok {
+		l = &sync.Mutex{}
+		b.locks[id] = l
+	}
+	b.mu.Unlock()
+	l.Lock()
+	return l.Unlock
 }
 
 // NewBoards returns boards over lg's store, with ic's access rules.
 func NewBoards(lg intercom.Store, ic *Intercom) *Boards {
-	return &Boards{lg: lg, ic: ic, subs: map[chan ident.ID]bool{}}
+	return &Boards{lg: lg, ic: ic, subs: map[chan ident.ID]bool{}, renders: map[string][]byte{}, locks: map[ident.ID]*sync.Mutex{}, render: make(chan struct{}, 2)}
 }
 
 // Create starts a board titled title and posts its card: a person names the
@@ -105,6 +123,15 @@ func (b *Boards) CanWrite(viewer, id ident.ID) (intercom.Board, bool) {
 func (b *Boards) Merge(viewer, id ident.ID, docs []json.RawMessage) (int64, []json.RawMessage, error) {
 	if _, ok := b.CanWrite(viewer, id); !ok {
 		return 0, nil, ErrSendDenied
+	}
+	defer b.lock(id)()
+	return b.merge(id, docs)
+}
+
+// merge merges docs into board id; the caller holds its lock.
+func (b *Boards) merge(id ident.ID, docs []json.RawMessage) (int64, []json.RawMessage, error) {
+	if len(docs) > intercom.MaxMergeBatch {
+		return 0, nil, fmt.Errorf("%w: over %d elements in one merge", intercom.ErrInvalid, intercom.MaxMergeBatch)
 	}
 	els := make([]intercom.Element, len(docs))
 	for i, d := range docs {
@@ -189,6 +216,9 @@ func (b *Boards) publish(id ident.ID) {
 		}
 	}
 }
+
+// ThumbSize is a board card thumbnail's longer side.
+const ThumbSize = 480
 
 // maxBoardRequest caps a board request body.
 const maxBoardRequest = 8 << 20
@@ -277,4 +307,99 @@ func boardError(w http.ResponseWriter, err error) bool {
 		http.Error(w, "board request failed", http.StatusInternalServerError)
 	}
 	return false
+}
+
+// allDocs is every element doc of board id, deleted ones included (an op
+// may need to see a tombstone's version).
+func (b *Boards) allDocs(id ident.ID) []json.RawMessage {
+	els, _ := b.lg.BoardElements(id, 0)
+	out := make([]json.RawMessage, len(els))
+	for i, e := range els {
+		out[i] = e.Doc
+	}
+	return out
+}
+
+// Read is board id's compact view for an agent, with its seq.
+func (b *Boards) Read(viewer, id ident.ID) ([]CompactElement, int64, error) {
+	if _, _, ok := b.CanRead(viewer, id); !ok {
+		return nil, 0, ErrSendDenied
+	}
+	els, seq := b.lg.BoardElements(id, 0)
+	docs := make([]json.RawMessage, len(els))
+	for i, e := range els {
+		docs[i] = e.Doc
+	}
+	return CompactBoard(docs), seq, nil
+}
+
+// Apply applies an agent's ops to board id atomically: the new seq and the
+// ids added. A bad op is intercom.ErrInvalid with its reason; nothing changes.
+func (b *Boards) Apply(viewer, id ident.ID, ops []BoardOp) (int64, []string, error) {
+	if _, ok := b.CanWrite(viewer, id); !ok {
+		return 0, nil, ErrSendDenied
+	}
+	defer b.lock(id)()
+	changed, added, err := ApplyBoardOps(b.allDocs(id), ops)
+	if err != nil {
+		return 0, nil, fmt.Errorf("%w: %v", intercom.ErrInvalid, err)
+	}
+	seq, lost, err := b.merge(id, changed)
+	if err == nil && len(lost) > 0 {
+		// Only another Jam process writing at once gets here: say so rather
+		// than report a half-applied batch as done.
+		return seq, added, fmt.Errorf("%w: the board changed while applying; read it and retry", intercom.ErrInvalid)
+	}
+	return seq, added, err
+}
+
+// Snapshot renders board id to PNG for viewer (longer side ≤ maxSide),
+// cached per (board, seq, size).
+func (b *Boards) Snapshot(viewer, id ident.ID, maxSide int) ([]byte, int64, error) {
+	if _, _, ok := b.CanRead(viewer, id); !ok {
+		return nil, 0, ErrSendDenied
+	}
+	els, seq := b.lg.BoardElements(id, 0)
+	key := fmt.Sprintf("%s/%d/%d", id, seq, maxSide)
+	b.mu.Lock()
+	if png, ok := b.renders[key]; ok {
+		b.mu.Unlock()
+		return png, seq, nil
+	}
+	b.mu.Unlock()
+	b.render <- struct{}{} // at most a couple of renders at once
+	defer func() { <-b.render }()
+	docs := make([]json.RawMessage, len(els))
+	for i, e := range els {
+		docs[i] = e.Doc
+	}
+	png, err := boardrender.Render(docs, nil, maxSide)
+	if err != nil {
+		return nil, 0, err
+	}
+	b.mu.Lock()
+	if len(b.renders) > 256 {
+		clear(b.renders) // a small cache: renders are cheap to redo
+	}
+	b.renders[key] = png
+	b.mu.Unlock()
+	return png, seq, nil
+}
+
+// ServeSnapshot writes the snapshot as image/png (?size= max side; default
+// the full size), 404 alike for missing and forbidden.
+func (b *Boards) ServeSnapshot(w http.ResponseWriter, r *http.Request, viewer, id ident.ID) {
+	// Two sizes only (a thumbnail, or full), so sizes can't dodge the cache.
+	size := boardrender.DefaultMaxSide
+	if s, _ := strconv.Atoi(r.URL.Query().Get("size")); s > 0 && s <= ThumbSize {
+		size = ThumbSize
+	}
+	png, seq, err := b.Snapshot(viewer, id, size)
+	if !boardError(w, err) {
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("X-Board-Seq", strconv.FormatInt(seq, 10))
+	w.Header().Set("Cache-Control", "private, no-cache")
+	_, _ = w.Write(png)
 }
