@@ -24,78 +24,79 @@ func EnsureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, err
 	return ref, err
 }
 
-// kitMu makes ensureStudioKit's compare-with-current and push one step.
+// kitMu makes a kit write's compare-with-current and push one step: an
+// ensureStudioKit push, a kit-set import, and the rm/pin guards.
 var kitMu sync.Mutex
 
 func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
-	return ensureKit(store, name, sk, nil, nil)
+	return ensureKit(store, name, sk)
 }
 
-// ensureStudioKitMeta is ensureStudioKit recording meta (provenance) on the new
-// version. An unchanged definition still reuses the current version and leaves
-// its provenance as it was. A non-nil track also becomes the kit's tracked
-// source: in the same write as the new version, or on its own when unchanged.
-func ensureStudioKitMeta(store Store, name string, sk studio.StudioKit, meta KitVersionMeta, track *KitSource) (KitRef, bool, error) {
-	return ensureKit(store, name, sk, &meta, track)
-}
-
-// ensureKit validates sk, resolves its parent chain and checks the merged kit
-// (prompt, notes), then, under kitMu, reuses the current version when its
-// canonical JSON is identical, else pushes a new one (with meta when non-nil).
-func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMeta, track *KitSource) (KitRef, bool, error) {
+// validateKit is the push-time check of sk as kit name, shared by a push and
+// a kit-set import: the name, the kit's own validity, no path parent (an
+// import rewrites those first), the canonical JSON, the parent chain resolved
+// from store, and the merged kit's prompt and notes budgets. It returns the
+// canonical JSON and the chain. Every failure is a 400 WriteError. The caller
+// holds kitMu, so a parent cannot move between the checks and the write.
+func validateKit(store Store, name string, sk studio.StudioKit) (string, []KitLink, error) {
 	if err := sk.CheckName(name); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := sk.Validate(); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if _, isPath := sk.Base.ParentPath(); isPath {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "path parents resolve only in a git import (kit import/track --git)")
+		return "", nil, writeErr(http.StatusBadRequest, "path parents resolve only in a git import (kit import/track --git)")
 	}
 	text, err := sk.ToJSON()
 	if err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())
 	}
-	kitMu.Lock()
-	defer kitMu.Unlock()
-	// Resolve the chain under kitMu so a parent cannot move between the checks
-	// and the push.
 	chain, err := ResolveKitChain(store, name, sk)
 	if err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	merged := studio.Merge(chainKits(chain))
 	if err := merged.CheckPrompt(); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := merged.CheckNotes(); err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	return string(text), chain, nil
+}
+
+// chainParent is the parent a kit version is resolved against: the
+// next-to-last link of its chain; nil for an unchained kit.
+func chainParent(chain []KitLink) *KitParentRef {
+	if len(chain) < 2 {
+		return nil
+	}
+	p := chain[len(chain)-2].Ref
+	return &KitParentRef{Name: p.ID, Version: p.Version}
+}
+
+// ensureKit, under kitMu, validates sk (validateKit), then reuses the current
+// version when its canonical JSON is identical, else pushes a new one
+// (recording the parent it was resolved against).
+func ensureKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	text, chain, err := validateKit(store, name, sk)
+	if err != nil {
+		return KitRef{}, false, err
 	}
 	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
 	if k, ok := store.GetKit(name); ok && k.Current != 0 {
-		if cur, ok := store.KitConfig(name, k.Current); ok && cur == string(text) {
-			if track != nil {
-				if err := store.SetKitSource(name, track); err != nil {
-					return KitRef{}, false, fmt.Errorf("studio kit %q: track: %w", name, err)
-				}
-			}
+		if cur, ok := store.KitConfig(name, k.Current); ok && cur == text {
 			return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
 		}
 	}
-	if len(chain) > 1 {
-		parent := chain[len(chain)-2].Ref
-		if meta == nil {
-			meta = &KitVersionMeta{PushedAt: time.Now().UTC()}
-		}
-		m := *meta
-		m.Parent = &KitParentRef{Name: parent.ID, Version: parent.Version}
-		meta = &m
-	}
 	var version int
-	if meta != nil {
-		version, err = store.PushKitTracked(name, string(text), *meta, track)
+	if parent := chainParent(chain); parent != nil {
+		version, err = store.PushKitMeta(name, text, KitVersionMeta{PushedAt: time.Now().UTC(), Parent: parent})
 	} else {
-		version, err = store.PushKit(name, string(text))
+		version, err = store.PushKit(name, text)
 	}
 	if err != nil {
 		return KitRef{}, false, fmt.Errorf("studio kit %q: push: %w", name, err)

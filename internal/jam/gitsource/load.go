@@ -3,6 +3,7 @@
 package gitsource
 
 import (
+	"errors"
 	"path"
 	"path/filepath"
 
@@ -37,6 +38,29 @@ func Load(root, dir string) (studio.StudioKit, string, error) {
 		return studio.StudioKit{}, "", err
 	}
 	return sk, nameHint(sk, dir), nil
+}
+
+// ErrOutsideCheckout is LoadDir's refusal of a dir that leaves the checkout.
+var ErrOutsideCheckout = errors.New("dir leaves the checkout")
+
+// ErrNoKitFile is LoadDir's refusal of a dir whose kit.yml cannot be read:
+// missing, resolving outside the checkout (alike, so no oracle) or unreadable.
+var ErrNoKitFile = errors.New("no kit.yml")
+
+// LoadDir is Load for a dir computed from a path parent reference rather
+// than taken from a validated Source: a dir that is not local after
+// path.Clean (absolute, or climbing out with "..") is ErrOutsideCheckout, and
+// a kit.yml that cannot be read is ErrNoKitFile. Load's jail then guards
+// symlinks inside dir. Other failures are Load's.
+func LoadDir(root, dir string) (studio.StudioKit, string, error) {
+	dir = path.Clean(dir)
+	if !filepath.IsLocal(filepath.FromSlash(dir)) {
+		return studio.StudioKit{}, "", ErrOutsideCheckout
+	}
+	if _, err := studio.ReadFileInRoot(root, filepath.Join(filepath.FromSlash(dir), KitFile)); err != nil {
+		return studio.StudioKit{}, "", ErrNoKitFile
+	}
+	return Load(root, dir)
 }
 
 func nameHint(sk studio.StudioKit, dir string) string {

@@ -1,6 +1,7 @@
 package gitsource
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,5 +124,19 @@ func TestLoadMissingKit(t *testing.T) {
 	_, _, err := Load(root, "nope")
 	if err == nil || strings.Contains(err.Error(), root) {
 		t.Fatalf("want a missing-kit error without the root path, got %v", err)
+	}
+}
+
+func TestLoadDir(t *testing.T) {
+	root := t.TempDir()
+	writeKit(t, root, "web", "name: web-dev\n")
+	os.MkdirAll(filepath.Join(root, "empty"), 0o755)
+	if _, hint, err := LoadDir(root, "app/../web"); err != nil || hint != "web-dev" {
+		t.Fatalf("hint %q err %v", hint, err)
+	}
+	for dir, want := range map[string]error{"..": ErrOutsideCheckout, "../x": ErrOutsideCheckout, "/web": ErrOutsideCheckout, "empty": ErrNoKitFile, "nope": ErrNoKitFile} {
+		if _, _, err := LoadDir(root, dir); !errors.Is(err, want) {
+			t.Errorf("%q: got %v, want %v", dir, err, want)
+		}
 	}
 }

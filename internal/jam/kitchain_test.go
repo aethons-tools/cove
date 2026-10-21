@@ -151,16 +151,6 @@ func TestEnsureKitRecordsParent(t *testing.T) {
 	if m := k.Meta[ref.Version]; m.Parent == nil || m.Parent.Version != 1 {
 		t.Fatalf("pinned meta = %+v", m)
 	}
-	// metadata passed by the caller keeps its fields
-	m := KitVersionMeta{Source: &KitSource{Repo: "r", Ref: "main"}}
-	ref, _, err := ensureStudioKitMeta(st, "c3", chainKit("p", ""), m, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	k, _ = st.GetKit("c3")
-	if got := k.Meta[ref.Version]; got.Parent == nil || got.Source == nil || got.Source.Repo != "r" {
-		t.Fatalf("meta = %+v", got)
-	}
 	// the child is not re-pushed when its parent moves
 	mustEnsure(t, st, "p", chainKit("", "c"))
 	if _, unchanged, err := ensureStudioKit(st, "c", chainKit("p", "")); err != nil || !unchanged {
