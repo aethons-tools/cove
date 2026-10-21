@@ -339,28 +339,28 @@ func mustConfig(t *testing.T, st Store, name string, version int) string {
 	return text
 }
 
-// Two sets naming the same two kits in opposite parent order, imported
-// concurrently: the locks are taken in sorted order, so neither deadlocks.
-func TestSetLocksSorted(t *testing.T) {
+// Two sets naming the same two kits in opposite parent order (a→z at ref x,
+// z→a at ref y), imported and tracked concurrently, by explicit and defaulted
+// name: each operation holds at most one kit lock, so none deadlocks.
+func TestSetCrossRefCycleNoDeadlock(t *testing.T) {
 	st := NewMemStore()
 	f := newFakeFetcher(t, map[string]string{"x": "cx", "y": "cy"}, map[string]map[string]string{
 		"cx": {"a/kit.yml": "kind: studio\nbase:\n  kit: ../z\n", "z/kit.yml": "kind: studio\n"},
 		"cy": {"z/kit.yml": "kind: studio\nbase:\n  kit: ../a\n", "a/kit.yml": "kind: studio\n"},
 	})
+	x := gitsource.Source{Repo: setRepo, Dir: "a", Ref: "x"}
+	y := gitsource.Source{Repo: setRepo, Dir: "z", Ref: "y"}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		var wg sync.WaitGroup
 		for i := range 20 {
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				_, _ = ImportKit(context.Background(), st, f, nil, "", gitsource.Source{Repo: setRepo, Dir: "a", Ref: "x"}, time.Unix(int64(i), 0))
-			}()
-			go func() {
-				defer wg.Done()
-				_, _ = ImportKit(context.Background(), st, f, nil, "", gitsource.Source{Repo: setRepo, Dir: "z", Ref: "y"}, time.Unix(int64(i), 0))
-			}()
+			now := time.Unix(int64(i), 0)
+			wg.Add(4)
+			go func() { defer wg.Done(); _, _ = ImportKit(context.Background(), st, f, nil, "", x, now) }()
+			go func() { defer wg.Done(); _, _ = ImportKit(context.Background(), st, f, nil, "", y, now) }()
+			go func() { defer wg.Done(); _, _ = TrackKit(context.Background(), st, f, nil, "a", x, now) }()
+			go func() { defer wg.Done(); _, _ = TrackKit(context.Background(), st, f, nil, "z", y, now) }()
 		}
 		wg.Wait()
 	}()
@@ -373,6 +373,80 @@ func TestSetLocksSorted(t *testing.T) {
 	defer kitLocks.mu.Unlock()
 	if len(kitLocks.m) != 0 {
 		t.Fatalf("leaked %d lock entries", len(kitLocks.m))
+	}
+}
+
+// gatedFetcher blocks a Fetch of commit gate inside its callback (after the
+// ref resolved) until release closes, signalling entered first.
+type gatedFetcher struct {
+	*fakeFetcher
+	gate             string
+	entered, release chan struct{}
+}
+
+func (g *gatedFetcher) Fetch(ctx context.Context, src gitsource.Source, fn func(root, commit string) error) error {
+	return g.fakeFetcher.Fetch(ctx, src, func(root, commit string) error {
+		if commit == g.gate {
+			close(g.entered)
+			<-g.release
+		}
+		return fn(root, commit)
+	})
+}
+
+// A sync held up fetching c2 while main moves to c3 must not land c2 over a
+// concurrent sync's c3.
+func TestSyncDoesNotRegress(t *testing.T) {
+	st, ff := trackedSet(t)
+	kit := func(p string) map[string]string {
+		return map[string]string{"web/kit.yml": webKit, "app/kit.yml": strings.Replace(appKit, "prompt: app", "prompt: "+p, 1)}
+	}
+	ff.commit("main", "c2", kit("two"))
+	f := &gatedFetcher{fakeFetcher: ff, gate: "c2", entered: make(chan struct{}), release: make(chan struct{})}
+	aDone, bDone := make(chan error, 1), make(chan error, 1)
+	go func() {
+		_, err := SyncKit(context.Background(), st, f, nil, "app", time.Unix(20, 0))
+		aDone <- err
+	}()
+	<-f.entered
+	ff.commit("main", "c3", kit("three"))
+	go func() {
+		_, err := SyncKit(context.Background(), st, f, nil, "app", time.Unix(21, 0))
+		bDone <- err
+	}()
+	// Give B the chance to finish first; with app locked across A's fetch it
+	// cannot, and waits.
+	var bErr error
+	bFinished := false
+	select {
+	case bErr = <-bDone:
+		bFinished = true
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(f.release)
+	if err := <-aDone; err != nil {
+		t.Fatal(err)
+	}
+	if !bFinished {
+		bErr = <-bDone
+	}
+	if bErr != nil {
+		t.Fatal(bErr)
+	}
+	k, _ := st.GetKit("app")
+	if cfg, _ := st.KitConfig("app", k.Current); !strings.Contains(cfg, "three") || k.Source.Commit != "c3" {
+		t.Fatalf("app current v%d = %s, tracked %s; want c3's content", k.Current, cfg, k.Source.Commit)
+	}
+	c3 := 0
+	for v, m := range k.Meta {
+		if m.Source != nil && m.Source.Commit == "c3" {
+			c3 = v
+		}
+	}
+	for v, m := range k.Meta {
+		if m.Source != nil && m.Source.Commit == "c2" && v > c3 {
+			t.Fatalf("c2 written as v%d after c3's v%d", v, c3)
+		}
 	}
 }
 

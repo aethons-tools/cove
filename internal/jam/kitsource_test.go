@@ -308,6 +308,11 @@ func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
 	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
 		t.Fatalf("versions=%d, want 2", len(k.Versions))
 	}
+	// One fetch for the track, one for the first sync: the rest wait on the
+	// kit lock, then see the commit is current.
+	if f.fetches != 2 {
+		t.Fatalf("fetches=%d, want 2", f.fetches)
+	}
 }
 
 // An untracked import of the tracked source moves the tracked commit with it, so

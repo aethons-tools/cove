@@ -247,26 +247,6 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 	return docs
 }
 
-// lockKits takes the kit locks of every kit in set, in sorted name order (so
-// two overlapping sets cannot deadlock), and returns their release.
-func lockKits(set []kitSetEntry) func() {
-	names := make([]string, 0, len(set))
-	for _, e := range set {
-		names = append(names, e.Name)
-	}
-	slices.Sort(names)
-	names = slices.Compact(names)
-	unlocks := make([]func(), len(names))
-	for i, n := range names {
-		unlocks[i] = lockKit(n)
-	}
-	return func() {
-		for i := len(unlocks) - 1; i >= 0; i-- {
-			unlocks[i]()
-		}
-	}
-}
-
 // kitSetResult reports a planned set: the top kit, with its ancestors in Also,
 // root first.
 func kitSetResult(entries []kitSetEntry, commit string) KitSourceResult {

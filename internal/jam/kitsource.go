@@ -35,10 +35,13 @@ type KitSourceResult struct {
 var ErrNotTracked = errors.New("kit has no tracked source (use kit track)")
 
 // kitLocks serializes the git-sourced operations on one kit name, so
-// concurrent imports, tracks and syncs of a kit cannot interleave. A set
-// import takes the locks of all its kits, in sorted order (lockKits), once the
-// fetched checkout has named them. Entries are refcounted and dropped when
-// unused.
+// concurrent imports, tracks and syncs of a kit cannot interleave (or regress
+// its content), and a sync waiting behind another sees its commit and skips
+// the fetch. An operation holds at most one kit lock — its top kit's, taken
+// before the fetch when the name is known, else just after it — and always
+// before kitMu; nothing waits on a kit lock while holding kitMu. A set's path
+// ancestors take no kit lock: kitMu covers their resolve and write. Entries
+// are refcounted and dropped when unused.
 var kitLocks struct {
 	mu sync.Mutex
 	m  map[string]*kitLock
@@ -81,6 +84,9 @@ func lockKit(name string) func() {
 // as one kit set: see planKitSet. Any failure leaves the store untouched. log
 // may be nil.
 func ImportKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger, name string, src gitsource.Source, now time.Time) (KitSourceResult, error) {
+	if name != "" {
+		defer lockKit(name)()
+	}
 	res, err := importKit(ctx, store, f, name, src, now, false)
 	if err != nil {
 		return KitSourceResult{}, err
@@ -90,9 +96,15 @@ func ImportKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger,
 }
 
 // importKit fetches src and records its kit set (the kit and its path
-// parents): it plans the set from the checkout, takes every kit's lock in
-// sorted order, then under kitMu re-plans against the store as it now is and
-// writes every changed doc in one PutKitDocs. With track, src (each kit at its
+// parents): it plans the set from the checkout, then under kitMu resolves it
+// against the store as it now is and writes every changed doc in one
+// PutKitDocs. The caller holds the top kit's lock when name is set; a
+// defaulted name is locked here, once the checkout names it.
+//
+// Accepted residual: only the top kit is locked across the fetch, so a sync
+// of app (whose set includes web-dev) and a sync of web-dev fetching
+// different commits can leave web-dev at the older commit's content until
+// its next sync. With track, src (each kit at its
 // own dir) at the fetched commit also becomes every kit's tracked source; the
 // same happens for a kit that already tracks exactly that source.
 func importKit(ctx context.Context, store Store, f KitFetcher, name string, src gitsource.Source, now time.Time, track bool) (KitSourceResult, error) {
@@ -102,7 +114,9 @@ func importKit(ctx context.Context, store Store, f KitFetcher, name string, src 
 		if err != nil {
 			return err
 		}
-		defer lockKits(set)()
+		if name == "" {
+			defer lockKit(set[len(set)-1].Name)() // a defaulted name is only known now
+		}
 		kitMu.Lock()
 		defer kitMu.Unlock()
 		entries, err := resolveKitSet(store, set, src.Repo)
@@ -156,6 +170,9 @@ func repoBase(repo string) string {
 // SyncKit can follow them. The new versions and the tracked sources are
 // written together.
 func TrackKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger, name string, src gitsource.Source, now time.Time) (KitSourceResult, error) {
+	if name != "" {
+		defer lockKit(name)()
+	}
 	res, err := importKit(ctx, store, f, name, src, now, true)
 	if err != nil {
 		return KitSourceResult{}, err
@@ -168,6 +185,8 @@ func TrackKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger, 
 // kit wraps ErrNotFound.
 func UntrackKit(store Store, log *slog.Logger, name string) error {
 	defer lockKit(name)()
+	kitMu.Lock()
+	defer kitMu.Unlock()
 	if err := store.SetKitSource(name, nil); err != nil {
 		return err
 	}
@@ -183,9 +202,10 @@ func UntrackKit(store Store, log *slog.Logger, name string) error {
 // Otherwise the whole kit set is re-imported at the new commit, tracked
 // (identical content reuses each kit's current version) and every tracked
 // commit advances, written together with any new versions. Any failure leaves
-// every kit as it was. The kit locks are taken by the import, once the
-// checkout names the set; the fast path only reads.
+// every kit as it was. name's lock is held throughout, so a sync waiting
+// behind another sees its commit and does not fetch again.
 func SyncKit(ctx context.Context, store Store, f KitFetcher, log *slog.Logger, name string, now time.Time) (KitSourceResult, error) {
+	defer lockKit(name)()
 	k, ok := store.GetKit(name)
 	if !ok {
 		return KitSourceResult{}, fmt.Errorf("kit %q: %w", name, ErrNotFound)
