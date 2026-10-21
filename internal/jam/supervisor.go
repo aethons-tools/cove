@@ -545,7 +545,18 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 	if err != nil || !have {
 		return KitRef{}, false, err
 	}
-	key := kitRefKey{ref: src.ref, config: src.config, chain: chainCacheKey(s.store, src.config), harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
+	chain := chainCacheKey(s.store, src.config)
+	if chain == chainUnresolved {
+		// Never touch the cache for a broken chain: resolve fresh, which fails
+		// with the real error (or, if the chain healed meanwhile, succeeds
+		// without storing under a key that could outlive the next break).
+		def, err := src.definition(s.store, h)
+		if err != nil {
+			return KitRef{}, false, err
+		}
+		return def.Ref, true, nil
+	}
+	key := kitRefKey{ref: src.ref, config: src.config, chain: chain, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
 	if ref, ok := s.kitRefs.get(key); ok {
 		return ref, true, nil
 	}

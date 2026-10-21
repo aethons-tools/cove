@@ -2,6 +2,7 @@ package jam
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,5 +76,79 @@ func TestParentPromptOnlyChangeStaysOK(t *testing.T) {
 	mustEnsure(t, store, "base", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}, Prompt: "changed"})
 	if s := summaryImage(t, store, sup, "follow"); s != "ok" {
 		t.Fatalf("after prompt-only parent push = %q, want ok", s)
+	}
+}
+
+func chainRole(t *testing.T, store Store, role, kitName string) {
+	t.Helper()
+	if err := store.PutRole("default", Role{Name: role, Kit: kitName, Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParentRemovedSurfacesErrorNotCachedTag(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
+	sup, store, _ := supTestKit(t, fl)
+	mustEnsure(t, store, "base", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}})
+	child := studio.StudioKit{Kind: studio.Kind}
+	child.Base.Kit = "base"
+	mustEnsure(t, store, "follower", child)
+	chainRole(t, store, "follow", "follower")
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "follow", Project: "default", Role: "follow"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sup.CurrentImage("default", "follow"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveKit("base"); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := sup.CurrentImage("default", "follow")
+	if err == nil || !strings.Contains(err.Error(), "kit base (parent of follower) is missing") || cur.Tag != "" {
+		t.Fatalf("CurrentImage = %+v, %v; want the missing-parent error and no tag", cur, err)
+	}
+	if s := summaryImage(t, store, sup, "follow"); s != "unknown" {
+		t.Fatalf("status = %q, want unknown", s)
+	}
+}
+
+func TestChainedCurrentImageIsCached(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
+	sup, store, _ := supTestKit(t, fl)
+	mustEnsure(t, store, "base", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}})
+	child := studio.StudioKit{Kind: studio.Kind}
+	child.Base.Kit = "base"
+	mustEnsure(t, store, "follower", child)
+	chainRole(t, store, "follow", "follower")
+	for range 3 {
+		if _, err := sup.CurrentImage("default", "follow"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := sup.kitRefs.misses; n != 1 {
+		t.Fatalf("misses = %d over 3 polls, want 1", n)
+	}
+}
+
+func TestGrandparentChangeMarksGrandchildStale(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
+	sup, store, _ := supTestKit(t, fl)
+	mustEnsure(t, store, "root", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com"}})
+	mid := studio.StudioKit{Kind: studio.Kind}
+	mid.Base.Kit = "root"
+	mustEnsure(t, store, "mid", mid)
+	leaf := studio.StudioKit{Kind: studio.Kind, Egress: []string{"a.example"}}
+	leaf.Base.Kit = "mid"
+	mustEnsure(t, store, "leaf", leaf)
+	chainRole(t, store, "follow", "leaf")
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "follow", Project: "default", Role: "follow"}); err != nil {
+		t.Fatal(err)
+	}
+	if s := summaryImage(t, store, sup, "follow"); s != "ok" {
+		t.Fatalf("fresh = %q", s)
+	}
+	mustEnsure(t, store, "root", studio.StudioKit{Kind: studio.Kind, Egress: []string{"github.com", "new.example"}})
+	if s := summaryImage(t, store, sup, "follow"); s != "stale" {
+		t.Fatalf("after grandparent push = %q, want stale", s)
 	}
 }

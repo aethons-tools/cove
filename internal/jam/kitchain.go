@@ -153,40 +153,43 @@ func chainRefs(chain []KitLink) []KitRef {
 	return out
 }
 
+// chainUnresolved is chainCacheKey's "cannot fingerprint" marker.
+const chainUnresolved = "!"
+
 // chainCacheKey is a cheap fingerprint of the parents a kit config resolves
 // to right now: each parent's id@version (a following parent at its current
 // version) and a hash of its stored config, root last. "" for an unchained
 // kit. It parses configs only to read their base reference — no merge, no
 // build digest — so the current-image cache can key on it per poll. A chain
-// that does not resolve returns a marker no healthy chain produces, so the
-// caller misses the cache and the full resolution reports the real error.
+// that does not resolve returns chainUnresolved: the caller must bypass the
+// cache entirely (no get, no put) and let the full resolution report the error.
 func chainCacheKey(store Store, config string) string {
 	sk, err := studio.ParseStudioKit([]byte(config))
 	if err != nil {
-		return "!"
+		return chainUnresolved
 	}
 	var b strings.Builder
 	for depth := 1; sk.Base.HasParent(); depth++ {
 		name, pin, err := sk.Base.ParentRef()
 		if err != nil || depth >= MaxKitChain {
-			return "!"
+			return chainUnresolved
 		}
 		version := pin
 		if version == 0 {
 			k, ok := store.GetKit(name)
 			if !ok {
-				return "!"
+				return chainUnresolved
 			}
 			version = k.Current
 		}
 		text, ok := store.KitConfig(name, version)
 		if !ok {
-			return "!"
+			return chainUnresolved
 		}
 		sum := sha256.Sum256([]byte(text))
 		fmt.Fprintf(&b, "%s@v%d:%x;", name, version, sum[:8])
 		if sk, err = studio.ParseStudioKit([]byte(text)); err != nil {
-			return "!"
+			return chainUnresolved
 		}
 	}
 	return b.String()
