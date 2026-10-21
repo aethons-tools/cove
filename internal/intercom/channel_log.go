@@ -69,6 +69,14 @@ type Store interface {
 	GetBlob(id ident.ID) (Blob, bool)
 	PendingBlobsBefore(t time.Time) []Blob
 	DeleteBlob(id ident.ID) error
+	// Whiteboards: MergeElements applies the merge rule (Wins) per element
+	// in one step, stamping the accepted ones with the board's next seq; lost
+	// are the stored winners of the incoming elements that lost.
+	CreateBoard(b Board) error
+	GetBoard(id ident.ID) (Board, bool)
+	ListBoards(channel ident.ID) []Board
+	MergeElements(board ident.ID, els []Element) (seq int64, lost []Element, err error)
+	BoardElements(board ident.ID, since int64) ([]Element, int64)
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk
 	InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk

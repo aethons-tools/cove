@@ -480,3 +480,136 @@ func (s *Store) DeleteBlob(id ident.ID) error {
 	}
 	return nil
 }
+
+func (s *Store) CreateBoard(b intercom.Board) error {
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO boards (id, channel_id, title, created_by, created_at) VALUES ($1,$2,$3,$4,$5)`,
+		b.ID, b.Channel, b.Title, b.CreatedBy, b.Created)
+	if err != nil {
+		return fmt.Errorf("intercompg: create board: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) boards(where string, arg any) []intercom.Board {
+	rows, err := s.pool.Query(context.Background(), `SELECT id, channel_id, title, created_by, created_at, seq FROM boards `+where+` ORDER BY created_at, id`, arg)
+	if err != nil {
+		s.log.Error("intercompg: boards", "error", err.Error())
+		return nil
+	}
+	defer rows.Close()
+	var out []intercom.Board
+	for rows.Next() {
+		var b intercom.Board
+		var id, ch, by string
+		if err := rows.Scan(&id, &ch, &b.Title, &by, &b.Created, &b.Seq); err != nil {
+			s.log.Error("intercompg: boards scan", "error", err.Error())
+			return nil
+		}
+		b.ID, b.Channel, b.CreatedBy = ident.ID(id), ident.ID(ch), ident.ID(by)
+		out = append(out, b)
+	}
+	return out
+}
+
+func (s *Store) GetBoard(id ident.ID) (intercom.Board, bool) {
+	l := s.boards(`WHERE id = $1`, string(id))
+	if len(l) != 1 {
+		return intercom.Board{}, false
+	}
+	return l[0], true
+}
+
+func (s *Store) ListBoards(channel ident.ID) []intercom.Board {
+	return s.boards(`WHERE channel_id = $1`, string(channel))
+}
+
+// MergeElements applies the merge rule per element in one transaction: the
+// board row is locked (serializing merges into it), each element's stored
+// row compared, the winners written with the board's next seq.
+func (s *Store) MergeElements(board ident.ID, els []intercom.Element) (int64, []intercom.Element, error) {
+	if len(els) > intercom.MaxMergeBatch {
+		return 0, nil, fmt.Errorf("%w: over %d elements in one merge", intercom.ErrInvalid, intercom.MaxMergeBatch)
+	}
+	ctx := context.Background()
+	var seq int64
+	var lost []intercom.Element
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT seq FROM boards WHERE id = $1 FOR UPDATE`, board).Scan(&seq); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return intercom.ErrNoBoard
+			}
+			return err
+		}
+		next, accepted := seq+1, false
+		for _, e := range els {
+			var cur intercom.Element
+			err := tx.QueryRow(ctx, `SELECT version, version_nonce, deleted, seq, doc FROM board_elements WHERE board_id = $1 AND element_id = $2`, board, e.ID).
+				Scan(&cur.Version, &cur.Nonce, &cur.Deleted, &cur.Seq, &cur.Doc)
+			switch {
+			case err == nil:
+				cur.ID = e.ID
+				if !intercom.Wins(e, cur) {
+					lost = append(lost, cur)
+					continue
+				}
+			case !errors.Is(err, pgx.ErrNoRows):
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO board_elements (board_id, element_id, version, version_nonce, deleted, seq, doc)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)
+				ON CONFLICT (board_id, element_id) DO UPDATE SET version = EXCLUDED.version, version_nonce = EXCLUDED.version_nonce,
+					deleted = EXCLUDED.deleted, seq = EXCLUDED.seq, doc = EXCLUDED.doc`,
+				board, e.ID, e.Version, e.Nonce, e.Deleted, next, []byte(e.Doc)); err != nil {
+				return err
+			}
+			accepted = true
+		}
+		if accepted {
+			seq = next
+			_, err := tx.Exec(ctx, `UPDATE boards SET seq = $2 WHERE id = $1`, board, seq)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, intercom.ErrNoBoard) {
+			return 0, nil, err
+		}
+		return 0, nil, fmt.Errorf("intercompg: merge elements: %w", err)
+	}
+	return seq, lost, nil
+}
+
+func (s *Store) BoardElements(board ident.ID, since int64) ([]intercom.Element, int64) {
+	ctx := context.Background()
+	var seq int64
+	var out []intercom.Element
+	// One snapshot for the elements and the seq, so the seq returned covers
+	// exactly what was read.
+	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT seq FROM boards WHERE id = $1`, board).Scan(&seq); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT element_id, version, version_nonce, deleted, seq, doc FROM board_elements WHERE board_id = $1 AND seq > $2 ORDER BY element_id`, board, since)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e intercom.Element
+			if err := rows.Scan(&e.ID, &e.Version, &e.Nonce, &e.Deleted, &e.Seq, &e.Doc); err != nil {
+				return err
+			}
+			out = append(out, e)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			s.log.Error("intercompg: board elements", "board", string(board), "error", err.Error())
+		}
+		return nil, 0
+	}
+	return out, seq
+}

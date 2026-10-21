@@ -1,6 +1,8 @@
 package intercomtest
 
 import (
+	"sync"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
@@ -196,6 +198,7 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 	})
 	t.Run("asks", func(t *testing.T) { RunAskConformance(t, newLog) })
 	t.Run("blobs", func(t *testing.T) { RunBlobConformance(t, newLog) })
+	t.Run("boards", func(t *testing.T) { RunBoardConformance(t, newLog) })
 }
 
 // RunAskConformance exercises the asks read-model (intercom structured asks):
@@ -390,6 +393,95 @@ func RunBlobConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixt
 		}
 		if _, ok := s.GetBlob(old.ID); ok {
 			t.Fatal("deleted blob still there")
+		}
+	})
+}
+
+// RunBoardConformance exercises boards and the per-element merge.
+func RunBoardConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture) {
+	doc := func(id string, version, nonce int64) intercom.Element {
+		b, _ := json.Marshal(map[string]any{"id": id, "type": "rectangle", "version": version, "versionNonce": nonce})
+		e, err := intercom.ElementOf(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	newBoard := func(t *testing.T, s intercom.Store) intercom.Board {
+		t.Helper()
+		b := intercom.Board{ID: ident.New(ident.Board), Channel: chA, CreatedBy: alice, Title: "arch", Created: time.Unix(1_000, 0).UTC()}
+		if err := s.CreateBoard(b); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	t.Run("create_list", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := newBoard(t, s)
+		if got, ok := s.GetBoard(b.ID); !ok || got.Title != "arch" || got.Seq != 0 {
+			t.Fatalf("GetBoard = %+v, %v", got, ok)
+		}
+		if l := s.ListBoards(chA); len(l) != 1 || l[0].ID != b.ID {
+			t.Fatalf("ListBoards = %+v", l)
+		}
+		if l := s.ListBoards(chB); len(l) != 0 {
+			t.Fatalf("other channel = %+v", l)
+		}
+	})
+
+	t.Run("merge_rules_and_deltas", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := newBoard(t, s)
+		seq, lost, err := s.MergeElements(b.ID, []intercom.Element{doc("r1", 1, 5), doc("r2", 1, 5)})
+		if err != nil || seq != 1 || len(lost) != 0 {
+			t.Fatalf("first merge = %d %v %v", seq, lost, err)
+		}
+		// r1: an older version loses and the stored winner comes back; r2: equal
+		// version, lower nonce wins.
+		seq, lost, err = s.MergeElements(b.ID, []intercom.Element{doc("r1", 0, 1), doc("r2", 1, 2)})
+		if err != nil || seq != 2 || len(lost) != 1 || lost[0].ID != "r1" || lost[0].Version != 1 {
+			t.Fatalf("second merge = %d %+v %v", seq, lost, err)
+		}
+		els, cur := s.BoardElements(b.ID, 1)
+		if cur != 2 || len(els) != 1 || els[0].ID != "r2" || els[0].Nonce != 2 {
+			t.Fatalf("since 1 = %+v @%d", els, cur)
+		}
+		if all, _ := s.BoardElements(b.ID, 0); len(all) != 2 {
+			t.Fatalf("all = %+v", all)
+		}
+		// A merge where everything loses changes nothing and keeps the seq.
+		if seq, _, _ := s.MergeElements(b.ID, []intercom.Element{doc("r1", 1, 5)}); seq != 2 {
+			t.Fatalf("no-op merge seq = %d", seq)
+		}
+		if _, _, err := s.MergeElements(ident.New(ident.Board), []intercom.Element{doc("x", 1, 1)}); err == nil {
+			t.Fatal("merge into no board")
+		}
+		big := make([]intercom.Element, 501)
+		for i := range big {
+			big[i] = doc(string(rune('a'+i%26))+string(rune('0'+i/26)), 1, 1)
+		}
+		if _, _, err := s.MergeElements(b.ID, big); !errors.Is(err, intercom.ErrInvalid) {
+			t.Fatalf("501 elements: %v", err)
+		}
+	})
+
+	t.Run("concurrent_merges_converge", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := newBoard(t, s)
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _, _ = s.MergeElements(b.ID, []intercom.Element{doc("r", int64(1+i%3), int64(100-i))})
+			}()
+		}
+		wg.Wait()
+		els, _ := s.BoardElements(b.ID, 0)
+		// The winner by the rule: the highest version (3: i=2,5), then the lowest nonce (i=5 → 95).
+		if len(els) != 1 || els[0].Version != 3 || els[0].Nonce != 95 {
+			t.Fatalf("converged on %+v", els)
 		}
 	})
 }
