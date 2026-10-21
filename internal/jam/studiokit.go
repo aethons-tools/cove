@@ -27,6 +27,19 @@ func EnsureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, err
 var kitMu sync.Mutex
 
 func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
+	return ensureKit(store, name, sk, nil)
+}
+
+// ensureStudioKitMeta is ensureStudioKit recording meta (provenance) on the new
+// version. An unchanged definition still reuses the current version and leaves
+// its provenance as it was.
+func ensureStudioKitMeta(store Store, name string, sk studio.StudioKit, meta KitVersionMeta) (KitRef, bool, error) {
+	return ensureKit(store, name, sk, &meta)
+}
+
+// ensureKit validates sk and, under kitMu, reuses the current version when its
+// canonical JSON is identical, else pushes a new one (with meta when non-nil).
+func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMeta) (KitRef, bool, error) {
 	if err := sk.CheckName(name); err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
@@ -51,7 +64,12 @@ func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, boo
 			return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
 		}
 	}
-	version, err := store.PushKit(name, string(text))
+	var version int
+	if meta != nil {
+		version, err = store.PushKitMeta(name, string(text), *meta)
+	} else {
+		version, err = store.PushKit(name, string(text))
+	}
 	if err != nil {
 		return KitRef{}, false, fmt.Errorf("studio kit %q: push: %w", name, err)
 	}

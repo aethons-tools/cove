@@ -97,7 +97,7 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 	}
 
 	for _, k := range m.kits {
-		snap.Kits = append(snap.Kits, k)
+		snap.Kits = append(snap.Kits, copyKit(k))
 	}
 	sort.Slice(snap.Kits, func(i, j int) bool { return snap.Kits[i].Name < snap.Kits[j].Name })
 
@@ -408,7 +408,7 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	}
 	m.kits = map[string]Kit{}
 	for _, k := range s.Kits {
-		m.kits[k.Name] = k
+		m.kits[k.Name] = copyKit(k)
 	}
 	m.dests = map[string]Destination{}
 	for _, d := range s.Destinations {
