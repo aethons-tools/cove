@@ -123,9 +123,9 @@ itself follows *its* parent, changes further up still reach the child. A
 prompt-only or notes-only change upstream never makes a child stale.
 
 A studio records the chain it was raised from (each link's id and version). Its
-refreshed session context reports the running image's tools and egress, read
-from that recorded chain, while its prompt and notes come from the current
-chain ([session-context.md](session-context.md#refresh)).
+[refreshed session context](session-context.md#refresh) reports the running
+image's tools and egress, read from that recorded chain, while its prompt and
+notes come from the current chain.
 
 ## Guards
 
@@ -143,7 +143,9 @@ chain ([session-context.md](session-context.md#refresh)).
 - **`kit show <name>`** prints the **effective** (merged) kit, with a header
   `# built on: default@v1 → web-dev (follows, now v5; pushed against v3)`. The
   direct parent is shown with how it's tracked; a pinned one reads
-  `web-dev@v3 (pinned)`. `--own` prints only the kit's own stored YAML. A chain
+  `web-dev@v3 (pinned)`. A chained kit's effective output carries the comment
+  `# effective view (base.kit flattened); use --own to edit and re-push`.
+  `--own` prints only the kit's own stored YAML. A chain
   that doesn't resolve prints `# chain error: …` and falls back to the kit's own
   YAML.
 - **`kit list`** adds `parent=<name>[@vN]` to a chained kit's row.

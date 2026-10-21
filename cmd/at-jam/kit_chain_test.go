@@ -51,7 +51,7 @@ func TestKitShowChainedEffective(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%s", code, errb)
 	}
-	want := "# source: local\n# built on: default@v1 → web-dev (follows, now v5; pushed against v3)\nkind: studio\n"
+	want := "# source: local\n# built on: default@v1 → web-dev (follows, now v5; pushed against v3)\n# effective view (base.kit flattened); use --own to edit and re-push\nkind: studio\n"
 	if !strings.HasPrefix(out, want) || !strings.Contains(out, "prompt: merged prompt") {
 		t.Errorf("show:\n%s", out)
 	}
@@ -71,7 +71,7 @@ func TestKitShowOwn(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, errb)
 	}
 	if !strings.HasPrefix(out, "# source: local\n# built on: default@v1 → web-dev (follows, now v5; pushed against v3)\nkind: studio\nbase:\n    kit: web-dev\n") ||
-		!strings.Contains(out, "prompt: own prompt") || strings.Contains(out, "merged prompt") {
+		!strings.Contains(out, "prompt: own prompt") || strings.Contains(out, "merged prompt") || strings.Contains(out, "effective view") {
 		t.Errorf("show --own:\n%s", out)
 	}
 }

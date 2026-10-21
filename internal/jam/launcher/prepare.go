@@ -75,7 +75,13 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 // and hardening layers are applied exactly once, on top of the whole chain.
 func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
 	if len(def.Chain) <= 1 {
-		return l.resolveOwnBase(def.Kit.Base)
+		// Guard on the chain's own link, not def.Kit.Base: Merge clears
+		// Base.Kit, so the merged kit cannot show a named parent.
+		own := def.Kit.Base
+		if len(def.Chain) == 1 {
+			own = def.Chain[0].Kit.Base
+		}
+		return l.resolveOwnBase(own)
 	}
 	root := def.Chain[0]
 	ref, err := l.resolveOwnBase(root.Kit.Base)
@@ -119,7 +125,7 @@ func (l *Launcher) resolveOwnBase(b studio.Base) (string, error) {
 
 // resolveChainStage resolves one non-root chain link on parentRef (the previous
 // stage). A link with no own context is the parent's stage as-is. Otherwise its
-// stage is cached under kitStageTag(parentRef, base): a present stage tag was
+// stage is cached under kitStageTag(l.asm, parentRef, base): a present stage tag was
 // applied only after that stage's gate passed, so it is reused; a missing one
 // is built by streaming the link's scanned context FROM parentRef, gated
 // against the blessed base, and tagged. The stage lock keeps two concurrent
@@ -140,7 +146,7 @@ func (l *Launcher) resolveChainStage(link jam.KitLink, parentRef string) (string
 	default:
 		return "", fmt.Errorf("unsupported base for a chain link")
 	}
-	stage, err := kitStageTag(parentRef, b)
+	stage, err := kitStageTag(l.asm, parentRef, b)
 	if err != nil {
 		return "", err
 	}
@@ -171,18 +177,23 @@ func scannedContextTar(b studio.Base) ([]byte, error) {
 }
 
 // kitStageTag is the local tag a chain stage is cached under:
-// cove-kit-base:<first 32 hex of sha256(parentRef, NUL, JSON(own base))>. It is
-// deterministic in the parent stage and the link's own Base, so siblings share
+// cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL, JSON(own
+// base))>. asm is the launcher's assembly fingerprint (it covers the blessed
+// base ref), so a blessed-set rotation orphans stages gated against the old
+// set and they are rebuilt and re-gated. Otherwise it is deterministic in the
+// parent stage and the link's own Base, so siblings share
 // their parent's stage, a pinned parent's stage is stable across the parent's
 // later pushes, and a following parent's new context yields new stages below
 // it. 32 hex chars never collide with the 64-hex image-id tags under the same
 // repository.
-func kitStageTag(parentRef string, b studio.Base) (string, error) {
+func kitStageTag(asm, parentRef string, b studio.Base) (string, error) {
 	js, err := json.Marshal(b)
 	if err != nil {
 		return "", fmt.Errorf("stage digest: %w", err)
 	}
 	h := sha256.New()
+	h.Write([]byte(asm))
+	h.Write([]byte{0})
 	h.Write([]byte(parentRef))
 	h.Write([]byte{0})
 	h.Write(js)

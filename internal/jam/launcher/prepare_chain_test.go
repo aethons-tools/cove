@@ -47,7 +47,7 @@ func chainDef(buildArgs map[string]string, links ...jam.KitLink) KitDefinition {
 
 func mustStage(t *testing.T, parentRef string, b studio.Base) string {
 	t.Helper()
-	tag, err := kitStageTag(parentRef, b)
+	tag, err := kitStageTag(newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm).asm, parentRef, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,20 +56,20 @@ func mustStage(t *testing.T, parentRef string, b studio.Base) string {
 
 func noAsm(KitDefinition, string) error { return nil }
 
-// The stage tag is cove-kit-base:<first 32 hex of sha256(parentRef, NUL,
+// The stage tag is cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL,
 // canonical JSON of the link's own Base)>.
 func TestKitStageTagFormula(t *testing.T) {
 	b := ctxBase("web-dev", "x")
 	js, _ := json.Marshal(b)
-	sum := sha256.Sum256(append(append([]byte("cove-kit-base:p"), 0), js...))
+	sum := sha256.Sum256(append(append(append(append([]byte("asm"), 0), []byte("cove-kit-base:p")...), 0), js...))
 	want := "cove-kit-base:" + hex.EncodeToString(sum[:])[:32]
-	if got := mustStage(t, "cove-kit-base:p", b); got != want {
+	if got, _ := kitStageTag("asm", "cove-kit-base:p", b); got != want {
 		t.Fatalf("stage tag = %q, want %q", got, want)
 	}
-	if mustStage(t, "cove-kit-base:q", b) == want {
+	if q, _ := kitStageTag("asm", "cove-kit-base:q", b); q == want {
 		t.Fatal("a different parent stage must give a different stage tag")
 	}
-	if mustStage(t, "cove-kit-base:p", ctxBase("web-dev", "y")) == want {
+	if y, _ := kitStageTag("asm", "cove-kit-base:p", ctxBase("web-dev", "y")); y == want {
 		t.Fatal("a different own base must give a different stage tag")
 	}
 }
@@ -251,5 +251,47 @@ func TestMalformedChainRefused(t *testing.T) {
 		if ops.builds != 0 || len(ops.stages) != 0 {
 			t.Fatalf("%s: a malformed chain must build nothing (builds=%d stages=%d)", name, ops.builds, len(ops.stages))
 		}
+	}
+}
+
+// A blessed-set rotation changes the launcher's assembly fingerprint; a stage
+// cached under the old one must not be reused un-gated, so the asm is part of
+// the stage tag and the second prepare rebuilds (and gates) the stage.
+func TestStageTagIncludesAssemblyFingerprint(t *testing.T) {
+	b := ctxBase("web-dev", "x")
+	a1, _ := kitStageTag("asm1", "p", b)
+	a2, _ := kitStageTag("asm2", "p", b)
+	if a1 == a2 {
+		t.Fatal("different assembly fingerprints must give different stage tags")
+	}
+	root := chainLink("base-dev", 1, studio.Base{})
+	leaf := chainLink("my-app", 0, ctxBase("base-dev", "leaf"))
+	def := chainDef(nil, root, leaf)
+	ops := &fakeOps{}
+	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
+	if _, err := l.PrepareKit(context.Background(), def); err != nil {
+		t.Fatal(err)
+	}
+	first := ops.stages[0].stage
+	l.asm = "rotated"
+	if _, err := l.PrepareKit(context.Background(), def); err != nil {
+		t.Fatal(err)
+	}
+	if len(ops.stages) != 2 || ops.stages[1].stage == first {
+		t.Fatalf("stages = %+v; want the stage rebuilt under a new tag after asm rotation", ops.stages)
+	}
+}
+
+// The own-base guard reads the chain's last link, not the merged Kit (Merge
+// clears Base.Kit): a one-link chain whose own base names a parent is refused.
+func TestOneLinkChainNamingParentRefused(t *testing.T) {
+	def := chainDef(nil, chainLink("my-app", 0, ctxBase("web-dev", "leaf")))
+	def.Kit.Base = studio.Base{} // as Merge leaves it
+	ops := &fakeOps{}
+	if _, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).PrepareKit(context.Background(), def); err == nil {
+		t.Fatal("want a refusal")
+	}
+	if ops.builds != 0 {
+		t.Fatalf("builds = %d", ops.builds)
 	}
 }

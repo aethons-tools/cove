@@ -188,5 +188,9 @@ func kitDefinitionFromConfig(store Store, ref KitRef, text string, h harnessinst
 	chain[len(chain)-1].Ref.Version = ref.Version // self is this stored version
 	kits := chainKits(chain)
 	ref.Digest = studio.ChainDigest(kits, h)
-	return KitDefinition{Ref: ref, Kit: studio.Merge(kits), Chain: chain, Harness: h}, nil
+	merged := sk // an unchained kit is exactly as parsed, not re-merged
+	if len(chain) > 1 {
+		merged = studio.Merge(kits)
+	}
+	return KitDefinition{Ref: ref, Kit: merged, Chain: chain, Harness: h}, nil
 }

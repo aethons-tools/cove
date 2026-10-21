@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -66,5 +67,21 @@ func TestResolveKitDefinitionParsesStudio(t *testing.T) {
 	}
 	if !slices.Contains(def.Kit.Egress, ".anthropic.com") {
 		t.Fatalf("definition carries the authored kit verbatim (ceiling is applied at assemble): %+v", def.Kit)
+	}
+}
+
+// An unchained kit's definition carries the parsed kit itself (no Merge).
+func TestUnchainedDefinitionKitIsParsedKit(t *testing.T) {
+	text := "kind: " + studio.Kind + "\nbase:\n  image: img\negress:\n  - z.example\n  - a.example\n  - a.example\n"
+	want, err := studio.ParseStudioKit([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := kitDefinitionFromConfig(NewMemStore(), KitRef{ID: "k", Version: 1}, text, harnessinstall.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(def.Kit, want) {
+		t.Fatalf("Kit = %+v, want parsed %+v", def.Kit, want)
 	}
 }

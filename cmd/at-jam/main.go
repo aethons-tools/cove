@@ -974,6 +974,9 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "# chain error: %s\n", res.ChainError)
 		}
 		fmt.Fprint(stdout, kitBuiltOnHeader(res))
+		if len(res.Chain) > 0 && res.Effective != "" && !*own {
+			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own to edit and re-push")
+		}
 		fmt.Fprint(stdout, string(y))
 		ceiling, excluded := studioShowEgress(sk.Egress)
 		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
