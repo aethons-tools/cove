@@ -222,6 +222,9 @@ func RemoveKitChecked(store Store, name string) error {
 func PinKitChecked(store Store, name string, version int) error {
 	kitMu.Lock()
 	defer kitMu.Unlock()
+	if _, ok := store.KitConfig(name, version); !ok {
+		return store.PinKit(name, version) // the store's own not-found/bad-version error
+	}
 	if follow, _ := KitsReferencing(store, name); len(follow) > 0 {
 		return writeErr(http.StatusConflict, "kit %s is followed by %s (pin those to a %s version, or point them elsewhere)",
 			name, strings.Join(follow, ", "), name)
@@ -247,25 +250,29 @@ func kitParentSpec(config string) string {
 }
 
 // kitChainView is the chain (root first, excluding the kit itself) and the
-// effective merged kit, as YAML, of the stored config of kit name. ok is false
-// when the config or its chain does not resolve.
-func kitChainView(store Store, name, config string) (links []KitChainLink, effective string, ok bool) {
+// effective kit, as YAML, of the stored config of kit name. An unchained kit's
+// effective view is its own kit, unmerged, so it renders exactly as stored. A
+// config or chain that does not resolve is returned as an error.
+func kitChainView(store Store, name, config string) (links []KitChainLink, effective string, err error) {
 	sk, err := studio.ParseStudioKit([]byte(config))
 	if err != nil {
-		return nil, "", false
+		return nil, "", err
 	}
 	chain, err := ResolveKitChain(store, name, sk)
 	if err != nil {
-		return nil, "", false
+		return nil, "", err
 	}
 	for _, l := range chain[:len(chain)-1] {
 		links = append(links, KitChainLink{Name: l.Ref.ID, Version: l.Ref.Version, Follow: l.Follow})
 	}
-	merged := studio.Merge(chainKits(chain))
-	merged.LegacyName = "" // the registry names the kit
-	y, err := yaml.Marshal(merged)
-	if err != nil {
-		return nil, "", false
+	shown := sk
+	if len(chain) > 1 {
+		shown = studio.Merge(chainKits(chain))
 	}
-	return links, string(y), true
+	shown.LegacyName = "" // the registry names the kit
+	y, err := yaml.Marshal(shown)
+	if err != nil {
+		return nil, "", err
+	}
+	return links, string(y), nil
 }

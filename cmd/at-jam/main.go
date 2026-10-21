@@ -970,6 +970,9 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprint(stdout, kitSourceHeader(res))
+		if res.ChainError != "" {
+			fmt.Fprintf(stdout, "# chain error: %s\n", res.ChainError)
+		}
 		fmt.Fprint(stdout, kitBuiltOnHeader(res))
 		fmt.Fprint(stdout, string(y))
 		ceiling, excluded := studioShowEgress(sk.Egress)

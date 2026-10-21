@@ -187,6 +187,9 @@ type KitConfigResult struct {
 	// Effective is the merged kit (the whole chain) as YAML; empty when the
 	// chain does not resolve.
 	Effective string `json:"effective,omitempty"`
+	// ChainError says why Chain and Effective are empty when the chain (or the
+	// stored config) does not resolve.
+	ChainError string `json:"chain_error,omitempty"`
 	// UsedByKits lists the kits whose current version names this one as parent.
 	UsedByKits []string `json:"used_by_kits,omitempty"`
 }
@@ -812,7 +815,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		res := KitConfigResult{Name: name, Version: version, Config: cfg,
 			Source: k.Meta[version].Source, Tracking: k.Source, Parent: k.Meta[version].Parent}
-		res.Chain, res.Effective, _ = kitChainView(store, name, cfg)
+		var cerr error
+		if res.Chain, res.Effective, cerr = kitChainView(store, name, cfg); cerr != nil {
+			res.ChainError = cerr.Error()
+		}
 		follow, pinned := KitsReferencing(store, name)
 		res.UsedByKits = append(follow, pinned...)
 		sort.Strings(res.UsedByKits)

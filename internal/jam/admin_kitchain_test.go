@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"gopkg.in/yaml.v3"
 	"net/http"
 	"strings"
 	"testing"
@@ -126,5 +127,41 @@ func TestAdminKitListParentColumn(t *testing.T) {
 		if got[n] != w {
 			t.Errorf("parent[%s] = %q, want %q", n, got[n], w)
 		}
+	}
+}
+
+func TestAdminKitPinBadVersionIs404(t *testing.T) {
+	h, _ := chainAdmin(t)
+	if rec := doJSON(t, h, "POST", "/admin/kits/web-dev/pin", PinBody{Version: 99}); rec.Code != http.StatusNotFound {
+		t.Fatalf("pin v99 = %d %s, want 404 (not the follow 409)", rec.Code, rec.Body)
+	}
+}
+
+func TestAdminKitGetChainError(t *testing.T) {
+	h, st := chainAdmin(t)
+	if err := st.RemoveKit("web-dev"); err != nil { // bypass the guard: break my-app's chain
+		t.Fatal(err)
+	}
+	var res KitConfigResult
+	getJSON(t, h, "/admin/kits/my-app", &res)
+	if !strings.Contains(res.ChainError, "web-dev") || res.Effective != "" || len(res.Chain) != 0 {
+		t.Errorf("chain_error=%q effective=%q chain=%v", res.ChainError, res.Effective, res.Chain)
+	}
+}
+
+func TestAdminKitEffectiveUnchainedIsOwn(t *testing.T) {
+	h, st := newTestAdmin(t)
+	sk := chainKit("", "p")
+	sk.Egress = []string{"z.example.com", "a.example.com", "z.example.com"}
+	mustEnsure(t, st, "solo", sk)
+	var res KitConfigResult
+	getJSON(t, h, "/admin/kits/solo", &res)
+	own, err := studio.ParseStudioKit([]byte(res.Config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := yaml.Marshal(own)
+	if res.Effective != string(want) || !strings.Contains(res.Effective, "z.example.com\n    - a.example.com\n    - z.example.com") {
+		t.Errorf("effective = %q\nwant own %q", res.Effective, want)
 	}
 }

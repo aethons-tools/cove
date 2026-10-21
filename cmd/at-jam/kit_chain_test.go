@@ -111,3 +111,17 @@ func chainJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+func TestKitShowChainError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/kits/broken", func(w http.ResponseWriter, r *http.Request) {
+		chainJSON(w, map[string]any{"name": "broken", "version": 1, "config": `{"kind":"studio","prompt":"p"}`,
+			"chain_error": "kit web-dev (parent of broken) is missing"})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	code, out, _ := runKit(t, ts, "show", "broken")
+	if code != 0 || !strings.HasPrefix(out, "# source: local\n# chain error: kit web-dev (parent of broken) is missing\nkind: studio\n") {
+		t.Errorf("show (code %d):\n%s", code, out)
+	}
+}
