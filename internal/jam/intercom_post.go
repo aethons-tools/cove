@@ -58,7 +58,7 @@ type Intercom struct {
 	tail    func() int64            // the log's tail seq: where new members join
 	log     *slog.Logger
 	sources map[SourceKind]Source
-	onAsks  func(session ident.ID, open int) // SetOnAsksChanged
+	onAsks  func(session ident.ID) // SetOnAsksChanged
 }
 
 // NewIntercom returns the intercom over store, appending to lg. tracker

@@ -2072,11 +2072,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
-	ic.SetOnAsksChanged(func(session ident.ID, open int) {
-		if err := sup.SetOpenAsks(string(session), open); err != nil {
+	ic.SetOnAsksChanged(func(session ident.ID) {
+		if err := sup.SetOpenAsks(string(session), func() int { return ic.OpenAskCount(session) }); err != nil {
 			log.Warn("intercom: recording open asks failed", "session", string(session), "err", err.Error())
 		}
 	})
+	// Asks stranded by a change made outside the intercom (a room removed, a
+	// session gone) close on this pass.
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for ; ; <-t.C {
+			ic.ReconcileAsks()
+		}
+	}()
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.

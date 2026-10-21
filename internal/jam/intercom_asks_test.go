@@ -15,9 +15,9 @@ var askYesNo = []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label:
 
 // askFixture: the standing session asks in its own channel, which alice and
 // bob have joined; the hook records each open-asks count.
-func askFixture(t *testing.T) (*icFixture, *[]int) {
+func askFixture(t *testing.T, addressing ...string) (*icFixture, *[]int) {
 	t.Helper()
-	f := newICFixture(t)
+	f := newICFixture(t, addressing...)
 	home := f.mustPlan(f.standing, "").Channel
 	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
 		if err := f.ic.JoinChannel(u, home.ID); err != nil {
@@ -25,9 +25,9 @@ func askFixture(t *testing.T) (*icFixture, *[]int) {
 		}
 	}
 	var counts []int
-	f.ic.SetOnAsksChanged(func(s ident.ID, n int) {
+	f.ic.SetOnAsksChanged(func(s ident.ID) {
 		if s == ident.ID(f.standing.ActorID) {
-			counts = append(counts, n)
+			counts = append(counts, f.ic.OpenAskCount(s))
 		}
 	})
 	return f, &counts
@@ -130,13 +130,50 @@ func TestSupervisorSetOpenAsks(t *testing.T) {
 		t.Fatal(err)
 	}
 	sup := NewSupervisor(store, &fakeLauncher{}, "holder-A", time.Minute, time.Minute, time.Now, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err := sup.SetOpenAsks("s1", 2); err != nil {
+	if err := sup.SetOpenAsks("s1", func() int { return 2 }); err != nil {
 		t.Fatal(err)
 	}
 	if inst, _ := store.GetInstance("s1"); inst.OpenAsks != 2 || !AskedForPerson(inst) {
 		t.Fatalf("instance = %+v", inst)
 	}
-	if err := sup.SetOpenAsks("gone", 1); err != nil {
+	if err := sup.SetOpenAsks("gone", func() int { return 1 }); err != nil {
 		t.Fatalf("a gone actor is no error: %v", err)
+	}
+}
+
+// An ask in a channel archived under it (a room removed) is closed by the
+// reconcile pass, and the asker stops counting it; so is an ended session's
+// ask in a channel already archived.
+func TestIntercomReconcileAsksClosesArchived(t *testing.T) {
+	f, counts := askFixture(t, "channel:*")
+	if err := f.store.JoinChannel(f.room.ID, ident.ID(f.standing.ActorID), 0); err != nil {
+		t.Fatal(err)
+	}
+	inRoom, _, err := f.ic.Ask(f.poster(f.standing), "channel:"+f.room.Label, AskInput{Question: "q", Options: askYesNo}, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRoom(f.store, "acme", "eng"); err != nil {
+		t.Fatal(err)
+	}
+	f.ic.ReconcileAsks()
+	got, _ := f.log.GetAsk(inRoom.ID)
+	if got.State != intercom.AskWithdrawn || got.Reason != "channel archived" {
+		t.Fatalf("after reconcile: %+v", got)
+	}
+	if last := (*counts)[len(*counts)-1]; last != 0 {
+		t.Fatalf("counts %v, want ending at 0", *counts)
+	}
+	// An asker that is gone has its asks closed too.
+	home, _, err := f.ic.Ask(f.poster(f.standing), "", AskInput{Question: "q2", Options: askYesNo}, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.RemoveInstance(f.standing.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	f.ic.ReconcileAsks()
+	if got, _ := f.log.GetAsk(home.ID); got.State != intercom.AskWithdrawn || got.Reason != "session ended" {
+		t.Fatalf("a gone asker's ask: %+v", got)
 	}
 }

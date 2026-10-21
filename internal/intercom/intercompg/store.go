@@ -72,14 +72,17 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 		// earlier event, and a refused one stores nothing.
 		var ask intercom.Ask
 		var isAsk bool
-		var foldErr error
+		var getErr, foldErr error
 		m, ask, isAsk, foldErr = intercom.FoldAsk(m, func(id string) (intercom.Ask, bool) {
 			a, ok, err := getAskTx(ctx, tx, id)
 			if err != nil {
-				foldErr = err
+				getErr = err
 			}
 			return a, ok
 		})
+		if getErr != nil {
+			return getErr // a read failure, not a missing ask
+		}
 		if foldErr != nil {
 			return foldErr
 		}

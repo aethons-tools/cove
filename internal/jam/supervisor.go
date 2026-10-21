@@ -1070,12 +1070,17 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 }
 
 // SetOpenAsks records the session's count of open asks (the intercom's
-// asks hook). No-op semantics if the actor is gone.
-func (s *Supervisor) SetOpenAsks(actorID string, n int) error {
+// asks hook), counted under the instance lock so two changes at once can't
+// leave an older count last. No-op semantics if the actor is gone.
+func (s *Supervisor) SetOpenAsks(actorID string, count func() int) error {
 	s.instMu.Lock()
 	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
-	if !ok || inst.OpenAsks == n {
+	if !ok {
+		return nil
+	}
+	n := count()
+	if inst.OpenAsks == n {
 		return nil
 	}
 	inst.OpenAsks = n
