@@ -816,7 +816,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		res := KitConfigResult{Name: name, Version: version, Config: cfg,
 			Source: k.Meta[version].Source, Tracking: k.Source, Parent: k.Meta[version].Parent}
 		var cerr error
-		if res.Chain, res.Effective, cerr = kitChainView(store, name, cfg); cerr != nil {
+		if res.Chain, res.Effective, cerr = KitChainView(store, name, cfg); cerr != nil {
 			res.ChainError = cerr.Error()
 		}
 		follow, pinned := KitsReferencing(store, name)

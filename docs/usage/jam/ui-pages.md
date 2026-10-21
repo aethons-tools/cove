@@ -157,7 +157,7 @@ page header and each table row.
 Each kit name in the Kits table links to `/ui/kits/<name>`. The table shows the
 current version (of how many), the current version's base kind and egress
 count, and how many roles raise it (for `default`, that includes roles with no
-kit set). A kit whose current version won't parse is marked **invalid**. The
+kit set). A kit built on a parent shows `kit: <parent>[@vN]` as its base. A kit whose current version won't parse is marked **invalid**. The
 **New kit** form takes a name and studio-kit YAML and validates it exactly as
 `kit push` does ([kits.md](kits.md)); an existing name is refused — push new
 versions on the kit's page. **Import from git** takes `<repo>[//<dir>]@<ref>`
@@ -180,6 +180,14 @@ prompt, the build digest, and the YAML rendered back from the stored kit (a
 packed context abbreviated) with **Copy**. A stored version that isn't a valid
 studio kit (a pre-studio row) shows its parse error and raw text instead.
 
+A kit built on a parent kit ([kits.md](kits.md)) also shows **Built on** — each
+parent, root first, linked to its page with the version it resolves to and
+whether the kit follows the parent's current version or pins one — and an
+**Effective** card: the chain merged (egress union and ceiling, MCP servers,
+build args, secret demands, notes, joined prompt), i.e. what a role binding the
+kit gets. An unchained kit has neither. A chain that doesn't resolve (a missing
+or invalid parent, a cycle) shows the reason in a banner instead.
+
 The **Source** card shows the tracked git source — repo (linked when `https`),
 dir, ref and the last synced commit (12 chars, linked on github.com and
 gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
@@ -191,6 +199,7 @@ their button while the fetch runs, and follow the admin API's rules and errors
 
 **Push new version** is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals
-current. **Used by** links the roles that raise the kit. **Delete** is disabled
-while any role uses the kit, and always for the built-in `default` kit (Jam
+current. **Used by** links the roles that raise the kit and the kits whose current
+version builds on it (follows or pinned). **Delete** is disabled
+while any role or kit uses the kit, and always for the built-in `default` kit (Jam
 re-seeds it at serve start).

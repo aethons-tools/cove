@@ -52,7 +52,7 @@
   <span class="chip accent">current v{{.Current}}</span>
   <span class="sub">{{len .Versions}} version(s)</span>
   <span class="spacer"></span>
-  {{if or .Uses .IsDefault}}<button class="danger" disabled title="{{if .IsDefault}}The built-in default kit is re-seeded at serve start{{else}}Roles use this kit — rebind them first{{end}}">Delete</button>
+  {{if or .Uses .UsedByKits .IsDefault}}<button class="danger" disabled title="{{if .IsDefault}}The built-in default kit is re-seeded at serve start{{else}}Roles or kits use this kit — rebind them first{{end}}">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/kits/{{.Name}}" hx-swap="none"
       hx-confirm="Delete kit {{.Name}} and all its versions?"
       hx-on::after-request="if(event.detail.successful) location.href='/ui/kits'">Delete</button>{{end}}
@@ -98,11 +98,13 @@
       <pre class="yaml">{{.Raw}}</pre>
     </section>
     {{else}}
+    {{if $.ChainErr}}<div class="banner error">Kit chain does not resolve: {{$.ChainErr}}</div>{{end}}
     <section class="card">
       <header><h2>v{{.N}}</h2>{{if eq .N $cur}}<span class="chip accent">current</span>{{end}}<span class="sub mono">build digest {{.Digest}}</span></header>
       <div class="body">
         <dl class="kv">
           <dt>Base</dt><dd>{{.Base}}{{if .Image}} <span class="mono">{{.Image}}</span>{{end}}{{if .ContextSize}} <span class="unset">({{.ContextSize}} encoded)</span>{{end}}</dd>
+          {{if $.Chain}}<dt>Built on</dt><dd>{{range $i, $p := $.Chain}}{{if $i}} → {{end}}<a class="chip" href="{{kitURL $p.Name}}">{{$p.Name}} v{{$p.Version}}</a> <span class="unset">{{if $p.Follow}}follows{{else}}pinned{{end}}</span>{{end}} <span class="unset">→ this kit</span></dd>{{end}}
           {{if .Files}}<dt>Context files</dt><dd>{{range .Files}}<span class="chip">{{.}}</span>{{end}}</dd>{{end}}
           {{if .Context}}<dt>Context</dt><dd><table><thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead><tbody>{{range .Context}}<tr><td class="mono">{{.Path}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody></table>{{with .ContextNote}}<span class="unset">{{.}}</span>{{end}}</dd>
           {{else if .ContextNote}}<dt>Context</dt><dd class="unset">{{.ContextNote}}</dd>{{end}}
@@ -115,6 +117,23 @@
         </dl>
       </div>
     </section>
+    {{with $.Effective}}
+    <section class="card">
+      <header><h2>Effective</h2><span class="sub">this kit merged over {{len $.Chain}} parent(s) — what a role binding it gets</span></header>
+      <div class="body">
+        <dl class="kv">
+          <dt>Egress</dt><dd>{{range .Egress}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Egress ceiling</dt><dd>{{range .Ceiling}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          {{if .Excluded}}<dt>Excluded</dt><dd>{{range .Excluded}}<span class="chip">{{.}}</span>{{end}}</dd>{{end}}
+          <dt>MCP servers</dt><dd>{{range .MCPServers}}<div><span class="mono">{{.Key}}</span> <span class="unset">{{.Value}}</span></div>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Build args</dt><dd>{{range .BuildArgs}}<span class="chip">{{.Key}}={{.Value}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Secret demands</dt><dd>{{range .Secrets}}<div><span class="mono">{{.Key}}</span> <span class="unset">{{.Value}}</span></div>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Notes</dt><dd>{{range .Notes}}<div><span class="mono">{{.Key}}</span> <span class="unset">{{.Value}}</span></div>{{else}}<span class="unset">none</span>{{end}}</dd>
+          <dt>Prompt</dt><dd class="prompt">{{if .Prompt}}{{.Prompt}}{{else}}<span class="unset">none</span>{{end}}</dd>
+        </dl>
+      </div>
+    </section>
+    {{end}}
     <section class="card">
       <header><h2>YAML</h2><span class="sub">v{{.N}}, rendered from the stored kit</span><span class="spacer"></span>
         <button type="button" class="small" data-copy="#kit-yaml">Copy</button></header>
@@ -124,9 +143,10 @@
     {{end}}
 
     <section class="card">
-      <header><h2>Used by</h2><span class="sub">roles that raise this kit</span></header>
+      <header><h2>Used by</h2><span class="sub">roles that raise this kit, and kits built on it</span></header>
       <div class="body">
-        {{range .Uses}}<a class="chip" href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}{{if .Implicit}} <span class="unset">no kit set</span>{{end}}</a>{{else}}<span class="unset">No role uses this kit.</span>{{end}}
+        {{range .UsedByKits}}<a class="chip" href="{{kitURL .Name}}">kit {{.Name}} <span class="unset">{{if .Pinned}}pinned{{else}}follows{{end}}</span></a>{{end}}
+        {{range .Uses}}<a class="chip" href="{{roleURL .Project .Role}}">{{.Project}}/{{.Role}}{{if .Implicit}} <span class="unset">no kit set</span>{{end}}</a>{{else}}{{if not $.UsedByKits}}<span class="unset">No role or kit uses this kit.</span>{{end}}{{end}}
       </div>
     </section>
 
