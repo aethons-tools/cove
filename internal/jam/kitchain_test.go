@@ -199,3 +199,16 @@ func TestKitsReferencing(t *testing.T) {
 		t.Fatalf("follow=%v pinned=%v", follow, pinned)
 	}
 }
+
+func TestPathParentRefusedOutsideGitImport(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	const msg = "path parents resolve only in a git import (kit import/track --git)"
+	_, _, err := PushStudioKit(store, "child", "kind: studio\nbase:\n  kit: ../web\n")
+	var we *WriteError
+	if err == nil || !strings.Contains(err.Error(), msg) || !errors.As(err, &we) || we.Status != http.StatusBadRequest {
+		t.Fatalf("push: want 400 %q, got %v", msg, err)
+	}
+	if _, err := ResolveKitChain(store, "child", studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}); err == nil || !errors.Is(err, ErrKitChain) {
+		t.Fatalf("resolve: want chain error, got %v", err)
+	}
+}

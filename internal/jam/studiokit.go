@@ -49,6 +49,9 @@ func ensureKit(store Store, name string, sk studio.StudioKit, meta *KitVersionMe
 	if err := sk.Validate(); err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
+	if _, isPath := sk.Base.ParentPath(); isPath {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "path parents resolve only in a git import (kit import/track --git)")
+	}
 	text, err := sk.ToJSON()
 	if err != nil {
 		return KitRef{}, false, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())

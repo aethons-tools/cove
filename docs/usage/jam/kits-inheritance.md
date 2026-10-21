@@ -42,7 +42,7 @@ prompt: "You work on my-app …"
   definition.
 - `kit` and `image` are mutually exclusive.
 - A value starting with `.` (a path parent in the same repo) is refused for
-  now: `path parents are not supported yet; use the parent kit's registry name`.
+  now: `path parents resolve only in a git import (kit import/track --git)`.
 
 **The chain** runs from the child up to its **root**, a kit whose base is not
 `kit:` (the blessed default, a gated `image:` or a plain context). It holds at

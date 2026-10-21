@@ -1,6 +1,9 @@
 package studio
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func validCtx(t *testing.T) string {
 	t.Helper()
@@ -22,7 +25,7 @@ func TestBaseKitParse(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	if _, _, err := (Base{Kit: "./web"}).ParentRef(); err == nil || err.Error() != "path parents are not supported yet; use the parent kit's registry name" {
+	if _, _, err := (Base{Kit: "./web"}).ParentRef(); err == nil || err.Error() != "path parents resolve only in a git import (kit import/track --git)" {
 		t.Errorf("path-parent message: %v", err)
 	}
 	if _, err := (Base{Kit: "web", Image: "x"}).Kind(); err == nil {
@@ -57,5 +60,29 @@ func TestParseKitYAML(t *testing.T) {
 	sk, err := ParseStudioKit([]byte("kind: studio\nbase:\n  kit: web-dev@v3\n"))
 	if err != nil || sk.Base.Kit != "web-dev@v3" {
 		t.Fatalf("%+v %v", sk, err)
+	}
+}
+
+func TestBaseParentPath(t *testing.T) {
+	for in, want := range map[string]string{"../web": "../web", "./sub/web": "sub/web", "../../a/b": "../../a/b", "./a/../b": "b"} {
+		got, ok := Base{Kit: in}.ParentPath()
+		if !ok || got != want {
+			t.Errorf("%q: %q %v", in, got, ok)
+		}
+		if err := (Base{Kit: in}).validate(); err != nil {
+			t.Errorf("%q refused: %v", in, err)
+		}
+	}
+	if _, ok := (Base{Kit: "web"}).ParentPath(); ok {
+		t.Error("name treated as path")
+	}
+	long := "./" + strings.Repeat("a", 199) // 201 bytes
+	for _, bad := range []string{".", "./", ".\\web", long, "./a/.."} {
+		if err := (Base{Kit: bad}).validate(); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := (Base{Kit: "./" + strings.Repeat("a", 198)}).validate(); err != nil {
+		t.Errorf("200 bytes refused: %v", err)
 	}
 }

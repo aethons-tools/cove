@@ -6,8 +6,10 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,12 +156,38 @@ func (b Base) Kind() (BaseKind, error) {
 // HasParent reports whether the base names a parent kit.
 func (b Base) HasParent() bool { return b.Kit != "" }
 
+// errPathParent is what ParentRef returns for a path parent, which names no
+// registry kit; only a git import resolves it.
+var errPathParent = errors.New("path parents resolve only in a git import (kit import/track --git)")
+
+// maxParentPath caps a path parent reference.
+const maxParentPath = 200
+
+// ParentPath returns the cleaned slash path when Kit is a path parent (starts
+// with "."), and false otherwise. It does not judge the path; Validate does.
+func (b Base) ParentPath() (string, bool) {
+	if !strings.HasPrefix(b.Kit, ".") {
+		return "", false
+	}
+	return path.Clean(b.Kit), true
+}
+
+// checkParentPath is the syntax check for a path parent: non-empty after the
+// dot, no backslash, not absolute, within maxParentPath bytes.
+func (b Base) checkParentPath() error {
+	p, _ := b.ParentPath()
+	if p == "." || strings.ContainsRune(b.Kit, '\\') || path.IsAbs(p) || len(b.Kit) > maxParentPath {
+		return errors.New("base.kit: not a valid parent path (a path parent must be a non-empty relative path of at most 200 bytes, with no backslash)")
+	}
+	return nil
+}
+
 // ParentRef parses Kit into the parent's registry name and pinned version
 // (0 means follow the parent's current version).
 func (b Base) ParentRef() (name string, version int, err error) {
 	ref := b.Kit
 	if strings.HasPrefix(ref, ".") {
-		return "", 0, fmt.Errorf("path parents are not supported yet; use the parent kit's registry name")
+		return "", 0, errPathParent
 	}
 	name = ref
 	if i := strings.IndexByte(ref, '@'); i >= 0 {
@@ -184,7 +212,11 @@ func (b Base) validate() error {
 	if err != nil {
 		return err
 	}
-	if b.HasParent() {
+	if _, isPath := b.ParentPath(); isPath {
+		if err := b.checkParentPath(); err != nil {
+			return err
+		}
+	} else if b.HasParent() {
 		if _, _, err := b.ParentRef(); err != nil {
 			return err
 		}
