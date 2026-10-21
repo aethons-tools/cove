@@ -80,20 +80,39 @@ func (c *Client) doGit(method, path string, body any, out any) error {
 }
 
 func (c *Client) doWith(httpc *http.Client, method, path string, body any, out any) error {
-	var r io.Reader
+	var buf []byte
+	contentType := ""
 	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if buf, err = json.Marshal(body); err != nil {
 			return err
 		}
-		r = bytes.NewReader(buf)
+		contentType = "application/json"
+	}
+	return c.send(httpc, method, path, contentType, buf, out)
+}
+
+// doRaw sends body as-is with contentType ("" = no body), under the
+// git-fetch timeout: a config tree upload is planned (and maybe applied)
+// before the answer.
+func (c *Client) doRaw(method, path, contentType string, body []byte, out any) error {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = gitTimeout
+	return c.send(&hc, method, path, contentType, body, out)
+}
+
+// send issues one request; contentType "" sends no body.
+func (c *Client) send(httpc *http.Client, method, path, contentType string, body []byte, out any) error {
+	var r io.Reader
+	if contentType != "" {
+		r = bytes.NewReader(body)
 	}
 	req, err := http.NewRequest(method, c.base+path, r)
 	if err != nil {
 		return err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -102,6 +121,13 @@ func (c *Client) doWith(httpc *http.Client, method, path string, body any, out a
 	if err != nil {
 		return fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
 	}
+	return finish(resp, method, path, out)
+}
+
+// finish maps a non-2xx answer to a *StatusError (wrapping ErrNotFound for
+// 404 and ErrConflict for 409) and decodes a 2xx JSON answer into out (nil:
+// discarded). It closes the body.
+func finish(resp *http.Response, method, path string, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)
@@ -780,4 +806,44 @@ func (c *Client) KitHistory(name string) ([]jam.KitVersionInfo, error) {
 	var out []jam.KitVersionInfo
 	err := c.do("GET", "/admin/kits/"+url.PathEscape(name)+"/history", nil, &out)
 	return out, err
+}
+
+// ConfigDiff plans a packed config tree (configtar.Pack) against Jam without
+// writing.
+func (c *Client) ConfigDiff(tree []byte) (jam.ConfigApplyResult, error) {
+	var res jam.ConfigApplyResult
+	err := c.doRaw("POST", "/admin/config/diff", "application/gzip", tree, &res)
+	return res, err
+}
+
+// ConfigApply applies a packed config tree. force writes over drift;
+// planDigest (may be "") is the reviewed plan's digest — a different plan is
+// a 409 (ErrConflict), as is a plan with refusals.
+func (c *Client) ConfigApply(tree []byte, force bool, planDigest string) (jam.ConfigApplyResult, error) {
+	q := url.Values{}
+	if force {
+		q.Set("force", "1")
+	}
+	if planDigest != "" {
+		q.Set("plan", planDigest)
+	}
+	path := "/admin/config/apply"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var res jam.ConfigApplyResult
+	err := c.doRaw("POST", path, "application/gzip", tree, &res)
+	return res, err
+}
+
+// ConfigExportTree renders Jam's managed objects (every live one with all)
+// as a config tree.
+func (c *Client) ConfigExportTree(all bool) (jam.ConfigTreeExport, error) {
+	path := "/admin/config/export-tree"
+	if all {
+		path += "?all=1"
+	}
+	var exp jam.ConfigTreeExport
+	err := c.do("GET", path, nil, &exp)
+	return exp, err
 }

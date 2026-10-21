@@ -1790,7 +1790,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	_ = portable // Task 8 hands this to WithConfig
 	cfg, err := parseServeConfig(data)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
@@ -2685,7 +2684,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
-			jam.WithKitFetcher(st, kitFetcher, log))
+			jam.WithKitFetcher(st, kitFetcher, log),
+			jam.WithConfig(st, jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable}, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

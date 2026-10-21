@@ -18,7 +18,7 @@ type jamFixtureIDs struct{ bob, alice ident.ID }
 func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 	t.Helper()
 	st := NewMemStore()
-	creds := credIs("gh-pat", "anthropic", "linear")
+	creds := credIs("gh-pat", "anthropic", "acme-bot")
 	must(t, CreateDestination(st, Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat",
 		Env: map[string]string{"GH_HOST": "{host}"}, AllowPaths: []string{"/repos/*"}}, creds))
 
@@ -38,7 +38,7 @@ func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 	must(t, err)
 	alice, err := st.CreateUser(User{ID: ident.New(ident.User), Name: "alice", Status: StatusLive})
 	must(t, err)
-	conn, err := st.CreateConnection(Connection{ID: ident.New(ident.Connection), Kind: "linear", Name: "acme", CredName: "linear", Status: StatusLive})
+	conn, err := st.CreateConnection(Connection{ID: ident.New(ident.Connection), Kind: "discord", Name: "acme", CredName: "acme-bot", Status: StatusLive})
 	must(t, err)
 
 	if _, _, err := PushStudioKit(st, "web-dev", "kind: studio\n"); err != nil {
@@ -50,8 +50,8 @@ func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 
 	must(t, st.CreateProject("app"))
 	p, _ := st.GetProject("app")
-	// A chat service is normally a discord connection; the fixture binds the
-	// linear one directly so the exporter's id → name mapping is exercised.
+	// The chat service is set on the record directly so the exporter's
+	// id → name mapping is exercised.
 	st.mu.Lock()
 	p.ChatService = string(conn.ID)
 	st.applyPutProject(p)
@@ -68,7 +68,7 @@ func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 		Name: "ic", Kit: "app", ModelSpec: "fast",
 		Scope:       Scope{Destinations: []string{"gh"}, TTL: time.Hour, Egress: &EgressPolicy{Domains: []string{"example.com"}}, Addressing: []string{"user:" + string(alice.ID)}},
 		Allocation:  RoleAllocation{MaxPersonal: 2, Standing: []StandingSession{{Name: "watch", Prompt: "watch ci"}}},
-		TurnEnd:     TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: "stop"},
+		TurnEnd:     TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: "teardown"},
 		Collaborate: CollaboratePolicy{Preview: "members"},
 		Context:     sessionctx.Layer{Core: "role rules"},
 	}))
