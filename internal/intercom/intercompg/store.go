@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -341,8 +342,21 @@ func (s *Store) GetAsk(id string) (intercom.Ask, bool) {
 }
 
 func (s *Store) ListAsks(f intercom.AskFilter) []intercom.Ask {
-	return s.asks(`WHERE ($1 = '' OR channel_id = $1) AND ($2 = '' OR asker_id = $2) AND ($3 = '' OR state = $3)`,
-		string(f.Channel), string(f.Asker), string(f.State))
+	// Only the filters given, as literal predicates, so the partial index on
+	// open asks applies.
+	var conds []string
+	var args []any
+	for _, c := range []struct{ col, v string }{{"channel_id", string(f.Channel)}, {"asker_id", string(f.Asker)}, {"state", string(f.State)}} {
+		if c.v != "" {
+			args = append(args, c.v)
+			conds = append(conds, fmt.Sprintf("%s = $%d", c.col, len(args)))
+		}
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ")
+	}
+	return s.asks(where, args...)
 }
 
 // asks runs a SELECT over the asks read-model, by last_seq; on any error it

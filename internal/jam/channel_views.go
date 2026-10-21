@@ -45,9 +45,14 @@ func UserChannels(store Store, ic *Intercom, lg intercom.Store, u ident.ID) []Ch
 			unread[m.Channel]++
 		}
 	}
+	// Every open ask, read once for the whole rail (not per channel).
+	open := map[ident.ID][]intercom.Ask{}
+	for _, a := range lg.ListAsks(intercom.AskFilter{State: intercom.AskOpen}) {
+		open[a.Channel] = append(open[a.Channel], a)
+	}
 	var out []ChannelView
 	for id := range ids {
-		if v, ok := userChannel(store, ic, lg, u, id); ok {
+		if v, ok := userChannel(store, ic, lg, u, id, open[id]); ok {
 			v.Unread = unread[id]
 			out = append(out, v)
 		}
@@ -59,10 +64,11 @@ func UserChannels(store Store, ic *Intercom, lg intercom.Store, u ident.ID) []Ch
 // UserChannel is one channel as user u sees it (ok=false: gone, or theirs
 // to see no longer). Unread is left zero.
 func UserChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID) (ChannelView, bool) {
-	return userChannel(store, ic, lg, u, id)
+	return userChannel(store, ic, lg, u, id, ic.OpenAsksIn(id))
 }
 
-func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID) (ChannelView, bool) {
+// userChannel is channel id as u sees it; openAsks are its open asks.
+func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, openAsks []intercom.Ask) (ChannelView, bool) {
 	ch, ok := store.GetChannel(id)
 	if !ok || !ic.CanSee(u, ch) {
 		return ChannelView{}, false
@@ -91,9 +97,9 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID) (
 			others = append(others, ic.PartyOf(m.ParticipantID).Label)
 		}
 	}
-	for _, a := range ic.OpenAsksIn(ch.ID) {
+	for _, a := range openAsks {
 		v.OpenAsks++
-		if ic.MayAnswer(u, a) {
+		if !v.NeedsYou && ic.MayAnswer(u, a) {
 			v.NeedsYou = true
 		}
 	}

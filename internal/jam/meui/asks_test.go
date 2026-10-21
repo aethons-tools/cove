@@ -144,3 +144,30 @@ func TestAskReplyChip(t *testing.T) {
 		t.Error("a reply to an ask should carry a re: chip linking the card")
 	}
 }
+
+// A stream refresh never wipes a half-typed answer comment, and an answer's
+// system line names the person once.
+func TestAskReviewFixes(t *testing.T) {
+	e, p := fixture()
+	m := e.ask(intercom.AskEvent{Question: "Merge?", Options: yesNoOpts})
+	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	if !strings.Contains(body, "function meAnswering()") || !strings.Contains(body, `[!meSelecting() &amp;&amp; !meAnswering()]`) && !strings.Contains(body, `[!meSelecting() && !meAnswering()]`) {
+		t.Error("the stream refresh should skip while an ask comment is being typed")
+	}
+	if rec := e.answer(p, m.ID, url.Values{"version": {"1"}, "choice": {"yes"}}); rec.Code != http.StatusNoContent {
+		t.Fatal(rec.Code)
+	}
+	body = e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	if strings.Contains(body, "alice</b> alice chose") {
+		t.Error("the answer's system line repeats the name")
+	}
+	// The panel route renders only the panel, for a channel the viewer sees.
+	m2 := e.ask(intercom.AskEvent{Question: "Next?", Options: yesNoOpts})
+	panel := e.page(t, p, "/me/asks?c="+url.QueryEscape(engID))
+	if !strings.Contains(panel, "#ask-"+m2.ID) || strings.Contains(panel, `id="rail"`) {
+		t.Errorf("panel = %s", panel)
+	}
+	if other := e.page(t, p, "/me/asks?c=chn_01j9q3zzzzzzzzzzzzzzzzzz"); strings.Contains(other, "asks-panel") {
+		t.Error("a channel the viewer can't see has no panel")
+	}
+}

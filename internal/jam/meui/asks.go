@@ -59,6 +59,10 @@ func decorateAsk(row *MessageRow, p jam.Participant, d Deps, m intercom.Squawk) 
 			}
 		}
 		row.System = true
+		row.SysText = row.From + " " + m.Body // an answer's body already names who
+		if ev.Event == intercom.AskEventAnswer {
+			row.SysText = m.Body
+		}
 		return
 	}
 	if m.ReplyTo != "" {
@@ -77,6 +81,24 @@ func openAskCards(p jam.Participant, d Deps, ch ident.ID) []AskCard {
 		out = append(out, askCard(p, d, a))
 	}
 	return out
+}
+
+// askPanel renders only the open conversation's open-asks panel (its
+// refresh target), for a channel the viewer may see.
+func (h *handler) askPanel(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	var page inboxPage
+	sel := r.URL.Query().Get("c")
+	if h.d.Intercom != nil && h.d.Log != nil {
+		if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ident.ID(sel)); ok {
+			page.Conv = &Conversation{ChannelID: sel, OpenAsks: openAskCards(p, h.d, ident.ID(sel))}
+		}
+	}
+	h.render(w, "askpanel", page)
 }
 
 // answerAsk records the viewer's answer: 204 (and a meChanged refresh), 409

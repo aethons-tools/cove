@@ -170,6 +170,14 @@ html.raw .msg .body.raw{display:block}
 // meSelecting reports a non-empty text selection touching #stream. It filters
 // the stream's refresh: swapping the list would replace the selected text nodes
 // and the browser would drop the selection before it could be copied.
+// meAnswering: an ask's comment box in the stream is focused or has text, so
+// a refresh would wipe a half-typed answer.
+function meAnswering(){
+  var s=document.getElementById('stream'); if(!s) return false;
+  var ts=s.querySelectorAll('.ask-form textarea');
+  for(var i=0;i<ts.length;i++){ if(ts[i].value || ts[i]===document.activeElement) return true; }
+  return false;
+}
 function meSelecting(){
   var sel=window.getSelection(), s=document.getElementById('stream');
   return !!(sel && s && !sel.isCollapsed && sel.rangeCount>0 && sel.getRangeAt(0).intersectsNode(s));

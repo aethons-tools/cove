@@ -22,9 +22,10 @@ type MessageRow struct {
 	Seq   int64
 	// Ask is the card of an ask's own squawk; System marks an ask's later
 	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
-	Ask    *AskCard
-	System bool
-	ReAsk  *AskRef
+	Ask     *AskCard
+	System  bool
+	SysText string // a System row's line
+	ReAsk   *AskRef
 }
 
 // Conversation is the right-pane view of one open channel.

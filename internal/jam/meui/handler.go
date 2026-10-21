@@ -152,16 +152,6 @@ func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "sessions", page)
 }
 
-// askPanel renders the open conversation's open-asks panel (its refresh).
-func (h *handler) askPanel(w http.ResponseWriter, r *http.Request) {
-	page, ok := h.build(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	h.render(w, "askpanel", page)
-}
-
 // markRead advances the participant's read cursor on a channel to seq (a
 // History channel has none: it is all read).
 func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {

@@ -40,7 +40,7 @@
       {{if .CanLeave}}<button type="button" hx-post="/me/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
     </div>
     <div id="asks" hx-get="/me/asks?c={{.ChannelID}}" hx-trigger="meChanged from:body, every 30s" hx-swap="innerHTML">{{template "askpanel" $}}</div>
-    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
+    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
     <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
@@ -73,7 +73,7 @@
 {{with .Conv}}
   {{range .Messages}}
     {{if .Ask}}{{template "askcard" .Ask}}
-    {{else if .System}}<div class="sysline"><b>{{.From}}</b> {{.Raw}} <span class="t">{{.At}}</span></div>
+    {{else if .System}}<div class="sysline">{{.SysText}} <span class="t">{{.At}}</span></div>
     {{else}}
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
       {{with .ReAsk}}<a class="re-ask" href="#ask-{{.ID}}">re: {{.Question}}</a>{{end}}
