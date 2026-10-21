@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -32,7 +33,7 @@ func serveBlob(a *Attachments, viewer ident.ID, id ident.ID) *httptest.ResponseR
 func TestAttachmentsUploadSendServe(t *testing.T) {
 	f, a, bytes := attFixture(t, 1<<20)
 	ctx := context.Background()
-	b, err := a.Upload(ctx, f.alice.ID, "../../etc/shot.png", "image/png", strings.NewReader("PNGDATA"))
+	b, err := a.Upload(ctx, f.alice.ID, "../../etc/shot.png", "image/png", strings.NewReader("PNGDATA"), -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +84,13 @@ func TestAttachmentsUploadSendServe(t *testing.T) {
 
 func TestAttachmentsUploadTooLarge(t *testing.T) {
 	f, a, bytes := attFixture(t, 4)
-	if _, err := a.Upload(context.Background(), f.alice.ID, "big.bin", "", strings.NewReader("12345")); !errors.Is(err, ErrTooLarge) {
+	if _, err := a.Upload(context.Background(), f.alice.ID, "big.bin", "", strings.NewReader("12345"), -1); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("over the cap: %v", err)
 	}
 	if bytes.Len() != 0 || len(f.log.PendingBlobsBefore(time.Now().Add(time.Hour))) != 0 {
 		t.Fatal("a refused upload left something behind")
 	}
-	if b, err := a.Upload(context.Background(), f.alice.ID, "ok.bin", "", strings.NewReader("1234")); err != nil || b.Type != "application/octet-stream" {
+	if b, err := a.Upload(context.Background(), f.alice.ID, "ok.bin", "", strings.NewReader("1234"), -1); err != nil || b.Type != "application/octet-stream" {
 		t.Fatalf("at the cap = %+v, %v", b, err)
 	}
 }
@@ -97,7 +98,7 @@ func TestAttachmentsUploadTooLarge(t *testing.T) {
 func TestAttachmentsDangerousTypesDownload(t *testing.T) {
 	f, a, _ := attFixture(t, 1<<20)
 	for _, ct := range []string{"text/html", "image/svg+xml", "application/pdf"} {
-		b, err := a.Upload(context.Background(), f.alice.ID, "x", ct, strings.NewReader("<script>1</script>"))
+		b, err := a.Upload(context.Background(), f.alice.ID, "x", ct, strings.NewReader("<script>1</script>"), -1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,8 +111,8 @@ func TestAttachmentsDangerousTypesDownload(t *testing.T) {
 func TestAttachmentsSweep(t *testing.T) {
 	f, a, bytes := attFixture(t, 1<<20)
 	ctx := context.Background()
-	old, _ := a.Upload(ctx, f.alice.ID, "old", "", strings.NewReader("o"))
-	kept, _ := a.Upload(ctx, f.alice.ID, "kept", "", strings.NewReader("k"))
+	old, _ := a.Upload(ctx, f.alice.ID, "old", "", strings.NewReader("o"), -1)
+	kept, _ := a.Upload(ctx, f.alice.ID, "kept", "", strings.NewReader("k"), -1)
 	parts, _ := a.RefParts([]string{string(kept.ID)})
 	if _, err := f.ic.PostTrusted(f.room, intercom.Squawk{From: f.alice.ID, Body: "x", Parts: parts}); err != nil {
 		t.Fatal(err)
@@ -168,4 +169,60 @@ func TestAttachmentsHandleUpload(t *testing.T) {
 		t.Fatalf("off = %d", rec.Code)
 	}
 	_, _ = io.Discard.Write(nil)
+}
+
+func TestCleanNameValidUTF8(t *testing.T) {
+	long := strings.Repeat("😀", 64) + "a.txt"
+	for _, in := range []string{long, "bad\xffname.txt", "x‮gnp.exe", ".."} {
+		got := cleanName(in)
+		if !utf8.ValidString(got) || len(got) > 255 || strings.ContainsRune(got, '‮') || got == ".." {
+			t.Errorf("cleanName(%q) = %q", in, got)
+		}
+	}
+}
+
+// sizeRecorder records the size each Put was given.
+type sizeRecorder struct {
+	blobstore.Store
+	sizes []int64
+}
+
+func (s *sizeRecorder) Put(ctx context.Context, key string, r io.Reader, size int64, ct string) error {
+	s.sizes = append(s.sizes, size)
+	return s.Store.Put(ctx, key, r, size, ct)
+}
+
+// A declared length is passed through (a small file buffers small); a
+// chunked upload streams with -1.
+func TestUploadPassesDeclaredSize(t *testing.T) {
+	f := newICFixture(t)
+	rec := &sizeRecorder{Store: blobstore.NewMem()}
+	a := NewAttachments(f.log, rec, f.ic, 1<<20)
+	req := httptest.NewRequest("POST", "/uploads", strings.NewReader("hello"))
+	w := httptest.NewRecorder()
+	a.HandleUpload(w, req, f.alice.ID)
+	req2 := httptest.NewRequest("POST", "/uploads", io.NopCloser(strings.NewReader("chunked")))
+	req2.ContentLength = -1
+	a.HandleUpload(httptest.NewRecorder(), req2, f.alice.ID)
+	if len(rec.sizes) != 2 || rec.sizes[0] != 5 || rec.sizes[1] != -1 {
+		t.Fatalf("sizes = %v", rec.sizes)
+	}
+}
+
+// A sender always reads its own attachment, even in a room it posts to
+// without being a member.
+func TestUploaderReadsOwnAttached(t *testing.T) {
+	f, a, _ := attFixture(t, 1<<20)
+	ses := ident.ID(f.standing.ActorID)
+	b, err := a.Upload(context.Background(), ses, "chart.png", "image/png", strings.NewReader("png"), -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts, _ := a.RefParts([]string{string(b.ID)})
+	if _, err := f.ic.PostTrusted(f.room, intercom.Squawk{From: ses, Body: "chart", Parts: parts}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := serveBlob(a, ses, b.ID); rec.Code != http.StatusOK {
+		t.Fatalf("sender reads its own = %d", rec.Code)
+	}
 }

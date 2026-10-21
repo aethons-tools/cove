@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -72,21 +73,24 @@ func (a *Attachments) MaxBytes() int64 {
 
 func key(id ident.ID) string { return "blobs/" + string(id) }
 
-// cleanName is a safe display name: the base name, no control characters,
-// at most 255 bytes.
+// cleanName is a safe display name: valid UTF-8, the base name, no control
+// or format characters (a right-to-left override can't disguise it), at most
+// 255 bytes cut on a character boundary.
 func cleanName(name string) string {
+	name = strings.ToValidUTF8(name, "")
 	name = path.Base(strings.ReplaceAll(name, `\`, "/"))
 	name = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
 	}, name)
-	if name == "." || name == "/" || name == "" {
+	if name == "." || name == ".." || name == "/" || name == "" {
 		name = "file"
 	}
 	for len(name) > 255 {
-		name = name[:len(name)-1]
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
 	}
 	return name
 }
@@ -106,8 +110,9 @@ func (c *countingHash) Write(p []byte) (int, error) {
 }
 
 // Upload streams r into the bucket as uploader's pending blob: ErrTooLarge
-// (nothing kept) past the cap.
-func (a *Attachments) Upload(ctx context.Context, uploader ident.ID, name, contentType string, r io.Reader) (intercom.Blob, error) {
+// (nothing kept) past the cap. size is r's declared length (-1 unknown):
+// passed through when within the cap, so a small file buffers small.
+func (a *Attachments) Upload(ctx context.Context, uploader ident.ID, name, contentType string, r io.Reader, size int64) (intercom.Blob, error) {
 	if !a.Enabled() {
 		return intercom.Blob{}, ErrAttachmentsOff
 	}
@@ -119,7 +124,10 @@ func (a *Attachments) Upload(ctx context.Context, uploader ident.ID, name, conte
 	id := ident.New(ident.Blob)
 	sum := &countingHash{h: sha256.New()}
 	body := io.TeeReader(io.LimitReader(r, a.max+1), sum)
-	if err := a.bytes.Put(ctx, key(id), body, -1, contentType); err != nil {
+	if size < 0 || size > a.max {
+		size = -1
+	}
+	if err := a.bytes.Put(ctx, key(id), body, size, contentType); err != nil {
 		_ = a.bytes.Delete(context.WithoutCancel(ctx), key(id))
 		return intercom.Blob{}, fmt.Errorf("attachments: storing: %w", err)
 	}
@@ -169,8 +177,11 @@ func (a *Attachments) Names(refs []string) string {
 // mayRead reports whether viewer may read b: its uploader while pending;
 // once attached, a person who can see its channel or a session in it.
 func (a *Attachments) mayRead(viewer ident.ID, b intercom.Blob) bool {
+	if viewer == b.Uploader {
+		return true // yours, pending or sent (a session may post to a room it isn't in)
+	}
 	if b.State == intercom.BlobPending {
-		return viewer == b.Uploader
+		return false
 	}
 	ch, ok := a.ic.store.GetChannel(b.Channel)
 	if !ok {
@@ -237,7 +248,7 @@ func (a *Attachments) HandleUpload(w http.ResponseWriter, r *http.Request, uploa
 		http.Error(w, fmt.Sprintf("too large (max %d MB)", a.max>>20), http.StatusRequestEntityTooLarge)
 		return
 	}
-	b, err := a.Upload(r.Context(), uploader, r.Header.Get("X-Filename"), r.Header.Get("Content-Type"), r.Body)
+	b, err := a.Upload(r.Context(), uploader, r.Header.Get("X-Filename"), r.Header.Get("Content-Type"), r.Body, r.ContentLength)
 	switch {
 	case errors.Is(err, ErrTooLarge):
 		http.Error(w, fmt.Sprintf("too large (max %d MB)", a.max>>20), http.StatusRequestEntityTooLarge)

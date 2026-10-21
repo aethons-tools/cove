@@ -20,7 +20,8 @@ may read the message. Attachments are off unless serve has a
    session): the raw file as the body, its `Content-Type`, and its name in
    `X-Filename`. → `201 {ref, size, type, name}` (`ref` is `blb_…`). Over the
    cap → `413`; attachments off → `503`. The upload is **pending**: only its
-   uploader can read it, and it is deleted if not sent within 24 hours.
+   uploader can read it, and it is deleted if not sent within a day (the
+   hourly sweep takes it once it is 24 hours old).
 2. **Send** — `attachments: ["blb_…", …]` (at most 10) on `/me/send` or
    `POST /squawks`. Only your own pending uploads; each attaches to exactly one
    message (to share it elsewhere, upload it again). With files the text may
@@ -28,7 +29,8 @@ may read the message. Attachments are off unless serve has a
    sent.
 3. **Download** — `GET /me/blobs/{ref}` (a person who can see the message's
    channel) or `GET /squawks/blobs/{ref}` (a session in it). Anyone else gets
-   `404`, the same as for a file that doesn't exist. Byte ranges work.
+   `404`, the same as for a file that doesn't exist. Its uploader can always
+   read it. Byte ranges work.
 
 A message's attachments are its `parts` with a `ref`: `{type, ref, name,
 size}` — in `read` entries and in `/me`.
@@ -48,7 +50,9 @@ Downloads carry `X-Content-Type-Options: nosniff` and
 `Content-Security-Policy: sandbox`. Only raster images (`png`, `jpeg`, `gif`,
 `webp`) are shown inline; everything else — HTML and SVG included — downloads,
 so an uploaded file never runs as Jam's page. Logs name blobs by id and size,
-never by file name or content. The bucket key is `blobs/<ref>`.
+never by file name or content. The bucket key is `blobs/<ref>`. An object
+whose upload failed midway may be left in the bucket with no record; it is
+never served, and is harmless.
 
 ## Setting up MinIO
 

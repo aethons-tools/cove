@@ -84,7 +84,7 @@ func TestSquawksAttachOff(t *testing.T) {
 func TestParticipantSendAttachments(t *testing.T) {
 	f := newICFixture(t)
 	att := NewAttachments(f.log, blobstore.NewMem(), f.ic, 1<<20)
-	b, err := att.Upload(t.Context(), f.bob.ID, "shot.png", "image/png", strings.NewReader("png"))
+	b, err := att.Upload(t.Context(), f.bob.ID, "shot.png", "image/png", strings.NewReader("png"), -1)
 	if err != nil {
 		t.Fatal(err)
 	}
