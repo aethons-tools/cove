@@ -50,6 +50,8 @@ func (m *memState) userNameOf(id ident.ID) (string, bool) {
 // exportObjects renders every live config object of m in file form (ids →
 // names; tombstones, archived rooms and empty context layers skipped). A
 // kit's name@vN parent ref to a kit inTree reports renders as ../<name>.
+// A non-nil inTree also limits the kits to those it reports (the ones an
+// export writes); nil (the planner) renders every kit.
 func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]configObject, error) {
 	out := map[ConfigKey]configObject{}
 	add := func(f configFile) { o := newConfigObject(f); out[o.Key] = o }
@@ -83,7 +85,11 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 	if !m.jamContext.Empty() {
 		add(JamContextFile{Layer: m.jamContext})
 	}
-	for n, k := range m.kits {
+	for _, n := range slices.Sorted(maps.Keys(m.kits)) { // sorted: the first refusal is deterministic
+		if inTree != nil && !inTree(n) {
+			continue // an export leaves this kit out: neither rendered nor pin-checked
+		}
+		k := m.kits[n]
 		cfg, ok := k.Versions[k.Current]
 		if !ok {
 			continue

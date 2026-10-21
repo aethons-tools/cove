@@ -181,3 +181,42 @@ func TestExportConfigTreeRefusesBehindPin(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A kit the write leaves out is neither rendered nor checked: only the
+// managed parent is written, so the unmanaged behind-pinned child is no
+// refusal.
+func TestExportConfigTreeIgnoresUnwrittenBehindPin(t *testing.T) {
+	st, _ := populatedJam(t)
+	if _, _, err := PushStudioKit(st, "web-dev", "kind: studio\nprompt: v2\n"); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := ExportConfigTree(st.ExportConfig(), []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := exp.Files["kits/web-dev/kit.yml"]; !ok {
+		t.Fatal("managed parent not written")
+	}
+	if _, ok := exp.Files["kits/app/kit.yml"]; ok {
+		t.Fatal("unmanaged child written")
+	}
+	if _, err := ExportConfigTree(st.ExportConfig(), []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}}, nil, true); !errors.Is(err, ErrConfigKitPinBehind) {
+		t.Fatalf("--all: err = %v, want ErrConfigKitPinBehind", err)
+	}
+}
+
+// With several behind-pinned kits the refusal names the first by name.
+func TestExportConfigTreeBehindPinDeterministic(t *testing.T) {
+	st, _ := populatedJam(t)
+	if _, _, err := PushStudioKit(st, "zed", "kind: studio\nbase:\n  kit: web-dev@v1\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PushStudioKit(st, "web-dev", "kind: studio\nprompt: v2\n"); err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		if _, err := ExportConfigTree(st.ExportConfig(), nil, nil, true); err == nil || !strings.HasPrefix(err.Error(), "kit app pins") {
+			t.Fatalf("err = %v", err)
+		}
+	}
+}

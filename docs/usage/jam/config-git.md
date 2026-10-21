@@ -85,8 +85,8 @@ per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
 parent`. Versions
 written by `--dir` record provenance repo `local`, dir `kits/<name>`.
 `config write` renders a kit's parent as a path parent only when its pin
-equals the parent's current version (apply re-pins to current). A kit pinned
-behind fails the write (409 on the route): `kit <child> pins <parent>@v<N>
+equals the parent's current version (apply re-pins to current). A kit the
+write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the write (409 on the route): `kit <child> pins <parent>@v<N>
 but <parent> is at v<M>; versions are per-Jam — re-push <child> against v<M>
 (or pin <parent> to v<N>) before config write`.
 
