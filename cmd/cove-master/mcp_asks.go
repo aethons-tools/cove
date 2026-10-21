@@ -19,6 +19,10 @@ import (
 type partOut struct {
 	Type string `json:"type"`
 	Data any    `json:"data,omitempty"`
+	// An attachment: its ref (fetch it with fetch), file name and size.
+	Ref  string `json:"ref,omitempty"`
+	Name string `json:"name,omitempty"`
+	Size int64  `json:"size,omitempty"`
 }
 
 // askOption is one answer an ask offers.
