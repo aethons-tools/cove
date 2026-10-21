@@ -64,6 +64,8 @@ type memState struct {
 	// specSchema records which one-time model-spec store migrations have run
 	// (ModelSpecSchemaVersion); 0 = none.
 	specSchema int
+	// marks is the config-in-git managed marks (config_marks.go).
+	marks map[ConfigKey]ConfigMark
 }
 
 func newMemState() *memState {
@@ -86,6 +88,7 @@ func newMemState() *memState {
 		channels:        map[ident.ID]Channel{},
 		chanMembers:     map[ident.ID][]ChannelMember{},
 		reads:           map[ident.ID]map[ident.ID]int64{},
+		marks:           map[ConfigKey]ConfigMark{},
 	}
 }
 

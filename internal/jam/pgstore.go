@@ -268,6 +268,16 @@ func (s *PostgresStore) load(ctx context.Context) error {
 			return fmt.Errorf("pgstore: decode jam_settings context: %w", err)
 		}
 	}
+	if err := s.loadDocs(ctx, "config_marks", func(doc []byte) error {
+		var mk ConfigMark
+		if err := json.Unmarshal(doc, &mk); err != nil {
+			return err
+		}
+		s.marks[mk.Key()] = mk
+		return nil
+	}); err != nil {
+		return err
+	}
 	var schema []byte
 	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'model_spec_schema'`).Scan(&schema); {
 	case errors.Is(err, pgx.ErrNoRows):
