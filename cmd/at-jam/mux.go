@@ -45,13 +45,17 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker htt
 			alarmH.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/squawks/blobs/") {
+			squawksH.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/exposures" || strings.HasPrefix(r.URL.Path, "/exposures/") {
 			exposureH.ServeHTTP(w, r)
 			return
 		}
 		switch r.URL.Path {
 		case "/squawks", "/squawks/targets", "/squawks/commit", "/squawks/call-in", "/squawks/leave",
-			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks":
+			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks", "/squawks/uploads":
 			squawksH.ServeHTTP(w, r)
 		case "/escalate":
 			escH.ServeHTTP(w, r)
