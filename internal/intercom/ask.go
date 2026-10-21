@@ -165,11 +165,18 @@ func withAsk(m Squawk, ev AskEvent) Squawk {
 // validateParts checks m's parts: inline only (no attachments yet), known
 // types, at most one ask whose data decodes.
 func validateParts(parts []Part) error {
-	asks := 0
+	asks, refs := 0, 0
 	for _, p := range parts {
+		if p.Ref != "" {
+			if err := validateRef(p); err != nil {
+				return err
+			}
+			if refs++; refs > MaxAttachments {
+				return fmt.Errorf("%w: more than %d attachments", ErrInvalid, MaxAttachments)
+			}
+			continue
+		}
 		switch {
-		case p.Ref != "":
-			return fmt.Errorf("%w: attachments are not supported yet", ErrInvalid)
 		case p.Type != AskPartType:
 			return fmt.Errorf("%w: unsupported part type %q", ErrInvalid, p.Type)
 		}

@@ -175,10 +175,10 @@ func TestPreparePartsRules(t *testing.T) {
 		t.Fatal("AskOf on a plain squawk")
 	}
 	bad := map[string][]Part{
-		"reference part": {{Type: "image/png", Ref: "blb_x", Name: "a.png", Size: 3}},
-		"unknown type":   {{Type: "application/x-thing", Data: []byte(`{}`)}},
-		"two asks":       {ok.Parts[0], ok.Parts[0]},
-		"undecodable":    {{Type: AskPartType, Data: []byte(`not json`)}},
+		"bad reference": {{Type: "image/png", Ref: "blb_x", Name: "a.png", Size: 3}},
+		"unknown type":  {{Type: "application/x-thing", Data: []byte(`{}`)}},
+		"two asks":      {ok.Parts[0], ok.Parts[0]},
+		"undecodable":   {{Type: AskPartType, Data: []byte(`not json`)}},
 	}
 	for name, parts := range bad {
 		m := base
