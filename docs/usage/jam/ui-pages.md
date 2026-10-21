@@ -192,13 +192,15 @@ banner instead. Built on and Effective describe the viewed version; Used by and
 Delete (below) reflect each kit's current version.
 
 The **Source** card shows the tracked git source — repo (linked when `https`),
-dir, ref and the last synced commit (12 chars, linked on github.com and gitlab
-hosts) — with **Sync** and **Untrack** (versions are kept), or a **Track…** form
-when the kit has none, and notes a [kit set](kits-path-parents.md#where-a-set-shows).
-The **Versions** table lists each version's push time, source and commit. The
-import, track, sync and untrack controls need the git fetcher (always present in
-`at-jam serve`), disable their button while the fetch runs, and follow the admin
-API's rules and errors ([kits-git.md](kits-git.md)); without one the page only shows provenance.
+dir, ref and the last synced commit (12 chars, linked on github.com and
+gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
+**Track…** form when the kit has none. It also notes a
+[kit set](kits-path-parents.md#where-a-set-shows). The **Versions** table lists
+each version's push time, source and commit. The import, track, sync and
+untrack controls need the git fetcher (always present in `at-jam serve`),
+disable their button while the fetch runs, and follow the admin API's rules and
+errors ([kits-git.md](kits-git.md)); without one the page only shows
+provenance.
 
 **Push new version** is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals

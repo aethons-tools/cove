@@ -50,12 +50,16 @@ var ErrNoKitFile = errors.New("no kit.yml")
 // LoadDir is Load for a dir computed from a path parent reference rather
 // than taken from a validated Source: a dir that is not local after
 // path.Clean (absolute, or climbing out with "..") is ErrOutsideCheckout, and
-// a kit.yml that cannot be read is ErrNoKitFile. Load's jail then guards
+// a dir a Source could not hold (space, quote, control character) is refused
+// with a fixed message, and a kit.yml that cannot be read is ErrNoKitFile. Load's jail then guards
 // symlinks inside dir. Other failures are Load's.
 func LoadDir(root, dir string) (studio.StudioKit, string, error) {
 	dir = path.Clean(dir)
 	if !filepath.IsLocal(filepath.FromSlash(dir)) {
 		return studio.StudioKit{}, "", ErrOutsideCheckout
+	}
+	if err := checkDir(dir); err != nil {
+		return studio.StudioKit{}, "", err
 	}
 	if _, err := studio.ReadFileInRoot(root, filepath.Join(filepath.FromSlash(dir), KitFile)); err != nil {
 		return studio.StudioKit{}, "", ErrNoKitFile

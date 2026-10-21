@@ -167,7 +167,10 @@ func checkSetAncestor(store Store, name, repo, dir string) error {
 	if !ok {
 		return nil
 	}
-	from := repo + "//" + checkoutDir(dir)
+	from := repo
+	if d := checkoutDir(dir); d != "." {
+		from += "//" + d
+	}
 	last := 0
 	for v, m := range k.Meta {
 		if sameSource(m.Source, repo, dir) && v > last {
@@ -215,15 +218,20 @@ func (o *overlayStore) KitConfig(name string, version int) (string, bool) {
 // buildKitDocs is the new doc of each kit the planned set changes, root
 // first: a new version with its own provenance {repo, dir, ref, commit} and
 // parent, and the tracked source moved to this commit when track is set or
-// the kit already tracks this repo, dir and ref. An unchanged kit whose
+// the kit already tracks this repo, dir and ref (an ancestor tracking this repo
+// and dir at another ref keeps that tracking). An unchanged kit whose
 // tracked source does not move is left out.
 func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, commit string, now time.Time, track bool) []Kit {
 	var docs []Kit
-	for _, e := range entries {
+	for i, e := range entries {
 		at := KitSource{Repo: src.Repo, Dir: e.Dir, Ref: src.Ref, Commit: commit}
 		k, ok := store.GetKit(e.Name)
 		var tracked *KitSource
-		if track || (ok && sameSource(k.Source, src.Repo, e.Dir) && k.Source.Ref == src.Ref) {
+		sameRef := ok && sameSource(k.Source, src.Repo, e.Dir) && k.Source.Ref == src.Ref
+		// An ancestor tracking this repo and dir at another ref keeps that
+		// tracking; only the top kit is retargeted by a track through this ref.
+		otherRef := ok && sameSource(k.Source, src.Repo, e.Dir) && k.Source.Ref != src.Ref
+		if sameRef || (track && (i == len(entries)-1 || !otherRef)) {
 			tracked = &at
 		}
 		if e.Unchanged && (tracked == nil || (k.Source != nil && *k.Source == *tracked)) {

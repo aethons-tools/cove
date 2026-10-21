@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -284,7 +285,7 @@ func TestSetRefusesBadPaths(t *testing.T) {
 		"self cycle": {map[string]string{"app/kit.yml": kit("", "../app")}, "",
 			"cycle: app → app"},
 		"self": {map[string]string{"app/kit.yml": kit("", "./")}, "",
-			"studio kit: base.kit: not a valid parent path (a path parent must be a non-empty relative path of at most 200 bytes, with no backslash)"},
+			"studio kit: base.kit: not a valid parent path (a path parent must be a non-empty relative path of at most 200 bytes, with no backslash, space, quote or control character)"},
 		"depth 5": {map[string]string{
 			"a/kit.yml": kit("", "../b"), "b/kit.yml": kit("", "../c"), "c/kit.yml": kit("", "../d"),
 			"d/kit.yml": kit("", "../e"), "e/kit.yml": "kind: studio\n",
@@ -475,4 +476,57 @@ func TestPlanKitSet(t *testing.T) {
 	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 {
 		t.Fatal("planning wrote")
 	}
+}
+
+func TestSetAncestorKeepsOtherRefTracking(t *testing.T) {
+	st, _ := trackedSet(t)
+	web2 := "kind: studio\nname: web-dev\nprompt: web two\n"
+	f := newFakeFetcher(t, map[string]string{"main": "c1", "v2": "c2"}, map[string]map[string]string{
+		"c2": {"web/kit.yml": web2, "app/kit.yml": appKit},
+	})
+	src := setSrc("app")
+	src.Ref = "v2"
+	if _, err := TrackKit(context.Background(), st, f, nil, "", src, time.Unix(20, 0)); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := st.GetKit("web-dev")
+	if w.Source == nil || *w.Source != (KitSource{Repo: setRepo, Dir: "web", Ref: "main", Commit: "c1"}) {
+		t.Fatalf("web-dev tracking was retargeted: %+v", w.Source)
+	}
+	if w.Current != 2 || w.Meta[2].Source == nil || w.Meta[2].Source.Ref != "v2" || w.Meta[2].Source.Commit != "c2" {
+		t.Fatalf("web-dev v2 provenance: current %d meta %+v", w.Current, w.Meta[2])
+	}
+	a, _ := st.GetKit("app")
+	if a.Source == nil || a.Source.Ref != "v2" {
+		t.Fatalf("top kit not tracked through v2: %+v", a.Source)
+	}
+}
+
+func TestSetRefusesUnsafeParentPaths(t *testing.T) {
+	kit := func(parent string) string { return "kind: studio\nbase:\n  kit: " + strconv.Quote(parent) + "\n" }
+	st := NewMemStore()
+	// A parent dir with a space would be stored as a source dir no sync could
+	// load again.
+	f := setFixture(t, map[string]string{"app/kit.yml": kit("../my web"), "my web/kit.yml": "kind: studio\n"})
+	_, err := ImportKit(context.Background(), st, f, nil, "", setSrc("app"), time.Unix(1, 0))
+	if err == nil || !strings.Contains(err.Error(), "not a valid parent path") || len(st.ListKits()) != 0 {
+		t.Fatalf("space: %v kits %v", err, st.ListKits())
+	}
+	// A computed ancestor dir is checked too (here via a child dir the
+	// path-join reaches but Source rules refuse), and no raw text is echoed.
+	f = setFixture(t, map[string]string{"app/kit.yml": kit("../w\x1b[31mX")})
+	_, err = ImportKit(context.Background(), st, f, nil, "", setSrc("app"), time.Unix(2, 0))
+	if err == nil || strings.ContainsRune(err.Error(), 0x1b) || len(st.ListKits()) != 0 {
+		t.Fatalf("escape: %q kits %v", err, st.ListKits())
+	}
+}
+
+func TestSetRefusalSpellsRootWithoutDot(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushStudioKit(st, "web-dev", "kind: studio\nprompt: mine\n"); err != nil {
+		t.Fatal(err)
+	}
+	f := setFixture(t, map[string]string{"kit.yml": "kind: studio\nname: web-dev\n", "app/kit.yml": "kind: studio\nbase:\n  kit: ..\n"})
+	setRefused(t, st, f, "", setSrc("app"),
+		"kit web-dev exists and is not from "+setRepo+"; rename the kit or untrack it first")
 }

@@ -436,6 +436,10 @@ func applyImport(m *memState, s ConfigSnapshot) {
 
 // ImportConfig restores a snapshot into an empty MemStore (fail-closed).
 func (fs *MemStore) ImportConfig(s ConfigSnapshot) error {
+	// Imported kits are kit writes: kitMu first, as every kit writer takes it
+	// before the store lock.
+	kitMu.Lock()
+	defer kitMu.Unlock()
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	s, plan, err := importPlan(fs.memState, s)

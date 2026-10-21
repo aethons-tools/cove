@@ -345,6 +345,10 @@ func createdProjects(p Project, created bool) []Project {
 // single transaction: either every aggregate row is inserted or none is. It is
 // fail-closed (checkImport) and never touches instances or unread cursors.
 func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
+	// Imported kits are kit writes: kitMu first, as every kit writer takes it
+	// before the store lock.
+	kitMu.Lock()
+	defer kitMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap, plan, err := importPlan(s.memState, snap)

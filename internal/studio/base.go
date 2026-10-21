@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -172,12 +174,28 @@ func (b Base) ParentPath() (string, bool) {
 	return path.Clean(b.Kit), true
 }
 
+// HasUnsafeChars reports whether s is invalid UTF-8 or holds whitespace, a
+// quote, a backtick, or a control, format (Cf) or non-printable character.
+func HasUnsafeChars(s string) bool {
+	if !utf8.ValidString(s) {
+		return true
+	}
+	for _, r := range s {
+		if r <= 0x20 || r == 0x7f || r == '"' || r == '\'' || r == '`' || unicode.IsSpace(r) || unicode.IsControl(r) ||
+			unicode.Is(unicode.Cf, r) || !unicode.IsPrint(r) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkParentPath is the syntax check for a path parent: non-empty after the
-// dot, no backslash, not absolute, within maxParentPath bytes.
+// dot, no backslash, no space, quote, control or non-printable character (the
+// source-dir rules), not absolute, within maxParentPath bytes.
 func (b Base) checkParentPath() error {
 	p, _ := b.ParentPath()
-	if p == "." || strings.ContainsRune(b.Kit, '\\') || path.IsAbs(p) || len(b.Kit) > maxParentPath {
-		return errors.New("base.kit: not a valid parent path (a path parent must be a non-empty relative path of at most 200 bytes, with no backslash)")
+	if p == "." || strings.ContainsRune(b.Kit, '\\') || HasUnsafeChars(b.Kit) || path.IsAbs(p) || len(b.Kit) > maxParentPath {
+		return errors.New("base.kit: not a valid parent path (a path parent must be a non-empty relative path of at most 200 bytes, with no backslash, space, quote or control character)")
 	}
 	return nil
 }

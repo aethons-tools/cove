@@ -140,3 +140,14 @@ func TestLoadDir(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDirRefusesUnsafeDir(t *testing.T) {
+	root := t.TempDir()
+	writeKit(t, root, "my web", "name: web-dev\n")
+	for _, dir := range []string{"my web", "w\x1b[31mX", "a'b"} {
+		_, _, err := LoadDir(root, dir)
+		if err == nil || errors.Is(err, ErrNoKitFile) || strings.Contains(err.Error(), dir) {
+			t.Errorf("%q: got %v", dir, err)
+		}
+	}
+}

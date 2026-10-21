@@ -101,7 +101,12 @@ API answers **409** for the first two and **400** for the rest.
 
 "From this source" means the same repo and dir, at **any ref**. So importing a
 set through another ref (`…//app@v2`) adds versions from that ref to
-ancestors imported from `main`.
+ancestors imported from `main`. An ancestor already tracking that repo and dir
+at a **different ref** keeps its tracked ref: a track or sync through another
+ref gives it a new version with its own provenance but does not retarget it.
+
+A parent path and the dirs it reaches follow the source-dir rules: no space,
+quote, control or non-printable character, or the path is refused with a fixed message.
 
 ## Concurrency
 
