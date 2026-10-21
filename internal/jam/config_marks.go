@@ -97,6 +97,9 @@ func checkConfigWrite(m *memState, w ConfigWrite) error {
 		if err := empty("model-spec", i, s.Name); err != nil {
 			return err
 		}
+		if _, err := prepareModelSpec(s); err != nil {
+			return fmt.Errorf("config write: %w", err)
+		}
 	}
 	for i, p := range w.Projects {
 		if err := empty("project", i, p.Name); err != nil {
@@ -124,8 +127,17 @@ func checkConfigWrite(m *memState, w ConfigWrite) error {
 		}
 	}
 	inWrite := map[ident.ID]bool{}
+	leaving := map[ident.ID]bool{}
 	for _, p := range w.Projects {
 		inWrite[p.ID] = true
+		if p.Status == StatusRemoved {
+			leaving[p.ID] = true
+		}
+	}
+	for _, p := range w.Projects {
+		if live, ok := m.projects[p.Name]; ok && p.Status != StatusRemoved && live.ID != p.ID && !leaving[live.ID] {
+			return fmt.Errorf("config write: project name %q is held by another live project", p.Name)
+		}
 	}
 	knownProject := func(id ident.ID) bool {
 		if inWrite[id] {
@@ -161,6 +173,46 @@ func checkConfigWrite(m *memState, w ConfigWrite) error {
 	return nil
 }
 
+// prepareConfigWrite returns w ready to persist and apply identically in both
+// stores: model specs are deep-copied, and a tombstone of a live project
+// becomes the live doc with Status removed plus archived copies of all its
+// live channels (as RemoveProject does). Caller holds mu and has run
+// checkConfigWrite.
+func prepareConfigWrite(m *memState, w ConfigWrite) ConfigWrite {
+	out := w
+	out.ModelSpecs = nil
+	for _, s := range w.ModelSpecs {
+		c, _ := prepareModelSpec(s) // checked by checkConfigWrite
+		out.ModelSpecs = append(out.ModelSpecs, c)
+	}
+	out.Projects = slices.Clone(w.Projects)
+	var archived []Channel
+	explicit := map[ident.ID]bool{}
+	for _, c := range w.Channels {
+		explicit[c.ID] = true
+	}
+	for i, p := range out.Projects {
+		if p.Status != StatusRemoved {
+			continue
+		}
+		live, ok := m.projects[p.Name]
+		if !ok || live.ID != p.ID {
+			continue
+		}
+		tomb := copyProject(live)
+		tomb.Status = StatusRemoved
+		out.Projects[i] = tomb
+		for _, c := range m.projectChannels(p.ID) {
+			if !explicit[c.ID] {
+				c.Status = StatusArchived
+				archived = append(archived, c)
+			}
+		}
+	}
+	out.Channels = append(archived, w.Channels...)
+	return out
+}
+
 // applyConfigWrite applies w to the cache in struct field order. Caller holds
 // mu.Lock() and has run checkConfigWrite.
 func applyConfigWrite(m *memState, w ConfigWrite) {
@@ -180,9 +232,7 @@ func applyConfigWrite(m *memState, w ConfigWrite) {
 		m.applyRemoveDestination(n)
 	}
 	for _, s := range w.ModelSpecs {
-		if c, err := prepareModelSpec(s); err == nil {
-			m.applyPutModelSpec(c)
-		}
+		m.applyPutModelSpec(s) // prepared by prepareConfigWrite
 	}
 	for _, n := range w.RemoveModelSpecs {
 		m.applyRemoveModelSpec(n)

@@ -550,4 +550,25 @@ func TestPostgresApplyConfigAtomic(t *testing.T) {
 	if _, ok := r.GetRole("app", "ic"); !ok {
 		t.Fatal("role lost on reopen")
 	}
+	// Tombstoning a project persists the same as the cache: archived
+	// channels and the full tombstone, also after a reopen.
+	p, _ := r.GetProject("app")
+	room, _ := r.ChannelByKey(p.ID, jam.SourceRoom, "ops")
+	if err := s.ApplyConfig(jam.ConfigWrite{Projects: []jam.Project{{ID: p.ID, Name: "app", Status: jam.StatusRemoved}}}); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	for _, st := range []jam.Store{s, r2} {
+		tp, ok := st.GetProject(string(p.ID))
+		if !ok || tp.Status != jam.StatusRemoved || tp.ChatService != p.ChatService {
+			t.Fatalf("tombstone %+v", tp)
+		}
+		if c, _ := st.GetChannel(room.ID); c.Status != jam.StatusArchived {
+			t.Fatalf("room %+v", c)
+		}
+	}
 }

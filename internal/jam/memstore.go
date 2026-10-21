@@ -190,7 +190,7 @@ func (fs *MemStore) ApplyConfig(w ConfigWrite) error {
 	if err := checkConfigWrite(fs.memState, w); err != nil {
 		return err
 	}
-	applyConfigWrite(fs.memState, w)
+	applyConfigWrite(fs.memState, prepareConfigWrite(fs.memState, w))
 	return nil
 }
 

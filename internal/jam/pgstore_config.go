@@ -18,6 +18,7 @@ func (s *PostgresStore) ApplyConfig(w ConfigWrite) error {
 	if w.Empty() {
 		return nil
 	}
+	w = prepareConfigWrite(s.memState, w)
 	if err := s.registryTx("ApplyConfig", func(ctx context.Context, tx pgx.Tx) error {
 		return writeConfigTx(ctx, tx, w)
 	}); err != nil {
@@ -62,10 +63,7 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 		}
 	}
 	for _, ms := range w.ModelSpecs {
-		c, err := prepareModelSpec(ms)
-		if err != nil {
-			return err
-		}
+		c := ms // prepared by prepareConfigWrite
 		doc, err := json.Marshal(c)
 		if err != nil {
 			return err

@@ -101,11 +101,63 @@ func runConfigConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if _, ok := st.GetKit("web"); ok {
 			t.Fatal("kit kept")
 		}
+		if c, _ := st.GetChannel(ch.ID); c.Status != jam.StatusArchived {
+			t.Fatalf("room %+v", c)
+		}
+		if c, _ := st.GetConnection(cid); c.Status != jam.StatusRemoved {
+			t.Fatalf("connection %+v", c)
+		}
 		if u, _ := st.GetUser(uid); u.Status != jam.StatusRemoved {
 			t.Fatalf("user %+v", u)
 		}
 		if !st.GetJamContext().Empty() || len(st.ListConfigMarks()) != 1 {
 			t.Fatalf("context %+v marks %+v", st.GetJamContext(), st.ListConfigMarks())
+		}
+	})
+	t.Run("tombstoning a project archives all its channels and keeps its fields", func(t *testing.T) {
+		st := mk(t)
+		w, _, cid, pid := full()
+		w.Projects[0].Context = sessionctx.Layer{Core: "goal"}
+		ticket := jam.Channel{ID: ident.New(ident.Channel), ProjectID: pid, Kind: jam.SourceTicket, Key: string(cid) + "/ACME-9",
+			Label: "t", Status: jam.StatusLive}
+		w.Channels = append(w.Channels, ticket)
+		if err := st.ApplyConfig(w); err != nil {
+			t.Fatal(err)
+		}
+		room, _ := st.ChannelByKey(pid, jam.SourceRoom, "ops")
+		if err := st.ApplyConfig(jam.ConfigWrite{Projects: []jam.Project{{ID: pid, Name: "app", Status: jam.StatusRemoved}}}); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []ident.ID{room.ID, ticket.ID} {
+			if c, ok := st.GetChannel(id); !ok || c.Status != jam.StatusArchived {
+				t.Fatalf("channel %s: %+v", id, c)
+			}
+		}
+		p, ok := st.GetProject(string(pid))
+		if !ok || p.Status != jam.StatusRemoved || p.ChatService != string(cid) || p.Context.Core != "goal" {
+			t.Fatalf("tombstone %+v", p)
+		}
+	})
+	t.Run("an invalid model spec or a taken project name writes nothing", func(t *testing.T) {
+		st := mk(t)
+		w, _, _, _ := full()
+		w.ModelSpecs = append(w.ModelSpecs, jam.ModelSpec{})
+		if err := st.ApplyConfig(w); err == nil {
+			t.Fatal("an invalid model spec must be refused")
+		}
+		if len(st.ListUsers())+len(st.ListConfigMarks())+len(st.ListKits()) != 0 {
+			t.Fatal("partial write")
+		}
+		if _, ok := st.GetModelSpec("fast"); ok {
+			t.Fatal("model spec written")
+		}
+		good, _, _, _ := full()
+		if err := st.ApplyConfig(good); err != nil {
+			t.Fatal(err)
+		}
+		dup := jam.ConfigWrite{Projects: []jam.Project{{ID: ident.New(ident.Project), Name: "app"}}}
+		if err := st.ApplyConfig(dup); err == nil {
+			t.Fatal("a name held by another live project must be refused")
 		}
 	})
 	t.Run("a bad record late in the set writes nothing", func(t *testing.T) {
