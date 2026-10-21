@@ -51,6 +51,8 @@ type squawkOut struct {
 	// channel cutover); From who sent it.
 	Channel *partyOut `json:"channel,omitempty"`
 	From    *partyOut `json:"from,omitempty"`
+	// Parts are typed parts beside the body: an ask event (see ask).
+	Parts []partOut `json:"parts,omitempty"`
 }
 
 // partyOut mirrors a channel or participant in Jam's responses: an id, a kind
@@ -606,6 +608,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	client, cfgErr := newMessagingClient(getenv)
 
 	s := mcp.NewServer(&mcp.Implementation{Name: "intercom", Version: "0.1.0"}, nil)
+	addAskTools(s, client, cfgErr)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
