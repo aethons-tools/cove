@@ -2,7 +2,10 @@ package jam
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -170,4 +173,93 @@ func (b *Boards) publish(id ident.ID) {
 		default:
 		}
 	}
+}
+
+// maxBoardRequest caps a board request body.
+const maxBoardRequest = 8 << 20
+
+// HandleCreate is the create route: {channel (a person) | to (a session), title}
+// → 201 {board_id, channel}.
+func (b *Boards) HandleCreate(w http.ResponseWriter, r *http.Request, p Poster, now time.Time) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBoardRequest)
+	var req struct {
+		Channel string `json:"channel"`
+		To      string `json:"to"`
+		Title   string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	target := req.Channel
+	if p.Session != nil {
+		target = req.To
+	}
+	bd, err := b.Create(p, target, req.Title, now)
+	if !boardError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusCreated, struct {
+		BoardID ident.ID `json:"board_id"`
+		Channel ident.ID `json:"channel"`
+	}{bd.ID, bd.Channel})
+}
+
+// HandleElements is the elements route: GET ?since= → {seq, elements};
+// POST {elements} → {seq, lost}. 404 alike for missing and forbidden.
+func (b *Boards) HandleElements(w http.ResponseWriter, r *http.Request, viewer, id ident.ID) {
+	switch r.Method {
+	case http.MethodGet:
+		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		els, seq, err := b.Elements(viewer, id, since)
+		if !boardError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Seq      int64             `json:"seq"`
+			Elements []json.RawMessage `json:"elements"`
+		}{seq, nonNil(els)})
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, maxBoardRequest)
+		var req struct {
+			Elements []json.RawMessage `json:"elements"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		seq, lost, err := b.Merge(viewer, id, req.Elements)
+		if !boardError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Seq  int64             `json:"seq"`
+			Lost []json.RawMessage `json:"lost"`
+		}{seq, nonNil(lost)})
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func nonNil(v []json.RawMessage) []json.RawMessage {
+	if v == nil {
+		return []json.RawMessage{}
+	}
+	return v
+}
+
+// boardError writes err's status, reporting whether there was none.
+func boardError(w http.ResponseWriter, err error) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, intercom.ErrInvalid):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ErrSendDenied), errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved), errors.Is(err, intercom.ErrNoBoard):
+		http.Error(w, "not found", http.StatusNotFound)
+	default:
+		http.Error(w, "board request failed", http.StatusInternalServerError)
+	}
+	return false
 }

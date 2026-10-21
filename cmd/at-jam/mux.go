@@ -45,7 +45,7 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker htt
 			alarmH.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/squawks/blobs/") {
+		if r.URL.Path == "/squawks/boards" || strings.HasPrefix(r.URL.Path, "/squawks/boards/") || strings.HasPrefix(r.URL.Path, "/squawks/blobs/") {
 			squawksH.ServeHTTP(w, r)
 			return
 		}
@@ -82,6 +82,7 @@ type messaging struct {
 	log    intercom.Store
 	legacy jam.LegacyInbox
 	att    *jam.Attachments // nil: attachments off
+	boards *jam.Boards      // nil: whiteboards off
 }
 
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, previewURL func(actorID, name string) (string, error), log *slog.Logger) http.Handler {
@@ -110,6 +111,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	if msg != nil {
 		squawksH = jam.NewSquawksHandler(st, msg.ic, msg.log, msg.legacy, log)
 		squawksH.SetAttachments(msg.att)
+		squawksH.SetBoards(msg.boards)
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")

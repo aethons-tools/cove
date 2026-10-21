@@ -1,11 +1,11 @@
 package intercomtest
 
 import (
-	"sync"
 	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 

@@ -50,7 +50,11 @@ type SquawksHandler struct {
 	log   *slog.Logger
 	now   func() time.Time
 	att   *Attachments // nil: attachments off
+	brd   *Boards      // nil: whiteboards off
 }
+
+// SetBoards turns on the board routes.
+func (h *SquawksHandler) SetBoards(b *Boards) { h.brd = b }
 
 // SetAttachments turns on uploads, attachment sends and downloads.
 func (h *SquawksHandler) SetAttachments(a *Attachments) { h.att = a }
@@ -114,6 +118,13 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleCommit(w, r, actor)
+		return
+	}
+
+	// Whiteboards: /squawks/boards (POST create, GET list) and
+	// /squawks/boards/{id}/elements (GET, POST).
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/squawks/boards"); ok {
+		h.boardRoute(w, r, actor, inst, rest)
 		return
 	}
 

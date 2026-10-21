@@ -3,6 +3,9 @@ package jam
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -109,5 +112,55 @@ func TestBoardsSessionCreatesAtHome(t *testing.T) {
 	}
 	if home, _ := f.ic.HomeChannel(f.standing); b.Channel != home.ID {
 		t.Fatalf("board in %s, want the home channel", b.Channel)
+	}
+}
+
+func TestBoardsHTTP(t *testing.T) {
+	f := newICFixture(t)
+	bs := NewBoards(f.log, f.ic)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	do := func(method, path, body string, viewer Poster, id ident.ID) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		if id == "" {
+			bs.HandleCreate(rec, req, viewer, f.now)
+		} else {
+			bs.HandleElements(rec, req, viewer.ID, id)
+		}
+		return rec
+	}
+	rec := do("POST", "/boards", `{"channel":"`+string(f.room.ID)+`","title":"Arch"}`, Poster{ID: f.alice.ID}, "")
+	var created struct {
+		BoardID ident.ID `json:"board_id"`
+	}
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &created) != nil || created.BoardID.Kind() != ident.Board {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	id := created.BoardID
+	rec = do("POST", "/x", `{"elements":[`+string(rect("r1", 2))+`]}`, Poster{ID: f.alice.ID}, id)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"seq":1`) {
+		t.Fatalf("merge = %d %s", rec.Code, rec.Body)
+	}
+	rec = do("POST", "/x", `{"elements":[`+string(rect("r1", 1))+`]}`, Poster{ID: f.alice.ID}, id)
+	if !strings.Contains(rec.Body.String(), `"lost":[{`) {
+		t.Fatalf("losing merge = %s", rec.Body)
+	}
+	rec = do("GET", "/x?since=0", "", Poster{ID: f.bob.ID}, id)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":"r1"`) {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body)
+	}
+	if rec := do("GET", "/x", "", Poster{ID: f.carol.ID}, id); rec.Code != http.StatusNotFound {
+		t.Fatalf("carol = %d", rec.Code)
+	}
+	if rec := do("GET", "/x", "", Poster{ID: f.alice.ID}, ident.New(ident.Board)); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing = %d", rec.Code)
+	}
+	if rec := do("POST", "/x", `{"elements":["nope"]}`, Poster{ID: f.alice.ID}, id); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad doc = %d", rec.Code)
+	}
+	if rec := do("POST", "/boards", `{"channel":"`+string(f.room.ID)+`","title":""}`, Poster{ID: f.alice.ID}, ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no title = %d", rec.Code)
 	}
 }

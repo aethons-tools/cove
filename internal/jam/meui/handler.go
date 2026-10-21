@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -65,6 +66,8 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /me/asks/{id}/answer", h.answerAsk)
 	mux.HandleFunc("POST /me/uploads", h.upload)
 	mux.HandleFunc("GET /me/blobs/{id}", h.blob)
+	mux.HandleFunc("POST /me/boards", h.boardCreate)
+	mux.HandleFunc("/me/boards/{id}/elements", h.boardElements)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/asks", h.askPanel)
 	mux.HandleFunc("GET /me/events", h.events)
@@ -176,6 +179,26 @@ func (h *handler) blob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.d.Attachments.Serve(w, r, p.UserID, ident.ID(r.PathValue("id")))
+}
+
+// boardCreate starts a whiteboard in a channel the viewer may post to.
+func (h *handler) boardCreate(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok || h.d.Boards == nil {
+		http.Error(w, "whiteboards unavailable", http.StatusNotFound)
+		return
+	}
+	h.d.Boards.HandleCreate(w, r, jam.Poster{ID: p.UserID}, time.Now())
+}
+
+// boardElements reads (GET ?since=) or merges (POST) a board's elements.
+func (h *handler) boardElements(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok || h.d.Boards == nil {
+		http.Error(w, "whiteboards unavailable", http.StatusNotFound)
+		return
+	}
+	h.d.Boards.HandleElements(w, r, p.UserID, ident.ID(r.PathValue("id")))
 }
 
 // markRead advances the participant's read cursor on a channel to seq (a

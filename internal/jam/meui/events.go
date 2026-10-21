@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -40,11 +41,12 @@ const presenceGap = 250 * time.Millisecond
 // status crosses this stream — only that something changed; the page refetches
 // its own authorized fragments.
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
-	if _, ok := jam.ParticipantFrom(r); !ok {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if h.changes == nil && h.presence == nil {
+	if h.changes == nil && h.presence == nil && h.d.Boards == nil {
 		w.WriteHeader(http.StatusNoContent) // EventSource stops retrying; the page polls
 		return
 	}
@@ -63,6 +65,12 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		ch, cancel := h.presence.Subscribe()
 		defer cancel()
 		presence = ch
+	}
+	var boards <-chan ident.ID
+	if h.d.Boards != nil {
+		ch, cancel := h.d.Boards.Subscribe()
+		defer cancel()
+		boards = ch
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -94,6 +102,12 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			sendPresence()
 		case <-held:
 			sendPresence()
+		case id := <-boards:
+			// Only boards this viewer may read; the editor refetches by seq.
+			if _, _, ok := h.d.Boards.CanRead(p.UserID, id); !ok {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: board\ndata: %s\n\n", id)
 		case <-tick.C:
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 		}
