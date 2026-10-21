@@ -169,9 +169,6 @@ func TestAttachmentsHandleUpload(t *testing.T) {
 	if !strings.Contains(enc.Body.String(), `"name":"résumé 1.pdf"`) {
 		t.Fatalf("encoded name = %s", enc.Body)
 	}
-	if false {
-		t.Fatalf("upload = %d %s", rec.Code, rec.Body)
-	}
 	if rec := up(a, "way too long"); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("over = %d", rec.Code)
 	}

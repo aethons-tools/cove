@@ -255,10 +255,18 @@ function meAttach(f, files){
     xhr.setRequestHeader('Content-Type', file.type||'application/octet-stream');
     xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
     xhr.upload.onprogress=function(ev){ if(ev.lengthComputable) pr.value=100*ev.loaded/ev.total; };
+    // Any end but a 201 marks the chip failed (never stuck "uploading", which
+    // would hold Send): a refusal says why; a dropped connection — an early
+    // 413 often closes it mid-send — says so.
+    function fail(why){ chip.classList.remove('uploading'); chip.classList.add('failed'); chip.firstChild.textContent=file.name+' — '+why+' '; pr.remove(); }
     xhr.onload=function(){
-      if(xhr.status===201){ chip.dataset.ref=JSON.parse(xhr.responseText).ref; chip.classList.remove('uploading'); pr.remove(); }
-      else { chip.classList.add('failed'); chip.firstChild.textContent=file.name+' — '+(xhr.responseText||('failed '+xhr.status)).trim()+' '; pr.remove(); }
+      var ref=''; try{ ref=JSON.parse(xhr.responseText).ref||''; }catch(_){}
+      if(xhr.status===201 && ref){ chip.dataset.ref=ref; chip.classList.remove('uploading'); pr.remove(); }
+      else { fail((xhr.responseText||('failed '+xhr.status)).trim()); }
     };
+    xhr.onerror=function(){ fail('upload failed (too large, or the connection dropped)'); };
+    xhr.onabort=function(){ chip.remove(); };
+    xhr.ontimeout=xhr.onerror;
     xhr.send(file);
   });
 }
@@ -266,6 +274,9 @@ function meAttach(f, files){
 document.addEventListener('paste', function(e){
   var t=e.target, f=t.closest&&t.closest('.composer form');
   if(!f||!f.querySelector('.att-chips')||!e.clipboardData||!e.clipboardData.files.length) return;
+  // Text on the clipboard wins (an Office copy carries a picture too), and
+  // a paste-as-code (⇧⌘V) is the code handler's.
+  if(e.clipboardData.getData('text/plain') || t._pasteAsCode) return;
   e.preventDefault(); meAttach(f, e.clipboardData.files);
 });
 document.addEventListener('dragover', function(e){ if(e.target.closest&&e.target.closest('.composer')) e.preventDefault(); });
@@ -467,10 +478,10 @@ function meCopy(text, btn){
 // the (synchronous, never painted) read.
 function meCopyBubble(btn, markdown){
   var m=btn.closest('.msg'), html=document.documentElement;
-  if(markdown){ meCopy(m.querySelector('.body.raw').textContent, btn); return; }
+  if(markdown){ var r=m.querySelector('.body.raw'); meCopy(r?r.textContent:'', btn); return; }
   var raw=html.classList.contains('raw');
   if(raw){ html.classList.remove('raw'); }
-  var text=m.querySelector('.body:not(.raw)').innerText;
+  var b=m.querySelector('.body:not(.raw)'), text=b?b.innerText:'';
   if(raw){ html.classList.add('raw'); }
   meCopy(text.replace(/\n+$/, ''), btn);
 }

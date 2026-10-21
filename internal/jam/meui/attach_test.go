@@ -46,3 +46,17 @@ func TestMessageFilesRender(t *testing.T) {
 		t.Error("a files-only message shouldn't repeat the names as its text")
 	}
 }
+
+// Review fixes: a failed upload never leaves a chip "uploading"; a paste
+// with text on the clipboard stays a text paste; copying a files-only
+// bubble doesn't throw.
+func TestComposerAttachRobustness(t *testing.T) {
+	e, p := fixture()
+	e.Deps.Attachments = jam.NewAttachments(e.lg, blobstore.NewMem(), e.Intercom, 25<<20)
+	on := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	for _, want := range []string{"xhr.onerror=", "xhr.onabort=", "getData('text/plain')", "var b=m.querySelector('.body:not(.raw)')", "max 25 MB each"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+}

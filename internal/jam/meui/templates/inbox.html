@@ -50,7 +50,7 @@
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
         {{if $.AttachMax}}<div class="att-chips"></div>{{end}}
         <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)"></textarea>
-        <div class="send-col">{{if $.AttachMax}}<label class="attach-btn" title="Attach files (or paste / drop them; max {{$.AttachMax}} bytes each)">📎<input type="file" multiple hidden onchange="meAttach(this.form, this.files); this.value=''"></label>{{end}}<label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
+        <div class="send-col">{{if $.AttachMax}}<label class="attach-btn" title="Attach files (or paste / drop them; max {{mb $.AttachMax}} MB each)">📎<input type="file" multiple hidden onchange="meAttach(this.form, this.files); this.value=''"></label>{{end}}<label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
       </form>
     </div>
     {{else}}

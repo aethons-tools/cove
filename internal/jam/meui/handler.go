@@ -30,6 +30,7 @@ func mustParse(names ...string) *template.Template {
 	}
 	return template.Must(template.New("").Funcs(template.FuncMap{
 		"stylesheet": func() string { return uiassets.StylesheetHref("/me/static/") },
+		"mb":         func(n int64) int64 { return n >> 20 },
 	}).ParseFS(files, paths...))
 }
 
