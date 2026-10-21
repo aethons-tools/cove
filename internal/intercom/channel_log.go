@@ -57,6 +57,11 @@ type Store interface {
 	// Append stores m (Prepare'd) and one delivery per audience member, in one
 	// step. An id already in either log is refused.
 	Append(m Squawk, audience []ident.ID) (Squawk, error)
+	// GetAsk is an ask's current state; ListAsks the asks f selects, by
+	// LastSeq ascending. An ask event's append folds it in the same step
+	// (FoldAsk): a refused event appends nothing.
+	GetAsk(id string) (Ask, bool)
+	ListAsks(f AskFilter) []Ask
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk
 	InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk

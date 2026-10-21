@@ -341,3 +341,40 @@ func AskBody(ev AskEvent, a Ask, byLabel string) string {
 	}
 	return "ask " + string(ev.Event)
 }
+
+// AskFilter selects asks; a zero field matches all.
+type AskFilter struct {
+	Channel, Asker ident.ID
+	State          AskState
+}
+
+// Match reports whether a passes f.
+func (f AskFilter) Match(a Ask) bool {
+	return (f.Channel == "" || a.Channel == f.Channel) && (f.Asker == "" || a.Asker == f.Asker) && (f.State == "" || a.State == f.State)
+}
+
+// FoldAsk is a store's step for appending m (Prepare'd, its ID set): when m
+// carries an ask event it is validated against the ask's current state (get)
+// and m is returned with its part normalized (the ask's id, the version an
+// ask or amend makes), with the new state to store once m's seq is known
+// (set LastSeq). isAsk is false for any other squawk. On error, append
+// nothing.
+func FoldAsk(m Squawk, get func(id string) (Ask, bool)) (out Squawk, a Ask, isAsk bool, err error) {
+	ev, ok := AskOf(m)
+	if !ok {
+		return m, Ask{}, false, nil
+	}
+	var prev *Ask
+	if ev.Event == AskEventAsk {
+		ev.AskID = m.ID
+	} else if cur, ok := get(ev.AskID); ok {
+		prev = &cur
+	}
+	if a, err = ApplyAsk(prev, m); err != nil {
+		return Squawk{}, Ask{}, true, err
+	}
+	if ev.Event == AskEventAsk || ev.Event == AskEventAmend {
+		ev.Version = a.Version
+	}
+	return withAsk(m, ev), a, true, nil
+}
