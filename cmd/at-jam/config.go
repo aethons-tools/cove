@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -114,6 +115,8 @@ type serveConfig struct {
 	// Absent ⇒ only anonymous public repos can be imported. See
 	// docs/usage/jam/serve.md.
 	Kits *kitsConfig `yaml:"kits"`
+	// Blobs enables attachments: an S3-compatible bucket (docs/usage/jam/attachments.md).
+	Blobs *blobsConfig `yaml:"blobs"`
 	// Previews, when set, serves studio previews at <name>--<label>.<domain>
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
@@ -347,6 +350,89 @@ func (c serveConfig) validateSSH() error {
 		return fmt.Errorf("ssh.ca-cred %q must be a plain static credential, not a gcp-exchange or pool credential", s.CACred)
 	}
 	return nil
+}
+
+// blobsConfig is the attachments bucket: S3-compatible (MinIO, AWS S3, R2,
+// GCS interop). The keys are demanded credentials, resolved in memory.
+type blobsConfig struct {
+	Endpoint      string `yaml:"endpoint"`
+	Bucket        string `yaml:"bucket"`
+	Region        string `yaml:"region"`
+	PathStyle     bool   `yaml:"path-style"`
+	MaxSize       string `yaml:"max-size"`
+	AccessKeyCred string `yaml:"access-key-cred"`
+	SecretKeyCred string `yaml:"secret-key-cred"`
+}
+
+// defaultBlobMax and maxBlobMax bound an attachment's size.
+const (
+	defaultBlobMax = 25 << 20
+	maxBlobMax     = 1 << 30
+)
+
+// maxBytes is the per-file cap (max-size, default 25 MB). Call after
+// validateBlobs.
+func (b *blobsConfig) maxBytes() int64 {
+	n, _ := parseByteSize(b.MaxSize)
+	return n
+}
+
+// parseByteSize parses "25MB" (KB, MB, GB; binary multiples); "" is the default.
+func parseByteSize(s string) (int64, error) {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	if s == "" {
+		return defaultBlobMax, nil
+	}
+	for suffix, mult := range map[string]int64{"KB": 1 << 10, "MB": 1 << 20, "GB": 1 << 30} {
+		if num, ok := strings.CutSuffix(s, suffix); ok {
+			n, err := strconv.ParseInt(strings.TrimSpace(num), 10, 64)
+			if err != nil || n <= 0 {
+				break
+			}
+			return n * mult, nil
+		}
+	}
+	return 0, fmt.Errorf("want a size like 25MB")
+}
+
+// validateBlobs checks a set blobs block: an http(s) endpoint with a host and
+// no userinfo, a bucket, a size within bounds, and both keys demanded, plain
+// static credentials (the rules validateSSH applies).
+func (c serveConfig) validateBlobs() error {
+	b := c.Blobs
+	if b == nil {
+		return nil
+	}
+	u, err := url.Parse(b.Endpoint)
+	if b.Endpoint == "" || err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || (u.Path != "" && u.Path != "/") {
+		return fmt.Errorf("blobs.endpoint must be http(s)://host[:port]")
+	}
+	if b.Bucket == "" {
+		return fmt.Errorf("blobs.bucket is required")
+	}
+	n, err := parseByteSize(b.MaxSize)
+	if err != nil {
+		return fmt.Errorf("blobs.max-size: %w", err)
+	}
+	if n > maxBlobMax {
+		return fmt.Errorf("blobs.max-size is over 1GB")
+	}
+	for key, cred := range map[string]string{"access-key-cred": b.AccessKeyCred, "secret-key-cred": b.SecretKeyCred} {
+		switch {
+		case cred == "":
+			return fmt.Errorf("blobs.%s is required", key)
+		case !c.demands(cred):
+			return fmt.Errorf("blobs.%s %q is not a demanded credential", key, cred)
+		case slices.Contains(c.gcpCredentials(), cred) || (c.Pool != nil && cred == c.Pool.CredName):
+			return fmt.Errorf("blobs.%s %q must be a plain static credential, not a gcp-exchange or pool credential", key, cred)
+		}
+	}
+	return nil
+}
+
+func (c serveConfig) demands(cred string) bool {
+	_, ok := c.Credentials[cred]
+	return ok
 }
 
 // kitsConfig configures kit git sources.

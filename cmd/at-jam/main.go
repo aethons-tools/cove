@@ -33,6 +33,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/backend/colima"
+	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
@@ -1793,6 +1794,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateBlobs(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validatePreviews(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1944,6 +1949,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
+	}
+	// The attachments bucket (nil: attachments off). A set but unreachable or
+	// missing bucket refuses to start.
+	blobs, err := resolveBlobs(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	if blobs != nil {
+		log.Info("Jam attachments: bucket ready", "bucket", cfg.Blobs.Bucket, "max-bytes", cfg.Blobs.maxBytes())
 	}
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
@@ -2832,6 +2847,31 @@ func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, err
 		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
 	}
 	return ca, nil
+}
+
+// resolveBlobs resolves the blobs block's keys (in memory only), builds the
+// bucket's store and checks the bucket. Absent blobs ⇒ nil, nil (attachments
+// off). Errors name the credential, never its value.
+func resolveBlobs(cfg serveConfig, specs map[string]secret.Spec) (blobstore.Store, error) {
+	b := cfg.Blobs
+	if b == nil {
+		return nil, nil
+	}
+	v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[b.AccessKeyCred], specs[b.SecretKeyCred]})
+	if err != nil {
+		return nil, fmt.Errorf("blobs credentials: %w", err)
+	}
+	s, err := blobstore.NewS3(blobstore.S3Config{Endpoint: b.Endpoint, Bucket: b.Bucket, Region: b.Region, PathStyle: b.PathStyle,
+		AccessKey: v[b.AccessKeyCred], SecretKey: v[b.SecretKeyCred]})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := s.Check(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // resolveKitFetcher builds the one long-lived git fetcher for kit sources,

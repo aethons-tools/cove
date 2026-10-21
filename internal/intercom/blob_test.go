@@ -8,7 +8,9 @@ import (
 )
 
 func TestValidatePartsReferences(t *testing.T) {
-	ref := func() Part { return Part{Type: "image/png", Ref: string(ident.New(ident.Blob)), Name: "a.png", Size: 3} }
+	ref := func() Part {
+		return Part{Type: "image/png", Ref: string(ident.New(ident.Blob)), Name: "a.png", Size: 3}
+	}
 	if err := validateParts([]Part{ref(), ref(), AskPart(AskEvent{Event: AskEventAsk, Question: "q", Options: yesNo})}); err != nil {
 		t.Fatalf("refs and an ask: %v", err)
 	}
