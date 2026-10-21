@@ -2,7 +2,6 @@ package gitsource
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"path"
 	"strconv"
@@ -13,18 +12,24 @@ import (
 
 // Source names a kit in a git repository: "<repo>[//<dir>]@<ref>".
 type Source struct {
-	Repo string // https URL (http only for loopback), no userinfo
+	Repo string // https URL (http only for loopback) to a dotted or loopback host, no userinfo
 	Dir  string // clean relative slash path; "" = the repository root
 	Ref  string // branch, tag or 40-hex commit
 }
 
 // Parse reads "<repo>[//<dir>]@<ref>" and refuses anything Fetch would: see
-// Source.check. The scheme and host are lowercased. A pasted credential is
-// refused and never echoed: Parse's own errors quote nothing, and the
-// checks it runs quote a repo URL only when its host is a plain host name.
+// Source.check. The scheme and host are lowercased.
+//
+// A source is operator-typed text that may be a pasted clone URL holding a
+// credential, so no error from Parse or check quotes any part of the input:
+// every message is fixed text naming the component at fault, and holds no
+// digit (FuzzParse uses that as an echo canary). Structural refusals — the
+// '@' count, credentials in the authority, the host rule, host-like refs and
+// the port/slash-ref rule — run before any component is validated. A pasted
+// credential can therefore reach an accepted Source only through text that
+// is a valid dotted-host repo URL as far as the text can tell (the accepted
+// residual: "https://ab.cd/x@gitserver/a/b" with a dotted token as the host).
 func Parse(s string) (Source, error) {
-	// Nothing is quoted until it is known to hold no space, quote, control,
-	// format or non-printable character.
 	if hasUnsafeChars(s) {
 		return Source{}, errors.New("source: spaces, quotes, control and non-printable characters are not allowed")
 	}
@@ -46,13 +51,6 @@ func Parse(s string) (Source, error) {
 	scheme := strings.Index(repo, "://")
 	if scheme < 0 {
 		return Source{}, errors.New("source: want <repo>[//<dir>]@<ref> with an https repo URL")
-	}
-	// "https://user:pa/ss@host/path" (a password holding a raw '/') slips
-	// past the authority check and leaves "host/path" as the ref. A ref whose
-	// first component looks like a host name is refused; Source.check closes
-	// the dotless-host and port variants.
-	if first, _, ok := strings.Cut(ref, "/"); ok && (strings.Contains(first, ".") || first == "localhost") {
-		return Source{}, errors.New("source: the ref looks like <host>/<path>; is a credential pasted into the repo URL? (use a kits.git cred)")
 	}
 	src := Source{Ref: ref}
 	// The dir separator is the first "//" after the scheme's.
@@ -107,7 +105,7 @@ func hasUnsafeChars(s string) bool {
 	return false
 }
 
-// maxQuoted caps how much of any input an error quotes.
+// maxQuoted caps how much of an accepted Source's repo a fetch error quotes.
 const maxQuoted = 200
 
 // clip shortens s to maxQuoted bytes (on a rune boundary) with an ellipsis.
@@ -139,93 +137,100 @@ func (s Source) dir() string {
 	return s.Dir
 }
 
-// check validates every part of s. Parse and Fetch/Resolve both run it, so a
-// hand-built Source gets no further than a parsed one.
+// check validates every part of s without quoting any of it. Parse and
+// Fetch/Resolve both run it, so a hand-built Source gets no further than a
+// parsed one. The repo URL and the structural rules go first; the dir and
+// ref are validated only once the text can no longer be a pasted credential.
 func (s Source) check() error {
-	if err := checkRepoURL(s.Repo); err != nil {
+	u, err := checkRepoURL(s.Repo)
+	if err != nil {
 		return err
+	}
+	if strings.Contains(s.Ref, "/") {
+		// "https://john.doe:1234/x@gitserver/a/b" is a pasted credential that
+		// reads as a repo on host john.doe, port 1234, at ref "gitserver/a/b";
+		// the text cannot tell them apart. So a ref with '/' needs a portless
+		// host, and its first component may not look like a host name.
+		if u.Port() != "" {
+			return errors.New("source: a ref containing '/' needs a repo URL without a port (with a port the text could be a pasted credential)")
+		}
+		if first, _, _ := strings.Cut(s.Ref, "/"); strings.Contains(first, ".") || first == "localhost" {
+			return errors.New("source: the ref looks like <host>/<path>; is a credential pasted into the repo URL? (use a kits.git cred)")
+		}
 	}
 	if err := checkDir(s.Dir); err != nil {
 		return err
 	}
-	if err := checkRef(s.Ref); err != nil {
-		return err
-	}
-	// "https://user:1234/x@gitserver/a/b" or "https://tok123/x@gitserver/a/b"
-	// is a pasted credential that reads as a repo on host "user" port 1234 (or
-	// host "tok123") at ref "gitserver/a/b"; the text cannot tell them apart.
-	// So a ref holding '/' needs a dotted (or loopback) host with no port.
-	if strings.Contains(s.Ref, "/") {
-		u, _ := url.Parse(s.Repo) // parsed fine in checkRepoURL
-		if h := u.Hostname(); u.Port() != "" || !strings.Contains(h, ".") && !isLoopback(h) {
-			return errors.New("source: refs with '/' need a dotted, portless https host (a port or a dotless host here could be a pasted credential)")
-		}
-	}
-	return nil
+	return checkRef(s.Ref)
 }
 
 // checkRepoURL accepts https URLs, and http only to a loopback host, with a
-// path and no userinfo, empty port, query, fragment or dot segments. Errors
-// quote the URL only when its host is a plain host name (see quoteRepo).
-func checkRepoURL(raw string) error {
+// path and no userinfo, empty port, query, fragment or dot segments. The host
+// must be a dotted DNS name or a loopback address: a single-label host is
+// what a pasted "https://user:1234/x@host" or "https://token/x@host" reads
+// as. Errors are fixed text; the URL is parsed, never quoted.
+func checkRepoURL(raw string) (*url.URL, error) {
 	if hasUnsafeChars(raw) {
-		return errors.New("repo: spaces, quotes, control and non-printable characters are not allowed")
+		return nil, errors.New("repo: spaces, quotes, control and non-printable characters are not allowed")
 	}
 	if strings.Contains(raw, "@") {
-		return errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
+		return nil, errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return errors.New("repo: not a valid URL")
+		return nil, errors.New("repo: not a valid URL")
 	}
 	if u.User != nil {
-		return errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
+		return nil, errors.New("repo: credentials in the URL are refused (use a kits.git cred)")
 	}
 	if strings.HasSuffix(u.Host, ":") {
-		return errors.New("repo: empty port (a ':' with nothing after it) is refused")
+		return nil, errors.New("repo: empty port (a ':' with nothing after it) is refused")
 	}
 	if p := u.Port(); p != "" {
 		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
-			return errors.New("repo: invalid port")
+			return nil, errors.New("repo: invalid port")
 		}
 	}
-	shown := quoteRepo(u)
 	switch {
 	case u.Scheme == "https":
 	case u.Scheme == "http" && isLoopback(u.Hostname()):
 	case u.Scheme == "http":
-		return fmt.Errorf("repo %s: http is allowed only for loopback hosts; use https", shown)
+		return nil, errors.New("repo: http is allowed only for loopback hosts; use https")
 	default:
-		return fmt.Errorf("repo %s: unsupported scheme; use https", shown)
+		return nil, errors.New("repo: unsupported scheme; use https")
 	}
-	if u.Host == "" || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
-		return fmt.Errorf("repo %s: want https://<host>/<path> with no query or fragment", shown)
+	scheme := strings.Index(raw, "://")
+	if scheme < 0 || u.Host == "" || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
+		return nil, errors.New("repo: want https://<host>/<path> with no query or fragment")
+	}
+	// The host must be the text itself: nothing percent-encoded or otherwise
+	// rewritten by the URL parser, so the host rule below judges what the
+	// operator typed.
+	if u.Host != authorityOf(raw[scheme+3:]) {
+		return nil, errors.New("repo: the host holds characters that are not allowed")
+	}
+	host := u.Hostname()
+	if strings.HasPrefix(u.Host, "[") && host != "::1" {
+		return nil, errors.New("repo: a bracketed IP literal host is accepted only for loopback; use a DNS name")
+	}
+	if !plainHost(host) {
+		return nil, errors.New("repo: the host must be a dotted DNS name or a loopback address (a single-label host could be a pasted credential)")
 	}
 	if strings.Trim(u.Path, "/") == "" {
-		return fmt.Errorf("repo %s: missing the repository path", shown)
+		return nil, errors.New("repo: missing the repository path")
 	}
 	// Dot segments would let a repo URL match one credential prefix while
 	// naming a path outside it.
 	for _, seg := range strings.Split(u.Path, "/") {
 		if seg == "." || seg == ".." {
-			return fmt.Errorf("repo %s: '.' and '..' path segments are refused", shown)
+			return nil, errors.New("repo: '.' and '..' path segments are refused")
 		}
 	}
-	return nil
-}
-
-// quoteRepo renders u for an error: the quoted scheme, host, port and
-// escaped path when the host is a plain host name, else a placeholder (the
-// host might be a token: "https://tok123/x@…").
-func quoteRepo(u *url.URL) string {
-	if !plainHost(u.Hostname()) {
-		return "(URL not shown)"
-	}
-	return strconv.Quote(clip(u.Scheme + "://" + u.Host + u.EscapedPath()))
+	return u, nil
 }
 
 // plainHost reports whether h is loopback or a dotted DNS name of
-// [a-z0-9-] labels.
+// [a-z0-9-] labels (compared case-insensitively).
 func plainHost(h string) bool {
 	if isLoopback(h) {
 		return true
@@ -261,7 +266,7 @@ func checkDir(dir string) error {
 	}
 	if path.IsAbs(dir) || path.Clean(dir) != dir || dir == ".." || strings.HasPrefix(dir, "../") ||
 		strings.ContainsAny(dir, "\\\x00") {
-		return fmt.Errorf("dir %q: want a clean relative path inside the repository", clip(dir))
+		return errors.New("dir: want a clean relative path inside the repository (no leading '/', no '.' or '..' segments, no '\\')")
 	}
 	return nil
 }
@@ -270,29 +275,28 @@ func checkDir(dir string) error {
 // git check-ref-format), or a 40-hex commit. Anything that could read as an
 // option or rewrite a refspec (leading '-', '+', ':') is refused.
 func checkRef(ref string) error {
-	bad := func(why string) error { return fmt.Errorf("ref %q: %s", clip(ref), why) }
 	switch {
 	case ref == "":
 		return errors.New("ref: missing (want <repo>[//<dir>]@<ref>)")
 	case hasUnsafeChars(ref):
 		return errors.New("ref: spaces, quotes and control characters are not allowed")
 	case len(ref) > 255:
-		return bad("too long")
+		return errors.New("ref: too long")
 	case strings.HasPrefix(ref, "-"), strings.HasPrefix(ref, "+"):
-		return bad("must not start with '-' or '+'")
+		return errors.New("ref: must not start with '-' or '+'")
 	case strings.HasPrefix(ref, "/"), strings.HasSuffix(ref, "/"), strings.Contains(ref, "//"):
-		return bad("bad '/'")
+		return errors.New("ref: must not start or end with '/' or contain '//'")
 	case strings.Contains(ref, ".."), strings.HasSuffix(ref, "."), strings.HasSuffix(ref, ".lock"):
-		return bad("bad '.'")
+		return errors.New("ref: must not contain '..' or end with '.' or '.lock'")
 	}
 	for _, r := range ref {
 		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\@", r) {
-			return bad(fmt.Sprintf("character %q not allowed", r))
+			return errors.New("ref: holds a character git refuses in ref names (one of ~ ^ : ? * [ \\ @)")
 		}
 	}
 	for _, part := range strings.Split(ref, "/") {
 		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
-			return bad("bad path component")
+			return errors.New("ref: a path component must not start with '.' or end with '.lock'")
 		}
 	}
 	return nil
