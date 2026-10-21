@@ -2,6 +2,7 @@ package intercompg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -67,11 +68,48 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 		if dup {
 			return fmt.Errorf("%w: %q (legacy log)", intercom.ErrDuplicateID, m.ID)
 		}
+		// An ask event folds under the same lock: its checks see every
+		// earlier event, and a refused one stores nothing.
+		var ask intercom.Ask
+		var isAsk bool
+		var getErr, foldErr error
+		m, ask, isAsk, foldErr = intercom.FoldAsk(m, func(id string) (intercom.Ask, bool) {
+			a, ok, err := getAskTx(ctx, tx, id)
+			if err != nil {
+				getErr = err
+			}
+			return a, ok
+		})
+		if getErr != nil {
+			return getErr // a read failure, not a missing ask
+		}
+		if foldErr != nil {
+			return foldErr
+		}
+		var parts []byte
+		if len(m.Parts) > 0 {
+			if parts, err = json.Marshal(m.Parts); err != nil {
+				return err
+			}
+		}
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO squawks (id, channel_id, from_id, body, at, reply_to, content_type, origin_connection_id, origin_ref)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING seq`,
-			m.ID, m.Channel, m.From, m.Body, m.At, m.ReplyTo, m.ContentType, m.Origin, m.OriginRef).Scan(&m.Seq); err != nil {
+			`INSERT INTO squawks (id, channel_id, from_id, body, at, reply_to, content_type, origin_connection_id, origin_ref, parts)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING seq`,
+			m.ID, m.Channel, m.From, m.Body, m.At, m.ReplyTo, m.ContentType, m.Origin, m.OriginRef, parts).Scan(&m.Seq); err != nil {
 			return err
+		}
+		if isAsk {
+			ask.LastSeq = m.Seq
+			doc, err := json.Marshal(ask)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO asks (id, channel_id, asker_id, state, last_seq, doc) VALUES ($1,$2,$3,$4,$5,$6)
+				 ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, doc = EXCLUDED.doc`,
+				ask.ID, ask.Channel, ask.Asker, ask.State, ask.LastSeq, doc); err != nil {
+				return err
+			}
 		}
 		if len(audience) == 0 {
 			return nil
@@ -97,7 +135,7 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 // appendAdvisoryLock serializes appends (see Append).
 const appendAdvisoryLock = 0x696e746170706e64 // "intappnd"
 
-const squawkCols = `s.seq, s.id, s.channel_id, s.from_id, s.body, s.at, s.reply_to, s.content_type, s.origin_connection_id, s.origin_ref`
+const squawkCols = `s.seq, s.id, s.channel_id, s.from_id, s.body, s.at, s.reply_to, s.content_type, s.origin_connection_id, s.origin_ref, s.parts`
 
 func (s *Store) InboxSince(p ident.ID, afterSeq int64, limit int) []intercom.Squawk {
 	return s.since(`FROM squawk_deliveries d JOIN squawks s ON s.seq = d.seq WHERE d.participant_id = $1`, p, afterSeq, limit)
@@ -256,15 +294,77 @@ func (s *Store) query(sql string, args ...any) []intercom.Squawk {
 	for rows.Next() {
 		var m intercom.Squawk
 		var ch, from, origin string
-		if err := rows.Scan(&m.Seq, &m.ID, &ch, &from, &m.Body, &m.At, &m.ReplyTo, &m.ContentType, &origin, &m.OriginRef); err != nil {
+		var parts []byte
+		if err := rows.Scan(&m.Seq, &m.ID, &ch, &from, &m.Body, &m.At, &m.ReplyTo, &m.ContentType, &origin, &m.OriginRef, &parts); err != nil {
 			s.log.Error("intercompg: scan", "error", err.Error())
 			return nil
+		}
+		if len(parts) > 0 {
+			if err := json.Unmarshal(parts, &m.Parts); err != nil {
+				s.log.Error("intercompg: parts", "id", m.ID, "error", err.Error())
+				return nil
+			}
 		}
 		m.Channel, m.From, m.Origin = ident.ID(ch), ident.ID(from), ident.ID(origin)
 		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {
 		s.log.Error("intercompg: rows", "error", err.Error())
+		return nil
+	}
+	return out
+}
+
+// getAskTx reads ask id inside tx.
+func getAskTx(ctx context.Context, tx pgx.Tx, id string) (intercom.Ask, bool, error) {
+	var doc []byte
+	err := tx.QueryRow(ctx, `SELECT doc FROM asks WHERE id = $1`, id).Scan(&doc)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return intercom.Ask{}, false, nil
+	}
+	if err != nil {
+		return intercom.Ask{}, false, err
+	}
+	var a intercom.Ask
+	if err := json.Unmarshal(doc, &a); err != nil {
+		return intercom.Ask{}, false, err
+	}
+	return a, true, nil
+}
+
+func (s *Store) GetAsk(id string) (intercom.Ask, bool) {
+	l := s.asks(`WHERE id = $1`, id)
+	if len(l) != 1 {
+		return intercom.Ask{}, false
+	}
+	return l[0], true
+}
+
+func (s *Store) ListAsks(f intercom.AskFilter) []intercom.Ask {
+	return s.asks(`WHERE ($1 = '' OR channel_id = $1) AND ($2 = '' OR asker_id = $2) AND ($3 = '' OR state = $3)`,
+		string(f.Channel), string(f.Asker), string(f.State))
+}
+
+// asks runs a SELECT over the asks read-model, by last_seq; on any error it
+// logs and returns nil.
+func (s *Store) asks(where string, args ...any) []intercom.Ask {
+	rows, err := s.pool.Query(context.Background(), `SELECT doc FROM asks `+where+` ORDER BY last_seq`, args...)
+	if err != nil {
+		s.log.Error("intercompg: asks", "error", err.Error())
+		return nil
+	}
+	defer rows.Close()
+	var out []intercom.Ask
+	for rows.Next() {
+		var doc []byte
+		var a intercom.Ask
+		if err := rows.Scan(&doc); err != nil || json.Unmarshal(doc, &a) != nil {
+			s.log.Error("intercompg: asks scan")
+			return nil
+		}
+		out = append(out, a)
+	}
+	if rows.Err() != nil {
 		return nil
 	}
 	return out

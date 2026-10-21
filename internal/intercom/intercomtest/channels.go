@@ -2,6 +2,7 @@ package intercomtest
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 			t.Fatalf("read back %+v", got)
 		}
 		got[0].At = m.At
-		if got[0] != m {
+		if !reflect.DeepEqual(got[0], m) {
 			t.Fatalf("read back %#v, appended %#v", got[0], m)
 		}
 	})
@@ -191,6 +192,111 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		}
 		if got := f.Store.ListSince(0, 0); len(got) != 1 {
 			t.Fatalf("ListSince reads the new log only: %+v", got)
+		}
+	})
+	t.Run("asks", func(t *testing.T) { RunAskConformance(t, newLog) })
+}
+
+// RunAskConformance exercises the asks read-model (intercom structured asks):
+// ask events fold atomically with their append.
+func RunAskConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture) {
+	yesNo := []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}
+	ev := func(s intercom.Store, from ident.ID, e intercom.AskEvent) (intercom.Squawk, error) {
+		return s.Append(intercom.Squawk{Channel: chA, From: from, Body: "event", Parts: []intercom.Part{intercom.AskPart(e)}}, []ident.ID{alice, bob})
+	}
+	open := func(t *testing.T, s intercom.Store) string {
+		t.Helper()
+		m, err := ev(s, ses, intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Options: yesNo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.ID
+	}
+
+	t.Run("ask_round_trip", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		a, ok := s.GetAsk(id)
+		if !ok || a.State != intercom.AskOpen || a.Version != 1 || a.Asker != ses || a.Channel != chA || a.LastSeq == 0 {
+			t.Fatalf("GetAsk = %+v, %v", a, ok)
+		}
+		got := s.ChannelSince(chA, 0, 0)
+		e, found := intercom.AskOf(got[0])
+		if len(got) != 1 || !found || e.Event != intercom.AskEventAsk || e.AskID != id || e.Version != 1 || len(e.Options) != 2 {
+			t.Fatalf("read back %+v (%+v)", got, e)
+		}
+		if inbox := s.InboxSince(alice, 0, 0); len(inbox) != 1 || len(inbox[0].Parts) != 1 {
+			t.Fatalf("inbox %+v", inbox)
+		}
+		if l := s.ListAsks(intercom.AskFilter{Channel: chA, State: intercom.AskOpen}); len(l) != 1 || l[0].ID != id {
+			t.Fatalf("ListAsks open = %+v", l)
+		}
+		if l := s.ListAsks(intercom.AskFilter{Asker: alice}); len(l) != 0 {
+			t.Fatalf("ListAsks by alice = %+v", l)
+		}
+		if _, ok := s.GetAsk("nope"); ok {
+			t.Fatal("GetAsk of nothing")
+		}
+	})
+
+	t.Run("amend_then_answer", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		m, err := ev(s, ses, intercom.AskEvent{Event: intercom.AskEventAmend, AskID: id, Question: "Merge now?"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e, _ := intercom.AskOf(m); e.Version != 2 {
+			t.Fatalf("amend part version = %d", e.Version)
+		}
+		tail, _ := s.TailSeq()
+		if _, err := ev(s, alice, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 1, Choice: "yes"}); !errors.Is(err, intercom.ErrAskChanged) {
+			t.Fatalf("stale answer: %v", err)
+		}
+		if now, _ := s.TailSeq(); now != tail {
+			t.Fatal("a refused event was stored")
+		}
+		if _, err := ev(s, alice, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 2, Choice: "no", Comment: "wait"}); err != nil {
+			t.Fatal(err)
+		}
+		a, _ := s.GetAsk(id)
+		if a.State != intercom.AskAnswered || a.Answer == nil || a.Answer.By != alice || a.Answer.Choice != "no" || len(a.History) != 1 {
+			t.Fatalf("answered = %+v", a)
+		}
+		if _, err := ev(s, bob, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 2, Choice: "yes"}); !errors.Is(err, intercom.ErrAskClosed) {
+			t.Fatalf("second answer: %v", err)
+		}
+		if l := s.ListAsks(intercom.AskFilter{State: intercom.AskOpen}); len(l) != 0 {
+			t.Fatalf("open after answer = %+v", l)
+		}
+	})
+
+	t.Run("concurrent_answers_one_wins", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		const n = 8
+		errs := make(chan error, n)
+		for i := range n {
+			go func() {
+				who := alice
+				if i%2 == 1 {
+					who = bob
+				}
+				_, err := ev(s, who, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 1, Choice: "yes"})
+				errs <- err
+			}()
+		}
+		won := 0
+		for range n {
+			switch err := <-errs; {
+			case err == nil:
+				won++
+			case !errors.Is(err, intercom.ErrAskClosed):
+				t.Errorf("loser: %v", err)
+			}
+		}
+		if won != 1 {
+			t.Fatalf("%d answers won, want 1", won)
 		}
 	})
 }

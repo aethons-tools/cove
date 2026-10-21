@@ -32,6 +32,8 @@ type Squawk struct {
 	// for a squawk posted in Jam.
 	Origin    ident.ID `json:"origin,omitempty"`
 	OriginRef string   `json:"origin_ref,omitempty"`
+	// Parts are typed parts beside the body (ask events today; see ask.go).
+	Parts []Part `json:"parts,omitempty"`
 }
 
 // ErrInvalid is a squawk Prepare refuses (no body, channel or author, or a
@@ -55,6 +57,11 @@ type Store interface {
 	// Append stores m (Prepare'd) and one delivery per audience member, in one
 	// step. An id already in either log is refused.
 	Append(m Squawk, audience []ident.ID) (Squawk, error)
+	// GetAsk is an ask's current state; ListAsks the asks f selects, by
+	// LastSeq ascending. An ask event's append folds it in the same step
+	// (FoldAsk): a refused event appends nothing.
+	GetAsk(id string) (Ask, bool)
+	ListAsks(f AskFilter) []Ask
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk
 	InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk
@@ -88,6 +95,9 @@ func Prepare(m Squawk) (Squawk, error) {
 		return Squawk{}, fmt.Errorf("%w: no author", ErrInvalid)
 	case !ValidContentType(m.ContentType):
 		return Squawk{}, fmt.Errorf("%w: unsupported content type %q", ErrInvalid, m.ContentType)
+	}
+	if err := validateParts(m.Parts); err != nil {
+		return Squawk{}, err
 	}
 	if m.At.IsZero() {
 		m.At = time.Now()

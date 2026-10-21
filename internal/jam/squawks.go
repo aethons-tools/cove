@@ -31,6 +31,9 @@ type Squawk struct {
 	ContentType string `json:"content_type"`
 	Channel     *Party `json:"channel,omitempty"`
 	From        *Party `json:"from,omitempty"`
+	// Parts are the squawk's typed parts (an ask event: its data is the
+	// intercom.AskEvent).
+	Parts []intercom.Part `json:"parts,omitempty"`
 }
 
 // SquawksHandler is Jam's brokered messaging endpoint for sessions. Every
@@ -107,6 +110,12 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleCommit(w, r, actor)
+		return
+	}
+
+	// The ask routes (POST /squawks/ask, /ask/amend, /ask/withdraw; GET
+	// /squawks/asks). Like commit, a wrong method never falls through.
+	if h.askRoute(w, r, actor, inst) {
 		return
 	}
 
@@ -290,7 +299,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	for _, m := range msgs {
 		at := m.At
 		from := h.ic.PartyOf(m.From)
-		sq := Squawk{ID: m.ID, Author: from.Label, Body: m.Body, At: &at, ContentType: m.ContentType, From: &from}
+		sq := Squawk{ID: m.ID, Author: from.Label, Body: m.Body, At: &at, ContentType: m.ContentType, From: &from, Parts: m.Parts}
 		if m.Channel != "" {
 			ch := h.ic.ChannelParty(m.Channel)
 			sq.Channel = &ch

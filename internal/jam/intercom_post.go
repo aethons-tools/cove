@@ -58,6 +58,7 @@ type Intercom struct {
 	tail    func() int64            // the log's tail seq: where new members join
 	log     *slog.Logger
 	sources map[SourceKind]Source
+	onAsks  func(session ident.ID) // SetOnAsksChanged
 }
 
 // NewIntercom returns the intercom over store, appending to lg. tracker
@@ -192,9 +193,10 @@ func (ic *Intercom) SetUp(inst Instance) error {
 	return err
 }
 
-// Ended takes an ended session out of its ticket's channel, or archives its
-// session channel (history stays readable; Notify still reaches it).
+// Ended withdraws an ended session's open asks, then takes it out of its
+// ticket's channel, or archives its session channel (history stays readable; Notify still reaches it).
 func (ic *Intercom) Ended(inst Instance) error {
+	ic.withdrawAsksOf(ident.ID(inst.ActorID))
 	if inst.Unit != "" {
 		ch, ok, err := ic.ticketChannel(inst, false)
 		if err != nil {

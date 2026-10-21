@@ -19,11 +19,12 @@ type Log struct {
 	nextSeq    int64
 	msgs       []Squawk
 	deliveries map[int64][]ident.ID // seq → audience
+	asks       map[string]Ask       // the asks read-model, by ask id
 }
 
 // NewMemLog returns an empty channel log continuing legacy (nil: none).
 func NewMemLog(legacy LegacyStore) *Log {
-	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}}
+	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}, asks: map[string]Ask{}}
 	if legacy != nil {
 		if tail, ok := legacy.TailSeq(); ok {
 			l.cutover = tail + 1
@@ -49,9 +50,17 @@ func (l *Log) Append(m Squawk, audience []ident.ID) (Squawk, error) {
 	if _, ok := l.seqOf(m.ID); ok {
 		return Squawk{}, fmt.Errorf("%w: %q", ErrDuplicateID, m.ID)
 	}
+	m, ask, isAsk, err := FoldAsk(m, func(id string) (Ask, bool) { a, ok := l.asks[id]; return a, ok })
+	if err != nil {
+		return Squawk{}, err
+	}
 	m.Seq = l.nextSeq
 	l.nextSeq++
 	l.msgs = append(l.msgs, m)
+	if isAsk {
+		ask.LastSeq = m.Seq
+		l.asks[ask.ID] = ask
+	}
 	aud := slices.Clone(audience)
 	slices.Sort(aud)
 	l.deliveries[m.Seq] = slices.Compact(aud)
@@ -177,4 +186,24 @@ func (l *Log) TailSeq() (int64, bool) {
 		return l.legacy.TailSeq()
 	}
 	return 0, false
+}
+
+func (l *Log) GetAsk(id string) (Ask, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	a, ok := l.asks[id]
+	return a, ok
+}
+
+func (l *Log) ListAsks(f AskFilter) []Ask {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Ask
+	for _, a := range l.asks {
+		if f.Match(a) {
+			out = append(out, a)
+		}
+	}
+	slices.SortFunc(out, func(a, b Ask) int { return int(a.LastSeq - b.LastSeq) })
+	return out
 }
