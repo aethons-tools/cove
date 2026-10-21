@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -237,7 +238,8 @@ func (a *Attachments) Serve(w http.ResponseWriter, r *http.Request, viewer, id i
 }
 
 // HandleUpload is the upload route: the raw body, its Content-Type, and the
-// file name in X-Filename. 201 {ref, size, type, name}; 413 over the cap;
+// file name in X-Filename (percent-encoded; a name that doesn't decode is
+// taken as is). 201 {ref, size, type, name}; 413 over the cap;
 // 503 when off.
 func (a *Attachments) HandleUpload(w http.ResponseWriter, r *http.Request, uploader ident.ID) {
 	if !a.Enabled() {
@@ -248,7 +250,11 @@ func (a *Attachments) HandleUpload(w http.ResponseWriter, r *http.Request, uploa
 		http.Error(w, fmt.Sprintf("too large (max %d MB)", a.max>>20), http.StatusRequestEntityTooLarge)
 		return
 	}
-	b, err := a.Upload(r.Context(), uploader, r.Header.Get("X-Filename"), r.Header.Get("Content-Type"), r.Body, r.ContentLength)
+	name := r.Header.Get("X-Filename")
+	if dec, err := url.PathUnescape(name); err == nil {
+		name = dec
+	}
+	b, err := a.Upload(r.Context(), uploader, name, r.Header.Get("Content-Type"), r.Body, r.ContentLength)
 	switch {
 	case errors.Is(err, ErrTooLarge):
 		http.Error(w, fmt.Sprintf("too large (max %d MB)", a.max>>20), http.StatusRequestEntityTooLarge)

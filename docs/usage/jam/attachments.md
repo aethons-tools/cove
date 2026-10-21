@@ -18,7 +18,7 @@ may read the message. Attachments are off unless serve has a
 
 1. **Upload** — `POST /me/uploads` (a person) or `POST /squawks/uploads` (a
    session): the raw file as the body, its `Content-Type`, and its name in
-   `X-Filename`. → `201 {ref, size, type, name}` (`ref` is `blb_…`). Over the
+   `X-Filename` (percent-encoded for non-ASCII names). → `201 {ref, size, type, name}` (`ref` is `blb_…`). Over the
    cap → `413`; attachments off → `503`. The upload is **pending**: only its
    uploader can read it, and it is deleted if not sent within a day (the
    hourly sweep takes it once it is 24 hours old).

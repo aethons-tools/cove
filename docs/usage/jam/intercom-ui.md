@@ -76,6 +76,19 @@ panel above the stream lists the conversation's open asks
 (`GET /me/asks?c=`, refreshed with the stream); each rail row shows its count,
 and a conversation with an open ask you may answer is under **Needs you**.
 
+## Attachments
+
+With [attachments](attachments.md) on, the composer takes files three ways:
+**📎** (a file picker), **paste** (a screenshot on the clipboard), and
+**drag-and-drop** onto the composer. Each file uploads at once
+(`POST /me/uploads`) as a chip with a progress bar and ✕; Send refuses
+("Still uploading…") until they finish, then sends their refs (the text may
+be empty). A paste with text on the clipboard stays a text paste. Only a
+conversation's composer attaches, not New message's. A refused
+upload shows why on its chip ("too large (max …)"). In the stream, images
+show as inline thumbnails that open full size; other files as a download
+chip with name and size. With attachments off there is no 📎.
+
 ## Membership controls
 
 The conversation header offers **Join** (a channel the person can see but isn't
