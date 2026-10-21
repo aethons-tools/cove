@@ -200,6 +200,28 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 			}
 		})
 	}
+	// Only application/gzip is a tree: a browser's no-cors text/plain POST
+	// (or any other type) is 415 before the body is read.
+	good := packTree(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
+	for _, ct := range []string{"text/plain", "", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
+		for _, route := range []string{"diff", "apply"} {
+			req, _ := http.NewRequest("POST", ts.URL+"/admin/config/"+route, bytes.NewReader(good))
+			if ct != "" {
+				req.Header.Set("Content-Type", ct)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusUnsupportedMediaType {
+				t.Errorf("%s %q = %d, want 415", route, ct, resp.StatusCode)
+			}
+		}
+	}
+	if code := postTar(t, ts.URL+"/admin/config/diff", good, http.StatusOK, nil); code == "" {
+		t.Fatal("empty diff answer")
+	}
 	if len(st.ListUsers()) != 0 || len(st.ListConfigMarks()) != 0 {
 		t.Fatal("a bad upload wrote")
 	}

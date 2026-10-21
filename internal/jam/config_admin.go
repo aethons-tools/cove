@@ -23,7 +23,8 @@ const configStoreError = "config store error"
 //	POST /admin/config/apply?force=1&plan=<digest> apply it
 //	GET  /admin/config/export-tree?all=1           render the managed (all: every) object
 //
-// diff and apply take a configtar body (application/gzip). An oversize
+// diff and apply take a configtar body, Content-Type application/gzip (any
+// other type is 415; JSON, the future --git body, is 400). An oversize
 // upload is 413, a malformed or unsafe one 400 — both before the tree is
 // loaded. An apply with refusals or a stale plan digest is 409, as is an
 // export-tree of a kit pinned behind its in-tree parent (ErrConfigKitPinBehind). env.Serve is
@@ -35,8 +36,13 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 	// tree reads and unpacks the upload into a temp dir and loads it,
 	// answering the request itself on failure.
 	tree := func(w http.ResponseWriter, r *http.Request) (*ConfigTree, bool) {
-		if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct == "application/json" {
+		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
+		case "application/gzip":
+		case "application/json":
 			http.Error(w, "config sources (--git) are not supported yet; use --dir", http.StatusBadRequest)
+			return nil, false
+		default: // e.g. a browser's no-cors text/plain POST to the loopback admin port
+			http.Error(w, "config tree: Content-Type must be application/gzip", http.StatusUnsupportedMediaType)
 			return nil, false
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, configtar.MaxUpload))

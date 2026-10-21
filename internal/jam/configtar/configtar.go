@@ -24,6 +24,11 @@ const (
 	MaxUpload   = 16 << 20 // gzip body bytes
 	MaxUnpacked = 16 << 20 // total file bytes once unpacked
 	MaxEntries  = 2000     // tar entries, files and directories
+	// MaxDecompressed bounds the decompressed tar stream: the file bytes,
+	// plus 2 KiB of headers and padding per entry (a PAX long name
+	// included), plus 1 MiB of slack. Special headers are not entries, so
+	// without it a chain of them would decompress without bound.
+	MaxDecompressed = MaxUnpacked + MaxEntries*2048 + 1<<20
 )
 
 // ErrTooLarge is an archive over one of the limits.
@@ -107,7 +112,7 @@ func Unpack(r io.Reader, dest string) error {
 		return err
 	}
 	defer root.Close()
-	tr := tar.NewReader(zr)
+	tr := tar.NewReader(&capReader{r: zr, left: MaxDecompressed})
 	var entries int
 	var left int64 = MaxUnpacked
 	for {
@@ -188,4 +193,23 @@ func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader, left i
 		return n, fmt.Errorf("%w: more than %d bytes unpacked", ErrTooLarge, MaxUnpacked)
 	}
 	return n, nil
+}
+
+// capReader reads r until left bytes are read, then fails with ErrTooLarge
+// (an io.LimitReader's EOF would read as a truncated archive).
+type capReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		return 0, fmt.Errorf("%w: more than %d bytes decompressed", ErrTooLarge, MaxDecompressed)
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	return n, err
 }

@@ -78,9 +78,11 @@ that opens with `---` and has no leaves is written after empty front matter
 (`---` twice) so it reads back as the core.
 
 Kits are inline only: `kits/<n>/kit.yml`, with path parents across `kits/`
-(`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` in a
-role's `kit` or a kit's `base.kit` is refused (`<path>: <ref> pins a version;
-versions are per-Jam — name the kit (or use a path parent)`). Versions
+(`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` is
+refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are
+per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
+<ref> pins a version; versions are per-Jam — name the kit or use a path
+parent`. Versions
 written by `--dir` record provenance repo `local`, dir `kits/<name>`.
 `config write` renders a kit's parent as a path parent only when its pin
 equals the parent's current version (apply re-pins to current). A kit pinned
@@ -153,7 +155,8 @@ settings from the repo, host keys in the local file; see
 `same | differs | absent | unknown` comparison `config diff` reports), supply
 the credentials the destinations and connections name, then
 `config apply --dir`. People sign in again (OIDC identities are not copied)
-and the seeded `claude-default` is adopted.
+and the seeded `claude-default` is adopted if identical to the repo's,
+otherwise updated.
 
 ## Routes and limits
 
@@ -163,10 +166,13 @@ and the seeded `claude-default` is adopted.
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
-| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`). |
+| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. |
 
-Uploads: gzip body ≤ 16 MiB and unpacked files ≤ 16 MiB, ≤ 2000
-entries (413 beyond any); regular files and directories only, no absolute
+Uploads: `Content-Type: application/gzip` (any other type is 415, so a
+browser's no-cors `text/plain` POST to a loopback admin port is refused;
+`application/json`, the future `--git` body, is 400). Gzip body ≤ 16 MiB,
+unpacked files ≤ 16 MiB, ≤ 2000 entries, and the decompressed tar stream
+bounded (413 beyond any); regular files and directories only, no absolute
 or `..` paths (400).
 Audit: a `config applied` log entry (source, commit, counts, operator,
 forced) plus each object's usual `admin …` entry with `via=config`.

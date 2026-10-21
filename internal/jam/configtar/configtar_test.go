@@ -149,3 +149,46 @@ func TestUnpackAcceptsMaxEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Special headers (PAX records, GNU long names) are not entries, so a chain
+// of them could decompress far past the caps; the decompressed stream itself
+// is bounded.
+func TestUnpackBoundsDecompressedHeaders(t *testing.T) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	pad := strings.Repeat("x", 100<<10)
+	for i := range 300 {
+		h := &tar.Header{Name: fmt.Sprintf("users/u%d", i), Typeflag: tar.TypeDir, Mode: 0o755, Format: tar.FormatPAX,
+			PAXRecords: map[string]string{"comment": pad}}
+		if err := tw.WriteHeader(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() > MaxUpload {
+		t.Fatalf("fixture %d bytes", buf.Len())
+	}
+	if err := Unpack(&buf, t.TempDir()); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("err = %v, want ErrTooLarge", err)
+	}
+}
+
+// The decompressed bound leaves room for a full archive: MaxUnpacked file
+// bytes across MaxEntries entries with long (PAX) names.
+func TestUnpackAcceptsFullArchiveWithLongNames(t *testing.T) {
+	long := strings.Repeat("d", 150)
+	entries := make([]tarEntry, MaxEntries)
+	per := MaxUnpacked / MaxEntries
+	for i := range entries {
+		entries[i] = tarEntry{name: fmt.Sprintf("users/%s%d", long, i), body: strings.Repeat("0", per)}
+	}
+	if err := Unpack(bytes.NewReader(tarGz(t, entries)), t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+}
