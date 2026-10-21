@@ -61,6 +61,8 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /me/leave", h.leave)
 	mux.HandleFunc("POST /me/call-in", h.callIn)
 	mux.HandleFunc("POST /me/asks/{id}/answer", h.answerAsk)
+	mux.HandleFunc("POST /me/uploads", h.upload)
+	mux.HandleFunc("GET /me/blobs/{id}", h.blob)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
 	mux.HandleFunc("GET /me/asks", h.askPanel)
 	mux.HandleFunc("GET /me/events", h.events)
@@ -150,6 +152,27 @@ func (h *handler) presenceStrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, "sessions", page)
+}
+
+// upload stores the viewer's file as a pending attachment (see
+// jam.Attachments.HandleUpload).
+func (h *handler) upload(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	h.d.Attachments.HandleUpload(w, r, p.UserID)
+}
+
+// blob serves an attachment the viewer may read (404 alike otherwise).
+func (h *handler) blob(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	h.d.Attachments.Serve(w, r, p.UserID, ident.ID(r.PathValue("id")))
 }
 
 // markRead advances the participant's read cursor on a channel to seq (a

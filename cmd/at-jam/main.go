@@ -2087,6 +2087,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
+	// Attachments (nil: no blobs block, off); pending uploads past 24h are
+	// swept hourly.
+	var blobMax int64
+	if cfg.Blobs != nil {
+		blobMax = cfg.Blobs.maxBytes()
+	}
+	att := jam.NewAttachments(chlog, blobs, ic, blobMax)
+	att.SetLogger(log)
+	if att.Enabled() {
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for ; ; <-t.C {
+				att.Sweep(context.Background(), time.Now())
+			}
+		}()
+	}
 	ic.SetOnAsksChanged(func(session ident.ID) {
 		if err := sup.SetOpenAsks(string(session), func() int { return ic.OpenAskCount(session) }); err != nil {
 			log.Warn("intercom: recording open asks failed", "session", string(session), "err", err.Error())
@@ -2215,7 +2232,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, previewURL, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {
@@ -2558,11 +2575,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
 			sendH := jam.NewParticipantSendHandler(st, ic, log)
+			sendH.SetAttachments(att)
 			meSurface.Handle("/me/send", sendH)
 			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att}, log, meOpts...))
 			// Writes (/me/send, /me/read, /me/join|leave|call-in, /me/asks/{id}/answer) must come from
 			// the page itself: the session cookie alone (SameSite=Lax) lets a
 			// sibling subdomain post as the user.

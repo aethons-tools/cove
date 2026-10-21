@@ -77,6 +77,7 @@ type messaging struct {
 	ic     *jam.Intercom
 	log    intercom.Store
 	legacy jam.LegacyInbox
+	att    *jam.Attachments // nil: attachments off
 }
 
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, previewURL func(actorID, name string) (string, error), log *slog.Logger) http.Handler {
@@ -104,6 +105,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	squawksH := jam.NewSquawksHandler(st, nil, nil, nil, log) // with no log, sends and reads answer 503
 	if msg != nil {
 		squawksH = jam.NewSquawksHandler(st, msg.ic, msg.log, msg.legacy, log)
+		squawksH.SetAttachments(msg.att)
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")

@@ -22,6 +22,8 @@ type Deps struct {
 	Intercom *jam.Intercom
 	Log      intercom.Store
 	Legacy   jam.LogReader
+	// Attachments serves uploads and blobs (nil: attachments off).
+	Attachments *jam.Attachments
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).
