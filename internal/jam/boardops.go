@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -124,7 +125,21 @@ func sortedIDs(m map[string]doc) []string {
 // element docs (to merge) and the ids of shapes added, in order. Atomic:
 // any bad op fails the whole batch and changes nothing.
 func ApplyBoardOps(existing []json.RawMessage, ops []BoardOp) ([]json.RawMessage, []string, error) {
-	a := &applier{els: parseDocs(existing), changed: map[string]bool{}, now: time.Now().UnixMilli()}
+	a := &applier{els: parseDocs(existing), changed: map[string]bool{}, now: time.Now().UnixMilli(), tombs: map[string]float64{}}
+	// Tombstones count: a re-added id must out-version its tombstone, and
+	// new elements go above every index already used.
+	for _, d := range existing {
+		var m doc
+		if json.Unmarshal(d, &m) != nil {
+			continue
+		}
+		if ix := str(m, "index"); ix > a.maxIndex {
+			a.maxIndex = ix
+		}
+		if del, _ := m["isDeleted"].(bool); del {
+			a.tombs[str(m, "id")] = num(m, "version")
+		}
+	}
 	var added []string
 	for i, op := range ops {
 		id, err := a.apply(op)
@@ -149,9 +164,11 @@ func ApplyBoardOps(existing []json.RawMessage, ops []BoardOp) ([]json.RawMessage
 }
 
 type applier struct {
-	els     map[string]doc // includes elements deleted in this batch
-	changed map[string]bool
-	now     int64
+	els      map[string]doc // includes elements deleted in this batch
+	changed  map[string]bool
+	now      int64
+	tombs    map[string]float64 // deleted ids → their version
+	maxIndex string             // the highest fractional index in use
 }
 
 func (a *applier) live(id string) (doc, bool) {
@@ -191,7 +208,13 @@ func (a *applier) base(id, typ string, x, y, w, h float64, color string) doc {
 		"strokeStyle": "solid", "roughness": 1.0, "opacity": 100.0, "groupIds": []any{}, "frameId": nil,
 		"roundness": nil, "seed": float64(rand.Int32()), "version": 0.0, "versionNonce": 0.0,
 		"isDeleted": false, "boundElements": []any{}, "updated": float64(a.now), "link": nil, "locked": false}
+	a.maxIndex = nextIndex(a.maxIndex)
+	m["index"] = a.maxIndex
 	a.els[id] = m
+	if v, ok := a.tombs[id]; ok { // re-adding a deleted id: beat its tombstone
+		m["version"] = v
+		delete(a.tombs, id)
+	}
 	a.touch(m)
 	return m
 }
@@ -504,4 +527,33 @@ func (a *applier) delete(id string) error {
 		}
 	}
 	return nil
+}
+
+// indexDigits are fractional-indexing's base62 digits, in ASCII order.
+const indexDigits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// nextIndex is a fractional index (Excalidraw's z-order key) above after:
+// the next integer key ("a0" … "az", "b00" … — the head letter says how
+// many digits follow). A key below "a0" (or none) gives "a0".
+func nextIndex(after string) string {
+	if after < "a0" || after[0] < 'a' || after[0] > 'z' {
+		return "a0"
+	}
+	n := int(after[0]-'a') + 1
+	if len(after) < 1+n {
+		return "a0"
+	}
+	digits := []byte(after[1 : 1+n])
+	for i := len(digits) - 1; i >= 0; i-- {
+		d := strings.IndexByte(indexDigits, digits[i])
+		if d < len(indexDigits)-1 {
+			digits[i] = indexDigits[d+1]
+			return string(after[0]) + string(digits)
+		}
+		digits[i] = '0'
+	}
+	if after[0] == 'z' {
+		return after + "V" // out of integer keys: a fractional step above
+	}
+	return string(after[0]+1) + strings.Repeat("0", n+1)
 }

@@ -6,7 +6,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func doc(m map[string]any) json.RawMessage {
@@ -107,5 +109,53 @@ func TestRenderBoundTextInContainer(t *testing.T) {
 	}
 	if _, err := Render(els, nil, 0); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenderHostileInputsStayCheap(t *testing.T) {
+	start := time.Now()
+	els := []json.RawMessage{doc(map[string]any{"id": "t", "type": "text", "x": 0, "y": 0, "width": 100, "height": 25, "text": "big", "fontSize": 1e6})}
+	if _, err := Render(els, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	var many []json.RawMessage
+	for i := range 3000 {
+		many = append(many, doc(map[string]any{"id": "r" + strconv.Itoa(i), "type": "rectangle", "x": float64(i % 50), "y": float64(i / 50), "width": 1500, "height": 1500, "backgroundColor": "#ff0000", "fillStyle": "solid"}))
+	}
+	if _, err := Render(many, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []json.RawMessage{
+		json.RawMessage(`{"id":"a","type":"rectangle","x":1e308,"y":0,"width":10,"height":10}`),
+		json.RawMessage(`{"id":"b","type":"rectangle","x":-1e308,"y":0,"width":10,"height":10}`),
+		json.RawMessage(`{"id":"c","type":"rectangle","x":0,"y":0,"width":1e9,"height":1e9}`),
+	} {
+		if _, err := Render([]json.RawMessage{bad, els[0]}, nil, 0); err != nil {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("hostile renders took %v", d)
+	}
+}
+
+// Draw order follows Excalidraw's fractional index, not id.
+func TestRenderOrderByIndex(t *testing.T) {
+	els := []json.RawMessage{
+		doc(map[string]any{"id": "a-label", "type": "text", "x": 10, "y": 10, "width": 80, "height": 25, "text": "XXXX", "fontSize": 30, "index": "a1"}),
+		doc(map[string]any{"id": "z-box", "type": "rectangle", "x": 0, "y": 0, "width": 200, "height": 60, "backgroundColor": "#ff0000", "fillStyle": "solid", "index": "a0"}),
+	}
+	b, _ := Render(els, nil, 0)
+	img := decode(t, b)
+	dark := 0
+	for x := 30; x < 100; x++ {
+		for y := 30; y < 60; y++ {
+			if near(img.At(x, y), 0x1e, 0x1e, 0x1e) {
+				dark++
+			}
+		}
+	}
+	if dark < 20 {
+		t.Fatal("the label (higher index) must draw over the box")
 	}
 }

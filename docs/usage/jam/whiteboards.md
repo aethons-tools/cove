@@ -32,7 +32,7 @@ and two moving the same one converge. Every accepted change bumps the board's
 | `POST /me/boards` `{channel, title}` / `POST /squawks/boards` `{title, to?}` | `201 {board_id, channel}`; posts the board's card in the conversation |
 | `GET …/boards/{id}/elements?since=` | `{seq, elements}` (Excalidraw element JSON) |
 | `POST …/boards/{id}/elements` `{elements}` | `{seq, lost}` — `lost` are the stored winners of elements that lost the merge |
-| `GET /me/boards/{id}/thumb.png`, `GET /squawks/boards/{id}/snapshot.png` | the server-rendered PNG |
+| `GET /me/boards/{id}/thumb.png`, `GET /squawks/boards/{id}/snapshot.png` | the server-rendered PNG (`?size=` up to 480 gives the thumbnail size; otherwise full size, at most 1600 px) |
 | `GET /squawks/boards`, `…/{id}/read`, `POST …/{id}/apply` | the agent tools' routes (below) |
 
 Missing and forbidden are both `404`. `/me/events` sends `board` (data: the
@@ -50,15 +50,19 @@ merge, 64 KB per element, 8 MB per request.
   text, arrow, line, frame; an arrow with `from`/`to` connects two shapes and
   follows them when they move), `update` (move, resize, relabel, recolour),
   `delete` (with its label and connected arrows). All or nothing: a bad op
-  fails the batch with the reason.
+  fails the batch with the reason (a batch is at most 500 changed elements),
+  and an apply never interleaves with another edit of the board.
 - **`board_snapshot(board_id)`** — writes `~/boards/<id>-<seq>.png` and returns
   the path, to look at (freehand included).
 
 ## The renderer
 
 Jam draws boards itself (pure Go): shapes, arrows with heads, labels, text,
-freehand strokes and frames, without Excalidraw's hand-drawn style. Rotation
-isn't applied and hatched fills render as a light wash. It serves the card
+freehand strokes and frames, without Excalidraw's hand-drawn style, in
+Excalidraw's z-order. Rotation isn't applied and hatched fills render as a
+light wash. A render is bounded (at most 5000 elements, sane coordinates, a
+capped font size and drawn area), so a pathological board renders partly
+rather than slowly. It serves the card
 thumbnails and `board_snapshot`.
 
 ## Not yet

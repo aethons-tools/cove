@@ -130,3 +130,48 @@ func merge(docs, changed []json.RawMessage) []json.RawMessage {
 }
 
 func fptr(v float64) *float64 { return &v }
+
+func TestBoardOpsReaddDeletedAndIndex(t *testing.T) {
+	docs, _, _ := ApplyBoardOps(nil, []BoardOp{{Op: "add", Type: "rectangle", ID: "box", X: fptr(0), Y: fptr(0)}, {Op: "add", Type: "rectangle", ID: "two", X: fptr(200), Y: fptr(0)}})
+	idx := map[string]string{}
+	for _, d := range docs {
+		var m map[string]any
+		_ = json.Unmarshal(d, &m)
+		idx[m["id"].(string)], _ = m["index"].(string)
+	}
+	if idx["box"] == "" || idx["two"] == "" || !(idx["box"] < idx["two"]) {
+		t.Fatalf("indexes = %v, want increasing in add order", idx)
+	}
+	del, _, _ := ApplyBoardOps(docs, []BoardOp{{Op: "delete", ID: "box"}})
+	all := merge(docs, del)
+	re, _, err := ApplyBoardOps(all, []BoardOp{{Op: "add", Type: "ellipse", ID: "box", X: fptr(0), Y: fptr(0)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tomb, readd float64
+	for _, d := range del {
+		var m map[string]any
+		_ = json.Unmarshal(d, &m)
+		if m["id"] == "box" {
+			tomb = m["version"].(float64)
+		}
+	}
+	for _, d := range re {
+		var m map[string]any
+		_ = json.Unmarshal(d, &m)
+		if m["id"] == "box" {
+			readd = m["version"].(float64)
+		}
+	}
+	if readd <= tomb {
+		t.Fatalf("re-added version %v must beat the tombstone's %v", readd, tomb)
+	}
+}
+
+func TestNextIndex(t *testing.T) {
+	for in, want := range map[string]string{"": "a0", "a0": "a1", "a9": "aA", "az": "b00", "b0z": "b10", "bzz": "c000", "a5V": "a6", "Zz": "a0"} {
+		if got := nextIndex(in); got != want || got <= in {
+			t.Errorf("nextIndex(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"image/draw"
 	"image/png"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,9 @@ import (
 const DefaultMaxSide = 1600
 
 const pad = 20
+
+// maxTextPx caps a rendered font size.
+const maxTextPx = 400
 
 // element is the part of an Excalidraw element the renderer reads.
 type element struct {
@@ -52,6 +56,31 @@ type element struct {
 	ContainerID     *string     `json:"containerId"`
 	Name            *string     `json:"name"`
 	FileID          string      `json:"fileId"`
+	Index           string      `json:"index"`
+}
+
+// MaxElements bounds what one render draws; limit is the coordinate range
+// it accepts (beyond it an element is skipped).
+const (
+	MaxElements = 5000
+	limit       = 1e6
+)
+
+// sane reports whether e's numbers are finite and within limit.
+func sane(e element) bool {
+	for _, v := range []float64{e.X, e.Y, e.Width, e.Height, e.StrokeWidth, e.FontSize} {
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Abs(v) > limit {
+			return false
+		}
+	}
+	for _, p := range e.Points {
+		for _, v := range p {
+			if math.IsNaN(v) || math.IsInf(v, 0) || math.Abs(v) > limit {
+				return false
+			}
+		}
+	}
+	return len(e.Points) <= 10000
 }
 
 // Render draws els (deleted ones skipped) scaled so the longer side is at
@@ -64,9 +93,32 @@ func Render(docs []json.RawMessage, images func(fileID string) (image.Image, boo
 	var els []element
 	for _, d := range docs {
 		var e element
-		if json.Unmarshal(d, &e) == nil && !e.IsDeleted {
+		if json.Unmarshal(d, &e) == nil && !e.IsDeleted && sane(e) {
 			els = append(els, e)
 		}
+	}
+	// Excalidraw's z-order: by fractional index (base62 strings compare in
+	// order); elements without one keep their given order, after. Bound
+	// labels draw last, over their containers.
+	slices.SortStableFunc(els, func(a, b element) int {
+		la, lb := a.ContainerID != nil && *a.ContainerID != "", b.ContainerID != nil && *b.ContainerID != ""
+		switch {
+		case la != lb:
+			if la {
+				return 1
+			}
+			return -1
+		case a.Index == b.Index:
+			return 0
+		case a.Index == "":
+			return 1
+		case b.Index == "":
+			return -1
+		}
+		return strings.Compare(a.Index, b.Index)
+	})
+	if len(els) > MaxElements {
+		els = els[:MaxElements]
 	}
 	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, e := range els {
@@ -81,8 +133,8 @@ func Render(docs []json.RawMessage, images func(fileID string) (image.Image, boo
 	if side := math.Max(maxX-minX, maxY-minY); side > float64(maxSide) {
 		scale = float64(maxSide) / side
 	}
-	w, h := int(math.Ceil((maxX-minX)*scale)), int(math.Ceil((maxY-minY)*scale))
-	c := &canvas{img: image.NewRGBA(image.Rect(0, 0, w, h)), ox: minX, oy: minY, s: scale}
+	w, h := max(1, int(math.Ceil((maxX-minX)*scale))), max(1, int(math.Ceil((maxY-minY)*scale)))
+	c := &canvas{img: image.NewRGBA(image.Rect(0, 0, w, h)), ox: minX, oy: minY, s: scale, budget: pixelBudget}
 	draw.Draw(c.img, c.img.Bounds(), image.White, image.Point{}, draw.Src)
 	connectors := map[string]bool{}
 	for _, e := range els {
@@ -123,18 +175,76 @@ type canvas struct {
 	img    *image.RGBA
 	ox, oy float64 // scene origin of the image
 	s      float64 // scale
+	budget int64   // pixels left to rasterize (pixelBudget)
 }
+
+// pixelBudget bounds one render's rasterized area: about 25 full-size
+// canvases' worth.
+const pixelBudget = 64 << 20
 
 func (c *canvas) pt(x, y float64) (float32, float32) {
 	return float32((x - c.ox) * c.s), float32((y - c.oy) * c.s)
 }
 
-// fill paints the path built by build in col.
-func (c *canvas) fill(col color.Color, build func(r *vector.Rasterizer)) {
-	b := c.img.Bounds()
-	r := vector.NewRasterizer(b.Dx(), b.Dy())
-	build(r)
-	r.Draw(c.img, b, image.NewUniform(col), image.Point{})
+// pather is where a path is built (canvas coordinates).
+type pather interface {
+	MoveTo(x, y float32)
+	LineTo(x, y float32)
+	ClosePath()
+}
+
+// pathRec records a path and its bounding box.
+type pathRec struct {
+	ops                    []pathOp
+	minX, minY, maxX, maxY float32
+}
+
+type pathOp struct {
+	kind byte // 'M', 'L', 'Z'
+	x, y float32
+}
+
+func (p *pathRec) see(x, y float32) {
+	if len(p.ops) == 0 {
+		p.minX, p.minY, p.maxX, p.maxY = x, y, x, y
+		return
+	}
+	p.minX, p.minY, p.maxX, p.maxY = min(p.minX, x), min(p.minY, y), max(p.maxX, x), max(p.maxY, y)
+}
+func (p *pathRec) MoveTo(x, y float32) { p.see(x, y); p.ops = append(p.ops, pathOp{'M', x, y}) }
+func (p *pathRec) LineTo(x, y float32) { p.see(x, y); p.ops = append(p.ops, pathOp{'L', x, y}) }
+func (p *pathRec) ClosePath()          { p.ops = append(p.ops, pathOp{kind: 'Z'}) }
+
+// fill paints the path built by build in col, rasterizing only its bounding
+// box (clipped to the canvas): cost follows the shape, not the canvas.
+func (c *canvas) fill(col color.Color, build func(r pather)) {
+	var rec pathRec
+	build(&rec)
+	if len(rec.ops) == 0 {
+		return
+	}
+	box := image.Rect(int(math.Floor(float64(rec.minX))), int(math.Floor(float64(rec.minY))), int(math.Ceil(float64(rec.maxX)))+1, int(math.Ceil(float64(rec.maxY)))+1).Intersect(c.img.Bounds())
+	if box.Empty() {
+		return
+	}
+	// A render's total rasterized area is bounded: past the budget the rest
+	// isn't drawn (a pathological board renders partly, never slowly).
+	if c.budget -= int64(box.Dx()) * int64(box.Dy()); c.budget < 0 {
+		return
+	}
+	r := vector.NewRasterizer(box.Dx(), box.Dy())
+	ox, oy := float32(box.Min.X), float32(box.Min.Y)
+	for _, op := range rec.ops {
+		switch op.kind {
+		case 'M':
+			r.MoveTo(op.x-ox, op.y-oy)
+		case 'L':
+			r.LineTo(op.x-ox, op.y-oy)
+		case 'Z':
+			r.ClosePath()
+		}
+	}
+	r.Draw(c.img, box, image.NewUniform(col), image.Point{})
 }
 
 // polyline strokes pts (scene coordinates) with width w.
@@ -148,15 +258,19 @@ func (c *canvas) polyline(pts [][2]float64, w float64, col color.Color, closed b
 		pts = append(pts, pts[0])
 		n++
 	}
-	c.fill(col, func(r *vector.Rasterizer) {
-		for i := 0; i+1 < n; i++ {
+	// Each segment (with its joint) rasterizes on its own, so a long outline
+	// costs its segments' boxes, not the whole shape's.
+	for i := 0; i+1 < n; i++ {
+		c.fill(col, func(r pather) {
 			ax, ay := c.pt(pts[i][0], pts[i][1])
 			bx, by := c.pt(pts[i+1][0], pts[i+1][1])
 			dx, dy := float64(bx-ax), float64(by-ay)
 			l := math.Hypot(dx, dy)
 			if l == 0 {
-				continue
+				return
 			}
+			x, y := c.pt(pts[i][0], pts[i][1])
+			circle(r, x, y, float32(hw)) // the joint at the segment's start
 			nx, ny := float32(-dy/l*hw), float32(dx/l*hw)
 			// One winding for every piece (as circle's), or overlapping
 			// pieces cancel out in the rasterizer's accumulation.
@@ -169,12 +283,12 @@ func (c *canvas) polyline(pts [][2]float64, w float64, col color.Color, closed b
 				r.LineTo(v[0], v[1])
 			}
 			r.ClosePath()
-		}
-		for i := 0; i < n; i++ { // round joins
-			x, y := c.pt(pts[i][0], pts[i][1])
-			circle(r, x, y, float32(hw))
-		}
-	})
+		})
+	}
+	if !closed { // the last end's cap
+		x, y := c.pt(pts[n-1][0], pts[n-1][1])
+		c.fill(col, func(r pather) { circle(r, x, y, float32(hw)) })
+	}
 }
 
 // area is a polygon's signed (shoelace) area.
@@ -189,7 +303,7 @@ func area(p [][2]float32) float32 {
 
 // circle adds a circle subpath, wound with positive area (as polyline's
 // pieces).
-func circle(r *vector.Rasterizer, cx, cy, rad float32) {
+func circle(r pather, cx, cy, rad float32) {
 	const k = 16
 	for i := 0; i <= k; i++ {
 		a := 2 * math.Pi * float64(i) / k
@@ -205,7 +319,7 @@ func circle(r *vector.Rasterizer, cx, cy, rad float32) {
 
 // polygon fills pts (scene coordinates).
 func (c *canvas) polygon(pts [][2]float64, col color.Color) {
-	c.fill(col, func(r *vector.Rasterizer) {
+	c.fill(col, func(r pather) {
 		for i, p := range pts {
 			x, y := c.pt(p[0], p[1])
 			if i == 0 {
@@ -325,6 +439,9 @@ func (c *canvas) text(s string, x, y, width, size float64, align string, col col
 	if px < 4 {
 		return
 	}
+	// A glyph's cost grows with its size squared: no taller than the canvas,
+	// and no more than maxTextPx.
+	px = min(px, float64(c.img.Bounds().Dy()), maxTextPx)
 	ff, err := opentype.NewFace(face, &opentype.FaceOptions{Size: px, DPI: 72, Hinting: font.HintingFull})
 	if err != nil {
 		return

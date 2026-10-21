@@ -27,11 +27,27 @@ type Boards struct {
 	mu      sync.Mutex
 	subs    map[chan ident.ID]bool
 	renders map[string][]byte // PNG snapshots by board/seq/size
+	locks   map[ident.ID]*sync.Mutex
+	render  chan struct{} // bounds concurrent renders
+}
+
+// lock serializes writes to board id in this process: an agent's apply
+// (read, compute, merge) never interleaves with another write.
+func (b *Boards) lock(id ident.ID) func() {
+	b.mu.Lock()
+	l, ok := b.locks[id]
+	if !ok {
+		l = &sync.Mutex{}
+		b.locks[id] = l
+	}
+	b.mu.Unlock()
+	l.Lock()
+	return l.Unlock
 }
 
 // NewBoards returns boards over lg's store, with ic's access rules.
 func NewBoards(lg intercom.Store, ic *Intercom) *Boards {
-	return &Boards{lg: lg, ic: ic, subs: map[chan ident.ID]bool{}, renders: map[string][]byte{}}
+	return &Boards{lg: lg, ic: ic, subs: map[chan ident.ID]bool{}, renders: map[string][]byte{}, locks: map[ident.ID]*sync.Mutex{}, render: make(chan struct{}, 2)}
 }
 
 // Create starts a board titled title and posts its card: a person names the
@@ -107,6 +123,15 @@ func (b *Boards) CanWrite(viewer, id ident.ID) (intercom.Board, bool) {
 func (b *Boards) Merge(viewer, id ident.ID, docs []json.RawMessage) (int64, []json.RawMessage, error) {
 	if _, ok := b.CanWrite(viewer, id); !ok {
 		return 0, nil, ErrSendDenied
+	}
+	defer b.lock(id)()
+	return b.merge(id, docs)
+}
+
+// merge merges docs into board id; the caller holds its lock.
+func (b *Boards) merge(id ident.ID, docs []json.RawMessage) (int64, []json.RawMessage, error) {
+	if len(docs) > intercom.MaxMergeBatch {
+		return 0, nil, fmt.Errorf("%w: over %d elements in one merge", intercom.ErrInvalid, intercom.MaxMergeBatch)
 	}
 	els := make([]intercom.Element, len(docs))
 	for i, d := range docs {
@@ -191,6 +216,9 @@ func (b *Boards) publish(id ident.ID) {
 		}
 	}
 }
+
+// ThumbSize is a board card thumbnail's longer side.
+const ThumbSize = 480
 
 // maxBoardRequest caps a board request body.
 const maxBoardRequest = 8 << 20
@@ -311,11 +339,17 @@ func (b *Boards) Apply(viewer, id ident.ID, ops []BoardOp) (int64, []string, err
 	if _, ok := b.CanWrite(viewer, id); !ok {
 		return 0, nil, ErrSendDenied
 	}
+	defer b.lock(id)()
 	changed, added, err := ApplyBoardOps(b.allDocs(id), ops)
 	if err != nil {
 		return 0, nil, fmt.Errorf("%w: %v", intercom.ErrInvalid, err)
 	}
-	seq, _, err := b.Merge(viewer, id, changed)
+	seq, lost, err := b.merge(id, changed)
+	if err == nil && len(lost) > 0 {
+		// Only another Jam process writing at once gets here: say so rather
+		// than report a half-applied batch as done.
+		return seq, added, fmt.Errorf("%w: the board changed while applying; read it and retry", intercom.ErrInvalid)
+	}
 	return seq, added, err
 }
 
@@ -333,6 +367,8 @@ func (b *Boards) Snapshot(viewer, id ident.ID, maxSide int) ([]byte, int64, erro
 		return png, seq, nil
 	}
 	b.mu.Unlock()
+	b.render <- struct{}{} // at most a couple of renders at once
+	defer func() { <-b.render }()
 	docs := make([]json.RawMessage, len(els))
 	for i, e := range els {
 		docs[i] = e.Doc
@@ -353,9 +389,10 @@ func (b *Boards) Snapshot(viewer, id ident.ID, maxSide int) ([]byte, int64, erro
 // ServeSnapshot writes the snapshot as image/png (?size= max side; default
 // the full size), 404 alike for missing and forbidden.
 func (b *Boards) ServeSnapshot(w http.ResponseWriter, r *http.Request, viewer, id ident.ID) {
-	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	if size <= 0 || size > boardrender.DefaultMaxSide {
-		size = boardrender.DefaultMaxSide
+	// Two sizes only (a thumbnail, or full), so sizes can't dodge the cache.
+	size := boardrender.DefaultMaxSide
+	if s, _ := strconv.Atoi(r.URL.Query().Get("size")); s > 0 && s <= ThumbSize {
+		size = ThumbSize
 	}
 	png, seq, err := b.Snapshot(viewer, id, size)
 	if !boardError(w, err) {

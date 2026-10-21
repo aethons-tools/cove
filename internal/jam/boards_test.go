@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -233,5 +234,46 @@ func TestBoardsAgentRoutes(t *testing.T) {
 	}
 	if rec := f.do(http.MethodGet, "/squawks/boards/"+c.BoardID+"/snapshot.png", f.ticket, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("outsider snapshot = %d", rec.Code)
+	}
+}
+
+// Agent applies and human merges on one board serialize: no apply reports a
+// half-applied batch.
+func TestBoardsApplySerializedWithMerges(t *testing.T) {
+	f := newICFixture(t)
+	bs := NewBoards(f.log, f.ic)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := bs.Create(Poster{ID: f.alice.ID}, string(f.room.ID), "x", f.now)
+	if _, _, err := bs.Apply(f.alice.ID, b.ID, []BoardOp{{Op: "add", Type: "rectangle", ID: "s", X: fptr(0), Y: fptr(0)}}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := range 20 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _, err := bs.Apply(f.alice.ID, b.ID, []BoardOp{{Op: "update", ID: "s", X: fptr(float64(i))}})
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			els, _, _ := bs.Elements(f.alice.ID, b.ID, 0)
+			var m map[string]any
+			_ = json.Unmarshal(els[0], &m)
+			m["version"] = m["version"].(float64) + 1
+			d, _ := json.Marshal(m)
+			_, _, err := bs.Merge(f.alice.ID, b.ID, []json.RawMessage{d})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent write: %v", err)
+		}
 	}
 }
