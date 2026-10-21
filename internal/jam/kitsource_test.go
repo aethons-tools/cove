@@ -22,6 +22,7 @@ type fakeFetcher struct {
 	t        *testing.T
 	refs     map[string]string
 	commits  map[string]map[string]string
+	mu       sync.Mutex // guards fetches and failNext: imports fetch concurrently
 	fetches  int
 	failNext error
 }
@@ -36,6 +37,8 @@ func (f *fakeFetcher) commit(ref, sha string, files map[string]string) {
 }
 
 func (f *fakeFetcher) fail() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	err := f.failNext
 	f.failNext = nil
 	return err
@@ -56,7 +59,9 @@ func (f *fakeFetcher) Fetch(ctx context.Context, src gitsource.Source, fn func(r
 	if err := f.fail(); err != nil {
 		return err
 	}
+	f.mu.Lock()
 	f.fetches++
+	f.mu.Unlock()
 	sha, err := f.Resolve(ctx, src)
 	if err != nil {
 		return err
@@ -229,6 +234,23 @@ func (s *failStore) PushKitTracked(name, config string, meta KitVersionMeta, tra
 	return s.Store.PushKitTracked(name, config, meta, track)
 }
 
+// PutKitDocs fails as the write it stands for: with failPush when any doc
+// adds a version, else (a source-only move) with failSet.
+func (s *failStore) PutKitDocs(kits []Kit) error {
+	push := false
+	for _, k := range kits {
+		cur, _ := s.Store.GetKit(k.Name)
+		push = push || len(k.Versions) > len(cur.Versions)
+	}
+	if push && s.failPush {
+		return errors.New("push failed")
+	}
+	if !push && s.failSet {
+		return errors.New("set failed")
+	}
+	return s.Store.PutKitDocs(kits)
+}
+
 func (s *failStore) SetKitSource(name string, src *KitSource) error {
 	if s.failSet {
 		return errors.New("set failed")
@@ -285,6 +307,11 @@ func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
 	wg.Wait()
 	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
 		t.Fatalf("versions=%d, want 2", len(k.Versions))
+	}
+	// One fetch for the track, one for the first sync: the rest wait on the
+	// kit lock, then see the commit is current.
+	if f.fetches != 2 {
+		t.Fatalf("fetches=%d, want 2", f.fetches)
 	}
 }
 

@@ -151,16 +151,6 @@ func TestEnsureKitRecordsParent(t *testing.T) {
 	if m := k.Meta[ref.Version]; m.Parent == nil || m.Parent.Version != 1 {
 		t.Fatalf("pinned meta = %+v", m)
 	}
-	// metadata passed by the caller keeps its fields
-	m := KitVersionMeta{Source: &KitSource{Repo: "r", Ref: "main"}}
-	ref, _, err := ensureStudioKitMeta(st, "c3", chainKit("p", ""), m, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	k, _ = st.GetKit("c3")
-	if got := k.Meta[ref.Version]; got.Parent == nil || got.Source == nil || got.Source.Repo != "r" {
-		t.Fatalf("meta = %+v", got)
-	}
 	// the child is not re-pushed when its parent moves
 	mustEnsure(t, st, "p", chainKit("", "c"))
 	if _, unchanged, err := ensureStudioKit(st, "c", chainKit("p", "")); err != nil || !unchanged {
@@ -197,5 +187,18 @@ func TestKitsReferencing(t *testing.T) {
 	follow, pinned := KitsReferencing(st, "p")
 	if strings.Join(follow, ",") != "f1,f2" || strings.Join(pinned, ",") != "pin" {
 		t.Fatalf("follow=%v pinned=%v", follow, pinned)
+	}
+}
+
+func TestPathParentRefusedOutsideGitImport(t *testing.T) {
+	_, store, _ := supTestKit(t, &fakeLauncher{})
+	const msg = "path parents resolve only in a git import (kit import/track --git)"
+	_, _, err := PushStudioKit(store, "child", "kind: studio\nbase:\n  kit: ../web\n")
+	var we *WriteError
+	if err == nil || !strings.Contains(err.Error(), msg) || !errors.As(err, &we) || we.Status != http.StatusBadRequest {
+		t.Fatalf("push: want 400 %q, got %v", msg, err)
+	}
+	if _, err := ResolveKitChain(store, "child", studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}); err == nil || !errors.Is(err, ErrKitChain) {
+		t.Fatalf("resolve: want chain error, got %v", err)
 	}
 }

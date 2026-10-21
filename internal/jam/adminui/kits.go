@@ -253,8 +253,19 @@ func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, l
 }
 
 func sourceMsg(what string, res jam.KitSourceResult) string {
+	msg := fmt.Sprintf("%s: %s is now v%d", what, res.Name, res.Version)
 	if res.Unchanged {
-		return fmt.Sprintf("%s: %s unchanged (current v%d)", what, res.Name, res.Version)
+		msg = fmt.Sprintf("%s: %s unchanged (current v%d)", what, res.Name, res.Version)
 	}
-	return fmt.Sprintf("%s: %s is now v%d", what, res.Name, res.Version)
+	if len(res.Also) == 0 {
+		return msg
+	}
+	with := make([]string, len(res.Also))
+	for i, a := range res.Also {
+		with[i] = fmt.Sprintf("%s v%d", a.Name, a.Version)
+		if a.Unchanged {
+			with[i] += " (unchanged)"
+		}
+	}
+	return msg + ". With: " + strings.Join(with, ", ")
 }

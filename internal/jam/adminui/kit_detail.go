@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -179,6 +180,7 @@ type kitDetail struct {
 	UsedByKits  []kitChild
 	IsDefault   bool
 	Source      *sourceView // tracked source; nil = not tracked
+	SetWith     string      // chain parents imported from the same repo, comma-joined; "" = not part of a set
 	CanSource   bool        // import/track/sync controls are available
 	NotFound    bool
 	NotFoundFor string
@@ -392,6 +394,9 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 	if d.View.ParseErr == "" {
 		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, k.Versions[view])
 	}
+	if src := k.Meta[view].Source; src != nil {
+		d.SetWith = setParents(store, d.Chain, src)
+	}
 	follow, pinned := jam.KitsReferencing(store, name)
 	for _, c := range follow {
 		d.UsedByKits = append(d.UsedByKits, kitChild{Name: c})
@@ -413,6 +418,21 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
 	}
 	return d, true
+}
+
+// setParents names the chain parents whose resolved version was imported from
+// own's repo at another dir, comma-joined: the kits a repo import brought in
+// together with this one.
+func setParents(store jam.Store, chain []kitParent, own *jam.KitSource) string {
+	var names []string
+	for _, p := range chain {
+		if k, ok := store.GetKit(p.Name); ok {
+			if src := k.Meta[p.Version].Source; src != nil && src.Repo == own.Repo && path.Clean("./"+src.Dir) != path.Clean("./"+own.Dir) {
+				names = append(names, p.Name)
+			}
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // chainOf resolves the chain of one stored kit version for display: its

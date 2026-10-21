@@ -772,6 +772,16 @@ func copyDestination(d Destination) Destination {
 	return d
 }
 
+// checkKitDocs validates a PutKitDocs batch before anything is written.
+func checkKitDocs(kits []Kit) error {
+	for _, k := range kits {
+		if k.Name == "" {
+			return fmt.Errorf("kit name is required")
+		}
+	}
+	return nil
+}
+
 func copyKit(k Kit) Kit {
 	vs := make(map[int]string, len(k.Versions))
 	for v, c := range k.Versions {

@@ -345,6 +345,10 @@ func createdProjects(p Project, created bool) []Project {
 // single transaction: either every aggregate row is inserted or none is. It is
 // fail-closed (checkImport) and never touches instances or unread cursors.
 func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
+	// Imported kits are kit writes: kitMu first, as every kit writer takes it
+	// before the store lock.
+	kitMu.Lock()
+	defer kitMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap, plan, err := importPlan(s.memState, snap)
@@ -696,6 +700,46 @@ func (s *PostgresStore) SetKitSource(name string, src *KitSource) error {
 		return err
 	}
 	s.applySetKitSource(name, src)
+	return nil
+}
+
+// PutKitDocs upserts every doc in one transaction; the cache changes only
+// after commit.
+func (s *PostgresStore) PutKitDocs(kits []Kit) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := checkKitDocs(kits); err != nil {
+		return err
+	}
+	if len(kits) == 0 {
+		return nil
+	}
+	cp := make([]Kit, len(kits))
+	docs := make([][]byte, len(kits))
+	for i, k := range kits {
+		cp[i] = copyKit(k)
+		doc, err := json.Marshal(cp[i])
+		if err != nil {
+			return err
+		}
+		docs[i] = doc
+	}
+	if err := s.registryTx("PutKitDocs", func(ctx context.Context, tx pgx.Tx) error {
+		for i, k := range cp {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO kits (name, doc) VALUES ($1,$2)
+				 ON CONFLICT (name) DO UPDATE SET doc = EXCLUDED.doc, version = kits.version + 1, updated_at = now()`,
+				k.Name, docs[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, k := range cp {
+		s.kits[k.Name] = k
+	}
 	return nil
 }
 

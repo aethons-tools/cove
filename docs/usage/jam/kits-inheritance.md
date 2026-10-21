@@ -41,8 +41,8 @@ prompt: "You work on my-app …"
 - **No context:** the child reuses its parent's image as it is and only adds
   definition.
 - `kit` and `image` are mutually exclusive.
-- A value starting with `.` (a path parent in the same repo) is refused for
-  now: `path parents are not supported yet; use the parent kit's registry name`.
+- A value starting with `.` is a path parent in the same repo; see
+  [Parents in the same repo](#parents-in-the-same-repo).
 
 **The chain** runs from the child up to its **root**, a kit whose base is not
 `kit:` (the blessed default, a gated `image:` or a plain context). It holds at
@@ -160,7 +160,12 @@ notes come from the current chain.
 A kit imported or tracked from git ([kits-git.md](kits-git.md)) may name a
 registry parent (`kit: web-dev`). The parent is resolved, and the checks above
 run, whenever an import or sync records the fetched kit (a sync that finds
-nothing new fetches nothing and checks nothing). A same-repo path parent
-(`kit: ../web-dev`) is a later slice. The design is in
-[`../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md`](../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md)
-§2–§3.
+nothing new fetches nothing and checks nothing).
+
+## Parents in the same repo
+
+A git kit may also name a parent **by path** in the same repo
+(`kit: ../web`). A git import, track or sync then brings the repo's kit set in
+as one unit, each child pinned to the exact version its parent got; a
+`kit push` refuses a path. The rules are in
+[kits-path-parents.md](kits-path-parents.md).

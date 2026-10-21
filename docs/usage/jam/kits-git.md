@@ -68,9 +68,10 @@ symlink out of the checkout is refused. `context-dir` is packed into `context`
 exactly as `kit push` packs it (same caps, `.dockerignore` honored), so the
 stored kit is self-contained; the checkout is deleted after each fetch.
 
-A `kit.yml` may build on a registry kit (`base: { kit: web-dev }`), but not
-yet on a path in the same repo; see
-[kits-inheritance.md](kits-inheritance.md#kits-from-git).
+A `kit.yml` may build on a registry kit (`base: { kit: web-dev }`,
+[kits-inheritance.md](kits-inheritance.md#kits-from-git)) or on another kit in
+the same repo by path (`base: { kit: ../web }`, imported with it as one set:
+[kits-path-parents.md](kits-path-parents.md)).
 
 The kit's name, when `import` gets no `--name`: the file's legacy `name:`
 field, else the base of `<dir>`, else the repo's name (`kits.git` → `kits`).
@@ -162,7 +163,8 @@ CLI allows 90 s per call. The packed context then meets the usual
 The CLI refuses a malformed source itself (exit 2); otherwise it exits 1
 with the admin API's status and message. The API answers
 **400** for a bad source or an invalid kit, **404** for an unknown kit,
-**409** for `sync` of an untracked kit, **502** for a fetch, auth or limit
+**409** for `sync` of an untracked kit or a refused
+[set ancestor](kits-path-parents.md#refusals), **502** for a fetch, auth or limit
 failure (the message is already redacted), and **500** for a store failure.
 
 | Message | Fix |
@@ -182,7 +184,6 @@ failure (the message is already redacted), and **500** for a store failure.
 
 ## Future work
 
-Not in this slice: an attention signal when a tracked source has new commits
-(a poll that only reports, never imports), and same-repo path parents — see
-the design,
+Not built yet: an attention signal when a tracked source has new commits
+(a poll that only reports, never imports) — see the design,
 [`../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md`](../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md).

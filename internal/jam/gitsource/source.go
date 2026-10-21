@@ -6,8 +6,9 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // Source names a kit in a git repository: "<repo>[//<dir>]@<ref>".
@@ -93,18 +94,7 @@ func normalizeSchemeHost(raw string) string {
 
 // hasUnsafeChars reports whether s is invalid UTF-8 or holds whitespace, a
 // quote, a backtick, or a control, format (Cf) or non-printable character.
-func hasUnsafeChars(s string) bool {
-	if !utf8.ValidString(s) {
-		return true
-	}
-	for _, r := range s {
-		if r <= 0x20 || r == 0x7f || r == '"' || r == '\'' || r == '`' || unicode.IsSpace(r) || unicode.IsControl(r) ||
-			unicode.Is(unicode.Cf, r) || !unicode.IsPrint(r) {
-			return true
-		}
-	}
-	return false
-}
+func hasUnsafeChars(s string) bool { return studio.HasUnsafeChars(s) }
 
 // maxQuoted caps how much of an accepted Source's repo a fetch error quotes.
 const maxQuoted = 200

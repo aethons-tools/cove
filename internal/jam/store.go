@@ -52,6 +52,12 @@ type Store interface {
 	// SetKitSource sets (or, when nil, clears) a kit's tracked source;
 	// ErrNotFound for an unknown kit.
 	SetKitSource(name string, src *KitSource) error
+	// PutKitDocs replaces each named kit's whole doc (versions, meta, source,
+	// current) in one atomic step: every kit is written or none is. An empty
+	// name refuses the whole call. The store does not enforce version
+	// immutability; the caller (jam) owns that, building each doc from copyKit
+	// of the current one plus new versions.
+	PutKitDocs(kits []Kit) error
 	GetKit(name string) (Kit, bool)
 	KitConfig(name string, version int) (string, bool)
 	PinKit(name string, version int) error
