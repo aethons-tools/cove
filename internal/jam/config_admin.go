@@ -25,7 +25,8 @@ const configStoreError = "config store error"
 //
 // diff and apply take a configtar body (application/gzip). An oversize
 // upload is 413, a malformed or unsafe one 400 — both before the tree is
-// loaded. An apply with refusals or a stale plan digest is 409. env.Serve is
+// loaded. An apply with refusals or a stale plan digest is 409, as is an
+// export-tree of a kit pinned behind its in-tree parent (ErrConfigKitPinBehind). env.Serve is
 // the running serve's portable config, compared with the tree's jam.yml.
 func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 	if log == nil {
@@ -112,6 +113,10 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			exp, err := ExportConfigTree(store.ExportConfig(), store.ListConfigMarks(), env.Serve, r.URL.Query().Get("all") == "1")
+			if errors.Is(err, ErrConfigKitPinBehind) {
+				http.Error(w, err.Error(), http.StatusConflict) // kit names and versions only
+				return
+			}
 			if err != nil {
 				log.Error("admin config export-tree: store error", "operator", OperatorID(r), "err", err.Error())
 				http.Error(w, configStoreError, http.StatusInternalServerError)

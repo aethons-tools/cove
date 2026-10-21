@@ -263,3 +263,19 @@ func TestConfigApplyForgetsStaleMark(t *testing.T) {
 	}
 	findUser(t, st, "bob")
 }
+
+func TestConfigWriteRefusesBehindPin(t *testing.T) {
+	url, st := configServer(t)
+	seedJam(t, st)
+	if _, _, err := jam.PushStudioKit(st, "web-dev", "kind: studio\nprompt: v2\n"); err != nil {
+		t.Fatal(err)
+	}
+	repo := gitDir(t)
+	code, _, errs := runJam("config", "write", repo, "--all", "--admin-url", url)
+	if code != 1 || !strings.Contains(errs, "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — re-push app against v2 (or pin web-dev to v1) before config write") {
+		t.Fatalf("%d %s", code, errs)
+	}
+	if len(readTree(t, repo)) != 0 {
+		t.Fatal("a refused write wrote files")
+	}
+}

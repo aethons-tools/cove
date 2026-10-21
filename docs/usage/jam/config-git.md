@@ -80,6 +80,11 @@ Kits are inline only: `kits/<n>/kit.yml`, with path parents across `kits/`
 role's `kit` or a kit's `base.kit` is refused (`<path>: <ref> pins a version;
 versions are per-Jam — name the kit (or use a path parent)`). Versions
 written by `--dir` record provenance repo `local`, dir `kits/<name>`.
+`config write` renders a kit's parent as a path parent only when its pin
+equals the parent's current version (apply re-pins to current). A kit pinned
+behind fails the write (409 on the route): `kit <child> pins <parent>@v<N>
+but <parent> is at v<M>; versions are per-Jam — re-push <child> against v<M>
+(or pin <parent> to v<N>) before config write`.
 
 **Never in the repo:** token hashes, actors, grants, OIDC identities,
 accounts, instances, intercom state, channel membership, pool state,

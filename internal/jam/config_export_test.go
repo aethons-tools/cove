@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -159,5 +160,24 @@ func TestExportAllRemovesEmptyProjectContext(t *testing.T) {
 	exp, _ := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if !slices.Contains(exp.Remove, "projects/app/context.md") {
 		t.Fatalf("remove = %v", exp.Remove)
+	}
+}
+
+// A kit pinned behind its in-tree parent's current version cannot be written
+// as a path parent (apply would move it onto the parent's latest), so the
+// export fails with the remedy.
+func TestExportConfigTreeRefusesBehindPin(t *testing.T) {
+	st, _ := populatedJam(t)
+	if _, _, err := PushStudioKit(st, "web-dev", "kind: studio\nprompt: v2\n"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	want := "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — re-push app against v2 (or pin web-dev to v1) before config write"
+	if !errors.Is(err, ErrConfigKitPinBehind) || err.Error() != want {
+		t.Fatalf("err = %v\nwant %s", err, want)
+	}
+	// A parent outside the tree keeps the stored pin.
+	if _, err := ExportConfigTree(st.ExportConfig(), []ConfigMark{{Kind: ConfigKindKit, Name: "app"}}, nil, false); err != nil {
+		t.Fatal(err)
 	}
 }

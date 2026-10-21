@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -87,7 +88,10 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 		if !ok {
 			continue
 		}
-		b, err := renderKitFile(cfg, inTree)
+		b, err := renderKitFile(m, n, cfg, inTree)
+		if errors.Is(err, ErrConfigKitPinBehind) {
+			return nil, err
+		}
 		if err != nil {
 			return nil, fmt.Errorf("kit %s: %w", n, err)
 		}
@@ -158,14 +162,37 @@ func projectFileOf(m *memState, p Project) ProjectFile {
 	return f
 }
 
-// renderKitFile renders a stored kit config as kits/<n>/kit.yml.
-func renderKitFile(config string, inTree func(string) bool) ([]byte, error) {
+// ErrConfigKitPinBehind is a config write of a kit pinned behind its in-tree
+// parent's current version: a path parent re-pins to the current version at
+// apply, and versions are per-Jam, so the repo cannot express the lag.
+var ErrConfigKitPinBehind = errors.New("kit pins its parent behind the parent's current version")
+
+type kitPinBehindError struct {
+	kit, parent string
+	pin, cur    int
+}
+
+func (e *kitPinBehindError) Error() string {
+	return fmt.Sprintf("kit %s pins %s@v%d but %s is at v%d; versions are per-Jam — re-push %s against v%d (or pin %s to v%d) before config write",
+		e.kit, e.parent, e.pin, e.parent, e.cur, e.kit, e.cur, e.parent, e.pin)
+}
+
+func (e *kitPinBehindError) Unwrap() error { return ErrConfigKitPinBehind }
+
+// renderKitFile renders kit name's stored config as kits/<n>/kit.yml. A
+// parent in the tree is written as a path parent, which apply re-pins to the
+// parent's current version — so only a pin equal to it can be; an older pin
+// is ErrConfigKitPinBehind.
+func renderKitFile(m *memState, name, config string, inTree func(string) bool) ([]byte, error) {
 	sk, err := studio.ParseStudioKit([]byte(config))
 	if err != nil {
 		return nil, err
 	}
-	if name, v, err := sk.Base.ParentRef(); err == nil && v > 0 && inTree != nil && inTree(name) {
-		sk.Base.Kit = "../" + name // a sibling in the tree: a path parent, re-pinned at apply
+	if parent, v, err := sk.Base.ParentRef(); err == nil && v > 0 && inTree != nil && inTree(parent) {
+		if cur := m.kits[parent].Current; v != cur {
+			return nil, &kitPinBehindError{kit: name, parent: parent, pin: v, cur: cur}
+		}
+		sk.Base.Kit = "../" + parent // a sibling in the tree: a path parent, re-pinned at apply
 	}
 	return renderYAML(sk), nil
 }
