@@ -69,6 +69,12 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 // the declared Base.Image is resolved+gated ("" → blessed default). The gate is
 // ON in both cases.
 func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
+	// TEMPORARY until chained builds land: def.Kit is the merged kit, whose
+	// base is the child's own stage only — building it would silently skip the
+	// parents' stages. Refuse rather than build on the blessed base.
+	if len(def.Chain) > 1 {
+		return "", fmt.Errorf("kit chains are not buildable yet")
+	}
 	kind, err := def.Kit.Base.Kind()
 	if err != nil {
 		return "", err

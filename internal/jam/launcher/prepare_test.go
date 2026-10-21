@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -392,4 +393,20 @@ func TestPrepareLockKeyedOnImageTag(t *testing.T) {
 	}
 	unlock()
 	<-same
+}
+
+// Until chained builds land, a chained kit refuses to prepare rather than
+// silently building its merged kit on the blessed base.
+func TestPrepareChainedKitRefusesForNow(t *testing.T) {
+	ops := &fakeOps{}
+	def := studioKitDef("my-app", 1, studio.StudioKit{Kind: studio.Kind})
+	def.Chain = []jam.KitLink{{Ref: KitRef{ID: "web-dev", Version: 1}}, {Ref: def.Ref}}
+	l := newPrepareLauncher(ops, &fakeInv{}, func(KitDefinition, string) error { return nil })
+	st, err := l.PrepareKit(context.Background(), def)
+	if err == nil || !strings.Contains(err.Error(), "kit chains are not buildable yet") || st.State == KitReady {
+		t.Fatalf("PrepareKit(chained) = %+v, %v; want the not-buildable error", st, err)
+	}
+	if ops.builds != 0 {
+		t.Fatalf("a chained kit must not build; builds=%d", ops.builds)
+	}
 }

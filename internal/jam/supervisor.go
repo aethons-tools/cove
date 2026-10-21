@@ -407,7 +407,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		// registry, unless Raise resolved it) and retry once. A still-preparing
 		// build does not block — the raise fails and the caller's reconcile
 		// retries on a later tick.
-		loc, err = s.prepareKitAndRetry(ctx, spec, creds, def)
+		loc, err = s.prepareKitAndRetry(ctx, &spec, creds, def)
 	}
 	if err != nil {
 		if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil { // rollback identity on failed launch
@@ -467,20 +467,21 @@ func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition,
 	if err != nil || !have {
 		return KitDefinition{}, false, err
 	}
-	def, err := src.definition(h)
+	def, err := src.definition(s.store, h)
 	return def, err == nil, err
 }
 
 // kitSource is the registry entry a raise's kit comes from: its ref (no digest
-// yet) and stored config. Turning it into a definition parses and hashes.
+// yet) and stored config. Turning it into a definition parses it, resolves its
+// parent chain and hashes.
 type kitSource struct {
 	ref    KitRef
 	config string
 	named  bool // role.Kit names it (vs the wiring default) — error wording only
 }
 
-func (k kitSource) definition(h harnessinstall.Install) (KitDefinition, error) {
-	def, err := kitDefinitionFromConfig(k.ref, k.config, h)
+func (k kitSource) definition(store Store, h harnessinstall.Install) (KitDefinition, error) {
+	def, err := kitDefinitionFromConfig(store, k.ref, k.config, h)
 	if err != nil && k.named {
 		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", k.ref.ID, err)
 	}
@@ -547,7 +548,7 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 	if ref, ok := s.kitRefs.get(key); ok {
 		return ref, true, nil
 	}
-	def, err := src.definition(h)
+	def, err := src.definition(s.store, h)
 	if err != nil {
 		return KitRef{}, false, err
 	}
@@ -649,24 +650,29 @@ func (s *Supervisor) logImageErr(project, role string, err error) {
 }
 
 // prepareKitAndRetry handles a Raise that returned ErrKitNotReady: it takes the
-// kit definition Raise resolved (else resolves it from the registry), asks the launcher to prepare it, and
-// retries the Raise once when the kit is ready. A KitPreparing status (an async
+// kit definition Raise resolved (else resolves it from the registry, updating
+// spec.Kit to the resolved ref), asks the launcher to prepare it, and retries
+// the Raise once when the kit is ready. A KitPreparing status (an async
 // remote build) returns an error WITHOUT blocking — the caller's reconcile loop
 // retries the raise on a later tick, by which point the build may be done. The
 // caller (Raise) rolls back the enrollment on any error this returns.
-func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, creds LaunchCreds, resolved *KitDefinition) (string, error) {
+func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec *RaiseSpec, creds LaunchCreds, resolved *KitDefinition) (string, error) {
 	var def KitDefinition
 	if resolved != nil && resolved.Ref == spec.Kit {
 		def = *resolved
 	} else {
-		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(spec))
+		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(*spec))
 		if err != nil {
 			return "", err
 		}
 		if !ok {
 			return "", fmt.Errorf("kit %s not in registry", spec.Kit)
 		}
-		def = d
+		// The chain was re-resolved at the following parents' current versions.
+		// If a parent moved since spec.Kit was keyed, the digest differs: the
+		// image prepared (and run) now is the fresh one, so the retried raise and
+		// the recorded instance carry its ref.
+		spec.Kit, def = d.Ref, d
 	}
 	status, err := s.launcher.PrepareKit(ctx, def)
 	if err != nil {
@@ -681,7 +687,7 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec RaiseSpec, cre
 	if s.log != nil {
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
 	}
-	return s.launcher.Raise(ctx, spec, creds)
+	return s.launcher.Raise(ctx, *spec, creds)
 }
 
 // harnessFor is the harness layer a raise's image installs: its role's
