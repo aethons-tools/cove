@@ -47,7 +47,12 @@ type Base struct {
 	Kit          string      `yaml:"kit,omitempty" json:"kit,omitempty"`
 	Image        string      `yaml:"image,omitempty" json:"image,omitempty"`
 	ContextFiles ContextTree `yaml:"context-files,omitempty" json:"contextFiles,omitempty"`
-	Context      string      `yaml:"context,omitempty" json:"context,omitempty"` // base64 tar.gz
+	// StoredContextFiles reads the stored (ToJSON) spelling of context-files,
+	// "contextFiles", back in: a registry row is JSON and parses through the
+	// same YAML decoder. ParseStudioKit folds it into ContextFiles; it is never
+	// emitted.
+	StoredContextFiles ContextTree `yaml:"contextFiles,omitempty" json:"-"`
+	Context            string      `yaml:"context,omitempty" json:"context,omitempty"` // base64 tar.gz
 	// ContextDir is a CLIENT-ONLY authoring convenience: a host directory that
 	// `at-jam kit push` packs into Context (a tar.gz) before pushing, then clears.
 	// It is never serialized (json:"-"), so it never reaches the registry, the
