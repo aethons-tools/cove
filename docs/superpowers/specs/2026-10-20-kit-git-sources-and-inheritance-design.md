@@ -154,7 +154,9 @@ as follows:
    recursively and in topological order. Its registry name comes from its
    `kit.yml` `name:`, then from its directory name.
 2. **Then the child, pinned.** The child is pushed pinned to the exact parent
-   version that commit produced.
+   version that commit produced. *As built:* the stored kit holds the
+   rewritten reference `<name>@v<N>`, not the path, so `kit show --own`
+   reads `kit: web-dev@v3`; an unchanged parent keeps its current version.
 3. **`track`:** records the source on the child and each path parent.
    **`sync`:** re-resolves the child's ref and syncs the ancestors at the new
    commit first. Each answers `unchanged` when it did not move.
