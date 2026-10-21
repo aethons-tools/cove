@@ -55,6 +55,7 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		To          string `json:"to"`
 		Body        string `json:"body"`
 		ContentType string `json:"content_type,omitempty"` // "" = text/markdown
+		ReplyTo     string `json:"reply_to,omitempty"`     // an ask in the same channel (Discuss)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -95,7 +96,13 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.ic.Post(pl, intercom.Squawk{From: p.UserID, Body: req.Body, ContentType: req.ContentType}); err != nil {
+	if req.ReplyTo != "" {
+		if a, ok := h.ic.GetAsk(req.ReplyTo); !ok || a.Channel != pl.Channel.ID {
+			http.Error(w, "reply_to must be an ask in this conversation", http.StatusBadRequest)
+			return
+		}
+	}
+	if _, err := h.ic.Post(pl, intercom.Squawk{From: p.UserID, Body: req.Body, ContentType: req.ContentType, ReplyTo: req.ReplyTo}); err != nil {
 		h.log.Error("participant send: append failed", "user", string(p.UserID), "channel", string(pl.Channel.ID), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return

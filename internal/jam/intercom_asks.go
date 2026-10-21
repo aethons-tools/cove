@@ -147,6 +147,9 @@ func (ic *Intercom) postAskEvent(a intercom.Ask, from ident.ID, ev intercom.AskE
 	return got, nil
 }
 
+// GetAsk is ask id's current state.
+func (ic *Intercom) GetAsk(id string) (intercom.Ask, bool) { return ic.lg.GetAsk(id) }
+
 // AsksOf is session's asks in state ("" = any), oldest first.
 func (ic *Intercom) AsksOf(session ident.ID, state intercom.AskState) []intercom.Ask {
 	return ic.lg.ListAsks(intercom.AskFilter{Asker: session, State: state})

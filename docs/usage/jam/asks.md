@@ -55,7 +55,9 @@ answer in `parts`: `{type: "application/vnd.jam.ask+json", data: {event:
   as "channel archived" within a minute. A restart keeps them.
 - Limits: question ≤ 2 KiB; option id `[a-z0-9_-]{1,32}` (not `other`), label ≤
   200 B, detail ≤ 1 KiB; comment ≤ 4 KiB; reason ≤ 1 KiB.
-- The Discord and Linear relays skip asks: they are answered in `/me`.
+- The Discord and Linear relays skip asks: they are answered in `/me` — see
+  [intercom-ui.md](intercom-ui.md#asks) for the card, Discuss and the Open
+  asks panel.
 
 ## Asking for a person
 

@@ -60,7 +60,9 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /me/join", h.join)
 	mux.HandleFunc("POST /me/leave", h.leave)
 	mux.HandleFunc("POST /me/call-in", h.callIn)
+	mux.HandleFunc("POST /me/asks/{id}/answer", h.answerAsk)
 	mux.HandleFunc("GET /me/presence", h.presenceStrip)
+	mux.HandleFunc("GET /me/asks", h.askPanel)
 	mux.HandleFunc("GET /me/events", h.events)
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
 	mux.Handle("GET /me/static/", uiassets.Handler("/me/static/"))

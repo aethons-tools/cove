@@ -20,6 +20,12 @@ type MessageRow struct {
 	At    string
 	Mine  bool
 	Seq   int64
+	// Ask is the card of an ask's own squawk; System marks an ask's later
+	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
+	Ask     *AskCard
+	System  bool
+	SysText string // a System row's line
+	ReAsk   *AskRef
 }
 
 // Conversation is the right-pane view of one open channel.
@@ -38,6 +44,7 @@ type Conversation struct {
 	// strip (filled by the handler, which holds the Presence source).
 	SessionIDs []string
 	Sessions   []SessionRow
+	OpenAsks   []AskCard // the channel's open asks (the panel above the stream)
 	// Membership controls: Join (a channel they can see but aren't in),
 	// Leave (one they're in; never a chat), and who they may call in.
 	CanJoin, CanLeave bool
@@ -75,8 +82,11 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
-		conv.Messages = append(conv.Messages, messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID))
+		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
+		decorateAsk(&row, p, d, m)
+		conv.Messages = append(conv.Messages, row)
 	}
+	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))
 	conv.HasMessages = len(conv.Messages) > 0
 	membershipControls(&conv, p, d)
 	return conv, true
