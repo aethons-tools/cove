@@ -73,7 +73,9 @@ scope: {destinations: [gh], ttl: 1h}
 
 `context.md` (Jam and project) is optional YAML front matter holding
 `leaves:` (`name`, `read-when`, `body`) followed by the core as the markdown
-body; the core's trailing newlines are trimmed and one is written.
+body; the core's trailing newlines are trimmed and one is written. A core
+that opens with `---` and has no leaves is written after empty front matter
+(`---` twice) so it reads back as the core.
 
 Kits are inline only: `kits/<n>/kit.yml`, with path parents across `kits/`
 (`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` in a

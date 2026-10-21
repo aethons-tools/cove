@@ -99,6 +99,15 @@ func TestContextMarkdown(t *testing.T) {
 	if again.Core != l.Core || len(again.Leaves) != 1 {
 		t.Fatalf("round trip %+v", again)
 	}
+	// A core that opens with a markdown rule gets empty front matter, so it
+	// is not read back as front matter.
+	for _, core := range []string{"---\nBelow the rule.", "---", "---\nleaves: x\n---\nhi", "----\nx"} {
+		out := RenderContextMarkdown(sessionctx.Layer{Core: core})
+		back, err := ParseContextMarkdown("context.md", out)
+		if err != nil || back.Core != core || len(back.Leaves) != 0 {
+			t.Fatalf("core %q rendered %q: back %+v err %v", core, out, back, err)
+		}
+	}
 	for in, want := range map[string]string{
 		"---\nleaves: []\nBe kind.\n":   "context.md: front matter is not closed with ---",
 		"---\ncore: x\n---\nBe kind.\n": `context.md: unknown field "core"`,

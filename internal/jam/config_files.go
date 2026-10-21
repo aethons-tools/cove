@@ -718,14 +718,20 @@ func ParseContextMarkdown(path string, data []byte) (sessionctx.Layer, error) {
 }
 
 // RenderContextMarkdown is ParseContextMarkdown's inverse.
+// A core that opens with --- and has no leaves gets empty front matter, so
+// it is not read back as front matter.
 func RenderContextMarkdown(l sessionctx.Layer) []byte {
 	var b bytes.Buffer
-	if len(l.Leaves) > 0 {
+	core := strings.TrimRight(l.Core, "\n")
+	switch {
+	case len(l.Leaves) > 0:
 		b.WriteString("---\n")
 		b.Write(renderYAML(contextFront{Leaves: l.Leaves}))
 		b.WriteString("---\n")
+	case strings.HasPrefix(core, "---"):
+		b.WriteString("---\n---\n")
 	}
-	if core := strings.TrimRight(l.Core, "\n"); strings.TrimSpace(core) != "" {
+	if strings.TrimSpace(core) != "" {
 		b.WriteString(core + "\n")
 	}
 	return b.Bytes()
