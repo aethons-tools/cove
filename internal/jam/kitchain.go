@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -150,4 +151,43 @@ func chainRefs(chain []KitLink) []KitRef {
 		out[i] = KitRef{ID: l.Ref.ID, Version: l.Ref.Version}
 	}
 	return out
+}
+
+// chainCacheKey is a cheap fingerprint of the parents a kit config resolves
+// to right now: each parent's id@version (a following parent at its current
+// version) and a hash of its stored config, root last. "" for an unchained
+// kit. It parses configs only to read their base reference — no merge, no
+// build digest — so the current-image cache can key on it per poll. A chain
+// that does not resolve returns a marker no healthy chain produces, so the
+// caller misses the cache and the full resolution reports the real error.
+func chainCacheKey(store Store, config string) string {
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil {
+		return "!"
+	}
+	var b strings.Builder
+	for depth := 1; sk.Base.HasParent(); depth++ {
+		name, pin, err := sk.Base.ParentRef()
+		if err != nil || depth >= MaxKitChain {
+			return "!"
+		}
+		version := pin
+		if version == 0 {
+			k, ok := store.GetKit(name)
+			if !ok {
+				return "!"
+			}
+			version = k.Current
+		}
+		text, ok := store.KitConfig(name, version)
+		if !ok {
+			return "!"
+		}
+		sum := sha256.Sum256([]byte(text))
+		fmt.Fprintf(&b, "%s@v%d:%x;", name, version, sum[:8])
+		if sk, err = studio.ParseStudioKit([]byte(text)); err != nil {
+			return "!"
+		}
+	}
+	return b.String()
 }

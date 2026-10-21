@@ -532,7 +532,7 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 	return s.kitFor(role, h)
 }
 
-// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, harness):
+// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, parent chain, harness):
 // the UI polls the studios list every few seconds, and a kit parse + digest per
 // poll per role is waste. The launcher's assembly half of the tag is never
 // cached (ImageTag is cheap and live).
@@ -545,7 +545,7 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 	if err != nil || !have {
 		return KitRef{}, false, err
 	}
-	key := kitRefKey{ref: src.ref, config: src.config, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
+	key := kitRefKey{ref: src.ref, config: src.config, chain: chainCacheKey(s.store, src.config), harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
 	if ref, ok := s.kitRefs.get(key); ok {
 		return ref, true, nil
 	}
@@ -560,6 +560,7 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 type kitRefKey struct {
 	ref     KitRef
 	config  string // the stored config itself: a removed-and-re-pushed kit can reuse a version number
+	chain   string // the parents' resolved id@version + config hash ("" unchained): a parent push changes it
 	harness string
 }
 
