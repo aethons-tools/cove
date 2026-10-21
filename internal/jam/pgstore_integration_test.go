@@ -442,3 +442,58 @@ func TestPostgresKitSourceReload(t *testing.T) {
 		t.Fatalf("reload source = %+v", k.Source)
 	}
 }
+
+// TestPostgresPutKitDocsAtomic proves a failing upsert rolls the whole batch
+// back. The failure is injected with a NUL byte in the second kit's name:
+// Postgres text cannot hold it, so that upsert errors after the first one ran
+// inside the transaction (the kits table has no length limit to violate).
+func TestPostgresPutKitDocsAtomic(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PushKit("existing", `{"kind":"studio"}`); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.GetKit("existing")
+	changed := jam.Kit{Name: "existing", Current: 1, Versions: map[int]string{1: `{"kind":"studio","prompt":"new"}`}}
+	bad := jam.Kit{Name: "bad\x00name", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
+	if err := s.PutKitDocs([]jam.Kit{changed, bad}); err == nil {
+		t.Fatal("PutKitDocs must fail when an upsert fails")
+	}
+	for label, st := range map[string]*jam.PostgresStore{"cache": s, "reopen": open()} {
+		got, ok := st.GetKit("existing")
+		if !ok || !reflect.DeepEqual(got, before) {
+			t.Fatalf("%s: existing = %+v ok=%v, want %+v", label, got, ok, before)
+		}
+		if len(st.ListKits()) != 1 {
+			t.Fatalf("%s: kits = %+v", label, st.ListKits())
+		}
+	}
+	// And a good batch persists across reopen.
+	ok1 := jam.Kit{Name: "k1", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
+	ok2 := jam.Kit{Name: "k2", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
+	if err := s.PutKitDocs([]jam.Kit{ok1, ok2}); err != nil {
+		t.Fatal(err)
+	}
+	re := open()
+	for _, n := range []string{"k1", "k2"} {
+		if _, ok := re.GetKit(n); !ok {
+			t.Fatalf("%s missing after reopen", n)
+		}
+	}
+}

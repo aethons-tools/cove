@@ -171,6 +171,18 @@ func (fs *MemStore) SetKitSource(name string, src *KitSource) error {
 	return nil
 }
 
+func (fs *MemStore) PutKitDocs(kits []Kit) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := checkKitDocs(kits); err != nil {
+		return err
+	}
+	for _, k := range kits {
+		fs.kits[k.Name] = copyKit(k)
+	}
+	return nil
+}
+
 func (fs *MemStore) PinKit(name string, version int) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
