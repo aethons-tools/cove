@@ -1,6 +1,6 @@
 # intercom: attachments — design
 
-**Status:** approved in brainstorming (2026-10-21); not built.
+**Status:** approved in brainstorming (2026-10-21). Built: #426 (store, config), #429 (routes, agent tools), #430 (/me); routing fix #428.
 **Builds on:** the message **parts** envelope from structured asks ([`2026-10-21-intercom-asks-design.md`](2026-10-21-intercom-asks-design.md)): a reference part `{type, ref, name, size}` was reserved for this and is refused until it lands.
 **Scope decisions (2026-10-21):** files up to ~25 MB now behind an interface that grows to large artifacts; **S3-compatible** object storage (MinIO first); bytes **proxied through Jam** now, presigned direct URLs later; attachments are **kept forever** like messages; relays paused (`/me` and agents only).
 
