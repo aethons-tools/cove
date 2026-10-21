@@ -51,7 +51,8 @@ answer in `parts`: `{type: "application/vnd.jam.ask+json", data: {event:
   Sessions never answer.
 - **First answer wins**; a later one is refused (`409`, "already answered").
 - When the asking session ends, its open asks close as withdrawn ("session
-  ended"). A restart keeps them.
+  ended"); an ask whose channel is archived under it (a room removed) closes
+  as "channel archived" within a minute. A restart keeps them.
 - Limits: question ≤ 2 KiB; option id `[a-z0-9_-]{1,32}` (not `other`), label ≤
   200 B, detail ≤ 1 KiB; comment ≤ 4 KiB; reason ≤ 1 KiB.
 - The Discord and Linear relays skip asks: they are answered in `/me`.
