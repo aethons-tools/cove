@@ -4,7 +4,7 @@ read_when: You want a waiting session that asked for a person to actively reach 
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project members tiers resolve against
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-21
 ---
 
 # Escalation (human tiers)
@@ -62,7 +62,8 @@ denial or a `401`, without the studio calling `escalate`) is not implemented yet
 
 Every turn ends in Waiting, so an escalation opens only when the waiting session
 **asked for a person**: a ticket session's **`needs-input`**
-[report](turn-end.md#reporting-a-ticket), or **any** session's `escalate` call
+[report](turn-end.md#reporting-a-ticket), **any** session's open
+[ask](asks.md) (until its last one closes), or **any** session's `escalate` call
 since it was last woken (a resume after background work, Holding, doesn't count as
 a wake). A session that asked to `end`, or that is ending or gone, is never
 escalated. Then:

@@ -1108,6 +1108,24 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 	return s.store.PutInstance(inst)
 }
 
+// SetOpenAsks records the session's count of open asks (the intercom's
+// asks hook), counted under the instance lock so two changes at once can't
+// leave an older count last. No-op semantics if the actor is gone.
+func (s *Supervisor) SetOpenAsks(actorID string, count func() int) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return nil
+	}
+	n := count()
+	if inst.OpenAsks == n {
+		return nil
+	}
+	inst.OpenAsks = n
+	return s.store.PutInstance(inst)
+}
+
 // SetEscalation persists the escalation engine's per-instance tier state (which
 // tier was last pinged, and when). The zero TierPingedAt means "no escalation
 // open" — see the escalation engine. No-op semantics if the actor is gone.

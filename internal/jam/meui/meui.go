@@ -22,6 +22,8 @@ type Deps struct {
 	Intercom *jam.Intercom
 	Log      intercom.Store
 	Legacy   jam.LogReader
+	// Attachments serves uploads and blobs (nil: attachments off).
+	Attachments *jam.Attachments
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).
@@ -36,6 +38,7 @@ type ChannelRow struct {
 	NeedsYou bool
 	Phase    string
 	Unread   int
+	OpenAsks int
 	LastSeq  int64
 	Selected bool
 }
@@ -135,6 +138,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			NeedsYou: ch.NeedsYou,
 			Phase:    ch.Phase,
 			Unread:   ch.Unread,
+			OpenAsks: ch.OpenAsks,
 			LastSeq:  ch.LastSeq,
 			Selected: ch.ID == selectedID,
 		})

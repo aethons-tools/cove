@@ -189,6 +189,7 @@ func TestNeedsPerson(t *testing.T) {
 		{"blocked", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityBlocked}, true},
 		{"running after asking", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityRunning, EscalationAsked: true}, false},
 		{"paused", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting}, false},
+		{"open ask", jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, OpenAsks: 1}, true},
 		{"paused after asking", jam.Instance{Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, EscalationAsked: true}, true},
 		{"gone after asking", jam.Instance{Phase: jam.PhaseGone, Activity: jam.ActivityWaiting, EscalationAsked: true}, false},
 	}

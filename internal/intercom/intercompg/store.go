@@ -2,9 +2,12 @@ package intercompg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -67,11 +70,68 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 		if dup {
 			return fmt.Errorf("%w: %q (legacy log)", intercom.ErrDuplicateID, m.ID)
 		}
+		// An ask event folds under the same lock: its checks see every
+		// earlier event, and a refused one stores nothing.
+		var ask intercom.Ask
+		var isAsk bool
+		var getErr, foldErr error
+		m, ask, isAsk, foldErr = intercom.FoldAsk(m, func(id string) (intercom.Ask, bool) {
+			a, ok, err := getAskTx(ctx, tx, id)
+			if err != nil {
+				getErr = err
+			}
+			return a, ok
+		})
+		if getErr != nil {
+			return getErr // a read failure, not a missing ask
+		}
+		if foldErr != nil {
+			return foldErr
+		}
+		var bound []intercom.Blob
+		m, bound, foldErr = intercom.FoldBlobs(m, func(id ident.ID) (intercom.Blob, bool) {
+			b, ok, err := getBlobTx(ctx, tx, id)
+			if err != nil {
+				getErr = err
+			}
+			return b, ok
+		})
+		if getErr != nil {
+			return getErr
+		}
+		if foldErr != nil {
+			return foldErr
+		}
+		var parts []byte
+		if len(m.Parts) > 0 {
+			if parts, err = json.Marshal(m.Parts); err != nil {
+				return err
+			}
+		}
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO squawks (id, channel_id, from_id, body, at, reply_to, content_type, origin_connection_id, origin_ref)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING seq`,
-			m.ID, m.Channel, m.From, m.Body, m.At, m.ReplyTo, m.ContentType, m.Origin, m.OriginRef).Scan(&m.Seq); err != nil {
+			`INSERT INTO squawks (id, channel_id, from_id, body, at, reply_to, content_type, origin_connection_id, origin_ref, parts)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING seq`,
+			m.ID, m.Channel, m.From, m.Body, m.At, m.ReplyTo, m.ContentType, m.Origin, m.OriginRef, parts).Scan(&m.Seq); err != nil {
 			return err
+		}
+		for _, b := range bound {
+			if _, err := tx.Exec(ctx, `UPDATE blobs SET state = $2, channel_id = $3, squawk_id = $4 WHERE id = $1`,
+				b.ID, b.State, b.Channel, b.Squawk); err != nil {
+				return err
+			}
+		}
+		if isAsk {
+			ask.LastSeq = m.Seq
+			doc, err := json.Marshal(ask)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO asks (id, channel_id, asker_id, state, last_seq, doc) VALUES ($1,$2,$3,$4,$5,$6)
+				 ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, doc = EXCLUDED.doc`,
+				ask.ID, ask.Channel, ask.Asker, ask.State, ask.LastSeq, doc); err != nil {
+				return err
+			}
 		}
 		if len(audience) == 0 {
 			return nil
@@ -97,7 +157,7 @@ func (s *Store) Append(m intercom.Squawk, audience []ident.ID) (intercom.Squawk,
 // appendAdvisoryLock serializes appends (see Append).
 const appendAdvisoryLock = 0x696e746170706e64 // "intappnd"
 
-const squawkCols = `s.seq, s.id, s.channel_id, s.from_id, s.body, s.at, s.reply_to, s.content_type, s.origin_connection_id, s.origin_ref`
+const squawkCols = `s.seq, s.id, s.channel_id, s.from_id, s.body, s.at, s.reply_to, s.content_type, s.origin_connection_id, s.origin_ref, s.parts`
 
 func (s *Store) InboxSince(p ident.ID, afterSeq int64, limit int) []intercom.Squawk {
 	return s.since(`FROM squawk_deliveries d JOIN squawks s ON s.seq = d.seq WHERE d.participant_id = $1`, p, afterSeq, limit)
@@ -256,9 +316,16 @@ func (s *Store) query(sql string, args ...any) []intercom.Squawk {
 	for rows.Next() {
 		var m intercom.Squawk
 		var ch, from, origin string
-		if err := rows.Scan(&m.Seq, &m.ID, &ch, &from, &m.Body, &m.At, &m.ReplyTo, &m.ContentType, &origin, &m.OriginRef); err != nil {
+		var parts []byte
+		if err := rows.Scan(&m.Seq, &m.ID, &ch, &from, &m.Body, &m.At, &m.ReplyTo, &m.ContentType, &origin, &m.OriginRef, &parts); err != nil {
 			s.log.Error("intercompg: scan", "error", err.Error())
 			return nil
+		}
+		if len(parts) > 0 {
+			if err := json.Unmarshal(parts, &m.Parts); err != nil {
+				s.log.Error("intercompg: parts", "id", m.ID, "error", err.Error())
+				return nil
+			}
 		}
 		m.Channel, m.From, m.Origin = ident.ID(ch), ident.ID(from), ident.ID(origin)
 		out = append(out, m)
@@ -268,4 +335,148 @@ func (s *Store) query(sql string, args ...any) []intercom.Squawk {
 		return nil
 	}
 	return out
+}
+
+// getAskTx reads ask id inside tx.
+func getAskTx(ctx context.Context, tx pgx.Tx, id string) (intercom.Ask, bool, error) {
+	var doc []byte
+	err := tx.QueryRow(ctx, `SELECT doc FROM asks WHERE id = $1`, id).Scan(&doc)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return intercom.Ask{}, false, nil
+	}
+	if err != nil {
+		return intercom.Ask{}, false, err
+	}
+	var a intercom.Ask
+	if err := json.Unmarshal(doc, &a); err != nil {
+		return intercom.Ask{}, false, err
+	}
+	return a, true, nil
+}
+
+func (s *Store) GetAsk(id string) (intercom.Ask, bool) {
+	l := s.asks(`WHERE id = $1`, id)
+	if len(l) != 1 {
+		return intercom.Ask{}, false
+	}
+	return l[0], true
+}
+
+func (s *Store) ListAsks(f intercom.AskFilter) []intercom.Ask {
+	// Only the filters given, as literal predicates, so the partial index on
+	// open asks applies.
+	var conds []string
+	var args []any
+	for _, c := range []struct{ col, v string }{{"channel_id", string(f.Channel)}, {"asker_id", string(f.Asker)}, {"state", string(f.State)}} {
+		if c.v != "" {
+			args = append(args, c.v)
+			conds = append(conds, fmt.Sprintf("%s = $%d", c.col, len(args)))
+		}
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ")
+	}
+	return s.asks(where, args...)
+}
+
+// asks runs a SELECT over the asks read-model, by last_seq; on any error it
+// logs and returns nil.
+func (s *Store) asks(where string, args ...any) []intercom.Ask {
+	rows, err := s.pool.Query(context.Background(), `SELECT doc FROM asks `+where+` ORDER BY last_seq`, args...)
+	if err != nil {
+		s.log.Error("intercompg: asks", "error", err.Error())
+		return nil
+	}
+	defer rows.Close()
+	var out []intercom.Ask
+	for rows.Next() {
+		var doc []byte
+		var a intercom.Ask
+		if err := rows.Scan(&doc); err != nil || json.Unmarshal(doc, &a) != nil {
+			s.log.Error("intercompg: asks scan")
+			return nil
+		}
+		out = append(out, a)
+	}
+	if rows.Err() != nil {
+		return nil
+	}
+	return out
+}
+
+const blobCols = `id, uploader_id, state, size, type, name, sha256, channel_id, squawk_id, created_at`
+
+func scanBlob(row pgx.Row) (intercom.Blob, error) {
+	var b intercom.Blob
+	var id, up, ch string
+	err := row.Scan(&id, &up, &b.State, &b.Size, &b.Type, &b.Name, &b.SHA256, &ch, &b.Squawk, &b.Created)
+	b.ID, b.Uploader, b.Channel = ident.ID(id), ident.ID(up), ident.ID(ch)
+	return b, err
+}
+
+// getBlobTx reads blob id inside tx, locking its row.
+func getBlobTx(ctx context.Context, tx pgx.Tx, id ident.ID) (intercom.Blob, bool, error) {
+	b, err := scanBlob(tx.QueryRow(ctx, `SELECT `+blobCols+` FROM blobs WHERE id = $1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return intercom.Blob{}, false, nil
+	}
+	return b, err == nil, err
+}
+
+func (s *Store) CreateBlob(b intercom.Blob) error {
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO blobs (`+blobCols+`) VALUES ($1,$2,$3,$4,$5,$6,$7,'','',$8)`,
+		b.ID, b.Uploader, intercom.BlobPending, b.Size, b.Type, b.Name, b.SHA256, b.Created)
+	if err != nil {
+		return fmt.Errorf("intercompg: create blob: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetBlob(id ident.ID) (intercom.Blob, bool) {
+	b, err := scanBlob(s.pool.QueryRow(context.Background(), `SELECT `+blobCols+` FROM blobs WHERE id = $1`, id))
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			s.log.Error("intercompg: get blob", "id", string(id), "error", err.Error())
+		}
+		return intercom.Blob{}, false
+	}
+	return b, true
+}
+
+func (s *Store) PendingBlobsBefore(t time.Time) []intercom.Blob {
+	rows, err := s.pool.Query(context.Background(), `SELECT `+blobCols+` FROM blobs WHERE state = 'pending' AND created_at < $1`, t)
+	if err != nil {
+		s.log.Error("intercompg: pending blobs", "error", err.Error())
+		return nil
+	}
+	defer rows.Close()
+	var out []intercom.Blob
+	for rows.Next() {
+		b, err := scanBlob(rows)
+		if err != nil {
+			s.log.Error("intercompg: pending blobs scan", "error", err.Error())
+			return nil
+		}
+		out = append(out, b)
+	}
+	if err := rows.Err(); err != nil {
+		s.log.Error("intercompg: pending blobs rows", "error", err.Error())
+		return nil
+	}
+	return out
+}
+
+func (s *Store) DeleteBlob(id ident.ID) error {
+	tag, err := s.pool.Exec(context.Background(), `DELETE FROM blobs WHERE id = $1 AND state = 'pending'`, id)
+	if err != nil {
+		return fmt.Errorf("intercompg: delete blob: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if _, ok := s.GetBlob(id); ok {
+			return fmt.Errorf("%w: %s", intercom.ErrBlobAttached, id)
+		}
+	}
+	return nil
 }

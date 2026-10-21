@@ -1,6 +1,6 @@
 # intercom: structured asks — design
 
-**Status:** approved in brainstorming (2026-10-21); amended 2026-10-21: ask events ride in a general message **parts** envelope (shared with the coming attachments). Not built.
+**Status:** approved in brainstorming (2026-10-21); amended 2026-10-21: ask events ride in a general message **parts** envelope (shared with the coming attachments). Built: #421 (store, intercom, agent tools), #422 (/me).
 **Builds on:** the channel log ([`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md) slice 2), session channels and wake-on (slice 3), escalation as call-in (slice 4, [`2026-10-07-intercom-slice4-escalation-call-in-design.md`](2026-10-07-intercom-slice4-escalation-call-in-design.md)).
 **Scope decisions (2026-10-21):** relays are paused, so this targets `/me` only; collaboration roadmap order is asks → attachments → whiteboard.
 

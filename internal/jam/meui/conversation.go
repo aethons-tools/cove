@@ -1,6 +1,7 @@
 package meui
 
 import (
+	"fmt"
 	"html/template"
 	"strings"
 
@@ -20,6 +21,45 @@ type MessageRow struct {
 	At    string
 	Mine  bool
 	Seq   int64
+	// Ask is the card of an ask's own squawk; System marks an ask's later
+	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
+	Ask     *AskCard
+	System  bool
+	SysText string // a System row's line
+	ReAsk   *AskRef
+	// Files are the message's attachments.
+	Files []FileChip
+}
+
+// FileChip is one attachment of a message: an inline image or a download.
+type FileChip struct {
+	ID, Name, Size string
+	Image          bool
+}
+
+// fileChips are m's attachments; files-only reports whether m's text is
+// just their names (the fallback body), which then isn't shown again.
+func fileChips(m intercom.Squawk) (chips []FileChip, filesOnly bool) {
+	var names []string
+	for _, p := range m.Parts {
+		if p.Ref == "" {
+			continue
+		}
+		img := p.Type == "image/png" || p.Type == "image/jpeg" || p.Type == "image/gif" || p.Type == "image/webp"
+		chips = append(chips, FileChip{ID: p.Ref, Name: p.Name, Size: humanSize(p.Size), Image: img})
+		names = append(names, p.Name)
+	}
+	return chips, len(chips) > 0 && m.Body == strings.Join(names, ", ")
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // Conversation is the right-pane view of one open channel.
@@ -38,6 +78,7 @@ type Conversation struct {
 	// strip (filled by the handler, which holds the Presence source).
 	SessionIDs []string
 	Sessions   []SessionRow
+	OpenAsks   []AskCard // the channel's open asks (the panel above the stream)
 	// Membership controls: Join (a channel they can see but aren't in),
 	// Leave (one they're in; never a chat), and who they may call in.
 	CanJoin, CanLeave bool
@@ -75,8 +116,17 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
-		conv.Messages = append(conv.Messages, messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID))
+		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
+		decorateAsk(&row, p, d, m)
+		if chips, filesOnly := fileChips(m); len(chips) > 0 {
+			row.Files = chips
+			if filesOnly {
+				row.Body, row.Raw = "", ""
+			}
+		}
+		conv.Messages = append(conv.Messages, row)
 	}
+	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))
 	conv.HasMessages = len(conv.Messages) > 0
 	membershipControls(&conv, p, d)
 	return conv, true

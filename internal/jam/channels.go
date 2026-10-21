@@ -54,7 +54,8 @@ type ChannelView struct {
 	Label    string // display label from the viewer's perspective
 	Project  string // the studio/session's project, else the squawk's project
 	Phase    string // backing session Instance.Phase; "" when no session backs it
-	NeedsYou bool   // a backing session needs a person (NeedsPerson; the attention signal)
+	NeedsYou bool   // a backing session needs a person (NeedsPerson), or an open ask the viewer may answer: the attention signal
+	OpenAsks int    // open asks in the channel
 	Unread   int    // messages on this channel with Seq > cursor, not authored by the viewer
 	LastSeq  int64  // highest append Seq seen on this channel
 	// Sessions are the actor ids of the sessions taking part (sent or were
@@ -291,10 +292,11 @@ func sessionLabel(i Instance) string {
 }
 
 // AskedForPerson reports whether a session asked for a person since it was
-// last woken: a needs-input ticket report, or the escalate tool. A session
+// last woken: a needs-input ticket report, or the escalate tool — or it has
+// an open ask a person may answer (OpenAsks). A session
 // whose turn merely ended is idle, not asking.
 func AskedForPerson(i Instance) bool {
-	return i.EscalationAsked || i.Report != nil && i.Report.State == ReportNeedsInput
+	return i.EscalationAsked || i.OpenAsks > 0 || i.Report != nil && i.Report.State == ReportNeedsInput
 }
 
 // NeedsPerson reports whether a session needs a person: it is blocked, or it

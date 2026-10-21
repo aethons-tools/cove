@@ -105,3 +105,28 @@ func TestParticipantSendContentType(t *testing.T) {
 		t.Fatalf("inbox = %+v", got)
 	}
 }
+
+// A /me reply may be linked to an ask in the same channel (Discuss), never
+// to one elsewhere.
+func TestParticipantSendReplyToAsk(t *testing.T) {
+	f := newICFixture(t)
+	home := f.mustPlan(f.standing, "").Channel
+	if err := f.ic.JoinChannel(f.bob.ID, home.ID); err != nil {
+		t.Fatal(err)
+	}
+	a, _, err := f.ic.Ask(f.poster(f.standing), "", AskInput{Question: "Merge?", Options: askYesNo}, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	if w := meSend(t, h, f.bob, `{"to":"`+string(home.ID)+`","body":"which PR?","reply_to":"`+a.ID+`"}`); w.Code != http.StatusNoContent {
+		t.Fatalf("send = %d %s", w.Code, w.Body)
+	}
+	got := f.log.InboxSince(ident.ID(f.standing.ActorID), 0, 0)
+	if last := got[len(got)-1]; last.ReplyTo != a.ID {
+		t.Fatalf("reply_to = %q", last.ReplyTo)
+	}
+	if w := meSend(t, h, f.bob, `{"to":"`+string(f.room.ID)+`","body":"x","reply_to":"`+a.ID+`"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("reply_to an ask in another channel = %d", w.Code)
+	}
+}

@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /me/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /me/read`), the membership controls (`POST /me/join|leave|call-in`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-08
+updated: 2026-10-21
 ---
 
 # The participant intercom inbox (`/me`)
@@ -53,9 +53,41 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   its home channel, which the person joins.
 
 **Writes are same-origin only.** Every `/me` POST (send, mark-read, join,
-leave, call-in) is refused (`403`) unless its `Origin` (or `Referer`) is the
+leave, call-in, answering an ask) is refused (`403`) unless its `Origin` (or `Referer`) is the
 page's own host or one of [`ui-origins`](serve.md) — the same check as `/ui`
 writes — so another site, a sibling subdomain included, can't post as you.
+
+## Asks
+
+A session's [ask](asks.md) renders as a **card** where it was asked: the
+question, a button per option (with its detail), **Other…**, and a comment
+box. Answering posts `POST /me/asks/{id}/answer` (`version`, `choice`,
+`comment`): `204`; `409` "this ask changed — review the new version" (it was
+amended since the card loaded) or "already answered by alice: …"; `403` if
+it isn't yours to answer. An answered card collapses to "✓ alice chose …", a
+withdrawn one says so, an amended one is marked *edited*, and an ask for
+someone else (`of`) is read-only, "for carol". Its later events are one-line
+system notes, not bubbles.
+
+**Discuss** on a card starts a reply about it: the composer sends
+`reply_to` (an ask in the same conversation; `/me/send` refuses any other with
+`400`), and that reply shows a **re:** chip linking the card. An **Open asks**
+panel above the stream lists the conversation's open asks
+(`GET /me/asks?c=`, refreshed with the stream); each rail row shows its count,
+and a conversation with an open ask you may answer is under **Needs you**.
+
+## Attachments
+
+With [attachments](attachments.md) on, the composer takes files three ways:
+**📎** (a file picker), **paste** (a screenshot on the clipboard), and
+**drag-and-drop** onto the composer. Each file uploads at once
+(`POST /me/uploads`) as a chip with a progress bar and ✕; Send refuses
+("Still uploading…") until they finish, then sends their refs (the text may
+be empty). A paste with text on the clipboard stays a text paste. Only a
+conversation's composer attaches, not New message's. A refused
+upload shows why on its chip ("too large (max …)"). In the stream, images
+show as inline thumbnails that open full size; other files as a download
+chip with name and size. With attachments off there is no 📎.
 
 ## Membership controls
 

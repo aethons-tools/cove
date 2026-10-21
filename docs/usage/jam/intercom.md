@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-21
 ---
 
 # The intercom MCP
@@ -23,6 +23,8 @@ that channel's members. Jam holds the tracker token, does the platform I/O, and 
 - **`call_in(who, channel?)`** and **`leave(channel)`** — membership (`POST /squawks/call-in` → `200 {channel, member}`, `POST /squawks/leave` → `204`); see [Channel membership](#channel-membership).
 - **`report(state, summary, pr?)`**, **`end(reason)`**, **`idle_timeout(duration, scope)`** and **`alarm_set` / `alarm_clear` / `alarm_list`** — report a ticket's state, end the session at turn end, tune how long it may sit idle after one, or set named alarms that wake it; see [turn-end.md](turn-end.md).
 - **`expose(port, name)`**, **`unexpose(name)`** and **`exposures()`** — publish a port the session serves as a named [studio preview](previews.md) and get its URL to post in the channel (`PUT`/`DELETE /exposures/{name}`, `GET /exposures`); answer 409 until the Jam has a preview domain configured. Listed in the session context only when previews are enabled; see [session-context.md](session-context.md).
+- **`send(…, attach?)`** and **`fetch(ref, path?)`** — attach files from the studio to a message, and download one into it; see [attachments.md](attachments.md).
+- **`ask(question, options, to?, of?)`**, **`amend`**, **`withdraw`** and **`asks`** — ask people a question with answers to pick from; the answer arrives through `read` as an entry carrying its ask part (`parts`). See [asks.md](asks.md).
 - **`escalate(category)`** — asks for a person: declares the block's category (picking the escalation tier chain) and, until the session is next woken, opens an escalation once it waits — its tiers are called into the session's channel; see [escalation.md](escalation.md#when-it-opens-waiting-and-asking-for-a-person).
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See [Waiting for a reply](#waiting-for-a-reply-wake-on) below for suspending until a reply arrives.

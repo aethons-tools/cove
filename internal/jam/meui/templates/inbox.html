@@ -9,6 +9,7 @@
         <a class="thread{{if .Selected}} sel{{end}}" href="/me/?c={{.ID}}">
           <span class="pin {{if .NeedsYou}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
           <span class="cove">{{.Label}}</span>
+          {{if gt .OpenAsks 0}}<span class="badge asks" title="open asks">?{{.OpenAsks}}</span>{{end}}
           {{if gt .Unread 0}}<span class="badge unread">{{.Unread}}</span>{{end}}
         </a>
       {{end}}
@@ -38,7 +39,8 @@
       {{if .CanJoin}}<button type="button" hx-post="/me/join" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Join</button>{{end}}
       {{if .CanLeave}}<button type="button" hx-post="/me/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
     </div>
-    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]" hx-swap="innerHTML">
+    <div id="asks" hx-get="/me/asks?c={{.ChannelID}}" hx-trigger="meChanged from:body, every 30s" hx-swap="innerHTML">{{template "askpanel" $}}</div>
+    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
     <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
@@ -46,8 +48,9 @@
     <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
-        <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)" required></textarea>
-        <div class="send-col"><label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
+        {{if $.AttachMax}}<div class="att-chips"></div>{{end}}
+        <textarea name="body" placeholder="Reply&#8230; (⇧↵ to send · ⇧⌘V pastes as code · ⌘↓ stacks a draft)"></textarea>
+        <div class="send-col">{{if $.AttachMax}}<label class="attach-btn" title="Attach files (or paste / drop them; max {{mb $.AttachMax}} MB each)">📎<input type="file" multiple hidden onchange="meAttach(this.form, this.files); this.value=''"></label>{{end}}<label class="plain-opt" title="Send as plain text: shown literally, not rendered as markdown"><input type="checkbox" name="plain"> Plain text</label><button type="submit">Send <kbd>⇧↵</kbd></button></div>
       </form>
     </div>
     {{else}}
@@ -70,14 +73,43 @@
 {{define "messages"}}
 {{with .Conv}}
   {{range .Messages}}
+    {{if .Ask}}{{template "askcard" .Ask}}
+    {{else if .System}}<div class="sysline">{{.SysText}} <span class="t">{{.At}}</span></div>
+    {{else}}
     <div class="msg {{if .Mine}}human{{else}}agent{{end}}">
+      {{with .ReAsk}}<a class="re-ask" href="#ask-{{.ID}}">re: {{.Question}}</a>{{end}}
       <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}<span class="acts"><button type="button" class="copy-text" onclick="meCopyBubble(this, false)" title="Copy the message as text">Text</button><button type="button" class="copy-md" onclick="meCopyBubble(this, true)" title="Copy the message as markdown, exactly as sent">Markdown</button></span></span>
-      <div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>
+      {{if .Body}}<div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>{{end}}
+      {{if .Files}}<div class="files">{{range .Files}}{{if .Image}}<a class="thumb" href="/me/blobs/{{.ID}}" target="_blank" rel="noopener"><img loading="lazy" src="/me/blobs/{{.ID}}" alt="{{.Name}}"></a>{{else}}<a class="file-chip" href="/me/blobs/{{.ID}}" download>📄 {{.Name}} <small>{{.Size}}</small></a>{{end}}{{end}}</div>{{end}}
       <div class="body raw">{{.Raw}}</div>
       <span class="t">{{.At}}</span>
     </div>
+    {{end}}
   {{else}}
     <p class="empty">No messages yet.</p>
   {{end}}
 {{end}}
+{{end}}
+
+{{/* askpanel lists the open conversation's open asks, so piled-up asks can
+     be answered in any order; the /me/asks refresh target. Empty when none. */}}
+{{define "askpanel"}}{{with .Conv}}{{if .OpenAsks}}<details class="asks-panel" open><summary>Open asks <span class="count">{{len .OpenAsks}}</span></summary>{{range .OpenAsks}}<a class="ask-link" href="#ask-{{.ID}}">{{.Question}}</a>{{if .For}} <span class="for">for {{.For}}</span>{{end}}{{end}}</details>{{end}}{{end}}{{end}}
+
+{{/* askcard renders an ask where it was asked, in its current state. */}}
+{{define "askcard"}}
+<div class="askcard {{.State}}" id="ask-{{.ID}}">
+  <div class="ask-q">{{.Question}}{{if .Edited}} <span class="edited">edited</span>{{end}}{{if .For}} <span class="for">for {{.For}}</span>{{end}}</div>
+  {{if eq .State "answered"}}<div class="ask-done">✓ {{.AnsweredBy}} chose <b>{{.Choice}}</b>{{if .Comment}} — {{.Comment}}{{end}}</div>
+  {{else if eq .State "withdrawn"}}<div class="ask-done">withdrawn{{if .Reason}}: {{.Reason}}{{end}}</div>
+  {{else if .CanAnswer}}
+  <form class="ask-form" hx-post="/me/asks/{{.ID}}/answer" hx-swap="none" hx-on::after-request="if(!event.detail.successful) alert(event.detail.xhr.responseText)">
+    <input type="hidden" name="version" value="{{.Version}}">
+    {{range .Options}}<button type="submit" name="choice" value="{{.ID}}">{{.Label}}{{if .Detail}}<small>{{.Detail}}</small>{{end}}</button>{{end}}
+    <button type="submit" name="choice" value="other" class="other">Other…</button>
+    <textarea name="comment" placeholder="Comment (needed for Other…)"></textarea>
+  </form>
+  {{else}}<div class="ask-opts">{{range .Options}}<span>{{.Label}}</span>{{end}}</div>
+  {{end}}
+  {{if eq .State "open"}}<button type="button" class="discuss" onclick="meDiscuss('{{.ID}}', this)">Discuss</button>{{end}}
+</div>
 {{end}}

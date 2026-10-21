@@ -21,7 +21,11 @@ type ParticipantSendHandler struct {
 	store Store
 	ic    *Intercom
 	log   *slog.Logger
+	att   *Attachments // nil: attachments off
 }
+
+// SetAttachments lets sends carry uploaded attachments.
+func (h *ParticipantSendHandler) SetAttachments(a *Attachments) { h.att = a }
 
 // NewParticipantSendHandler constructs a ParticipantSendHandler. ic may be
 // nil: messaging unconfigured, a send fails 503.
@@ -52,9 +56,11 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {
-		To          string `json:"to"`
-		Body        string `json:"body"`
-		ContentType string `json:"content_type,omitempty"` // "" = text/markdown
+		To          string   `json:"to"`
+		Body        string   `json:"body"`
+		ContentType string   `json:"content_type,omitempty"` // "" = text/markdown
+		ReplyTo     string   `json:"reply_to,omitempty"`     // an ask in the same channel (Discuss)
+		Attachments []string `json:"attachments,omitempty"`  // uploaded blob refs
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -64,6 +70,14 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		}
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
+	}
+	parts, err := h.att.RefParts(req.Attachments)
+	if err != nil {
+		http.Error(w, "attachments are off", http.StatusBadRequest)
+		return
+	}
+	if req.Body == "" && len(parts) > 0 {
+		req.Body = h.att.Names(req.Attachments)
 	}
 	if req.Body == "" {
 		http.Error(w, "empty body", http.StatusBadRequest)
@@ -95,7 +109,18 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.ic.Post(pl, intercom.Squawk{From: p.UserID, Body: req.Body, ContentType: req.ContentType}); err != nil {
+	if req.ReplyTo != "" {
+		if a, ok := h.ic.GetAsk(req.ReplyTo); !ok || a.Channel != pl.Channel.ID {
+			http.Error(w, "reply_to must be an ask in this conversation", http.StatusBadRequest)
+			return
+		}
+	}
+	_, err = h.ic.Post(pl, intercom.Squawk{From: p.UserID, Body: req.Body, ContentType: req.ContentType, ReplyTo: req.ReplyTo, Parts: parts})
+	if errors.Is(err, intercom.ErrInvalid) {
+		http.Error(w, "invalid attachments", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
 		h.log.Error("participant send: append failed", "user", string(p.UserID), "channel", string(pl.Channel.ID), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
 		return

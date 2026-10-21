@@ -33,6 +33,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/backend/colima"
+	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
@@ -1834,6 +1835,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	if err := cfg.validateBlobs(); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
 	if err := cfg.validatePreviews(); err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -1986,6 +1991,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
+	// The attachments bucket (nil: attachments off). A set but unreachable or
+	// missing bucket refuses to start.
+	blobs, err := resolveBlobs(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	if blobs != nil {
+		log.Info("Jam attachments: bucket ready", "bucket", cfg.Blobs.Bucket, "max-bytes", cfg.Blobs.maxBytes())
+	}
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
 	kitFetcher, err := resolveKitFetcher(cfg, specs)
@@ -2113,6 +2128,37 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
+	// Attachments (nil: no blobs block, off); pending uploads past 24h are
+	// swept hourly.
+	var blobMax int64
+	if cfg.Blobs != nil {
+		blobMax = cfg.Blobs.maxBytes()
+	}
+	att := jam.NewAttachments(chlog, blobs, ic, blobMax)
+	att.SetLogger(log)
+	if att.Enabled() {
+		go func() {
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for ; ; <-t.C {
+				att.Sweep(context.Background(), time.Now())
+			}
+		}()
+	}
+	ic.SetOnAsksChanged(func(session ident.ID) {
+		if err := sup.SetOpenAsks(string(session), func() int { return ic.OpenAskCount(session) }); err != nil {
+			log.Warn("intercom: recording open asks failed", "session", string(session), "err", err.Error())
+		}
+	})
+	// Asks stranded by a change made outside the intercom (a room removed, a
+	// session gone) close on this pass.
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for ; ; <-t.C {
+			ic.ReconcileAsks()
+		}
+	}()
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
@@ -2227,7 +2273,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml}, dc != nil, tickets, previewURL, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {
@@ -2570,12 +2616,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// use, so a reply wakes a waiting studio.
 			meSurface := http.NewServeMux()
 			sendH := jam.NewParticipantSendHandler(st, ic, log)
+			sendH.SetAttachments(att)
 			meSurface.Handle("/me/send", sendH)
 			// The inbox reads the same channel log, and the legacy log as History.
 			var meOpts []meui.Option
 			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml}, log, meOpts...))
-			// Writes (/me/send, /me/read, /me/join|leave|call-in) must come from
+			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att}, log, meOpts...))
+			// Writes (/me/send, /me/read, /me/join|leave|call-in, /me/asks/{id}/answer) must come from
 			// the page itself: the session cookie alone (SameSite=Lax) lets a
 			// sibling subdomain post as the user.
 			meMux.Handle("/me/", meGate.Wrap(browserauth.RequireSameOrigin(cfg.UIOrigins, meSurface)))
@@ -2859,6 +2906,31 @@ func resolveSSHCA(cfg serveConfig, specs map[string]secret.Spec) (*sshca.CA, err
 		return nil, fmt.Errorf("ssh.ca-cred %q: %w", name, err)
 	}
 	return ca, nil
+}
+
+// resolveBlobs resolves the blobs block's keys (in memory only), builds the
+// bucket's store and checks the bucket. Absent blobs ⇒ nil, nil (attachments
+// off). Errors name the credential, never its value.
+func resolveBlobs(cfg serveConfig, specs map[string]secret.Spec) (blobstore.Store, error) {
+	b := cfg.Blobs
+	if b == nil {
+		return nil, nil
+	}
+	v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[b.AccessKeyCred], specs[b.SecretKeyCred]})
+	if err != nil {
+		return nil, fmt.Errorf("blobs credentials: %w", err)
+	}
+	s, err := blobstore.NewS3(blobstore.S3Config{Endpoint: b.Endpoint, Bucket: b.Bucket, Region: b.Region, PathStyle: b.PathStyle,
+		AccessKey: v[b.AccessKeyCred], SecretKey: v[b.SecretKeyCred]})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := s.Check(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // resolveKitFetcher builds the one long-lived git fetcher for kit sources,

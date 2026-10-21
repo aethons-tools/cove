@@ -189,7 +189,7 @@ func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 	// Swapping #stream replaces the text nodes under a selection, which the
 	// browser then drops — so the poll is filtered off while the viewer has a
 	// selection inside the stream, letting them copy a message.
-	for _, want := range []string{`hx-trigger="meChanged[!meSelecting()] from:body, every 30s [!meSelecting()]"`, "function meSelecting()"} {
+	for _, want := range []string{`hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]"`, "function meSelecting()"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing selection-safe poll wiring %q", want)
 		}

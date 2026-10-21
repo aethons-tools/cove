@@ -1289,3 +1289,48 @@ func TestValidateKits(t *testing.T) {
 		t.Fatalf("absent kits must validate: %v", err)
 	}
 }
+
+func TestValidateBlobs(t *testing.T) {
+	const creds = "credentials:\n  bk:\n  bs:\n"
+	ok, err := parseServeConfig([]byte(creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  region: us-east-1\n  access-key-cred: bk\n  secret-key-cred: bs\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateBlobs(); err != nil {
+		t.Fatalf("valid blobs refused: %v", err)
+	}
+	if got := ok.Blobs.maxBytes(); got != 25<<20 {
+		t.Fatalf("default max = %d", got)
+	}
+	sized, _ := parseServeConfig([]byte(creds + "blobs:\n  endpoint: http://minio.internal:9000\n  bucket: jam\n  path-style: true\n  max-size: 100MB\n  access-key-cred: bk\n  secret-key-cred: bs\n"))
+	if err := sized.validateBlobs(); err != nil || sized.Blobs.maxBytes() != 100<<20 || !sized.Blobs.PathStyle {
+		t.Fatalf("sized = %+v, %v", sized.Blobs, err)
+	}
+	base := "  access-key-cred: bk\n  secret-key-cred: bs\n"
+	for name, yml := range map[string]string{
+		"no endpoint":       creds + "blobs:\n  bucket: jam\n" + base,
+		"bad endpoint":      creds + "blobs:\n  endpoint: s3.example.com\n  bucket: jam\n" + base,
+		"userinfo endpoint": creds + "blobs:\n  endpoint: https://u:p@s3.example.com\n  bucket: jam\n" + base,
+		"no bucket":         creds + "blobs:\n  endpoint: https://s3.example.com\n" + base,
+		"undemanded cred":   creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  access-key-cred: nope\n  secret-key-cred: bs\n",
+		"no secret cred":    creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  access-key-cred: bk\n",
+		"bad size":          creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: lots\n" + base,
+		"too big":           creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 2GB\n" + base,
+		"overflow":          creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 8589934592GB\n" + base,
+		"wraps to zero":     creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 17179869184GB\n" + base,
+		"zero":              creds + "blobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  max-size: 0MB\n" + base,
+		"gcp cred":          "credentials:\n  g: { exchange: gcp }\n  bs:\nblobs:\n  endpoint: https://s3.example.com\n  bucket: jam\n  access-key-cred: g\n  secret-key-cred: bs\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := c.validateBlobs(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateBlobs(); err != nil {
+		t.Fatalf("absent blobs must validate: %v", err)
+	}
+}

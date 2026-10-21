@@ -31,6 +31,9 @@ type Squawk struct {
 	ContentType string `json:"content_type"`
 	Channel     *Party `json:"channel,omitempty"`
 	From        *Party `json:"from,omitempty"`
+	// Parts are the squawk's typed parts (an ask event: its data is the
+	// intercom.AskEvent).
+	Parts []intercom.Part `json:"parts,omitempty"`
 }
 
 // SquawksHandler is Jam's brokered messaging endpoint for sessions. Every
@@ -46,7 +49,11 @@ type SquawksHandler struct {
 	inbox SessionInbox
 	log   *slog.Logger
 	now   func() time.Time
+	att   *Attachments // nil: attachments off
 }
+
+// SetAttachments turns on uploads, attachment sends and downloads.
+func (h *SquawksHandler) SetAttachments(a *Attachments) { h.att = a }
 
 // NewSquawksHandler constructs a SquawksHandler. A nil ic or lg leaves
 // messaging unconfigured: sends, reads and commits answer 503.
@@ -110,6 +117,32 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Attachments: POST /squawks/uploads, GET /squawks/blobs/{id}.
+	if strings.HasSuffix(r.URL.Path, "/uploads") {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.att.HandleUpload(w, r, ident.ID(actor.ID))
+		return
+	}
+	if _, id, ok := strings.Cut(r.URL.Path, "/squawks/blobs/"); ok {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.att.Serve(w, r, ident.ID(actor.ID), ident.ID(id))
+		return
+	}
+
+	// The ask routes (POST /squawks/ask, /ask/amend, /ask/withdraw; GET
+	// /squawks/asks). Like commit, a wrong method never falls through.
+	if h.askRoute(w, r, actor, inst) {
+		return
+	}
+
 	// POST /squawks/call-in and /squawks/leave — membership verbs. Like
 	// commit, a non-POST never falls through to a read.
 	for suffix, handle := range map[string]func(http.ResponseWriter, *http.Request, Actor, Instance){
@@ -139,9 +172,10 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
 	var req struct {
-		Body        string `json:"body"`
-		To          string `json:"to"`
-		ContentType string `json:"content_type,omitempty"` // "" = text/markdown
+		Body        string   `json:"body"`
+		To          string   `json:"to"`
+		ContentType string   `json:"content_type,omitempty"` // "" = text/markdown
+		Attachments []string `json:"attachments,omitempty"`  // uploaded blob refs
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -151,6 +185,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		}
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
+	}
+	parts, err := h.att.RefParts(req.Attachments)
+	if err != nil {
+		http.Error(w, "attachments are off", http.StatusBadRequest)
+		return
+	}
+	if req.Body == "" && len(parts) > 0 {
+		req.Body = h.att.Names(req.Attachments)
 	}
 	if req.Body == "" {
 		http.Error(w, "empty body", http.StatusBadRequest)
@@ -178,7 +220,11 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
 	}
-	m, err := h.ic.Post(pl, intercom.Squawk{From: ident.ID(actor.ID), Body: req.Body, ContentType: req.ContentType})
+	m, err := h.ic.Post(pl, intercom.Squawk{From: ident.ID(actor.ID), Body: req.Body, ContentType: req.ContentType, Parts: parts})
+	if errors.Is(err, intercom.ErrInvalid) {
+		http.Error(w, "invalid attachments: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		h.log.Error("intercom: append failed", "actor", actor.ID, "channel", string(pl.Channel.ID), "error", err.Error())
 		http.Error(w, "send failed", http.StatusBadGateway)
@@ -290,7 +336,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	for _, m := range msgs {
 		at := m.At
 		from := h.ic.PartyOf(m.From)
-		sq := Squawk{ID: m.ID, Author: from.Label, Body: m.Body, At: &at, ContentType: m.ContentType, From: &from}
+		sq := Squawk{ID: m.ID, Author: from.Label, Body: m.Body, At: &at, ContentType: m.ContentType, From: &from, Parts: m.Parts}
 		if m.Channel != "" {
 			ch := h.ic.ChannelParty(m.Channel)
 			sq.Channel = &ch

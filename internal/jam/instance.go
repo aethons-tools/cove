@@ -71,7 +71,10 @@ type Instance struct {
 	// EscalationAsked: the session called escalate (asked for a person) since
 	// it was last woken — it opens an escalation while it waits, like a
 	// needs-input report (intercom slice 4). Cleared when a turn starts.
-	EscalationAsked    bool          `json:"escalation_asked,omitempty"`
+	EscalationAsked bool `json:"escalation_asked,omitempty"`
+	// OpenAsks is how many open asks the session has in live channels
+	// (intercom asks; Supervisor.SetOpenAsks). It asks for a person while > 0.
+	OpenAsks           int           `json:"open_asks,omitempty"`
 	EscalationCategory string        `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
 	LastNagAt          time.Time     `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
 	Nags               int           `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period

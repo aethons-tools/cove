@@ -2,6 +2,7 @@ package intercomtest
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 			t.Fatalf("read back %+v", got)
 		}
 		got[0].At = m.At
-		if got[0] != m {
+		if !reflect.DeepEqual(got[0], m) {
 			t.Fatalf("read back %#v, appended %#v", got[0], m)
 		}
 	})
@@ -191,6 +192,204 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		}
 		if got := f.Store.ListSince(0, 0); len(got) != 1 {
 			t.Fatalf("ListSince reads the new log only: %+v", got)
+		}
+	})
+	t.Run("asks", func(t *testing.T) { RunAskConformance(t, newLog) })
+	t.Run("blobs", func(t *testing.T) { RunBlobConformance(t, newLog) })
+}
+
+// RunAskConformance exercises the asks read-model (intercom structured asks):
+// ask events fold atomically with their append.
+func RunAskConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture) {
+	yesNo := []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}
+	ev := func(s intercom.Store, from ident.ID, e intercom.AskEvent) (intercom.Squawk, error) {
+		return s.Append(intercom.Squawk{Channel: chA, From: from, Body: "event", Parts: []intercom.Part{intercom.AskPart(e)}}, []ident.ID{alice, bob})
+	}
+	open := func(t *testing.T, s intercom.Store) string {
+		t.Helper()
+		m, err := ev(s, ses, intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Options: yesNo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m.ID
+	}
+
+	t.Run("ask_round_trip", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		a, ok := s.GetAsk(id)
+		if !ok || a.State != intercom.AskOpen || a.Version != 1 || a.Asker != ses || a.Channel != chA || a.LastSeq == 0 {
+			t.Fatalf("GetAsk = %+v, %v", a, ok)
+		}
+		got := s.ChannelSince(chA, 0, 0)
+		e, found := intercom.AskOf(got[0])
+		if len(got) != 1 || !found || e.Event != intercom.AskEventAsk || e.AskID != id || e.Version != 1 || len(e.Options) != 2 {
+			t.Fatalf("read back %+v (%+v)", got, e)
+		}
+		if inbox := s.InboxSince(alice, 0, 0); len(inbox) != 1 || len(inbox[0].Parts) != 1 {
+			t.Fatalf("inbox %+v", inbox)
+		}
+		if l := s.ListAsks(intercom.AskFilter{Channel: chA, State: intercom.AskOpen}); len(l) != 1 || l[0].ID != id {
+			t.Fatalf("ListAsks open = %+v", l)
+		}
+		if l := s.ListAsks(intercom.AskFilter{Asker: alice}); len(l) != 0 {
+			t.Fatalf("ListAsks by alice = %+v", l)
+		}
+		if _, ok := s.GetAsk("nope"); ok {
+			t.Fatal("GetAsk of nothing")
+		}
+	})
+
+	t.Run("amend_then_answer", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		m, err := ev(s, ses, intercom.AskEvent{Event: intercom.AskEventAmend, AskID: id, Question: "Merge now?"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e, _ := intercom.AskOf(m); e.Version != 2 {
+			t.Fatalf("amend part version = %d", e.Version)
+		}
+		tail, _ := s.TailSeq()
+		if _, err := ev(s, alice, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 1, Choice: "yes"}); !errors.Is(err, intercom.ErrAskChanged) {
+			t.Fatalf("stale answer: %v", err)
+		}
+		if now, _ := s.TailSeq(); now != tail {
+			t.Fatal("a refused event was stored")
+		}
+		if _, err := ev(s, alice, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 2, Choice: "no", Comment: "wait"}); err != nil {
+			t.Fatal(err)
+		}
+		a, _ := s.GetAsk(id)
+		if a.State != intercom.AskAnswered || a.Answer == nil || a.Answer.By != alice || a.Answer.Choice != "no" || len(a.History) != 1 {
+			t.Fatalf("answered = %+v", a)
+		}
+		if _, err := ev(s, bob, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 2, Choice: "yes"}); !errors.Is(err, intercom.ErrAskClosed) {
+			t.Fatalf("second answer: %v", err)
+		}
+		if l := s.ListAsks(intercom.AskFilter{State: intercom.AskOpen}); len(l) != 0 {
+			t.Fatalf("open after answer = %+v", l)
+		}
+	})
+
+	t.Run("concurrent_answers_one_wins", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		id := open(t, s)
+		const n = 8
+		errs := make(chan error, n)
+		for i := range n {
+			go func() {
+				who := alice
+				if i%2 == 1 {
+					who = bob
+				}
+				_, err := ev(s, who, intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: id, Version: 1, Choice: "yes"})
+				errs <- err
+			}()
+		}
+		won := 0
+		for range n {
+			switch err := <-errs; {
+			case err == nil:
+				won++
+			case !errors.Is(err, intercom.ErrAskClosed):
+				t.Errorf("loser: %v", err)
+			}
+		}
+		if won != 1 {
+			t.Fatalf("%d answers won, want 1", won)
+		}
+	})
+}
+
+// RunBlobConformance exercises blob metadata and the atomic attach of a
+// send's reference parts (intercom attachments).
+func RunBlobConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture) {
+	at := time.Unix(1_000, 0).UTC()
+	blob := func(t *testing.T, s intercom.Store, uploader ident.ID) intercom.Blob {
+		t.Helper()
+		b := intercom.Blob{ID: ident.New(ident.Blob), Uploader: uploader, Size: 3, Type: "image/png", Name: "shot.png", SHA256: "abc", Created: at}
+		if err := s.CreateBlob(b); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	send := func(s intercom.Store, from ident.ID, parts ...intercom.Part) (intercom.Squawk, error) {
+		return s.Append(intercom.Squawk{Channel: chA, From: from, Body: "see attached", Parts: parts}, []ident.ID{bob})
+	}
+	ref := func(b intercom.Blob) intercom.Part {
+		return intercom.Part{Type: "text/plain", Ref: string(b.ID), Name: "lie.txt", Size: 999}
+	}
+
+	t.Run("create_and_get", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := blob(t, s, alice)
+		got, ok := s.GetBlob(b.ID)
+		if !ok || got.State != intercom.BlobPending || got.Uploader != alice || got.Name != "shot.png" || !got.Created.Equal(at) {
+			t.Fatalf("GetBlob = %+v, %v", got, ok)
+		}
+		if _, ok := s.GetBlob(ident.New(ident.Blob)); ok {
+			t.Fatal("GetBlob of nothing")
+		}
+	})
+
+	t.Run("send_attaches", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := blob(t, s, alice)
+		m, err := send(s, alice, ref(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := m.Parts[0]; p.Name != "shot.png" || p.Size != 3 || p.Type != "image/png" {
+			t.Fatalf("the part should come from the blob row: %+v", p)
+		}
+		got, _ := s.GetBlob(b.ID)
+		if got.State != intercom.BlobAttached || got.Channel != chA || got.Squawk != m.ID {
+			t.Fatalf("after send: %+v", got)
+		}
+		if in := s.InboxSince(bob, 0, 0); len(in) != 1 || in[0].Parts[0].Ref != string(b.ID) {
+			t.Fatalf("bob's inbox %+v", in)
+		}
+		tail, _ := s.TailSeq()
+		if _, err := send(s, alice, ref(b)); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("re-attaching: %v", err)
+		}
+		other := blob(t, s, bob)
+		if _, err := send(s, alice, ref(other)); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("someone else's blob: %v", err)
+		}
+		if _, err := send(s, alice, intercom.Part{Type: "image/png", Ref: string(ident.New(ident.Blob))}); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("no such blob: %v", err)
+		}
+		if now, _ := s.TailSeq(); now != tail {
+			t.Fatal("a refused send was stored")
+		}
+		if got, _ := s.GetBlob(other.ID); got.State != intercom.BlobPending {
+			t.Fatalf("a refused send touched bob's blob: %+v", got)
+		}
+	})
+
+	t.Run("pending_sweep", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		old := blob(t, s, alice)
+		attached := blob(t, s, alice)
+		if _, err := send(s, alice, ref(attached)); err != nil {
+			t.Fatal(err)
+		}
+		if l := s.PendingBlobsBefore(at.Add(time.Second)); len(l) != 1 || l[0].ID != old.ID {
+			t.Fatalf("PendingBlobsBefore = %+v", l)
+		}
+		if l := s.PendingBlobsBefore(at); len(l) != 0 {
+			t.Fatalf("before creation: %+v", l)
+		}
+		if err := s.DeleteBlob(attached.ID); !errors.Is(err, intercom.ErrBlobAttached) {
+			t.Fatal("deleting an attached blob should be refused")
+		}
+		if err := s.DeleteBlob(old.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.GetBlob(old.ID); ok {
+			t.Fatal("deleted blob still there")
 		}
 	})
 }
