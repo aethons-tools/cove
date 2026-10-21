@@ -195,6 +195,7 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		}
 	})
 	t.Run("asks", func(t *testing.T) { RunAskConformance(t, newLog) })
+	t.Run("blobs", func(t *testing.T) { RunBlobConformance(t, newLog) })
 }
 
 // RunAskConformance exercises the asks read-model (intercom structured asks):
@@ -297,6 +298,98 @@ func RunAskConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixtu
 		}
 		if won != 1 {
 			t.Fatalf("%d answers won, want 1", won)
+		}
+	})
+}
+
+// RunBlobConformance exercises blob metadata and the atomic attach of a
+// send's reference parts (intercom attachments).
+func RunBlobConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture) {
+	at := time.Unix(1_000, 0).UTC()
+	blob := func(t *testing.T, s intercom.Store, uploader ident.ID) intercom.Blob {
+		t.Helper()
+		b := intercom.Blob{ID: ident.New(ident.Blob), Uploader: uploader, Size: 3, Type: "image/png", Name: "shot.png", SHA256: "abc", Created: at}
+		if err := s.CreateBlob(b); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	send := func(s intercom.Store, from ident.ID, parts ...intercom.Part) (intercom.Squawk, error) {
+		return s.Append(intercom.Squawk{Channel: chA, From: from, Body: "see attached", Parts: parts}, []ident.ID{bob})
+	}
+	ref := func(b intercom.Blob) intercom.Part {
+		return intercom.Part{Type: "text/plain", Ref: string(b.ID), Name: "lie.txt", Size: 999}
+	}
+
+	t.Run("create_and_get", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := blob(t, s, alice)
+		got, ok := s.GetBlob(b.ID)
+		if !ok || got.State != intercom.BlobPending || got.Uploader != alice || got.Name != "shot.png" || !got.Created.Equal(at) {
+			t.Fatalf("GetBlob = %+v, %v", got, ok)
+		}
+		if _, ok := s.GetBlob(ident.New(ident.Blob)); ok {
+			t.Fatal("GetBlob of nothing")
+		}
+	})
+
+	t.Run("send_attaches", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		b := blob(t, s, alice)
+		m, err := send(s, alice, ref(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := m.Parts[0]; p.Name != "shot.png" || p.Size != 3 || p.Type != "image/png" {
+			t.Fatalf("the part should come from the blob row: %+v", p)
+		}
+		got, _ := s.GetBlob(b.ID)
+		if got.State != intercom.BlobAttached || got.Channel != chA || got.Squawk != m.ID {
+			t.Fatalf("after send: %+v", got)
+		}
+		if in := s.InboxSince(bob, 0, 0); len(in) != 1 || in[0].Parts[0].Ref != string(b.ID) {
+			t.Fatalf("bob's inbox %+v", in)
+		}
+		tail, _ := s.TailSeq()
+		if _, err := send(s, alice, ref(b)); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("re-attaching: %v", err)
+		}
+		other := blob(t, s, bob)
+		if _, err := send(s, alice, ref(other)); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("someone else's blob: %v", err)
+		}
+		if _, err := send(s, alice, intercom.Part{Type: "image/png", Ref: string(ident.New(ident.Blob))}); !errors.Is(err, intercom.ErrBlobNotYours) {
+			t.Fatalf("no such blob: %v", err)
+		}
+		if now, _ := s.TailSeq(); now != tail {
+			t.Fatal("a refused send was stored")
+		}
+		if got, _ := s.GetBlob(other.ID); got.State != intercom.BlobPending {
+			t.Fatalf("a refused send touched bob's blob: %+v", got)
+		}
+	})
+
+	t.Run("pending_sweep", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		old := blob(t, s, alice)
+		attached := blob(t, s, alice)
+		if _, err := send(s, alice, ref(attached)); err != nil {
+			t.Fatal(err)
+		}
+		if l := s.PendingBlobsBefore(at.Add(time.Second)); len(l) != 1 || l[0].ID != old.ID {
+			t.Fatalf("PendingBlobsBefore = %+v", l)
+		}
+		if l := s.PendingBlobsBefore(at); len(l) != 0 {
+			t.Fatalf("before creation: %+v", l)
+		}
+		if err := s.DeleteBlob(attached.ID); err == nil {
+			t.Fatal("deleting an attached blob should be refused")
+		}
+		if err := s.DeleteBlob(old.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.GetBlob(old.ID); ok {
+			t.Fatal("deleted blob still there")
 		}
 	})
 }

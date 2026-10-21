@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
@@ -20,11 +21,12 @@ type Log struct {
 	msgs       []Squawk
 	deliveries map[int64][]ident.ID // seq → audience
 	asks       map[string]Ask       // the asks read-model, by ask id
+	blobs      map[ident.ID]Blob    // attachment metadata
 }
 
 // NewMemLog returns an empty channel log continuing legacy (nil: none).
 func NewMemLog(legacy LegacyStore) *Log {
-	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}, asks: map[string]Ask{}}
+	l := &Log{legacy: legacy, cutover: 1, deliveries: map[int64][]ident.ID{}, asks: map[string]Ask{}, blobs: map[ident.ID]Blob{}}
 	if legacy != nil {
 		if tail, ok := legacy.TailSeq(); ok {
 			l.cutover = tail + 1
@@ -53,6 +55,13 @@ func (l *Log) Append(m Squawk, audience []ident.ID) (Squawk, error) {
 	m, ask, isAsk, err := FoldAsk(m, func(id string) (Ask, bool) { a, ok := l.asks[id]; return a, ok })
 	if err != nil {
 		return Squawk{}, err
+	}
+	m, bound, err := FoldBlobs(m, func(id ident.ID) (Blob, bool) { b, ok := l.blobs[id]; return b, ok })
+	if err != nil {
+		return Squawk{}, err
+	}
+	for _, b := range bound {
+		l.blobs[b.ID] = b
 	}
 	m.Seq = l.nextSeq
 	l.nextSeq++
@@ -206,4 +215,44 @@ func (l *Log) ListAsks(f AskFilter) []Ask {
 	}
 	slices.SortFunc(out, func(a, b Ask) int { return int(a.LastSeq - b.LastSeq) })
 	return out
+}
+
+func (l *Log) CreateBlob(b Blob) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.blobs[b.ID]; ok {
+		return fmt.Errorf("intercom: blob %s exists", b.ID)
+	}
+	b.State = BlobPending
+	l.blobs[b.ID] = b
+	return nil
+}
+
+func (l *Log) GetBlob(id ident.ID) (Blob, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.blobs[id]
+	return b, ok
+}
+
+func (l *Log) PendingBlobsBefore(t time.Time) []Blob {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []Blob
+	for _, b := range l.blobs {
+		if b.State == BlobPending && b.Created.Before(t) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func (l *Log) DeleteBlob(id ident.ID) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if b, ok := l.blobs[id]; ok && b.State != BlobPending {
+		return errBlobAttached
+	}
+	delete(l.blobs, id)
+	return nil
 }

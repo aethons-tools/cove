@@ -62,6 +62,13 @@ type Store interface {
 	// (FoldAsk): a refused event appends nothing.
 	GetAsk(id string) (Ask, bool)
 	ListAsks(f AskFilter) []Ask
+	// Blob metadata (attachments): CreateBlob records a pending upload; a
+	// send's reference parts attach it atomically (FoldBlobs); DeleteBlob
+	// removes a pending one (the sweep).
+	CreateBlob(b Blob) error
+	GetBlob(id ident.ID) (Blob, bool)
+	PendingBlobsBefore(t time.Time) []Blob
+	DeleteBlob(id ident.ID) error
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk
 	InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk
