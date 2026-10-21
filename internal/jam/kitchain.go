@@ -4,8 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -193,4 +196,76 @@ func chainCacheKey(store Store, config string) string {
 		}
 	}
 	return b.String()
+}
+
+// RemoveKitChecked removes a kit unless a role binds it or another kit's
+// current version names it as its parent (409 with the offenders listed). The
+// check and the removal run under kitMu, so a concurrent child push cannot
+// slip in between.
+func RemoveKitChecked(store Store, name string) error {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	if project, role, ok := store.RoleReferencingKit(name); ok {
+		return writeErr(http.StatusConflict, "kit %q is referenced by role %s/%s", name, project, role)
+	}
+	follow, pinned := KitsReferencing(store, name)
+	if children := append(follow, pinned...); len(children) > 0 {
+		slices.Sort(children)
+		return writeErr(http.StatusConflict, "kit %s is the parent of %s", name, strings.Join(children, ", "))
+	}
+	return store.RemoveKit(name)
+}
+
+// PinKitChecked rolls a kit's current pointer to version, unless a kit
+// following it (unpinned) would silently move with it (409). Children pinned to
+// a version don't block. The check and the pin run under kitMu.
+func PinKitChecked(store Store, name string, version int) error {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	if follow, _ := KitsReferencing(store, name); len(follow) > 0 {
+		return writeErr(http.StatusConflict, "kit %s is followed by %s (pin those to a %s version, or point them elsewhere)",
+			name, strings.Join(follow, ", "), name)
+	}
+	return store.PinKit(name, version)
+}
+
+// KitChainLink is one parent in a GET /admin/kits/{name} chain.
+type KitChainLink struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"`
+	Follow  bool   `json:"follow"`
+}
+
+// kitParentSpec renders a kit config's base reference as "name" or "name@vN";
+// "" when it has no parent or the config does not parse.
+func kitParentSpec(config string) string {
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil || !sk.Base.HasParent() {
+		return ""
+	}
+	return sk.Base.Kit
+}
+
+// kitChainView is the chain (root first, excluding the kit itself) and the
+// effective merged kit, as YAML, of the stored config of kit name. ok is false
+// when the config or its chain does not resolve.
+func kitChainView(store Store, name, config string) (links []KitChainLink, effective string, ok bool) {
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil {
+		return nil, "", false
+	}
+	chain, err := ResolveKitChain(store, name, sk)
+	if err != nil {
+		return nil, "", false
+	}
+	for _, l := range chain[:len(chain)-1] {
+		links = append(links, KitChainLink{Name: l.Ref.ID, Version: l.Ref.Version, Follow: l.Follow})
+	}
+	merged := studio.Merge(chainKits(chain))
+	merged.LegacyName = "" // the registry names the kit
+	y, err := yaml.Marshal(merged)
+	if err != nil {
+		return nil, "", false
+	}
+	return links, string(y), true
 }

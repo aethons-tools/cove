@@ -165,6 +165,9 @@ type KitSummary struct {
 	Name     string `json:"name"`
 	Current  int    `json:"current"`
 	Versions int    `json:"versions"` // count
+	// Parent is the current version's base kit as written ("web-dev" or
+	// "web-dev@v3"); empty when it has none.
+	Parent string `json:"parent,omitempty"`
 }
 
 // KitConfigResult is a GET /admin/kits/{name} item.
@@ -176,6 +179,16 @@ type KitConfigResult struct {
 	Source *KitSource `json:"source,omitempty"`
 	// Tracking is the kit's tracked source (Commit = last synced); nil = untracked.
 	Tracking *KitSource `json:"tracking,omitempty"`
+	// Parent is the parent version this version was pushed against; nil = none.
+	Parent *KitParentRef `json:"parent,omitempty"`
+	// Chain is the kit's parents as they resolve now, root first, excluding the
+	// kit itself; empty for an unchained kit or an unresolvable chain.
+	Chain []KitChainLink `json:"chain,omitempty"`
+	// Effective is the merged kit (the whole chain) as YAML; empty when the
+	// chain does not resolve.
+	Effective string `json:"effective,omitempty"`
+	// UsedByKits lists the kits whose current version names this one as parent.
+	UsedByKits []string `json:"used_by_kits,omitempty"`
 }
 
 // PinBody is the POST /admin/kits/{name}/pin request.
@@ -769,7 +782,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
-			out = append(out, KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.Versions)})
+			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.Versions)}
+			if cfg, ok := store.KitConfig(k.Name, k.Current); ok {
+				sum.Parent = kitParentSpec(cfg)
+			}
+			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -793,8 +810,13 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if version == 0 {
 			version = k.Current
 		}
-		writeJSON(w, http.StatusOK, KitConfigResult{Name: name, Version: version, Config: cfg,
-			Source: k.Meta[version].Source, Tracking: k.Source})
+		res := KitConfigResult{Name: name, Version: version, Config: cfg,
+			Source: k.Meta[version].Source, Tracking: k.Source, Parent: k.Meta[version].Parent}
+		res.Chain, res.Effective, _ = kitChainView(store, name, cfg)
+		follow, pinned := KitsReferencing(store, name)
+		res.UsedByKits = append(follow, pinned...)
+		sort.Strings(res.UsedByKits)
+		writeJSON(w, http.StatusOK, res)
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := store.GetKit(r.PathValue("name"))
@@ -832,8 +854,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		if !decode(w, r, &b) {
 			return
 		}
-		if err := store.PinKit(r.PathValue("name"), b.Version); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+		if err := PinKitChecked(store, r.PathValue("name"), b.Version); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
 			return
 		}
 		log.Info("admin kit pinned", "operator", OperatorID(r), "kit", r.PathValue("name"), "version", b.Version)
@@ -841,12 +863,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		if project, role, ok := store.RoleReferencingKit(name); ok {
-			http.Error(w, fmt.Sprintf("kit %q is referenced by role %s/%s", name, project, role), http.StatusConflict)
-			return
-		}
-		if err := store.RemoveKit(name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+		if err := RemoveKitChecked(store, name); err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
 			return
 		}
 		log.Info("admin kit removed", "operator", OperatorID(r), "kit", name)

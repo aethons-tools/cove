@@ -128,12 +128,13 @@ raise.
 ```
 at-jam kit push --name web --config ./web.studio.yml        # → "pushed web v3"
 at-jam kit push --name web --config -                       # read config from stdin
-at-jam kit list                                             # name  current=vN  versions=K
+at-jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
 at-jam kit show web                                         # current version's kit + ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
+at-jam kit show web --own                                   # the kit's own YAML, not the merged (effective) one
 at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
-at-jam kit pin web 1                                        # roll current back to v1
-at-jam kit rm web                                           # remove the kit (all versions)
+at-jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
+at-jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
 at-jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
 at-jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
 at-jam kit sync web                                         # re-import from the tracked source
