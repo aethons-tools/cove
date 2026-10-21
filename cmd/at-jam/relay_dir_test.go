@@ -449,3 +449,16 @@ func TestSurfacesEscalationOnUnboundTicket(t *testing.T) {
 	}
 	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-9": "@carol.h "})
 }
+
+// Relays are paused for asks: a squawk with parts reaches no surface.
+func TestSurfacesSkipAsks(t *testing.T) {
+	k := newRelayKit(t)
+	ch, _ := k.ic.HomeChannel(k.ticket)
+	ev := intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Options: []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}}
+	m, err := k.ic.PostTrusted(ch, intercom.Squawk{From: ident.ID(k.ticket.ActorID), Body: "asked: Merge?", Parts: []intercom.Part{intercom.AskPart(ev)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSurfaces(t, "an ask on a ticket", k.dir.Surfaces("linear", m), nil)
+	wantSurfaces(t, "an ask over discord", k.dir.Surfaces("discord", m), nil)
+}

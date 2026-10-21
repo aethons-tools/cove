@@ -2072,6 +2072,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
 	sup.SetSessionChannels(ic)
+	ic.SetOnAsksChanged(func(session ident.ID, open int) {
+		if err := sup.SetOpenAsks(string(session), open); err != nil {
+			log.Warn("intercom: recording open asks failed", "session", string(session), "err", err.Error())
+		}
+	})
 
 	// Session events (docs/usage/jam/session-events.md): stored in the shared
 	// control-plane Postgres.
