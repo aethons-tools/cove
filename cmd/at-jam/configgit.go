@@ -34,17 +34,19 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	fs := flag.NewFlagSet("config "+sub, flag.ContinueOnError)
 	client := clientFlags(fs, stderr)
-	var all, yes, force *bool
+	var all, yes *bool
 	var dir *string
-	force = fs.Bool("force", false, "write: allow a directory outside a git working tree; apply: write over drift")
+	var force *bool
 	switch sub {
 	case "write":
 		all = fs.Bool("all", false, "write every live object, not only the managed ones")
-	case "diff", "apply":
+		force = fs.Bool("force", false, "allow a directory outside a git working tree")
+	case "diff":
 		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
-	}
-	if sub == "apply" {
+	case "apply":
+		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
+		force = fs.Bool("force", false, "write over drift")
 	}
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -117,7 +119,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Apply %d %s? [y/N] ", n, word)
 		line, _ := bufio.NewReader(configStdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
-			fmt.Fprintln(stdout, "aborted")
+			fmt.Fprintln(stderr, "aborted")
 			return 1
 		}
 	}

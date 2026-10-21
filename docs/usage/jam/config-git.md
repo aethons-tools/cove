@@ -87,11 +87,11 @@ credential values, the legacy roster. The file types have no field for them.
 
 ## The verbs
 
-All take the admin flags of the other verbs (`--app`, `--admin-url`, `--token`).
+All take `--app` (settings/token profile), `--admin-url` (overrides the app's settings) and `--token` (operator token; env `AT_JAM_ADMIN_TOKEN`).
 
 | Command | Does |
 |---|---|
-| `config write <dir> [--all] [--force]` | Render managed objects (`--all`: every live one, plus `jam.yml`) into `<dir>`; remove files of managed objects Jam no longer has. Refuses a `<dir>` outside a git working tree without `--force`. |
+| `config write <dir> [--all] [--force]` | Render managed objects (`--all`: every live one) into `<dir>`, plus `jam.yml` whenever the serve has a portable config; remove files of managed objects Jam no longer has. Refuses a `<dir>` outside a git working tree without `--force`. |
 | `config diff --dir <path>` | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
 | `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift. |
 
@@ -157,8 +157,9 @@ and the seeded `claude-default` is adopted.
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
 | `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`). |
 
-Uploads: gzip body ≤ 16 MiB (413 beyond), unpacked files ≤ 16 MiB, ≤ 2000
-entries, regular files and directories only, no absolute or `..` paths (400).
+Uploads: gzip body ≤ 16 MiB and unpacked files ≤ 16 MiB, ≤ 2000
+entries (413 beyond any); regular files and directories only, no absolute
+or `..` paths (400).
 Audit: a `config applied` log entry (source, commit, counts, operator,
 forced) plus each object's usual `admin …` entry with `via=config`.
 

@@ -191,13 +191,19 @@ func TestConfigApplyPromptsAndRefuses(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
 	configStdin = strings.NewReader("n\n")
 	t.Cleanup(func() { configStdin = os.Stdin })
-	if code, out, _ := runJam("config", "apply", "--dir", repo, "--admin-url", url); code != 1 || !strings.Contains(out, "Apply 1 change? [y/N]") || len(st.ListUsers()) != 0 {
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url); code != 1 || !strings.Contains(out, "Apply 1 change? [y/N]") || !strings.Contains(errs, "aborted") || len(st.ListUsers()) != 0 {
 		t.Fatalf("declined apply: %d %s", code, out)
 	}
 	mustWrite(t, filepath.Join(repo, "projects/app/roles/ic.yml"), "kind: role\nversion: 1\nkit: nope\n", 0o644)
 	code, out, _ := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
 	if code != 1 || !strings.Contains(out, "refused:\n  projects/app/roles/ic.yml: ") {
 		t.Fatalf("refusals: %d\n%s", code, out)
+	}
+}
+
+func TestConfigDiffRejectsForce(t *testing.T) {
+	if code, _, _ := runJam("config", "diff", "--dir", t.TempDir(), "--force"); code != 2 {
+		t.Fatalf("diff --force: %d, want 2", code)
 	}
 }
 
