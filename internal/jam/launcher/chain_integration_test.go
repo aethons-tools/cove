@@ -23,6 +23,7 @@ base:
   kit: default
   context-files:
     dockerfile: |
+      ARG COVE_BASE_IMAGE
       FROM ${COVE_BASE_IMAGE}
       RUN mkdir -p /opt && echo parent > /opt/parent
 `
@@ -31,6 +32,7 @@ base:
   kit: chain-parent
   context-files:
     dockerfile: |
+      ARG COVE_BASE_IMAGE
       FROM ${COVE_BASE_IMAGE}
       RUN test -f /opt/parent && echo child > /opt/child
 `

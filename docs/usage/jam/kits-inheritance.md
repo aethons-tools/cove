@@ -20,6 +20,7 @@ base:
   kit: web-dev            # follow web-dev's current version; or web-dev@v3 to pin
   context-files:          # OPTIONAL — this kit's own stage, built FROM web-dev's
     dockerfile: |
+      ARG COVE_BASE_IMAGE
       FROM ${COVE_BASE_IMAGE}
       RUN apt-get update && apt-get install -y postgresql-client
 egress: [api.acme.dev]
@@ -34,7 +35,9 @@ prompt: "You work on my-app …"
   don't affect the child.
 - **The child's own stage:** `kit` combines with at most one of
   `context-files`, `context` or `context-dir`. That context's Dockerfile builds
-  `FROM ${COVE_BASE_IMAGE}`, which now resolves to the parent's stage.
+  `FROM ${COVE_BASE_IMAGE}` (declare `ARG COVE_BASE_IMAGE` before the `FROM`,
+  as docker requires for a build arg in `FROM`), which now resolves to the
+  parent's stage.
 - **No context:** the child reuses its parent's image as it is and only adds
   definition.
 - `kit` and `image` are mutually exclusive.
