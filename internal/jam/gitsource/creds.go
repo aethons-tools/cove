@@ -9,9 +9,22 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
-// Cred is a static credential for every repo under Prefix. Value is a token,
-// or "user:token". It is never formatted: String and GoString omit it.
-type Cred struct{ Prefix, Name, Value string }
+// Cred is the credential for every repo under Prefix. Value is a token, or
+// "user:token". When Resolve is set it is called on every fetch instead, so a
+// short-lived or rotated token (a minted GitHub App token, a re-run command)
+// is always current. It is never formatted: String and GoString omit it.
+type Cred struct {
+	Prefix, Name, Value string
+	Resolve             func() (string, error)
+}
+
+// value returns the credential's current token.
+func (c Cred) value() (string, error) {
+	if c.Resolve == nil {
+		return c.Value, nil
+	}
+	return c.Resolve()
+}
 
 // String names the credential without its value.
 func (c Cred) String() string { return fmt.Sprintf("cred %s for %s", c.Name, c.Prefix) }

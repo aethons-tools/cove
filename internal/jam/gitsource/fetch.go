@@ -151,6 +151,11 @@ func (f *Fetcher) runOp(ctx context.Context, src Source, op func(context.Context
 	cred, hasCred := f.Creds.For(src.Repo)
 	var auth transport.AuthMethod // in memory only: never in a URL or .git/config
 	if hasCred {
+		v, err := cred.value()
+		if err != nil {
+			return fmt.Errorf("kits.git cred %s could not be resolved", cred.Name)
+		}
+		cred.Value = v
 		auth = basicAuth(src.Repo, cred)
 	}
 	if err := op(ctx, auth); err != nil {
@@ -319,9 +324,11 @@ func explain(err error, ctx context.Context, b *budget, src Source, cred Cred, h
 		return fmt.Errorf("ref %s not found in %s", src.Ref, repo)
 	case errors.Is(err, errCommitNotFound):
 		return fmt.Errorf("commit %s not found in %s (or the server does not serve commits by id)", strings.ToLower(src.Ref), repo)
+	case errors.Is(err, transport.ErrAuthorizationFailed) && hasCred:
+		return fmt.Errorf("auth failed for %s: the token was accepted but may not read this repo (403; check kits.git cred %s's scopes, org approval or SSO authorization)", redactURL(cred.Prefix), cred.Name)
 	case errors.Is(err, transport.ErrAuthenticationRequired), errors.Is(err, transport.ErrAuthorizationFailed):
 		if hasCred {
-			return fmt.Errorf("auth failed for %s (check kits.git cred %s)", redactURL(cred.Prefix), cred.Name)
+			return fmt.Errorf("auth failed for %s: the token was rejected (401; check kits.git cred %s is valid and unexpired)", redactURL(cred.Prefix), cred.Name)
 		}
 		return fmt.Errorf("auth required for %s (add a kits.git entry)", repoHost(src.Repo))
 	case errors.Is(err, transport.ErrRepositoryNotFound):

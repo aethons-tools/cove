@@ -2829,11 +2829,20 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 		return f, nil
 	}
 	for i, g := range cfg.Kits.Git {
-		v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[g.Cred]})
-		if err != nil {
+		spec := specs[g.Cred]
+		resolve := func() (string, error) {
+			v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
+			if err != nil {
+				return "", err
+			}
+			return v[spec.Name], nil
+		}
+		// Resolve once now so a broken supply fails serve at startup, then
+		// again on every fetch so a minted or rotated token stays current.
+		if _, err := resolve(); err != nil {
 			return nil, fmt.Errorf("kits.git[%d].cred %q: %w", i, g.Cred, err)
 		}
-		f.Creds = append(f.Creds, gitsource.Cred{Prefix: g.URL, Name: g.Cred, Value: v[g.Cred]})
+		f.Creds = append(f.Creds, gitsource.Cred{Prefix: g.URL, Name: g.Cred, Resolve: resolve})
 	}
 	return f, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -352,5 +353,48 @@ func TestFetchRootHasNoGitDir(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A Cred with Resolve is resolved on every fetch, so a minted or rotated
+// token is always current; a resolve failure names the cred, not the error.
+func TestFetchResolvesCredEachTime(t *testing.T) {
+	url, _, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n"}, gittest.WithAuth("x-access-token", "tok-2"))
+	calls := 0
+	tokens := []string{"x-access-token:tok-1", "x-access-token:tok-2"}
+	f := &Fetcher{Creds: Creds{{Prefix: url, Name: "gh-kits", Resolve: func() (string, error) {
+		v := tokens[min(calls, len(tokens)-1)]
+		calls++
+		return v, nil
+	}}}, MaxBytes: 50 << 20, Timeout: 30 * time.Second}
+	noop := func(string, string) error { return nil }
+	if err := f.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, noop); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("first fetch with the stale token: %v", err)
+	}
+	if err := f.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, noop); err != nil {
+		t.Fatalf("second fetch with the rotated token: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("Resolve called %d times, want 2", calls)
+	}
+	broken := &Fetcher{Creds: Creds{{Prefix: url, Name: "gh-kits", Resolve: func() (string, error) {
+		return "", errors.New("command failed: SECRET-DETAIL")
+	}}}, MaxBytes: 50 << 20, Timeout: 30 * time.Second}
+	err := broken.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, noop)
+	if err == nil || !errors.Is(err, ErrFetch) || !strings.Contains(err.Error(), "kits.git cred gh-kits could not be resolved") || strings.Contains(err.Error(), "SECRET-DETAIL") {
+		t.Fatalf("resolve failure: %v", err)
+	}
+}
+
+// 403 (token accepted, no access) reads differently from 401 (token rejected).
+func TestFetchAuth403(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	f := &Fetcher{Creds: Creds{{Prefix: srv.URL + "/", Name: "gh-kits", Value: "x-access-token:tok"}}, MaxBytes: 1 << 20, Timeout: 10 * time.Second}
+	err := f.Fetch(context.Background(), Source{Repo: srv.URL + "/acme/kits.git", Ref: "main"}, func(string, string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "check kits.git cred gh-kits") {
+		t.Fatalf("403: %v", err)
 	}
 }

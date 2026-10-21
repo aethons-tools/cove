@@ -136,6 +136,9 @@ kits:
 - **Matching:** the longest prefix that matches the repo URL wins; scheme and
   host compare case-insensitively, the path exactly, and only at a `/`
   boundary (`…/acme/` never matches `…/acmeevil/`).
+- **Resolution:** the credential is resolved at serve start (a broken supply
+  fails serve) and again on **every fetch**, so a minted (GitHub App) or
+  rotated token is always current — no restart needed.
 - **Username:** `x-access-token` on github.com hosts and `oauth2` on hosts
   whose name contains `gitlab` (the whole credential value is the password
   there); elsewhere a value of `user:token` sends `user`, else `git`.
@@ -160,7 +163,9 @@ failure (the message is already redacted), and **500** for a store failure.
 
 | Message | Fix |
 |---|---|
-| `auth failed for <prefix> (check kits.git cred <name>)` | The named credential's token is wrong, expired or lacks read access. |
+| `auth failed for <prefix>: the token was rejected (401; …)` | The named credential's token is wrong or expired. |
+| `auth failed for <prefix>: the token was accepted but may not read this repo (403; …)` | Valid token without access: a fine-grained PAT must be owned by the org with **Contents: read** (and org-approved); a classic PAT needs `repo` and, under SAML SSO, SSO authorization. |
+| `kits.git cred <name> could not be resolved` | The credential's supply (`credentials.yml` command, minter) failed at fetch time; check it on the Jam host. |
 | `auth required for <host> (add a kits.git entry)` | A private repo with no matching prefix: add one. |
 | `repository … not found (if private, add a kits.git entry)` | Wrong URL, or private (forges often answer "not found" without auth). |
 | `repository … not found (or kits.git cred <name> cannot read it)` | Wrong URL, or the named credential's token cannot read this repo. |
