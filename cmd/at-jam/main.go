@@ -387,7 +387,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		d.AllowPaths = append(d.AllowPaths, s)
 		return nil
 	})
-	fs.BoolVar(&d.Git, "git", false, "route studios' https://github.com/ through this destination")
+	fs.BoolVar(&d.Git, "git", false, "route studios' git for this destination's upstream host (e.g. https://github.com/) through it")
 	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {

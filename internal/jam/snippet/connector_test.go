@@ -65,7 +65,7 @@ func TestRenderQuotesLiteralShellChars(t *testing.T) {
 
 func TestConnectorGitConfigUsesRoute(t *testing.T) {
 	g := Connector{GitRoute: "/gh/"}.GitConfig("https://jam.example/")
-	if !strings.Contains(g, `url."https://jam.example/gh/".insteadOf https://github.com/`) {
+	if !strings.Contains(g, `url."https://jam.example/gh/".insteadOf 'https://github.com/'`) {
 		t.Fatalf("GitConfig = %s", g)
 	}
 	if (Connector{}).GitConfig("https://jam.example") != "" {
@@ -149,9 +149,47 @@ func TestGitKeysMatchRenderedConfig(t *testing.T) {
 	if got := GitHelperKey("https://j/"); got != "credential.https://j.helper" {
 		t.Fatalf("GitHelperKey = %q", got)
 	}
-	want := "git config --global url.\"https://j/git/\".insteadOf " + GitRewriteTarget + "\n" +
+	want := "git config --global url.\"https://j/git/\".insteadOf '" + GitRewriteTarget + "'\n" +
 		"git config --global credential.\"https://j\".helper '" + GitHelper() + "'\n"
 	if got := (Connector{GitRoute: "/git/"}).GitConfig("https://j/"); got != want {
 		t.Fatalf("GitConfig =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A git destination rewrites its own upstream host — a GitLab destination
+// routes https://gitlab.example.com/, not github.com.
+func TestConnectorGitConfigUsesTarget(t *testing.T) {
+	g := Connector{GitRoute: "/gitlab-git/", GitTarget: "https://gitlab.example.com/"}.GitConfig("https://jam.example")
+	if !strings.Contains(g, `url."https://jam.example/gitlab-git/".insteadOf 'https://gitlab.example.com/'`) {
+		t.Fatalf("GitConfig = %s", g)
+	}
+	if got := (Connector{GitRoute: "/git/"}).RewriteTarget(); got != GitRewriteTarget {
+		t.Fatalf("no GitTarget: RewriteTarget = %q, want the github.com default", got)
+	}
+}
+
+// GitTargetFor is the upstream's scheme and host (the broker forwards to those
+// only), left "" for github.com so older clients and fingerprints are unchanged.
+func TestGitTargetFor(t *testing.T) {
+	for upstream, want := range map[string]string{
+		"https://github.com":                  "",
+		"https://github.com/":                 "",
+		"https://GitLab.Example.com":          "https://gitlab.example.com/",
+		"https://gitlab.example.com/some/sub": "https://gitlab.example.com/",
+		"http://127.0.0.1:8080":               "http://127.0.0.1:8080/",
+		"::not a url":                         "",
+	} {
+		if got := GitTargetFor(upstream); got != want {
+			t.Errorf("GitTargetFor(%q) = %q, want %q", upstream, got, want)
+		}
+	}
+}
+
+// A git target comes from Jam over the wire: the sourced snippet must never
+// interpret it.
+func TestConnectorGitConfigQuotesTarget(t *testing.T) {
+	g := Connector{GitRoute: "/g/", GitTarget: "https://x/'$(touch pwned)`id`/"}.GitConfig("https://j")
+	if !strings.Contains(g, `.insteadOf 'https://x/'\''$(touch pwned)`+"`id`"+`/'`+"\n") {
+		t.Fatalf("target not single-quoted:\n%s", g)
 	}
 }

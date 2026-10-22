@@ -51,7 +51,7 @@ func TestEnv(t *testing.T) {
 func TestGitConfigHasNoToken(t *testing.T) {
 	g := GitConfig("https://jam.local")
 	for _, want := range []string{
-		`url."https://jam.local/git/".insteadOf https://github.com/`,
+		`url."https://jam.local/git/".insteadOf 'https://github.com/'`,
 		`credential."https://jam.local".helper`,
 		// the helper reads the new name, falling back to the deprecated one
 		"password=${AT_JAM_IDENTITY_TOKEN:-$AT_HARBOR_IDENTITY_TOKEN}",

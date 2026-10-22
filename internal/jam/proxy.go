@@ -59,6 +59,14 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
 	upPath := strings.TrimPrefix(r.URL.Path, trimmed)
+	// The upstream gets the path as the client escaped it (a GitLab project id
+	// "g%2Fr" is not "g/r"). The route must be literal in it, and it must decode
+	// to upPath, so allow_paths judges exactly what is forwarded.
+	upRaw, cut := strings.CutPrefix(r.URL.EscapedPath(), trimmed)
+	if dec, err := url.PathUnescape(upRaw); !cut || err != nil || dec != upPath {
+		http.Error(w, "bad request path", http.StatusBadRequest)
+		return
+	}
 	if !dest.PathAllowed(upPath) {
 		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", "path not in allow_paths", "path", r.URL.Path)
 		http.Error(w, "path not allowed on this destination", http.StatusForbidden)
@@ -95,7 +103,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out.URL.Host = up.Host
 		out.Host = up.Host
 		out.URL.Path = upPath           // the route prefix stripped
-		out.URL.RawPath = ""            // forward exactly the path allow_paths checked
+		out.URL.RawPath = upRaw         // its escaping kept; decodes to the path allow_paths checked
 		out.Header.Del("Authorization") // never forward a caller's Authorization upstream
 		out.Header.Del(in.Header)       // the identity is Jam's, never the upstream's, whatever header it arrived in
 		if dec.NeedCred {

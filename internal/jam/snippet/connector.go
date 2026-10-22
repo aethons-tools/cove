@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -29,7 +30,8 @@ import (
 // model-specs, or the default spec not seeded): the harness's built-in defaults.
 type Connector struct {
 	Env       map[string]string `json:"env,omitempty"`
-	GitRoute  string            `json:"git_route,omitempty"` // e.g. "/git/"; "" = no git routing
+	GitRoute  string            `json:"git_route,omitempty"`  // e.g. "/git/"; "" = no git routing
+	GitTarget string            `json:"git_target,omitempty"` // the URL prefix GitRoute rewrites; "" = GitRewriteTarget
 	ModelSpec *modelspec.Spec   `json:"model_spec,omitempty"`
 }
 
@@ -96,13 +98,48 @@ func (c Connector) GitConfig(baseURL string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	quote := func(sub string) string { return fmt.Sprintf("%q", sub) }
 	var b strings.Builder
-	fmt.Fprintf(&b, "git config --global %s %s\n", gitRewriteKey(quote(baseURL+c.GitRoute)), GitRewriteTarget)
+	// The target arrives from Jam (GitTarget), so it is single-quoted, never interpreted.
+	target := "'" + strings.ReplaceAll(c.RewriteTarget(), "'", `'\''`) + "'"
+	fmt.Fprintf(&b, "git config --global %s %s\n", gitRewriteKey(quote(baseURL+c.GitRoute)), target)
 	fmt.Fprintf(&b, "git config --global %s %s\n", gitHelperKey(quote(baseURL)), gitHelper)
 	return b.String()
 }
 
-// GitRewriteTarget is the URL prefix a git route rewrites (the insteadOf value).
+// GitRewriteTarget is the URL prefix a git route rewrites (the insteadOf value)
+// when the connector names no GitTarget.
 const GitRewriteTarget = "https://github.com/"
+
+// RewriteTarget is the URL prefix c's git route rewrites: GitTarget, else
+// GitRewriteTarget.
+func (c Connector) RewriteTarget() string {
+	if c.GitTarget != "" {
+		return c.GitTarget
+	}
+	return GitRewriteTarget
+}
+
+// RewriteTargetFor is the URL prefix a git destination with this upstream
+// rewrites, the default included — for showing, where "" would read as nothing.
+func RewriteTargetFor(upstream string) string {
+	return Connector{GitTarget: GitTargetFor(upstream)}.RewriteTarget()
+}
+
+// GitTargetFor is the rewrite target of a git destination with this upstream:
+// its scheme and host (the broker forwards to nothing else), lowercased, with a
+// trailing "/". It is "" for GitRewriteTarget itself — left implicit, so a
+// client predating GitTarget routes github.com unchanged — and for an upstream
+// that does not parse.
+func GitTargetFor(upstream string) string {
+	u, err := url.Parse(upstream)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	t := strings.ToLower(u.Scheme + "://" + u.Host + "/")
+	if t == GitRewriteTarget {
+		return ""
+	}
+	return t
+}
 
 // GitRewriteKey is the git config key whose insteadOf rewrites GitRewriteTarget
 // to baseURL+route; GitHelperKey is the key holding GitHelper for baseURL. Both
