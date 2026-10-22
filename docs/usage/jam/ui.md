@@ -20,7 +20,7 @@ http://127.0.0.1:8081/ui/
 A permanent **rail** lists **Jam**, then every project, then **+ New project**
 ([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
 title; the title bar reads `<name> Jam`); the selection decides the **tabs** over
-the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Intercom · Health**; a project's are
+the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Config · Intercom · Health**; a project's are
 **Overview · Members · Agents · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
 page: its project's Agents; a kit: Jam's Specs) with a breadcrumb below it.
@@ -57,6 +57,7 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 - **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See [Intercom](#intercom).
 - **Health** (`/ui/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).
+- **Config** (`/ui/config`) — the tracked config repo, its managed objects and their drift, Diff/Apply: [ui-config.md](ui-config.md).
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
 

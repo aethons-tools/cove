@@ -98,3 +98,4 @@ A kit config references credentials by name only (no secret values), and a
 destination's `cred-name` (or a model-spec's principal) is a reference, not a secret — the UI shows the name
 but never a credential value. These actions obey the same
 gate, CSRF, and audit-logging as the other edits.
+Objects a config repo manages carry a `managed · config @<commit>` badge, and every write to one asks first — see [ui-config.md](ui-config.md).
