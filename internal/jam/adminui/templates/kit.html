@@ -48,13 +48,13 @@
 {{$name := .Name}}{{$cur := .Current}}{{$sel := .View.N}}
 <div id="kit">
 <div class="page-head">
-  <h1>{{.Name}}</h1>
+  <h1>{{.Name}}</h1>{{template "managed-badge" (managed "kit" .Name)}}
   <span class="chip accent">current v{{.Current}}</span>
   <span class="sub">{{len .Versions}} version(s)</span>
   <span class="spacer"></span>
   {{if or .Uses .UsedByKits .IsDefault}}<button class="danger" disabled title="{{if .IsDefault}}The built-in default kit is re-seeded at serve start{{else}}Roles or kits use this kit — rebind them first{{end}}">Delete</button>
   {{else}}<button class="danger" hx-delete="/ui/kits/{{.Name}}" hx-swap="none"
-      hx-confirm="Delete kit {{.Name}} and all its versions?"
+      hx-confirm="Delete kit {{.Name}} and all its versions?{{with driftNote "kit" .Name}} {{.}}{{end}}"
       hx-on::after-request="if(event.detail.successful) location.href='/ui/kits'">Delete</button>{{end}}
 </div>
 
@@ -65,7 +65,7 @@
       <div class="top">
         <a href="{{kitURL $name}}?v={{.N}}">v{{.N}}</a>
         {{if .Current}}<span class="chip accent">current</span>{{else}}
-        <form hx-post="/ui/kits/{{$name}}/pin" hx-target="#kit" hx-swap="outerHTML" hx-confirm="Make v{{.N}} the current version of {{$name}}? Roles bound to it raise v{{.N}} from now on.">
+        <form hx-post="/ui/kits/{{$name}}/pin" hx-target="#kit" hx-swap="outerHTML" hx-confirm="Make v{{.N}} the current version of {{$name}}? Roles bound to it raise v{{.N}} from now on.{{with driftNote "kit" $name}} {{.}}{{end}}">
           <input type="hidden" name="version" value="{{.N}}"><button class="small" type="submit">Pin</button></form>{{end}}
       </div>
       <div class="links">
@@ -162,9 +162,9 @@
         </dl>
         {{if $.CanSource}}
         <div class="form-actions">
-          <button class="small primary" hx-post="/ui/kits/{{$name}}/sync" hx-disabled-elt="this" hx-target="#kit" hx-swap="outerHTML">Sync</button>
+          <button class="small primary" hx-post="/ui/kits/{{$name}}/sync" hx-disabled-elt="this" hx-target="#kit" hx-swap="outerHTML"{{with driftNote "kit" $name}} hx-confirm="{{.}} Sync anyway?"{{end}}>Sync</button>
           <button class="small danger" hx-delete="/ui/kits/{{$name}}/source" hx-target="#kit" hx-swap="outerHTML"
-            hx-confirm="Stop tracking the source of {{$name}}? Its versions are kept.">Untrack</button>
+            hx-confirm="Stop tracking the source of {{$name}}? Its versions are kept.{{with driftNote "kit" $name}} {{.}}{{end}}">Untrack</button>
         </div>
         {{end}}
         {{else}}
@@ -175,7 +175,7 @@
       {{if and $.CanSource (not .Source)}}
       <details class="edit">
         <summary>Track…</summary>
-        <form hx-post="/ui/kits/{{$name}}/source" hx-disabled-elt="find button[type=submit]" hx-target="#kit" hx-swap="outerHTML">
+        <form hx-post="/ui/kits/{{$name}}/source" hx-disabled-elt="find button[type=submit]" hx-target="#kit" hx-swap="outerHTML"{{with driftNote "kit" $name}} hx-confirm="{{.}} Track anyway?"{{end}}>
           <label>Source <span class="hint"><code>https://host/org/repo[//dir]@ref</code> — imports it as a new version of {{$name}} and tracks it for Sync</span>
             <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/kits//web@main"></label>
           <div class="form-actions"><button type="submit" class="primary">Track</button></div>
@@ -202,7 +202,7 @@
     <section class="card">
       <details class="edit">
         <summary>Push new version</summary>
-        <form hx-post="/ui/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML">
+        <form hx-post="/ui/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML"{{with driftNote "kit" .Name}} hx-confirm="{{.}} Push anyway?"{{end}}>
           <label>Studio kit YAML <span class="hint">pre-filled with v{{.View.N}}; pushing makes a new current version (an unchanged kit makes none)</span>
             <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.Raw}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
           <div class="form-actions"><button type="submit" class="primary">Push version</button></div>

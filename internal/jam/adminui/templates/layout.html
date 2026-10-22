@@ -99,6 +99,7 @@
     .chip.accent{background:var(--accent-soft);color:var(--accent);font-weight:600}
     .chip button{background:none;border:0;color:var(--faint);cursor:pointer;padding:0 0 0 2px;font-size:14px;line-height:1}
     .chip button:hover{color:var(--bad)}
+    .chip.managed{background:var(--accent-soft);color:var(--accent);text-decoration:none}
     .none{color:var(--faint)}
 
     /* Buttons */
@@ -388,6 +389,8 @@
 {{/* badge renders an attention badge (an attnBadge): its count, red when
      anything in it is broken, the breakdown on hover; nothing when zero. */}}
 {{define "badge"}}{{if .N}} <span class="badge{{if .Red}} red{{end}}" title="{{.Title}}">{{.N}}</span>{{end}}{{end}}
+{{/* A config-managed object's badge (managed.go); links the Config page. */}}
+{{define "managed-badge"}}{{with .}}<a class="chip managed" href="/ui/config" title="Applied from the config repo {{.Applied}}; edits here drift from it">managed · config @{{.Commit}}</a>{{end}}{{end}}
 
 {{/* attn-flag marks a row an attention item names (an *attnItem or nil). */}}
 {{define "attn-flag"}}{{with .}} <span class="attn-flag{{if eq .Kind "broken"}} red{{end}}" title="{{.Why}}">⚠</span>{{end}}{{end}}

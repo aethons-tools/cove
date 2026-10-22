@@ -33,11 +33,11 @@
 {{define "spec-body"}}
 <div id="spec">
 <div class="page-head">
-  <h1>{{.Spec.Name}}</h1>
+  <h1>{{.Spec.Name}}</h1>{{template "managed-badge" (managed "model-spec" .Spec.Name)}}
   <span class="mono sub">{{.Spec.Type}} {{.Spec.Version}}</span>
   <span class="spacer"></span>
   <button class="danger" hx-delete="/ui/model-specs/{{.Spec.Name}}" hx-swap="none"
-      hx-confirm="Delete model-spec {{.Spec.Name}}?"
+      hx-confirm="Delete model-spec {{.Spec.Name}}?{{with driftNote "model-spec" .Spec.Name}} {{.}}{{end}}"
       hx-on::after-request="if(event.detail.successful) location.href='/ui/model-specs'">Delete</button>
 </div>
 
@@ -90,7 +90,7 @@
     {{else}}<div class="body"><span class="unset">No body.</span></div>{{end}}
     <details class="edit">
       <summary>Edit model-spec</summary>
-      <form hx-post="/ui/model-specs/{{.Spec.Name}}" hx-target="#spec" hx-swap="outerHTML">
+      <form hx-post="/ui/model-specs/{{.Spec.Name}}" hx-target="#spec" hx-swap="outerHTML"{{with driftNote "model-spec" .Spec.Name}} hx-confirm="{{.}} Save anyway?"{{end}}>
         {{template "spec-fields" .}}
         <div class="form-actions"><button type="submit" class="primary">Save model-spec</button></div>
       </form>

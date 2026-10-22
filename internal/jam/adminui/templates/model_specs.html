@@ -26,7 +26,7 @@
       <td>{{with .Claude}}<span class="mono">{{.Provider}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{with index $.UsedBy .Name}}{{.}}{{else}}<span class="none">0</span>{{end}}</td>
       <td class="actions"><button class="danger small" hx-delete="/ui/model-specs/{{.Name}}" hx-target="#model-specs" hx-swap="outerHTML"
-          hx-confirm="Delete model-spec {{.Name}}?">Delete</button></td>
+          hx-confirm="Delete model-spec {{.Name}}?{{with driftNote "model-spec" .Name}} {{.}}{{end}}">Delete</button></td>
     </tr>
     {{else}}
     <tr><td colspan="9" class="empty">No model-specs.</td></tr>

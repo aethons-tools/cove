@@ -87,6 +87,7 @@ type frame struct {
 	Rail    railView
 	All     []attnItem
 	Items   []attnItem
+	Marks   map[jam.ConfigKey]jam.ConfigMark // the managed marks: badges and drift warnings
 }
 
 // buildRail lays out the rail with the scope kind current (for a project,
@@ -129,7 +130,7 @@ func railFor(r *http.Request, src frameSource, items []attnItem) railView {
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	items := src.items()
-	f := frame{Kind: meta.Kind, All: items, Brand: src.brand()}
+	f := frame{Kind: meta.Kind, All: items, Brand: src.brand(), Marks: src.marks()}
 	if meta.Kind == scopeJam && meta.Tab == "agents" {
 		if p := r.URL.Query().Get("project"); p != "" {
 			if _, ok := src.store.GetProject(p); ok {
@@ -210,6 +211,15 @@ type frameSource struct {
 // attention()'s.
 func (s frameSource) items() []attnItem {
 	return append(conditionItems(s.conds.Open()), attention(s.store, s.img)...)
+}
+
+// marks is every managed mark by object.
+func (s frameSource) marks() map[jam.ConfigKey]jam.ConfigMark {
+	out := map[jam.ConfigKey]jam.ConfigMark{}
+	for _, mk := range s.store.ListConfigMarks() {
+		out[mk.Key()] = mk
+	}
+	return out
 }
 
 // jamName is what the rail and Jam's scope call this Jam: its display name,
