@@ -394,8 +394,11 @@ func (t sshTarget) sshOptions() [][2]string {
 	}
 }
 
+// sshBlockBeginPrefix starts every studio's begin marker.
+const sshBlockBeginPrefix = "# >>> at-jam "
+
 func sshBlockMarkers(studio string) (begin, end string) {
-	return "# >>> at-jam " + studio + " >>>", "# <<< at-jam " + studio + " <<<"
+	return sshBlockBeginPrefix + studio + " >>>", "# <<< at-jam " + studio + " <<<"
 }
 
 // sshConfigBlock is t's Host block, between marker comments. It ends with
@@ -455,7 +458,8 @@ func installSSHConfigBlock(studio, block string) (string, error) {
 
 // spliceSSHConfigBlock returns config (LF line endings) with block in place
 // of the studio's marked block, or inserted before the first line that is not
-// blank or a comment.
+// blank or a comment — or that opens another studio's block (its marker is a
+// comment, but the block must not be split).
 func spliceSSHConfigBlock(config, studio, block string) (string, error) {
 	begin, end := sshBlockMarkers(studio)
 	lines := strings.SplitAfter(config, "\n")
@@ -481,7 +485,7 @@ func spliceSSHConfigBlock(config, studio, block string) (string, error) {
 	}
 	at := len(lines)
 	for i, l := range lines {
-		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") || strings.HasPrefix(t, sshBlockBeginPrefix) {
 			at = i
 			break
 		}
