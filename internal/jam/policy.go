@@ -74,7 +74,8 @@ func (d Destination) ClientEnv() map[string]string {
 	return out
 }
 
-// GitRouted reports whether studios route github.com through this destination:
+// GitRouted reports whether studios route git for this destination's upstream
+// host (snippet.GitTargetFor; github.com for the legacy route) through it:
 // set explicitly, or implied by the legacy /git/ route on a destination without Env.
 func (d Destination) GitRouted() bool {
 	return d.Git || (d.Env == nil && d.Route == "/git/")

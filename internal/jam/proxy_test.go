@@ -316,3 +316,43 @@ func TestBrokerStripsInboundIdentityHeader(t *testing.T) {
 		})
 	}
 }
+
+// The broker forwards the path exactly as the client escaped it: a GitLab API
+// call names a project as "group%2Fsub%2Frepo", and decoding that to slashes
+// makes it a different (missing) resource upstream.
+func TestBrokerForwardsEscapedPath(t *testing.T) {
+	var gotRaw string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRaw = r.URL.EscapedPath()
+		io.WriteString(w, "ok")
+	}))
+	defer up.Close()
+	b, _, tok := newTestBroker(t, "http://unused", up.URL)
+	req := httptest.NewRequest("GET", "/git/api/v4/projects/nuclear%2Fnuclear-nexus%2Fnexus/merge_requests", nil)
+	req.SetBasicAuth("x-access-token", tok)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if want := "/api/v4/projects/nuclear%2Fnuclear-nexus%2Fnexus/merge_requests"; gotRaw != want {
+		t.Fatalf("upstream path = %q, want %q", gotRaw, want)
+	}
+}
+
+// A route whose prefix arrives percent-encoded matches on the decoded path but
+// has no literal prefix to strip from the escaped one: refused, never forwarded
+// with the route still attached.
+func TestBrokerRefusesEncodedRoutePrefix(t *testing.T) {
+	var hits int
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer up.Close()
+	b, _, tok := newTestBroker(t, "http://unused", up.URL)
+	req := httptest.NewRequest("GET", "/%67it/acme/api/info/refs", nil)
+	req.SetBasicAuth("x-access-token", tok)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || hits != 0 {
+		t.Fatalf("status = %d, upstream hits = %d; want 400 and none", rec.Code, hits)
+	}
+}

@@ -66,7 +66,7 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 			if c.GitRoute != "" && c.GitRoute != d.Route {
 				return snippet.Connector{}, fmt.Errorf("more than one git destination in scope (%s, %s)", c.GitRoute, d.Route)
 			}
-			c.GitRoute = d.Route
+			c.GitRoute, c.GitTarget = d.Route, snippet.GitTargetFor(d.Upstream)
 		}
 	}
 	spec, err := ModelSpecFor(store, a)

@@ -4,7 +4,7 @@ read_when: You are adding a destination a studio needs client-side setup for (en
 owns: destination `env`/`git`, the template placeholders, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
 prereqs: serve.md#destinations for destinations; roster.md for which destinations a role's scope allows
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-22
 ---
 
 # The studio connector (destination env)
@@ -26,9 +26,12 @@ at-jam destination add --name github-api --route /api/v3/ --upstream https://api
   `https://<jam host>`, `{host}` = the Jam host, `{token}` = the studio's
   identity token. Keys must be env-var names; `AT_JAM_*`/`AT_HARBOR_*` are
   reserved. Validated at add time.
-- `--git` routes the studio's `https://github.com/` through this destination's
-  route (insteadOf + a credential helper that reads the token from env — no
-  secret in gitconfig).
+- `--git` routes the studio's git for the destination's **upstream host**
+  through its route (insteadOf + a credential helper that reads the token from
+  env — no secret in gitconfig): upstream `https://github.com` rewrites
+  `https://github.com/`, upstream `https://gitlab.example.com` rewrites
+  `https://gitlab.example.com/`. Only the scheme and host count (the broker
+  forwards to nothing else).
 - **The token never sits in a template, the store, or a log.** Clients
   substitute it in memory, or render it as `$AT_JAM_IDENTITY_TOKEN` in a
   sourced snippet.
@@ -59,7 +62,9 @@ fail closed, never a silent pick.
 - **Host-side clients** (at-cove connect, teammates, dispatch) call
   `GET /connector` on the broker listener with the identity as a bearer (or
   `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still
-  unexpanded, `{url}` already resolved to `{base}<route>`. Unknown/expired
+  unexpanded, `{url}` already resolved to `{base}<route>`. A git destination on
+  a host other than github.com adds `"git_target": "https://<host>/"`; its
+  absence means `https://github.com/`, so older clients keep routing GitHub. Unknown/expired
   identity → 401; a conflict → 409. Against a Jam without the endpoint (404),
   clients fall back to the legacy Anthropic + git contract. The response also
   carries `model_spec`, the identity's roles' resolved

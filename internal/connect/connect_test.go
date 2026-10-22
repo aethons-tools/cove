@@ -525,7 +525,7 @@ func TestConnect_JamSupersedesAndInjects(t *testing.T) {
 	// git was routed through Jam (token-free config over ssh stdin).
 	routed := false
 	for _, c := range r.Calls {
-		if strings.Contains(c.Stdin, `url."https://jam.test/git/".insteadOf https://github.com/`) {
+		if strings.Contains(c.Stdin, `url."https://jam.test/git/".insteadOf 'https://github.com/'`) {
 			routed = true
 		}
 	}

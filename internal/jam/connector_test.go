@@ -113,3 +113,18 @@ func TestConnectorForRejectsInvalidEnv(t *testing.T) {
 		t.Fatal("a reserved env key must fail the connector")
 	}
 }
+
+// A git destination's rewrite target is its upstream host; github.com stays
+// implicit (GitTarget "") so a pre-target client applies it unchanged.
+func TestConnectorForGitTargetFromUpstream(t *testing.T) {
+	gitlab := Destination{Name: "gitlab-git", Route: "/gitlab-git/", Upstream: "https://gitlab.example.com", Git: true,
+		IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}
+	st := connectorStore(t, []Destination{legacyGit, gitlab},
+		map[string]Scope{"gh": {Destinations: []string{"git"}}, "gl": {Destinations: []string{"gitlab-git"}}})
+	if c, err := ConnectorFor(st, actorWith("gl")); err != nil || c.GitRoute != "/gitlab-git/" || c.GitTarget != "https://gitlab.example.com/" {
+		t.Fatalf("gitlab connector = %+v, %v", c, err)
+	}
+	if c, err := ConnectorFor(st, actorWith("gh")); err != nil || c.GitRoute != "/git/" || c.GitTarget != "" {
+		t.Fatalf("github connector = %+v, %v", c, err)
+	}
+}

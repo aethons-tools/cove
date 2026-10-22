@@ -21,12 +21,12 @@ type fakeSource struct {
 func (f *fakeSource) Fetch(context.Context) (snippet.Connector, error) { return f.c, f.err }
 
 type fakeGit struct {
-	calls [][3]string
+	calls [][4]string
 	err   error // returned by every Route call while set
 }
 
-func (g *fakeGit) Route(base, oldR, newR string) error {
-	g.calls = append(g.calls, [3]string{base, oldR, newR})
+func (g *fakeGit) Route(base, oldR, newR, newTarget string) error {
+	g.calls = append(g.calls, [4]string{base, oldR, newR, newTarget})
 	return g.err
 }
 
@@ -121,7 +121,7 @@ func TestConnectorGitOnlyOnRouteChange(t *testing.T) {
 	}
 	src.c = snippet.Connector{GitRoute: "/git2/"}
 	r.prepare(context.Background())
-	if len(git.calls) != 1 || git.calls[0] != [3]string{"https://jam.example", "/git/", "/git2/"} {
+	if len(git.calls) != 1 || git.calls[0] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("git calls = %v", git.calls)
 	}
 }
@@ -145,7 +145,7 @@ func TestConnectorGitFailureReportsRouteInEffect(t *testing.T) {
 	}
 	git.err = nil
 	_, fp, changed = r.prepare(context.Background())
-	if len(git.calls) != 2 || git.calls[1] != [3]string{"https://jam.example", "/git/", "/git2/"} {
+	if len(git.calls) != 2 || git.calls[1] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("route not retried: %v", git.calls)
 	}
 	if fp != snippet.Fingerprint(want) || !changed {
@@ -163,7 +163,7 @@ func TestConnectorFetchFailureRetriesPendingRoute(t *testing.T) {
 	r.prepare(context.Background())
 	src.err, git.err = errors.New("jam down"), nil
 	_, fp, changed := r.prepare(context.Background())
-	if len(git.calls) != 2 || git.calls[1] != [3]string{"https://jam.example", "/git/", "/git2/"} {
+	if len(git.calls) != 2 || git.calls[1] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("pending route not retried on fetch failure: %v", git.calls)
 	}
 	if fp != snippet.Fingerprint(want) || !changed {
@@ -204,5 +204,26 @@ func TestHTTPConnectorSourceHonorsContext(t *testing.T) {
 	cancel()
 	if _, err := HTTPConnectorSource(srv.URL, "TOK").Fetch(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Fetch on a cancelled ctx = %v, want context.Canceled", err)
+	}
+}
+
+// A git destination whose upstream changes host keeps its route but must
+// rewrite the new host: the target is part of what is applied.
+func TestConnectorReroutesOnTargetChange(t *testing.T) {
+	initial := snippet.Connector{GitRoute: "/git/"}
+	src := &fakeSource{c: snippet.Connector{GitRoute: "/git/", GitTarget: "https://gitlab.example.com/"}}
+	git := &fakeGit{}
+	r := newRefresher(src, git, initial, nil)
+	_, fp, _ := r.prepare(context.Background())
+	want := [4]string{"https://jam.example", "/git/", "/git/", "https://gitlab.example.com/"}
+	if len(git.calls) != 1 || git.calls[0] != want {
+		t.Fatalf("git calls = %v, want [%v]", git.calls, want)
+	}
+	if fp != snippet.Fingerprint(src.c) {
+		t.Fatal("fingerprint does not report the applied target")
+	}
+	r.prepare(context.Background())
+	if len(git.calls) != 1 {
+		t.Fatalf("unchanged route+target rewrote git again: %v", git.calls)
 	}
 }

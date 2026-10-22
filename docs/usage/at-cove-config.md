@@ -4,7 +4,7 @@ read_when: You are authoring or editing a kit's .at-cove/config.yml — setting 
 owns: "the config.yml schema: name, source-control, tracker, dispatch, model-spec (plain-at-cove loader rules), jam, workers, collaborators, teammates, secrets, docker, image (+ validation)"
 prereqs: ../OVERVIEW.md — what at-cove is and the kit/build model; at-cove-secrets.md — secret demand + supply
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-22
 ---
 
 # at-cove `config.yml`
@@ -449,7 +449,8 @@ git stays on at-task's minted code-host token — a global Jam rewrite would
 misroute `prepare`/`complete`); chat and teammates also route git when the
 connector does. A
 teammate is detached, so it requires a **pre-supplied `identity`** (auto-enroll is
-chat/worker-only). The `git` connector rewrites `github.com` only.
+chat/worker-only). The `git` connector rewrites its destination's upstream host
+(`github.com` for the default `/git/`; see [connector.md](jam/connector.md)).
 
 `jam:` is **mutually exclusive with `model-spec`** (Jam supersedes the
 agent's Anthropic auth, and a Jam cove's model-spec comes from its role binding). With `jam:` set, the first-session **auto-clone is

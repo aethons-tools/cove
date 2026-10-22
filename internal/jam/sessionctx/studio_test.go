@@ -142,3 +142,10 @@ func TestStudioWildcardEgress(t *testing.T) {
 		t.Fatalf("wildcard rendering:\n%s", c)
 	}
 }
+
+func TestStudioCoreNamesTheRoutedGitHost(t *testing.T) {
+	f := StudioFacts{Destinations: []StudioDestination{{Name: "gitlab-git", Upstream: "https://gitlab.example.com", Git: true}}}
+	if l := Studio(f); !strings.Contains(l.Core, "https://gitlab.example.com/ is routed through Jam") || strings.Contains(l.Core, "github.com") {
+		t.Fatalf("core:\n%s", l.Core)
+	}
+}

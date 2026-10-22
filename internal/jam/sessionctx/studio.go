@@ -3,6 +3,8 @@ package sessionctx
 import (
 	"fmt"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // StudioDestination is one granted destination as a session should see it:
@@ -10,7 +12,7 @@ import (
 type StudioDestination struct {
 	Name, Upstream string
 	EnvKeys        []string // sorted env var names the connector sets
-	Git            bool     // https://github.com/ is routed through it
+	Git            bool     // git for its upstream host (e.g. https://github.com/) is routed through it
 	Note           string   // Destination.Note
 }
 
@@ -100,7 +102,7 @@ func studioDestinations(f StudioFacts) string {
 			fmt.Fprintf(&b, "; env %s", strings.Join(d.EnvKeys, ", "))
 		}
 		if d.Git {
-			b.WriteString("; https://github.com/ is routed through Jam")
+			fmt.Fprintf(&b, "; %s is routed through Jam", oneLine(snippet.RewriteTargetFor(d.Upstream)))
 		}
 		if n := oneLine(d.Note); n != "" {
 			b.WriteString(" — " + n)
