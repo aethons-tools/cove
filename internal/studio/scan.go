@@ -23,7 +23,11 @@ import (
 //   - a root Dockerfile is present.
 //
 // It extracts nothing — docker owns the actual extraction; this only gates.
-func ScanContextTar(b []byte) error {
+func ScanContextTar(b []byte) error { return walkContextTar(b, nil) }
+
+// walkContextTar is ScanContextTar's walk; file, when non-nil, is handed each
+// regular file's header and its (capped) content, which it may read.
+func walkContextTar(b []byte, file func(hdr *tar.Header, r io.Reader) error) error {
 	gr, err := gzip.NewReader(bytes.NewReader(b))
 	if err != nil {
 		return fmt.Errorf("base.context: not a readable gzip: %w", err)
@@ -70,11 +74,16 @@ func ScanContextTar(b []byte) error {
 		// Count the ACTUAL decompressed bytes (not the header's Size), bounding the
 		// read so a lying header or a decompression bomb trips the cap instead of
 		// filling memory.
-		n, err := io.Copy(io.Discard, io.LimitReader(tr, int64(maxDecompressedZip)-total+1))
-		if err != nil {
+		cr := &countReader{r: io.LimitReader(tr, int64(maxDecompressedZip)-total+1)}
+		if file != nil {
+			if err := file(hdr, cr); err != nil {
+				return err
+			}
+		}
+		if _, err := io.Copy(io.Discard, cr); err != nil {
 			return fmt.Errorf("base.context: %w", err)
 		}
-		total += n
+		total += cr.n
 		if total > int64(maxDecompressedZip) {
 			return fmt.Errorf("base.context: decompressed size exceeds the %d-byte cap", maxDecompressedZip)
 		}
@@ -94,4 +103,16 @@ func hasDotDotComponent(name string) bool {
 		}
 	}
 	return false
+}
+
+// countReader counts the bytes read through it.
+type countReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -190,5 +191,28 @@ func TestUnpackAcceptsFullArchiveWithLongNames(t *testing.T) {
 	}
 	if err := Unpack(bytes.NewReader(tarGz(t, entries)), t.TempDir()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Unpack sets each file's mode past the serve's umask, so a kit context's
+// 0644 and 0755 files repack (studio.PackContextDir) to the same bytes.
+func TestUnpackModesPastUmask(t *testing.T) {
+	src := t.TempDir()
+	mustWrite(t, filepath.Join(src, "a"), "a", 0o644)
+	mustWrite(t, filepath.Join(src, "run.sh"), "#!/bin/sh\n", 0o755)
+	tarball, err := Pack(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	dst := t.TempDir()
+	if err := Unpack(bytes.NewReader(tarball), dst); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]os.FileMode{"a": 0o644, "run.sh": 0o755} {
+		if fi, err := os.Stat(filepath.Join(dst, name)); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: %v %v, want %o", name, fi, err, want)
+		}
 	}
 }

@@ -170,7 +170,8 @@ func entryName(raw string) (string, error) {
 	return path.Clean(name), nil
 }
 
-// writeFile writes r to name under root, reading at most left+1 bytes so an
+// writeFile writes r to name under root at mode (past the umask, over an
+// existing file's mode), reading at most left+1 bytes so an
 // entry larger than its header claims still trips the cap.
 func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader, left int64) (int64, error) {
 	if dir := path.Dir(name); dir != "." {
@@ -183,6 +184,9 @@ func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader, left i
 		return 0, fmt.Errorf("config tree: %s: %w", name, err)
 	}
 	n, err := io.Copy(f, io.LimitReader(r, left+1))
+	if err == nil { // the mode past the umask: a kit's context-dir packs its files' modes
+		err = f.Chmod(mode)
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}

@@ -479,8 +479,20 @@ func (fs *capFS) Create(name string) (billy.File, error) {
 	return fs.wrap(fs.Filesystem.Create(name))
 }
 
+// OpenFile opens name; a file it creates gets exactly perm (git's 0644 or
+// 0755), past the serve's umask, so a context-dir in the checkout packs the
+// same bytes on every serve.
 func (fs *capFS) OpenFile(name string, flag int, perm os.FileMode) (billy.File, error) {
-	return fs.wrap(fs.Filesystem.OpenFile(name, flag, perm))
+	f, err := fs.Filesystem.OpenFile(name, flag, perm)
+	if err == nil && flag&os.O_CREATE != 0 {
+		if ch, ok := fs.Filesystem.(billy.Chmod); ok { // not billy.Change: the chroot helper has Chmod alone
+			if cerr := ch.Chmod(name, perm); cerr != nil {
+				_ = f.Close()
+				return nil, cerr
+			}
+		}
+	}
+	return fs.wrap(f, err)
 }
 
 func (fs *capFS) TempFile(dir, prefix string) (billy.File, error) {

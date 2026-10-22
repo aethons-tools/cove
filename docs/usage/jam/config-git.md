@@ -22,6 +22,7 @@ jam.yml                          portable serve settings (see serve.md)
 context.md                       Jam-wide session context
 destinations/<n>.yml  model-specs/<n>.yml  users/<n>.yml  connections/<n>.yml
 kits/<n>/kit.yml                 today's studio-kit format
+kits/<n>/context/…               its build context, as files (base.context-dir: context)
 kits/<n>.source.yml              or a reference to the kit's own git source
 projects/<n>/project.yml  projects/<n>/context.md  projects/<n>/roles/<r>.yml
 ```
@@ -77,23 +78,23 @@ body; the core's trailing newlines are trimmed and one is written. A core
 that opens with `---` and has no leaves is written after empty front matter
 (`---` twice) so it reads back as the core.
 
-Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/`
-(`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` is
-refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are
-per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
-<ref> pins a version; versions are per-Jam — name the kit or use a path
-parent`. Versions
-written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
-and commit).
-`config write` renders a kit's parent as a path parent only when its pin
-equals the parent's current version (apply re-pins to current). A kit the
-write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the write (409 on the route): `kit <child> pins <parent>@v<N>
-but <parent> is at v<M>; versions are per-Jam — re-push <child> against v<M>
-(or pin <parent> to v<N>) before config write`.
+Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/` (`base: {kit: ../web-dev}`) rewritten to `name@vN`
+on apply. An `@vN` is refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are per-Jam — name the kit`;
+in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit <ref> pins a version; versions are per-Jam — name the kit or use a path
+parent`. Versions written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
+and commit). A packed `base.context` is written as files in `kits/<n>/context/` (bytes, 0644/0755 modes) with
+`base.context-dir: context`; loading repacks them to the identical context, so write → apply is `unchanged`. A context no
+directory can reproduce (hand-made tar, other modes), or past the upload limits below, stays inline (named on stderr) and
+its `context/` is left alone; write prunes only the `context/` of kits it writes as files plus managed kits gone from Jam
+(not files its `.dockerignore` excludes). Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
+a non-022 umask gets one new version on its next sync.
+`config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
+re-pins to current). A kit the write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the
+write (409 on the route): `kit <child> pins <parent>@v<N> but <parent> is at v<M>; versions are per-Jam — re-push <child>
+against v<M> (or pin <parent> to v<N>) before config write`.
 
-**Never in the repo:** token hashes, actors, grants, OIDC identities,
-accounts, instances, intercom state, channel membership, pool state,
-credential values, the legacy roster. The file types have no field for them.
+**Never in the repo:** token hashes, actors, grants, OIDC identities, accounts, instances, intercom state, channel
+membership, pool state, credential values, the legacy roster. The file types have no field for them.
 
 ## The verbs
 
@@ -107,10 +108,8 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 | `config release <kind>/<name>` | Clear the object's managed mark (a role is `role/<project>/<role>`): the object stays, unmanaged — the next plan lists it as unmanaged, or adopts or refuses it if the repo still holds it. Not managed: exit 1 (`<kind> <name> is not managed`). |
 | `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). |
 
-Operator loop: `config write --all` once, `git diff`, commit; afterwards edit,
-`config diff`, `config apply`. A plan with no create/update/delete/adopt
-and no `forget` prints `nothing to apply` and does not prompt; it still sends the apply, which refreshes the marks of unchanged objects (after a `config write`, say). Without `--dir`, diff and apply use `--git` or the
-tracked source.
+Operator loop: `config write --all` once, `git diff`, commit; afterwards edit, `config diff`, `config apply`. A plan with
+no create/update/delete/adopt and no `forget` prints `nothing to apply` and does not prompt; it still sends the apply, which refreshes the marks of unchanged objects (after a `config write`, say). Without `--dir`, diff and apply use `--git` or the tracked source.
 
 ## The plan
 
@@ -169,7 +168,7 @@ otherwise updated.
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
-| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. |
+| `GET /admin/config/export-tree?all=1&contexts=files` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. `contexts=files` (what `config write` sends) adds `binary` (kit context files: base64 `data` + `mode`), `prune` (the `context` dirs to prune) and `inline` (kits kept inline); without it contexts stay inline in kit.yml. |
 | `DELETE /admin/config/managed/{kind}/{name...}` | Release a mark (204); unknown kind 400, not managed 404.  |
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a
