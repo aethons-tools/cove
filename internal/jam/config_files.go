@@ -186,9 +186,12 @@ type configFile interface {
 // configObject is one object in canonical form; Canon is canonFiles(Files),
 // except a kit's, which is its stored config JSON.
 type configObject struct {
-	Key   ConfigKey
-	Files map[string][]byte
-	Canon []byte
+	Key    ConfigKey
+	Files  map[string][]byte
+	Binary map[string]ConfigFileBlob // a kit's context-dir files, by repo path
+	Canon  []byte
+	// inlineContext: a kit rendered with its context inline in kit.yml.
+	inlineContext bool
 }
 
 func newConfigObject(f configFile) configObject {
@@ -773,6 +776,13 @@ func ParseKitSourceFile(path, name string, data []byte) (KitSourceFile, gitsourc
 
 // sourceKitPath is the repo file of a kit kept by reference.
 func sourceKitPath(name string) string { return "kits/" + name + ".source.yml" }
+
+// kitContextDir is the base.context-dir a written kit's context is rendered
+// to, relative to its kit.yml.
+const kitContextDir = "context"
+
+// kitContextPath is the repo dir of kit name's rendered context.
+func kitContextPath(name string) string { return "kits/" + name + "/" + kitContextDir }
 
 // renderKitSourceFile renders a tracked kit's reference (its commit is Jam's,
 // not the repo's).

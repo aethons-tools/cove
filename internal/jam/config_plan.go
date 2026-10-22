@@ -136,7 +136,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 		in.Tree = &ConfigTree{}
 	}
 	m := stateFromSnapshot(in.Snapshot, in.Instances)
-	live, err := exportObjects(m, nil)
+	live, err := exportObjects(m, nil, false)
 	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{},
 		paths: map[ConfigKey]string{}}
 	if err != nil {

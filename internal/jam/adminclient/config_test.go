@@ -1,6 +1,7 @@
 package adminclient
 
 import (
+	"bytes"
 	"errors"
 	"log/slog"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -95,5 +97,42 @@ func TestConfigSourceMethods(t *testing.T) {
 	}
 	if _, err := c.ConfigSync(false, ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("sync after untrack = %v, want ErrConflict", err)
+	}
+}
+
+// ConfigExportTree decodes a context kit's files, binary content and modes.
+func TestConfigExportTreeBinary(t *testing.T) {
+	store := jam.NewMemStore()
+	log := slog.New(slog.DiscardHandler)
+	creds := func(string) bool { return true }
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+		jam.WithConfig(store, nil, jam.ConfigEnv{CredExists: creds}, log)))
+	defer ts.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.bin"), []byte{0xff, 0x00}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "b.bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b64, err := studio.PackContextDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := jam.PushStudioKit(store, "k", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := New(ts.URL, "").ConfigExportTree(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := exp.Binary["kits/k/context/b.bin"]; !bytes.Equal(b.Data, []byte{0xff, 0x00}) || b.Mode != 0o755 {
+		t.Fatalf("blob %+v", b)
+	}
+	if len(exp.Prune) != 1 || exp.Prune[0] != "kits/k/context" {
+		t.Fatalf("prune %v", exp.Prune)
 	}
 }

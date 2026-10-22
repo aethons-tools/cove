@@ -20,7 +20,22 @@ import (
 // Option configures Serve.
 type Option func(*config)
 
-type config struct{ user, pass string }
+type config struct {
+	user, pass string
+	exec       map[string]bool
+}
+
+// WithExec commits the named files (slash paths) executable (git mode 100755).
+func WithExec(names ...string) Option {
+	return func(c *config) {
+		if c.exec == nil {
+			c.exec = map[string]bool{}
+		}
+		for _, n := range names {
+			c.exec[n] = true
+		}
+	}
+}
 
 // WithAuth requires HTTP Basic auth with exactly user and pass.
 func WithAuth(user, pass string) Option {
@@ -63,6 +78,11 @@ func Serve(t testing.TB, files map[string]string, opts ...Option) (url, commit s
 			}
 			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 				t.Fatal(err)
+			}
+			if cfg.exec[name] {
+				if err := os.Chmod(p, 0o755); err != nil {
+					t.Fatal(err)
+				}
 			}
 		}
 		run(t, work, "git", "add", "-A")

@@ -237,7 +237,7 @@ func TestExportRendersTrackedKitAsSourceFile(t *testing.T) {
 
 func TestKitCanonCarriesTrackedSource(t *testing.T) {
 	st, _ := trackedFixture(t)
-	objs, err := exportObjects(stateFromSnapshot(st.ExportConfig(), nil), nil)
+	objs, err := exportObjects(stateFromSnapshot(st.ExportConfig(), nil), nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

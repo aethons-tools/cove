@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -52,8 +54,9 @@ func (m *memState) userNameOf(id ident.ID) (string, bool) {
 // names; tombstones, archived rooms and empty context layers skipped). A
 // kit's name@vN parent ref to a kit inTree reports renders as ../<name>.
 // A non-nil inTree also limits the kits to those it reports (the ones an
-// export writes); nil (the planner) renders every kit.
-func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]configObject, error) {
+// export writes); nil (the planner) renders every kit. contextFiles renders
+// a kit's packed context as context-dir files (renderKitFile).
+func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (map[ConfigKey]configObject, error) {
 	out := map[ConfigKey]configObject{}
 	add := func(f configFile) { o := newConfigObject(f); out[o.Key] = o }
 
@@ -101,14 +104,14 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 				Canon: kitCanon(cfg, k.Source)}
 			continue
 		}
-		b, err := renderKitFile(m, n, cfg, inTree)
+		b, ctx, inline, err := renderKitFile(m, n, cfg, inTree, contextFiles)
 		if errors.Is(err, ErrConfigKitPinBehind) {
 			return nil, err
 		}
 		if err != nil {
 			return nil, fmt.Errorf("kit %s: %w", n, err)
 		}
-		out[key] = configObject{Key: key, Files: map[string][]byte{key.Path(): b}, Canon: kitCanon(cfg, nil)}
+		out[key] = configObject{Key: key, Files: map[string][]byte{key.Path(): b}, Binary: ctx, inlineContext: inline, Canon: kitCanon(cfg, nil)}
 	}
 	return out, nil
 }
@@ -219,33 +222,78 @@ func (e *kitPinSourceError) Unwrap() error { return ErrConfigKitPinBehind }
 // renderKitFile renders kit name's stored config as kits/<n>/kit.yml. A
 // parent in the tree is written as a path parent, which apply re-pins to the
 // parent's current version — so only a pin equal to it can be; an older pin
-// is ErrConfigKitPinBehind.
-func renderKitFile(m *memState, name, config string, inTree func(string) bool) ([]byte, error) {
+// is ErrConfigKitPinBehind. With contextFiles, a packed base.context is rendered as files under
+// kits/<n>/context/ (returned by repo path) that kit.yml names as its
+// base.context-dir — loading the tree packs them back to the same bytes;
+// one no context-dir reproduces (studio.ContextDirFiles) stays inline, as
+// inline reports.
+func renderKitFile(m *memState, name, config string, inTree func(string) bool, contextFiles bool) (yml []byte, ctx map[string]ConfigFileBlob, inline bool, err error) {
 	sk, err := studio.ParseStudioKit([]byte(config))
 	if err != nil {
-		return nil, err
+		return nil, nil, false, err
 	}
 	if parent, v, err := sk.Base.ParentRef(); err == nil && v > 0 && inTree != nil && inTree(parent) {
 		if m.kits[parent].Source != nil {
-			return nil, &kitPinSourceError{kit: name, parent: parent, pin: v}
+			return nil, nil, false, &kitPinSourceError{kit: name, parent: parent, pin: v}
 		}
 		if cur := m.kits[parent].Current; v != cur {
-			return nil, &kitPinBehindError{kit: name, parent: parent, pin: v, cur: cur}
+			return nil, nil, false, &kitPinBehindError{kit: name, parent: parent, pin: v, cur: cur}
 		}
 		sk.Base.Kit = "../" + parent // a sibling in the tree: a path parent, re-pinned at apply
 	}
-	return renderYAML(sk), nil
+	if contextFiles && sk.Base.Context != "" {
+		if files, err := studio.ContextDirFiles(sk.Base.Context); err == nil {
+			ctx = make(map[string]ConfigFileBlob, len(files))
+			for _, f := range files {
+				ctx[kitContextPath(name)+"/"+f.Path] = ConfigFileBlob{Data: f.Data, Mode: uint32(f.Mode)}
+			}
+			sk.Base.Context, sk.Base.ContextDir = "", kitContextDir
+		}
+	}
+	return renderYAML(sk), ctx, sk.Base.Context != "", nil
 }
 
 // ConfigTreeExport is a rendered config tree.
 type ConfigTreeExport struct {
 	Files  map[string]string `json:"files"`            // repo path → content
 	Remove []string          `json:"remove,omitempty"` // managed paths Jam no longer has
+	// Binary holds files written byte for byte at a mode: a kit's rendered
+	// context-dir (kits/<n>/context/…). A path is in Files or Binary, not both.
+	Binary map[string]ConfigFileBlob `json:"binary,omitempty"`
+	// Prune lists the kits/<n>/context dirs of the kits rendered as files
+	// and of managed kits gone from Jam: a writer removes every file under
+	// one that Binary does not hold (and its .dockerignore does not exclude).
+	Prune []string `json:"prune,omitempty"`
+	// Inline names the kits whose context stays inline in kit.yml: no
+	// context-dir reproduces it, or its files would push the tree past the
+	// config upload limits.
+	Inline []string `json:"inline,omitempty"`
+}
+
+// ConfigFileBlob is one file of ConfigTreeExport.Binary.
+type ConfigFileBlob struct {
+	Data []byte `json:"data"` // base64 in JSON
+	Mode uint32 `json:"mode"` // permission bits (0644 or 0755)
+}
+
+// ConfigExportOptions selects what ExportConfigTreeWith renders.
+type ConfigExportOptions struct {
+	All bool // every live object, not just the managed ones
+	// ContextFiles renders kit contexts as kits/<n>/context/ files (Binary)
+	// and lists Prune; off, a context stays inline in kit.yml, as a client
+	// that knows neither field expects (GET export-tree?contexts=files opts in).
+	ContextFiles bool
 }
 
 // ExportConfigTree renders the managed objects (every live one with all) and,
-// when serve is non-nil, jam.yml.
+// when serve is non-nil, jam.yml, with kit contexts inline.
 func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]any, all bool) (ConfigTreeExport, error) {
+	return ExportConfigTreeWith(snap, marks, serve, ConfigExportOptions{All: all})
+}
+
+// ExportConfigTreeWith is ExportConfigTree with options.
+func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[string]any, opt ConfigExportOptions) (ConfigTreeExport, error) {
+	all := opt.All
 	m := stateFromSnapshot(snap, nil)
 	managed := map[ConfigKey]bool{}
 	for _, mk := range marks {
@@ -253,11 +301,12 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 	}
 	want := func(k ConfigKey) bool { return all || managed[k] }
 	inTree := func(kit string) bool { return want(ConfigKey{ConfigKindKit, kit}) && m.kitExists(kit) }
-	objs, err := exportObjects(m, inTree)
+	objs, err := exportObjects(m, inTree, opt.ContextFiles)
 	if err != nil {
 		return ConfigTreeExport{}, err
 	}
 	exp := ConfigTreeExport{Files: map[string]string{}}
+	var rendered []ConfigKey // kits with context files, placed within the budget below
 	for k, o := range objs {
 		if !want(k) {
 			continue
@@ -265,6 +314,39 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 		for p, b := range o.Files {
 			exp.Files[p] = string(b)
 		}
+		switch {
+		case k.Kind != ConfigKindKit || !opt.ContextFiles:
+		case o.Binary != nil:
+			rendered = append(rendered, k)
+		case o.inlineContext:
+			exp.Inline = append(exp.Inline, k.Name) // never pruned: its context/ files are not Jam's
+		}
+		// A kit with no context (or tracked) is not pruned either: files left
+		// under its context/ are unreferenced, and may be hand-made.
+	}
+	if serve != nil {
+		exp.Files["jam.yml"] = string(renderYAML(serve))
+	}
+	budget := newTreeBudget(exp.Files)
+	slices.SortFunc(rendered, func(a, b ConfigKey) int { return strings.Compare(a.Name, b.Name) })
+	for _, k := range rendered {
+		o := objs[k]
+		if budget.take(o.Binary) {
+			if exp.Binary == nil {
+				exp.Binary = map[string]ConfigFileBlob{}
+			}
+			maps.Copy(exp.Binary, o.Binary)
+			exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+			continue
+		}
+		// Over the upload limits as files: written inline instead.
+		b, _, _, err := renderKitFile(m, k.Name, m.kits[k.Name].Versions[m.kits[k.Name].Current], inTree, false)
+		if err != nil {
+			return ConfigTreeExport{}, fmt.Errorf("kit %s: %w", k.Name, err)
+		}
+		budget.bytes += int64(len(b) - len(exp.Files[k.Path()]))
+		exp.Files[k.Path()] = string(b)
+		exp.Inline = append(exp.Inline, k.Name)
 	}
 	remove := map[string]bool{}
 	for name, p := range m.projects {
@@ -289,6 +371,9 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 			remove["projects/"+k.Name+"/context.md"] = true
 		case ConfigKindKit:
 			remove[sourceKitPath(k.Name)] = true
+			if opt.ContextFiles {
+				exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+			}
 		}
 	}
 	for p := range remove {
@@ -297,8 +382,58 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 		}
 	}
 	slices.Sort(exp.Remove)
-	if serve != nil {
-		exp.Files["jam.yml"] = string(renderYAML(serve))
-	}
+	slices.Sort(exp.Prune)
+	slices.Sort(exp.Inline)
 	return exp, nil
+}
+
+// The share of the config upload limits (configtar.MaxUnpacked bytes,
+// configtar.MaxEntries files and directories) a config write leaves for the
+// repo's own files (a README, CI config) beside the ones it writes.
+const (
+	configTreeHeadroomBytes   = 1 << 20
+	configTreeHeadroomEntries = 200
+)
+
+// treeBudget tracks a tree's cost against the config upload limits: its
+// file bytes and its entries (files plus every directory above them).
+type treeBudget struct {
+	bytes   int64
+	entries int
+	dirs    map[string]bool
+}
+
+func newTreeBudget(files map[string]string) *treeBudget {
+	b := &treeBudget{dirs: map[string]bool{}}
+	for p, body := range files {
+		b.bytes += int64(len(body))
+		b.entries++
+		for d := path.Dir(p); d != "." && !b.dirs[d]; d = path.Dir(d) {
+			b.dirs[d] = true
+			b.entries++
+		}
+	}
+	return b
+}
+
+// take adds files to the tree when they fit within the limits less the
+// headroom, reporting whether they did.
+func (b *treeBudget) take(files map[string]ConfigFileBlob) bool {
+	var bytes int64
+	entries := len(files)
+	seen := map[string]bool{}
+	for p, f := range files {
+		bytes += int64(len(f.Data))
+		for d := path.Dir(p); d != "." && !b.dirs[d] && !seen[d]; d = path.Dir(d) {
+			seen[d] = true
+			entries++
+		}
+	}
+	if b.bytes+bytes > configtar.MaxUnpacked-configTreeHeadroomBytes || b.entries+entries > configtar.MaxEntries-configTreeHeadroomEntries {
+		return false
+	}
+	b.bytes += bytes
+	b.entries += entries
+	maps.Copy(b.dirs, seen)
+	return true
 }
