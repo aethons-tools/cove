@@ -26,19 +26,20 @@ const ConfigDirCommit = "dir"
 // ConfigTree is a config repo as loaded from disk: every object that parsed,
 // and a file-located refusal for everything that did not.
 type ConfigTree struct {
-	Serve        map[string]any // jam.yml; nil = absent
-	JamContext   *sessionctx.Layer
-	Destinations map[string]DestinationFile
-	ModelSpecs   map[string]ModelSpecFile
-	Users        map[string]UserFile
-	Connections  map[string]ConnectionFile
-	Projects     map[string]ProjectFile
-	Roles        map[string]RoleFile       // "<project>/<role>"
-	Kits         []kitSetEntry             // every kit, parents first: kits/<n>/ (and, once fetched, the .source.yml kits' sets); path refs as written
-	KitSources   map[string]KitSourceRef   // kits/<n>.source.yml by kit name
-	KitGroups    map[string]ConfigKitGroup // the checkouts FetchConfigKits loaded them from (kitGroupKey)
-	KitsFetched  bool                      // FetchConfigKits ran: Kits holds the source kits' sets too
-	Refusals     []string                  // file-located load errors
+	Serve           map[string]any // jam.yml; nil = absent
+	JamContext      *sessionctx.Layer
+	Destinations    map[string]DestinationFile
+	ModelSpecs      map[string]ModelSpecFile
+	Users           map[string]UserFile
+	Connections     map[string]ConnectionFile
+	Projects        map[string]ProjectFile
+	Roles           map[string]RoleFile       // "<project>/<role>"
+	Kits            []kitSetEntry             // every kit, parents first: kits/<n>/ (and, once fetched, the .source.yml kits' sets); path refs as written
+	KitSources      map[string]KitSourceRef   // kits/<n>.source.yml by kit name
+	KitGroups       map[string]ConfigKitGroup // the checkouts FetchConfigKits loaded them from (kitGroupKey)
+	KitGroupsFailed map[string]bool           // kitGroupKey of each repo and ref whose fetch or load failed (a refusal); its kits are never planned as deletes
+	KitsFetched     bool                      // FetchConfigKits ran: Kits holds the source kits' sets too
+	Refusals        []string                  // file-located load errors
 }
 
 // KitSourceRef is one kits/<name>.source.yml.
@@ -395,10 +396,4 @@ func orderKitEntries(entries []kitSetEntry) ([]kitSetEntry, []string) {
 	}
 	slices.Sort(left)
 	return out, left
-}
-
-// ConfigKitGroup is one checkout FetchConfigKits loaded .source.yml kits from.
-type ConfigKitGroup struct {
-	Source gitsource.Source // repo and ref (no dir)
-	Commit string
 }
