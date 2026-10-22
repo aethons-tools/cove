@@ -161,7 +161,7 @@ func (h *handler) resolve(w http.ResponseWriter, r *http.Request) (collab.Princi
 	}
 	inst, ok := h.d.Store.GetInstance(r.PathValue("id"))
 	if !ok {
-		http.Error(w, "no such studio", http.StatusNotFound)
+		http.Error(w, collabwire.NoSuchStudio, http.StatusNotFound)
 		return p, "", jam.Instance{}, false
 	}
 	return p, name, inst, true
@@ -241,7 +241,7 @@ func (h *handler) wake(w http.ResponseWriter, r *http.Request, inst jam.Instance
 	}
 	cur, ok := h.d.Store.GetInstance(inst.ActorID)
 	if !ok {
-		http.Error(w, "no such studio", http.StatusNotFound)
+		http.Error(w, collabwire.NoSuchStudio, http.StatusNotFound)
 		return inst, false
 	}
 	return cur, true

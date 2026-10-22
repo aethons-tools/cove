@@ -10,6 +10,10 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 )
 
+// NoSuchStudio is the 404 body for a studio Jam does not have (ended, or never
+// was), so a client can tell it from a 404 for a route that is off.
+const NoSuchStudio = "no such studio"
+
 // GrantView is a share grant as the API and UI show it.
 type GrantView struct {
 	User          string    `json:"user"` // the grantee's name
