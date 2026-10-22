@@ -151,6 +151,9 @@ func FetchConfigKits(ctx context.Context, f KitFetcher, tree *ConfigTree) {
 	ordered, cycle := orderKitEntries(slices.Collect(maps.Values(byDir)))
 	if len(cycle) > 0 {
 		refuse("kits: cycle among %s", strings.Join(cycle, ", "))
+		tree.KitCycle = append(tree.KitCycle, cycle...)
+		slices.Sort(tree.KitCycle)
+		tree.KitCycle = slices.Compact(tree.KitCycle)
 		for _, n := range cycle {
 			if g := byName[n].group; g != "" {
 				tree.KitGroupsFailed[g] = true

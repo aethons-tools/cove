@@ -39,6 +39,7 @@ type ConfigTree struct {
 	KitGroups       map[string]ConfigKitGroup // the checkouts FetchConfigKits loaded them from (kitGroupKey)
 	KitGroupsFailed map[string]bool           // kitGroupKey of each repo and ref whose fetch or load failed (a refusal); its kits are never planned as deletes
 	KitsFetched     bool                      // FetchConfigKits ran: Kits holds the source kits' sets too
+	KitCycle        []string                  // kits a cycle refusal left out of Kits, sorted; never planned as deletes
 	Refusals        []string                  // file-located load errors
 }
 
@@ -306,7 +307,7 @@ func (l *treeLoader) loadKits() {
 	if len(cycle) > 0 {
 		l.refuse("kits: cycle among %s", strings.Join(cycle, ", "))
 	}
-	l.tr.Kits = ordered
+	l.tr.Kits, l.tr.KitCycle = ordered, cycle
 }
 
 // loadKitSource loads kits/<name>.source.yml into the tree's KitSources.

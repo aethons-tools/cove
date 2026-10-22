@@ -258,12 +258,7 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 		doc := copyKit(k)
 		doc.Name = e.Name
 		if !e.Unchanged {
-			if doc.Meta == nil {
-				doc.Meta = map[int]KitVersionMeta{}
-			}
-			doc.Versions[e.Version] = e.text
-			doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}
-			doc.Current = e.Version
+			addKitVersion(&doc, e, at, now)
 		}
 		if tracked != nil {
 			doc.Source = copyKitSource(tracked)
@@ -271,6 +266,17 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 		docs = append(docs, doc)
 	}
 	return docs
+}
+
+// addKitVersion makes entry e's planned version doc's current one, with its
+// provenance at and its parent.
+func addKitVersion(doc *Kit, e kitSetEntry, at KitSource, now time.Time) {
+	if doc.Meta == nil {
+		doc.Meta = map[int]KitVersionMeta{}
+	}
+	doc.Versions[e.Version] = e.text
+	doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}
+	doc.Current = e.Version
 }
 
 // kitSetResult reports a planned set: the top kit, with its ancestors in Also,
