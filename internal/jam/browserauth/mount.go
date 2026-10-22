@@ -21,9 +21,10 @@ const (
 )
 
 // Mount describes one browser-login subtree: the URL prefix it serves, the name
-// of its session cookie, and which token backs the session. Two mounts (operator
-// "/ui" and participant "/me") share one audited OIDC implementation; their
-// cookies are path-scoped to the prefix so they never collide.
+// of its session cookie, and which token backs the session. Three mounts
+// (operator "/ui", participant "/me" and the unified "/app", see AppMount)
+// share one audited OIDC implementation; their cookies are path-scoped to the
+// prefix so they never collide.
 //
 // A mount may instead hand the login result to its owner: when Complete is
 // set, the callback calls it with both verified-exchange tokens and the bound
@@ -35,7 +36,7 @@ const (
 // Secure, no Domain), so sibling hosts under a shared parent domain cannot
 // toss them.
 type Mount struct {
-	Prefix        string // e.g. "/ui" or "/me"
+	Prefix        string // e.g. "/ui", "/me" or "/app"
 	SessionCookie string // e.g. "jam_session" or "jam_participant"
 	Session       SessionToken
 

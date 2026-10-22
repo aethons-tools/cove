@@ -30,7 +30,7 @@ func (p Principal) DisplayName() string {
 type principalKey struct{}
 
 // WithPrincipal carries p on r, and the legacy per-plane identities the UIs'
-// handlers read (jam.ParticipantFrom, jam.OperatorFrom).
+// handlers read (jam.ParticipantFrom, jam.OperatorID).
 func WithPrincipal(r *http.Request, p Principal) *http.Request {
 	if p.User != nil {
 		r = jam.WithParticipant(r, *p.User)

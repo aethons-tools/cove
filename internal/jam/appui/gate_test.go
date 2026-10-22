@@ -31,6 +31,7 @@ func testStore(t *testing.T) jam.Store {
 }
 
 func testSessions(t *testing.T) *Sessions {
+	t.Helper()
 	return &Sessions{
 		Issuer:       testIssuer,
 		IDCookie:     "jam_app_id",
@@ -91,6 +92,7 @@ func TestGateMatrix(t *testing.T) {
 		{"admin only", false, "stranger", "ok", nil, 200, "user=false admin=true", ""},
 		{"both", false, "alice", "ok", nil, 200, "user=true admin=true", ""},
 		{"neither", false, "stranger", "", nil, 403, "", ""},
+		{"loopback neither session", true, "stranger", "", nil, 200, "user=false admin=true local=true", ""},
 		{"no cookies", false, "", "", nil, 302, "", "/app/auth/login"},
 		{"bad id token only", false, "bad", "", nil, 302, "", "/app/auth/login"},
 		{"expired access, valid member", false, "alice", "expired", nil, 200, "user=true admin=false", ""},
@@ -148,7 +150,7 @@ func TestGateNoBrowserLogin(t *testing.T) {
 	}
 }
 
-// devStore adds the registry reads DevIdentity needs; MemStore provides them.
+// jam.MemStore satisfies browserauth.DevIdentityStore.
 func TestGateDevIdentity(t *testing.T) {
 	store := testStore(t)
 	dev := &browserauth.DevIdentity{Store: store, User: "alice"}
@@ -190,6 +192,19 @@ func TestDisplayName(t *testing.T) {
 	} {
 		if got := tc.p.DisplayName(); got != tc.want {
 			t.Errorf("DisplayName = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+func TestGateExpectedHosts(t *testing.T) {
+	gate := NewGate(GateConfig{Sessions: testSessions(t), ExpectedHosts: []string{"jam.local.example"}, LoginPath: "/app/auth/login", Log: discardLog()})
+	for host, want := range map[string]int{"jam.local.example:8443": 200, "evil.example:8443": 403} {
+		r := newReq(true, "", "")
+		r.Host = host
+		rec := httptest.NewRecorder()
+		gate.Wrap(probe()).ServeHTTP(rec, r)
+		if rec.Code != want {
+			t.Errorf("host %q = %d, want %d", host, rec.Code, want)
 		}
 	}
 }

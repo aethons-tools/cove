@@ -1,13 +1,13 @@
 # Jam app: one UI under `/app`, installable as a PWA — design
 
-**Status:** approved in brainstorming (2026-10-22), pre-plan.
+**Status:** approved (2026-10-22); plan: `docs/superpowers/plans/2026-10-22-jam-app-slices-1-3.md`.
 **Scope:** merge the participant intercom (`/me`, `internal/jam/meui`) and the
 operator console (`/ui`, `internal/jam/adminui`) into one browser app under
 `/app`, with one login, one title bar and blended tabs; then make that app an
 installable Progressive Web App. Push notifications are sketched here (§7) and
 get their own spec.
 **Does not change:** the admin API (`/admin/*`), the bearer APIs that live under
-`/me` (`/me/send`, `/me/studios/*`), write endpoint semantics, the store, or
+`/me` (`/me/studios/*`), write endpoint semantics, the store, or
 offline behaviour (none — out of scope).
 **Builds on:** [`2026-09-28-jam-intercom-ui-design.md`](2026-09-28-jam-intercom-ui-design.md),
 [`2026-10-07-admin-ui-ia-design.md`](2026-10-07-admin-ui-ia-design.md),
