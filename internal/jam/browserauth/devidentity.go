@@ -48,16 +48,30 @@ func (d DevIdentity) user() (jam.User, bool) {
 	return u, ok && u.Status == jam.StatusLive
 }
 
+// Participant is the dev user's participant, resolved through their first
+// OIDC identity as a real login would be.
+func (d DevIdentity) Participant() (jam.Participant, bool) {
+	u, ok := d.user()
+	if !ok || len(u.OIDC) == 0 {
+		return jam.Participant{}, false
+	}
+	return jam.ParticipantByIdentity(d.Store, u.OIDC[0].Issuer, u.OIDC[0].Subject)
+}
+
+// OperatorID is the dev user's first login, else "local".
+func (d DevIdentity) OperatorID() string {
+	if u, ok := d.user(); ok && len(u.Logins) > 0 {
+		return u.Logins[0]
+	}
+	return "local"
+}
+
 // OperatorLoopbackTrust is the /ui LoopbackTrust hook under a dev identity: a
 // loopback request is the operator with the user's first login, or plain
 // "local" when the user is unknown or has none.
 func (d DevIdentity) OperatorLoopbackTrust() func(*http.Request) *http.Request {
 	return func(r *http.Request) *http.Request {
-		id := "local"
-		if u, ok := d.user(); ok && len(u.Logins) > 0 {
-			id = u.Logins[0]
-		}
-		return jam.WithOperator(r, jam.Operator{ID: id})
+		return jam.WithOperator(r, jam.Operator{ID: d.OperatorID()})
 	}
 }
 
@@ -68,11 +82,8 @@ func (d DevIdentity) OperatorLoopbackTrust() func(*http.Request) *http.Request {
 func (d DevIdentity) ParticipantSession(next func(*http.Request) (*http.Request, SessionOutcome)) func(*http.Request) (*http.Request, SessionOutcome) {
 	return func(r *http.Request) (*http.Request, SessionOutcome) {
 		if jam.IsLoopbackRequest(r) {
-			if u, ok := d.user(); ok && len(u.OIDC) > 0 {
-				id := u.OIDC[0]
-				if p, ok := jam.ParticipantByIdentity(d.Store, id.Issuer, id.Subject); ok {
-					return jam.WithParticipant(r, p), SessionOK
-				}
+			if p, ok := d.Participant(); ok {
+				return jam.WithParticipant(r, p), SessionOK
 			}
 		}
 		if next == nil {

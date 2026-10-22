@@ -10,20 +10,33 @@ const (
 	pkceCookie  = "jam_oauth_pkce"
 )
 
-// setSession stores the session token in the mount's cookie, scoped to the
-// mount prefix so operator ("/ui") and participant ("/me") sessions are distinct.
-func (m Mount) setSession(w http.ResponseWriter, token string, secure bool) {
+// setCookie stores a session token in cookie name, scoped to the mount prefix
+// so the mounts' sessions ("/ui", "/me", "/app") are distinct.
+func (m Mount) setCookie(w http.ResponseWriter, name, token string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
-		Name: m.SessionCookie, Value: token, Path: m.Prefix,
+		Name: name, Value: token, Path: m.Prefix,
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func (m Mount) clearSession(w http.ResponseWriter) {
+func (m Mount) clearCookie(w http.ResponseWriter, name string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: m.SessionCookie, Value: "", Path: m.Prefix,
+		Name: name, Value: "", Path: m.Prefix,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1,
 	})
+}
+
+func (m Mount) setSession(w http.ResponseWriter, token string, secure bool) {
+	m.setCookie(w, m.SessionCookie, token, secure)
+}
+
+func (m Mount) clearSession(w http.ResponseWriter) {
+	if m.Session == BothTokensSession {
+		m.clearCookie(w, m.IDCookie())
+		m.clearCookie(w, m.AccessCookie())
+		return
+	}
+	m.clearCookie(w, m.SessionCookie)
 }
 
 // tempName is the mount's name for temp cookie n: "__Host-"-prefixed for a

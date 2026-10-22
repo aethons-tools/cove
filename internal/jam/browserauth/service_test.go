@@ -396,3 +396,77 @@ func TestMountReturnToReplacesPrefixCheck(t *testing.T) {
 		t.Errorf("operator mount accepted %q", got)
 	}
 }
+
+func TestAppMountCookies(t *testing.T) {
+	m := AppMount()
+	if m.Prefix != "/app" || m.IDCookie() != "jam_app_id" || m.AccessCookie() != "jam_app_at" {
+		t.Fatalf("AppMount = %+v id=%q at=%q", m, m.IDCookie(), m.AccessCookie())
+	}
+}
+
+func appService(t *testing.T, idp *fakeIdP) *Service {
+	t.Helper()
+	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, AppMount(), nil, discard())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return svc
+}
+
+func TestCallbackBothTokensSetsTwoCookies(t *testing.T) {
+	idp := newFakeIdP(t)
+	svc := appService(t, idp)
+	cookies, state, _ := startLogin(t, idp, svc, "jam.test", "")
+
+	cbRec := httptest.NewRecorder()
+	cbReq := httptest.NewRequest("GET", "/app/auth/callback?state="+state+"&code=good", nil)
+	cbReq.Host, cbReq.TLS = "jam.test", &tls.ConnectionState{}
+	for _, c := range cookies {
+		cbReq.AddCookie(c)
+	}
+	svc.Routes().ServeHTTP(cbRec, cbReq)
+
+	if cbRec.Code != http.StatusFound || cbRec.Header().Get("Location") != "/app/" {
+		t.Fatalf("callback = %d %q, want 302 /app/", cbRec.Code, cbRec.Header().Get("Location"))
+	}
+	got := map[string]*http.Cookie{}
+	for _, c := range cbRec.Result().Cookies() {
+		got[c.Name] = c
+	}
+	for _, name := range []string{"jam_app_id", "jam_app_at"} {
+		c := got[name]
+		if c == nil || c.Value == "" {
+			t.Fatalf("cookie %s not set", name)
+		}
+		if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode || c.Path != "/app" {
+			t.Errorf("%s flags wrong: %+v", name, c)
+		}
+	}
+	if got["jam_app_id"].Value == got["jam_app_at"].Value {
+		t.Error("id and access cookies must hold different tokens")
+	}
+	if _, err := svc.VerifySubject(context.Background(), got["jam_app_id"].Value); err != nil {
+		t.Errorf("id cookie does not verify: %v", err)
+	}
+	if svc.Issuer() != idp.url {
+		t.Errorf("Issuer = %q, want %q", svc.Issuer(), idp.url)
+	}
+}
+
+func TestLogoutBothTokensClearsBoth(t *testing.T) {
+	svc := appService(t, newFakeIdP(t))
+	rec := httptest.NewRecorder()
+	svc.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/app/auth/logout", nil))
+	cleared := map[string]bool{}
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge < 0 {
+			cleared[c.Name] = true
+		}
+	}
+	if !cleared["jam_app_id"] || !cleared["jam_app_at"] {
+		t.Errorf("logout cleared %v, want both jam_app_id and jam_app_at", cleared)
+	}
+	if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || loc != "/app/auth/login" {
+		t.Errorf("logout = %d %q", rec.Code, loc)
+	}
+}

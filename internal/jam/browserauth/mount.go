@@ -14,6 +14,10 @@ const (
 	// verifies it with the browser verifier (aud = ClientID) and maps its subject
 	// to a roster human. No API audience or scope is required.
 	IDTokenSession
+	// BothTokensSession stores both tokens, each in its own cookie (two JWTs can
+	// exceed a single cookie's 4 KB): the ID token names the roster user, the
+	// access token carries the operator scope. The /app plane.
+	BothTokensSession
 )
 
 // Mount describes one browser-login subtree: the URL prefix it serves, the name
@@ -44,6 +48,15 @@ type Mount struct {
 func (m Mount) authPrefix() string   { return m.Prefix + "/auth" }
 func (m Mount) loginPath() string    { return m.Prefix + "/auth/login" }
 func (m Mount) callbackPath() string { return m.Prefix + "/auth/callback" }
+
+// IDCookie and AccessCookie name the two cookies of a BothTokensSession mount.
+func (m Mount) IDCookie() string     { return m.SessionCookie + "_id" }
+func (m Mount) AccessCookie() string { return m.SessionCookie + "_at" }
+
+// AppMount is the unified browser app's "/app" mount.
+func AppMount() Mount {
+	return Mount{Prefix: "/app", SessionCookie: "jam_app", Session: BothTokensSession}
+}
 
 // OperatorUIMount is the standard operator "/ui" mount.
 func OperatorUIMount() Mount {

@@ -108,3 +108,22 @@ func TestDevIdentityLegacyAlias(t *testing.T) {
 		t.Fatalf("legacy b/alice acts as %q, want login-b (b's alice, renamed by the migration)", got)
 	}
 }
+
+func TestDevIdentityParticipantAndOperatorID(t *testing.T) {
+	alice := DevIdentity{Store: devStore(t), User: "alice"}
+	if p, ok := alice.Participant(); !ok || p.Name != "alice" {
+		t.Errorf("alice Participant = %+v, %v", p, ok)
+	}
+	if got := alice.OperatorID(); got != "auth0|alice" {
+		t.Errorf("alice OperatorID = %q", got)
+	}
+	for _, name := range []string{"bob", "nobody"} {
+		d := DevIdentity{Store: devStore(t), User: name}
+		if _, ok := d.Participant(); ok {
+			t.Errorf("%s: Participant ok without an OIDC identity", name)
+		}
+		if got := d.OperatorID(); got != "local" {
+			t.Errorf("%s OperatorID = %q, want local", name, got)
+		}
+	}
+}
