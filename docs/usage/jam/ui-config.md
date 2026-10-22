@@ -65,4 +65,4 @@ browser's; the admin API and CLI do not ask. A drifted object raises
 
 Every write here obeys the UI's gate, CSRF origin check and audit logging
 ([ui-editing.md](ui-editing.md)); errors show in the page banner with the
-admin API's status and text.
+admin API's error text.

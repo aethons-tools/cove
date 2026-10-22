@@ -41,7 +41,7 @@
       </dl>
       <div class="form-actions">
         {{if $.CanGit}}<form class="inline" hx-post="/ui/config/diff" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="find button"><button type="submit" class="primary small">Diff</button> <span class="htmx-indicator">fetching and planning…</span></form>{{end}}
-        <button class="small danger" hx-delete="/ui/config/source" hx-target="#config" hx-swap="outerHTML"
+        <button class="small danger" hx-delete="/ui/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="this"
           hx-confirm="Stop following {{.Label}}? Managed objects and their marks stay.">Untrack</button>
       </div>
     {{else}}
@@ -68,7 +68,7 @@
         <td class="mono">@{{.Commit}}</td>
         <td>{{.Applied}}</td>
         <td>{{if eq .State "in-sync"}}<span class="unset">in sync</span>{{else if .State}}<span class="chip st-{{.State}}">{{.State}}</span>{{else}}<span class="unset">unknown</span>{{end}}</td>
-        <td class="actions"><button class="small danger" hx-delete="{{.ReleaseURL}}" hx-target="#config" hx-swap="outerHTML"
+        <td class="actions"><button class="small danger" hx-delete="{{.ReleaseURL}}" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="this"
           hx-confirm="Stop managing {{.Kind}} {{.Name}} from the config repo? It stays in Jam, unmanaged.">Release</button></td>
       </tr>{{else}}<tr><td colspan="5" class="empty">Nothing is managed yet — apply a config repo, or run <code>at-jam config apply --dir</code>.</td></tr>{{end}}
       </tbody>

@@ -107,6 +107,7 @@ The admin UI's Config tab tracks, untracks, diffs and applies the tracked source
 
 A config run holds `configMu` from its first fetch to its write, and
 `kitMu` only for the plan and the write. It never takes a per-kit lock;
-kit operations never take `configMu`. Release and untrack take it too, so they wait behind a running apply or sync, up to the 4-minute fetch deadline. Two config runs therefore never
+kit operations never take `configMu`. Two config runs therefore never
 interleave, and a kit push that lands between a config fetch and its plan
-shows as drift.
+shows as drift. Release and untrack take `configMu` too, so they wait behind a
+running apply or sync, up to the 4-minute fetch deadline.

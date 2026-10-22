@@ -58,6 +58,12 @@ func TestConfigPageShowsSourceAndManaged(t *testing.T) {
 			t.Errorf("config page missing %q", want)
 		}
 	}
+	for _, del := range []string{`hx-delete="/ui/config/managed/role/app/ic"`, `hx-delete="/ui/config/source"`} {
+		i := strings.Index(body, del)
+		if i < 0 || !strings.Contains(body[i:i+strings.Index(body[i:], ">")], `hx-disabled-elt="this"`) {
+			t.Errorf("%s button lacks hx-disabled-elt", del)
+		}
+	}
 	if strings.Contains(body, `href="/ui/#jam-context"`) {
 		t.Error("a missing object links its page")
 	}
