@@ -167,7 +167,7 @@ otherwise updated.
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
-| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`; `binary`: kit context files as base64 `data` + `mode`; `prune`: managed kits' `context` dirs); a kit pinned behind its in-tree parent is 409. |
+| `GET /admin/config/export-tree?all=1&contexts=files` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. `contexts=files` (what `config write` sends) adds `binary` (kit context files: base64 `data` + `mode`) and `prune` (managed kits' `context` dirs); without it contexts stay inline in kit.yml. |
 | `DELETE /admin/config/managed/{kind}/{name...}` | Release a mark (204); unknown kind 400, not managed 404.  |
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a

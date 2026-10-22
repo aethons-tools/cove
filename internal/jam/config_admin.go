@@ -52,7 +52,7 @@ const maxConfigSourceBody = 64 << 10
 //	PUT    /admin/config/source                      {source}: fetch and plan it, then track it
 //	DELETE /admin/config/source                      untrack (objects and marks stay)
 //	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the tracked source
-//	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
+//	GET    /admin/config/export-tree?all=1&contexts=files  render the managed (all: every) object
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
 // diff and apply take a configtar body (application/gzip) or a {source}
@@ -211,7 +211,9 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 			w.WriteHeader(http.StatusNoContent)
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
-			exp, err := ExportConfigTree(store.ExportConfig(), store.ListConfigMarks(), env.Serve, r.URL.Query().Get("all") == "1")
+			q := r.URL.Query()
+			exp, err := ExportConfigTreeWith(store.ExportConfig(), store.ListConfigMarks(), env.Serve,
+				ConfigExportOptions{All: q.Get("all") == "1", ContextFiles: q.Get("contexts") == "files"})
 			if errors.Is(err, ErrConfigKitPinBehind) {
 				http.Error(w, err.Error(), http.StatusConflict) // kit names and versions only
 				return

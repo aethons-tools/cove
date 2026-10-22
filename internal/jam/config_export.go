@@ -52,8 +52,9 @@ func (m *memState) userNameOf(id ident.ID) (string, bool) {
 // names; tombstones, archived rooms and empty context layers skipped). A
 // kit's name@vN parent ref to a kit inTree reports renders as ../<name>.
 // A non-nil inTree also limits the kits to those it reports (the ones an
-// export writes); nil (the planner) renders every kit.
-func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]configObject, error) {
+// export writes); nil (the planner) renders every kit. contextFiles renders
+// a kit's packed context as context-dir files (renderKitFile).
+func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (map[ConfigKey]configObject, error) {
 	out := map[ConfigKey]configObject{}
 	add := func(f configFile) { o := newConfigObject(f); out[o.Key] = o }
 
@@ -101,7 +102,7 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 				Canon: kitCanon(cfg, k.Source)}
 			continue
 		}
-		b, ctx, err := renderKitFile(m, n, cfg, inTree)
+		b, ctx, err := renderKitFile(m, n, cfg, inTree, contextFiles)
 		if errors.Is(err, ErrConfigKitPinBehind) {
 			return nil, err
 		}
@@ -219,11 +220,11 @@ func (e *kitPinSourceError) Unwrap() error { return ErrConfigKitPinBehind }
 // renderKitFile renders kit name's stored config as kits/<n>/kit.yml. A
 // parent in the tree is written as a path parent, which apply re-pins to the
 // parent's current version — so only a pin equal to it can be; an older pin
-// is ErrConfigKitPinBehind. A packed base.context is rendered as files under
+// is ErrConfigKitPinBehind. With contextFiles, a packed base.context is rendered as files under
 // kits/<n>/context/ (returned by repo path) that kit.yml names as its
 // base.context-dir — loading the tree packs them back to the same bytes;
 // one no context-dir reproduces (studio.ContextDirFiles) stays inline.
-func renderKitFile(m *memState, name, config string, inTree func(string) bool) ([]byte, map[string]ConfigFileBlob, error) {
+func renderKitFile(m *memState, name, config string, inTree func(string) bool, contextFiles bool) ([]byte, map[string]ConfigFileBlob, error) {
 	sk, err := studio.ParseStudioKit([]byte(config))
 	if err != nil {
 		return nil, nil, err
@@ -238,7 +239,7 @@ func renderKitFile(m *memState, name, config string, inTree func(string) bool) (
 		sk.Base.Kit = "../" + parent // a sibling in the tree: a path parent, re-pinned at apply
 	}
 	var ctx map[string]ConfigFileBlob
-	if sk.Base.Context != "" {
+	if contextFiles && sk.Base.Context != "" {
 		if files, err := studio.ContextDirFiles(sk.Base.Context); err == nil {
 			ctx = make(map[string]ConfigFileBlob, len(files))
 			for _, f := range files {
@@ -268,9 +269,24 @@ type ConfigFileBlob struct {
 	Mode uint32 `json:"mode"` // permission bits (0644 or 0755)
 }
 
+// ConfigExportOptions selects what ExportConfigTreeWith renders.
+type ConfigExportOptions struct {
+	All bool // every live object, not just the managed ones
+	// ContextFiles renders kit contexts as kits/<n>/context/ files (Binary)
+	// and lists Prune; off, a context stays inline in kit.yml, as a client
+	// that knows neither field expects (GET export-tree?contexts=files opts in).
+	ContextFiles bool
+}
+
 // ExportConfigTree renders the managed objects (every live one with all) and,
-// when serve is non-nil, jam.yml.
+// when serve is non-nil, jam.yml, with kit contexts inline.
 func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]any, all bool) (ConfigTreeExport, error) {
+	return ExportConfigTreeWith(snap, marks, serve, ConfigExportOptions{All: all})
+}
+
+// ExportConfigTreeWith is ExportConfigTree with options.
+func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[string]any, opt ConfigExportOptions) (ConfigTreeExport, error) {
+	all := opt.All
 	m := stateFromSnapshot(snap, nil)
 	managed := map[ConfigKey]bool{}
 	for _, mk := range marks {
@@ -278,7 +294,7 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 	}
 	want := func(k ConfigKey) bool { return all || managed[k] }
 	inTree := func(kit string) bool { return want(ConfigKey{ConfigKindKit, kit}) && m.kitExists(kit) }
-	objs, err := exportObjects(m, inTree)
+	objs, err := exportObjects(m, inTree, opt.ContextFiles)
 	if err != nil {
 		return ConfigTreeExport{}, err
 	}
@@ -296,7 +312,7 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 			}
 			exp.Binary[p] = b
 		}
-		if k.Kind == ConfigKindKit {
+		if k.Kind == ConfigKindKit && opt.ContextFiles {
 			exp.Prune = append(exp.Prune, kitContextPath(k.Name))
 		}
 	}
@@ -323,7 +339,9 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 			remove["projects/"+k.Name+"/context.md"] = true
 		case ConfigKindKit:
 			remove[sourceKitPath(k.Name)] = true
-			exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+			if opt.ContextFiles {
+				exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+			}
 		}
 	}
 	for p := range remove {

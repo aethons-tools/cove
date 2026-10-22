@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/studio"
 )
+
+var filesAll = ConfigExportOptions{All: true, ContextFiles: true}
 
 var ctxBlob = []byte{0xff, 0xfe, 0x00, 0x80, 0xc3, '\n'}
 
@@ -82,7 +85,7 @@ func currentKitConfig(t *testing.T, st *MemStore, name string) string {
 // kits/<n>/context/; other kits are unchanged.
 func TestExportConfigTreeRendersContextAsFiles(t *testing.T) {
 	st, _ := ctxKitStore(t)
-	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, filesAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +129,7 @@ func TestExportConfigTreeKeepsIrreproducibleContextInline(t *testing.T) {
 	if _, _, err := PushStudioKit(st, "hand", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
 		t.Fatal(err)
 	}
-	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, filesAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +146,7 @@ func TestExportConfigTreeKeepsIrreproducibleContextInline(t *testing.T) {
 // the replica and on the source itself.
 func TestConfigRoundTripContextDir(t *testing.T) {
 	src, _ := ctxKitStore(t)
-	exp, err := ExportConfigTree(src.ExportConfig(), nil, nil, true)
+	exp, err := ExportConfigTreeWith(src.ExportConfig(), nil, nil, filesAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +187,7 @@ func TestConfigRoundTripContextDir(t *testing.T) {
 func TestExportConfigTreePrunesGoneKitContext(t *testing.T) {
 	st, _ := ctxKitStore(t)
 	marks := []ConfigMark{{Kind: ConfigKindKit, Name: "builder"}, {Kind: ConfigKindKit, Name: "gone"}}
-	exp, err := ExportConfigTree(st.ExportConfig(), marks, nil, false)
+	exp, err := ExportConfigTreeWith(st.ExportConfig(), marks, nil, ConfigExportOptions{ContextFiles: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,4 +210,27 @@ func tarGzWithDir(t *testing.T) []byte {
 	must(t, tw.Close())
 	must(t, gw.Close())
 	return buf.Bytes()
+}
+
+// Without ContextFiles (an old client's request) the export is the old one:
+// the context inline in kit.yml, byte for byte, and neither new field.
+func TestExportConfigTreeInlineByDefault(t *testing.T) {
+	st, b64 := ctxKitStore(t)
+	marks := []ConfigMark{{Kind: ConfigKindKit, Name: "builder"}, {Kind: ConfigKindKit, Name: "gone"}}
+	for _, all := range []bool{true, false} {
+		exp, err := ExportConfigTree(st.ExportConfig(), marks, nil, all)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := exp.Files["kits/builder/kit.yml"]; got != "kind: studio\nbase:\n  context: "+b64+"\n" {
+			t.Fatalf("kit.yml:\n%s", got)
+		}
+		if exp.Binary != nil || exp.Prune != nil {
+			t.Fatalf("binary %d prune %v", len(exp.Binary), exp.Prune)
+		}
+		b, err := json.Marshal(exp)
+		if err != nil || bytes.Contains(b, []byte(`"binary"`)) || bytes.Contains(b, []byte(`"prune"`)) {
+			t.Fatalf("json %v: new fields sent", err)
+		}
+	}
 }
