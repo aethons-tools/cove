@@ -1,6 +1,10 @@
 package adminui
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -177,7 +181,162 @@ func registerConfig(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env j
 		log.Info("ui config released", "operator", jam.OperatorID(r), "kind", key.Kind, "name", key.Name)
 		renderConfigBody(w, r, buildConfigPage(store, canGit, log), "released "+key.Kind+" "+key.Name+"; it stays in Jam, unmanaged")
 	})
+	if canGit {
+		registerConfigGit(mux, store, f, env, log, guardWrite)
+	}
 }
 
-// planView is a rendered config plan (Task 8 fills it in).
-type planView struct{}
+// planOpView is one op the plan changes, as the Config page shows it.
+type planOpView struct {
+	jam.ConfigOp
+	Href     string     // the object's page; "" for a create (it does not exist yet)
+	Lines    []diffLine // Before → After
+	TooLarge bool
+}
+
+// planView is a config plan rendered for review: the ops that change
+// something (with their diffs), the rest counted or listed, and the digest
+// Apply posts back.
+type planView struct {
+	Source, Commit string // as planned (commit: 7 chars)
+	Forced         bool   // planned as a forced apply
+	Digest         string
+	Ops            []planOpView
+	Unchanged      int
+	Forget         []jam.ConfigKey
+	Unmanaged      []jam.ConfigKey
+	KitSources     []jam.ConfigKitSource // commits: 7 chars
+	Refusals       []string
+	Serve          jam.ServeConfigDiff
+	HasDrift       bool // the force checkbox is offered
+	Changes        int  // jam.ConfigChanges
+}
+
+func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
+	p := res.Plan
+	v := &planView{Source: res.Source, Commit: jam.ShortConfigCommit(res.Commit), Forced: forced, Digest: p.Digest,
+		Forget: p.Forget, Unmanaged: p.Unmanaged, Refusals: p.Refusals, Serve: p.ServeConfig,
+		HasDrift: p.HasDrift(), Changes: jam.ConfigChanges(p)}
+	for _, ks := range p.KitSources {
+		ks.Commit = jam.ShortConfigCommit(ks.Commit)
+		v.KitSources = append(v.KitSources, ks)
+	}
+	for _, op := range p.Ops {
+		if op.Action == jam.ConfigUnchanged {
+			v.Unchanged++
+			continue
+		}
+		ov := planOpView{ConfigOp: op}
+		if op.Action != jam.ConfigCreate {
+			ov.Href = configObjectHref(op.Kind, op.Name)
+		}
+		if op.Before != "" || op.After != "" {
+			ov.Lines, ov.TooLarge = lineDiff(canonDisplay(op.Kind, op.Before), canonDisplay(op.Kind, op.After))
+		}
+		v.Ops = append(v.Ops, ov)
+	}
+	return v
+}
+
+// canonDisplay is a canonical form as the plan diff shows it: a kit's stored
+// config JSON indented one key per line (its "# source:" line kept); every
+// other kind's YAML as is.
+func canonDisplay(kind, canon string) string {
+	if kind != jam.ConfigKindKit || canon == "" {
+		return canon
+	}
+	body, src, tracked := strings.Cut(canon, "\n# source: ")
+	var b bytes.Buffer
+	if json.Indent(&b, []byte(body), "", "  ") != nil {
+		return canon
+	}
+	if tracked {
+		b.WriteString("\n# source: " + src)
+	}
+	return b.String()
+}
+
+// applyMsg is an apply's outcome for the flash.
+func applyMsg(res jam.ConfigApplyResult) string {
+	at := ""
+	if res.Commit != "" {
+		at = " config @" + jam.ShortConfigCommit(res.Commit)
+	}
+	if !res.Applied {
+		return "nothing to apply" + at
+	}
+	k := res.Counts
+	return fmt.Sprintf("applied%s: %d created, %d updated, %d deleted, %d adopted, %d forgotten", at,
+		k[jam.ConfigCreate], k[jam.ConfigUpdate], k[jam.ConfigDelete], k[jam.ConfigAdopt], k[jam.ConfigForget])
+}
+
+// configPlanStaleMsg is the page's answer to an Apply whose reviewed plan is
+// no longer the plan (the Jam or the repo changed since the Diff).
+const configPlanStaleMsg = "The Jam or the config repo changed since this plan was shown; nothing was applied. Run Diff again and review the new plan."
+
+// registerConfigGit mounts the Config page's git actions on the tracked
+// source: Diff (a dry run), Apply (the reviewed plan's digest), Track.
+func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
+	mux.HandleFunc("POST /ui/config/diff", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		force := r.FormValue("force") == "1" // plans as a forced apply would, so the digests match
+		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
+			jam.ConfigApplyOptions{DryRun: true, Force: force, Now: time.Now()}, log, jam.OperatorID(r))
+		if err != nil {
+			configFail(w, r, log, err)
+			return
+		}
+		renderFragment(w, r, "config", "config-plan", newPlanView(res, force))
+	})
+	mux.HandleFunc("POST /ui/config/apply", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			renderError(w, http.StatusBadRequest, "invalid form")
+			return
+		}
+		digest := strings.TrimSpace(r.FormValue("plan"))
+		if digest == "" {
+			renderError(w, http.StatusBadRequest, "plan is required: run Diff, review it, then Apply")
+			return
+		}
+		force := r.FormValue("force") == "1"
+		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
+			jam.ConfigApplyOptions{Force: force, WantDigest: digest, Now: time.Now()}, log, jam.OperatorID(r))
+		if errors.Is(err, jam.ErrConfigPlanChanged) {
+			renderError(w, http.StatusConflict, configPlanStaleMsg)
+			return
+		}
+		if err != nil {
+			configFail(w, r, log, err)
+			return
+		}
+		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", force)
+		renderConfigBody(w, r, buildConfigPage(store, true, log), applyMsg(res))
+	})
+	mux.HandleFunc("POST /ui/config/source", func(w http.ResponseWriter, r *http.Request) {
+		if !guardWrite(w, r) {
+			return
+		}
+		src, ok := formSource(w, r)
+		if !ok {
+			return
+		}
+		res, err := jam.TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, jam.OperatorID(r))
+		if err != nil {
+			configFail(w, r, log, err)
+			return
+		}
+		log.Info("ui config tracked", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit)
+		d := buildConfigPage(store, true, log)
+		d.Plan = newPlanView(res, false)
+		renderConfigBody(w, r, d, "tracking "+res.Source)
+	})
+}

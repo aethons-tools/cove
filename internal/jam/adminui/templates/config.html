@@ -18,6 +18,8 @@
   #config .d-skip{color:var(--faint);font-style:italic}
   #config label.check{flex-direction:row;align-items:center;gap:8px;margin:8px 0;font-size:13px}
   #config label.check input{width:auto}
+  #config .htmx-indicator{opacity:0;transition:opacity .2s;color:var(--muted);font-size:12px;align-self:center}
+  #config .htmx-request .htmx-indicator,#config .htmx-request.htmx-indicator{opacity:1}
   @media (max-width:720px){#config .sections{grid-template-columns:1fr}}
 </style>
 <div class="page-head"><h1>Config</h1><span class="sub">This Jam's configuration in git — the repo it follows, the objects the repo manages, and the plan to apply it</span></div>
@@ -38,12 +40,19 @@
         <dt>Last applied</dt><dd>{{template "src-commit" .}}{{with .Applied}} <span class="unset">at {{.}}</span>{{end}}</dd>
       </dl>
       <div class="form-actions">
+        {{if $.CanGit}}<form class="inline" hx-post="/ui/config/diff" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="find button"><button type="submit" class="primary small">Diff</button> <span class="htmx-indicator">fetching and planning…</span></form>{{end}}
         <button class="small danger" hx-delete="/ui/config/source" hx-target="#config" hx-swap="outerHTML"
           hx-confirm="Stop following {{.Label}}? Managed objects and their marks stay.">Untrack</button>
       </div>
     {{else}}
       <p class="unset">No config source is tracked{{with $.LastCommit}} — the objects below were last applied from config @{{.}} at {{$.LastApplied}}{{end}}.</p>
-      {{if not $.CanGit}}<p class="unset">Git actions are not available on this serve; use <code>at-jam config apply --dir</code>.</p>{{end}}
+      {{if $.CanGit}}
+      <form hx-post="/ui/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+        <label>Source <span class="hint"><code>https://host/org/repo[//dir]@ref</code> — fetched and planned (nothing is applied), then tracked</span>
+          <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/jam-config@main"></label>
+        <div class="form-actions"><button type="submit" class="primary">Track</button> <span class="htmx-indicator">fetching and planning…</span></div>
+      </form>
+      {{else}}<p class="unset">Git actions are not available on this serve; use <code>at-jam config apply --dir</code>.</p>{{end}}
     {{end}}
     </div>
   </section>
@@ -66,6 +75,46 @@
     </table>
   </section>
 </div>
-<div id="config-plan"></div>
+<div id="config-plan">{{with .Plan}}{{template "config-plan" .}}{{end}}</div>
 </div>
+{{end}}
+
+{{define "config-plan"}}
+<section class="card full">
+  <header><h2>Plan</h2><span class="sub">{{.Source}}{{with .Commit}} @ <span class="mono">{{.}}</span>{{end}} · {{.Changes}} change(s), {{.Unchanged}} unchanged{{if .Forced}} · forced{{end}}</span></header>
+  <div class="body">
+    {{with .Refusals}}<div class="banner error"><div><strong>Refused — nothing can be applied until the repo or Jam changes:</strong><ul>{{range .}}<li>{{.}}</li>{{end}}</ul></div></div>{{end}}
+    {{if .HasDrift}}<label class="check"><input type="checkbox" name="force" value="1"{{if .Forced}} checked{{end}}
+        hx-post="/ui/config/diff" hx-trigger="change" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#config-force-ind">
+      Force: overwrite the objects edited in Jam since their apply with the repo's version <span id="config-force-ind" class="htmx-indicator">re-planning…</span></label>{{end}}
+    {{with .KitSources}}<p class="sub">Kit sources: {{range $i, $k := .}}{{if $i}}, {{end}}<span class="mono">{{$k.Path}}</span> {{$k.Source}} @ <span class="mono">{{$k.Commit}}</span>{{end}}</p>{{end}}
+  </div>
+  <table>
+    <thead><tr><th>Action</th><th>Object</th><th>File</th></tr></thead>
+    <tbody>
+    {{range .Ops}}
+      <tr><td><span class="chip">{{.Action}}</span>{{if .Drift}} <span class="chip st-drifted">drift</span>{{end}}</td>
+        <td><span class="chip">{{.Kind}}</span> {{if .Href}}<a class="mono" href="{{.Href}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
+        <td class="mono">{{.Path}}</td></tr>
+      {{if or .Lines .TooLarge}}<tr><td colspan="3"><details{{if .Drift}} open{{end}}><summary>{{if .Drift}}Jam (−) against the repo (+){{else}}Changes{{end}}</summary>
+        {{if .TooLarge}}<span class="unset">Too large to diff here.</span>{{else}}<pre class="diff">{{range .Lines}}{{if eq .Op "+"}}<span class="d-add">+ {{.Text}}</span>{{else if eq .Op "-"}}<span class="d-del">- {{.Text}}</span>{{else if eq .Op "…"}}<span class="d-skip">  … {{.Text}}</span>{{else}}<span>  {{.Text}}</span>{{end}}{{end}}</pre>{{end}}
+      </details></td></tr>{{end}}
+    {{else}}<tr><td colspan="3" class="empty">Nothing to change.</td></tr>{{end}}
+    </tbody>
+  </table>
+  <div class="body">
+    {{with .Forget}}<p class="sub">Forget (mark only, the object is gone from Jam and the repo): {{range $i, $k := .}}{{if $i}}, {{end}}{{$k.Kind}} {{$k.Name}}{{end}}</p>{{end}}
+    {{with .Unmanaged}}<p class="sub">Unmanaged (left alone): {{range $i, $k := .}}{{if $i}}, {{end}}{{$k.Kind}} {{$k.Name}}{{end}}</p>{{end}}
+    {{if eq .Serve.State "differs"}}<p class="sub">Serve config: differs (restart to apply): {{range $i, $k := .Serve.Keys}}{{if $i}}, {{end}}<span class="mono">{{$k}}</span>{{end}}</p>
+    {{else if .Serve.State}}<p class="sub">Serve config: {{.Serve.State}}</p>{{end}}
+    {{if not .Refusals}}
+    <form hx-post="/ui/config/apply" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button"
+        hx-confirm="Apply {{.Changes}} change(s) to this Jam{{if .Forced}}, overwriting the drifted objects{{end}}?">
+      <input type="hidden" name="plan" value="{{.Digest}}">
+      {{if .Forced}}<input type="hidden" name="force" value="1">{{end}}
+      <div class="form-actions"><button type="submit" class="primary">Apply this plan</button> <span class="htmx-indicator">fetching and applying…</span></div>
+    </form>
+    {{end}}
+  </div>
+</section>
 {{end}}
