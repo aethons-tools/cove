@@ -689,3 +689,23 @@ func TestSSHNotFoundHintsAtHostAlias(t *testing.T) {
 		t.Errorf("hint for a plain id: %q", got)
 	}
 }
+
+// A second studio's block goes before the first one, not inside it: the first
+// block opens with a comment (its marker), which the leading-comment skip must
+// not walk past.
+func TestSpliceSSHConfigBlockBeforeAnotherStudiosBlock(t *testing.T) {
+	a := sshTarget{studio: "ses_a"}.sshConfigBlock()
+	b := sshTarget{studio: "ses_b"}.sshConfigBlock()
+	cfg := "# my config\n" + a + "\nHost *\n  ServerAliveInterval 30\n"
+	got, err := spliceSSHConfigBlock(cfg, "ses_b", b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# my config\n" + b + "\n" + a + "\nHost *\n  ServerAliveInterval 30\n"; got != want {
+		t.Fatalf("spliced config =\n%s\nwant\n%s", got, want)
+	}
+	again, err := spliceSSHConfigBlock(got, "ses_a", a) // rerun for ses_a: replaced in place
+	if err != nil || again != got {
+		t.Fatalf("rerun changed the file (%v):\n%s", err, again)
+	}
+}
