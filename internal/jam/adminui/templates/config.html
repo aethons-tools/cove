@@ -109,7 +109,7 @@
     {{else if .Serve.State}}<p class="sub">Serve config: {{.Serve.State}}</p>{{end}}
     {{if not .Refusals}}
     <form hx-post="/ui/config/apply" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button"
-        hx-confirm="Apply {{.Changes}} change(s) to this Jam{{if .Forced}}, overwriting the drifted objects{{end}}?">
+        hx-confirm="{{if .Changes}}Apply {{.Changes}} change(s) to this Jam{{if .Forced}}, overwriting the drifted objects{{end}}?{{else}}Record this plan's commit?{{end}}">
       <input type="hidden" name="plan" value="{{.Digest}}">
       {{if .Forced}}<input type="hidden" name="force" value="1">{{end}}
       <div class="form-actions"><button type="submit" class="primary">Apply this plan</button> <span class="htmx-indicator">fetching and applying…</span></div>

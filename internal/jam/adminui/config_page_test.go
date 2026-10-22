@@ -295,3 +295,44 @@ func TestConfigPageGitCrossOriginRefused(t *testing.T) {
 		t.Errorf("refused requests fetched %d times", f.fetches)
 	}
 }
+
+func TestConfigTrackRefusedWhileTracked(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"}}
+	h, store := configUI(t, f, nil)
+	trackManaged(t, store)
+	before, _ := store.GetConfigSource()
+	rec := post(t, h, "/ui/config/source", url.Values{"source": {"https://github.com/acme/other@main"}})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "a config source is already tracked (https://github.com/acme/jam@main); Untrack it first") {
+		t.Fatalf("track while tracked: %d %s", rec.Code, rec.Body.String())
+	}
+	if after, _ := store.GetConfigSource(); after != before {
+		t.Fatalf("tracked source changed: %+v -> %+v", before, after)
+	}
+	if f.fetches != 0 {
+		t.Errorf("refused track fetched %d times", f.fetches)
+	}
+}
+
+func TestConfigPlanDiffEscapesRepoText(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"context.md": "<script>alert(1)</script> \"><img src=x onerror=alert(2)>\n"}}
+	h, store := configUI(t, f, nil)
+	trackManaged(t, store)
+	body := post(t, h, "/ui/config/diff", url.Values{}).Body.String()
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") || !strings.Contains(body, "&lt;img src=x") {
+		t.Fatalf("repo text not shown escaped:\n%s", body)
+	}
+	if strings.Contains(body, "<script>alert") || strings.Contains(body, "<img src=x") {
+		t.Fatalf("repo text rendered as markup:\n%s", body)
+	}
+}
+
+func TestConfigApplyConfirmWithoutChanges(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"}}
+	h, store := configUI(t, f, nil)
+	applyManaged(t, store, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
+	trackManaged(t, store)
+	body := post(t, h, "/ui/config/diff", url.Values{}).Body.String()
+	if !strings.Contains(body, `hx-confirm="Record this plan's commit?"`) || strings.Contains(body, "Apply 0 change(s)") {
+		t.Fatalf("zero-change confirm:\n%s", body)
+	}
+}

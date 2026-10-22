@@ -311,6 +311,7 @@ func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, en
 		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
 			jam.ConfigApplyOptions{Force: force, WantDigest: digest, Now: time.Now()}, log, jam.OperatorID(r))
 		if errors.Is(err, jam.ErrConfigPlanChanged) {
+			log.Info("ui config apply refused: plan changed since reviewed", "operator", jam.OperatorID(r), "forced", force)
 			renderError(w, http.StatusConflict, configPlanStaleMsg)
 			return
 		}
@@ -323,6 +324,13 @@ func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, en
 	})
 	mux.HandleFunc("POST /ui/config/source", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
+			return
+		}
+		// Track only when nothing is tracked (the page hides the form
+		// otherwise): a stale tab must not replace a source and lose its
+		// commit and apply record. Switching is Untrack, then Track.
+		if cs, tracked := store.GetConfigSource(); tracked {
+			renderError(w, http.StatusConflict, "a config source is already tracked ("+newConfigSourceView(cs).Label+"); Untrack it first")
 			return
 		}
 		src, ok := formSource(w, r)
