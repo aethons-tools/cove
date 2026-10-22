@@ -194,6 +194,16 @@ func (fs *MemStore) ApplyConfig(w ConfigWrite) error {
 	return nil
 }
 
+func (fs *MemStore) SetConfigSource(src *ConfigSource) error {
+	if err := checkConfigSource(src); err != nil {
+		return err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applySetConfigSource(src)
+	return nil
+}
+
 func (fs *MemStore) PinKit(name string, version int) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

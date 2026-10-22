@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -32,7 +33,7 @@ func TestConfigRoundTripReplicates(t *testing.T) {
 	if created, err := EnsureDefaultModelSpec(dst, true); err != nil || !created {
 		t.Fatalf("seed: created=%v err=%v", created, err)
 	}
-	res, err := ApplyConfigTree(dst, tr, allCreds, dirOpts(), nil, "local")
+	res, err := ApplyConfigTree(context.Background(), dst, nil, tr, allCreds, dirOpts(), nil, "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestConfigRoundTripReplicates(t *testing.T) {
 	if len(dst.ListActors()) != 0 {
 		t.Fatal("actors replicated")
 	}
-	again, err := ApplyConfigTree(dst, tr, allCreds, dirOpts(), nil, "local")
+	again, err := ApplyConfigTree(context.Background(), dst, nil, tr, allCreds, dirOpts(), nil, "local")
 	if err != nil || again.Plan.Counts()[ConfigUnchanged] != len(again.Plan.Ops) {
 		t.Fatalf("second apply is not a no-op: %v %+v", err, again.Plan.Ops)
 	}

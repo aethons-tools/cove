@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,7 +26,7 @@ var (
 
 // ConfigApplyOptions is one ApplyConfigTree run's provenance and mode.
 type ConfigApplyOptions struct {
-	Source     gitsource.Source // {Repo: ConfigDirRepo} for --dir
+	Source     gitsource.Source // {Repo: ConfigDirRepo} for --dir; the git source for --git (set by ApplyConfigSource)
 	Commit     string           // ConfigDirCommit for --dir
 	Force      bool             // write over drift
 	DryRun     bool             // plan only (config diff)
@@ -39,22 +40,41 @@ type ConfigApplyResult struct {
 	Plan    ConfigPlan     `json:"plan"`
 	Applied bool           `json:"applied"`
 	Counts  map[string]int `json:"counts,omitempty"`
+	Source  string         `json:"source,omitempty"` // "dir", or the git source planned
+	Commit  string         `json:"commit,omitempty"` // the config commit planned; "" for --dir
 }
 
-// ApplyConfigTree plans tree against store and, unless opt.DryRun, writes the
-// whole plan in one Store.ApplyConfig call. A plan with refusals is
-// ErrConfigRefused, a plan whose digest is not opt.WantDigest is
-// ErrConfigPlanChanged; either writes nothing. The plan and the write run
-// under configMu and kitMu, so no kit push lands between them. actor is the
-// operator the audit log names; log may be nil.
-func ApplyConfigTree(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
-	configMu.Lock()
+// ApplyConfigTree plans tree against store — fetching its .source.yml kits
+// with f first (f may be nil when it has none) — and, unless opt.DryRun,
+// writes the whole plan in one Store.ApplyConfig call. A plan with refusals
+// is ErrConfigRefused, a plan whose digest is not opt.WantDigest is
+// ErrConfigPlanChanged; either writes nothing. configMu is held from the
+// first fetch to the write, kitMu only for the plan and the write, and no
+// kit lock at all: no kit push lands between plan and write, and two config
+// runs never interleave. actor is the operator the audit log names; log may
+// be nil.
+func ApplyConfigTree(ctx context.Context, store Store, f KitFetcher, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
+	configMu.Lock() // the fetch deadline starts here: queue wait does not count
 	defer configMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, configFetchTimeout)
+	defer cancel()
+	return applyConfigTreeLocked(ctx, store, f, tree, env, opt, log, actor)
+}
+
+// applyConfigTreeLocked is ApplyConfigTree for a caller holding configMu.
+func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
+	if tree == nil {
+		tree = &ConfigTree{}
+	}
+	FetchConfigKits(ctx, f, tree) // holding configMu only: kitMu is never held across a fetch
+	if err := configFetchErr(ctx); err != nil {
+		return ConfigApplyResult{}, err
+	}
 	kitMu.Lock() // configMu → kitMu → store mu, as every kit writer takes kitMu before the store
 	defer kitMu.Unlock()
 	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.ExportConfig(), Instances: store.ListInstances(),
 		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
-	res := ConfigApplyResult{Plan: plan}
+	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
 		return res, nil
 	}
@@ -65,10 +85,22 @@ func ApplyConfigTree(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApp
 		return res, ErrConfigPlanChanged
 	}
 	res.Counts = plan.Counts()
-	if !planChanges(plan) {
-		return res, nil // every op unchanged: keep the marks as they are
+	changes := planChanges(plan)
+	w := plan.write
+	w.ConfigSource = trackedRecord(store, opt, changes)
+	if !changes {
+		// Nothing to apply; still record what moved without changing an
+		// object — the .source.yml kits' tracked commits, the config
+		// source's commit, the stale marks of unchanged objects: no
+		// version, no other mark, no audit entry.
+		if meta := (ConfigWrite{Kits: w.Kits, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
+			if err := store.ApplyConfig(meta); err != nil {
+				return res, fmt.Errorf("config apply: write: %w", err)
+			}
+		}
+		return res, nil
 	}
-	if err := store.ApplyConfig(plan.write); err != nil {
+	if err := store.ApplyConfig(w); err != nil {
 		return res, fmt.Errorf("config apply: write: %w", err)
 	}
 	res.Applied = true
@@ -109,10 +141,7 @@ func logConfigApply(log *slog.Logger, actor string, opt ConfigApplyOptions, plan
 	if log == nil {
 		return
 	}
-	source := opt.Source.Repo
-	if source == ConfigDirRepo {
-		source = "dir"
-	}
+	source := configSourceLabel(opt.Source)
 	n := plan.Counts()
 	log.Info("config applied", "operator", actor, "source", source, "commit", opt.Commit,
 		"created", n[ConfigCreate], "updated", n[ConfigUpdate], "deleted", n[ConfigDelete],

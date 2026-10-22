@@ -4,7 +4,7 @@ read_when: You want a Jam's config reviewable in git, are standing up a replica 
 owns: the config repo layout and file kinds, the `at-jam config write|diff|apply` verbs, the plan actions and refusals, managed marks, the `/admin/config/diff|apply|export-tree` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # A Jam's configuration in git
@@ -12,8 +12,8 @@ updated: 2026-10-21
 `at-jam config` turns a Jam's configuration into a directory of small YAML
 files you review and merge like code, and plans/applies such a directory back
 onto a Jam. For a one-file snapshot instead, see [backup.md](backup.md).
-Slice 1 reads a local checkout (`--dir`); git sources, `track`/`sync` and
-`.source.yml` are not built yet.
+A Jam can also follow a config repo in git, and reference kits by their own
+source: see [config-git-sources.md](config-git-sources.md).
 
 ## Layout
 
@@ -22,12 +22,12 @@ jam.yml                          portable serve settings (see serve.md)
 context.md                       Jam-wide session context
 destinations/<n>.yml  model-specs/<n>.yml  users/<n>.yml  connections/<n>.yml
 kits/<n>/kit.yml                 today's studio-kit format
+kits/<n>.source.yml              or a reference to the kit's own git source
 projects/<n>/project.yml  projects/<n>/context.md  projects/<n>/roles/<r>.yml
 ```
 
 Other top-level files (README, `.git`) are ignored. Inside the known
-directories anything else is refused (`kits/<n>.source.yml`: `kit source
-references are not supported yet`; a `.yaml` extension: `use .yml`).
+directories anything else is refused (a `.yaml` extension: `use .yml`).
 
 Every non-kit file starts `kind:` (`destination`, `model-spec`, `user`,
 `connection`, `project`, `role`) and `version: 1`. Unknown fields are refused
@@ -77,13 +77,14 @@ body; the core's trailing newlines are trimmed and one is written. A core
 that opens with `---` and has no leaves is written after empty front matter
 (`---` twice) so it reads back as the core.
 
-Kits are inline only: `kits/<n>/kit.yml`, with path parents across `kits/`
+Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/`
 (`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` is
 refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are
 per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
 <ref> pins a version; versions are per-Jam — name the kit or use a path
 parent`. Versions
-written by `--dir` record provenance repo `local`, dir `kits/<name>`.
+written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
+and commit).
 `config write` renders a kit's parent as a path parent only when its pin
 equals the parent's current version (apply re-pins to current). A kit the
 write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the write (409 on the route): `kit <child> pins <parent>@v<N>
@@ -101,13 +102,14 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 | Command | Does |
 |---|---|
 | `config write <dir> [--all] [--force]` | Render managed objects (`--all`: every live one) into `<dir>`, plus `jam.yml` whenever the serve has a portable config; remove files of managed objects Jam no longer has. Refuses a `<dir>` outside a git working tree without `--force`. |
-| `config diff --dir <path>` | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
+| `config diff --dir <path>` (or `--git`, see below) | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
 | `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift (the preview is planned forced too, so it shows `update … (drift)` and its digest matches the apply). |
+| `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). |
 
 Operator loop: `config write --all` once, `git diff`, commit; afterwards edit,
 `config diff`, `config apply`. A plan with no create/update/delete/adopt
-and no `forget` prints `nothing to apply` and does not prompt. Without `--dir` a verb exits 2
-(`--dir is required (git sources are not supported yet)`).
+and no `forget` prints `nothing to apply` and does not prompt. Without `--dir`, diff and apply use `--git` or the
+tracked source.
 
 ## The plan
 
@@ -141,7 +143,7 @@ Loading, planning and validation precede the single `Store.ApplyConfig`
 write, so a failure writes nothing.
 
 **Managed marks** record which objects the repo owns (kind + name; a role is
-`<project>/<role>`; the Jam context is `jam`) and the commit (`dir` here).
+`<project>/<role>`; the Jam context is `jam`) and the commit (`dir` for `--dir`).
 They live in the Jam, not the repo, and are **not** part of `at-jam export`
 ([backup.md](backup.md)): a restored Jam starts with none, and its next apply
 adopts identical objects. Errors are file-located and never echo credential
@@ -170,7 +172,8 @@ otherwise updated.
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a
 browser's no-cors `text/plain` POST to a loopback admin port is refused;
-`application/json`, the future `--git` body, is 400). Gzip body ≤ 16 MiB,
+`application/json` is a `{source}` body —
+[config-git-sources.md](config-git-sources.md#routes)). Gzip body ≤ 16 MiB,
 unpacked files ≤ 16 MiB, ≤ 2000 entries, and the decompressed tar stream
 bounded (413 beyond any); regular files and directories only, no absolute
 or `..` paths (400).
@@ -179,4 +182,4 @@ forced) plus each object's usual `admin …` entry with `via=config`.
 
 ## Not yet
 
-`--git` sources, `track`/`sync`, `.source.yml`, the UI page, drift attention.
+The UI page, managed badges, `config release`, drift attention.

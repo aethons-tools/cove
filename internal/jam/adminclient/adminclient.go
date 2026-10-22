@@ -79,6 +79,32 @@ func (c *Client) doGit(method, path string, body any, out any) error {
 	return c.doWith(&hc, method, path, body, out)
 }
 
+// configGitTimeout bounds a config call that may fetch a config repo and its
+// kit sources (jam.ConfigFetchTimeout plus the plan).
+const configGitTimeout = 5 * time.Minute
+
+// doConfig is do with the config-fetch timeout.
+func (c *Client) doConfig(method, path string, body any, out any) error {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = configGitTimeout
+	return c.doWith(&hc, method, path, body, out)
+}
+
+// configPath is a config route with its force and plan query.
+func configPath(path string, force bool, planDigest string) string {
+	q := url.Values{}
+	if force {
+		q.Set("force", "1")
+	}
+	if planDigest != "" {
+		q.Set("plan", planDigest)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return path
+}
+
 func (c *Client) doWith(httpc *http.Client, method, path string, body any, out any) error {
 	var buf []byte
 	contentType := ""
@@ -93,11 +119,11 @@ func (c *Client) doWith(httpc *http.Client, method, path string, body any, out a
 }
 
 // doRaw sends body as-is with contentType ("" = no body), under the
-// git-fetch timeout: a config tree upload is planned (and maybe applied)
-// before the answer.
+// config-fetch timeout: a config tree upload is planned (and maybe applied)
+// before the answer, and its .source.yml kits are fetched too.
 func (c *Client) doRaw(method, path, contentType string, body []byte, out any) error {
 	hc := *c.httpc // keeps the Transport
-	hc.Timeout = gitTimeout
+	hc.Timeout = configGitTimeout
 	return c.send(&hc, method, path, contentType, body, out)
 }
 
@@ -812,12 +838,8 @@ func (c *Client) KitHistory(name string) ([]jam.KitVersionInfo, error) {
 // writing. force plans as a forced apply would (drift is an update, not a
 // refusal), so its digest matches ConfigApply(tree, true, …).
 func (c *Client) ConfigDiff(tree []byte, force bool) (jam.ConfigApplyResult, error) {
-	path := "/admin/config/diff"
-	if force {
-		path += "?force=1"
-	}
 	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", path, "application/gzip", tree, &res)
+	err := c.doRaw("POST", configPath("/admin/config/diff", force, ""), "application/gzip", tree, &res)
 	return res, err
 }
 
@@ -825,19 +847,44 @@ func (c *Client) ConfigDiff(tree []byte, force bool) (jam.ConfigApplyResult, err
 // planDigest (may be "") is the reviewed plan's digest — a different plan is
 // a 409 (ErrConflict), as is a plan with refusals.
 func (c *Client) ConfigApply(tree []byte, force bool, planDigest string) (jam.ConfigApplyResult, error) {
-	q := url.Values{}
-	if force {
-		q.Set("force", "1")
-	}
-	if planDigest != "" {
-		q.Set("plan", planDigest)
-	}
-	path := "/admin/config/apply"
-	if len(q) > 0 {
-		path += "?" + q.Encode()
-	}
 	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", path, "application/gzip", tree, &res)
+	err := c.doRaw("POST", configPath("/admin/config/apply", force, planDigest), "application/gzip", tree, &res)
+	return res, err
+}
+
+// ConfigDiffSource plans a git config source ("" = the tracked one) without
+// writing; force plans as a forced apply would.
+func (c *Client) ConfigDiffSource(source string, force bool) (jam.ConfigApplyResult, error) {
+	var res jam.ConfigApplyResult
+	err := c.doConfig("POST", configPath("/admin/config/diff", force, ""), jam.ConfigSourceBody{Source: source}, &res)
+	return res, err
+}
+
+// ConfigApplySource applies a git config source ("" = the tracked one); a
+// different plan than planDigest, or one with refusals, is ErrConflict.
+func (c *Client) ConfigApplySource(source string, force bool, planDigest string) (jam.ConfigApplyResult, error) {
+	var res jam.ConfigApplyResult
+	err := c.doConfig("POST", configPath("/admin/config/apply", force, planDigest), jam.ConfigSourceBody{Source: source}, &res)
+	return res, err
+}
+
+// ConfigTrack records source as the Jam's config source and returns its diff.
+func (c *Client) ConfigTrack(source string) (jam.ConfigApplyResult, error) {
+	var res jam.ConfigApplyResult
+	err := c.doConfig("PUT", "/admin/config/source", jam.ConfigSourceBody{Source: source}, &res)
+	return res, err
+}
+
+// ConfigUntrack forgets the tracked config source (objects and marks stay).
+func (c *Client) ConfigUntrack() error {
+	return c.do("DELETE", "/admin/config/source", nil, nil)
+}
+
+// ConfigSync applies the tracked config source (ErrConflict when none, or
+// for a stale planDigest or refusals).
+func (c *Client) ConfigSync(force bool, planDigest string) (jam.ConfigApplyResult, error) {
+	var res jam.ConfigApplyResult
+	err := c.doConfig("POST", configPath("/admin/config/sync", force, planDigest), jam.ConfigSourceBody{}, &res)
 	return res, err
 }
 

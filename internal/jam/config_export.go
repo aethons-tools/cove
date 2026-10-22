@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -94,6 +95,12 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 		if !ok {
 			continue
 		}
+		key := ConfigKey{ConfigKindKit, n}
+		if k.Source != nil { // a kit following its own source is written by reference
+			out[key] = configObject{Key: key, Files: map[string][]byte{sourceKitPath(n): renderKitSourceFile(*k.Source)},
+				Canon: kitCanon(cfg, k.Source)}
+			continue
+		}
 		b, err := renderKitFile(m, n, cfg, inTree)
 		if errors.Is(err, ErrConfigKitPinBehind) {
 			return nil, err
@@ -101,10 +108,20 @@ func exportObjects(m *memState, inTree func(kit string) bool) (map[ConfigKey]con
 		if err != nil {
 			return nil, fmt.Errorf("kit %s: %w", n, err)
 		}
-		key := ConfigKey{ConfigKindKit, n}
-		out[key] = configObject{Key: key, Files: map[string][]byte{key.Path(): b}, Canon: []byte(cfg)}
+		out[key] = configObject{Key: key, Files: map[string][]byte{key.Path(): b}, Canon: kitCanon(cfg, nil)}
 	}
 	return out, nil
+}
+
+// kitCanon is a kit's canonical bytes: its stored config, then, for a kit
+// that tracks a source, that source (not its commit: a sync that only moves
+// the commit is not a change).
+func kitCanon(config string, tracked *KitSource) []byte {
+	if tracked == nil {
+		return []byte(config)
+	}
+	src := gitsource.Source{Repo: tracked.Repo, Dir: tracked.Dir, Ref: tracked.Ref}
+	return []byte(config + "\n# source: " + src.String() + "\n")
 }
 
 func tierFiles(m *memState, tiers []EscalationTier) []EscalationTierFile {
@@ -168,9 +185,11 @@ func projectFileOf(m *memState, p Project) ProjectFile {
 	return f
 }
 
-// ErrConfigKitPinBehind is a config write of a kit pinned behind its in-tree
-// parent's current version: a path parent re-pins to the current version at
-// apply, and versions are per-Jam, so the repo cannot express the lag.
+// ErrConfigKitPinBehind is a config write of a kit whose parent pin the repo
+// cannot express: behind its in-tree parent's current version (a path parent
+// re-pins to current at apply), or to a parent written as
+// kits/<parent>.source.yml (path parents cannot reach it). Versions are
+// per-Jam.
 var ErrConfigKitPinBehind = errors.New("kit pins its parent behind the parent's current version")
 
 type kitPinBehindError struct {
@@ -185,6 +204,18 @@ func (e *kitPinBehindError) Error() string {
 
 func (e *kitPinBehindError) Unwrap() error { return ErrConfigKitPinBehind }
 
+type kitPinSourceError struct {
+	kit, parent string
+	pin         int
+}
+
+func (e *kitPinSourceError) Error() string {
+	return fmt.Sprintf("kit %s pins %s@v%d, a kit from its own source (%s); versions are per-Jam — base %s on %s (unpinned) before config write",
+		e.kit, e.parent, e.pin, sourceKitPath(e.parent), e.kit, e.parent)
+}
+
+func (e *kitPinSourceError) Unwrap() error { return ErrConfigKitPinBehind }
+
 // renderKitFile renders kit name's stored config as kits/<n>/kit.yml. A
 // parent in the tree is written as a path parent, which apply re-pins to the
 // parent's current version — so only a pin equal to it can be; an older pin
@@ -195,6 +226,9 @@ func renderKitFile(m *memState, name, config string, inTree func(string) bool) (
 		return nil, err
 	}
 	if parent, v, err := sk.Base.ParentRef(); err == nil && v > 0 && inTree != nil && inTree(parent) {
+		if m.kits[parent].Source != nil {
+			return nil, &kitPinSourceError{kit: name, parent: parent, pin: v}
+		}
 		if cur := m.kits[parent].Current; v != cur {
 			return nil, &kitPinBehindError{kit: name, parent: parent, pin: v, cur: cur}
 		}
@@ -239,12 +273,22 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 		}
 	}
 	for k := range managed {
-		if _, ok := objs[k]; ok {
+		if o, ok := objs[k]; ok {
+			if k.Kind == ConfigKindKit { // the kit's other form, left from before it switched
+				for _, p := range []string{k.Path(), sourceKitPath(k.Name)} {
+					if _, ok := o.Files[p]; !ok {
+						remove[p] = true
+					}
+				}
+			}
 			continue
 		}
 		remove[k.Path()] = true
-		if k.Kind == ConfigKindProject {
+		switch k.Kind {
+		case ConfigKindProject:
 			remove["projects/"+k.Name+"/context.md"] = true
+		case ConfigKindKit:
+			remove[sourceKitPath(k.Name)] = true
 		}
 	}
 	for p := range remove {

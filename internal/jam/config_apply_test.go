@@ -2,6 +2,7 @@ package jam
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,7 +49,7 @@ func TestApplyConfigTreeRefusesAndWritesNothing(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n",
 		"projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: missing\n"})
-	_, err := ApplyConfigTree(st, tr, allCreds, dirOpts(), nil, "local")
+	_, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, dirOpts(), nil, "local")
 	if !errors.Is(err, ErrConfigRefused) || len(st.ListUsers()) != 0 {
 		t.Fatalf("err=%v users=%v", err, st.ListUsers())
 	}
@@ -58,7 +59,7 @@ func TestApplyConfigTreeRefusesAndWritesNothing(t *testing.T) {
 	tr = treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n",
 		"kits/web/kit.yml": "kind: studio\n",
 		"kits/app/kit.yml": "kind: studio\nbase: {kit: ../../x}\n"})
-	_, err = ApplyConfigTree(st, tr, allCreds, dirOpts(), nil, "local")
+	_, err = ApplyConfigTree(context.Background(), st, nil, tr, allCreds, dirOpts(), nil, "local")
 	if !errors.Is(err, ErrConfigRefused) || len(st.ListUsers()) != 0 || len(st.ListKits()) != 0 || len(st.ListConfigMarks()) != 0 {
 		t.Fatalf("err=%v users=%v kits=%v marks=%v", err, st.ListUsers(), st.ListKits(), st.ListConfigMarks())
 	}
@@ -69,7 +70,7 @@ func TestApplyConfigTreeDryRunWritesNothing(t *testing.T) {
 	tr := treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
 	opt := dirOpts()
 	opt.DryRun = true
-	res, err := ApplyConfigTree(st, tr, allCreds, opt, nil, "local")
+	res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local")
 	if err != nil || res.Applied || len(st.ListUsers()) != 0 || len(st.ListConfigMarks()) != 0 || res.Plan.Counts()[ConfigCreate] != 1 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -80,16 +81,16 @@ func TestApplyConfigTreePlanDigestGuard(t *testing.T) {
 	tr := treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
 	opt := dirOpts()
 	opt.WantDigest = "stale"
-	if _, err := ApplyConfigTree(st, tr, allCreds, opt, nil, "local"); !errors.Is(err, ErrConfigPlanChanged) {
+	if _, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local"); !errors.Is(err, ErrConfigPlanChanged) {
 		t.Fatal(err)
 	}
 	if len(st.ListUsers()) != 0 {
 		t.Fatal("a stale plan wrote")
 	}
 	opt.DryRun = true
-	diff, _ := ApplyConfigTree(st, tr, allCreds, opt, nil, "local")
+	diff, _ := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local")
 	opt.DryRun, opt.WantDigest = false, diff.Plan.Digest
-	if res, err := ApplyConfigTree(st, tr, allCreds, opt, nil, "local"); err != nil || !res.Applied {
+	if res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local"); err != nil || !res.Applied {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }
@@ -99,7 +100,7 @@ func TestApplyConfigTreeAudit(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n", "destinations/gh.yml": ghDest})
-	res, err := ApplyConfigTree(st, tr, allCreds, dirOpts(), log, "alice")
+	res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, dirOpts(), log, "alice")
 	if err != nil || !res.Applied || res.Counts[ConfigCreate] != 2 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -115,7 +116,7 @@ func TestApplyConfigTreeAudit(t *testing.T) {
 	}
 
 	buf.Reset()
-	if res, err := ApplyConfigTree(st, tr, allCreds, dirOpts(), log, "alice"); err != nil || res.Applied {
+	if res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, dirOpts(), log, "alice"); err != nil || res.Applied {
 		t.Fatalf("an unchanged tree wrote: res=%+v err=%v", res, err)
 	}
 	if buf.Len() != 0 {
@@ -127,7 +128,7 @@ func TestApplyVsConcurrentKitPush(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"kits/web/kit.yml": "kind: studio\n", "kits/app/kit.yml": "kind: studio\nbase: {kit: ../web}\n"})
 	force := ConfigApplyOptions{Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Force: true, Now: time.Now()}
-	if res, err := ApplyConfigTree(st, tr, allCreds, force, nil, "local"); err != nil || !res.Applied {
+	if res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, force, nil, "local"); err != nil || !res.Applied {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	done := make(chan struct{})
@@ -138,7 +139,7 @@ func TestApplyVsConcurrentKitPush(t *testing.T) {
 		}
 	}()
 	for range 20 {
-		_, _ = ApplyConfigTree(st, tr, allCreds, force, nil, "local")
+		_, _ = ApplyConfigTree(context.Background(), st, nil, tr, allCreds, force, nil, "local")
 	}
 	select {
 	case <-done:

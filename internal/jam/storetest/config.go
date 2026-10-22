@@ -33,6 +33,44 @@ func ConfigWriteFixture() (jam.ConfigWrite, ident.ID, ident.ID, ident.ID) {
 
 func runConfigConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 	full := ConfigWriteFixture
+	t.Run("the tracked config source is set, written with an apply, and cleared", func(t *testing.T) {
+		st := mk(t)
+		if _, ok := st.GetConfigSource(); ok {
+			t.Fatal("a new store tracks a config source")
+		}
+		src := jam.ConfigSource{Repo: "https://github.com/acme/jam", Dir: "cfg", Ref: "main"}
+		if err := st.SetConfigSource(&src); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := st.GetConfigSource(); !ok || got != src {
+			t.Fatalf("source %+v %v", got, ok)
+		}
+		applied := src
+		applied.Commit, applied.AppliedAt = "c1", time.Unix(200, 0).UTC()
+		if err := st.ApplyConfig(jam.ConfigWrite{ConfigSource: &applied}); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := st.GetConfigSource(); got != applied {
+			t.Fatalf("after apply %+v", got)
+		}
+		bad, _, _, _ := full()
+		bad.ConfigSource = &jam.ConfigSource{Commit: "c2"} // no repo or ref
+		if err := st.ApplyConfig(bad); err == nil {
+			t.Fatal("a config source without repo and ref must be refused")
+		}
+		if got, _ := st.GetConfigSource(); got != applied || len(st.ListUsers()) != 0 {
+			t.Fatalf("a refused write changed the store: %+v users=%d", got, len(st.ListUsers()))
+		}
+		if err := st.SetConfigSource(&jam.ConfigSource{}); err == nil {
+			t.Fatal("SetConfigSource must refuse a source without repo and ref")
+		}
+		if err := st.SetConfigSource(nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := st.GetConfigSource(); ok {
+			t.Fatal("untracked source still set")
+		}
+	})
 	t.Run("apply config writes every kind and the marks", func(t *testing.T) {
 		st := mk(t)
 		w, uid, cid, pid := full()

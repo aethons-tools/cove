@@ -24,6 +24,7 @@ import (
 type kitSetEntry struct {
 	Name      string
 	Dir       string           // source dir in the checkout ("" = the root)
+	Group     string           // the checkout path refs resolve in: "" = the config tree or a kit import's; else a .source.yml's (kitGroupKey)
 	Kit       studio.StudioKit // with path refs rewritten to name@vN
 	Version   int              // the version this import leaves it at
 	Unchanged bool
@@ -148,7 +149,7 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 		e := &out[i]
 		if p, isPath := e.Kit.Base.ParentPath(); isPath {
 			want := path.Join(checkoutDir(e.Dir), p)
-			j := slices.IndexFunc(out[:i], func(o kitSetEntry) bool { return checkoutDir(o.Dir) == want })
+			j := slices.IndexFunc(out[:i], func(o kitSetEntry) bool { return o.Group == e.Group && checkoutDir(o.Dir) == want })
 			if j < 0 {
 				return nil, writeErr(http.StatusBadRequest, "parent path %s (of %s) is not in this set", p, e.Name)
 			}
@@ -257,12 +258,7 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 		doc := copyKit(k)
 		doc.Name = e.Name
 		if !e.Unchanged {
-			if doc.Meta == nil {
-				doc.Meta = map[int]KitVersionMeta{}
-			}
-			doc.Versions[e.Version] = e.text
-			doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}
-			doc.Current = e.Version
+			addKitVersion(&doc, e, at, now)
 		}
 		if tracked != nil {
 			doc.Source = copyKitSource(tracked)
@@ -270,6 +266,17 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 		docs = append(docs, doc)
 	}
 	return docs
+}
+
+// addKitVersion makes entry e's planned version doc's current one, with its
+// provenance at and its parent.
+func addKitVersion(doc *Kit, e kitSetEntry, at KitSource, now time.Time) {
+	if doc.Meta == nil {
+		doc.Meta = map[int]KitVersionMeta{}
+	}
+	doc.Versions[e.Version] = e.text
+	doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}
+	doc.Current = e.Version
 }
 
 // kitSetResult reports a planned set: the top kit, with its ancestors in Also,

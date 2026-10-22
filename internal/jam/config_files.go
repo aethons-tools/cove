@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -735,4 +736,47 @@ func RenderContextMarkdown(l sessionctx.Layer) []byte {
 		b.WriteString(core + "\n")
 	}
 	return b.Bytes()
+}
+
+// ConfigKindKitSource is the file kind of kits/<name>.source.yml; the object
+// it names is a kit (ConfigKindKit).
+const ConfigKindKitSource = "kit-source"
+
+// KitSourceFile is kits/<name>.source.yml: a kit kept in its own git repo,
+// fetched and tracked by the config apply.
+type KitSourceFile struct {
+	Kind    string `yaml:"kind"`
+	Version int    `yaml:"version"`
+	Name    string `yaml:"name,omitempty"`
+	Git     string `yaml:"git"`
+}
+
+// ParseKitSourceFile parses kits/<name>.source.yml and its git: source. A
+// bad source is refused with gitsource.Parse's fixed text, never the value.
+func ParseKitSourceFile(path, name string, data []byte) (KitSourceFile, gitsource.Source, error) {
+	var f KitSourceFile
+	if err := decodeStrict(path, data, &f); err != nil {
+		return f, gitsource.Source{}, err
+	}
+	if err := checkHeader(path, ConfigKindKitSource, f.Kind, f.Version, name, &f.Name); err != nil {
+		return f, gitsource.Source{}, err
+	}
+	if f.Git == "" {
+		return f, gitsource.Source{}, fmt.Errorf("%s: git is required (<repo>[//<dir>]@<ref>)", path)
+	}
+	src, err := gitsource.Parse(f.Git)
+	if err != nil {
+		return f, gitsource.Source{}, fmt.Errorf("%s: git: %s", path, err)
+	}
+	return f, src, nil
+}
+
+// sourceKitPath is the repo file of a kit kept by reference.
+func sourceKitPath(name string) string { return "kits/" + name + ".source.yml" }
+
+// renderKitSourceFile renders a tracked kit's reference (its commit is Jam's,
+// not the repo's).
+func renderKitSourceFile(src KitSource) []byte {
+	return renderYAML(KitSourceFile{Kind: ConfigKindKitSource, Version: ConfigFileVersion,
+		Git: gitsource.Source{Repo: src.Repo, Dir: src.Dir, Ref: src.Ref}.String()})
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -44,13 +45,26 @@ type ConfigOp struct {
 // the live objects the repo does not manage, the refusals (any one blocks
 // the apply), the serve-config comparison, and a digest of all of it.
 type ConfigPlan struct {
-	Ops         []ConfigOp      `json:"ops"`
-	Unmanaged   []ConfigKey     `json:"unmanaged,omitempty"`
-	Forget      []ConfigKey     `json:"forget,omitempty"` // managed marks whose object is gone from Jam and the repo
-	Refusals    []string        `json:"refusals,omitempty"`
-	ServeConfig ServeConfigDiff `json:"serve_config"`
-	Digest      string          `json:"digest"`
+	Ops         []ConfigOp        `json:"ops"`
+	Unmanaged   []ConfigKey       `json:"unmanaged,omitempty"`
+	Forget      []ConfigKey       `json:"forget,omitempty"` // managed marks whose object is gone from Jam and the repo
+	Refusals    []string          `json:"refusals,omitempty"`
+	ServeConfig ServeConfigDiff   `json:"serve_config"`
+	KitSources  []ConfigKitSource `json:"kit_sources,omitempty"` // the .source.yml kits as fetched (not in the digest)
+	Digest      string            `json:"digest"`
 	write       ConfigWrite
+	// refreshMarks are the marks of unchanged objects whose recorded digest
+	// is not the repo's (a kit sync landed the repo's content, say): a
+	// write that applies nothing else still rewrites them, so the next real
+	// change is not refused as drift. They are in write.Marks too.
+	refreshMarks []ConfigMark
+}
+
+// ConfigKitSource is one kits/<name>.source.yml as the plan fetched it.
+type ConfigKitSource struct {
+	Path   string `json:"path"`
+	Source string `json:"source"`
+	Commit string `json:"commit"`
 }
 
 // Counts is the number of ops by action, plus the forgotten marks
@@ -98,6 +112,7 @@ type planner struct {
 	live  map[ConfigKey]configObject
 	marks map[ConfigKey]ConfigMark
 	repo  map[ConfigKey]bool
+	paths map[ConfigKey]string // op paths other than Key.Path(): kits kept by reference
 	plan  ConfigPlan
 	w     ConfigWrite
 }
@@ -113,7 +128,8 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 	}
 	m := stateFromSnapshot(in.Snapshot, in.Instances)
 	live, err := exportObjects(m, nil)
-	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{}}
+	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{},
+		paths: map[ConfigKey]string{}}
 	if err != nil {
 		p.refuse("jam: %s", err)
 	}
@@ -202,7 +218,11 @@ func (p *planner) record(key ConfigKey, action string, drift bool, repo configOb
 		after = repo.Canon
 	}
 	p.op(key, action, drift, before, after)
-	p.w.Marks = append(p.w.Marks, ConfigMark{Kind: key.Kind, Name: key.Name, Commit: p.in.Commit, Digest: repo.Digest(), AppliedAt: p.in.Now})
+	mk := ConfigMark{Kind: key.Kind, Name: key.Name, Commit: p.in.Commit, Digest: repo.Digest(), AppliedAt: p.in.Now}
+	p.w.Marks = append(p.w.Marks, mk)
+	if action == ConfigUnchanged && p.marks[key].Digest != mk.Digest {
+		p.plan.refreshMarks = append(p.plan.refreshMarks, mk)
+	}
 }
 
 func (p *planner) refuse(format string, a ...any) {
@@ -210,8 +230,12 @@ func (p *planner) refuse(format string, a ...any) {
 }
 
 func (p *planner) op(key ConfigKey, action string, drift bool, before, after []byte) {
+	file := key.Path()
+	if pp, ok := p.paths[key]; ok {
+		file = pp
+	}
 	p.plan.Ops = append(p.plan.Ops, ConfigOp{Kind: key.Kind, Name: key.Name, Action: action, Drift: drift,
-		Path: key.Path(), Before: string(before), After: string(after)})
+		Path: file, Before: string(before), After: string(after)})
 }
 
 func shortCommit(c string) string {
@@ -348,39 +372,130 @@ func (p *planner) planModelSpecs() {
 
 // ---- kits ----
 
-// planKits resolves the tree's kits as one parents-first set against the
-// planned state (path parents pinned to the version their parent ends at),
-// classifies each by its stored config, and builds the new docs of the ones
-// it creates or updates.
+// planKits resolves the tree's kits — inline and, once fetched, the
+// .source.yml kits' sets — as one parents-first list against the planned
+// state (path parents pinned within their own checkout), classifies each by
+// its canonical form (config plus tracked source), and builds the docs it
+// changes: a new version with its provenance when the config changed, and
+// the tracked source a .source.yml kit follows (an inline kit's is cleared).
+// A kit the tree could not load — an unfetched or failed source, the live
+// kits tracking a failed source's repo and ref (its path ancestors too), a
+// kit in a cycle, a kit whose .source.yml the tree refused (and the live
+// kits tracking that kit's repo and ref) — is a refusal, never a delete.
 func (p *planner) planKits() {
-	kits := p.in.Tree.Kits
-	for _, e := range kits {
-		p.repo[ConfigKey{ConfigKindKit, e.Name}] = true
+	tree := p.in.Tree
+	failed := maps.Clone(tree.KitGroupsFailed)
+	if failed == nil {
+		failed = map[string]bool{}
 	}
-	entries, err := resolveKitEntries(p.store, kits, nil)
+	for _, n := range tree.KitSourcesRefused {
+		p.repo[ConfigKey{ConfigKindKit, n}] = true
+		if k, ok := p.m.kits[n]; ok && k.Source != nil {
+			failed[kitGroupKey(gitsource.Source{Repo: k.Source.Repo, Ref: k.Source.Ref})] = true
+		}
+	}
+	for _, n := range slices.Sorted(maps.Keys(p.m.kits)) {
+		k := p.m.kits[n]
+		if k.Source == nil {
+			continue
+		}
+		key := ConfigKey{ConfigKindKit, n}
+		p.paths[key] = sourceKitPath(n)
+		if failed[kitGroupKey(gitsource.Source{Repo: k.Source.Repo, Ref: k.Source.Ref})] {
+			p.repo[key] = true
+		}
+	}
+	for _, n := range tree.KitCycle {
+		p.repo[ConfigKey{ConfigKindKit, n}] = true
+	}
+	for _, n := range slices.Sorted(maps.Keys(tree.KitSources)) {
+		ref := tree.KitSources[n]
+		p.repo[ConfigKey{ConfigKindKit, n}] = true // an unfetched or failed source is a refusal, never a delete
+		if ref.Commit != "" && !tree.KitGroupsFailed[kitGroupKey(ref.Source)] {
+			p.plan.KitSources = append(p.plan.KitSources, ConfigKitSource{Path: ref.Path, Source: ref.Source.String(), Commit: ref.Commit})
+		}
+	}
+	if len(tree.KitSources) > 0 && !tree.KitsFetched {
+		p.refuse("kits: the kit sources (kits/<name>.source.yml) were not fetched")
+	}
+	for _, e := range tree.Kits {
+		key := ConfigKey{ConfigKindKit, e.Name}
+		p.repo[key] = true
+		if e.Group != "" {
+			p.paths[key] = sourceKitPath(e.Name)
+		} else {
+			delete(p.paths, key)
+		}
+	}
+	entries, err := resolveKitEntries(p.store, tree.Kits, nil)
 	if err != nil {
 		p.refuse("kits: %s", err)
 		return
 	}
-	var changed []kitSetEntry
+	var docs []Kit
 	for _, e := range entries {
 		key := ConfigKey{ConfigKindKit, e.Name}
-		repo := configObject{Key: key, Canon: []byte(e.text)}
+		at, track := p.kitProvenance(e)
+		var tracked *KitSource
+		if track {
+			tracked = &at
+		}
+		repo := configObject{Key: key, Canon: kitCanon(e.text, tracked)}
 		action, drift, ok := p.classify(key, repo)
 		if !ok {
 			continue
 		}
-		if action == ConfigCreate || action == ConfigUpdate {
-			changed = append(changed, e)
+		if doc, write := configKitDoc(p.store, e, at, track, p.in.Now); write {
+			docs = append(docs, doc)
 		}
 		p.record(key, action, drift, repo)
 	}
-	docs := buildKitDocs(p.store, changed, gitsource.Source{Repo: p.in.Source.Repo, Ref: p.in.Source.Ref},
-		provenanceCommit(p.in.Commit), p.in.Now, false)
 	for _, d := range docs {
 		p.m.kits[d.Name] = copyKit(d)
 	}
 	p.w.Kits = docs
+}
+
+// kitProvenance is the KitSource entry e's new version records and whether
+// e tracks it: a .source.yml kit's own repo, dir, ref and fetched commit
+// (tracked); an inline kit's config source — its dir under the config dir,
+// no ref or commit for --dir — untracked.
+func (p *planner) kitProvenance(e kitSetEntry) (at KitSource, track bool) {
+	if e.Group == "" {
+		s := p.in.Source
+		return KitSource{Repo: s.Repo, Dir: path.Join(s.Dir, e.Dir), Ref: s.Ref, Commit: provenanceCommit(p.in.Commit)}, false
+	}
+	g := p.in.Tree.KitGroups[e.Group]
+	return KitSource{Repo: g.Source.Repo, Dir: e.Dir, Ref: g.Source.Ref, Commit: g.Commit}, true
+}
+
+// configKitDoc is entry e's new doc: a new version with provenance at when
+// its config changed, and its tracked source set to at (track) or cleared
+// (an inline kit is the config repo's, not tracked on its own). write=false
+// when neither changes.
+func configKitDoc(store Store, e kitSetEntry, at KitSource, track bool, now time.Time) (Kit, bool) {
+	k, _ := store.GetKit(e.Name)
+	doc := copyKit(k)
+	doc.Name = e.Name
+	write := false
+	if !e.Unchanged {
+		addKitVersion(&doc, e, at, now)
+		write = true
+	}
+	var want *KitSource
+	if track {
+		want = copyKitSource(&at)
+	}
+	if !sameKitSource(doc.Source, want) {
+		doc.Source = want
+		write = true
+	}
+	return doc, write
+}
+
+// sameKitSource compares two optional sources by value.
+func sameKitSource(a, b *KitSource) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 // ---- projects ----

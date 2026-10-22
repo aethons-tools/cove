@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
 	"github.com/aethons-tools/cove/internal/secret"
 )
@@ -18,6 +19,14 @@ import (
 // real gitsource.Fetcher built, as serve builds it, from a kits.git entry
 // whose cred resolves to token. It returns the admin URL and the admin log.
 func kitGitJam(t *testing.T, store jam.Store, repoURL, token string) (string, *bytes.Buffer) {
+	t.Helper()
+	return gitJam(t, store, repoURL, token, func(f *gitsource.Fetcher, log *slog.Logger) jam.AdminOption {
+		return jam.WithKitFetcher(store, f, log)
+	})
+}
+
+// gitJam is kitGitJam with the mounted API chosen by mount.
+func gitJam(t *testing.T, store jam.Store, repoURL, token string, mount func(*gitsource.Fetcher, *slog.Logger) jam.AdminOption) (string, *bytes.Buffer) {
 	t.Helper()
 	prefix := repoURL[:strings.LastIndex(repoURL, "/")+1]
 	cfg, err := parseServeConfig([]byte("credentials:\n  kit-git:\nkits:\n  git:\n    - url: " + prefix + "\n      cred: kit-git\n"))
@@ -34,7 +43,7 @@ func kitGitJam(t *testing.T, store jam.Store, repoURL, token string) (string, *b
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
-		jam.WithKitFetcher(store, f, log))
+		mount(f, log))
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts.URL, &logs

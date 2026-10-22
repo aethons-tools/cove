@@ -66,6 +66,8 @@ type memState struct {
 	specSchema int
 	// marks is the config-in-git managed marks (config_marks.go).
 	marks map[ConfigKey]ConfigMark
+	// configSource is the tracked config source (config_marks.go); nil = none.
+	configSource *ConfigSource
 }
 
 func newMemState() *memState {

@@ -278,6 +278,18 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	var cs []byte
+	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'config_source'`).Scan(&cs); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("pgstore: load jam_settings config_source: %w", err)
+	default:
+		var src ConfigSource
+		if err := json.Unmarshal(cs, &src); err != nil {
+			return fmt.Errorf("pgstore: decode jam_settings config_source: %w", err)
+		}
+		s.configSource = &src
+	}
 	var schema []byte
 	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'model_spec_schema'`).Scan(&schema); {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -971,6 +983,29 @@ func (s *PostgresStore) SetJamContext(l sessionctx.Layer) error {
 		}
 	}
 	s.applySetJamContext(l)
+	return nil
+}
+
+func (s *PostgresStore) SetConfigSource(src *ConfigSource) error {
+	if err := checkConfigSource(src); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if src == nil {
+		if err := s.exec("clearConfigSource", `DELETE FROM jam_settings WHERE key = 'config_source'`); err != nil {
+			return err
+		}
+	} else {
+		doc, err := json.Marshal(src)
+		if err != nil {
+			return err
+		}
+		if err := s.exec("setConfigSource", upsertConfigSourceSQL, doc); err != nil {
+			return err
+		}
+	}
+	s.applySetConfigSource(src)
 	return nil
 }
 

@@ -431,3 +431,237 @@ func TestPlanRoomBindingOrderIsNotAChange(t *testing.T) {
 		t.Fatalf("%+v %+v", o, p.write.Channels)
 	}
 }
+
+// Until the config apply fetches kit sources, a .source.yml is refused, and
+// the managed kit it names is never planned as a delete.
+func TestPlanRefusesUnfetchedKitSources(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"}), false))
+	p := planOn(t, st, treeOf(t, map[string]string{
+		"kits/app.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n",
+	}), false)
+	if !slices.Contains(p.Refusals, "kits: the kit sources (kits/<name>.source.yml) were not fetched") {
+		t.Fatalf("refusals %v", p.Refusals)
+	}
+	if op := opOf(p, ConfigKindKit, "app"); op.Action == ConfigDelete {
+		t.Fatalf("an unfetched source plans a delete: %+v", op)
+	}
+}
+
+var cfgSrc = gitsource.Source{Repo: "https://github.com/acme/jam", Dir: "cfg", Ref: "main"}
+
+// gitPlanOn plans tr against st as an apply of src at commit.
+func gitPlanOn(t *testing.T, st *MemStore, tr *ConfigTree, src gitsource.Source, commit string, force bool) ConfigPlan {
+	t.Helper()
+	return PlanConfig(ConfigPlanInput{
+		Tree: tr, Snapshot: st.ExportConfig(), Instances: st.ListInstances(), Marks: st.ListConfigMarks(),
+		Env: allCreds, Source: src, Commit: commit, Force: force, Now: planNow,
+	})
+}
+
+func markOf(st *MemStore, kind, name string) ConfigMark {
+	for _, mk := range st.ListConfigMarks() {
+		if mk.Kind == kind && mk.Name == name {
+			return mk
+		}
+	}
+	return ConfigMark{}
+}
+
+// sourceKitJam applies a tree holding kits/app.source.yml (kitsRepo//app@main
+// at k1) as config commit c1.
+func sourceKitJam(t *testing.T) (*MemStore, *fakeFetcher) {
+	t.Helper()
+	kits := newFakeFetcher(t, map[string]string{"main": "k1"}, map[string]map[string]string{"k1": {"app/kit.yml": "kind: studio\nprompt: hi\n"}})
+	st := NewMemStore()
+	p := gitPlanOn(t, st, fetchedTree(t, map[string]string{"kits/app.source.yml": appSourceYML}, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigCreate || op.Path != "kits/app.source.yml" {
+		t.Fatalf("op %+v", op)
+	}
+	if len(p.KitSources) != 1 || p.KitSources[0] != (ConfigKitSource{Path: "kits/app.source.yml", Source: "https://github.com/acme/kits//app@main", Commit: "k1"}) {
+		t.Fatalf("kit sources %+v", p.KitSources)
+	}
+	applyPlan(t, st, p)
+	return st, kits
+}
+
+func TestPlanSourceKitCreateTracksIt(t *testing.T) {
+	st, _ := sourceKitJam(t)
+	k, _ := st.GetKit("app")
+	want := KitSource{Repo: kitsRepo, Dir: "app", Ref: "main", Commit: "k1"}
+	if k.Source == nil || *k.Source != want || k.Meta[1].Source == nil || *k.Meta[1].Source != want {
+		t.Fatalf("tracked %+v provenance %+v", k.Source, k.Meta[1].Source)
+	}
+	if mk := markOf(st, ConfigKindKit, "app"); mk.Commit != "c1" {
+		t.Fatalf("mark %+v: want the config commit", mk)
+	}
+}
+
+func TestPlanSourceKitReapplyAndCommitOnlyMove(t *testing.T) {
+	st, kits := sourceKitJam(t)
+	files := map[string]string{"kits/app.source.yml": appSourceYML}
+	again := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	if op := opOf(again, ConfigKindKit, "app"); op.Action != ConfigUnchanged || len(again.write.Kits) != 0 {
+		t.Fatalf("reapply: %+v kits=%d", op, len(again.write.Kits))
+	}
+	kits.commit("main", "k2", map[string]string{"app/kit.yml": "kind: studio\nprompt: hi\n", "README": "moved"})
+	moved := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	if op := opOf(moved, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(moved) != 0 {
+		t.Fatalf("commit-only move: %+v", moved.Ops)
+	}
+	if len(moved.write.Kits) != 1 || moved.write.Kits[0].Source.Commit != "k2" || len(moved.write.Kits[0].Versions) != 1 {
+		t.Fatalf("the tracked commit does not advance alone: %+v", moved.write.Kits)
+	}
+	if len(moved.refreshMarks) != 0 {
+		t.Fatalf("a commit-only move rewrites no mark: %+v", moved.refreshMarks)
+	}
+}
+
+func TestPlanSourceKitUpdateAndDrift(t *testing.T) {
+	st, kits := sourceKitJam(t)
+	files := map[string]string{"kits/app.source.yml": appSourceYML}
+	kits.commit("main", "k2", map[string]string{"app/kit.yml": "kind: studio\nprompt: two\n"})
+	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || op.Drift {
+		t.Fatalf("op %+v", op)
+	}
+	if _, _, err := PushStudioKit(st, "app", "kind: studio\nprompt: jam\n"); err != nil {
+		t.Fatal(err)
+	}
+	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
+	if !slices.Contains(p.Refusals, "kit app drifted (edited in Jam since config @c1); re-run with --force or config write it first") {
+		t.Fatalf("refusals %v", p.Refusals)
+	}
+}
+
+// A kit sync that lands the content the config repo also has makes the next
+// plan unchanged with a stale mark: the plan lists the mark to refresh, so a
+// later real change is not refused as drift.
+func TestPlanRefreshesStaleMarkOfUnchangedKit(t *testing.T) {
+	st, kits := sourceKitJam(t)
+	files := map[string]string{"kits/app.source.yml": appSourceYML}
+	kits.commit("main", "k2", map[string]string{"app/kit.yml": "kind: studio\nprompt: two\n"})
+	if _, _, err := PushStudioKit(st, "app", "kind: studio\nprompt: two\n"); err != nil { // as a kit sync would
+		t.Fatal(err)
+	}
+	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(p) != 0 {
+		t.Fatalf("ops %+v", p.Ops)
+	}
+	if len(p.refreshMarks) != 1 || p.refreshMarks[0].Name != "app" || p.refreshMarks[0].Commit != "c2" ||
+		p.refreshMarks[0].Digest == markOf(st, ConfigKindKit, "app").Digest {
+		t.Fatalf("refresh marks %+v", p.refreshMarks)
+	}
+	// With the refreshed mark written, the repo's next change is no drift.
+	if err := st.ApplyConfig(ConfigWrite{Kits: p.write.Kits, Marks: p.refreshMarks}); err != nil {
+		t.Fatal(err)
+	}
+	kits.commit("main", "k3", map[string]string{"app/kit.yml": "kind: studio\nprompt: three\n"})
+	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c3", false)
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || op.Drift || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
+	}
+}
+
+func TestPlanInlineKitFromGitRecordsProvenanceAndUntracks(t *testing.T) {
+	st := NewMemStore()
+	tr := treeOf(t, map[string]string{"kits/web/kit.yml": "kind: studio\n"})
+	applyPlan(t, st, gitPlanOn(t, st, tr, cfgSrc, "c9", false))
+	k, _ := st.GetKit("web")
+	want := KitSource{Repo: cfgSrc.Repo, Dir: "cfg/kits/web", Ref: "main", Commit: "c9"}
+	if k.Source != nil || k.Meta[1].Source == nil || *k.Meta[1].Source != want {
+		t.Fatalf("tracked %+v provenance %+v", k.Source, k.Meta[1].Source)
+	}
+	if mk := markOf(st, ConfigKindKit, "web"); mk.Commit != "c9" {
+		t.Fatalf("mark %+v", mk)
+	}
+	// Tracked in Jam since: the repo's inline copy is an update over drift
+	// that untracks it, with no new version (same config).
+	if err := st.SetKitSource("web", &KitSource{Repo: kitsRepo, Dir: "web", Ref: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	p := gitPlanOn(t, st, tr, cfgSrc, "c9", true)
+	if op := opOf(p, ConfigKindKit, "web"); op.Action != ConfigUpdate || !op.Drift || op.Path != "kits/web/kit.yml" {
+		t.Fatalf("op %+v", op)
+	}
+	applyPlan(t, st, p)
+	if k, _ := st.GetKit("web"); k.Source != nil || len(k.Versions) != 1 {
+		t.Fatalf("%+v", k)
+	}
+}
+
+// An unreachable kit source plans no delete of its kit or of the path
+// ancestors that track the same repo and ref.
+func TestPlanSourceKitFetchFailureIsNotADelete(t *testing.T) {
+	kits := newFakeFetcher(t, map[string]string{"main": "k1"}, map[string]map[string]string{"k1": {
+		"app/kit.yml":  "kind: studio\nbase: {kit: ../base}\n",
+		"base/kit.yml": "kind: studio\nprompt: hi\n",
+	}})
+	st := NewMemStore()
+	files := map[string]string{"kits/app.source.yml": appSourceYML}
+	applyPlan(t, st, gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false))
+	if _, ok := st.GetKit("base"); !ok || markOf(st, ConfigKindKit, "base").Name == "" {
+		t.Fatal("the ancestor is not a managed kit")
+	}
+	broken := fetchedTree(t, files, repoFetcher{}) // the kits repo is unreachable
+	p := gitPlanOn(t, st, broken, cfgSrc, "c2", false)
+	for _, n := range []string{"app", "base"} {
+		if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
+			t.Fatalf("an unreachable source plans a delete: %+v", op)
+		}
+	}
+	if !slices.Equal(p.Refusals, []string{"kits/app.source.yml: git fetch failed: repository not found"}) {
+		t.Fatalf("refusals %v: want only the fetch's", p.Refusals)
+	}
+	if len(p.KitSources) != 0 {
+		t.Fatalf("an unfetched source is listed: %+v", p.KitSources)
+	}
+	// A .source.yml the tree refuses to load — misnamed, or missing git: —
+	// protects its kit and the ancestors its live source brought in.
+	for _, tc := range []struct{ name, path, body, refusal string }{
+		{"misnamed", "kits/app.source.yaml", appSourceYML, "kits/app.source.yaml: use .yml"},
+		{"no git", "kits/app.source.yml", "kind: kit-source\nversion: 1\n", "kits/app.source.yml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := gitPlanOn(t, st, fetchedTree(t, map[string]string{tc.path: tc.body}, repoFetcher{kitsRepo: kits}), cfgSrc, "c3", false)
+			for _, n := range []string{"app", "base"} {
+				if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
+					t.Fatalf("a refused source file plans a delete: %+v", op)
+				}
+			}
+			if !slices.ContainsFunc(p.Refusals, func(r string) bool { return strings.HasPrefix(r, tc.refusal) }) {
+				t.Fatalf("refusals %v: want one at %s", p.Refusals, tc.refusal)
+			}
+		})
+	}
+}
+
+// Kits a cycle leaves out of the tree are refused, never planned as deletes.
+func TestPlanKitCycleIsNotADelete(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{
+		"kits/a/kit.yml": "kind: studio\n",
+		"kits/b/kit.yml": "kind: studio\nbase: {kit: a}\n",
+	}), false))
+	p := planOn(t, st, treeOf(t, map[string]string{
+		"kits/a/kit.yml": "kind: studio\nbase: {kit: b}\n",
+		"kits/b/kit.yml": "kind: studio\nbase: {kit: a}\n",
+	}), false)
+	if !slices.Contains(p.Refusals, "kits: cycle among a, b") {
+		t.Fatalf("refusals %v", p.Refusals)
+	}
+	for _, n := range []string{"a", "b"} {
+		if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
+			t.Fatalf("a kit in a cycle plans a delete: %+v", op)
+		}
+	}
+}
+
+// A tracked kit's delete is located at its .source.yml.
+func TestPlanSourceKitDeleteIsAtItsSourceFile(t *testing.T) {
+	st, _ := sourceKitJam(t)
+	p := gitPlanOn(t, st, treeOf(t, map[string]string{}), cfgSrc, "c2", false)
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigDelete || op.Path != "kits/app.source.yml" {
+		t.Fatalf("op %+v", op)
+	}
+}

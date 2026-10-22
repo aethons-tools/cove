@@ -1,12 +1,14 @@
 package jam
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -22,6 +24,51 @@ type ConfigMark struct {
 
 // Key is the mark's object.
 func (m ConfigMark) Key() ConfigKey { return ConfigKey{Kind: m.Kind, Name: m.Name} }
+
+// ConfigSource is the Jam's one tracked config source and its last apply
+// from it. It lives in jam_settings ('config_source'), not in a table of
+// its own, and is not part of at-jam export (like the marks).
+type ConfigSource struct {
+	Repo      string    `json:"repo"`
+	Dir       string    `json:"dir,omitempty"`
+	Ref       string    `json:"ref"`
+	Commit    string    `json:"commit,omitempty"` // last commit applied from it; "" = none since tracked
+	AppliedAt time.Time `json:"applied_at,omitzero"`
+}
+
+// Source is c as a fetchable source.
+func (c ConfigSource) Source() gitsource.Source {
+	return gitsource.Source{Repo: c.Repo, Dir: c.Dir, Ref: c.Ref}
+}
+
+// checkConfigSource refuses a tracked source without a repo or a ref; nil
+// (clear / untouched) is fine.
+func checkConfigSource(src *ConfigSource) error {
+	if src != nil && (src.Repo == "" || src.Ref == "") {
+		return errors.New("config source: repo and ref are required")
+	}
+	return nil
+}
+
+// GetConfigSource returns the tracked config source; ok=false when none.
+func (m *memState) GetConfigSource() (ConfigSource, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.configSource == nil {
+		return ConfigSource{}, false
+	}
+	return *m.configSource, true
+}
+
+// applySetConfigSource replaces the tracked source (nil clears). Caller holds mu.
+func (m *memState) applySetConfigSource(src *ConfigSource) {
+	if src == nil {
+		m.configSource = nil
+		return
+	}
+	c := *src
+	m.configSource = &c
+}
 
 // ConfigRoleWrite is a role in a project, by project id.
 type ConfigRoleWrite struct {
@@ -50,6 +97,7 @@ type ConfigWrite struct {
 	JamContext         *sessionctx.Layer // nil = untouched; empty = cleared
 	Marks              []ConfigMark
 	RemoveMarks        []ConfigKey
+	ConfigSource       *ConfigSource // the tracked source's new record; nil = untouched
 }
 
 // Empty reports whether the write changes nothing.
@@ -57,7 +105,7 @@ func (w ConfigWrite) Empty() bool {
 	return len(w.Connections)+len(w.Users)+len(w.Accounts)+len(w.Destinations)+len(w.RemoveDestinations)+
 		len(w.ModelSpecs)+len(w.RemoveModelSpecs)+len(w.Kits)+len(w.RemoveKits)+len(w.Projects)+
 		len(w.RemoveMemberships)+len(w.Memberships)+len(w.Channels)+len(w.RemoveRoles)+len(w.Roles)+
-		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil
+		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil && w.ConfigSource == nil
 }
 
 // ListConfigMarks returns the managed marks, sorted by kind, then name.
@@ -80,6 +128,9 @@ func (m *memState) ListConfigMarks() []ConfigMark {
 // checkConfigWrite refuses a write that cannot apply whole. Caller holds mu.
 func checkConfigWrite(m *memState, w ConfigWrite) error {
 	if err := checkKitDocs(w.Kits); err != nil {
+		return fmt.Errorf("config write: %w", err)
+	}
+	if err := checkConfigSource(w.ConfigSource); err != nil {
 		return fmt.Errorf("config write: %w", err)
 	}
 	empty := func(kind string, n int, name string) error {
@@ -277,5 +328,8 @@ func applyConfigWrite(m *memState, w ConfigWrite) {
 	}
 	for _, k := range w.RemoveMarks {
 		delete(m.marks, k)
+	}
+	if w.ConfigSource != nil {
+		m.applySetConfigSource(w.ConfigSource)
 	}
 }

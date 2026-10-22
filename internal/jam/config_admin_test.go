@@ -17,6 +17,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
 
 // packTree writes files to a temp dir and packs it.
@@ -109,11 +110,41 @@ func tarWithSymlink(t *testing.T) []byte {
 
 func configServer(t *testing.T, st *MemStore) *httptest.Server {
 	t.Helper()
+	return configServerWith(t, st, nil)
+}
+
+func configServerWith(t *testing.T, st *MemStore, f KitFetcher) *httptest.Server {
+	t.Helper()
 	log := slog.New(slog.DiscardHandler)
 	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil, nil,
-		WithConfig(st, allCreds, log)))
+		WithConfig(st, f, allCreds, log)))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// sendJSON sends body (as application/json unless empty), checks the status,
+// decodes the answer into out when non-nil, and returns the body text.
+func sendJSON(t *testing.T, method, url, body string, want int, out any) string {
+	t.Helper()
+	req, _ := http.NewRequest(method, url, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != want {
+		t.Fatalf("%s %s = %d, want %d: %s", method, url, resp.StatusCode, want, b)
+	}
+	if out != nil {
+		if err := json.Unmarshal(b, out); err != nil {
+			t.Fatalf("%s %s JSON: %v (%s)", method, url, err, b)
+		}
+	}
+	return string(b)
 }
 
 func TestConfigRoutes(t *testing.T) {
@@ -152,14 +183,8 @@ func TestConfigRoutes(t *testing.T) {
 	if msg := postTar(t, ts.URL+"/admin/config/apply", refused, http.StatusConflict, nil); !strings.Contains(msg, "config plan has refusals") {
 		t.Fatalf("refused apply: %s", msg)
 	}
-	resp, err := http.Post(ts.URL+"/admin/config/diff", "application/json", strings.NewReader(`{"source":"github.com/acme/cfg"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "config sources (--git) are not supported yet; use --dir") {
-		t.Fatalf("json body: %d %s", resp.StatusCode, b)
+	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config source is tracked") {
+		t.Fatalf("json body without a tracked source: %s", msg)
 	}
 }
 
@@ -231,5 +256,75 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "x")); err == nil {
 		t.Fatal("an entry escaped the unpack dir")
+	}
+}
+
+func TestConfigSourceRoutes(t *testing.T) {
+	st := NewMemStore()
+	f, cfg := cfgFetcher(t, cfgFiles)
+	ts := configServerWith(t, st, f)
+	const src = `{"source":"https://github.com/acme/jam//cfg@main"}`
+	var tracked ConfigApplyResult
+	sendJSON(t, "PUT", ts.URL+"/admin/config/source", src, http.StatusOK, &tracked)
+	if tracked.Commit != "c1" || tracked.Applied || opOf(tracked.Plan, ConfigKindUser, "bob").Action != ConfigCreate || len(st.ListUsers()) != 0 {
+		t.Fatalf("track: %+v", tracked)
+	}
+	var diff ConfigApplyResult
+	sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusOK, &diff)
+	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan=stale", `{}`, http.StatusConflict, nil)
+	var res ConfigApplyResult
+	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan="+diff.Plan.Digest, `{}`, http.StatusOK, &res)
+	if !res.Applied || len(st.ListUsers()) != 1 || res.Source != "https://github.com/acme/jam//cfg@main" {
+		t.Fatalf("sync: %+v", res)
+	}
+	if got, _ := st.GetConfigSource(); got.Commit != "c1" {
+		t.Fatalf("record %+v", got)
+	}
+	// sync needs a JSON body: a browser's no-cors POST cannot send one.
+	resp, err := http.Post(ts.URL+"/admin/config/sync", "text/plain", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("text/plain sync = %d", resp.StatusCode)
+	}
+	sendJSON(t, "POST", ts.URL+"/admin/config/apply", src, http.StatusOK, &res)
+	if res.Applied {
+		t.Fatalf("re-apply wrote: %+v", res)
+	}
+	sendJSON(t, "DELETE", ts.URL+"/admin/config/source", "", http.StatusNoContent, nil)
+	if _, ok := st.GetConfigSource(); ok || len(st.ListConfigMarks()) == 0 {
+		t.Fatal("untrack kept the source or dropped the marks")
+	}
+	sendJSON(t, "POST", ts.URL+"/admin/config/sync", `{}`, http.StatusConflict, nil)
+	sendJSON(t, "PUT", ts.URL+"/admin/config/source", `{}`, http.StatusBadRequest, nil)
+	cfg.failNext = fmt.Errorf("%w: repository https://github.com/acme/jam not found", gitsource.ErrFetch)
+	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", src, http.StatusBadGateway, nil); !strings.Contains(msg, "not found") {
+		t.Fatalf("fetch failure: %s", msg)
+	}
+}
+
+// A pasted clone URL with a token is refused on every route that takes a
+// source, and the token reaches neither an answer nor a log line.
+func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	st := NewMemStore()
+	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil, nil,
+		WithConfig(st, repoFetcher{}, allCreds, log)))
+	defer ts.Close()
+	const token = "ghp_s3cretTOKEN"
+	body := `{"source":"https://x-access-token:` + token + `@github.com/acme/jam@main"}`
+	for _, route := range []struct{ method, path string }{{"PUT", "/admin/config/source"}, {"POST", "/admin/config/diff"}, {"POST", "/admin/config/apply"}} {
+		if msg := sendJSON(t, route.method, ts.URL+route.path, body, http.StatusBadRequest, nil); strings.Contains(msg, token) {
+			t.Errorf("%s %s echoes the token: %s", route.method, route.path, msg)
+		}
+	}
+	if strings.Contains(logs.String(), token) {
+		t.Fatalf("a log line carries the token:\n%s", logs.String())
+	}
+	if _, ok := st.GetConfigSource(); ok {
+		t.Fatal("a refused source was tracked")
 	}
 }

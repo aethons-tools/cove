@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -25,16 +26,29 @@ const ConfigDirCommit = "dir"
 // ConfigTree is a config repo as loaded from disk: every object that parsed,
 // and a file-located refusal for everything that did not.
 type ConfigTree struct {
-	Serve        map[string]any // jam.yml; nil = absent
-	JamContext   *sessionctx.Layer
-	Destinations map[string]DestinationFile
-	ModelSpecs   map[string]ModelSpecFile
-	Users        map[string]UserFile
-	Connections  map[string]ConnectionFile
-	Projects     map[string]ProjectFile
-	Roles        map[string]RoleFile // "<project>/<role>"
-	Kits         []kitSetEntry       // every kit under kits/, parents first; path refs as written
-	Refusals     []string            // file-located load errors
+	Serve             map[string]any // jam.yml; nil = absent
+	JamContext        *sessionctx.Layer
+	Destinations      map[string]DestinationFile
+	ModelSpecs        map[string]ModelSpecFile
+	Users             map[string]UserFile
+	Connections       map[string]ConnectionFile
+	Projects          map[string]ProjectFile
+	Roles             map[string]RoleFile       // "<project>/<role>"
+	Kits              []kitSetEntry             // every kit, parents first: kits/<n>/ (and, once fetched, the .source.yml kits' sets); path refs as written
+	KitSources        map[string]KitSourceRef   // kits/<n>.source.yml by kit name
+	KitGroups         map[string]ConfigKitGroup // the checkouts FetchConfigKits loaded them from (kitGroupKey)
+	KitGroupsFailed   map[string]bool           // kitGroupKey of each repo and ref whose fetch or load failed (a refusal); its kits are never planned as deletes
+	KitsFetched       bool                      // FetchConfigKits ran: Kits holds the source kits' sets too
+	KitCycle          []string                  // kits a cycle refusal left out of Kits, sorted; never planned as deletes
+	KitSourcesRefused []string                  // kits whose kits/<n>.source.y(a)ml was refused (misnamed, unparseable); never planned as deletes
+	Refusals          []string                  // file-located load errors
+}
+
+// KitSourceRef is one kits/<name>.source.yml.
+type KitSourceRef struct {
+	Path   string           // kits/<name>.source.yml
+	Source gitsource.Source // the kit's own git source
+	Commit string           // the fetched commit; "" = not fetched
 }
 
 // treeLoader carries one LoadConfigTree run.
@@ -99,6 +113,7 @@ func LoadConfigTree(root string) (*ConfigTree, error) {
 		Destinations: map[string]DestinationFile{}, ModelSpecs: map[string]ModelSpecFile{},
 		Users: map[string]UserFile{}, Connections: map[string]ConnectionFile{},
 		Projects: map[string]ProjectFile{}, Roles: map[string]RoleFile{},
+		KitSources: map[string]KitSourceRef{},
 	}}
 	for _, e := range l.readDir(".") {
 		switch name := e.Name(); {
@@ -247,18 +262,25 @@ func (l *treeLoader) exists(rel string) bool {
 }
 
 // loadKits loads each kits/<n>/ dir as a kit set (the kit and its path
-// parents), refusing a parent outside kits/ and a registry pin, then merges
-// the clean sets into one parents-first list.
+// parents), refusing a parent outside kits/ and a registry pin, and each
+// kits/<n>.source.yml as a reference (fetched later, by FetchConfigKits);
+// then merges the clean sets into one parents-first list.
 func (l *treeLoader) loadKits() {
 	byDir := map[string]kitSetEntry{}
 	for _, e := range l.readDir("kits") {
 		n := e.Name()
 		rel := "kits/" + n
 		if !e.IsDir() {
-			if strings.HasSuffix(n, ".source.yml") {
-				l.refuse("%s: kit source references are not supported yet", rel)
-			} else {
-				l.refuse("%s: unexpected file (kits are directories: kits/<name>/kit.yml)", rel)
+			switch kn, isSrc := strings.CutSuffix(n, ".source.yml"); {
+			case isSrc:
+				l.loadKitSource(rel, kn)
+			case strings.HasSuffix(n, ".yaml"):
+				l.refuse("%s: use .yml", rel)
+				if kn, ok := strings.CutSuffix(n, ".source.yaml"); ok && studio.TagSafeName(kn) {
+					l.tr.KitSourcesRefused = append(l.tr.KitSourcesRefused, kn)
+				}
+			default:
+				l.refuse("%s: unexpected file (a kit is kits/<name>/kit.yml or kits/<name>.source.yml)", rel)
 			}
 			continue
 		}
@@ -279,7 +301,35 @@ func (l *treeLoader) loadKits() {
 			byDir[se.Dir] = se
 		}
 	}
-	l.tr.Kits = l.orderKits(byDir)
+	for _, n := range slices.Sorted(maps.Keys(l.tr.KitSources)) {
+		if l.exists("kits/" + n) {
+			l.refuse("%s: kit %s is also kits/%s/kit.yml", l.tr.KitSources[n].Path, n, n)
+			delete(l.tr.KitSources, n)
+		}
+	}
+	ordered, cycle := orderKitEntries(slices.Collect(maps.Values(byDir)))
+	if len(cycle) > 0 {
+		l.refuse("kits: cycle among %s", strings.Join(cycle, ", "))
+	}
+	l.tr.Kits, l.tr.KitCycle = ordered, cycle
+}
+
+// loadKitSource loads kits/<name>.source.yml into the tree's KitSources.
+func (l *treeLoader) loadKitSource(rel, name string) {
+	if !studio.TagSafeName(name) {
+		l.refuse("%s: not a valid kit name", rel)
+		return
+	}
+	data, ok := l.read(rel)
+	if !ok {
+		return
+	}
+	if _, src, err := ParseKitSourceFile(rel, name, data); err != nil {
+		l.refuse("%s", err)
+		l.tr.KitSourcesRefused = append(l.tr.KitSourcesRefused, name)
+	} else {
+		l.tr.KitSources[name] = KitSourceRef{Path: rel, Source: src}
+	}
 }
 
 // checkTreeKitSet is a loaded set's tree refusal, "" = none: an ancestor not
@@ -302,18 +352,22 @@ func (l *treeLoader) checkTreeKitSet(set []kitSetEntry) string {
 	return ""
 }
 
-// orderKits orders the tree's kits parents first (Kahn's algorithm, ties by
-// name) over path parents and registry-name parents that are tree kits. Kits
-// left in a cycle are refused.
-func (l *treeLoader) orderKits(byDir map[string]kitSetEntry) []kitSetEntry {
+// orderKitEntries orders kits parents first (Kahn's algorithm, ties by name)
+// over path parents — resolved within an entry's own checkout (Group) — and
+// registry-name parents that are among entries. It returns the kits left in
+// a cycle, sorted, apart.
+func orderKitEntries(entries []kitSetEntry) ([]kitSetEntry, []string) {
+	type at struct{ group, dir string }
 	byName := map[string]kitSetEntry{}
-	for _, e := range byDir {
+	byDir := map[at]kitSetEntry{}
+	for _, e := range entries {
 		byName[e.Name] = e
+		byDir[at{e.Group, checkoutDir(e.Dir)}] = e
 	}
-	parentOf := map[string]string{} // child → tree parent
+	parentOf := map[string]string{} // child → parent among entries
 	for name, e := range byName {
 		if p, isPath := e.Kit.Base.ParentPath(); isPath {
-			if pe, ok := byDir[path.Join(checkoutDir(e.Dir), p)]; ok {
+			if pe, ok := byDir[at{e.Group, path.Join(checkoutDir(e.Dir), p)}]; ok {
 				parentOf[name] = pe.Name
 			}
 		} else if e.Kit.Base.HasParent() {
@@ -340,15 +394,12 @@ func (l *treeLoader) orderKits(byDir map[string]kitSetEntry) []kitSetEntry {
 		done[next] = true
 		out = append(out, byName[next])
 	}
-	if len(done) < len(byName) {
-		var left []string
-		for name := range byName {
-			if !done[name] {
-				left = append(left, name)
-			}
+	var left []string
+	for name := range byName {
+		if !done[name] {
+			left = append(left, name)
 		}
-		slices.Sort(left)
-		l.refuse("kits: cycle among %s", strings.Join(left, ", "))
 	}
-	return out
+	slices.Sort(left)
+	return out, left
 }
