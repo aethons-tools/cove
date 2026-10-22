@@ -2,6 +2,7 @@ package jam
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -33,35 +34,53 @@ func ConfigStatus(err error) (int, string) {
 	return status, msg
 }
 
-// WithConfig mounts the config-in-git admin API (under the /admin/* operator
-// gate):
+// ConfigSourceBody is the JSON body of POST /admin/config/diff and /apply
+// (Source "" = the tracked source), PUT /admin/config/source and POST
+// /admin/config/sync ({}).
+type ConfigSourceBody struct {
+	Source string `json:"source,omitempty"`
+}
+
+// maxConfigSourceBody caps a {source} JSON body.
+const maxConfigSourceBody = 64 << 10
+
+// WithConfig mounts the config-in-git admin API (under the /admin/*
+// operator gate):
 //
-//	POST /admin/config/diff?force=1                plan an uploaded tree (writes nothing)
-//	POST /admin/config/apply?force=1&plan=<digest> apply it
-//	GET  /admin/config/export-tree?all=1           render the managed (all: every) object
+//	POST   /admin/config/diff?force=1                plan a tree or a source (writes nothing)
+//	POST   /admin/config/apply?force=1&plan=<digest> apply it
+//	PUT    /admin/config/source                      {source}: fetch and plan it, then track it
+//	DELETE /admin/config/source                      untrack (objects and marks stay)
+//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the tracked source
+//	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //
-// diff and apply take a configtar body, Content-Type application/gzip (any
-// other type is 415; JSON, the future --git body, is 400). An oversize
-// upload is 413, a malformed or unsafe one 400 — both before the tree is
-// loaded. An apply with refusals or a stale plan digest is 409, as is an
-// export-tree of a kit pinned behind its in-tree parent (ErrConfigKitPinBehind). env.Serve is
-// the running serve's portable config, compared with the tree's jam.yml.
-func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
+// diff and apply take a configtar body (application/gzip) or a {source}
+// body (application/json; "" = the tracked source); sync takes {} — any
+// other Content-Type is 415, so a browser's no-cors POST cannot trigger
+// one. An oversize upload is 413, a malformed or unsafe one or a bad source
+// 400, before anything is fetched or loaded. A refused or stale plan, or no
+// tracked source, is 409; a fetch, auth or limit failure 502 with the
+// fetcher's redacted message. f is the serve's one kit fetcher (kits.git
+// credentials); it fetches config repos and kits/<name>.source.yml kits.
+// env.Serve is the running serve's portable config.
+func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) AdminOption {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	// tree reads and unpacks the upload into a temp dir and loads it,
-	// answering the request itself on failure.
-	tree := func(w http.ResponseWriter, r *http.Request) (*ConfigTree, bool) {
-		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
-		case "application/gzip":
-		case "application/json":
-			http.Error(w, "config sources (--git) are not supported yet; use --dir", http.StatusBadRequest)
-			return nil, false
-		default: // e.g. a browser's no-cors text/plain POST to the loopback admin port
-			http.Error(w, "config tree: Content-Type must be application/gzip", http.StatusUnsupportedMediaType)
-			return nil, false
+	fail := func(w http.ResponseWriter, r *http.Request, what string, err error) {
+		status, msg := ConfigStatus(err)
+		if status == http.StatusInternalServerError {
+			if errors.Is(err, context.Canceled) {
+				log.Debug("admin config "+what+": request cancelled", "operator", OperatorID(r))
+			} else {
+				log.Error("admin config "+what+": store error", "operator", OperatorID(r), "err", err.Error())
+			}
 		}
+		http.Error(w, msg, status)
+	}
+	// upload reads and unpacks a configtar body into a temp dir and loads it,
+	// answering the request itself on failure.
+	upload := func(w http.ResponseWriter, r *http.Request) (*ConfigTree, bool) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, configtar.MaxUpload))
 		if err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
@@ -94,45 +113,101 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 		}
 		return tr, true
 	}
-	opts := func() ConfigApplyOptions {
-		return ConfigApplyOptions{Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: time.Now()}
+	// source decodes a {source} body ("" = the tracked one, unless required)
+	// and parses it; Parse's errors never quote the input. It answers 400 itself.
+	source := func(w http.ResponseWriter, r *http.Request, required bool) (gitsource.Source, bool) {
+		var b ConfigSourceBody
+		r.Body = http.MaxBytesReader(w, r.Body, maxConfigSourceBody)
+		if !decode(w, r, &b) {
+			return gitsource.Source{}, false
+		}
+		if b.Source == "" {
+			if required {
+				http.Error(w, "source is required (<repo>[//<dir>]@<ref>)", http.StatusBadRequest)
+				return gitsource.Source{}, false
+			}
+			return gitsource.Source{}, true
+		}
+		src, err := gitsource.Parse(b.Source)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return gitsource.Source{}, false
+		}
+		return src, true
 	}
-	return func(mux *http.ServeMux) {
-		mux.HandleFunc("POST /admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
-			tr, ok := tree(w, r)
+	isJSON := func(r *http.Request) bool {
+		ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		return ct == "application/json"
+	}
+	// run plans (opt.DryRun) or applies the request's tree or source and answers.
+	run := func(w http.ResponseWriter, r *http.Request, what string, opt ConfigApplyOptions) {
+		var res ConfigApplyResult
+		var err error
+		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
+		case "application/gzip":
+			tr, ok := upload(w, r)
 			if !ok {
 				return
 			}
-			opt := opts()
-			opt.DryRun = true
-			opt.Force = r.URL.Query().Get("force") == "1" // plan as a forced apply would
-			res, err := ApplyConfigTree(r.Context(), store, nil, tr, env, opt, log, OperatorID(r))
+			opt.Source, opt.Commit = gitsource.Source{Repo: ConfigDirRepo}, ConfigDirCommit
+			res, err = ApplyConfigTree(r.Context(), store, f, tr, env, opt, log, OperatorID(r))
+		case "application/json":
+			src, ok := source(w, r, false)
+			if !ok {
+				return
+			}
+			res, err = ApplyConfigSource(r.Context(), store, f, src, env, opt, log, OperatorID(r))
+		default: // e.g. a browser's no-cors text/plain POST to the loopback admin port
+			http.Error(w, "config tree: Content-Type must be application/gzip (a tree) or application/json (a source)", http.StatusUnsupportedMediaType)
+			return
+		}
+		if err != nil {
+			fail(w, r, what, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	}
+	return func(mux *http.ServeMux) {
+		mux.HandleFunc("POST /admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
+			// force plans as a forced apply would, so the digests match.
+			run(w, r, "diff", ConfigApplyOptions{DryRun: true, Force: r.URL.Query().Get("force") == "1", Now: time.Now()})
+		})
+		mux.HandleFunc("POST /admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			run(w, r, "apply", ConfigApplyOptions{Force: q.Get("force") == "1", WantDigest: q.Get("plan"), Now: time.Now()})
+		})
+		mux.HandleFunc("POST /admin/config/sync", func(w http.ResponseWriter, r *http.Request) {
+			if !isJSON(r) {
+				http.Error(w, "config sync: Content-Type must be application/json", http.StatusUnsupportedMediaType)
+				return
+			}
+			q := r.URL.Query()
+			res, err := ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
+				ConfigApplyOptions{Force: q.Get("force") == "1", WantDigest: q.Get("plan"), Now: time.Now()}, log, OperatorID(r))
 			if err != nil {
-				log.Error("admin config diff: store error", "operator", OperatorID(r), "err", err.Error())
-				http.Error(w, configStoreError, http.StatusInternalServerError)
+				fail(w, r, "sync", err)
 				return
 			}
 			writeJSON(w, http.StatusOK, res)
 		})
-		mux.HandleFunc("POST /admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
-			tr, ok := tree(w, r)
+		mux.HandleFunc("PUT /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
+			src, ok := source(w, r, true)
 			if !ok {
 				return
 			}
-			opt := opts()
-			opt.Force = r.URL.Query().Get("force") == "1"
-			opt.WantDigest = r.URL.Query().Get("plan")
-			res, err := ApplyConfigTree(r.Context(), store, nil, tr, env, opt, log, OperatorID(r))
-			switch {
-			case errors.Is(err, ErrConfigRefused), errors.Is(err, ErrConfigPlanChanged):
-				http.Error(w, err.Error(), http.StatusConflict)
-				return
-			case err != nil:
-				log.Error("admin config apply: store error", "operator", OperatorID(r), "err", err.Error())
-				http.Error(w, configStoreError, http.StatusInternalServerError)
+			res, err := TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, OperatorID(r))
+			if err != nil {
+				fail(w, r, "track", err)
 				return
 			}
 			writeJSON(w, http.StatusOK, res)
+		})
+		mux.HandleFunc("DELETE /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
+			if err := UntrackConfigSource(store, log, OperatorID(r)); err != nil {
+				fail(w, r, "untrack", err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			exp, err := ExportConfigTree(store.ExportConfig(), store.ListConfigMarks(), env.Serve, r.URL.Query().Get("all") == "1")
