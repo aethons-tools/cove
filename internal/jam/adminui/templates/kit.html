@@ -213,7 +213,3 @@
 </div>
 </div>
 {{end}}
-
-{{define "src-repo"}}{{if .RepoLink}}<a class="mono" href="{{.RepoLink}}" rel="noopener noreferrer">{{.Repo}}</a>{{else}}<span class="mono">{{.Repo}}</span>{{end}}{{end}}
-
-{{define "src-commit"}}{{if .Commit}}{{if .CommitLink}}<a class="mono" href="{{.CommitLink}}" rel="noopener noreferrer">{{.Commit}}</a>{{else}}<span class="mono">{{.Commit}}</span>{{end}}{{else}}<span class="unset">—</span>{{end}}{{end}}

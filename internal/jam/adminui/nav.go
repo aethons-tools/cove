@@ -38,6 +38,7 @@ var jamTabs = []tabDef{
 	{"agents", "Agents", "/ui/agents"},
 	{"users", "Users", "/ui/users"},
 	{"specs", "Specs", "/ui/specs"},
+	{"config", "Config", "/ui/config"},
 	{"intercom", "Intercom", "/ui/intercom"},
 	{"health", "Health", "/ui/health"},
 }

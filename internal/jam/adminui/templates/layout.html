@@ -391,6 +391,9 @@
 {{define "badge"}}{{if .N}} <span class="badge{{if .Red}} red{{end}}" title="{{.Title}}">{{.N}}</span>{{end}}{{end}}
 {{/* A config-managed object's badge (managed.go); links the Config page. */}}
 {{define "managed-badge"}}{{with .}}<a class="chip managed" href="/ui/config" title="Applied from the config repo {{.Applied}}; edits here drift from it">managed · config @{{.Commit}}</a>{{end}}{{end}}
+{{/* A git source (a sourceView): its repo and commit, linked when the host is known. */}}
+{{define "src-repo"}}{{if .RepoLink}}<a class="mono" href="{{.RepoLink}}" rel="noopener noreferrer">{{.Repo}}</a>{{else}}<span class="mono">{{.Repo}}</span>{{end}}{{end}}
+{{define "src-commit"}}{{if .Commit}}{{if .CommitLink}}<a class="mono" href="{{.CommitLink}}" rel="noopener noreferrer">{{.Commit}}</a>{{else}}<span class="mono">{{.Commit}}</span>{{end}}{{else}}<span class="unset">—</span>{{end}}{{end}}
 
 {{/* attn-flag marks a row an attention item names (an *attnItem or nil). */}}
 {{define "attn-flag"}}{{with .}} <span class="attn-flag{{if eq .Kind "broken"}} red{{end}}" title="{{.Why}}">⚠</span>{{end}}{{end}}

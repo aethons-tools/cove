@@ -1,0 +1,71 @@
+{{define "content"}}
+<style>
+  #config .sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;align-items:start}
+  #config .full{grid-column:1/-1}
+  #config section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  #config section.card>header h2{margin:0}
+  #config section.card>.body{padding:12px 16px}
+  #config dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  #config dl.kv dt{color:var(--muted);font-size:13px}
+  #config dl.kv dd{margin:0;word-break:break-all}
+  #config .unset{color:var(--faint)}
+  #config .chip.st-drifted,#config .chip.st-missing{background:var(--wait-soft);color:var(--wait)}
+  #config .form-actions{display:flex;gap:8px;margin-top:10px}
+  #config pre.diff{margin:0;padding:8px 12px;overflow-x:auto;font:12.5px/1.55 "IBM Plex Mono",ui-monospace,monospace;background:var(--surface-2)}
+  #config pre.diff span{display:block;white-space:pre}
+  #config .d-add{background:var(--live-soft);color:var(--live)}
+  #config .d-del{background:var(--bad-soft);color:var(--bad)}
+  #config .d-skip{color:var(--faint);font-style:italic}
+  #config label.check{flex-direction:row;align-items:center;gap:8px;margin:8px 0;font-size:13px}
+  #config label.check input{width:auto}
+  @media (max-width:720px){#config .sections{grid-template-columns:1fr}}
+</style>
+<div class="page-head"><h1>Config</h1><span class="sub">This Jam's configuration in git — the repo it follows, the objects the repo manages, and the plan to apply it</span></div>
+{{template "config-body" .}}
+{{end}}
+
+{{define "config-body"}}
+<div id="config">
+<div class="sections">
+  <section class="card">
+    <header><h2>Source</h2><span class="sub">the config repo this Jam follows</span></header>
+    <div class="body">
+    {{with .Source}}
+      <dl class="kv">
+        <dt>Repo</dt><dd>{{template "src-repo" .}}</dd>
+        {{if .Dir}}<dt>Dir</dt><dd class="mono">{{.Dir}}</dd>{{end}}
+        <dt>Ref</dt><dd class="mono">{{.Ref}}</dd>
+        <dt>Last applied</dt><dd>{{template "src-commit" .}}{{with .Applied}} <span class="unset">at {{.}}</span>{{end}}</dd>
+      </dl>
+      <div class="form-actions">
+        <button class="small danger" hx-delete="/ui/config/source" hx-target="#config" hx-swap="outerHTML"
+          hx-confirm="Stop following {{.Label}}? Managed objects and their marks stay.">Untrack</button>
+      </div>
+    {{else}}
+      <p class="unset">No config source is tracked{{with $.LastCommit}} — the objects below were last applied from config @{{.}} at {{$.LastApplied}}{{end}}.</p>
+      {{if not $.CanGit}}<p class="unset">Git actions are not available on this serve; use <code>at-jam config apply --dir</code>.</p>{{end}}
+    {{end}}
+    </div>
+  </section>
+
+  <section class="card full">
+    <header><h2>Managed objects</h2><span class="sub">{{len .Rows}} from the config repo{{with .Drifted}} · <span class="chip st-drifted">{{.}} differ from the repo</span>{{end}}{{with .LastCommit}} · last applied config @<span class="mono">{{.}}</span> at {{$.LastApplied}}{{end}}</span></header>
+    {{if .StatesErr}}<div class="body"><div class="banner error">Could not compare with the live Jam (see the serve log); states are unknown.</div></div>{{end}}
+    <table>
+      <thead><tr><th>Object</th><th>From</th><th>Applied</th><th>State</th><th></th></tr></thead>
+      <tbody>
+      {{range .Rows}}<tr>
+        <td><span class="chip">{{.Kind}}</span> {{if .Href}}<a class="mono" href="{{.Href}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
+        <td class="mono">@{{.Commit}}</td>
+        <td>{{.Applied}}</td>
+        <td>{{if eq .State "in-sync"}}<span class="unset">in sync</span>{{else if .State}}<span class="chip st-{{.State}}">{{.State}}</span>{{else}}<span class="unset">unknown</span>{{end}}</td>
+        <td class="actions"><button class="small danger" hx-delete="{{.ReleaseURL}}" hx-target="#config" hx-swap="outerHTML"
+          hx-confirm="Stop managing {{.Kind}} {{.Name}} from the config repo? It stays in Jam, unmanaged.">Release</button></td>
+      </tr>{{else}}<tr><td colspan="5" class="empty">Nothing is managed yet — apply a config repo, or run <code>at-jam config apply --dir</code>.</td></tr>{{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+<div id="config-plan"></div>
+</div>
+{{end}}
