@@ -58,7 +58,7 @@ func accessFixture(t *testing.T) (jam.Store, ident.ID, time.Time) {
 func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
 	store, carol, exp := accessFixture(t)
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(collabhttp.NewLive()))
-	rec := get(t, h, "/ui/agents/sess-1")
+	rec := get(t, h, "/app/admin/agents/sess-1")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("page = %d", rec.Code)
 	}
@@ -66,10 +66,10 @@ func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
 	for _, want := range []string{
 		"<h2>Access</h2>",
 		"Operators</dt><dd>always",
-		`href="/ui/users/` + string(mustLookup(t, store, "alice")) + `">alice</a>`,
+		`href="/app/admin/users/` + string(mustLookup(t, store, "alice")) + `">alice</a>`,
 		"preview: members · ssh: members",
 		`>carol</a>`, "<td>ssh</td>", exp.Format("2006-01-02 15:04 MST"), "op:local",
-		`hx-delete="/ui/agents/sess-1/shares/` + string(carol) + `"`,
+		`hx-delete="/app/admin/agents/sess-1/shares/` + string(carol) + `"`,
 		"No open connections.",
 	} {
 		if !strings.Contains(body, want) {
@@ -84,7 +84,7 @@ func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
 
 func TestAccessPanelOffWithoutSSH(t *testing.T) {
 	store, _, _ := accessFixture(t)
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/agents/sess-1").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/app/admin/agents/sess-1").Body.String()
 	if !strings.Contains(body, "Studio collaboration is off") || strings.Contains(body, "/shares/") {
 		t.Fatalf("panel without SSH collaboration:\n%s", body)
 	}
@@ -99,12 +99,12 @@ func TestAccessPanelUnshare(t *testing.T) {
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live))
 	conn, br := sshAs(t, store, live, "carol")
 
-	if body := get(t, h, "/ui/agents/sess-1").Body.String(); !strings.Contains(body, "<td>carol</td>") || strings.Contains(body, "No open connections.") {
+	if body := get(t, h, "/app/admin/agents/sess-1").Body.String(); !strings.Contains(body, "<td>carol</td>") || strings.Contains(body, "No open connections.") {
 		t.Fatalf("live connection not listed:\n%s", body)
 	}
 
 	del := func(origin string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodDelete, "/ui/agents/sess-1/shares/"+string(carol), nil)
+		req := httptest.NewRequest(http.MethodDelete, "/app/admin/agents/sess-1/shares/"+string(carol), nil)
 		if origin != "" {
 			req.Header.Set("Origin", origin)
 		}
@@ -200,7 +200,7 @@ func TestAccessPanelPreviews(t *testing.T) {
 	urlFor := func(_, name string) (string, error) { return "https://" + name + "--x.preview.jam.example/", nil }
 	live := collabhttp.NewLive()
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live), adminui.WithStudioPreviews(exposures, urlFor))
-	body := get(t, h, "/ui/agents/sess-1").Body.String()
+	body := get(t, h, "/app/admin/agents/sess-1").Body.String()
 	for _, want := range []string{
 		`<a href="https://app--x.preview.jam.example/" target="_blank" rel="noopener noreferrer">app</a>`,
 		`&lt;b&gt;x&lt;/b&gt;</a>`, "<td>5173</td>",
@@ -212,7 +212,7 @@ func TestAccessPanelPreviews(t *testing.T) {
 	if strings.Contains(body, "<b>x</b>") || strings.Contains(body, "Previews are off") {
 		t.Errorf("unescaped name or off notice:\n%s", body)
 	}
-	body = get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live)), "/ui/agents/sess-1").Body.String()
+	body = get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live)), "/app/admin/agents/sess-1").Body.String()
 	if !strings.Contains(body, "Previews are off on this Jam") {
 		t.Errorf("no off notice:\n%s", body)
 	}

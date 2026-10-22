@@ -4,7 +4,7 @@
 {{end}}
 
 {{define "health-body"}}
-<div id="health-body" hx-get="/ui/health" hx-trigger="every 10s" hx-swap="outerHTML">
+<div id="health-body" hx-get="/app/admin/health" hx-trigger="every 10s" hx-swap="outerHTML">
 <section class="card full">
   <header><h2>Open</h2>{{with .Open}}<span class="sub">{{len .}}</span>{{end}}</header>
   <div class="body">

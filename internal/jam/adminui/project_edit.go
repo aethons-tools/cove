@@ -136,18 +136,18 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 	}
 
-	mux.HandleFunc("POST /ui/projects/{project}/context", edit("context set", sectionOverview, func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /app/admin/projects/{project}/context", edit("context set", sectionOverview, func(r *http.Request, project string) error {
 		b, err := parseContextForm(r)
 		if err != nil {
 			return err
 		}
 		return jam.SetProjectContextChecked(store, project, b)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/context", edit("context cleared", sectionOverview, func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /app/admin/projects/{project}/context", edit("context cleared", sectionOverview, func(r *http.Request, project string) error {
 		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /app/admin/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
 		uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(r.FormValue("user")))
 		if err != nil {
 			return registryErr(err)
@@ -166,7 +166,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /app/admin/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
 		uid, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
 		if err != nil {
 			return registryErr(err)
@@ -175,7 +175,7 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		return registryErr(store.RemoveMember(p.ID, uid))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /app/admin/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
 		b := jam.RoomBody{
 			Name:       strings.TrimSpace(r.FormValue("name")),
 			Connection: strings.TrimSpace(r.FormValue("service")),
@@ -187,11 +187,11 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		_, _, err := jam.PutRoom(store, project, b)
 		return registryErr(err)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /app/admin/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
 		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /app/admin/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
 		var tiers []jam.EscalationTier
 		for _, l := range splitSpecLines(r.FormValue("tiers")) {
 			t, err := jam.ParseEscalationTierSpec(l)
@@ -205,11 +205,11 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 		}
 		return store.SetEscalationPolicy(project, strings.TrimSpace(r.FormValue("category")), tiers)
 	}))
-	mux.HandleFunc("DELETE /ui/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
+	mux.HandleFunc("DELETE /app/admin/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
 		return store.SetEscalationPolicy(project, r.URL.Query().Get("category"), nil)
 	}))
 
-	mux.HandleFunc("POST /ui/projects/{project}/chat-service", edit("chat service set", sectionOverview, func(r *http.Request, project string) error {
+	mux.HandleFunc("POST /app/admin/projects/{project}/chat-service", edit("chat service set", sectionOverview, func(r *http.Request, project string) error {
 		return store.SetChatService(project, strings.TrimSpace(r.FormValue("service")))
 	}))
 }

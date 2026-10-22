@@ -86,7 +86,7 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 }
 
 func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /ui/enrollments", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -119,7 +119,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		renderFragment(w, r, "agents", "enroll-result", map[string]any{"ID": id, "Token": token})
 	})
 
-	mux.HandleFunc("DELETE /ui/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/enrollments/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -133,7 +133,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("POST /ui/roles", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/roles", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -197,7 +197,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("POST /ui/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -226,7 +226,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("DELETE /ui/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/actors/{id}/grants/{project}/{role}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -239,7 +239,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("DELETE /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -253,7 +253,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("POST /ui/coves", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -290,7 +290,7 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 		renderFragment(w, r, "agents", "agents-table", newAgentsData(store, sup, currentStatus(r), true))
 	})
 
-	mux.HandleFunc("DELETE /ui/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

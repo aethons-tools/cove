@@ -40,14 +40,14 @@
         <dt>Last applied</dt><dd>{{template "src-commit" .}}{{with .Applied}} <span class="unset">at {{.}}</span>{{end}}</dd>
       </dl>
       <div class="form-actions">
-        {{if $.CanGit}}<form class="inline" hx-post="/ui/config/diff" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="find button"><button type="submit" class="primary small">Diff</button> <span class="htmx-indicator">fetching and planning…</span></form>{{end}}
-        <button class="small danger" hx-delete="/ui/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="this"
+        {{if $.CanGit}}<form class="inline" hx-post="/app/admin/config/diff" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="find button"><button type="submit" class="primary small">Diff</button> <span class="htmx-indicator">fetching and planning…</span></form>{{end}}
+        <button class="small danger" hx-delete="/app/admin/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="this"
           hx-confirm="Stop following {{.Label}}? Managed objects and their marks stay.">Untrack</button>
       </div>
     {{else}}
       <p class="unset">No config source is tracked{{with $.LastCommit}} — the objects below were last applied from config @{{.}} at {{$.LastApplied}}{{end}}.</p>
       {{if $.CanGit}}
-      <form hx-post="/ui/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+      <form hx-post="/app/admin/config/source" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
         <label>Source <span class="hint"><code>https://host/org/repo[//dir]@ref</code> — fetched and planned (nothing is applied), then tracked</span>
           <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/jam-config@main"></label>
         <div class="form-actions"><button type="submit" class="primary">Track</button> <span class="htmx-indicator">fetching and planning…</span></div>
@@ -85,7 +85,7 @@
   <div class="body">
     {{with .Refusals}}<div class="banner error"><div><strong>Refused — nothing can be applied until the repo or Jam changes:</strong><ul>{{range .}}<li>{{.}}</li>{{end}}</ul></div></div>{{end}}
     {{if .HasDrift}}<label class="check"><input type="checkbox" name="force" value="1"{{if .Forced}} checked{{end}}
-        hx-post="/ui/config/diff" hx-trigger="change" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#config-force-ind">
+        hx-post="/app/admin/config/diff" hx-trigger="change" hx-target="#config-plan" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#config-force-ind">
       Force: overwrite the objects edited in Jam since their apply with the repo's version <span id="config-force-ind" class="htmx-indicator">re-planning…</span></label>{{end}}
     {{with .KitSources}}<p class="sub">Kit sources: {{range $i, $k := .}}{{if $i}}, {{end}}<span class="mono">{{$k.Path}}</span> {{$k.Source}} @ <span class="mono">{{$k.Commit}}</span>{{end}}</p>{{end}}
   </div>
@@ -108,7 +108,7 @@
     {{if eq .Serve.State "differs"}}<p class="sub">Serve config: differs (restart to apply): {{range $i, $k := .Serve.Keys}}{{if $i}}, {{end}}<span class="mono">{{$k}}</span>{{end}}</p>
     {{else if .Serve.State}}<p class="sub">Serve config: {{.Serve.State}}</p>{{end}}
     {{if not .Refusals}}
-    <form hx-post="/ui/config/apply" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button"
+    <form hx-post="/app/admin/config/apply" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="find button"
         hx-confirm="{{if .Changes}}Apply {{.Changes}} change(s) to this Jam{{if .Forced}}, overwriting the drifted objects{{end}}?{{else}}Record this plan's commit?{{end}}">
       <input type="hidden" name="plan" value="{{.Digest}}">
       {{if .Forced}}<input type="hidden" name="force" value="1">{{end}}

@@ -4,7 +4,7 @@
 {{/* coves-table is the dashboard's polled studio table: it re-fetches the
      dashboard, which answers an htmx request with just this fragment. */}}
 {{define "coves-table"}}
-<div class="card" id="coves" hx-get="/ui/" hx-trigger="every 3s" hx-swap="outerHTML">
+<div class="card" id="coves" hx-get="/app/admin/" hx-trigger="every 3s" hx-swap="outerHTML">
 {{template "coves-tbl" .}}
 </div>
 {{end}}
@@ -27,7 +27,7 @@
       <td>{{if .LeaseHolder}}<span class="mono">{{.LeaseHolder}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td><time title="{{.RaisedAt.Format "2006-01-02 15:04:05 MST"}}">{{.RaisedAt.Format "Jan 2 15:04"}}</time></td>
       <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "15:04:05"}}</time>{{end}}</td>
-      {{if $.CanEdit}}<td class="actions"><button class="danger small" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+      {{if $.CanEdit}}<td class="actions"><button class="danger small" hx-delete="/app/admin/coves/{{.ID}}" hx-swap="none"
           hx-confirm="Tear down {{.ID}}?" hx-on::after-request="if(event.detail.successful) location.reload()">Teardown</button></td>{{end}}
     </tr>
     {{else}}

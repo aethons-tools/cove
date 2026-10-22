@@ -115,36 +115,36 @@ func TestManagedSpecsBadgeAndDriftWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkWarns(t, h, []warnCase{
-		{"/ui/destinations/gh", "hx-post", "/ui/destinations/gh", true},
-		{"/ui/destinations/gh", "hx-delete", "/ui/destinations/gh", true},
-		{"/ui/destinations/own", "hx-post", "/ui/destinations/own", false},
-		{"/ui/destinations/own", "hx-delete", "/ui/destinations/own", false},
-		{"/ui/destinations", "hx-delete", "/ui/destinations/gh", true},
-		{"/ui/destinations", "hx-delete", "/ui/destinations/own", false},
-		{"/ui/model-specs/fast", "hx-post", "/ui/model-specs/fast", true},
-		{"/ui/model-specs/fast", "hx-delete", "/ui/model-specs/fast", true},
-		{"/ui/model-specs", "hx-delete", "/ui/model-specs/fast", true},
-		{"/ui/kits/web-dev", "hx-post", "/ui/kits/web-dev/versions", true},
-		{"/ui/kits/web-dev", "hx-post", "/ui/kits/web-dev/pin", true},
-		{"/ui/kits/web-dev", "hx-post", "/ui/kits/web-dev/source", true},
-		{"/ui/kits", "hx-post", "/ui/kits/import", false}, // import adds a version to any name: no warning
+		{"/app/admin/destinations/gh", "hx-post", "/app/admin/destinations/gh", true},
+		{"/app/admin/destinations/gh", "hx-delete", "/app/admin/destinations/gh", true},
+		{"/app/admin/destinations/own", "hx-post", "/app/admin/destinations/own", false},
+		{"/app/admin/destinations/own", "hx-delete", "/app/admin/destinations/own", false},
+		{"/app/admin/destinations", "hx-delete", "/app/admin/destinations/gh", true},
+		{"/app/admin/destinations", "hx-delete", "/app/admin/destinations/own", false},
+		{"/app/admin/model-specs/fast", "hx-post", "/app/admin/model-specs/fast", true},
+		{"/app/admin/model-specs/fast", "hx-delete", "/app/admin/model-specs/fast", true},
+		{"/app/admin/model-specs", "hx-delete", "/app/admin/model-specs/fast", true},
+		{"/app/admin/kits/web-dev", "hx-post", "/app/admin/kits/web-dev/versions", true},
+		{"/app/admin/kits/web-dev", "hx-post", "/app/admin/kits/web-dev/pin", true},
+		{"/app/admin/kits/web-dev", "hx-post", "/app/admin/kits/web-dev/source", true},
+		{"/app/admin/kits", "hx-post", "/app/admin/kits/import", false}, // import adds a version to any name: no warning
 	})
-	for page, want := range map[string]bool{"/ui/destinations/gh": true, "/ui/model-specs/fast": true, "/ui/kits/web-dev": true, "/ui/destinations/own": false} {
+	for page, want := range map[string]bool{"/app/admin/destinations/gh": true, "/app/admin/model-specs/fast": true, "/app/admin/kits/web-dev": true, "/app/admin/destinations/own": false} {
 		body := get(t, h, page).Body.String()
-		if got := strings.Contains(body, `class="chip managed" href="/ui/config"`) && strings.Contains(body, ">"+managedBadge+"</a>"); got != want {
+		if got := strings.Contains(body, `class="chip managed" href="/app/admin/config"`) && strings.Contains(body, ">"+managedBadge+"</a>"); got != want {
 			t.Errorf("%s: badge %v, want %v", page, got, want)
 		}
 	}
 	// A save's re-rendered body keeps the badge and the warning.
-	rec := post(t, h, "/ui/destinations/gh", url.Values{"route": {"/gh/"}, "upstream": {"https://api.github.com"}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ">"+managedBadge+"</a>") || !warns(t, rec.Body.String(), "hx-post", "/ui/destinations/gh") {
+	rec := post(t, h, "/app/admin/destinations/gh", url.Values{"route": {"/gh/"}, "upstream": {"https://api.github.com"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ">"+managedBadge+"</a>") || !warns(t, rec.Body.String(), "hx-post", "/app/admin/destinations/gh") {
 		t.Fatalf("save fragment: %d\n%s", rec.Code, rec.Body.String())
 	}
 	// A managed kit that tracks its own source: Sync and Untrack warn too.
 	trackedKit(t, store, f, "https://github.com/acme/kits")
 	checkWarns(t, h, []warnCase{
-		{"/ui/kits/web-dev", "hx-post", "/ui/kits/web-dev/sync", true},
-		{"/ui/kits/web-dev", "hx-delete", "/ui/kits/web-dev/source", true},
+		{"/app/admin/kits/web-dev", "hx-post", "/app/admin/kits/web-dev/sync", true},
+		{"/app/admin/kits/web-dev", "hx-delete", "/app/admin/kits/web-dev/source", true},
 	})
 }
 
@@ -152,30 +152,30 @@ func TestManagedRegistryBadgeAndDriftWarning(t *testing.T) {
 	h, store := managedUI(t)
 	mustCreateProject(t, store, "side")
 	bob := userID(t, store, "bob")
-	ub := "/ui/users/" + string(bob)
+	ub := "/app/admin/users/" + string(bob)
 	checkWarns(t, h, []warnCase{
 		{ub, "hx-post", ub + "/name", true},
 		{ub, "hx-post", ub + "/logins", true},
 		{ub, "hx-delete", ub, true},
 		{ub, "hx-post", ub + "/oidc", false}, // OIDC identities are not in the repo
-		{"/ui/projects/app", "hx-post", "/ui/projects/app/rename", true},
-		{"/ui/projects/app", "hx-post", "/ui/projects/app/chat-service", true},
-		{"/ui/projects/app", "hx-post", "/ui/projects/app/context", true},
-		{"/ui/projects/app/members", "hx-post", "/ui/projects/app/members", true},
-		{"/ui/projects/app/members", "hx-delete", "/ui/projects/app/members/" + string(bob), true},
-		{"/ui/projects/app/intercom", "hx-post", "/ui/projects/app/channels", true},
-		{"/ui/projects/app/escalation", "hx-post", "/ui/projects/app/escalation", true},
-		{"/ui/projects/side", "hx-post", "/ui/projects/side/rename", false},
-		{"/ui/projects/app/roles/ic", "hx-delete", "/ui/roles/app/ic", true},
-		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/scope", true},
-		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/egress", true},
-		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/allocation", true},
-		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/standing", true},
-		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/context", true},
-		{"/ui/", "hx-post", "/ui/jam/context", true},
-		{"/ui/", "hx-delete", "/ui/jam/context", true},
+		{"/app/admin/projects/app", "hx-post", "/app/admin/projects/app/rename", true},
+		{"/app/admin/projects/app", "hx-post", "/app/admin/projects/app/chat-service", true},
+		{"/app/admin/projects/app", "hx-post", "/app/admin/projects/app/context", true},
+		{"/app/admin/projects/app/members", "hx-post", "/app/admin/projects/app/members", true},
+		{"/app/admin/projects/app/members", "hx-delete", "/app/admin/projects/app/members/" + string(bob), true},
+		{"/app/admin/projects/app/intercom", "hx-post", "/app/admin/projects/app/channels", true},
+		{"/app/admin/projects/app/escalation", "hx-post", "/app/admin/projects/app/escalation", true},
+		{"/app/admin/projects/side", "hx-post", "/app/admin/projects/side/rename", false},
+		{"/app/admin/projects/app/roles/ic", "hx-delete", "/app/admin/roles/app/ic", true},
+		{"/app/admin/projects/app/roles/ic", "hx-post", "/app/admin/roles/app/ic/scope", true},
+		{"/app/admin/projects/app/roles/ic", "hx-post", "/app/admin/roles/app/ic/egress", true},
+		{"/app/admin/projects/app/roles/ic", "hx-post", "/app/admin/roles/app/ic/allocation", true},
+		{"/app/admin/projects/app/roles/ic", "hx-post", "/app/admin/roles/app/ic/standing", true},
+		{"/app/admin/projects/app/roles/ic", "hx-post", "/app/admin/roles/app/ic/context", true},
+		{"/app/admin/", "hx-post", "/app/admin/jam/context", true},
+		{"/app/admin/", "hx-delete", "/app/admin/jam/context", true},
 	})
-	for page, want := range map[string]bool{ub: true, "/ui/projects/app": true, "/ui/projects/app/roles/ic": true, "/ui/": true, "/ui/projects/side": false} {
+	for page, want := range map[string]bool{ub: true, "/app/admin/projects/app": true, "/app/admin/projects/app/roles/ic": true, "/app/admin/": true, "/app/admin/projects/side": false} {
 		if got := strings.Contains(get(t, h, page).Body.String(), ">"+managedBadge+"</a>"); got != want {
 			t.Errorf("%s: badge %v, want %v", page, got, want)
 		}

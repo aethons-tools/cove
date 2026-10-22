@@ -51,13 +51,13 @@ func buildAccessCard(store jam.Store, a accessDeps, inst jam.Instance) accessCar
 }
 
 // registerAccess serves the Unshare button: DELETE
-// /ui/agents/{id}/shares/{user} (a CSRF-guarded write), which removes the
+// /app/admin/agents/{id}/shares/{user} (a CSRF-guarded write), which removes the
 // grant and closes the user's SSH connections when it was their way in.
 func registerAccess(mux *http.ServeMux, store jam.Store, live *collabhttp.Live, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	if live == nil {
 		return
 	}
-	mux.HandleFunc("DELETE /ui/agents/{id}/shares/{user}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/agents/{id}/shares/{user}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

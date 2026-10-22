@@ -12,7 +12,7 @@ import (
 
 func suggestions(t *testing.T, h http.Handler, query string) []string {
 	t.Helper()
-	rec := get(t, h, "/ui/suggest?"+query)
+	rec := get(t, h, "/app/admin/suggest?"+query)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("suggest %s = %d", query, rec.Code)
 	}
@@ -66,7 +66,7 @@ func TestSuggestKinds(t *testing.T) {
 
 func TestSuggestUnknownKindAndEmpty(t *testing.T) {
 	h := suggestFixture(t)
-	if rec := get(t, h, "/ui/suggest?kind=bogus"); rec.Code != http.StatusBadRequest {
+	if rec := get(t, h, "/app/admin/suggest?kind=bogus"); rec.Code != http.StatusBadRequest {
 		t.Errorf("unknown kind = %d, want 400", rec.Code)
 	}
 	if got := suggestions(t, h, "kind=roles&project=nope"); got == nil || len(got) != 0 {

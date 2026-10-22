@@ -72,7 +72,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	project = orDefaultProject(project)
 	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
 		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
-	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
+	d.Context = newContextPanel("role", "/app/admin/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
 	d.ConfigName = project + "/" + name
 	d.Context.Kind, d.Context.Name = jam.ConfigKindRole, d.ConfigName
 
@@ -153,7 +153,7 @@ func roleURL(project, name string) string {
 // roleWriteBase is the prefix of a role's write endpoints, which keep their
 // pre-tree paths.
 func roleWriteBase(project, name string) string {
-	return "/ui/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
+	return "/app/admin/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
 }
 
 func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest bool) {

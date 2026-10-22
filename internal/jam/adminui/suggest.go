@@ -103,7 +103,7 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 
 func registerSuggest(mux *http.ServeMux, store jam.Store, credNames []string) {
 	kinds := suggestKinds(store, credNames)
-	mux.HandleFunc("GET /ui/suggest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/suggest", func(w http.ResponseWriter, r *http.Request) {
 		f, ok := kinds[r.URL.Query().Get("kind")]
 		if !ok {
 			http.Error(w, "unknown suggestion kind", http.StatusBadRequest)

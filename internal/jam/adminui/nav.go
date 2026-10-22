@@ -34,13 +34,13 @@ type tabDef struct{ Key, Label, Href string }
 
 // jamTabs are Jam's tabs, in order.
 var jamTabs = []tabDef{
-	{"dashboard", "Dashboard", "/ui/"},
-	{"agents", "Agents", "/ui/agents"},
-	{"users", "Users", "/ui/users"},
-	{"specs", "Specs", "/ui/specs"},
-	{"config", "Config", "/ui/config"},
-	{"intercom", "Intercom", "/ui/intercom"},
-	{"health", "Health", "/ui/health"},
+	{"dashboard", "Dashboard", "/app/admin/"},
+	{"agents", "Agents", "/app/admin/agents"},
+	{"users", "Users", "/app/admin/users"},
+	{"specs", "Specs", "/app/admin/specs"},
+	{"config", "Config", "/app/admin/config"},
+	{"intercom", "Intercom", "/app/admin/intercom"},
+	{"health", "Health", "/app/admin/health"},
 }
 
 // subTab is one sub-tab of a tab; Current marks the page's own.
@@ -50,7 +50,7 @@ type subTab struct {
 }
 
 // specsSubTabs are the Specs tab's sub-tabs; each Href is also its key.
-var specsSubTabs = []subTab{{Label: "Kits", Href: "/ui/kits"}, {Label: "Destinations", Href: "/ui/destinations"}, {Label: "Model-specs", Href: "/ui/model-specs"}}
+var specsSubTabs = []subTab{{Label: "Kits", Href: "/app/admin/kits"}, {Label: "Destinations", Href: "/app/admin/destinations"}, {Label: "Model-specs", Href: "/app/admin/model-specs"}}
 
 // tabView is one rendered tab.
 type tabView struct {
@@ -102,7 +102,7 @@ func buildRail(src frameSource, kind scopeKind, project string, items []attnItem
 	case scopeProject:
 		q.Set("scope", project)
 	}
-	rv := railView{Poll: "/ui/rail", Jam: railEntry{Name: src.jamName(), Href: "/ui/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
+	rv := railView{Poll: "/app/admin/rail", Jam: railEntry{Name: src.jamName(), Href: "/app/admin/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
 	if len(q) > 0 {
 		rv.Poll += "?" + q.Encode()
 	}
@@ -125,8 +125,8 @@ func railFor(r *http.Request, src frameSource, items []attnItem) railView {
 }
 
 // frameFor builds a page's frame from its meta and request. A project page
-// names its project in its route (/ui/projects/{name}[/section] or
-// /ui/projects/{project}/roles/{name}) — a missing project leaves the page
+// names its project in its route (/app/admin/projects/{name}[/section] or
+// /app/admin/projects/{project}/roles/{name}) — a missing project leaves the page
 // in no scope; an agent page is in a project's scope when linked with
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
@@ -174,8 +174,8 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 }
 
 // projectFromRoute reads a project page's project and tab from its route:
-// /ui/projects/{name} (overview), /ui/projects/{name}/{section}, and
-// /ui/projects/{project}/roles/{name} (roles). The project is the route's
+// /app/admin/projects/{name} (overview), /app/admin/projects/{name}/{section}, and
+// /app/admin/projects/{project}/roles/{name} (roles). The project is the route's
 // decoded {project} wildcard, else its {name} — never re-unescaped; the tab
 // is the pattern's segment after it.
 func projectFromRoute(r *http.Request) (project, tab string) {
@@ -187,7 +187,7 @@ func projectFromRoute(r *http.Request) (project, tab string) {
 		pat = pat[i+1:]
 	}
 	tab = string(sectionOverview)
-	if rest, ok := strings.CutPrefix(pat, "/ui/projects/{"); ok {
+	if rest, ok := strings.CutPrefix(pat, "/app/admin/projects/{"); ok {
 		_, rest, _ = strings.Cut(rest, "}")
 		if seg, _, _ := strings.Cut(strings.TrimPrefix(rest, "/"), "/"); seg != "" {
 			tab = seg

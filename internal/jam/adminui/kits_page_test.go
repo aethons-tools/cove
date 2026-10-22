@@ -62,8 +62,8 @@ func kitsHandler(store jam.Store) http.Handler {
 }
 
 func TestKitsListSummarizesCurrent(t *testing.T) {
-	body := get(t, kitsHandler(seedKits(t)), "/ui/kits").Body.String()
-	for _, want := range []string{`href="/ui/kits/web"`, `href="/ui/kits/default"`, "v2", "image", "blessed default", `data-used-by="1"`} {
+	body := get(t, kitsHandler(seedKits(t)), "/app/admin/kits").Body.String()
+	for _, want := range []string{`href="/app/admin/kits/web"`, `href="/app/admin/kits/default"`, "v2", "image", "blessed default", `data-used-by="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("kits list missing %q", want)
 		}
@@ -71,20 +71,20 @@ func TestKitsListSummarizesCurrent(t *testing.T) {
 }
 
 func TestKitPageShowsCurrentVersion(t *testing.T) {
-	rec := get(t, kitsHandler(seedKits(t)), "/ui/kits/web")
+	rec := get(t, kitsHandler(seedKits(t)), "/app/admin/kits/web")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("kit page = %d", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
 		"<h1>web</h1>", `aria-current="page">Specs`,
-		`href="/ui/kits/web?v=1"`, `class="ver current`,
+		`href="/app/admin/kits/web?v=1"`, `class="ver current`,
 		"ghcr.io/acme/web@sha256:abc",
 		"github.com", "anthropic.com", // egress + excluded by the ceiling
 		"GO_VERSION", "1.23", "GH_TOKEN", "clone access",
 		"You work on the web and api services.",
-		`href="/ui/projects/acme/roles/builder"`,
-		`hx-post="/ui/kits/web/versions"`,
+		`href="/app/admin/projects/acme/roles/builder"`,
+		`hx-post="/app/admin/kits/web/versions"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("kit page missing %q", want)
@@ -96,14 +96,14 @@ func TestKitPageShowsCurrentVersion(t *testing.T) {
 }
 
 func TestDefaultKitListsImplicitRoles(t *testing.T) {
-	body := get(t, kitsHandler(seedKits(t)), "/ui/kits/default").Body.String()
-	if !strings.Contains(body, `href="/ui/projects/acme/roles/plain"`) || !strings.Contains(body, "no kit set") {
+	body := get(t, kitsHandler(seedKits(t)), "/app/admin/kits/default").Body.String()
+	if !strings.Contains(body, `href="/app/admin/projects/acme/roles/plain"`) || !strings.Contains(body, "no kit set") {
 		t.Errorf("default kit should list roles with no kit set")
 	}
 }
 
 func TestKitVersionDiff(t *testing.T) {
-	body := get(t, kitsHandler(seedKits(t)), "/ui/kits/web?v=2&diff=1").Body.String()
+	body := get(t, kitsHandler(seedKits(t)), "/app/admin/kits/web?v=2&diff=1").Body.String()
 	for _, want := range []string{
 		`class="d-del"`, "You work on the web service.",
 		`class="d-add"`, "You work on the web and api services.",
@@ -132,7 +132,7 @@ func TestKitPagePackedContextSummarized(t *testing.T) {
 	if _, _, err := jam.PushStudioKit(store, "ctx", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, kitsHandler(store), "/ui/kits/ctx").Body.String()
+	body := get(t, kitsHandler(store), "/app/admin/kits/ctx").Body.String()
 	for _, want := range []string{"Dockerfile", "install.sh", "0755", "packed tar.gz"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("packed-context kit page missing %q", want)
@@ -159,17 +159,17 @@ func TestKitPageLegacyRowShowsParseError(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := kitsHandler(store)
-	if body := get(t, h, "/ui/kits").Body.String(); !strings.Contains(body, "invalid") {
+	if body := get(t, h, "/app/admin/kits").Body.String(); !strings.Contains(body, "invalid") {
 		t.Errorf("list should mark the unparseable kit invalid")
 	}
-	rec := get(t, h, "/ui/kits/old")
+	rec := get(t, h, "/app/admin/kits/old")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "not a valid studio kit") || !strings.Contains(rec.Body.String(), "listen: :443") {
 		t.Errorf("legacy row page = %d, should show the parse error and raw text", rec.Code)
 	}
 }
 
 func TestKitPageNotFound(t *testing.T) {
-	rec := get(t, kitsHandler(newStore(t)), "/ui/kits/nope")
+	rec := get(t, kitsHandler(newStore(t)), "/app/admin/kits/nope")
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "<nav") {
 		t.Fatalf("missing kit = %d", rec.Code)
 	}
@@ -178,8 +178,8 @@ func TestKitPageNotFound(t *testing.T) {
 func TestNewKitForm(t *testing.T) {
 	store := newStore(t)
 	h := kitsHandler(store)
-	rec := post(t, h, "/ui/kits", url.Values{"name": {"web"}, "config": {kitV1}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/web" {
+	rec := post(t, h, "/app/admin/kits", url.Values{"name": {"web"}, "config": {kitV1}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/kits/web" {
 		t.Fatalf("new kit = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 	for name, form := range map[string]url.Values{
@@ -192,7 +192,7 @@ func TestNewKitForm(t *testing.T) {
 		if name == "existing" {
 			want = http.StatusConflict
 		}
-		if rec := post(t, h, "/ui/kits", form); rec.Code != want {
+		if rec := post(t, h, "/app/admin/kits", form); rec.Code != want {
 			t.Errorf("%s = %d, want %d", name, rec.Code, want)
 		}
 	}
@@ -201,18 +201,18 @@ func TestNewKitForm(t *testing.T) {
 func TestPushVersionOnKitPage(t *testing.T) {
 	store := seedKits(t)
 	h := kitsHandler(store)
-	rec := post(t, h, "/ui/kits/web/versions", url.Values{"config": {kitV1}})
+	rec := post(t, h, "/app/admin/kits/web/versions", url.Values{"config": {kitV1}})
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="kit"`) || !strings.Contains(rec.Body.String(), "pushed web v3") {
 		t.Fatalf("push v3 = %d: %s", rec.Code, rec.Body.String())
 	}
-	rec = post(t, h, "/ui/kits/web/versions", url.Values{"config": {kitV1}})
+	rec = post(t, h, "/app/admin/kits/web/versions", url.Values{"config": {kitV1}})
 	if !strings.Contains(rec.Body.String(), "unchanged") {
 		t.Errorf("identical push should report unchanged: %s", rec.Body.String())
 	}
 	if k, _ := store.GetKit("web"); k.Current != 3 || len(k.Versions) != 3 {
 		t.Fatalf("kit = current v%d, %d versions; want v3 of 3", k.Current, len(k.Versions))
 	}
-	if rec := post(t, h, "/ui/kits/ghost/versions", url.Values{"config": {kitV1}}); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/app/admin/kits/ghost/versions", url.Values{"config": {kitV1}}); rec.Code != http.StatusNotFound {
 		t.Errorf("push to missing kit = %d, want 404", rec.Code)
 	}
 }
@@ -220,7 +220,7 @@ func TestPushVersionOnKitPage(t *testing.T) {
 // Pinning from the kit page (htmx target #kit) answers with the kit body.
 func TestPinFromKitPage(t *testing.T) {
 	store := seedKits(t)
-	req := httptest.NewRequest(http.MethodPost, "/ui/kits/web/pin", strings.NewReader("version=1"))
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/kits/web/pin", strings.NewReader("version=1"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://"+req.Host)
 	req.Header.Set("HX-Target", "kit")

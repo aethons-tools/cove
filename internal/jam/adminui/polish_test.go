@@ -13,12 +13,12 @@ import (
 func TestNavMarksCurrentPage(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
 	for path, href := range map[string]string{
-		"/ui/":             `href="/ui/"`,
-		"/ui/agents":       `href="/ui/agents"`,
-		"/ui/kits":         `href="/ui/specs"`, // Specs
-		"/ui/destinations": `href="/ui/specs"`,
-		"/ui/users":        `href="/ui/users"`,
-		"/ui/intercom":     `href="/ui/intercom"`,
+		"/app/admin/":             `href="/app/admin/"`,
+		"/app/admin/agents":       `href="/app/admin/agents"`,
+		"/app/admin/kits":         `href="/app/admin/specs"`, // Specs
+		"/app/admin/destinations": `href="/app/admin/specs"`,
+		"/app/admin/users":        `href="/app/admin/users"`,
+		"/app/admin/intercom":     `href="/app/admin/intercom"`,
 	} {
 		body := get(t, h, path).Body.String()
 		tabs := body[strings.Index(body, `<nav class="tabs"`):]
@@ -35,8 +35,8 @@ func TestNavMarksCurrentPage(t *testing.T) {
 // Every page carries the flash region and the htmx error hook, so a 4xx/5xx
 // write response is shown to the operator instead of silently dropped.
 func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
-	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
-	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/ui/static/jam.css`} {
+	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	for _, want := range []string{`id="flash"`, "htmx:responseError", `href="/app/static/jam.css`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing %q", want)
 		}
@@ -46,8 +46,8 @@ func TestLayoutShipsFlashAndErrorHook(t *testing.T) {
 func TestDashboardShowsStatTiles(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
-	for _, want := range []string{`data-stat="running"`, `data-stat="waiting"`, `data-stat="setting-up"`, `data-stat="attention"`, `data-stat="agents"`, `href="/ui/specs"`} {
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	for _, want := range []string{`data-stat="running"`, `data-stat="waiting"`, `data-stat="setting-up"`, `data-stat="attention"`, `data-stat="agents"`, `href="/app/admin/specs"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard missing %q", want)
 		}
@@ -57,7 +57,7 @@ func TestDashboardShowsStatTiles(t *testing.T) {
 func TestPhasePill(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/agents").Body.String()
 	if !strings.Contains(body, `<span class="pill st-running">running</span>`) {
 		t.Errorf("the agents table should render the status as a pill; got:\n%s", body)
 	}
@@ -76,14 +76,14 @@ func TestRosterPerActorGrantForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents/a-1").Body.String()
-	if n := strings.Count(body, `hx-post="/ui/actors/a-1/grants"`); n != 1 {
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/agents/a-1").Body.String()
+	if n := strings.Count(body, `hx-post="/app/admin/actors/a-1/grants"`); n != 1 {
 		t.Errorf("want one add-grant form on the agent's page, got %d", n)
 	}
 	if n := strings.Count(body, `<details class="grant-add"`); n != 1 {
 		t.Errorf("the add-grant form should be a collapsed <details>, got %d", n)
 	}
-	if !strings.Contains(body, `hx-delete="/ui/actors/a-1/grants/acme/worker"`) {
+	if !strings.Contains(body, `hx-delete="/app/admin/actors/a-1/grants/acme/worker"`) {
 		t.Errorf("grant chip should carry its remove action")
 	}
 }
@@ -94,7 +94,7 @@ func TestEnrollResultHasCopyButton(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := post(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/enrollments",
+	rec := post(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/enrollments",
 		url.Values{"id": {"s-1"}, "project": {"acme"}, "role": {"worker"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("enroll = %d", rec.Code)
@@ -112,8 +112,8 @@ func TestKitPageOffersPinPerVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/kits/base").Body.String()
-	if n := strings.Count(body, `hx-post="/ui/kits/base/pin"`); n != 1 {
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/kits/base").Body.String()
+	if n := strings.Count(body, `hx-post="/app/admin/kits/base/pin"`); n != 1 {
 		t.Errorf("want one Pin (v1; v2 is current), got %d", n)
 	}
 	if !strings.Contains(body, `name="version" value="1"`) {
@@ -128,7 +128,7 @@ func TestRoleRequestTargetsFlash(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "pair"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/app/admin/projects/acme/agents").Body.String()
 	if !strings.Contains(body, `hx-target="#flash"`) || strings.Contains(body, "role-request-msg") {
 		t.Errorf("Request should target #flash; got:\n%s", body)
 	}

@@ -44,16 +44,16 @@ var pages = map[string]page{
 	"agents":       mustParse(jamPage("agents"), "agents.html"),
 	"users":        mustParse(jamPage("users"), "users.html"),
 	"user":         mustParse(jamPage("users"), "user.html"),
-	"kits":         mustParse(specsPage("/ui/kits"), "kits.html"),
-	"destinations": mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destinations.html"),
+	"kits":         mustParse(specsPage("/app/admin/kits"), "kits.html"),
+	"destinations": mustParse(specsPage("/app/admin/destinations"), "dest_fields.html", "destinations.html"),
 	"health":       mustParse(jamPage("health"), "health.html"),
 	"intercom":     mustParse(jamPage("intercom"), "squawks.html", "intercom.html"),
 	"session":      mustParse(jamPage("agents"), "session.html"),
 	"role":         mustParse(projPage, "coves.html", "context_panel.html", "role.html"),
-	"destination":  mustParse(specsPage("/ui/destinations"), "dest_fields.html", "destination.html"),
-	"model-specs":  mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_specs.html"),
-	"model-spec":   mustParse(specsPage("/ui/model-specs"), "model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParse(specsPage("/ui/kits"), "kit.html"),
+	"destination":  mustParse(specsPage("/app/admin/destinations"), "dest_fields.html", "destination.html"),
+	"model-specs":  mustParse(specsPage("/app/admin/model-specs"), "model_spec_fields.html", "model_specs.html"),
+	"model-spec":   mustParse(specsPage("/app/admin/model-specs"), "model_spec_fields.html", "model_spec.html"),
+	"kit":          mustParse(specsPage("/app/admin/kits"), "kit.html"),
 	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
 	"agent":        mustParse(jamPage("agents"), "access.html", "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
@@ -118,7 +118,7 @@ var funcs = template.FuncMap{
 	"managed":    func(kind, name string) *managedView { return nil },
 	"driftNote":  func(kind, name string) string { return "" },
 	"hl":         highlight,
-	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
+	"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
 	"destURL":    destURL,
 	"specURL":    specURL,
 	"kitURL":     kitURL,
@@ -164,7 +164,7 @@ func WithConditions(t *condition.Tracker, alertmanagerURL string) Option {
 	return func(o *options) { o.conds, o.alertmanagerURL = t, strings.TrimRight(alertmanagerURL, "/") }
 }
 
-// WithSessions enables the live session-event timeline (/ui/agents/{id}/session).
+// WithSessions enables the live session-event timeline (/app/admin/agents/{id}/session).
 func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 	return func(o *options) { o.sessStore, o.sessHub = store, hub }
 }
@@ -205,9 +205,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	canEdit := sup != nil
 
 	// The shared assets (jam.css, htmx) — templates are never reachable here.
-	mux.Handle("GET /ui/static/", uiassets.Handler("/ui/static/"))
 
-	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/{$}", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("HX-Request") == "true" { // the studio table's poll
 			renderFragment(w, r, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
 			return
@@ -224,24 +223,24 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerHealth(mux, o.conds, o.alertmanagerURL)
 	// The rail's entry lists, re-fetched by their own poll so badges stay
 	// live on every page.
-	mux.HandleFunc("GET /ui/rail", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/rail", func(w http.ResponseWriter, r *http.Request) {
 		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, src.items()))
 	})
 	// Specs has no page of its own: it opens on its first sub-tab.
-	mux.HandleFunc("GET /ui/specs", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/kits", http.StatusFound)
+	mux.HandleFunc("GET /app/admin/specs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/app/admin/kits", http.StatusFound)
 	})
 	// The global roles list and role pages moved into the project tree.
-	mux.HandleFunc("GET /ui/roles", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, "/ui/")
+	mux.HandleFunc("GET /app/admin/roles", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, "/app/admin/")
 	})
-	mux.HandleFunc("GET /ui/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
 	})
-	mux.HandleFunc("GET /ui/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
 		handleRoleDetail(w, r, store, sup, canEdit)
 	})
-	mux.HandleFunc("GET /ui/intercom", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)

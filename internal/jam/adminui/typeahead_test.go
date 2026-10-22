@@ -23,30 +23,30 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 	log := newIntercomLog(t, intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("studio-acme")}, Body: "hi", At: time.Now(), Project: "acme"})
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, log)
 	for page, wants := range map[string][]string{
-		"/ui/agents": { // the Raise and Enroll forms
+		"/app/admin/agents": { // the Raise and Enroll forms
 			`name="project" data-ta="projects"`,
 			`name="role" data-ta="roles" data-ta-project="@form"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/projects/acme/agents": {
+		"/app/admin/projects/acme/agents": {
 			`name="kit" data-ta="kits"`,
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 		},
-		"/ui/projects/acme/roles/dev": {
+		"/app/admin/projects/acme/roles/dev": {
 			`name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials"`,
 			`name="addressing" data-ta="targets" data-ta-list data-ta-project="acme"`,
 			`name="kit" data-ta="kits"`,
 		},
-		"/ui/destinations": {
+		"/app/admin/destinations": {
 			`name="cred-name" data-ta="credentials"`,
 		},
-		"/ui/projects/acme/escalation": {
+		"/app/admin/projects/acme/escalation": {
 			`name="tiers" data-ta="targets" data-ta-list data-ta-project="acme"`,
 		},
-		"/ui/projects/acme/intercom": {
+		"/app/admin/projects/acme/intercom": {
 			`name="service" data-ta="services"`,
 		},
-		"/ui/intercom": {
+		"/app/admin/intercom": {
 			`name="project" data-ta="projects"`,
 			`name="participant" data-ta="participants"`,
 		},
@@ -62,8 +62,8 @@ func TestReferenceFieldsAreTypeaheads(t *testing.T) {
 
 // Every admin page ships the type-ahead component once, in the layout.
 func TestTypeaheadComponentInLayout(t *testing.T) {
-	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/").Body.String()
-	for _, want := range []string{"/ui/suggest?kind=", `"role", "combobox"`, "aria-activedescendant"} {
+	body := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	for _, want := range []string{"/app/admin/suggest?kind=", `"role", "combobox"`, "aria-activedescendant"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("layout missing type-ahead piece %q", want)
 		}

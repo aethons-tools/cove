@@ -22,7 +22,7 @@ func destHandler(t *testing.T, store jam.Store) http.Handler {
 func TestAddDestination(t *testing.T) {
 	store := newStore(t)
 	h := destHandler(t, store)
-	rec := post(t, h, "/ui/destinations", url.Values{
+	rec := post(t, h, "/app/admin/destinations", url.Values{
 		"name": {"anthropic"}, "route": {"/anthropic/"}, "upstream": {"https://api.anthropic.com"},
 		"identity-in": {"x-api-key"}, "cred-name": {"known-cred"}, "apply": {"x-api-key"},
 	})
@@ -43,7 +43,7 @@ func TestAddDestination(t *testing.T) {
 func TestAddDestinationBadCred400(t *testing.T) {
 	store := newStore(t)
 	h := destHandler(t, store)
-	rec := post(t, h, "/ui/destinations", url.Values{
+	rec := post(t, h, "/app/admin/destinations", url.Values{
 		"name": {"x"}, "route": {"/x/"}, "upstream": {"https://x"}, "cred-name": {"ghost"},
 	})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") {
@@ -55,12 +55,12 @@ func TestAddDestinationBadCred400(t *testing.T) {
 }
 
 // TestDestinationWriteCSRF mirrors TestEnrollRejectsCrossOrigin / TestRaiseCoveCSRF:
-// a cross-origin POST to /ui/destinations must be refused, and no
+// a cross-origin POST to /app/admin/destinations must be refused, and no
 // destination must be added.
 func TestDestinationWriteCSRF(t *testing.T) {
 	store := newStore(t)
 	h := destHandler(t, store)
-	req := httptest.NewRequest(http.MethodPost, "/ui/destinations", strings.NewReader(
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/destinations", strings.NewReader(
 		"name=x&route=%2Fx%2F&upstream=https%3A%2F%2Fx"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
@@ -81,7 +81,7 @@ func TestAddDestinationShowsCredNameNotValue(t *testing.T) {
 	const credRef = "CRED-REF"
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, func(name string) bool { return name == credRef }, nil)
-	rec := post(t, h, "/ui/destinations", url.Values{
+	rec := post(t, h, "/app/admin/destinations", url.Values{
 		"name": {"anthropic"}, "route": {"/anthropic/"}, "upstream": {"https://api.anthropic.com"},
 		"identity-in": {"x-api-key"}, "cred-name": {credRef}, "apply": {"x-api-key"},
 	})
@@ -99,7 +99,7 @@ func TestRemoveDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := destHandler(t, store)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/destinations/d1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/destinations/d1", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

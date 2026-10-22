@@ -39,9 +39,9 @@ func builtOnRow(t *testing.T, body string) string {
 }
 
 func TestKitPageShowsChainAndEffective(t *testing.T) {
-	body := get(t, kitsHandler(seedChain(t)), "/ui/kits/child").Body.String()
+	body := get(t, kitsHandler(seedChain(t)), "/app/admin/kits/child").Body.String()
 	row := builtOnRow(t, body)
-	for _, want := range []string{`href="/ui/kits/web"`, "web v2", "follows"} {
+	for _, want := range []string{`href="/app/admin/kits/web"`, "web v2", "follows"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("Built on row missing %q:\n%s", want, row)
 		}
@@ -67,8 +67,8 @@ func TestKitPageShowsPinnedParent(t *testing.T) {
 	if _, _, err := jam.PushStudioKit(store, "pinned", strings.Replace(kitChild, "kit: web", "kit: web@v1", 1)); err != nil {
 		t.Fatal(err)
 	}
-	row := builtOnRow(t, get(t, kitsHandler(store), "/ui/kits/pinned").Body.String())
-	for _, want := range []string{`href="/ui/kits/web"`, "web v1", "pinned"} {
+	row := builtOnRow(t, get(t, kitsHandler(store), "/app/admin/kits/pinned").Body.String())
+	for _, want := range []string{`href="/app/admin/kits/web"`, "web v1", "pinned"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("Built on row missing %q:\n%s", want, row)
 		}
@@ -79,8 +79,8 @@ func TestKitPageShowsPinnedParent(t *testing.T) {
 }
 
 func TestKitPageUsedByListsChildKits(t *testing.T) {
-	body := get(t, kitsHandler(seedChain(t)), "/ui/kits/web").Body.String()
-	if !strings.Contains(body, `href="/ui/kits/child"`) {
+	body := get(t, kitsHandler(seedChain(t)), "/app/admin/kits/web").Body.String()
+	if !strings.Contains(body, `href="/app/admin/kits/child"`) {
 		t.Errorf("parent's Used by lacks the child kit:\n%s", body)
 	}
 	if strings.Contains(body, "Effective") || strings.Contains(body, "Built on") {
@@ -101,7 +101,7 @@ func TestKitPageChainErrorEscaped(t *testing.T) {
 	if _, err := store.PushKit("orphan", "kind: studio\nbase:\n  kit: evil\n"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, kitsHandler(store), "/ui/kits/orphan").Body.String()
+	body := get(t, kitsHandler(store), "/app/admin/kits/orphan").Body.String()
 	if strings.Contains(body, "<b>x</b>") {
 		t.Error("chain error not escaped")
 	}
@@ -117,7 +117,7 @@ func TestKitPageChainErrorEscaped(t *testing.T) {
 }
 
 func TestKitsListShowsKitBase(t *testing.T) {
-	body := get(t, kitsHandler(seedChain(t)), "/ui/kits").Body.String()
+	body := get(t, kitsHandler(seedChain(t)), "/app/admin/kits").Body.String()
 	if !strings.Contains(body, "kit: web") {
 		t.Errorf("Base column lacks %q", "kit: web")
 	}

@@ -132,7 +132,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		return editFlash(what, func(r *http.Request, project, name string) (string, error) { return "", apply(r, project, name) })
 	}
 
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/scope", edit("scope set", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/scope", edit("scope set", func(r *http.Request, project, name string) error {
 		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
 		if err != nil {
 			return badRequest(err.Error())
@@ -161,7 +161,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		})
 	}))
 
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/allocation", edit("allocation set", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/allocation", edit("allocation set", func(r *http.Request, project, name string) error {
 		var a jam.RoleAllocation
 		var err error
 		for _, c := range []struct {
@@ -187,37 +187,37 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 		})
 	}))
 
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/context", edit("context set", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/context", edit("context set", func(r *http.Request, project, name string) error {
 		b, err := parseContextForm(r)
 		if err != nil {
 			return err
 		}
 		return jam.SetRoleContextChecked(store, project, name, b)
 	}))
-	mux.HandleFunc("DELETE /ui/roles/{project}/{name}/context", edit("context cleared", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/context", edit("context cleared", func(r *http.Request, project, name string) error {
 		return jam.ClearRoleContext(store, project, name)
 	}))
 
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/egress", edit("egress set", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/egress", edit("egress set", func(r *http.Request, project, name string) error {
 		_, err := jam.SetRoleEgress(store, project, name, splitList(r.FormValue("domains")))
 		return err
 	}))
-	mux.HandleFunc("DELETE /ui/roles/{project}/{name}/egress", edit("egress cleared", func(_ *http.Request, project, name string) error {
+	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/egress", edit("egress cleared", func(_ *http.Request, project, name string) error {
 		return jam.ClearRoleEgress(store, project, name)
 	}))
 
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing", edit("standing declared", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing", edit("standing declared", func(r *http.Request, project, name string) error {
 		return jam.AddStanding(store, project, name, jam.StandingSession{
 			Name: strings.TrimSpace(r.FormValue("name")), Prompt: strings.TrimSpace(r.FormValue("prompt")),
 		})
 	}))
-	mux.HandleFunc("DELETE /ui/roles/{project}/{name}/standing/{session}", edit("standing dismissed", func(r *http.Request, project, name string) error {
+	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/standing/{session}", edit("standing dismissed", func(r *http.Request, project, name string) error {
 		return jam.RemoveStanding(store, project, name, r.PathValue("session"))
 	}))
 	// Reset: the session's studio and persisted state are deleted, the
 	// declaration kept — Jam raises it fresh on its next standing pass. A
 	// pending reset is accepted (flashed), not an error.
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/reset", editFlash("standing reset", func(r *http.Request, project, name string) (string, error) {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/reset", editFlash("standing reset", func(r *http.Request, project, name string) (string, error) {
 		session := r.PathValue("session")
 		res, err := jam.ResetStanding(r.Context(), store, sup, project, name, session)
 		switch {
@@ -231,7 +231,7 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 	// Upgrade: queued with the standing reconciler, which prepares the current
 	// image, waits for the session to be idle, and re-raises it keeping its
 	// conversation and workspace (the UI never forces; the CLI's --force does).
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/standing/{session}/upgrade", editFlash("standing upgrade", func(r *http.Request, project, name string) (string, error) {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/upgrade", editFlash("standing upgrade", func(r *http.Request, project, name string) (string, error) {
 		session := r.PathValue("session")
 		res, err := jam.UpgradeStanding(store, sup, project, name, session, false)
 		switch {

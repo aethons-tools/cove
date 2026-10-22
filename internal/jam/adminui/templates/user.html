@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
 <div class="page-head"><h1>User not found</h1></div>
-<div class="banner">No user <span class="mono">{{.NotFoundFor}}</span>. <a href="/ui/users">Back to users</a></div>
+<div class="banner">No user <span class="mono">{{.NotFoundFor}}</span>. <a href="/app/admin/users">Back to users</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -16,7 +16,7 @@
   .unset{color:var(--faint)}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-<div class="crumbs"><a href="/ui/users">Users</a></div>
+<div class="crumbs"><a href="/app/admin/users">Users</a></div>
 {{template "user-body" .}}
 {{end}}
 {{end}}
@@ -63,7 +63,7 @@
           <td class="mono">{{if .ServiceUID}}{{.ServiceUID}}{{else}}<span class="unset">—</span>{{end}}</td>
           <td class="mono">{{if .Handle}}@{{.Handle}}{{else}}<span class="unset">—</span>{{end}}</td>
           <td class="mono">{{.ID}}</td>
-          <td class="actions"><button class="danger small" hx-delete="/ui/accounts/{{.ID}}/user?user={{$u.ID}}" hx-target="#user" hx-swap="outerHTML"
+          <td class="actions"><button class="danger small" hx-delete="/app/admin/accounts/{{.ID}}/user?user={{$u.ID}}" hx-target="#user" hx-swap="outerHTML"
             hx-confirm="Unlink this {{.Connection}} account from {{$u.Name}}?">Unlink</button></td></tr>
         {{else}}<tr><td colspan="5" class="empty">No accounts.</td></tr>{{end}}
       </tbody>

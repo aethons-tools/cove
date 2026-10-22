@@ -15,7 +15,9 @@ import (
 )
 
 // projectURL is the page path for a project.
-func projectURL(name string) string { return "/ui/projects/" + url.PathEscape(orDefaultProject(name)) }
+func projectURL(name string) string {
+	return "/app/admin/projects/" + url.PathEscape(orDefaultProject(name))
+}
 
 // projectChoices is what a project picker offers: every project, plus
 // default, which is always valid (a write naming it creates it).
@@ -114,7 +116,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 	}
 	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
 	d.Crumbs = projectCrumbs(name, section, "")
-	d.Context = newContextPanel("project", "/ui/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
+	d.Context = newContextPanel("project", "/app/admin/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	d.Context.Kind, d.Context.Name = jam.ConfigKindProject, name
 	for _, r := range roleRows(store) {
 		if r.Project == name {
@@ -158,8 +160,8 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 
 func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, canRequest bool, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	// The rail is the project list.
-	mux.HandleFunc("GET /ui/projects", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, "/ui/")
+	mux.HandleFunc("GET /app/admin/projects", func(w http.ResponseWriter, r *http.Request) {
+		redirect(w, r, "/app/admin/")
 	})
 
 	page := func(section projectSection) http.HandlerFunc {
@@ -174,16 +176,16 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 			render(w, r, "project", d)
 		}
 	}
-	mux.HandleFunc("GET /ui/projects/{name}", page(sectionOverview))
+	mux.HandleFunc("GET /app/admin/projects/{name}", page(sectionOverview))
 	// The role list moved to the Agents tab.
-	mux.HandleFunc("GET /ui/projects/{name}/roles", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/projects/{name}/roles", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, projectSectionURL(r.PathValue("name"), sectionAgents))
 	})
 	for _, s := range projectSections[1:] {
-		mux.HandleFunc("GET /ui/projects/{name}/"+string(s.Section), page(s.Section))
+		mux.HandleFunc("GET /app/admin/projects/{name}/"+string(s.Section), page(s.Section))
 	}
 
-	mux.HandleFunc("POST /ui/projects", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/projects", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -202,7 +204,7 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("POST /ui/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -220,7 +222,7 @@ func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("DELETE /ui/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

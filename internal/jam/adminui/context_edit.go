@@ -52,7 +52,7 @@ func parseContextForm(r *http.Request) (jam.ContextBody, error) {
 
 // jamPanel is the dashboard's Jam-wide session-context card; it swaps itself.
 func jamPanel(store jam.Store) contextPanel {
-	p := newContextPanel("Jam-wide", "/ui/jam/context", "jam-context", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
+	p := newContextPanel("Jam-wide", "/app/admin/jam/context", "jam-context", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
 	p.ID = "jam-context"
 	p.Kind, p.Name = jam.ConfigKindJamContext, "jam"
 	return p
@@ -82,6 +82,6 @@ func registerJamContext(mux *http.ServeMux, store jam.Store, log *slog.Logger, g
 			renderFragment(w, r, "dashboard", "context-panel", jamPanel(store))
 		}
 	}
-	mux.HandleFunc("POST /ui/jam/context", write("set", parseContextForm))
-	mux.HandleFunc("DELETE /ui/jam/context", write("cleared", func(*http.Request) (jam.ContextBody, error) { return jam.ContextBody{}, nil }))
+	mux.HandleFunc("POST /app/admin/jam/context", write("set", parseContextForm))
+	mux.HandleFunc("DELETE /app/admin/jam/context", write("cleared", func(*http.Request) (jam.ContextBody, error) { return jam.ContextBody{}, nil }))
 }

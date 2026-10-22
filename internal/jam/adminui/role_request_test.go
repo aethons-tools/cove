@@ -69,15 +69,15 @@ func requestAs(t *testing.T, h http.Handler, op, path string) *httptest.Response
 
 func TestRolesPageOffersRequest(t *testing.T) {
 	_, _, _, h := requestKit(t)
-	body := get(t, h, "/ui/projects/acme/agents").Body.String()
-	if !strings.Contains(body, `hx-post="/ui/roles/acme/pair/request"`) {
+	body := get(t, h, "/app/admin/projects/acme/agents").Body.String()
+	if !strings.Contains(body, `hx-post="/app/admin/roles/acme/pair/request"`) {
 		t.Errorf("a project's roles should offer a Request action per role; got:\n%s", body)
 	}
 }
 
 func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 	store, l, a, h := requestKit(t)
-	rec := requestAs(t, h, "auth0|alice", "/ui/roles/acme/pair/request")
+	rec := requestAs(t, h, "auth0|alice", "/app/admin/roles/acme/pair/request")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("request = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -102,11 +102,11 @@ func TestRoleRequestRaisesPersonalSessionForSignedInOperator(t *testing.T) {
 
 func TestRoleRequestAsLoopbackOperatorAsksToSignIn(t *testing.T) {
 	store, _, a, h := requestKit(t)
-	rec := requestAs(t, h, "local", "/ui/roles/acme/pair/request")
+	rec := requestAs(t, h, "local", "/app/admin/roles/acme/pair/request")
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("request = %d, want 403", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "/ui/auth/login") {
+	if !strings.Contains(rec.Body.String(), "/app/auth/login") {
 		t.Errorf("an anonymous loopback operator should be pointed at sign-in; got: %s", rec.Body.String())
 	}
 	if len(a.grants) != 0 || len(store.ListInstances()) != 0 {
@@ -116,7 +116,7 @@ func TestRoleRequestAsLoopbackOperatorAsksToSignIn(t *testing.T) {
 
 func TestRoleRequestUnlinkedLoginRefused(t *testing.T) {
 	_, _, a, h := requestKit(t)
-	rec := requestAs(t, h, "auth0|stranger", "/ui/roles/acme/pair/request")
+	rec := requestAs(t, h, "auth0|stranger", "/app/admin/roles/acme/pair/request")
 	if rec.Code != http.StatusForbidden || len(a.grants) != 0 {
 		t.Fatalf("request = %d grants=%v, want 403 and no grant", rec.Code, a.grants)
 	}
@@ -124,7 +124,7 @@ func TestRoleRequestUnlinkedLoginRefused(t *testing.T) {
 
 func TestRoleRequestRejectsCrossOrigin(t *testing.T) {
 	_, _, a, h := requestKit(t)
-	req := httptest.NewRequest(http.MethodPost, "/ui/roles/acme/pair/request", nil)
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/roles/acme/pair/request", nil)
 	req.Header.Set("Origin", "http://evil.example")
 	req = jam.WithOperator(req, jam.Operator{ID: "auth0|alice"})
 	rec := httptest.NewRecorder()

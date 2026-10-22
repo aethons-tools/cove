@@ -15,7 +15,7 @@ import (
 )
 
 // kitURL is the page path for a kit.
-func kitURL(name string) string { return "/ui/kits/" + url.PathEscape(name) }
+func kitURL(name string) string { return "/app/admin/kits/" + url.PathEscape(name) }
 
 func kitTableData(store jam.Store) map[string]any {
 	return map[string]any{"Kits": kitListRows(store)}
@@ -44,13 +44,13 @@ func pushedMsg(name string, v int, unchanged bool) string {
 }
 
 func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /ui/kits", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		data := kitTableData(store)
 		data["Title"], data["CanSource"] = "Kits", f != nil
 		render(w, r, "kits", data)
 	})
 
-	mux.HandleFunc("GET /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		view, _ := strconv.Atoi(r.URL.Query().Get("v"))
 		diff, _ := strconv.Atoi(r.URL.Query().Get("diff"))
 		d, ok := buildKitDetail(store, r.PathValue("name"), view, diff)
@@ -63,7 +63,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 	})
 
 	// New kit: create only — further versions are pushed on the kit's page.
-	mux.HandleFunc("POST /ui/kits", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -90,7 +90,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 
-	mux.HandleFunc("POST /ui/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -112,7 +112,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 		renderKitBody(w, r, store, f != nil, name, pushedMsg(name, v, unchanged))
 	})
 
-	mux.HandleFunc("POST /ui/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -138,7 +138,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 
-	mux.HandleFunc("DELETE /ui/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -183,7 +183,7 @@ func formSource(w http.ResponseWriter, r *http.Request) (gitsource.Source, bool)
 func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	// Import from git: a new version of the named (else the kit's own) kit;
 	// with the "track" box checked the kit also tracks the source (TrackKit).
-	mux.HandleFunc("POST /ui/kits/import", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits/import", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -206,7 +206,7 @@ func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, l
 		renderFragment(w, r, "kits", "kits-table", kitTableData(store))
 	})
 
-	mux.HandleFunc("POST /ui/kits/{name}/source", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits/{name}/source", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -224,7 +224,7 @@ func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, l
 		renderKitBody(w, r, store, true, name, sourceMsg("tracking "+src.String(), res))
 	})
 
-	mux.HandleFunc("DELETE /ui/kits/{name}/source", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/kits/{name}/source", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -237,7 +237,7 @@ func registerKitSources(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, l
 		renderKitBody(w, r, store, true, name, name+" no longer tracks a source")
 	})
 
-	mux.HandleFunc("POST /ui/kits/{name}/sync", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/kits/{name}/sync", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
