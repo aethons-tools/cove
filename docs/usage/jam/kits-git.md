@@ -182,6 +182,14 @@ failure (the message is already redacted), and **500** for a store failure.
 | `exceeded the <n>-byte transfer limit` / `checkout too large` / `timed out after …` | The repo is too big or too slow for one fetch: move the kit to a smaller repo. |
 | `kit has no tracked source (use kit track)` | `sync` needs `track` first. |
 
+## In a config repo
+
+A config repo can reference a kit by its source (`kits/<name>.source.yml`);
+`config sync` then fetches and tracks it as a managed kit — see
+[config-git-sources.md](config-git-sources.md). A push or `kit sync` to content
+the config repo lacks, or a `kit untrack`, shows as drift on the next config
+diff.
+
 ## Future work
 
 Not built yet: an attention signal when a tracked source has new commits
