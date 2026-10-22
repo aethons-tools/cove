@@ -3274,15 +3274,24 @@ shows as drift.
 
 In `docs/usage/jam/config-git.md`, make these exact replacements:
 - In the frontmatter, set `updated: 2026-10-22`.
-- Replace `Slice 1 reads a local checkout (`--dir`); git sources, `track`/`sync` and` and the line after it, `` `.source.yml` are not built yet.``, with `A Jam can also follow a config repo in git, and reference kits by their own source: see [config-git-sources.md](config-git-sources.md).`
+- Replace `Slice 1 reads a local checkout (`--dir`); git sources, `track`/`sync` and` and the line after it, `` `.source.yml` are not built yet.``, with:
+  ```markdown
+  A Jam can also follow a config repo in git, and reference kits by their own source: see [config-git-sources.md](config-git-sources.md).
+  ```
 - In the layout block, add after the `kits/<n>/kit.yml` line: `kits/<n>.source.yml              or a reference to the kit's own git source`.
 - Replace `directories anything else is refused (`kits/<n>.source.yml`: `kit source` and the line after it, `references are not supported yet`; a `.yaml` extension: `use .yml`).`, with `directories anything else is refused (a `.yaml` extension: `use .yml`).`
 - Replace `Kits are inline only: `kits/<n>/kit.yml`, with` with `Inline kits are `kits/<n>/kit.yml`, with`.
 - Replace `written by `--dir` record provenance repo `local`, dir `kits/<name>`.` with `written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref and commit).`
-- In the verbs table, replace `` `config diff --dir <path>` `` with `` `config diff --dir <path>` (or `--git`, see below) ``. Add a last row: `` | `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). | ``
+- In the verbs table, replace `` `config diff --dir <path>` `` with `` `config diff --dir <path>` (or `--git`, see below) ``. Add a last row:
+  ```markdown
+  | `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). |
+  ```
 - Replace `and no `forget` prints `nothing to apply` and does not prompt. Without `--dir` a verb exits 2` and the line after it, `` (`--dir is required (git sources are not supported yet)`). ``, with `and no `forget` prints `nothing to apply` and does not prompt. Without `--dir`, diff and apply use `--git` or the tracked source.`
 - Replace `` `<project>/<role>`; the Jam context is `jam`) and the commit (`dir` here). `` with `` `<project>/<role>`; the Jam context is `jam`) and the commit (`dir` for `--dir`). ``
-- Replace `` `application/json`, the future `--git` body, is 400). `` with `` `application/json` is a `{source}` body — [config-git-sources.md](config-git-sources.md#routes)). ``
+- Replace `` `application/json`, the future `--git` body, is 400). `` with:
+  ```markdown
+  `application/json` is a `{source}` body — [config-git-sources.md](config-git-sources.md#routes)).
+  ```
 - Replace the "Not yet" section body `` `--git` sources, `track`/`sync`, `.source.yml`, the UI page, drift attention. `` with `The UI page, managed badges, `config release`, drift attention.`
 
 In `docs/usage/jam/kits-git.md`, add before `## Future work`:
