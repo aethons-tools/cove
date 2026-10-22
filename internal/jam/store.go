@@ -118,4 +118,9 @@ type Store interface {
 	// record or none.
 	ListConfigMarks() []ConfigMark
 	ApplyConfig(w ConfigWrite) error
+	// GetConfigSource / SetConfigSource read and replace the Jam's tracked
+	// config source (nil clears). ApplyConfig also writes it, with the apply
+	// (ConfigWrite.ConfigSource).
+	GetConfigSource() (ConfigSource, bool)
+	SetConfigSource(src *ConfigSource) error
 }

@@ -572,3 +572,45 @@ func TestPostgresApplyConfigAtomic(t *testing.T) {
 		}
 	}
 }
+
+// TestPostgresConfigSourcePersists: the tracked source survives a reopen,
+// whether set directly or by an apply, and a clear is durable.
+func TestPostgresConfigSourcePersists(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	s, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	src := jam.ConfigSource{Repo: "https://github.com/acme/jam", Dir: "cfg", Ref: "main", Commit: "c1", AppliedAt: time.Unix(300, 0).UTC()}
+	if err := s.ApplyConfig(jam.ConfigWrite{ConfigSource: &src}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := r.GetConfigSource()
+	r.Close()
+	if !ok || got.Repo != src.Repo || got.Dir != "cfg" || got.Commit != "c1" || !got.AppliedAt.Equal(src.AppliedAt) {
+		t.Fatalf("after reopen: %+v %v", got, ok)
+	}
+	if err := s.SetConfigSource(nil); err != nil {
+		t.Fatal(err)
+	}
+	r, err = jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if _, ok := r.GetConfigSource(); ok {
+		t.Fatal("a cleared source came back on reopen")
+	}
+}

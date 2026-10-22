@@ -286,3 +286,18 @@ func TestConfigSnapshotKitProvenanceRoundTrip(t *testing.T) {
 		t.Fatalf("round trip (or import aliasing):\n got %+v\nwant %+v", got, want)
 	}
 }
+
+// The tracked config source is per-Jam state, like the marks: not exported.
+func TestConfigSourceNotInExport(t *testing.T) {
+	st := NewMemStore()
+	if err := st.SetConfigSource(&ConfigSource{Repo: "https://github.com/acme/jam", Ref: "main", Commit: "c1"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(st.ExportConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "acme/jam") {
+		t.Fatalf("export carries the tracked source: %s", b)
+	}
+}

@@ -7,6 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// upsertConfigSourceSQL writes the tracked source's jam_settings row ($1 = doc).
+const upsertConfigSourceSQL = `INSERT INTO jam_settings (key, doc) VALUES ('config_source', $1)
+	 ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`
+
 // ApplyConfig writes a config apply's whole set in one transaction; the cache
 // changes only after commit.
 func (s *PostgresStore) ApplyConfig(w ConfigWrite) error {
@@ -165,6 +169,15 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 	}
 	for _, k := range w.RemoveMarks {
 		if _, err := tx.Exec(ctx, `DELETE FROM config_marks WHERE kind = $1 AND name = $2`, k.Kind, k.Name); err != nil {
+			return err
+		}
+	}
+	if w.ConfigSource != nil {
+		doc, err := json.Marshal(*w.ConfigSource)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, upsertConfigSourceSQL, doc); err != nil {
 			return err
 		}
 	}
