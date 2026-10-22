@@ -148,7 +148,14 @@ func loadDockerignore(fsys fs.FS) (*patternmatcher.PatternMatcher, error) {
 		return nil, err
 	}
 	defer f.Close()
-	patterns, err := ignorefile.ReadAll(f)
+	return DockerignoreMatcher(f)
+}
+
+// DockerignoreMatcher parses a .dockerignore the way the packer does, for a
+// caller that must agree with it on which context paths are ignored (match
+// a slash path with MatchesOrParentMatches).
+func DockerignoreMatcher(r io.Reader) (*patternmatcher.PatternMatcher, error) {
+	patterns, err := ignorefile.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,8 +88,49 @@ func TestWriteConfigTreePruneStaysInTree(t *testing.T) {
 		t.Skip(err)
 	}
 	err := writeConfigTree(dir, jam.ConfigTreeExport{Prune: []string{"kits/k/context"}})
+	if err == nil || !strings.Contains(err.Error(), "refusing to prune") {
+		t.Fatalf("err %v", err)
+	}
 	if _, serr := os.Stat(filepath.Join(outside, "context/victim")); serr != nil {
-		t.Fatalf("pruned outside the tree (err %v)", err)
+		t.Fatal("pruned outside the tree")
+	}
+	// Nor does a write follow it out.
+	err = writeConfigTree(dir, jam.ConfigTreeExport{Binary: map[string]jam.ConfigFileBlob{"kits/k/context/new": {Data: []byte("x"), Mode: 0o644}}})
+	if err == nil {
+		t.Fatal("wrote through a symlink out of the tree")
+	}
+	if _, serr := os.Stat(filepath.Join(outside, "context/new")); !os.IsNotExist(serr) {
+		t.Fatal("a file landed outside the tree")
+	}
+}
+
+// Prune keeps what the exported .dockerignore excludes: those files were
+// never packed, so Jam's context says nothing about them.
+func TestWriteConfigTreePruneKeepsDockerignored(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"kits/k/context/build.log", "kits/k/context/node_modules/x/y.js", "kits/k/context/stale.txt", "kits/k/context/keep.log"} {
+		mustWrite(t, filepath.Join(dir, p), "x", 0o644)
+	}
+	exp := jam.ConfigTreeExport{
+		Binary: map[string]jam.ConfigFileBlob{
+			"kits/k/context/.dockerignore": {Data: []byte("*.log\nnode_modules\n!keep.log\n"), Mode: 0o644},
+			"kits/k/context/Dockerfile":    {Data: []byte("FROM x\n"), Mode: 0o644},
+		},
+		Prune: []string{"kits/k/context"},
+	}
+	if err := writeConfigTree(dir, exp); err != nil {
+		t.Fatal(err)
+	}
+	got := readTree(t, dir)
+	for _, p := range []string{"kits/k/context/build.log", "kits/k/context/node_modules/x/y.js"} {
+		if _, ok := got[p]; !ok {
+			t.Errorf("%s (ignored) was pruned", p)
+		}
+	}
+	for _, p := range []string{"kits/k/context/stale.txt", "kits/k/context/keep.log"} {
+		if _, ok := got[p]; ok {
+			t.Errorf("%s (not ignored, not exported) was kept", p)
+		}
 	}
 }
 
@@ -99,6 +143,7 @@ func TestWriteConfigTreeRefusesUnsafePaths(t *testing.T) {
 		"prune-dotdot":  {Prune: []string{"../kits/k/context"}},
 		"prune-other":   {Prune: []string{"users"}},
 		"prune-deep":    {Prune: []string{"kits/k/sub/context"}},
+		"both":          {Binary: map[string]jam.ConfigFileBlob{"marker": {Mode: 0o644}}},
 	} {
 		dir := t.TempDir()
 		mustWrite(t, filepath.Join(dir, "users/bob.yml"), "x", 0o644)
@@ -173,5 +218,30 @@ func TestConfigWriteContextDirRoundTrip(t *testing.T) {
 		if strings.HasPrefix(p, "kits/builder/context/") {
 			t.Fatalf("%s left after the kit dropped its context", p)
 		}
+	}
+}
+
+// config write names, on stderr, the kits whose context stayed inline.
+func TestConfigWriteNotesInlineContexts(t *testing.T) {
+	url, st := configServer(t)
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	cfgMust(t, tw.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: 7, Typeflag: tar.TypeReg}))
+	_, _ = tw.Write([]byte("FROM x\n"))
+	cfgMust(t, tw.WriteHeader(&tar.Header{Name: "d/", Mode: 0o755, Typeflag: tar.TypeDir}))
+	cfgMust(t, tw.Close())
+	cfgMust(t, gw.Close())
+	if _, _, err := jam.PushStudioKit(st, "hand", "kind: studio\nbase:\n  context: "+base64.StdEncoding.EncodeToString(buf.Bytes())+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "kits/hand/context/mine.txt"), "checked in", 0o644)
+	code, _, errs := runJam("config", "write", repo, "--all", "--admin-url", url)
+	if code != 0 || !strings.Contains(errs, "kit hand: context kept inline in kits/hand/kit.yml") {
+		t.Fatalf("%d %s", code, errs)
+	}
+	if readTree(t, repo)["kits/hand/context/mine.txt"] != "checked in" {
+		t.Fatal("an inline kit's context dir was pruned")
 	}
 }

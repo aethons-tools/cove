@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -136,8 +137,9 @@ func TestExportConfigTreeKeepsIrreproducibleContextInline(t *testing.T) {
 	if ky := exp.Files["kits/hand/kit.yml"]; !strings.Contains(ky, "context: "+b64) || len(exp.Binary) != 0 {
 		t.Fatalf("kit.yml:\n%s\nbinary %d", ky, len(exp.Binary))
 	}
-	if !slices.Contains(exp.Prune, "kits/hand/context") {
-		t.Fatalf("prune %v", exp.Prune)
+	// Kept inline, it never prunes: checked-in files under its context/ stay.
+	if slices.Contains(exp.Prune, "kits/hand/context") || !slices.Equal(exp.Inline, []string{"hand"}) {
+		t.Fatalf("prune %v inline %v", exp.Prune, exp.Inline)
 	}
 }
 
@@ -232,5 +234,49 @@ func TestExportConfigTreeInlineByDefault(t *testing.T) {
 		if err != nil || bytes.Contains(b, []byte(`"binary"`)) || bytes.Contains(b, []byte(`"prune"`)) {
 			t.Fatalf("json %v: new fields sent", err)
 		}
+	}
+}
+
+// A kit whose rendered context would push the tree past the config upload
+// caps (configtar: unpacked bytes, entries) stays inline, so apply --dir
+// accepts the tree config write just made; the other kits still render.
+func TestExportConfigTreeContextBudget(t *testing.T) {
+	st, _ := ctxKitStore(t)
+	big := t.TempDir()
+	mustWrite(t, filepath.Join(big, "Dockerfile"), "FROM x\n", 0o644)
+	mustWrite(t, filepath.Join(big, "zeros"), strings.Repeat("\x00", 20<<20), 0o644) // 20 MiB, a few KiB packed
+	many := t.TempDir()
+	mustWrite(t, filepath.Join(many, "Dockerfile"), "FROM x\n", 0o644)
+	for i := range configtar.MaxEntries - 10 {
+		mustWrite(t, filepath.Join(many, fmt.Sprintf("d%d/f", i%50), fmt.Sprint(i)), "x", 0o644)
+	}
+	for name, dir := range map[string]string{"big": big, "many": many} {
+		b64, err := studio.PackContextDir(dir)
+		must(t, err)
+		if _, _, err := PushStudioKit(st, name, "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, filesAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(exp.Inline, []string{"big", "many"}) {
+		t.Fatalf("inline %v", exp.Inline)
+	}
+	for _, n := range []string{"big", "many"} {
+		if ky := exp.Files["kits/"+n+"/kit.yml"]; !strings.Contains(ky, "  context: ") || slices.Contains(exp.Prune, "kits/"+n+"/context") {
+			t.Fatalf("%s kit.yml:\n%.200s\nprune %v", n, ky, exp.Prune)
+		}
+	}
+	if _, ok := exp.Binary["kits/builder/context/run.sh"]; !ok {
+		t.Fatal("the small kit is no longer rendered as files")
+	}
+	written := t.TempDir()
+	writeExport(t, written, exp)
+	tarball, err := configtar.Pack(written)
+	must(t, err)
+	if err := configtar.Unpack(bytes.NewReader(tarball), t.TempDir()); err != nil {
+		t.Fatalf("the written tree is refused on upload: %v", err)
 	}
 }

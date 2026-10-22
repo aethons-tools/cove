@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // configStdin is the apply prompt's input (tests swap it).
@@ -94,7 +96,12 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if err := writeConfigTree(target, exp); err != nil {
 			return fail(err)
 		}
-		fmt.Fprintf(stdout, "wrote %d files to %s (removed %d); review with git diff\n", len(exp.Files), target, len(exp.Remove))
+		for _, n := range exp.Inline {
+			if studio.TagSafeName(n) { // a kit name, never other server text
+				fmt.Fprintf(stderr, "at-jam config write: kit %s: context kept inline in kits/%s/kit.yml (no context-dir reproduces it, or its files would pass the config upload limits)\n", n, n)
+			}
+		}
+		fmt.Fprintf(stdout, "wrote %d files to %s (removed %d); review with git diff\n", len(exp.Files)+len(exp.Binary), target, len(exp.Remove))
 		return 0
 	}
 	if sub == "release" {
@@ -262,6 +269,9 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 		if !filepath.IsLocal(p) {
 			return fmt.Errorf("refusing to write %q outside %s", p, dir)
 		}
+		if _, dup := exp.Files[p]; dup {
+			return fmt.Errorf("refusing to write %q twice (a text and a binary file)", p)
+		}
 		if b.Mode&^0o777 != 0 {
 			return fmt.Errorf("refusing to write %q with mode %o", p, b.Mode)
 		}
@@ -276,23 +286,25 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 			return fmt.Errorf("refusing to prune %q: not a kits/<name>/context dir", p)
 		}
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	for p, content := range exp.Files {
-		if err := writeTreeFile(dir, p, []byte(content), 0o644); err != nil {
+		if err := writeTreeFile(root, p, []byte(content), 0o644); err != nil {
 			return err
 		}
 	}
 	for p, b := range exp.Binary {
-		if err := writeTreeFile(dir, p, b.Data, os.FileMode(b.Mode)); err != nil {
+		if err := writeTreeFile(root, p, b.Data, os.FileMode(b.Mode)); err != nil {
 			return err
 		}
 	}
 	for _, p := range exp.Remove {
-		if err := os.Remove(filepath.Join(dir, filepath.FromSlash(p))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := root.Remove(filepath.FromSlash(p)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-	}
-	if len(exp.Prune) == 0 {
-		return nil
 	}
 	keep := map[string]bool{}
 	for p := range exp.Files {
@@ -301,30 +313,29 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 	for p := range exp.Binary {
 		keep[path.Clean(p)] = true
 	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
 	for _, p := range exp.Prune {
-		if err := pruneTreeDir(root, p, keep); err != nil {
+		var ignore []byte
+		if di, ok := exp.Binary[p+"/.dockerignore"]; ok {
+			ignore = di.Data
+		}
+		if err := pruneTreeDir(root, p, keep, ignore); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeTreeFile writes data at dir/p with mode, past the umask and over an
-// existing file's mode.
-func writeTreeFile(dir, p string, data []byte, mode os.FileMode) error {
-	full := filepath.Join(dir, filepath.FromSlash(p))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+// writeTreeFile writes data at p in root with mode, past the umask and over
+// an existing file's mode; through root, nothing lands outside the tree.
+func writeTreeFile(root *os.Root, p string, data []byte, mode os.FileMode) error {
+	name := filepath.FromSlash(p)
+	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(full, data, mode); err != nil {
+	if err := root.WriteFile(name, data, mode); err != nil {
 		return err
 	}
-	return os.Chmod(full, mode)
+	return root.Chmod(name, mode)
 }
 
 // isKitContextDir reports whether p is kits/<name>/context, name one plain
@@ -336,10 +347,15 @@ func isKitContextDir(p string) bool {
 }
 
 // pruneTreeDir removes every entry under the kit context dir p (in root) that
-// keep does not hold, then the dirs left empty — p and its kit dir included.
-// It only descends real dirs: a kit or context dir that is a symlink is
-// refused, and a symlink inside p is removed, never followed.
-func pruneTreeDir(root *os.Root, p string, keep map[string]bool) error {
+// keep does not hold and the context's .dockerignore (ignore, as the packer
+// reads it) does not exclude, then the dirs left empty — p and its kit dir
+// included. It only descends real dirs: a kit or context dir that is a
+// symlink is refused, and a symlink inside p is removed, never followed.
+func pruneTreeDir(root *os.Root, p string, keep map[string]bool, ignore []byte) error {
+	pm, err := studio.DockerignoreMatcher(bytes.NewReader(ignore))
+	if err != nil {
+		return fmt.Errorf("refusing to prune %q: its .dockerignore cannot be read", p)
+	}
 	for _, d := range []string{path.Dir(p), p} {
 		fi, err := root.Lstat(d)
 		if errors.Is(err, iofs.ErrNotExist) {
@@ -353,9 +369,21 @@ func pruneTreeDir(root *os.Root, p string, keep map[string]bool) error {
 		}
 	}
 	var dirs []string
-	err := iofs.WalkDir(root.FS(), p, func(q string, d iofs.DirEntry, err error) error {
+	err = iofs.WalkDir(root.FS(), p, func(q string, d iofs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if q != p {
+			ignored, merr := pm.MatchesOrParentMatches(strings.TrimPrefix(q, p+"/"))
+			if merr != nil {
+				return merr
+			}
+			if ignored && d.IsDir() && !pm.Exclusions() {
+				return iofs.SkipDir
+			}
+			if ignored && !d.IsDir() {
+				return nil
+			}
 		}
 		if d.IsDir() {
 			dirs = append(dirs, q)

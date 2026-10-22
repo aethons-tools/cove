@@ -190,6 +190,8 @@ type configObject struct {
 	Files  map[string][]byte
 	Binary map[string]ConfigFileBlob // a kit's context-dir files, by repo path
 	Canon  []byte
+	// inlineContext: a kit rendered with its context inline in kit.yml.
+	inlineContext bool
 }
 
 func newConfigObject(f configFile) configObject {
