@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — at-jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-22
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -66,6 +66,7 @@ Jam mounts the participant routes (`/me/studios/{id}/ssh*`) only when
 | Command | What it does |
 |---------|--------------|
 | `at-jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand <this at-jam's absolute path> ssh-proxy …` — so it works when `at-jam` isn't on ssh's PATH, e.g. a `dist/` build; rerun `ssh-config --write` after moving the binary —, `IdentityFile`/`CertificateFile` under `~/.config/at-jam/ssh/`) and fetches the studio's cert. `--write` installs it in `~/.ssh/config` between `# >>> at-jam <studio>` markers — at the top, since OpenSSH takes the first value it finds and an earlier `Host *` would win — ending in `Match all` so options below it still apply to every host; a rerun replaces the block in place. |
+| `at-jam ssh-config --prune [--dry-run]` | Removes the `~/.ssh/config` blocks of studios their Jam no longer has, with each one's cert and its pinned host key (`ssh-keygen -R jam-<studio>`). Each block is checked against the Jam, app and plane its ProxyCommand pins (`GET …/studios/<studio>/access`); only a definite "no such studio" (404) removes it — a refusal, an unreachable Jam or one with `ssh:` off keeps it, with a note on stderr. `--dry-run` only reports. |
 | `at-jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
 | `at-jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
 

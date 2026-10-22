@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
@@ -707,5 +708,108 @@ func TestSpliceSSHConfigBlockBeforeAnotherStudiosBlock(t *testing.T) {
 	again, err := spliceSSHConfigBlock(got, "ses_a", a) // rerun for ses_a: replaced in place
 	if err != nil || again != got {
 		t.Fatalf("rerun changed the file (%v):\n%s", err, again)
+	}
+}
+
+// --prune asks each block's own Jam (per its ProxyCommand) about its studio and
+// removes only those Jam definitely no longer has — with their cert and pinned
+// host key. A studio it cannot ask about is kept.
+func TestSSHConfigPruneRemovesGoneStudios(t *testing.T) {
+	home := sshTestHome(t)
+	st := jam.NewMemStore()
+	if err := st.PutInstance(jam.Instance{ActorID: "ses_live", Project: "default", Role: "ic", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	_, caPriv, _ := ed25519.GenerateKey(rand.Reader)
+	blk, _ := ssh.MarshalPrivateKey(caPriv, "")
+	ca, err := sshca.Parse(pem.EncodeToMemory(blk))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(collabhttp.Routes("/admin", collabhttp.Deps{
+		Store: st, CA: ca, Tunnels: echoTunnels{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Principal: func(*http.Request) (collab.Principal, string, error) {
+			return collab.Principal{Operator: "local"}, "op", nil
+		},
+	}))
+	t.Cleanup(srv.Close)
+	off := httptest.NewServer(http.NotFoundHandler()) // a Jam with ssh: off — every route 404s
+	t.Cleanup(off.Close)
+
+	block := func(studio, adminURL string) string {
+		return sshTarget{app: defaultApp, adminURLFlag: adminURL, studio: studio}.sshConfigBlock()
+	}
+	cfg := "# mine\n" + block("ses_gone", srv.URL) + "\n" + block("ses_live", srv.URL) + "\n" +
+		block("ses_unknown", off.URL) + "\nHost *\n  ServerAliveInterval 30\n"
+	path := filepath.Join(home, ".ssh", "config")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"ses_gone", "ses_live"} {
+		if err := os.MkdirAll(filepath.Dir(sshCertPath(defaultApp, s)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(sshCertPath(defaultApp, s), []byte("cert"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var forgot []string
+	old := sshForgetHost
+	sshForgetHost = func(alias string) error { forgot = append(forgot, alias); return nil }
+	t.Cleanup(func() { sshForgetHost = old })
+
+	// --dry-run reports and changes nothing.
+	var out, errb bytes.Buffer
+	if code := cmdSSHConfig([]string{"--prune", "--dry-run"}, cli.Globals{}, &out, &errb); code != 0 {
+		t.Fatalf("dry run exit %d: %s", code, errb.String())
+	}
+	if got, _ := os.ReadFile(path); string(got) != cfg || len(forgot) != 0 || !strings.Contains(out.String(), "would remove jam-ses_gone") {
+		t.Fatalf("dry run changed things or did not report:\n%s\nforgot=%v out=%s", got, forgot, out.String())
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := cmdSSHConfig([]string{"--prune"}, cli.Globals{}, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	want := "# mine\n" + block("ses_live", srv.URL) + "\n" + block("ses_unknown", off.URL) + "\nHost *\n  ServerAliveInterval 30\n"
+	if got, _ := os.ReadFile(path); string(got) != want {
+		t.Fatalf("pruned config =\n%s\nwant\n%s", got, want)
+	}
+	if _, err := os.Stat(sshCertPath(defaultApp, "ses_gone")); !os.IsNotExist(err) {
+		t.Errorf("gone studio's cert kept: %v", err)
+	}
+	if _, err := os.Stat(sshCertPath(defaultApp, "ses_live")); err != nil {
+		t.Errorf("live studio's cert removed: %v", err)
+	}
+	if len(forgot) != 1 || forgot[0] != "jam-ses_gone" {
+		t.Errorf("forgot host keys %v, want [jam-ses_gone]", forgot)
+	}
+	if !strings.Contains(out.String(), "removed jam-ses_gone") || !strings.Contains(errb.String(), "ses_unknown") {
+		t.Errorf("stdout=%q stderr=%q", out.String(), errb.String())
+	}
+}
+
+func TestSSHConfigPruneTakesNoStudio(t *testing.T) {
+	sshTestHome(t)
+	var out, errb bytes.Buffer
+	if code := cmdSSHConfig([]string{"--prune", "ses_a"}, cli.Globals{}, &out, &errb); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+}
+
+// shellWords reads back what proxyCommand writes, quoting included.
+func TestShellWordsReadsProxyCommand(t *testing.T) {
+	in := []string{"/opt/my jam/at-jam", "ssh-proxy", "--admin-url", "https://j/x'y", "--operator", "ses_a"}
+	line := shellQuote(in[0]) + " " + in[1] + " " + in[2] + " " + shellQuote(in[3]) + " " + in[4] + " " + in[5]
+	got, err := shellWords(line)
+	if err != nil || strings.Join(got, "|") != strings.Join(in, "|") {
+		t.Fatalf("shellWords(%q) = %q, %v", line, got, err)
+	}
+	if _, err := shellWords("a 'b"); err == nil {
+		t.Fatal("unterminated quote accepted")
 	}
 }

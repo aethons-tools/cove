@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
+	"github.com/aethons-tools/cove/internal/jam/collabwire"
 )
 
 // Studio SSH from the operator's/collaborator's machine: a local ed25519 key,
@@ -44,11 +46,12 @@ const (
 
 // Seams for tests.
 var (
-	sshNow                = time.Now
-	sshStdin    io.Reader = os.Stdin
-	sshExec               = syscall.Exec
-	sshLookPath           = exec.LookPath
-	sshSelf               = os.Executable
+	sshNow                  = time.Now
+	sshStdin      io.Reader = os.Stdin
+	sshExec                 = syscall.Exec
+	sshLookPath             = exec.LookPath
+	sshSelf                 = os.Executable
+	sshForgetHost           = forgetKnownHost
 )
 
 // studioIDRe constrains a studio id to what is safe as a file name, an
@@ -423,6 +426,13 @@ func (t sshTarget) sshConfigBlock() string {
 // otherwise override ours. The file (a symlink's target) is replaced atomically
 // and keeps its line endings.
 func installSSHConfigBlock(studio, block string) (string, error) {
+	return editSSHConfig(func(s string) (string, error) { return spliceSSHConfigBlock(s, studio, block) })
+}
+
+// editSSHConfig rewrites ~/.ssh/config (a symlink's target) through edit,
+// which sees and returns LF line endings; CRLF files keep theirs, and the
+// file its mode. The replacement is atomic.
+func editSSHConfig(edit func(string) (string, error)) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -446,7 +456,7 @@ func installSSHConfigBlock(studio, block string) (string, error) {
 	}
 	crlf := bytes.Contains(old, []byte("\r\n"))
 	s := strings.ReplaceAll(string(old), "\r\n", "\n")
-	s, err = spliceSSHConfigBlock(s, studio, block)
+	s, err = edit(s)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
@@ -534,12 +544,21 @@ func cmdSSHConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ssh-config", flag.ContinueOnError)
 	f := addSSHFlags(fs)
 	write := fs.Bool("write", false, "install the block in ~/.ssh/config (replacing an earlier at-jam block for the studio) instead of printing it")
+	prune := fs.Bool("prune", false, "remove the ~/.ssh/config blocks (and their certs and pinned host keys) of studios their Jam no longer has; takes no studio")
+	dry := fs.Bool("dry-run", false, "with --prune: only report what would be removed")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: at-jam ssh-config [--write] [--participant|--operator] <studio>")
+	if *prune {
+		if len(pos) != 0 || *write {
+			fmt.Fprintln(stderr, "usage: at-jam ssh-config --prune [--dry-run]")
+			return 2
+		}
+		return pruneSSHConfig(*dry, stdout, stderr)
+	}
+	if len(pos) != 1 || *dry {
+		fmt.Fprintln(stderr, "usage: at-jam ssh-config [--write] [--participant|--operator] <studio>  |  at-jam ssh-config --prune [--dry-run]")
 		return 2
 	}
 	t, code := sshPrepare("ssh-config", f, pos[0], false, stderr)
@@ -729,4 +748,218 @@ func hostPort(u *url.URL, defPort string) string {
 		return u.Host
 	}
 	return net.JoinHostPort(u.Hostname(), defPort)
+}
+
+// sshConfigEntry is one at-jam studio block found in an ssh config.
+type sshConfigEntry struct {
+	studio string
+	proxy  string // its ProxyCommand value, %-escapes undone; "" = none
+}
+
+// sshConfigEntries lists config's complete at-jam studio blocks, in order.
+func sshConfigEntries(config string) []sshConfigEntry {
+	var out []sshConfigEntry
+	var cur *sshConfigEntry
+	for _, l := range strings.Split(config, "\n") {
+		t := strings.TrimSpace(l)
+		switch {
+		case cur == nil:
+			if studio, ok := strings.CutPrefix(t, sshBlockBeginPrefix); ok {
+				if studio, ok = strings.CutSuffix(studio, " >>>"); ok && studioIDRe.MatchString(studio) {
+					cur = &sshConfigEntry{studio: studio}
+				}
+			}
+		case t == "# <<< at-jam "+cur.studio+" <<<":
+			out = append(out, *cur)
+			cur = nil
+		default:
+			if k, v, ok := strings.Cut(t, " "); ok && strings.EqualFold(k, "ProxyCommand") {
+				cur.proxy = strings.ReplaceAll(strings.TrimSpace(v), "%%", "%")
+			}
+		}
+	}
+	return out
+}
+
+// removeSSHConfigBlock returns config without the studio's marked block (and
+// the blank line --write puts after it), unchanged when it has none.
+func removeSSHConfigBlock(config, studio string) string {
+	begin, end := sshBlockMarkers(studio)
+	lines := strings.SplitAfter(config, "\n")
+	for bi, l := range lines {
+		if strings.TrimSpace(l) != begin {
+			continue
+		}
+		for ei := bi + 1; ei < len(lines); ei++ {
+			if strings.TrimSpace(lines[ei]) == end {
+				if ei+1 < len(lines) && strings.TrimSpace(lines[ei+1]) == "" && lines[ei+1] != "" {
+					ei++
+				}
+				return strings.Join(lines[:bi], "") + strings.Join(lines[ei+1:], "")
+			}
+		}
+		break
+	}
+	return config
+}
+
+// shellWords splits a ProxyCommand line the way sh would for the words
+// proxyCommand writes: bare words, '...' quoting and backslash escapes.
+func shellWords(s string) ([]string, error) {
+	var words []string
+	var w strings.Builder
+	in, quoted := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quoted:
+			if c == '\'' {
+				quoted = false
+			} else {
+				w.WriteByte(c)
+			}
+		case c == '\'':
+			quoted, in = true, true
+		case c == '\\' && i+1 < len(s):
+			i++
+			w.WriteByte(s[i])
+			in = true
+		case c == ' ' || c == '\t':
+			if in {
+				words, in = append(words, w.String()), false
+				w.Reset()
+			}
+		default:
+			w.WriteByte(c)
+			in = true
+		}
+	}
+	if quoted {
+		return nil, errors.New("unterminated quote")
+	}
+	if in {
+		words = append(words, w.String())
+	}
+	return words, nil
+}
+
+// pruneTarget is the target a block's ProxyCommand pins (app, admin URL,
+// plane), resolved with the current logins.
+func pruneTarget(e sshConfigEntry, stderr io.Writer) (sshTarget, error) {
+	words, err := shellWords(e.proxy)
+	if err != nil {
+		return sshTarget{}, err
+	}
+	i := slices.Index(words, "ssh-proxy")
+	if i < 0 {
+		return sshTarget{}, errors.New("its ProxyCommand is not at-jam ssh-proxy")
+	}
+	fs := flag.NewFlagSet("ssh-proxy", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	f := addSSHFlags(fs)
+	if err := fs.Parse(words[i+1:]); err != nil {
+		return sshTarget{}, err
+	}
+	if fs.NArg() != 1 || fs.Arg(0) != e.studio {
+		return sshTarget{}, errors.New("its ProxyCommand names another studio")
+	}
+	t, _, err := f.resolve(e.studio, stderr)
+	return t, err
+}
+
+// studioGone reports whether Jam definitely no longer has t's studio: a 404
+// carrying collabwire.NoSuchStudio. Any other answer (a 404 for a route that
+// is off, a refusal, an unreachable Jam) is not "gone".
+func studioGone(t sshTarget) (bool, error) {
+	_, err := adminclient.New(t.adminURL, t.token).StudioAccess(t.prefix(), t.studio)
+	if err == nil {
+		return false, nil
+	}
+	if se, ok := errors.AsType[*adminclient.StatusError](err); ok && se.Code == http.StatusNotFound && strings.Contains(se.Body, collabwire.NoSuchStudio) {
+		return true, nil
+	}
+	return false, err
+}
+
+// pruneSSHConfig removes the at-jam blocks (and their certs and pinned host
+// keys) whose studios their Jam no longer has; dry only reports.
+func pruneSSHConfig(dry bool, stdout, stderr io.Writer) int {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam ssh-config:", err)
+		return 1
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".ssh", "config"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, "at-jam ssh-config:", err)
+		return 1
+	}
+	type goneStudio struct{ studio, app string }
+	var gone []goneStudio
+	for _, e := range sshConfigEntries(strings.ReplaceAll(string(data), "\r\n", "\n")) {
+		t, err := pruneTarget(e, stderr)
+		if err == nil {
+			var g bool
+			if g, err = studioGone(t); err == nil && g {
+				gone = append(gone, goneStudio{e.studio, t.app})
+				continue
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "at-jam ssh-config: keeping %s: %s\n", sshHostAlias(e.studio), sshErrMessage(err, t))
+		}
+	}
+	if len(gone) == 0 {
+		fmt.Fprintln(stdout, "no at-jam ssh entries to prune")
+		return 0
+	}
+	if dry {
+		for _, g := range gone {
+			fmt.Fprintf(stdout, "would remove %s (Jam has no such studio)\n", sshHostAlias(g.studio))
+		}
+		return 0
+	}
+	if _, err := editSSHConfig(func(s string) (string, error) {
+		for _, g := range gone {
+			s = removeSSHConfigBlock(s, g.studio)
+		}
+		return s, nil
+	}); err != nil {
+		fmt.Fprintln(stderr, "at-jam ssh-config:", err)
+		return 1
+	}
+	code := 0
+	for _, g := range gone {
+		if err := os.Remove(sshCertPath(g.app, g.studio)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "at-jam ssh-config: %s: removing its cert: %v\n", sshHostAlias(g.studio), err)
+			code = 1
+		}
+		if err := sshForgetHost(sshHostAlias(g.studio)); err != nil {
+			fmt.Fprintf(stderr, "at-jam ssh-config: %s: forgetting its host key: %v\n", sshHostAlias(g.studio), err)
+			code = 1
+		}
+		fmt.Fprintf(stdout, "removed %s\n", sshHostAlias(g.studio))
+	}
+	return code
+}
+
+// forgetKnownHost drops alias's pinned host keys from ~/.ssh/known_hosts
+// (ssh-keygen -R); no file, or no ssh-keygen, is nothing to forget.
+func forgetKnownHost(alias string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	kh := filepath.Join(home, ".ssh", "known_hosts")
+	if _, err := os.Stat(kh); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	bin, err := sshLookPath("ssh-keygen")
+	if err != nil {
+		return nil
+	}
+	if out, err := exec.Command(bin, "-R", alias, "-f", kh).CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
