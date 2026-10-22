@@ -175,7 +175,7 @@ func ctxContext(t *testing.T) string {
 
 // config write renders a context kit as kit.yml + context/ files; apply
 // --dir replicates it byte for byte with nothing left to apply; a kit that
-// drops its context has its context/ files removed by the next write.
+// drops its context keeps its (now unreferenced) context/ files.
 func TestConfigWriteContextDirRoundTrip(t *testing.T) {
 	srcURL, src := configServer(t)
 	b64 := ctxContext(t)
@@ -214,10 +214,8 @@ func TestConfigWriteContextDirRoundTrip(t *testing.T) {
 	if code, out, errs := runJam("config", "write", repo, "--all", "--admin-url", srcURL); code != 0 {
 		t.Fatalf("rewrite: %d %s %s", code, out, errs)
 	}
-	for p := range readTree(t, repo) {
-		if strings.HasPrefix(p, "kits/builder/context/") {
-			t.Fatalf("%s left after the kit dropped its context", p)
-		}
+	if tree := readTree(t, repo); tree["kits/builder/context/lib/deep/blob.bin"] != "\xff\xfe\x00\x80" || strings.Contains(tree["kits/builder/kit.yml"], "context") {
+		t.Fatalf("after the kit dropped its context: %v", tree)
 	}
 }
 

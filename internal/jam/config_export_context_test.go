@@ -116,7 +116,8 @@ func TestExportConfigTreeRendersContextAsFiles(t *testing.T) {
 	if exp.Files["kits/plain/kit.yml"] != "kind: studio\nprompt: hi\n" {
 		t.Fatalf("plain kit.yml:\n%s", exp.Files["kits/plain/kit.yml"])
 	}
-	if !slices.Contains(exp.Prune, "kits/builder/context") || !slices.Contains(exp.Prune, "kits/plain/context") {
+	// A kit with no context is not pruned: files left under its context/ are unreferenced, maybe hand-made.
+	if !slices.Contains(exp.Prune, "kits/builder/context") || slices.Contains(exp.Prune, "kits/plain/context") {
 		t.Fatalf("prune %v", exp.Prune)
 	}
 }

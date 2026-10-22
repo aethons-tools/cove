@@ -260,8 +260,9 @@ type ConfigTreeExport struct {
 	// Binary holds files written byte for byte at a mode: a kit's rendered
 	// context-dir (kits/<n>/context/…). A path is in Files or Binary, not both.
 	Binary map[string]ConfigFileBlob `json:"binary,omitempty"`
-	// Prune lists the kits/<n>/context dirs of the managed kits: a writer
-	// removes every file under one that Binary does not hold.
+	// Prune lists the kits/<n>/context dirs of the kits rendered as files
+	// and of managed kits gone from Jam: a writer removes every file under
+	// one that Binary does not hold (and its .dockerignore does not exclude).
 	Prune []string `json:"prune,omitempty"`
 	// Inline names the kits whose context stays inline in kit.yml: no
 	// context-dir reproduces it, or its files would push the tree past the
@@ -319,9 +320,9 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 			rendered = append(rendered, k)
 		case o.inlineContext:
 			exp.Inline = append(exp.Inline, k.Name) // never pruned: its context/ files are not Jam's
-		case m.kits[k.Name].Source == nil: // a tracked kit (.source.yml) has no context/ of Jam's
-			exp.Prune = append(exp.Prune, kitContextPath(k.Name)) // no context: none left behind
 		}
+		// A kit with no context (or tracked) is not pruned either: files left
+		// under its context/ are unreferenced, and may be hand-made.
 	}
 	if serve != nil {
 		exp.Files["jam.yml"] = string(renderYAML(serve))

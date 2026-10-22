@@ -85,8 +85,8 @@ parent`. Versions written by `--dir` record provenance repo `local`, dir `kits/<
 and commit). A packed `base.context` is written as files in `kits/<n>/context/` (bytes, 0644/0755 modes) with
 `base.context-dir: context`; loading repacks them to the identical context, so write → apply is `unchanged`. A context no
 directory can reproduce (hand-made tar, other modes), or past the upload limits below, stays inline (named on stderr) and
-its `context/` is left alone; write prunes the `context/` of every other kit it writes plus managed kits gone from Jam (not
-files its `.dockerignore` excludes). Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
+its `context/` is left alone; write prunes only the `context/` of kits it writes as files plus managed kits gone from Jam
+(not files its `.dockerignore` excludes). Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
 a non-022 umask gets one new version on its next sync.
 `config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
 re-pins to current). A kit the write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the
