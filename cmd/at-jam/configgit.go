@@ -22,16 +22,16 @@ var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
 // `config diff|apply [--dir <path> | --git <src>]` (neither: the tracked
-// source), `config track --git <src>`, `config sync`, `config untrack`.
+// source), `config track --git <src>`, `config sync`, `config untrack`, `config release <kind>/<name>`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "at-jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | track --git <src> | sync [--yes] [--force] | untrack"
+	const usage = "at-jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | track --git <src> | sync [--yes] [--force] | untrack | release <kind>/<name>"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "track", "sync", "untrack":
+	case "write", "diff", "apply", "track", "sync", "untrack", "release":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -95,6 +95,26 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "wrote %d files to %s (removed %d); review with git diff\n", len(exp.Files), target, len(exp.Remove))
 		return 0
 	}
+	if sub == "release" {
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
+			return 2
+		}
+		kind, name, ok := strings.Cut(pos[0], "/")
+		if !ok || kind == "" || name == "" {
+			fmt.Fprintln(stderr, "at-jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
+			return 2
+		}
+		c, err := client()
+		if err != nil {
+			return fail(err)
+		}
+		if err := c.ConfigRelease(kind, name); err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "released %s %s: it stays in Jam, unmanaged\n", kind, name)
+		return 0
+	}
 	if len(pos) != 0 {
 		fmt.Fprintf(stderr, "at-jam config %s: unexpected argument %q\n", sub, pos[0])
 		return 2
@@ -152,12 +172,9 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 0
 	}
 	n := jam.ConfigChanges(res.Plan)
-	// A git target with nothing to change still applies: the server makes
-	// the metadata-only write (tracked commits, the config source's commit).
-	if n == 0 && t.tree != nil {
-		fmt.Fprintln(stdout, "nothing to apply")
-		return 0
-	}
+	// A plan with nothing to change still applies, without a prompt: the
+	// server's metadata-only write refreshes stale marks (after a config
+	// write, say) and, from git, the tracked commits.
 	if n > 0 && !*yes {
 		word := "changes"
 		if n == 1 {
@@ -212,15 +229,8 @@ func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (j
 // printConfigSource names the git source and commit a run planned.
 func printConfigSource(w io.Writer, res jam.ConfigApplyResult) {
 	if res.Commit != "" {
-		fmt.Fprintf(w, "config %s @ %s\n", res.Source, shortSHA(res.Commit))
+		fmt.Fprintf(w, "config %s @ %s\n", res.Source, jam.ShortConfigCommit(res.Commit))
 	}
-}
-
-func shortSHA(c string) string {
-	if len(c) > 7 {
-		return c[:7]
-	}
-	return c
 }
 
 // insideGitWorkTree reports whether dir or an ancestor holds a .git.
@@ -270,7 +280,7 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 // the unchanged count, unmanaged objects, the serve-config state, refusals.
 func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 	for _, ks := range p.KitSources {
-		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, shortSHA(ks.Commit))
+		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, jam.ShortConfigCommit(ks.Commit))
 	}
 	unchanged := 0
 	indent := func(s string) string {
@@ -288,7 +298,11 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 		}
 		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
 		if op.Drift {
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
+			repo := indent(op.After)
+			if op.After == "" { // a delete: the repo no longer has it
+				repo = "    (not in the repo)"
+			}
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), repo)
 		}
 	}
 	for _, k := range p.Forget {

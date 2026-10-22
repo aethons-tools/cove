@@ -1965,6 +1965,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
 	go conds.Run(context.Background(), 5*time.Second)
+	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
+	// now, every minute, and after each config apply or release.
+	go jam.RunConfigDriftCheck(context.Background(), st, conds, jam.ConfigDriftEvery, log)
 
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
 	if names := cfg.gcpCredentials(); len(names) > 0 {
@@ -2557,6 +2560,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// entry OR (pool enabled) the pool cred-name, which the ChainResolver
 		// resolves from the account pool by identity rather than from `credentials:`.
 		credExists := cfg.credConfigured
+		// One planner view of the serve for the config admin API and the UI's
+		// Config page; config.drift is re-checked on conds after each apply.
+		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds}
 
 		// Compose the /ui subtree with its own gate: loopback always reaches it;
 		// off-loopback needs a browser session when browser login is configured,
@@ -2646,7 +2652,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			meHandler = meMux
 			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
 		}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher)}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv)}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
@@ -2686,7 +2692,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
-			jam.WithConfig(st, kitFetcher, jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable}, log))
+			jam.WithConfig(st, kitFetcher, cfgEnv, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

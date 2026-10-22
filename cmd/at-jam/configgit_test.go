@@ -364,3 +364,62 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 		t.Fatal("a refused write wrote files")
 	}
 }
+
+func TestPrintConfigPlanDriftedDelete(t *testing.T) {
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete,
+		Drift: true, Before: "# users/bob.yml\nkind: user\n"}}})
+	want := "delete  user bob  (drift)\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Fatalf("got %q", b.String())
+	}
+}
+
+func TestConfigRelease(t *testing.T) {
+	url, st := configServer(t)
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
+		t.Fatalf("apply: %d %s %s", code, out, errs)
+	}
+	code, out, errs := runJam("config", "release", "user/bob", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "released user bob") || len(st.ListConfigMarks()) != 0 {
+		t.Fatalf("release: %d\n%s\n%s marks=%v", code, out, errs, st.ListConfigMarks())
+	}
+	findUser(t, st, "bob") // the object stays
+	if code, _, errs := runJam("config", "release", "user/bob", "--admin-url", url); code != 1 || !strings.Contains(errs, "user bob is not managed") {
+		t.Fatalf("second release: %d %s", code, errs)
+	}
+	for _, bad := range [][]string{{"bob"}, {"user/"}, {"/bob"}, {}, {"user/bob", "extra"}} {
+		args := append([]string{"config", "release"}, bad...)
+		if code, _, _ := runJam(append(args, "--admin-url", url)...); code != 2 {
+			t.Errorf("release %v: exit %d, want 2", bad, code)
+		}
+	}
+}
+
+// config write captures a Jam-side edit; the following apply --dir has
+// nothing to change but still reaches the server, whose metadata-only write
+// refreshes the stale mark — so the next real repo change is not refused as
+// drift (issue 010), and there is no prompt.
+func TestConfigWriteThenApplyRefreshesMark(t *testing.T) {
+	url, st := configServer(t)
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
+		t.Fatalf("apply: %d %s %s", code, out, errs)
+	}
+	cfgMust(t, st.SetUserLogins(findUser(t, st, "bob").ID, []string{"bob@jam"}))
+	if code, out, errs := runJam("config", "write", repo, "--admin-url", url); code != 0 {
+		t.Fatalf("write: %d %s %s", code, out, errs)
+	}
+	code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url) // no --yes: must not prompt
+	if code != 0 || !strings.Contains(out, "nothing to apply") || strings.Contains(out, "[y/N]") {
+		t.Fatalf("zero-change apply: %d\n%s\n%s", code, out, errs)
+	}
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\nlogins: [bob@repo]\n", 0o644)
+	code, out, errs = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 0 || strings.Contains(out, "drift") || !strings.Contains(out, "1 updated") {
+		t.Fatalf("next change: %d\n%s\n%s", code, out, errs)
+	}
+}

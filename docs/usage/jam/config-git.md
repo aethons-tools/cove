@@ -1,7 +1,7 @@
 ---
 summary: Keeping a Jam's configuration in a git repo — the file layout, `config write|diff|apply --dir`, managed objects, drift and refusals, and replicating a Jam from a checkout.
-read_when: You want a Jam's config reviewable in git, are standing up a replica from a checkout, or a config diff/apply refused, flagged drift or listed something unmanaged.
-owns: the config repo layout and file kinds, the `at-jam config write|diff|apply` verbs, the plan actions and refusals, managed marks, the `/admin/config/diff|apply|export-tree` routes
+read_when: You want a Jam's config reviewable in git, are standing up a replica from a checkout, a config diff/apply refused, flagged drift or listed something unmanaged, or you want the repo to stop managing an object (config release).
+owns: the config repo layout and file kinds, the `at-jam config write|diff|apply|release` verbs, the plan actions and refusals, managed marks, drift and how it clears, the `/admin/config/diff|apply|export-tree|managed` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
 updated: 2026-10-22
@@ -104,11 +104,12 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 | `config write <dir> [--all] [--force]` | Render managed objects (`--all`: every live one) into `<dir>`, plus `jam.yml` whenever the serve has a portable config; remove files of managed objects Jam no longer has. Refuses a `<dir>` outside a git working tree without `--force`. |
 | `config diff --dir <path>` (or `--git`, see below) | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
 | `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift (the preview is planned forced too, so it shows `update … (drift)` and its digest matches the apply). |
+| `config release <kind>/<name>` | Clear the object's managed mark (a role is `role/<project>/<role>`): the object stays, unmanaged — the next plan lists it as unmanaged, or adopts or refuses it if the repo still holds it. Not managed: exit 1 (`<kind> <name> is not managed`). |
 | `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). |
 
 Operator loop: `config write --all` once, `git diff`, commit; afterwards edit,
 `config diff`, `config apply`. A plan with no create/update/delete/adopt
-and no `forget` prints `nothing to apply` and does not prompt. Without `--dir`, diff and apply use `--git` or the
+and no `forget` prints `nothing to apply` and does not prompt; it still sends the apply, which refreshes the marks of unchanged objects (after a `config write`, say). Without `--dir`, diff and apply use `--git` or the
 tracked source.
 
 ## The plan
@@ -120,7 +121,7 @@ Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N 
 |---|---|
 | `create` / `update` | In the repo, absent / different in Jam. A managed mark whose object is gone from Jam and present in the repo is a `create`; absent from both, it is a `forget`. |
 | `forget` | A managed mark whose object is gone from Jam and the repo: apply removes the mark only, so a later unmanaged object of that name stays untouched. Counted as a change (`N forgotten`). |
-| `update` + `(drift)` | The Jam object was edited since the last apply. Printed with `jam:` and `repo:` blocks; refused without `--force`. |
+| `update` + `(drift)` | The Jam object was edited since the last apply. Printed with `jam:` and `repo:` blocks; refused without `--force`. A drifted `delete` is printed the same way, its repo side `(not in the repo)`. |
 | `adopt` | An unmanaged Jam object identical to the repo's: marked managed, nothing written. The seeded `claude-default` model spec differs from the repo's → `update`, not a refusal. |
 | `delete` | Managed, no longer in the repo. Subject to the guards below. |
 | `unchanged` / `unmanaged` | Nothing to do / live but not in the repo's care: never touched, never deleted. |
@@ -162,13 +163,14 @@ otherwise updated.
 
 ## Routes and limits
 
-`config write|diff|apply` call these (behind the `/admin/*` operator gate):
+`config write|diff|apply|release` call these (behind the `/admin/*` operator gate):
 
 | Route | Does |
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
 | `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. |
+| `DELETE /admin/config/managed/{kind}/{name...}` | Release a mark (204); unknown kind 400, not managed 404.  |
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a
 browser's no-cors `text/plain` POST to a loopback admin port is refused;
@@ -180,6 +182,19 @@ or `..` paths (400).
 Audit: a `config applied` log entry (source, commit, counts, operator,
 forced) plus each object's usual `admin …` entry with `via=config`.
 
-## Not yet
+## Drift and release
 
-The UI page, managed badges, `config release`, drift attention.
+An object is **drifted** when Jam's copy no longer has the digest its mark
+recorded (edited in Jam since the apply), and **missing** when it was
+removed in Jam. While any managed object is either, Jam holds the
+`config.drift:jam` condition (info: Health tab only, never pushed — [monitoring.md](monitoring.md)). Serve
+re-checks every minute and after every apply, sync or release; an edit in Jam therefore shows within a
+minute. With no marks the check is skipped. If **any** kit fails to render
+(managed or not), the check cannot compare, warns once per changed error and
+keeps the condition's last state. A `kit sync` onto a managed
+`.source.yml` kit that differs from the config repo raises it until the next
+`config sync`. Three ways out: `config apply --force` (the repo wins);
+`config write`, commit, `config apply` (Jam wins — the apply has nothing to
+change and refreshes the marks); or `config release <kind>/<name>` (the repo
+stops managing it). The admin UI shows all of this and badges managed
+objects: [ui-config.md](ui-config.md).

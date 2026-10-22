@@ -42,7 +42,7 @@
 {{$base := .WriteBase}}
 <div id="role">
 <div class="page-head">
-  <h1>{{.Name}}</h1>
+  <h1>{{.Name}}</h1>{{template "managed-badge" (managed "role" .ConfigName)}}
   <div class="facts">
     <a class="chip" href="{{projectURL .Project}}">{{.Project}}</a>
     {{if .Role.Kit}}<span>kit <a class="chip accent" href="{{kitURL .Role.Kit}}">{{.Role.Kit}}</a></span>{{else}}<span class="unset">no kit</span>{{end}}
@@ -53,7 +53,7 @@
   {{if .CanRequest}}<button class="primary" hx-post="{{$base}}/request" hx-target="#flash" hx-swap="innerHTML"
       title="Raise a personal agent of this role for you">Request agent</button>{{end}}
   <button class="danger" hx-delete="{{$base}}" hx-swap="none"
-      hx-confirm="Delete role {{.Name}} from {{.Project}}?"
+      hx-confirm="Delete role {{.Name}} from {{.Project}}?{{with driftNote "role" .ConfigName}} {{.}}{{end}}"
       hx-on::after-request="if(event.detail.successful) location.href='{{.RolesHref}}'">Delete</button>
 </div>
 
@@ -79,7 +79,7 @@
     </div>
     <details class="edit">
       <summary>Edit scope</summary>
-      <form hx-post="{{$base}}/scope" hx-target="#role" hx-swap="outerHTML">
+      <form hx-post="{{$base}}/scope" hx-target="#role" hx-swap="outerHTML"{{with driftNote "role" $.ConfigName}} hx-confirm="{{.}} Save anyway?"{{end}}>
         <div class="grid">
           <label class="wide">Destinations <span class="hint">comma-separated; <code>name=credential</code> maps a credential, a bare name uses the destination's default</span>
             <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" value="{{.Form.Destinations}}" autocomplete="off" spellcheck="false"></label>
@@ -107,12 +107,12 @@
     </div>
     <details class="edit">
       <summary>Edit egress</summary>
-      <form hx-post="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML">
+      <form hx-post="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML"{{with driftNote "role" $.ConfigName}} hx-confirm="{{.}} Save anyway?"{{end}}>
         <label>Domains <span class="hint">one per line; a leading dot adds subdomains (<code>.example.com</code>); saving an empty list allows nothing extra</span>
           <textarea name="domains" spellcheck="false">{{.Form.Egress}}</textarea></label>
         <div class="form-actions">
           {{if .EgressManaged}}<button type="button" class="danger left" hx-delete="{{$base}}/egress" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Drop {{.Name}}'s egress policy and use the kit default?">Reset to kit default</button>{{end}}
+              hx-confirm="Drop {{.Name}}'s egress policy and use the kit default?{{with driftNote "role" $.ConfigName}} {{.}}{{end}}">Reset to kit default</button>{{end}}
           <button type="submit" class="primary">Save egress</button>
         </div>
       </form>
@@ -130,7 +130,7 @@
     </div>
     <details class="edit">
       <summary>Edit allocation</summary>
-      <form hx-post="{{$base}}/allocation" hx-target="#role" hx-swap="outerHTML">
+      <form hx-post="{{$base}}/allocation" hx-target="#role" hx-swap="outerHTML"{{with driftNote "role" $.ConfigName}} hx-confirm="{{.}} Save anyway?"{{end}}>
         <p class="sub" style="margin:0 0 10px">Leave a field blank to unset it (the value shown above for unset applies).</p>
         <div class="grid">
           <label>Max ephemeral<input name="max-ephemeral" value="{{.Form.MaxEphemeral}}" inputmode="numeric"></label>
@@ -160,7 +160,7 @@
             <button class="small" hx-post="{{$base}}/standing/{{.Name}}/reset" hx-target="#role" hx-swap="outerHTML"
               hx-confirm="Reset standing agent {{.Name}}? Its conversation and workspace are deleted; Jam raises it fresh.">Reset</button>{{end}}
             <button class="danger small" hx-delete="{{$base}}/standing/{{.Name}}" hx-target="#role" hx-swap="outerHTML"
-              hx-confirm="Dismiss standing agent {{.Name}}? It stops, and its conversation and workspace are deleted.">Dismiss</button></td>
+              hx-confirm="Dismiss standing agent {{.Name}}? It stops, and its conversation and workspace are deleted.{{with driftNote "role" $.ConfigName}} {{.}}{{end}}">Dismiss</button></td>
         </tr>
         {{else}}
         <tr><td colspan="4" class="empty">No standing agents.</td></tr>
@@ -169,7 +169,7 @@
     </table>
     <details class="edit">
       <summary>Declare standing agent</summary>
-      <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML">
+      <form hx-post="{{$base}}/standing" hx-target="#role" hx-swap="outerHTML"{{with driftNote "role" $.ConfigName}} hx-confirm="{{.}} Save anyway?"{{end}}>
         <div class="grid">
           <label>Name <span class="req">required</span><input name="name" required></label>
           <label class="wide">Prompt <span class="req">required</span><textarea name="prompt" required></textarea></label>

@@ -36,11 +36,11 @@
 {{define "dest-body"}}
 <div id="dest">
 <div class="page-head">
-  <h1>{{.Dest.Name}}</h1>
+  <h1>{{.Dest.Name}}</h1>{{template "managed-badge" (managed "destination" .Dest.Name)}}
   <span class="mono sub">{{.Dest.Route}} → {{.Dest.Upstream}}</span>
   <span class="spacer"></span>
   <button class="danger" hx-delete="/ui/destinations/{{.Dest.Name}}" hx-swap="none"
-      hx-confirm="Delete destination {{.Dest.Name}}?{{with .Uses}} {{len .}} role(s) list it.{{end}}"
+      hx-confirm="Delete destination {{.Dest.Name}}?{{with .Uses}} {{len .}} role(s) list it.{{end}}{{with driftNote "destination" .Dest.Name}} {{.}}{{end}}"
       hx-on::after-request="if(event.detail.successful) location.href='/ui/destinations'">Delete</button>
 </div>
 
@@ -104,7 +104,7 @@
     </table>
     <details class="edit">
       <summary>Edit destination</summary>
-      <form hx-post="/ui/destinations/{{.Dest.Name}}" hx-target="#dest" hx-swap="outerHTML">
+      <form hx-post="/ui/destinations/{{.Dest.Name}}" hx-target="#dest" hx-swap="outerHTML"{{with driftNote "destination" .Dest.Name}} hx-confirm="{{.}} Save anyway?"{{end}}>
         {{template "dest-fields" .}}
         <div class="form-actions"><button type="submit" class="primary">Save destination</button></div>
       </form>

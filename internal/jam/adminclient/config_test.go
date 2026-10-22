@@ -52,6 +52,15 @@ func TestConfigRoundTrip(t *testing.T) {
 	if exp, err = c.ConfigExportTree(true); err != nil || exp.Files["users/bob.yml"] == "" {
 		t.Fatalf("ConfigExportTree all = %+v, %v", exp, err)
 	}
+	if err := c.ConfigRelease(jam.ConfigKindUser, "bob"); err != nil {
+		t.Fatalf("ConfigRelease = %v", err)
+	}
+	if len(store.ListConfigMarks()) != 0 {
+		t.Fatalf("marks after release: %v", store.ListConfigMarks())
+	}
+	if err := c.ConfigRelease(jam.ConfigKindUser, "bob"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second ConfigRelease = %v, want ErrNotFound", err)
+	}
 }
 
 func TestConfigSourceMethods(t *testing.T) {

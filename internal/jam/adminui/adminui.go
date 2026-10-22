@@ -57,6 +57,7 @@ var pages = map[string]page{
 	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
 	"agent":        mustParse(jamPage("agents"), "access.html", "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
+	"config":       mustParse(jamPage("config"), "config.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -109,11 +110,13 @@ var funcs = template.FuncMap{
 		return jam.StatusOf(jam.Phase(phase), jam.Activity(activity), hasStudio)
 	},
 	"statusClass": func(s jam.AgentStatus) string { return strings.ReplaceAll(string(s), " ", "-") },
-	// frame, attn and agentHref are bound per render (frameFuncs); these are
+	// frame, attn, agentHref, managed and driftNote are bound per render (frameFuncs); these are
 	// the defaults a fragment renders with.
 	"frame":      func() frame { return frame{} },
 	"attn":       func(tab, subject string) *attnItem { return nil },
 	"agentHref":  func(id, suffix string) string { return agentURL(id) + suffix },
+	"managed":    func(kind, name string) *managedView { return nil },
+	"driftNote":  func(kind, name string) string { return "" },
 	"hl":         highlight,
 	"stylesheet": func() string { return uiassets.StylesheetHref("/ui/static/") },
 	"destURL":    destURL,
@@ -145,6 +148,7 @@ type options struct {
 	exposures       func(actorID string) []jam.Exposure
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
+	configEnv       jam.ConfigEnv
 }
 
 // WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
@@ -170,6 +174,14 @@ func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 // pages only show provenance.
 func WithKitFetcher(f jam.KitFetcher) Option {
 	return func(o *options) { o.kitFetcher = f }
+}
+
+// WithConfigEnv gives the Config page the planner's view of the serve — the
+// env the admin API's WithConfig gets: its portable serve config, and the
+// conditions an apply or a release re-checks config.drift on. Unset fields
+// default to the Handler's credExists and WithPoolConfigured.
+func WithConfigEnv(env jam.ConfigEnv) Option {
+	return func(o *options) { o.configEnv = env }
 }
 
 // WithTrustedOrigins adds exact origins (scheme://host[:port]) the CSRF write
@@ -249,6 +261,12 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
 	registerAccess(mux, store, o.live, log, guardWrite)
+	cfgEnv := o.configEnv
+	if cfgEnv.CredExists == nil {
+		cfgEnv.CredExists = credExists
+	}
+	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
+	registerConfig(mux, store, o.kitFetcher, cfgEnv, log, guardWrite)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mux.ServeHTTP(w, withFrameSource(r, src))
@@ -310,6 +328,8 @@ func frameFuncs(f frame) template.FuncMap {
 			}
 			return h
 		},
+		"managed":   func(kind, name string) *managedView { return managedOf(f.Marks, kind, name) },
+		"driftNote": func(kind, name string) string { return driftNoteOf(f.Marks, kind, name) },
 	}
 }
 
@@ -345,7 +365,7 @@ func renderFragment(w http.ResponseWriter, r *http.Request, name, tmpl string, d
 // fragmentFrame is the part of a frame a fragment reads: the attention items
 // and the scope its agent links keep.
 func fragmentFrame(r *http.Request, meta pageMeta, src frameSource) frame {
-	f := frame{Kind: meta.Kind, All: src.items()}
+	f := frame{Kind: meta.Kind, All: src.items(), Marks: src.marks()}
 	if meta.Kind == scopeProject {
 		if f.Project, _ = projectFromRoute(r); f.Project == "" {
 			f.Kind = scopeNone

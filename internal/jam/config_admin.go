@@ -53,6 +53,7 @@ const maxConfigSourceBody = 64 << 10
 //	DELETE /admin/config/source                      untrack (objects and marks stay)
 //	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the tracked source
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
+//	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
 // diff and apply take a configtar body (application/gzip) or a {source}
 // body (application/json; "" = the tracked source); sync takes {} — any
@@ -221,6 +222,14 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 				return
 			}
 			writeJSON(w, http.StatusOK, exp)
+		})
+		mux.HandleFunc("DELETE /admin/config/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
+			key := ConfigKey{Kind: r.PathValue("kind"), Name: r.PathValue("name")}
+			if err := ReleaseConfigMark(store, key, env.Conditions, log, OperatorID(r)); err != nil {
+				fail(w, r, "release", err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 		})
 	}
 }

@@ -217,3 +217,24 @@ func TestPlanUnmanagedUntouched(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 }
+
+// A drifted delete refused without --force still shows Jam's side in the
+// plan (and writes nothing), as a refused drifted update does: the reviewer
+// sees what a forced delete would drop, and the UI knows to offer force.
+func TestPlanDeleteDriftShowsJamSide(t *testing.T) {
+	st := appliedFull(t)
+	d, _ := findDestination(st, "gh")
+	d.Note = "edited"
+	_ = st.AddDestination(d)
+	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")), false)
+	o := opOf(p, ConfigKindDestination, "gh")
+	if o.Action != ConfigDelete || !o.Drift || !strings.Contains(o.Before, "edited") || o.After != "" || !p.HasDrift() {
+		t.Fatalf("%+v", o)
+	}
+	if slices.Contains(p.write.RemoveMarks, ConfigKey{ConfigKindDestination, "gh"}) || len(p.write.RemoveDestinations) != 0 {
+		t.Fatal("a refused delete writes")
+	}
+	if planOn(t, appliedFull(t), treeOf(t, fullTreeFiles), false).HasDrift() {
+		t.Fatal("a clean re-plan has drift")
+	}
+}

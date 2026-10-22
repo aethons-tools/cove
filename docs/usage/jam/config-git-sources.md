@@ -101,10 +101,13 @@ Statuses: refused (including the 16-source cap), stale or untracked 409; bad sou
 auth, limit or timeout (`config fetch timed out`) failure 502; a serve with
 no fetcher 503.
 
+The admin UI's Config tab tracks, untracks, diffs and applies the tracked source too: [ui-config.md](ui-config.md).
+
 ## Locks
 
 A config run holds `configMu` from its first fetch to its write, and
 `kitMu` only for the plan and the write. It never takes a per-kit lock;
 kit operations never take `configMu`. Two config runs therefore never
 interleave, and a kit push that lands between a config fetch and its plan
-shows as drift.
+shows as drift. Release and untrack take `configMu` too, so they wait behind a
+running apply or sync, up to the 4-minute fetch deadline.

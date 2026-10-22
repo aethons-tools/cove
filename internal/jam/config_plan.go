@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
@@ -80,11 +81,19 @@ func (o ConfigPlan) Counts() map[string]int {
 	return n
 }
 
+// HasDrift reports whether any op is flagged drift: an object edited in Jam
+// since its last apply that the plan updates or deletes. A forced plan keeps
+// the flag, so the force choice stays visible.
+func (o ConfigPlan) HasDrift() bool {
+	return slices.ContainsFunc(o.Ops, func(op ConfigOp) bool { return op.Drift })
+}
+
 // ConfigEnv is what the planner needs from the serve beyond the store.
 type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
-	Serve          map[string]any // the running serve's portable config; nil = unknown
+	Serve          map[string]any     // the running serve's portable config; nil = unknown
+	Conditions     *condition.Tracker // config.drift is re-checked after every apply; nil = none
 }
 
 // ConfigPlanInput is one PlanConfig run's input.
@@ -189,7 +198,7 @@ func (p *planner) classify(key ConfigKey, repo configObject) (action string, dri
 // refuseDrift refuses a write over a managed object edited in Jam since its
 // last apply.
 func (p *planner) refuseDrift(key ConfigKey) {
-	p.refuse("%s drifted (edited in Jam since config @%s); re-run with --force or config write it first", key, shortCommit(p.marks[key].Commit))
+	p.refuse("%s drifted (edited in Jam since config @%s); re-run with --force or config write it first", key, ShortConfigCommit(p.marks[key].Commit))
 }
 
 // upsert classifies key and, for a create or update, runs write against the
@@ -238,7 +247,8 @@ func (p *planner) op(key ConfigKey, action string, drift bool, before, after []b
 		Path: file, Before: string(before), After: string(after)})
 }
 
-func shortCommit(c string) string {
+// ShortConfigCommit is a config commit as shown: its first 7 characters.
+func ShortConfigCommit(c string) string {
 	if len(c) > 7 {
 		return c[:7]
 	}

@@ -899,3 +899,13 @@ func (c *Client) ConfigExportTree(all bool) (jam.ConfigTreeExport, error) {
 	err := c.do("GET", path, nil, &exp)
 	return exp, err
 }
+
+// ConfigRelease clears kind/name's managed mark (a role's name is
+// "<project>/<role>"); ErrNotFound when it has none.
+func (c *Client) ConfigRelease(kind, name string) error {
+	segs := strings.Split(name, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return c.do("DELETE", "/admin/config/managed/"+url.PathEscape(kind)+"/"+strings.Join(segs, "/"), nil, nil)
+}

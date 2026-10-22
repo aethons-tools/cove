@@ -328,3 +328,22 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 		t.Fatal("a refused source was tracked")
 	}
 }
+
+// A role's name keeps its slash in the route.
+func TestConfigReleaseRoute(t *testing.T) {
+	st := appliedFull(t)
+	ts := configServer(t, st)
+	ic := ConfigKey{ConfigKindRole, "app/ic"}
+	before := len(st.ListConfigMarks())
+	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNoContent, nil)
+	for _, mk := range st.ListConfigMarks() {
+		if mk.Key() == ic {
+			t.Fatal("role app/ic still managed")
+		}
+	}
+	if len(st.ListConfigMarks()) != before-1 {
+		t.Fatalf("release removed other marks: %v", st.ListConfigMarks())
+	}
+	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNotFound, nil)
+	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/widget/x", "", http.StatusBadRequest, nil)
+}
