@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -247,11 +249,21 @@ func insideGitWorkTree(dir string) bool {
 	}
 }
 
-// writeConfigTree writes exp.Files under dir and removes exp.Remove.
+// writeConfigTree writes exp.Files and exp.Binary (at their modes) under
+// dir, removes exp.Remove, and prunes each exp.Prune dir to the files the
+// export holds there. Every path is checked before anything is written.
 func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 	for p := range exp.Files {
 		if !filepath.IsLocal(p) {
 			return fmt.Errorf("refusing to write %q outside %s", p, dir)
+		}
+	}
+	for p, b := range exp.Binary {
+		if !filepath.IsLocal(p) {
+			return fmt.Errorf("refusing to write %q outside %s", p, dir)
+		}
+		if b.Mode&^0o777 != 0 {
+			return fmt.Errorf("refusing to write %q with mode %o", p, b.Mode)
 		}
 	}
 	for _, p := range exp.Remove {
@@ -259,12 +271,18 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 			return fmt.Errorf("refusing to remove %q outside %s", p, dir)
 		}
 	}
+	for _, p := range exp.Prune {
+		if !isKitContextDir(p) {
+			return fmt.Errorf("refusing to prune %q: not a kits/<name>/context dir", p)
+		}
+	}
 	for p, content := range exp.Files {
-		full := filepath.Join(dir, filepath.FromSlash(p))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err := writeTreeFile(dir, p, []byte(content), 0o644); err != nil {
 			return err
 		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+	}
+	for p, b := range exp.Binary {
+		if err := writeTreeFile(dir, p, b.Data, os.FileMode(b.Mode)); err != nil {
 			return err
 		}
 	}
@@ -273,6 +291,88 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 			return err
 		}
 	}
+	if len(exp.Prune) == 0 {
+		return nil
+	}
+	keep := map[string]bool{}
+	for p := range exp.Files {
+		keep[path.Clean(p)] = true
+	}
+	for p := range exp.Binary {
+		keep[path.Clean(p)] = true
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for _, p := range exp.Prune {
+		if err := pruneTreeDir(root, p, keep); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeTreeFile writes data at dir/p with mode, past the umask and over an
+// existing file's mode.
+func writeTreeFile(dir, p string, data []byte, mode os.FileMode) error {
+	full := filepath.Join(dir, filepath.FromSlash(p))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(full, data, mode); err != nil {
+		return err
+	}
+	return os.Chmod(full, mode)
+}
+
+// isKitContextDir reports whether p is kits/<name>/context, name one plain
+// path segment.
+func isKitContextDir(p string) bool {
+	segs := strings.Split(p, "/")
+	return len(segs) == 3 && segs[0] == "kits" && segs[2] == "context" &&
+		segs[1] != "" && segs[1] != "." && segs[1] != ".." && !strings.ContainsRune(segs[1], '\\')
+}
+
+// pruneTreeDir removes every entry under the kit context dir p (in root) that
+// keep does not hold, then the dirs left empty — p and its kit dir included.
+// It only descends real dirs: a kit or context dir that is a symlink is
+// refused, and a symlink inside p is removed, never followed.
+func pruneTreeDir(root *os.Root, p string, keep map[string]bool) error {
+	for _, d := range []string{path.Dir(p), p} {
+		fi, err := root.Lstat(d)
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() {
+			return fmt.Errorf("refusing to prune %q: %s is not a directory", p, d)
+		}
+	}
+	var dirs []string
+	err := iofs.WalkDir(root.FS(), p, func(q string, d iofs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			dirs = append(dirs, q)
+			return nil
+		}
+		if keep[q] {
+			return nil
+		}
+		return root.Remove(q)
+	})
+	if err != nil {
+		return err
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		_ = root.Remove(dirs[i]) // only an empty dir goes
+	}
+	_ = root.Remove(path.Dir(p))
 	return nil
 }
 

@@ -3,6 +3,7 @@ package studio
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -33,7 +34,14 @@ func PackContextDir(dir string) (string, error) {
 	if fi, err := os.Stat(filepath.Join(dir, "Dockerfile")); err != nil || !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("context-dir %q: a root Dockerfile is required", dir)
 	}
-	pm, err := loadDockerignore(dir)
+	return packContextFS(os.DirFS(dir), dir)
+}
+
+// packContextFS is PackContextDir over fsys (rooted at the context; dir is
+// only for messages): the one packer, so a context-dir on disk and the files
+// ContextDirFiles unpacks pack the same way.
+func packContextFS(fsys fs.FS, dir string) (string, error) {
+	pm, err := loadDockerignore(fsys)
 	if err != nil {
 		return "", fmt.Errorf("context-dir %q: .dockerignore: %w", dir, err)
 	}
@@ -41,18 +49,14 @@ func PackContextDir(dir string) (string, error) {
 	var entries int
 	var total int64
 	var sawDockerfile bool
-	walkErr := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	walkErr := fs.WalkDir(fsys, ".", func(relSlash string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if p == dir {
+		if relSlash == "." {
 			return nil
 		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		relSlash := filepath.ToSlash(rel)
+		p := filepath.Join(dir, filepath.FromSlash(relSlash)) // for messages
 		// Honor .dockerignore (exact docker-build parity), but always keep the root
 		// Dockerfile and the .dockerignore itself. An ignored directory is pruned,
 		// so its contents neither pack nor count against the caps.
@@ -67,7 +71,7 @@ func PackContextDir(dir string) (string, error) {
 					// beneath this dir; otherwise descend and match each child
 					// individually (moby/docker-build parity for `*` + `!sub/x`).
 					if !pm.Exclusions() {
-						return filepath.SkipDir
+						return fs.SkipDir
 					}
 					return nil
 				}
@@ -94,7 +98,7 @@ func PackContextDir(dir string) (string, error) {
 		if err != nil {
 			return err
 		}
-		f, err := os.Open(p)
+		f, err := fsys.Open(relSlash)
 		if err != nil {
 			return err
 		}
@@ -132,12 +136,13 @@ func PackContextDir(dir string) (string, error) {
 	return b64, nil
 }
 
-// loadDockerignore reads <dir>/.dockerignore into a matcher for exact
-// docker-build parity. A missing file yields a matcher that excludes nothing.
-func loadDockerignore(dir string) (*patternmatcher.PatternMatcher, error) {
-	f, err := os.Open(filepath.Join(dir, ".dockerignore"))
+// loadDockerignore reads the root .dockerignore of fsys into a matcher for
+// exact docker-build parity. A missing file yields a matcher that excludes
+// nothing.
+func loadDockerignore(fsys fs.FS) (*patternmatcher.PatternMatcher, error) {
+	f, err := fsys.Open(".dockerignore")
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return patternmatcher.New(nil)
 		}
 		return nil, err

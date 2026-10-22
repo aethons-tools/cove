@@ -22,12 +22,12 @@ jam.yml                          portable serve settings (see serve.md)
 context.md                       Jam-wide session context
 destinations/<n>.yml  model-specs/<n>.yml  users/<n>.yml  connections/<n>.yml
 kits/<n>/kit.yml                 today's studio-kit format
+kits/<n>/context/…               its build context, as files (base.context-dir: context)
 kits/<n>.source.yml              or a reference to the kit's own git source
 projects/<n>/project.yml  projects/<n>/context.md  projects/<n>/roles/<r>.yml
 ```
 
-Other top-level files (README, `.git`) are ignored. Inside the known
-directories anything else is refused (a `.yaml` extension: `use .yml`).
+Other top-level files (README, `.git`) are ignored. Inside the known directories anything else is refused (a `.yaml` extension: `use .yml`).
 
 Every non-kit file starts `kind:` (`destination`, `model-spec`, `user`,
 `connection`, `project`, `role`) and `version: 1`. Unknown fields are refused
@@ -77,19 +77,17 @@ body; the core's trailing newlines are trimmed and one is written. A core
 that opens with `---` and has no leaves is written after empty front matter
 (`---` twice) so it reads back as the core.
 
-Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/`
-(`base: {kit: ../web-dev}`) rewritten to `name@vN` on apply. An `@vN` is
-refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are
-per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
-<ref> pins a version; versions are per-Jam — name the kit or use a path
-parent`. Versions
-written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
-and commit).
-`config write` renders a kit's parent as a path parent only when its pin
-equals the parent's current version (apply re-pins to current). A kit the
-write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the write (409 on the route): `kit <child> pins <parent>@v<N>
-but <parent> is at v<M>; versions are per-Jam — re-push <child> against v<M>
-(or pin <parent> to v<N>) before config write`.
+Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/` (`base: {kit: ../web-dev}`) rewritten to `name@vN`
+on apply. An `@vN` is refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are per-Jam — name the kit`;
+in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit <ref> pins a version; versions are per-Jam — name the kit or use a path
+parent`. Versions written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
+and commit). A packed `base.context` is written as files in `kits/<n>/context/` (bytes, 0644/0755 modes) with
+`base.context-dir: context`; loading repacks them to the identical context, so write → apply is `unchanged`. One no dir
+reproduces (a hand-made tar) stays inline; `config write` removes files in a managed kit's `context/` the export no longer holds.
+`config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
+re-pins to current). A kit the write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the
+write (409 on the route): `kit <child> pins <parent>@v<N> but <parent> is at v<M>; versions are per-Jam — re-push <child>
+against v<M> (or pin <parent> to v<N>) before config write`.
 
 **Never in the repo:** token hashes, actors, grants, OIDC identities,
 accounts, instances, intercom state, channel membership, pool state,
@@ -169,7 +167,7 @@ otherwise updated.
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
-| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`); a kit pinned behind its in-tree parent is 409. |
+| `GET /admin/config/export-tree?all=1` | Render the tree (`files`, `remove`; `binary`: kit context files as base64 `data` + `mode`; `prune`: managed kits' `context` dirs); a kit pinned behind its in-tree parent is 409. |
 | `DELETE /admin/config/managed/{kind}/{name...}` | Release a mark (204); unknown kind 400, not managed 404.  |
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a
