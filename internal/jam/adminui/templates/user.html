@@ -24,14 +24,14 @@
 {{define "user-body"}}
 {{$u := .User}}{{$base := userURL $u.ID}}
 <div id="user">
-<div class="page-head"><h1 class="mono">{{$u.Name}}</h1><span class="sub mono">{{$u.ID}}{{if .Removed}} · removed{{end}}</span><span class="spacer"></span>
-  {{if not .Removed}}<button class="danger" hx-delete="{{$base}}" hx-confirm="Remove user {{$u.Name}}? They leave every project; history keeps showing them as removed.">Remove user</button>{{end}}</div>
+<div class="page-head"><h1 class="mono">{{$u.Name}}</h1>{{template "managed-badge" (managed "user" $u.Name)}}<span class="sub mono">{{$u.ID}}{{if .Removed}} · removed{{end}}</span><span class="spacer"></span>
+  {{if not .Removed}}<button class="danger" hx-delete="{{$base}}" hx-confirm="Remove user {{$u.Name}}? They leave every project; history keeps showing them as removed.{{with driftNote "user" $u.Name}} {{.}}{{end}}">Remove user</button>{{end}}</div>
 {{if .Removed}}<div class="banner">This user was removed. Their id still labels history as <span class="mono">{{$u.Name}} (removed)</span>; nothing here can be changed.</div>
 {{else}}
 <div class="sections">
   <section class="card">
     <header><h2>Name</h2><span class="sub">Jam-wide; escalation tiers still name people (<code>human:&lt;name&gt;</code>) — update them after a rename</span></header>
-    <div class="body"><form hx-post="{{$base}}/name" hx-target="#user" hx-swap="outerHTML">
+    <div class="body"><form hx-post="{{$base}}/name" hx-target="#user" hx-swap="outerHTML"{{with driftNote "user" $u.Name}} hx-confirm="{{.}} Rename anyway?"{{end}}>
       <div class="grid"><label>Name <span class="req">required</span><input name="name" value="{{$u.Name}}" required></label></div>
       <div class="form-actions"><button type="submit" class="primary small">Rename</button></div>
     </form></div>
@@ -42,7 +42,7 @@
   </section>
   <section class="card">
     <header><h2>Logins</h2><span class="sub">operator identities this person signs in as — they own personal agents</span></header>
-    <div class="body"><form hx-post="{{$base}}/logins" hx-target="#user" hx-swap="outerHTML">
+    <div class="body"><form hx-post="{{$base}}/logins" hx-target="#user" hx-swap="outerHTML"{{with driftNote "user" $u.Name}} hx-confirm="{{.}} Save anyway?"{{end}}>
       <label>Logins <span class="hint">one per line; the set is replaced</span><textarea name="logins" spellcheck="false">{{.LoginSpec}}</textarea></label>
       <div class="form-actions"><button type="submit" class="primary small">Save logins</button></div>
     </form></div>

@@ -147,3 +147,37 @@ func TestManagedSpecsBadgeAndDriftWarning(t *testing.T) {
 		{"/ui/kits/web-dev", "hx-delete", "/ui/kits/web-dev/source", true},
 	})
 }
+
+func TestManagedRegistryBadgeAndDriftWarning(t *testing.T) {
+	h, store := managedUI(t)
+	mustCreateProject(t, store, "side")
+	bob := userID(t, store, "bob")
+	ub := "/ui/users/" + string(bob)
+	checkWarns(t, h, []warnCase{
+		{ub, "hx-post", ub + "/name", true},
+		{ub, "hx-post", ub + "/logins", true},
+		{ub, "hx-delete", ub, true},
+		{ub, "hx-post", ub + "/oidc", false}, // OIDC identities are not in the repo
+		{"/ui/projects/app", "hx-post", "/ui/projects/app/rename", true},
+		{"/ui/projects/app", "hx-post", "/ui/projects/app/chat-service", true},
+		{"/ui/projects/app", "hx-post", "/ui/projects/app/context", true},
+		{"/ui/projects/app/members", "hx-post", "/ui/projects/app/members", true},
+		{"/ui/projects/app/members", "hx-delete", "/ui/projects/app/members/" + string(bob), true},
+		{"/ui/projects/app/intercom", "hx-post", "/ui/projects/app/channels", true},
+		{"/ui/projects/app/escalation", "hx-post", "/ui/projects/app/escalation", true},
+		{"/ui/projects/side", "hx-post", "/ui/projects/side/rename", false},
+		{"/ui/projects/app/roles/ic", "hx-delete", "/ui/roles/app/ic", true},
+		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/scope", true},
+		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/egress", true},
+		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/allocation", true},
+		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/standing", true},
+		{"/ui/projects/app/roles/ic", "hx-post", "/ui/roles/app/ic/context", true},
+		{"/ui/", "hx-post", "/ui/jam/context", true},
+		{"/ui/", "hx-delete", "/ui/jam/context", true},
+	})
+	for page, want := range map[string]bool{ub: true, "/ui/projects/app": true, "/ui/projects/app/roles/ic": true, "/ui/": true, "/ui/projects/side": false} {
+		if got := strings.Contains(get(t, h, page).Body.String(), ">"+managedBadge+"</a>"); got != want {
+			t.Errorf("%s: badge %v, want %v", page, got, want)
+		}
+	}
+}

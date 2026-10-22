@@ -48,6 +48,7 @@ type roleDetail struct {
 	Crumbs               []crumb
 	WriteBase            string // the role's write endpoints (roleWriteBase)
 	RolesHref            string // the project's Agents tab, which lists its roles (where a delete lands)
+	ConfigName           string // "<project>/<role>": the role's config name (badge, drift warning)
 	Role                 jam.Role
 	Dests                []destRow
 	EgressManaged        bool
@@ -72,6 +73,8 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
 		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
 	d.Context = newContextPanel("role", "/ui/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
+	d.ConfigName = project + "/" + name
+	d.Context.Kind, d.Context.Name = jam.ConfigKindRole, d.ConfigName
 
 	dests := map[string]jam.Destination{}
 	for _, x := range store.ListDestinations() {

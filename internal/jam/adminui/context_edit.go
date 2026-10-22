@@ -21,6 +21,7 @@ type contextPanel struct {
 	Leaves                []sessionctx.Leaf
 	Resources             []sessionctx.Resource
 	YAML                  string
+	Kind, Name            string // the layer's config object (jam-context/jam, project/<p>, role/<p>/<r>): its badge and drift warning
 }
 
 func newContextPanel(scope, action, target string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
@@ -53,6 +54,7 @@ func parseContextForm(r *http.Request) (jam.ContextBody, error) {
 func jamPanel(store jam.Store) contextPanel {
 	p := newContextPanel("Jam-wide", "/ui/jam/context", "jam-context", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
 	p.ID = "jam-context"
+	p.Kind, p.Name = jam.ConfigKindJamContext, "jam"
 	return p
 }
 
