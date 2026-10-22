@@ -39,7 +39,7 @@ users experience one app (§4).
 
 | Path | Was | Holds |
 |---|---|---|
-| `/app/user/*` | `/me/*` (UI routes) | inbox, rail, stream, read, join/leave/call-in, asks, uploads, blobs, boards, presence, events |
+| `/app/user/*` | `/me/*` (UI routes) | inbox, rail, stream, send, read, join/leave/call-in, asks, uploads, blobs, boards, presence, events |
 | `/app/admin/*` | `/ui/*` | dashboard, projects, agents, users, specs, config, health and their htmx fragments |
 | `/app/auth/{login,callback,logout}` | `/ui/auth/*`, `/me/auth/*` | the one OIDC login |
 | `/app/static/*` | `/ui/static/`, `/me/static/` | `jam.css`, htmx, brand marks, icons |
@@ -50,16 +50,18 @@ users experience one app (§4).
 to its `/app/...` equivalent, query string preserved. The redirects live for one
 release, then are deleted.
 
-**What stays.** `/me/send` (CLI and agent bearer send), `/me/studios/*`
-(collaboration bearer API) and `/admin/*` are APIs, not UI; they do not move.
+**What stays.** `/me/studios/*` (collaboration bearer API) and `/admin/*` are
+APIs, not UI; they do not move. (`/me/send` is cookie-gated and used by the
+composer, so it moves to `/app/user/send`.)
 
 **Package rename.** `internal/jam/meui` becomes `internal/jam/userui` in the move,
 matching `adminui`.
 
 ## 3. Login and authorization
 
-**One login.** One OIDC client, one cookie (`jam_app`, `Path=/app/`, HttpOnly,
-Secure under TLS, SameSite=Lax), one gate in front of `/app/` (except the
+**One login.** One OIDC client, one session in two cookies (`jam_app_id` for the
+ID token, `jam_app_at` for the access token — two JWTs can exceed one cookie's
+4 KB; `Path=/app`, HttpOnly, Secure under TLS, SameSite=Lax), one gate in front of `/app/` (except the
 public PWA files, §6). The login requests `openid` plus the operator scope
 configured as `operator-auth.oidc.require-scope`. The server keeps both the ID
 token (roster identity) and the access token (operator scope).
@@ -233,15 +235,15 @@ bar uses `j-logo-plain.svg` directly.
 Each slice is one PR, shippable alone, docs updated in the same PR
 (`docs/usage/jam/ui.md`, `intercom-ui.md`, operator-auth docs):
 
-1. **One login** — `appui`: the gate, `Principal`, `/app/auth/*`, one cookie,
+1. **One login** — `appui`: the gate, `Principal`, `/app/auth/*`, one session (two cookies),
    fully tested but not yet mounted (its `/app/`-scoped cookie can't cover
    `/ui` and `/me`, so mounting waits for the move).
 2. **Move** — mount `appui`; `meui` → `userui`; routes to `/app/user` and
    `/app/admin`; old-URL redirects; landing redirect; retire the two old logins.
-3. **Title bar + blended tabs** — shared title bar and principal menu; admin IA
+3. **Title bar + blended tabs** — logo files from `bam/logo` moved into
+   `uiassets/static/brand/`; shared title bar and principal menu; admin IA
    change (rail only on Projects); Intercom → Health "Channel log"; old top bars
    removed.
-4. **Installable** — logo integration from `bam/logo`, icon generator, manifest,
-   service worker, iOS meta.
+4. **Installable** — icon generator, manifest, service worker, iOS meta.
 
 Then push (§7) gets its own spec.
