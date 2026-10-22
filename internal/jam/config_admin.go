@@ -16,6 +16,23 @@ import (
 
 const configStoreError = "config store error"
 
+// ConfigStatus maps a config diff, apply, track or sync error to an HTTP
+// status and a message safe to show: a refused or stale plan and an
+// untracked Jam 409; a bad source, kit or checkout 400; a fetch, auth or
+// limit failure 502 with the fetcher's redacted message; anything else 500
+// with a generic message (log the error itself).
+func ConfigStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, ErrConfigRefused), errors.Is(err, ErrConfigPlanChanged), errors.Is(err, ErrConfigNotTracked):
+		return http.StatusConflict, err.Error()
+	}
+	status, msg := KitSourceStatus(err)
+	if status == http.StatusInternalServerError {
+		msg = configStoreError
+	}
+	return status, msg
+}
+
 // WithConfig mounts the config-in-git admin API (under the /admin/* operator
 // gate):
 //
@@ -89,7 +106,7 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 			opt := opts()
 			opt.DryRun = true
 			opt.Force = r.URL.Query().Get("force") == "1" // plan as a forced apply would
-			res, err := ApplyConfigTree(store, tr, env, opt, log, OperatorID(r))
+			res, err := ApplyConfigTree(r.Context(), store, nil, tr, env, opt, log, OperatorID(r))
 			if err != nil {
 				log.Error("admin config diff: store error", "operator", OperatorID(r), "err", err.Error())
 				http.Error(w, configStoreError, http.StatusInternalServerError)
@@ -105,7 +122,7 @@ func WithConfig(store Store, env ConfigEnv, log *slog.Logger) AdminOption {
 			opt := opts()
 			opt.Force = r.URL.Query().Get("force") == "1"
 			opt.WantDigest = r.URL.Query().Get("plan")
-			res, err := ApplyConfigTree(store, tr, env, opt, log, OperatorID(r))
+			res, err := ApplyConfigTree(r.Context(), store, nil, tr, env, opt, log, OperatorID(r))
 			switch {
 			case errors.Is(err, ErrConfigRefused), errors.Is(err, ErrConfigPlanChanged):
 				http.Error(w, err.Error(), http.StatusConflict)
