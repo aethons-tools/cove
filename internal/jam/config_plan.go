@@ -380,9 +380,20 @@ func (p *planner) planModelSpecs() {
 // the tracked source a .source.yml kit follows (an inline kit's is cleared).
 // A kit the tree could not load — an unfetched or failed source, the live
 // kits tracking a failed source's repo and ref (its path ancestors too), a
-// kit in a cycle — is a refusal, never a delete.
+// kit in a cycle, a kit whose .source.yml the tree refused (and the live
+// kits tracking that kit's repo and ref) — is a refusal, never a delete.
 func (p *planner) planKits() {
 	tree := p.in.Tree
+	failed := maps.Clone(tree.KitGroupsFailed)
+	if failed == nil {
+		failed = map[string]bool{}
+	}
+	for _, n := range tree.KitSourcesRefused {
+		p.repo[ConfigKey{ConfigKindKit, n}] = true
+		if k, ok := p.m.kits[n]; ok && k.Source != nil {
+			failed[kitGroupKey(gitsource.Source{Repo: k.Source.Repo, Ref: k.Source.Ref})] = true
+		}
+	}
 	for _, n := range slices.Sorted(maps.Keys(p.m.kits)) {
 		k := p.m.kits[n]
 		if k.Source == nil {
@@ -390,7 +401,7 @@ func (p *planner) planKits() {
 		}
 		key := ConfigKey{ConfigKindKit, n}
 		p.paths[key] = sourceKitPath(n)
-		if tree.KitGroupsFailed[kitGroupKey(gitsource.Source{Repo: k.Source.Repo, Ref: k.Source.Ref})] {
+		if failed[kitGroupKey(gitsource.Source{Repo: k.Source.Repo, Ref: k.Source.Ref})] {
 			p.repo[key] = true
 		}
 	}

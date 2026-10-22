@@ -616,6 +616,24 @@ func TestPlanSourceKitFetchFailureIsNotADelete(t *testing.T) {
 	if len(p.KitSources) != 0 {
 		t.Fatalf("an unfetched source is listed: %+v", p.KitSources)
 	}
+	// A .source.yml the tree refuses to load — misnamed, or missing git: —
+	// protects its kit and the ancestors its live source brought in.
+	for _, tc := range []struct{ name, path, body, refusal string }{
+		{"misnamed", "kits/app.source.yaml", appSourceYML, "kits/app.source.yaml: use .yml"},
+		{"no git", "kits/app.source.yml", "kind: kit-source\nversion: 1\n", "kits/app.source.yml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := gitPlanOn(t, st, fetchedTree(t, map[string]string{tc.path: tc.body}, repoFetcher{kitsRepo: kits}), cfgSrc, "c3", false)
+			for _, n := range []string{"app", "base"} {
+				if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
+					t.Fatalf("a refused source file plans a delete: %+v", op)
+				}
+			}
+			if !slices.ContainsFunc(p.Refusals, func(r string) bool { return strings.HasPrefix(r, tc.refusal) }) {
+				t.Fatalf("refusals %v: want one at %s", p.Refusals, tc.refusal)
+			}
+		})
+	}
 }
 
 // Kits a cycle leaves out of the tree are refused, never planned as deletes.
