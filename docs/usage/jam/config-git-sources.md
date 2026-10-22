@@ -47,7 +47,8 @@ git: https://github.com/acme/kits//api@main
   planning, `--dir` uploads included (with the serve's `kits.git` credentials).
   Each distinct repo and ref is fetched once, so two kits from one repo and ref
   share a commit. A tree may name at most 16 distinct kit sources, and one
-  run's fetches share a 4-minute limit.
+  run's fetches share a 4-minute limit, counted from when the run starts
+  (not while it waits behind another config run).
 - **Planning.** The kit and its path parents in its repo are planned
   like inline kits (create, update, drift, adopt, delete) and become managed.
   Each tracks its repo at its own dir: `{repo, dir, ref, commit}`, also recorded

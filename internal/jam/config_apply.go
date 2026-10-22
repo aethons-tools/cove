@@ -54,10 +54,10 @@ type ConfigApplyResult struct {
 // runs never interleave. actor is the operator the audit log names; log may
 // be nil.
 func ApplyConfigTree(ctx context.Context, store Store, f KitFetcher, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, ConfigFetchTimeout)
-	defer cancel()
-	configMu.Lock()
+	configMu.Lock() // the fetch deadline starts here: queue wait does not count
 	defer configMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, configFetchTimeout)
+	defer cancel()
 	return applyConfigTreeLocked(ctx, store, f, tree, env, opt, log, actor)
 }
 

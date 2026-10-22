@@ -18,6 +18,9 @@ import (
 // config repo's and every kits/<name>.source.yml checkout.
 const ConfigFetchTimeout = 4 * time.Minute
 
+// configFetchTimeout is ConfigFetchTimeout, shortened by tests.
+var configFetchTimeout = ConfigFetchTimeout
+
 // ErrConfigNotTracked is a sync, or a diff/apply naming no source, on a Jam
 // with no tracked config source.
 var ErrConfigNotTracked = errors.New("no config source is tracked (use config track --git <source>, or --dir)")
@@ -28,10 +31,10 @@ var ErrConfigNotTracked = errors.New("no config source is tracked (use config tr
 // kit versions. An apply from the tracked source records its commit and
 // time in the same write. configMu is held across every fetch.
 func ApplyConfigSource(ctx context.Context, store Store, f KitFetcher, src gitsource.Source, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, ConfigFetchTimeout)
-	defer cancel()
-	configMu.Lock()
+	configMu.Lock() // the fetch deadline starts here: queue wait does not count
 	defer configMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, configFetchTimeout)
+	defer cancel()
 	return applyConfigSourceLocked(ctx, store, f, src, env, opt, log, actor)
 }
 
@@ -44,10 +47,10 @@ func TrackConfigSource(ctx context.Context, store Store, f KitFetcher, src gitso
 	if src.Repo == "" {
 		return ConfigApplyResult{}, writeErr(http.StatusBadRequest, "config track: a source is required (<repo>[//<dir>]@<ref>)")
 	}
-	ctx, cancel := context.WithTimeout(ctx, ConfigFetchTimeout)
-	defer cancel()
-	configMu.Lock()
+	configMu.Lock() // the fetch deadline starts here: queue wait does not count
 	defer configMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, configFetchTimeout)
+	defer cancel()
 	res, err := applyConfigSourceLocked(ctx, store, f, src, env, ConfigApplyOptions{DryRun: true, Now: now}, log, actor)
 	if err != nil {
 		return res, err

@@ -430,3 +430,52 @@ func TestConfigRoundTripWithSourceKit(t *testing.T) {
 		t.Fatalf("tracked %+v", k.Source)
 	}
 }
+
+// ctxFetcher fails a fetch whose context is already done, as the real
+// Fetcher does once a deadline passes.
+type ctxFetcher struct{ KitFetcher }
+
+func (f ctxFetcher) Fetch(ctx context.Context, src gitsource.Source, fn func(root, commit string) error) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: config fetch timed out", gitsource.ErrFetch)
+	}
+	return f.KitFetcher.Fetch(ctx, src, fn)
+}
+
+// The fetch deadline starts once configMu is taken: a run queued behind
+// another longer than the deadline still fetches.
+func TestConfigFetchDeadlineExcludesQueueWait(t *testing.T) {
+	old := configFetchTimeout
+	configFetchTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { configFetchTimeout = old })
+	kits := newFakeFetcher(t, map[string]string{"main": "k1"}, map[string]map[string]string{"k1": {"app/kit.yml": "kind: studio\n"}})
+	runs := map[string]func(st *MemStore) error{
+		"apply source": func(st *MemStore) error {
+			f, _ := cfgFetcher(t, cfgFiles)
+			_, err := ApplyConfigSource(context.Background(), st, ctxFetcher{f}, cfgSrc, allCreds, syncOpts(), nil, "alice")
+			return err
+		},
+		"track": func(st *MemStore) error {
+			f, _ := cfgFetcher(t, cfgFiles)
+			_, err := TrackConfigSource(context.Background(), st, ctxFetcher{f}, cfgSrc, allCreds, planNow, nil, "alice")
+			return err
+		},
+		"apply tree": func(st *MemStore) error {
+			tr := treeOf(t, map[string]string{"kits/app.source.yml": appSourceYML})
+			_, err := ApplyConfigTree(context.Background(), st, ctxFetcher{repoFetcher{kitsRepo: kits}}, tr, allCreds, dirOpts(), nil, "local")
+			return err
+		},
+	}
+	for name, run := range runs {
+		t.Run(name, func(t *testing.T) {
+			configMu.Lock()
+			done := make(chan error, 1)
+			go func() { done <- run(NewMemStore()) }()
+			time.Sleep(4 * configFetchTimeout) // queued behind a held configMu
+			configMu.Unlock()
+			if err := <-done; err != nil {
+				t.Fatalf("a queued run timed out: %v", err)
+			}
+		})
+	}
+}
