@@ -14,6 +14,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -207,9 +209,92 @@ func TestConfigDiffRejectsForce(t *testing.T) {
 	}
 }
 
-func TestConfigNeedsDir(t *testing.T) {
-	if code, _, errs := runJam("config", "diff"); code != 2 || !strings.Contains(errs, "--dir is required (git sources are not supported yet)") {
+// configGitServer is configServer with a real, anonymous kit fetcher.
+func configGitServer(t *testing.T) (string, *jam.MemStore) {
+	t.Helper()
+	st := jam.NewMemStore()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	creds := func(string) bool { return true }
+	ts := httptest.NewServer(jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+		jam.WithConfig(st, &gitsource.Fetcher{}, jam.ConfigEnv{CredExists: creds}, log)))
+	t.Cleanup(ts.Close)
+	return ts.URL, st
+}
+
+func TestConfigTrackSyncUntrack(t *testing.T) {
+	kitsURL, _, _ := gittest.Serve(t, map[string]string{"api/kit.yml": "kind: studio\nprompt: api\n"})
+	cfgURL, first, update := gittest.Serve(t, map[string]string{
+		"jam/users/bob.yml":       "kind: user\nversion: 1\n",
+		"jam/kits/web/kit.yml":    "kind: studio\n",
+		"jam/kits/api.source.yml": "kind: kit-source\nversion: 1\ngit: " + kitsURL + "//api@main\n",
+	})
+	url, st := configGitServer(t)
+	src := cfgURL + "//jam@main"
+	code, out, errs := runJam("config", "track", "--git", src, "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "tracking "+src) || !strings.Contains(out, "create  user bob") ||
+		!strings.Contains(out, "kit-source  kits/api.source.yml  "+kitsURL+"//api@main @ ") {
+		t.Fatalf("track: %d\n%s\n%s", code, out, errs)
+	}
+	if len(st.ListUsers()) != 0 {
+		t.Fatal("track wrote")
+	}
+	code, out, errs = runJam("config", "sync", "--yes", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "config "+src+" @ "+first[:7]) || !strings.Contains(out, "applied: 3 created") {
+		t.Fatalf("sync: %d\n%s\n%s", code, out, errs)
+	}
+	if got, _ := st.GetConfigSource(); got.Commit != first {
+		t.Fatalf("record %+v", got)
+	}
+	if k, _ := st.GetKit("api"); k.Source == nil || k.Source.Repo != kitsURL || k.Source.Dir != "api" {
+		t.Fatalf("api tracked %+v", k.Source)
+	}
+	// A README-only commit: no changes, yet sync still records the commit.
+	readme := update(map[string]string{"README.md": "hello\n"})
+	code, out, errs = runJam("config", "sync", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "nothing to apply") || strings.Contains(out, "Apply ") {
+		t.Fatalf("readme sync: %d\n%s\n%s", code, out, errs)
+	}
+	if got, _ := st.GetConfigSource(); got.Commit != readme {
+		t.Fatalf("record after readme %+v", got)
+	}
+	second := update(map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@acme]\n"})
+	code, out, errs = runJam("config", "apply", "--yes", "--admin-url", url) // no flag: the tracked source
+	if code != 0 || !strings.Contains(out, "config "+src+" @ "+second[:7]) || !strings.Contains(out, "1 updated") {
+		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
+	}
+	if got, _ := st.GetConfigSource(); got.Commit != second {
+		t.Fatalf("record %+v", got)
+	}
+	if code, out, _ := runJam("config", "untrack", "--admin-url", url); code != 0 || !strings.Contains(out, "untracked") {
+		t.Fatalf("untrack: %d %s", code, out)
+	}
+	if code, _, errs := runJam("config", "sync", "--yes", "--admin-url", url); code != 1 || !strings.Contains(errs, "no config source is tracked") {
+		t.Fatalf("sync after untrack: %d %s", code, errs)
+	}
+	if len(st.ListConfigMarks()) != 3 {
+		t.Fatalf("untrack dropped marks: %v", st.ListConfigMarks())
+	}
+}
+
+func TestConfigDiffWithoutTrackedSource(t *testing.T) {
+	url, _ := configServer(t)
+	if code, _, errs := runJam("config", "diff", "--admin-url", url); code != 1 || !strings.Contains(errs, "no config source is tracked") {
 		t.Fatalf("%d %s", code, errs)
+	}
+}
+
+func TestConfigVerbFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"config", "diff", "--dir", "x", "--git", "https://github.com/a/b@main"},
+		{"config", "apply", "--dir", "x", "--git", "https://github.com/a/b@main"},
+		{"config", "track"},
+		{"config", "track", "--dir", "x"},
+		{"config", "sync", "--git", "https://github.com/a/b@main"},
+		{"config", "untrack", "extra"},
+	} {
+		if code, _, _ := runJam(args...); code != 2 {
+			t.Errorf("%v: exit %d, want 2", args, code)
+		}
 	}
 }
 
