@@ -12,7 +12,7 @@ updated: 2026-10-21
 A **project member** reads and replies to their intercom channels in a two-pane web
 inbox served under `/me`, rather than through the Discord/Linear relays. It is the
 human analog of a studio agent's `/squawks` tools: the same durable squawk Log,
-seen from the human's side. It is served by `internal/jam/meui` (mirroring
+seen from the human's side. It is served by `internal/jam/userui` (mirroring
 `adminui`'s embedded-`html/template` + htmx mechanism) and mounted behind the
 **participant gate** — see [ui.md](ui.md#the-participant-intercom-me) for the gate
 (OIDC-always, no loopback trust) and the operator/participant boundary.

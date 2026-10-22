@@ -72,7 +72,6 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /app/user/presence", h.presenceStrip)
 	mux.HandleFunc("GET /app/user/asks", h.askPanel)
 	mux.HandleFunc("GET /app/user/events", h.events)
-	// The shared assets (jam.css, htmx) — templates are never reachable here.
 	return mux
 }
 

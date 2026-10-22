@@ -11,7 +11,7 @@ import (
 
 // /app/user takes its tokens from the shared jam.css (one source with /app/admin),
 // served by appui at /app/static, and carries no token block of its own.
-func TestMeUsesSharedStylesheet(t *testing.T) {
+func TestUserUsesSharedStylesheet(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
 	req := jam.WithParticipant(httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil), p)

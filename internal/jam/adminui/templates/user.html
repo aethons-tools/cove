@@ -48,7 +48,7 @@
     </form></div>
   </section>
   <section class="card">
-    <header><h2>OIDC identities</h2><span class="sub">browser logins mapped to this person (the /me inbox)</span></header>
+    <header><h2>OIDC identities</h2><span class="sub">browser logins mapped to this person (the /app/user inbox)</span></header>
     <div class="body"><form hx-post="{{$base}}/oidc" hx-target="#user" hx-swap="outerHTML">
       <label>Identities <span class="hint">one per line, <code>issuer:subject</code>; the set is replaced</span><textarea name="oidc" spellcheck="false">{{.OIDCSpec}}</textarea></label>
       <div class="form-actions"><button type="submit" class="primary small">Save identities</button></div>
