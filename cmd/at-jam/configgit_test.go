@@ -364,3 +364,13 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 		t.Fatal("a refused write wrote files")
 	}
 }
+
+func TestPrintConfigPlanDriftedDelete(t *testing.T) {
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete,
+		Drift: true, Before: "# users/bob.yml\nkind: user\n"}}})
+	want := "delete  user bob  (drift)\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Fatalf("got %q", b.String())
+	}
+}

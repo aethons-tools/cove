@@ -36,6 +36,7 @@ func (p *planner) planDeletes() {
 			drift := cur.Digest() != p.marks[key].Digest
 			if drift && !p.in.Force {
 				p.refuseDrift(key)
+				p.op(key, ConfigDelete, true, cur.Canon, nil) // the diff shows Jam's side; no write
 				continue
 			}
 			if err := p.deleteObject(key); err != nil {

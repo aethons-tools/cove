@@ -80,6 +80,13 @@ func (o ConfigPlan) Counts() map[string]int {
 	return n
 }
 
+// HasDrift reports whether any op is flagged drift: an object edited in Jam
+// since its last apply that the plan updates or deletes. A forced plan keeps
+// the flag, so the force choice stays visible.
+func (o ConfigPlan) HasDrift() bool {
+	return slices.ContainsFunc(o.Ops, func(op ConfigOp) bool { return op.Drift })
+}
+
 // ConfigEnv is what the planner needs from the serve beyond the store.
 type ConfigEnv struct {
 	CredExists     func(string) bool

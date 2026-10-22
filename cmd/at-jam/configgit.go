@@ -288,7 +288,11 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 		}
 		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
 		if op.Drift {
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
+			repo := indent(op.After)
+			if op.After == "" { // a delete: the repo no longer has it
+				repo = "    (not in the repo)"
+			}
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), repo)
 		}
 	}
 	for _, k := range p.Forget {
