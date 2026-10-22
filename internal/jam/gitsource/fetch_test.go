@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -396,5 +397,26 @@ func TestFetchAuth403(t *testing.T) {
 	err := f.Fetch(context.Background(), Source{Repo: srv.URL + "/acme/kits.git", Ref: "main"}, func(string, string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "check kits.git cred gh-kits") {
 		t.Fatalf("403: %v", err)
+	}
+}
+
+// A checkout's file modes are git's (0644, 0755) whatever the serve's
+// umask, so a context-dir in it packs the same bytes everywhere.
+func TestFetchModesPastUmask(t *testing.T) {
+	url, _, _ := gittest.Serve(t, map[string]string{"k/kit.yml": "kind: studio\n", "k/run.sh": "#!/bin/sh\n"}, gittest.WithExec("k/run.sh"))
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	f := &Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
+	err := f.Fetch(context.Background(), Source{Repo: url, Ref: "main"}, func(root, _ string) error {
+		for name, want := range map[string]os.FileMode{"k/kit.yml": 0o644, "k/run.sh": 0o755} {
+			fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
+			if err != nil || fi.Mode().Perm() != want {
+				t.Errorf("%s: %v %v, want %o", name, fi, err, want)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

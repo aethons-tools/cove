@@ -347,3 +347,32 @@ func TestConfigReleaseRoute(t *testing.T) {
 	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNotFound, nil)
 	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/widget/x", "", http.StatusBadRequest, nil)
 }
+
+// export-tree renders kit contexts as files only on ?contexts=files; an old
+// client's request gets the inline form and no new fields.
+func TestConfigExportTreeContextsOptIn(t *testing.T) {
+	st, b64 := ctxKitStore(t)
+	ts := configServer(t, st)
+	resp, err := http.Get(ts.URL + "/admin/config/export-tree?all=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var old ConfigTreeExport
+	if err := json.Unmarshal(raw, &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Files["kits/builder/kit.yml"] != "kind: studio\nbase:\n  context: "+b64+"\n" ||
+		strings.Contains(string(raw), `"binary"`) || strings.Contains(string(raw), `"prune"`) {
+		t.Fatalf("old request: %s", raw)
+	}
+	var exp ConfigTreeExport
+	getURLJSON(t, ts.URL+"/admin/config/export-tree?all=1&contexts=files", &exp)
+	if ky := exp.Files["kits/builder/kit.yml"]; !strings.Contains(ky, "context-dir: context\n") || strings.Contains(ky, b64) {
+		t.Fatalf("kit.yml:\n%s", ky)
+	}
+	if b := exp.Binary["kits/builder/context/run.sh"]; b.Mode != 0o755 || len(exp.Prune) == 0 {
+		t.Fatalf("binary %+v prune %v", b, exp.Prune)
+	}
+}
