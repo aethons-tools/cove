@@ -70,19 +70,32 @@ func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree 
 	if err := configFetchErr(ctx); err != nil {
 		return ConfigApplyResult{}, err
 	}
+	res, wrote, err := planAndWriteConfig(store, tree, env, opt, log, actor)
+	if wrote {
+		// configMu only: a refreshed mark or the write itself can clear
+		// config.drift, an adopt or forget can raise it.
+		checkConfigDriftLocked(store, env.Conditions, log)
+	}
+	return res, err
+}
+
+// planAndWriteConfig plans the fetched tree and, unless a dry run, refused
+// or stale, writes it, holding kitMu for just that. wrote reports a
+// non-dry-run apply that reached the store (with or without changes).
+func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (_ ConfigApplyResult, wrote bool, _ error) {
 	kitMu.Lock() // configMu → kitMu → store mu, as every kit writer takes kitMu before the store
 	defer kitMu.Unlock()
 	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.ExportConfig(), Instances: store.ListInstances(),
 		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
 	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
-		return res, nil
+		return res, false, nil
 	}
 	if len(plan.Refusals) > 0 {
-		return res, fmt.Errorf("%w:\n%s", ErrConfigRefused, strings.Join(plan.Refusals, "\n"))
+		return res, false, fmt.Errorf("%w:\n%s", ErrConfigRefused, strings.Join(plan.Refusals, "\n"))
 	}
 	if opt.WantDigest != "" && opt.WantDigest != plan.Digest {
-		return res, ErrConfigPlanChanged
+		return res, false, ErrConfigPlanChanged
 	}
 	res.Counts = plan.Counts()
 	changes := planChanges(plan)
@@ -95,17 +108,17 @@ func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree 
 		// version, no other mark, no audit entry.
 		if meta := (ConfigWrite{Kits: w.Kits, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
 			if err := store.ApplyConfig(meta); err != nil {
-				return res, fmt.Errorf("config apply: write: %w", err)
+				return res, false, fmt.Errorf("config apply: write: %w", err)
 			}
 		}
-		return res, nil
+		return res, true, nil
 	}
 	if err := store.ApplyConfig(w); err != nil {
-		return res, fmt.Errorf("config apply: write: %w", err)
+		return res, false, fmt.Errorf("config apply: write: %w", err)
 	}
 	res.Applied = true
 	logConfigApply(log, actor, opt, plan)
-	return res, nil
+	return res, true, nil
 }
 
 // planChanges reports whether plan writes anything beyond re-marking

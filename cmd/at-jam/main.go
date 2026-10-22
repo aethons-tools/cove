@@ -1965,6 +1965,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
 	go conds.Run(context.Background(), 5*time.Second)
+	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
+	// now, every minute, and after each config apply or release.
+	go jam.RunConfigDriftCheck(context.Background(), st, conds, jam.ConfigDriftEvery, log)
 
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
 	if names := cfg.gcpCredentials(); len(names) > 0 {
@@ -2686,7 +2689,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
-			jam.WithConfig(st, kitFetcher, jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable}, log))
+			jam.WithConfig(st, kitFetcher, jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds}, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

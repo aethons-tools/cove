@@ -212,15 +212,8 @@ func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (j
 // printConfigSource names the git source and commit a run planned.
 func printConfigSource(w io.Writer, res jam.ConfigApplyResult) {
 	if res.Commit != "" {
-		fmt.Fprintf(w, "config %s @ %s\n", res.Source, shortSHA(res.Commit))
+		fmt.Fprintf(w, "config %s @ %s\n", res.Source, jam.ShortConfigCommit(res.Commit))
 	}
-}
-
-func shortSHA(c string) string {
-	if len(c) > 7 {
-		return c[:7]
-	}
-	return c
 }
 
 // insideGitWorkTree reports whether dir or an ancestor holds a .git.
@@ -270,7 +263,7 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 // the unchanged count, unmanaged objects, the serve-config state, refusals.
 func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 	for _, ks := range p.KitSources {
-		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, shortSHA(ks.Commit))
+		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, jam.ShortConfigCommit(ks.Commit))
 	}
 	unchanged := 0
 	indent := func(s string) string {
