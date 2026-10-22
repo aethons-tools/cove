@@ -112,4 +112,10 @@ type Store interface {
 	// a store written before COV-242). See MigrateModelSpecs.
 	ModelSpecSchema() int
 	SetModelSpecSchema(v int) error
+
+	// ListConfigMarks lists the config-in-git managed marks, sorted by kind,
+	// then name. ApplyConfig writes one config apply's whole set: every
+	// record or none.
+	ListConfigMarks() []ConfigMark
+	ApplyConfig(w ConfigWrite) error
 }

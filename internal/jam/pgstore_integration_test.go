@@ -497,3 +497,78 @@ func TestPostgresPutKitDocsAtomic(t *testing.T) {
 		}
 	}
 }
+
+// TestPostgresApplyConfigAtomic: a config write whose last statement fails
+// (NUL in a role name) leaves nothing behind, in the cache or after a reopen;
+// a good write survives a reopen, marks included.
+func TestPostgresApplyConfigAtomic(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	s, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	empty := func(st jam.Store) bool {
+		return len(st.ListUsers())+len(st.ListKits())+len(st.ListDestinations())+len(st.ListConfigMarks())+len(st.ListProjects()) == 0
+	}
+	bad, _, _, pid := storetest.ConfigWriteFixture()
+	bad.Roles = append(bad.Roles, jam.ConfigRoleWrite{ProjectID: pid, Role: jam.Role{Name: "bad\x00role"}})
+	if err := s.ApplyConfig(bad); err == nil {
+		t.Fatal("a NUL in a role name must fail the write")
+	}
+	if !empty(s) {
+		t.Fatal("cache holds a partial write")
+	}
+	r, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !empty(r) {
+		t.Fatal("database holds a partial write")
+	}
+	r.Close()
+
+	good, _, _, _ := storetest.ConfigWriteFixture()
+	if err := s.ApplyConfig(good); err != nil {
+		t.Fatal(err)
+	}
+	r, err = jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if marks := r.ListConfigMarks(); len(marks) != 2 {
+		t.Fatalf("marks after reopen: %+v", marks)
+	}
+	if _, ok := r.GetRole("app", "ic"); !ok {
+		t.Fatal("role lost on reopen")
+	}
+	// Tombstoning a project persists the same as the cache: archived
+	// channels and the full tombstone, also after a reopen.
+	p, _ := r.GetProject("app")
+	room, _ := r.ChannelByKey(p.ID, jam.SourceRoom, "ops")
+	if err := s.ApplyConfig(jam.ConfigWrite{Projects: []jam.Project{{ID: p.ID, Name: "app", Status: jam.StatusRemoved}}}); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	for _, st := range []jam.Store{s, r2} {
+		tp, ok := st.GetProject(string(p.ID))
+		if !ok || tp.Status != jam.StatusRemoved || tp.ChatService != p.ChatService {
+			t.Fatalf("tombstone %+v", tp)
+		}
+		if c, _ := st.GetChannel(room.ID); c.Status != jam.StatusArchived {
+			t.Fatalf("room %+v", c)
+		}
+	}
+}

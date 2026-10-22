@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // TruncateAllForTest clears every control-plane table and resets the in-memory
@@ -13,7 +14,12 @@ import (
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instances, destinations, model_specs, projects, standing_sessions, share_grants, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instances, destinations, model_specs, projects, standing_sessions, share_grants, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants, config_marks`); err != nil {
+		return err
+	}
+	// The Jam context lives in jam_settings, which is not truncated (it also
+	// holds migration markers); clear only the context row.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM jam_settings WHERE key = 'context'`); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -36,5 +42,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.channels = map[ident.ID]Channel{}
 	s.chanMembers = map[ident.ID][]ChannelMember{}
 	s.reads = map[ident.ID]map[ident.ID]int64{}
+	s.marks = map[ConfigKey]ConfigMark{}
+	s.jamContext = sessionctx.Layer{}
 	return nil
 }

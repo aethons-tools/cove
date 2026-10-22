@@ -183,6 +183,17 @@ func (fs *MemStore) PutKitDocs(kits []Kit) error {
 	return nil
 }
 
+// ApplyConfig applies a config write whole, or refuses it with nothing written.
+func (fs *MemStore) ApplyConfig(w ConfigWrite) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := checkConfigWrite(fs.memState, w); err != nil {
+		return err
+	}
+	applyConfigWrite(fs.memState, prepareConfigWrite(fs.memState, w))
+	return nil
+}
+
 func (fs *MemStore) PinKit(name string, version int) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()

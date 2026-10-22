@@ -96,6 +96,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "config", Brief: "keep the Jam's configuration in a git working tree: write it out (write <dir> [--all]), or plan and apply a checkout (diff|apply --dir <path> [--yes] [--force]) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
@@ -1775,16 +1776,17 @@ func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.K
 
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	cfgPath := fs.String("config", "", "path to the serve config YAML")
+	var cfgPaths configPaths
+	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.md)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
 	}
-	if len(pos) > 0 || *cfgPath == "" {
+	if len(pos) > 0 || len(cfgPaths) == 0 {
 		fmt.Fprintln(stderr, "at-jam serve: --config is required")
 		return 2
 	}
-	data, err := os.ReadFile(*cfgPath)
+	data, portable, err := loadServeConfigs(cfgPaths, os.ReadFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
@@ -2683,7 +2685,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
-			jam.WithKitFetcher(st, kitFetcher, log))
+			jam.WithKitFetcher(st, kitFetcher, log),
+			jam.WithConfig(st, jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable}, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

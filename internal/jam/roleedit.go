@@ -114,11 +114,8 @@ func ClearRoleEgress(store Store, project, name string) error {
 // prompt, a name with "/" (it names a route segment) or a duplicate name is a
 // 400 WriteError. Its first raise starts a new session (standing-session map).
 func AddStanding(store Store, project, name string, s StandingSession) error {
-	if s.Name == "" || s.Prompt == "" {
-		return writeErr(http.StatusBadRequest, "name and prompt are required")
-	}
-	if strings.Contains(s.Name, "/") {
-		return writeErr(http.StatusBadRequest, "standing session name %q must not contain /", s.Name)
+	if err := checkStandingDecl(nil, s); err != nil {
+		return err
 	}
 	return UpdateRole(store, project, name, func(r *Role) error {
 		if slices.ContainsFunc(r.Allocation.Standing, func(x StandingSession) bool { return x.Name == s.Name }) {
@@ -127,6 +124,22 @@ func AddStanding(store Store, project, name string, s StandingSession) error {
 		r.Allocation.Standing = append(slices.Clone(r.Allocation.Standing), s)
 		return nil
 	})
+}
+
+// checkStandingDecl is the rule set for declaring s on a role that already
+// declares have: name and prompt required, no "/" in the name (it names a
+// route segment), and a name not declared twice. Refusals are 400 WriteErrors.
+func checkStandingDecl(have []StandingSession, s StandingSession) error {
+	if s.Name == "" || s.Prompt == "" {
+		return writeErr(http.StatusBadRequest, "name and prompt are required")
+	}
+	if strings.Contains(s.Name, "/") {
+		return writeErr(http.StatusBadRequest, "standing session name %q must not contain /", s.Name)
+	}
+	if slices.ContainsFunc(have, func(x StandingSession) bool { return x.Name == s.Name }) {
+		return writeErr(http.StatusBadRequest, "standing session %q is declared twice", s.Name)
+	}
+	return nil
 }
 
 // RemoveStanding dismisses a declared standing session; an unknown one is a

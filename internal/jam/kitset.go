@@ -130,15 +130,32 @@ func sameSource(s *KitSource, repo, dir string) bool {
 // the set's pending versions, and assigns its version: the current one when
 // the stored config is identical, else the next. set is not modified.
 func resolveKitSet(store Store, set []kitSetEntry, repo string) ([]kitSetEntry, error) {
+	return resolveKitEntries(store, set, func(i int, e kitSetEntry) error {
+		if i < len(set)-1 {
+			return checkSetAncestor(store, e.Name, repo, e.Dir)
+		}
+		return nil
+	})
+}
+
+// resolveKitEntries is resolveKitSet for any parents-first list: each path
+// ref is rewritten to name@v<N> of the earlier entry at that dir; check (nil =
+// none) vets entry i before it is validated.
+func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSetEntry) error) ([]kitSetEntry, error) {
 	out := slices.Clone(set)
 	ov := &overlayStore{Store: store, pending: map[string]kitSetEntry{}}
 	for i := range out {
 		e := &out[i]
-		if i > 0 {
-			e.Kit.Base.Kit = fmt.Sprintf("%s@v%d", out[i-1].Name, out[i-1].Version)
+		if p, isPath := e.Kit.Base.ParentPath(); isPath {
+			want := path.Join(checkoutDir(e.Dir), p)
+			j := slices.IndexFunc(out[:i], func(o kitSetEntry) bool { return checkoutDir(o.Dir) == want })
+			if j < 0 {
+				return nil, writeErr(http.StatusBadRequest, "parent path %s (of %s) is not in this set", p, e.Name)
+			}
+			e.Kit.Base.Kit = fmt.Sprintf("%s@v%d", out[j].Name, out[j].Version)
 		}
-		if i < len(out)-1 {
-			if err := checkSetAncestor(store, e.Name, repo, e.Dir); err != nil {
+		if check != nil {
+			if err := check(i, *e); err != nil {
 				return nil, err
 			}
 		}
