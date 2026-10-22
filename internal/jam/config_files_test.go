@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
@@ -174,5 +175,31 @@ func TestDestinationFileRender(t *testing.T) {
 	}
 	if o.Digest() == "" || o.Key.Path() != "destinations/gh.yml" {
 		t.Fatalf("o=%+v", o)
+	}
+}
+
+func TestParseKitSourceFile(t *testing.T) {
+	f, src, err := ParseKitSourceFile("kits/app.source.yml", "app", []byte("kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n"))
+	if err != nil || f.Name != "app" || src != (gitsource.Source{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main"}) {
+		t.Fatalf("%+v %+v %v", f, src, err)
+	}
+	if got := string(renderKitSourceFile(KitSource{Repo: src.Repo, Dir: src.Dir, Ref: src.Ref, Commit: "c1"})); got != "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n" {
+		t.Fatalf("render %q", got)
+	}
+}
+
+// A pasted clone URL holding a token is refused with gitsource.Parse's fixed
+// text: the file's value never reaches the error.
+func TestParseKitSourceFileNeverEchoesSource(t *testing.T) {
+	const token = "ghp_s3cretTOKEN"
+	for _, git := range []string{
+		"https://x-access-token:" + token + "@github.com/acme/kits@main",
+		"https://github.com/acme/kits@main@" + token,
+		token,
+	} {
+		_, _, err := ParseKitSourceFile("kits/app.source.yml", "app", []byte("kind: kit-source\nversion: 1\ngit: "+git+"\n"))
+		if err == nil || strings.Contains(err.Error(), token) || !strings.HasPrefix(err.Error(), "kits/app.source.yml: git: source: ") {
+			t.Errorf("%q: %v", git, err)
+		}
 	}
 }

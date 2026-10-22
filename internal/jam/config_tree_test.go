@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -75,8 +76,8 @@ func TestLoadConfigTreeRefusals(t *testing.T) {
 	}
 	want := []string{
 		"kits/empty: no kit.yml",
-		"kits/stray.yml: unexpected file (kits are directories: kits/<name>/kit.yml)",
-		"kits/web.source.yml: kit source references are not supported yet",
+		"kits/stray.yml: unexpected file (a kit is kits/<name>/kit.yml or kits/<name>.source.yml)",
+		"kits/web.source.yml: version must be 1",
 		"projects/app/roles/ic.yml: kit web@v2 pins a version; versions are per-Jam — name the kit",
 		"projects/x/notes.txt: unexpected file",
 		"projects/y/context.md: no projects/y/project.yml",
@@ -223,7 +224,7 @@ func TestLoadKitsRefusesSymlinkedAncestor(t *testing.T) {
 	joined := strings.Join(tr.Refusals, "\n")
 	for _, want := range []string{
 		"kits/app/kit.yml: parent ../web is not a kit under kits/ (kits/<name>/kit.yml)",
-		"kits/web: unexpected file (kits are directories: kits/<name>/kit.yml)",
+		"kits/web: unexpected file (a kit is kits/<name>/kit.yml or kits/<name>.source.yml)",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in:\n%s", want, joined)
@@ -231,5 +232,73 @@ func TestLoadKitsRefusesSymlinkedAncestor(t *testing.T) {
 	}
 	if len(tr.Kits) != 0 {
 		t.Fatalf("kits %+v", tr.Kits)
+	}
+}
+
+func TestLoadConfigTreeKitSources(t *testing.T) {
+	tr := treeOf(t, map[string]string{
+		"kits/app.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n",
+	})
+	if len(tr.Refusals) > 0 {
+		t.Fatal(tr.Refusals)
+	}
+	ref := tr.KitSources["app"]
+	if ref.Path != "kits/app.source.yml" || ref.Source != (gitsource.Source{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main"}) ||
+		ref.Commit != "" || len(tr.Kits) != 0 || tr.KitsFetched {
+		t.Fatalf("%+v kits=%v fetched=%v", ref, tr.Kits, tr.KitsFetched)
+	}
+}
+
+func TestLoadConfigTreeKitSourceRefusals(t *testing.T) {
+	tr := treeOf(t, map[string]string{
+		"kits/web/kit.yml":      "kind: studio\n",
+		"kits/web.source.yml":   "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//web@main\n",
+		"kits/nogit.source.yml": "kind: kit-source\nversion: 1\n",
+		"kits/other.source.yml": "kind: kit-source\nversion: 1\nname: else\ngit: https://github.com/acme/kits@main\n",
+		"kits/extra.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits@main\nref: main\n",
+		"kits/x.source.yaml":    "kind: kit-source\n",
+	})
+	want := []string{
+		`kits/extra.source.yml: unknown field "ref"`,
+		"kits/nogit.source.yml: git is required (<repo>[//<dir>]@<ref>)",
+		`kits/other.source.yml: name "else" does not match the file name "other"`,
+		"kits/web.source.yml: kit web is also kits/web/kit.yml",
+		"kits/x.source.yaml: use .yml",
+	}
+	if !slices.Equal(tr.Refusals, want) {
+		t.Fatalf("refusals:\n%s", strings.Join(tr.Refusals, "\n"))
+	}
+	if _, ok := tr.KitSources["web"]; ok {
+		t.Fatal("a refused duplicate is kept as a kit source")
+	}
+}
+
+func TestResolveKitEntriesPathParentsStayInTheirGroup(t *testing.T) {
+	set := []kitSetEntry{
+		{Name: "web", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}},
+		{Name: "web2", Group: "g", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}}, // the same dir in another checkout
+		{Name: "app", Group: "g", Dir: "kits/app", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}},
+	}
+	out, err := resolveKitEntries(NewMemStore(), set, nil)
+	if err != nil || out[2].Kit.Base.Kit != "web2@v1" {
+		t.Fatalf("%v %+v", err, out)
+	}
+}
+
+func TestOrderKitEntriesAcrossGroups(t *testing.T) {
+	in := []kitSetEntry{
+		{Name: "app", Group: "g", Dir: "app", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}},
+		{Name: "web", Group: "g", Dir: "web", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "base"}}},
+		{Name: "base", Dir: "kits/base", Kit: studio.StudioKit{Kind: "studio"}},
+		{Name: "x", Dir: "kits/x", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "y"}}},
+		{Name: "y", Dir: "kits/y", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "x"}}},
+	}
+	out, cycle := orderKitEntries(in)
+	var names []string
+	for _, e := range out {
+		names = append(names, e.Name)
+	}
+	if !slices.Equal(names, []string{"base", "web", "app"}) || !slices.Equal(cycle, []string{"x", "y"}) {
+		t.Fatalf("order %v cycle %v", names, cycle)
 	}
 }

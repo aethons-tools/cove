@@ -357,6 +357,12 @@ func (p *planner) planKits() {
 	for _, e := range kits {
 		p.repo[ConfigKey{ConfigKindKit, e.Name}] = true
 	}
+	for n := range p.in.Tree.KitSources {
+		p.repo[ConfigKey{ConfigKindKit, n}] = true // an unfetched source is a refusal, never a delete
+	}
+	if len(p.in.Tree.KitSources) > 0 && !p.in.Tree.KitsFetched {
+		p.refuse("kits: the kit sources (kits/<name>.source.yml) were not fetched")
+	}
 	entries, err := resolveKitEntries(p.store, kits, nil)
 	if err != nil {
 		p.refuse("kits: %s", err)

@@ -431,3 +431,19 @@ func TestPlanRoomBindingOrderIsNotAChange(t *testing.T) {
 		t.Fatalf("%+v %+v", o, p.write.Channels)
 	}
 }
+
+// Until the config apply fetches kit sources, a .source.yml is refused, and
+// the managed kit it names is never planned as a delete.
+func TestPlanRefusesUnfetchedKitSources(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"}), false))
+	p := planOn(t, st, treeOf(t, map[string]string{
+		"kits/app.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n",
+	}), false)
+	if !slices.Contains(p.Refusals, "kits: the kit sources (kits/<name>.source.yml) were not fetched") {
+		t.Fatalf("refusals %v", p.Refusals)
+	}
+	if op := opOf(p, ConfigKindKit, "app"); op.Action == ConfigDelete {
+		t.Fatalf("an unfetched source plans a delete: %+v", op)
+	}
+}

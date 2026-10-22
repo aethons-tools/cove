@@ -24,6 +24,7 @@ import (
 type kitSetEntry struct {
 	Name      string
 	Dir       string           // source dir in the checkout ("" = the root)
+	Group     string           // the checkout path refs resolve in: "" = the config tree or a kit import's; else a .source.yml's (kitGroupKey)
 	Kit       studio.StudioKit // with path refs rewritten to name@vN
 	Version   int              // the version this import leaves it at
 	Unchanged bool
@@ -148,7 +149,7 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 		e := &out[i]
 		if p, isPath := e.Kit.Base.ParentPath(); isPath {
 			want := path.Join(checkoutDir(e.Dir), p)
-			j := slices.IndexFunc(out[:i], func(o kitSetEntry) bool { return checkoutDir(o.Dir) == want })
+			j := slices.IndexFunc(out[:i], func(o kitSetEntry) bool { return o.Group == e.Group && checkoutDir(o.Dir) == want })
 			if j < 0 {
 				return nil, writeErr(http.StatusBadRequest, "parent path %s (of %s) is not in this set", p, e.Name)
 			}
