@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"net/http"
@@ -66,16 +66,16 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
 
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != 200 {
-		t.Fatalf("GET /me/ = %d, want 200", rec.Code)
+		t.Fatalf("GET /app/user/ = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Jam", "New message", "eng", "hi from alice", "/me/static/htmx.min.js"} {
+	for _, want := range []string{"Jam", "New message", "eng", "hi from alice", "/app/static/htmx.min.js"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing %q", want)
 		}
@@ -98,7 +98,7 @@ func TestInboxFullPageRendersRailAndConversation(t *testing.T) {
 func TestInboxComposerSendsOnShiftEnter(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -123,17 +123,17 @@ func TestInboxComposerSendsOnShiftEnter(t *testing.T) {
 func TestInboxRefreshesOnLivePush(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// The page listens on /me/events and fires meChanged, which the rail and
+	// The page listens on /app/user/events and fires meChanged, which the rail and
 	// stream refresh on (a 30s poll is the fallback); a push blocked by a text
 	// selection is replayed once the selection clears, and a reconnect catches
 	// up on anything missed while the stream was down.
 	for _, want := range []string{
-		"new EventSource('/me/events')", "addEventListener('changed'", "htmx.trigger(document.body, 'meChanged')",
+		"new EventSource('/app/user/events')", "addEventListener('changed'", "htmx.trigger(document.body, 'meChanged')",
 		"selectionchange", `hx-trigger="meChanged from:body, every 30s"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -145,7 +145,7 @@ func TestInboxRefreshesOnLivePush(t *testing.T) {
 func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -163,7 +163,7 @@ func TestStreamSticksToBottomOnNewMessages(t *testing.T) {
 func TestConversationOpensAndSendsAtBottom(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -181,7 +181,7 @@ func TestConversationOpensAndSendsAtBottom(t *testing.T) {
 func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -199,12 +199,12 @@ func TestStreamPollPausesWhileTextSelected(t *testing.T) {
 func TestStreamFragmentIsMessagesOnly(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/stream?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
-		t.Fatalf("GET /me/stream = %d, want 200", rec.Code)
+		t.Fatalf("GET /app/user/stream = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "hi from alice") {
@@ -221,11 +221,11 @@ func TestStreamFragmentIsMessagesOnly(t *testing.T) {
 func TestInboxFailsClosedWithoutParticipant(t *testing.T) {
 	e, _ := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/", nil) // no WithParticipant
+	req := httptest.NewRequest("GET", "/app/user/", nil) // no WithParticipant
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 401 {
-		t.Fatalf("no-participant /me/ = %d, want 401", rec.Code)
+		t.Fatalf("no-participant /app/user/ = %d, want 401", rec.Code)
 	}
 }
 
@@ -234,14 +234,14 @@ func TestMarkReadCommitsCursor(t *testing.T) {
 	h := Handler(e.Deps, nil)
 
 	form := url.Values{"channel": {engID}, "seq": {"1"}}
-	req := httptest.NewRequest("POST", "/me/read", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/app/user/read", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != 204 {
-		t.Fatalf("POST /me/read = %d, want 204", rec.Code)
+		t.Fatalf("POST /app/user/read = %d, want 204", rec.Code)
 	}
 	if got := e.st.ChannelReads(p.UserID)[engID]; got != 1 {
 		t.Errorf("cursor = %d, want 1", got)
@@ -252,7 +252,7 @@ func TestMarkReadCommitsCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	form = url.Values{"channel": {string(other.ID)}, "seq": {"5"}}
-	req = httptest.NewRequest("POST", "/me/read", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest("POST", "/app/user/read", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.ServeHTTP(httptest.NewRecorder(), jam.WithParticipant(req, p))
 	if _, ok := e.st.ChannelReads(p.UserID)[other.ID]; ok {
@@ -265,7 +265,7 @@ func TestStreamRendersMarkdownAndPlain(t *testing.T) {
 	e.post(e.alice.ID, "**bold** <script>x</script>", intercom.ContentMarkdown)
 	e.post(e.alice.ID, "**literal** a_b", intercom.ContentPlain)
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/stream?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/stream?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -283,7 +283,7 @@ func TestStreamRendersMarkdownAndPlain(t *testing.T) {
 func TestComposerOffersPlainTextOptOut(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -303,7 +303,7 @@ func TestComposerOffersPlainTextOptOut(t *testing.T) {
 func TestComposerPastesAsCodeBlock(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -328,7 +328,7 @@ func TestComposerPastesAsCodeBlock(t *testing.T) {
 func TestComposerDraftStack(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -350,7 +350,7 @@ func TestComposerDraftStack(t *testing.T) {
 func TestComposerKeepsReply(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -371,7 +371,7 @@ func TestComposerKeepsReply(t *testing.T) {
 func TestCopyControls(t *testing.T) {
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -394,7 +394,7 @@ func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 	e, p := fixture()
 	e.post(e.alice.ID, "**bold** & <b>", "")
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil)
+	req := httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil)
 	req = jam.WithParticipant(req, p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -419,7 +419,7 @@ func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 func railFor(t *testing.T, h http.Handler, p jam.Participant) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/rail", nil), p))
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/rail", nil), p))
 	return rec.Body.String()
 }
 
@@ -448,7 +448,7 @@ func TestRailUnreadAndHistory(t *testing.T) {
 	h := Handler(e.Deps, nil)
 
 	rail := railFor(t, h, p)
-	for _, want := range []string{">bob<", `<span class="badge unread">1</span>`, "History (before the upgrade)", `href="/me/?c=legacy%3a`} {
+	for _, want := range []string{">bob<", `<span class="badge unread">1</span>`, "History (before the upgrade)", `href="/app/user/?c=legacy%3a`} {
 		if !strings.Contains(rail, want) {
 			t.Errorf("rail missing %q:\n%s", want, rail)
 		}
@@ -461,12 +461,12 @@ func TestRailUnreadAndHistory(t *testing.T) {
 	}
 
 	// A History conversation reads but takes no reply.
-	i := strings.Index(rail, `href="/me/?c=legacy%3a`)
-	id := rail[i+len(`href="/me/?c=`) : i+strings.Index(rail[i:], `">`)]
+	i := strings.Index(rail, `href="/app/user/?c=legacy%3a`)
+	id := rail[i+len(`href="/app/user/?c=`) : i+strings.Index(rail[i:], `">`)]
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+id, nil), p))
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/?c="+id, nil), p))
 	body := rec.Body.String()
-	if !strings.Contains(body, "from the old log") || !strings.Contains(body, `<div class="cv-readonly">`) || strings.Contains(body, `hx-post="/me/read"`) {
+	if !strings.Contains(body, "from the old log") || !strings.Contains(body, `<div class="cv-readonly">`) || strings.Contains(body, `hx-post="/app/user/read"`) {
 		t.Errorf("history conversation (%q) = %s", id, body[strings.Index(body, `<section class="convo"`):])
 	}
 
@@ -509,7 +509,7 @@ func postAs(t *testing.T, h http.Handler, p jam.Participant, path string, form u
 func pageFor(t *testing.T, h http.Handler, p jam.Participant, c string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(c), nil), p))
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(c), nil), p))
 	return rec.Body.String()
 }
 
@@ -532,35 +532,35 @@ func TestCallInLeaveJoin(t *testing.T) {
 	h := Handler(e.Deps, nil)
 
 	page := pageFor(t, h, p, engID)
-	for _, want := range []string{`hx-post="/me/leave"`, `hx-post="/me/call-in"`, `value="user:` + string(bob) + `"`} {
+	for _, want := range []string{`hx-post="/app/user/leave"`, `hx-post="/app/user/call-in"`, `value="user:` + string(bob) + `"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("member's page lacks %q", want)
 		}
 	}
-	if strings.Contains(page, `hx-post="/me/join"`) {
+	if strings.Contains(page, `hx-post="/app/user/join"`) {
 		t.Error("a member is offered Join")
 	}
-	if rec := postAs(t, h, p, "/me/call-in", url.Values{"channel": {engID}, "who": {"user:" + string(bob)}}); rec.Code != 204 || !isIn(e.st, e.room.ID, bob) {
+	if rec := postAs(t, h, p, "/app/user/call-in", url.Values{"channel": {engID}, "who": {"user:" + string(bob)}}); rec.Code != 204 || !isIn(e.st, e.room.ID, bob) {
 		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
 	}
-	if rec := postAs(t, h, p, "/me/leave", url.Values{"channel": {engID}}); rec.Code != 204 || isIn(e.st, e.room.ID, p.UserID) {
+	if rec := postAs(t, h, p, "/app/user/leave", url.Values{"channel": {engID}}); rec.Code != 204 || isIn(e.st, e.room.ID, p.UserID) {
 		t.Fatalf("leave = %d %s", rec.Code, rec.Body)
 	}
-	if page := pageFor(t, h, p, engID); !strings.Contains(page, `hx-post="/me/join"`) || strings.Contains(page, `hx-post="/me/leave"`) {
+	if page := pageFor(t, h, p, engID); !strings.Contains(page, `hx-post="/app/user/join"`) || strings.Contains(page, `hx-post="/app/user/leave"`) {
 		t.Errorf("a non-member who can see the room is offered Join, not Leave:\n%s", page)
 	}
-	if rec := postAs(t, h, p, "/me/join", url.Values{"channel": {engID}}); rec.Code != 204 || !isIn(e.st, e.room.ID, p.UserID) {
+	if rec := postAs(t, h, p, "/app/user/join", url.Values{"channel": {engID}}); rec.Code != 204 || !isIn(e.st, e.room.ID, p.UserID) {
 		t.Fatalf("join = %d %s", rec.Code, rec.Body)
 	}
 	for path, form := range map[string]url.Values{
-		"/me/join":    {"channel": {"chn_01j9q3zzzzzzzzzzzzzzzzzz"}},
-		"/me/call-in": {"channel": {engID}, "who": {"user:nobody"}},
+		"/app/user/join":    {"channel": {"chn_01j9q3zzzzzzzzzzzzzzzzzz"}},
+		"/app/user/call-in": {"channel": {engID}, "who": {"user:nobody"}},
 	} {
 		if rec := postAs(t, h, p, path, form); rec.Code == 204 {
 			t.Errorf("%s %v succeeded", path, form)
 		}
 	}
-	if rec := postAs(t, h, p, "/me/join", url.Values{}); rec.Code != http.StatusBadRequest {
+	if rec := postAs(t, h, p, "/app/user/join", url.Values{}); rec.Code != http.StatusBadRequest {
 		t.Errorf("join with no channel = %d", rec.Code)
 	}
 }

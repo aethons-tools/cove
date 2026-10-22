@@ -54,12 +54,12 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
-	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
+	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -2642,9 +2642,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			sendH.SetAttachments(att)
 			meSurface.Handle("/me/send", sendH)
 			// The inbox reads the same channel log, and the legacy log as History.
-			var meOpts []meui.Option
-			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, meOpts...))
+			var meOpts []userui.Option
+			meOpts = append(meOpts, userui.WithChanges(logChanges), userui.WithPresence(sessPresence))
+			meSurface.Handle("/me/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, meOpts...))
 			// Writes (/me/send, /me/read, /me/join|leave|call-in, /me/asks/{id}/answer) must come from
 			// the page itself: the session cookie alone (SameSite=Lax) lets a
 			// sibling subdomain post as the user.

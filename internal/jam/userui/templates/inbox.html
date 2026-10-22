@@ -1,12 +1,12 @@
 {{define "content"}}{{template "rail" .}}{{template "pane" .}}{{end}}
 
 {{define "rail"}}
-<nav class="rail" id="rail" hx-get="/me/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
+<nav class="rail" id="rail" hx-get="/app/user/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
   {{range .Groups}}
     <div class="group{{if eq (printf "%s" .Bucket) "needs-you"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
       {{range .Rows}}
-        <a class="thread{{if .Selected}} sel{{end}}" href="/me/?c={{.ID}}">
+        <a class="thread{{if .Selected}} sel{{end}}" href="/app/user/?c={{.ID}}">
           <span class="pin {{if .NeedsYou}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
           <span class="cove">{{.Label}}</span>
           {{if gt .OpenAsks 0}}<span class="badge asks" title="open asks">?{{.OpenAsks}}</span>{{end}}
@@ -22,7 +22,7 @@
 
 {{/* The pane itself does NOT refresh — only #stream does (innerHTML), so the
      header and composer (and a half-typed reply) survive. #stream and the rail
-     refresh on meChanged (live push from /me/events, see layout.html) with a
+     refresh on meChanged (live push from /app/user/events, see layout.html) with a
      30s poll as the fallback. The refresh skips while text inside #stream is
      selected (meSelecting), since a swap would drop the selection mid-copy. */}}
 {{define "pane"}}
@@ -35,17 +35,17 @@
       </div>
       <span class="spacer"></span>
       {{if .NeedsYou}}<span class="chip">Needs you</span>{{end}}
-      {{if .CallIn}}<form class="callin" hx-post="/me/call-in" hx-swap="none"><input type="hidden" name="channel" value="{{.ChannelID}}"><select name="who" aria-label="Call in">{{range .CallIn}}<option value="{{.To}}">{{.Label}} ({{.Kind}})</option>{{end}}</select><button type="submit">Call in</button></form>{{end}}
-      {{if .CanJoin}}<button type="button" hx-post="/me/join" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Join</button>{{end}}
-      {{if .CanLeave}}<button type="button" hx-post="/me/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
+      {{if .CallIn}}<form class="callin" hx-post="/app/user/call-in" hx-swap="none"><input type="hidden" name="channel" value="{{.ChannelID}}"><select name="who" aria-label="Call in">{{range .CallIn}}<option value="{{.To}}">{{.Label}} ({{.Kind}})</option>{{end}}</select><button type="submit">Call in</button></form>{{end}}
+      {{if .CanJoin}}<button type="button" hx-post="/app/user/join" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Join</button>{{end}}
+      {{if .CanLeave}}<button type="button" hx-post="/app/user/leave" hx-vals='{"channel":"{{.ChannelID}}"}' hx-swap="none">Leave</button>{{end}}
     </div>
-    <div id="asks" hx-get="/me/asks?c={{.ChannelID}}" hx-trigger="meChanged from:body, every 30s" hx-swap="innerHTML">{{template "askpanel" $}}</div>
-    <div class="stream" id="stream" hx-get="/me/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]" hx-swap="innerHTML">
+    <div id="asks" hx-get="/app/user/asks?c={{.ChannelID}}" hx-trigger="meChanged from:body, every 30s" hx-swap="innerHTML">{{template "askpanel" $}}</div>
+    <div class="stream" id="stream" hx-get="/app/user/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]" hx-swap="innerHTML">
       {{template "messages" $}}
     </div>
-    <div class="presence" id="presence" hx-get="/me/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
+    <div class="presence" id="presence" hx-get="/app/user/presence?c={{.ChannelID}}" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="innerHTML">{{template "sessions" $}}</div>
     {{if .SendTo}}
-    <div hx-post="/me/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
+    <div hx-post="/app/user/read" hx-vals='{"channel":"{{.ChannelID}}","seq":{{.LastSeq}}}' hx-trigger="load" hx-swap="none"></div>
     <div class="composer">
       <form onsubmit="return meSend(event, this.dataset.to)" data-to="{{.SendTo}}">
         {{if $.AttachMax}}<div class="att-chips"></div>{{end}}
@@ -63,12 +63,12 @@
 {{end}}
 
 {{/* sessions renders the presence strip: one line per session taking part,
-     like a typing indicator. It is the /me/presence refresh target, pushed by
+     like a typing indicator. It is the /app/user/presence refresh target, pushed by
      the `presence` event (a session's status changed). Kept on one line so an
      empty strip has no whitespace and collapses (.presence:empty). */}}
 {{define "sessions"}}{{with .Conv}}{{range .Sessions}}<div class="sess {{.Class}}"><span class="sname">{{.Label}}</span> {{.Text}}{{if .Tool}} <b>{{.Tool}}</b>{{end}}{{if eq .Class "busy"}}<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{{end}}</div>{{end}}{{end}}{{end}}
 
-{{/* messages renders just the conversation's message list; it is the /me/stream
+{{/* messages renders just the conversation's message list; it is the /app/user/stream
      poll target, so a refresh never touches the composer. */}}
 {{define "messages"}}
 {{with .Conv}}
@@ -80,7 +80,7 @@
       {{with .ReAsk}}<a class="re-ask" href="#ask-{{.ID}}">re: {{.Question}}</a>{{end}}
       <span class="from">{{if .Mine}}you{{else}}{{.From}}{{end}}<span class="acts"><button type="button" class="copy-text" onclick="meCopyBubble(this, false)" title="Copy the message as text">Text</button><button type="button" class="copy-md" onclick="meCopyBubble(this, true)" title="Copy the message as markdown, exactly as sent">Markdown</button></span></span>
       {{if .Body}}<div class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</div>{{end}}
-      {{if .Files}}<div class="files">{{range .Files}}{{if .Image}}<a class="thumb" href="/me/blobs/{{.ID}}" target="_blank" rel="noopener"><img loading="lazy" src="/me/blobs/{{.ID}}" alt="{{.Name}}"></a>{{else}}<a class="file-chip" href="/me/blobs/{{.ID}}" download>📄 {{.Name}} <small>{{.Size}}</small></a>{{end}}{{end}}</div>{{end}}
+      {{if .Files}}<div class="files">{{range .Files}}{{if .Image}}<a class="thumb" href="/app/user/blobs/{{.ID}}" target="_blank" rel="noopener"><img loading="lazy" src="/app/user/blobs/{{.ID}}" alt="{{.Name}}"></a>{{else}}<a class="file-chip" href="/app/user/blobs/{{.ID}}" download>📄 {{.Name}} <small>{{.Size}}</small></a>{{end}}{{end}}</div>{{end}}
       <div class="body raw">{{.Raw}}</div>
       <span class="t">{{.At}}</span>
     </div>
@@ -92,7 +92,7 @@
 {{end}}
 
 {{/* askpanel lists the open conversation's open asks, so piled-up asks can
-     be answered in any order; the /me/asks refresh target. Empty when none. */}}
+     be answered in any order; the /app/user/asks refresh target. Empty when none. */}}
 {{define "askpanel"}}{{with .Conv}}{{if .OpenAsks}}<details class="asks-panel" open><summary>Open asks <span class="count">{{len .OpenAsks}}</span></summary>{{range .OpenAsks}}<a class="ask-link" href="#ask-{{.ID}}">{{.Question}}</a>{{if .For}} <span class="for">for {{.For}}</span>{{end}}{{end}}</details>{{end}}{{end}}{{end}}
 
 {{/* askcard renders an ask where it was asked, in its current state. */}}
@@ -102,7 +102,7 @@
   {{if eq .State "answered"}}<div class="ask-done">✓ {{.AnsweredBy}} chose <b>{{.Choice}}</b>{{if .Comment}} — {{.Comment}}{{end}}</div>
   {{else if eq .State "withdrawn"}}<div class="ask-done">withdrawn{{if .Reason}}: {{.Reason}}{{end}}</div>
   {{else if .CanAnswer}}
-  <form class="ask-form" hx-post="/me/asks/{{.ID}}/answer" hx-swap="none" hx-on::after-request="if(!event.detail.successful) alert(event.detail.xhr.responseText)">
+  <form class="ask-form" hx-post="/app/user/asks/{{.ID}}/answer" hx-swap="none" hx-on::after-request="if(!event.detail.successful) alert(event.detail.xhr.responseText)">
     <input type="hidden" name="version" value="{{.Version}}">
     {{range .Options}}<button type="submit" name="choice" value="{{.ID}}">{{.Label}}{{if .Detail}}<small>{{.Detail}}</small>{{end}}</button>{{end}}
     <button type="submit" name="choice" value="other" class="other">Other…</button>

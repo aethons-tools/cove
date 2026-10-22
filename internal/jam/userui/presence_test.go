@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"bufio"
@@ -61,7 +61,7 @@ func presenceFixture() (*env, jam.Participant, *fakePresence) {
 func TestPresenceRows(t *testing.T) {
 	e, p, pr := presenceFixture()
 	h := Handler(e.Deps, nil, WithPresence(pr))
-	req := jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape(engID), nil), p)
+	req := jam.WithParticipant(httptest.NewRequest("GET", "/app/user/presence?c="+url.QueryEscape(engID), nil), p)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
@@ -90,8 +90,8 @@ func TestPresenceRows(t *testing.T) {
 	}
 	// The full page carries the strip too, and the hook to refresh it.
 	full := httptest.NewRecorder()
-	h.ServeHTTP(full, jam.WithParticipant(httptest.NewRequest("GET", "/me/?c="+url.QueryEscape(engID), nil), p))
-	for _, want := range []string{`id="presence"`, `hx-get="/me/presence?c=` + engID + `"`, `mePresence from:body`, "es.addEventListener('presence'", "builder</span> is running"} {
+	h.ServeHTTP(full, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil), p))
+	for _, want := range []string{`id="presence"`, `hx-get="/app/user/presence?c=` + engID + `"`, `mePresence from:body`, "es.addEventListener('presence'", "builder</span> is running"} {
 		if !strings.Contains(full.Body.String(), want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -102,7 +102,7 @@ func TestPresenceWithoutTrackerFallsBackToPhase(t *testing.T) {
 	e, p, _ := presenceFixture()
 	h := Handler(e.Deps, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/me/presence?c="+url.QueryEscape(engID), nil), p))
+	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/presence?c="+url.QueryEscape(engID), nil), p))
 	if body := rec.Body.String(); !strings.Contains(body, "builder</span> is working") || !strings.Contains(body, "asking</span> needs you") {
 		t.Errorf("without a tracker, live sessions read as working:\n%s", body)
 	}
@@ -113,7 +113,7 @@ func TestEventsStreamsPresenceSignal(t *testing.T) {
 	srv := eventsServer(t, Handler(e.Deps, nil, WithPresence(pr)), p)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/me/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/app/user/events", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

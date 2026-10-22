@@ -13,7 +13,7 @@ try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.class
 </script>
 <link rel="stylesheet" href="{{stylesheet}}">
 <style>
-/* Tokens and base: jam.css (shared with /ui). Intercom components below. */
+/* Tokens and base: jam.css (shared with /app/admin). Intercom components below. */
 html,body{height:100%}
 body{display:flex;flex-direction:column}
 .mono,.cove,.tkt{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
@@ -170,7 +170,7 @@ html.raw .msg .body.raw{display:block}
 <div class="panes">
 {{template "content" .}}
 </div>
-<script src="/me/static/htmx.min.js"></script>
+<script src="/app/static/htmx.min.js"></script>
 <script>
 // meSelecting reports a non-empty text selection touching #stream. It filters
 // the stream's refresh: swapping the list would replace the selected text nodes
@@ -207,7 +207,7 @@ function meScrollToEnd(s, behavior){
 }
 // Opening a conversation is a full page load: start at its end.
 meScrollToEnd(document.getElementById('stream'));
-// Live push: /me/events sends a payload-free `changed` on each intercom-log
+// Live push: /app/user/events sends a payload-free `changed` on each intercom-log
 // append; fire meChanged so the rail and the open conversation refetch their
 // own fragments (the 30s poll is the fallback, e.g. for a session going
 // Waiting, which appends nothing). A push that arrives while text in #stream is
@@ -222,7 +222,7 @@ meScrollToEnd(document.getElementById('stream'));
     pending=false;
     htmx.trigger(document.body, 'meChanged');
   }
-  var es=new EventSource('/me/events');
+  var es=new EventSource('/app/user/events');
   es.addEventListener('changed', changed);
   // A session's status changed: refetch only the presence strip (it never
   // touches #stream, so no selection guard is needed).
@@ -239,7 +239,7 @@ function meDiscuss(id, btn){
   if(!f.body.value) f.body.value='re: '+q+'\n';
   f.body.focus();
 }
-// meAttach uploads files to /me/uploads as pending attachments of form f:
+// meAttach uploads files to /app/user/uploads as pending attachments of form f:
 // one chip each (name, progress, ✕); a done chip carries its ref.
 function meAttach(f, files){
   var box=f.querySelector('.att-chips'); if(!box||!files) return;
@@ -251,7 +251,7 @@ function meAttach(f, files){
     var xhr=new XMLHttpRequest();
     x.onclick=function(){ xhr.abort(); chip.remove(); };
     chip.appendChild(x); box.appendChild(chip);
-    xhr.open('POST','/me/uploads');
+    xhr.open('POST','/app/user/uploads');
     xhr.setRequestHeader('Content-Type', file.type||'application/octet-stream');
     xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
     xhr.upload.onprogress=function(ev){ if(ev.lengthComputable) pr.value=100*ev.loaded/ev.total; };
@@ -292,7 +292,7 @@ function meSend(e, to){
   if(f.querySelector('.att-chip.uploading')){ alert('Still uploading…'); return false; }
   var refs=Array.prototype.map.call(f.querySelectorAll('.att-chip[data-ref]'), function(c){ return c.dataset.ref; });
   if(!body && !refs.length) return false;
-  fetch('/me/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
+  fetch('/app/user/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,body:body,
     // Markdown is the default; the per-message "Plain text" box opts out.
     content_type: f.plain && f.plain.checked ? 'text/plain' : undefined,
     reply_to: f.dataset.replyTo || undefined,
@@ -310,7 +310,7 @@ function meSend(e, to){
        // A send always ends at the bottom, wherever the view was: scroll once
        // this refresh has swapped (not on the next swap, which a push/poll refresh
        // without the new message could win).
-       if(s){ htmx.ajax('GET','/me/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}).then(function(){ meScrollToEnd(s, 'smooth'); }); }
+       if(s){ htmx.ajax('GET','/app/user/stream?c='+encodeURIComponent(to),{target:'#stream',swap:'innerHTML'}).then(function(){ meScrollToEnd(s, 'smooth'); }); }
      } else { alert('Send failed ('+r.status+')'); }
    });
   return false;

@@ -1,10 +1,10 @@
 //go:build browser
 
-// Browser tests drive the real /me page in headless Chrome, covering the
+// Browser tests drive the real /app/user page in headless Chrome, covering the
 // composer JS that the string-presence tests in handler_test.go can only see as
 // source. Run with `just test-browser`; each test skips when no browser is
 // installed (see browserCtx).
-package meui
+package userui
 
 import (
 	"context"
@@ -92,7 +92,7 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	// must grow to four backticks.
 	var wrapped string
 	err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		copy(srv.URL, "a ```b``` c"),
 		chromedp.SendKeys(box, "see:", chromedp.ByQuery),
@@ -128,9 +128,9 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	ctx := browserCtx(t)
 	e, p := fixture()
 	h := Handler(e.Deps, nil)
-	// /me/send lives outside this package; answer it as a successful send.
+	// /app/user/send lives outside this package; answer it as a successful send.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/me/send" {
+		if r.URL.Path == "/app/user/send" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -138,7 +138,7 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	box := `.composer textarea`
-	conv := srv.URL + "/me/?c=" + url.QueryEscape(engID)
+	conv := srv.URL + "/app/user/?c=" + url.QueryEscape(engID)
 
 	// A half-typed reply survives leaving the conversation (a full page load)
 	// and coming back.
@@ -147,7 +147,7 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 		chromedp.Navigate(conv),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		chromedp.SendKeys(box, "half typed", chromedp.ByQuery),
-		chromedp.Navigate(srv.URL+"/me/"),
+		chromedp.Navigate(srv.URL+"/app/user/"),
 		chromedp.Navigate(conv),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		chromedp.Value(box, &kept, chromedp.ByQuery),
@@ -205,7 +205,7 @@ func TestBrowserCopyButtons(t *testing.T) {
 		return got
 	}
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg.agent pre`, chromedp.ByQuery),
 	); err != nil {
 		t.Fatal(err)
@@ -303,7 +303,7 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	var viewport float64
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg .body.md pre`, chromedp.ByQuery),
 		chromedp.Evaluate(`window.innerWidth`, &viewport),
 		chromedp.Evaluate(`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
@@ -340,14 +340,14 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
 	t.Cleanup(srv.Close)
-	// The page holds /me/events open; drop it so Close doesn't wait on it.
+	// The page holds /app/user/events open; drop it so Close doesn't wait on it.
 	t.Cleanup(srv.CloseClientConnections)
 
 	// The strip sits between the message list and the composer.
 	var order bool
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`#presence .sess.busy .dots`, chromedp.ByQuery),
 		chromedp.Evaluate(`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
 			p=document.getElementById('presence').getBoundingClientRect(),
@@ -361,7 +361,7 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 		t.Error("presence strip should sit between the messages and the composer")
 	}
 
-	// A status change pushed on /me/events updates the strip in place.
+	// A status change pushed on /app/user/events updates the strip in place.
 	mu.Lock()
 	pr.st["busy"] = sessionevents.Status{State: sessionevents.StatusWriting}
 	mu.Unlock()

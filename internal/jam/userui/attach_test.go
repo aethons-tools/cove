@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 
 func TestComposerAttachWiring(t *testing.T) {
 	e, p := fixture()
-	off := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	off := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	if strings.Contains(off, `class="attach-btn"`) {
 		t.Error("attachments off: no 📎")
 	}
 	e.Deps.Attachments = jam.NewAttachments(e.lg, blobstore.NewMem(), e.Intercom, 25<<20)
-	on := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
-	for _, want := range []string{`class="attach-btn"`, `type="file"`, "function meAttach(", "'/me/uploads'", "X-Filename", "attachments:", "clipboardData", "addEventListener('drop'", `class="att-chips"`} {
+	on := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
+	for _, want := range []string{`class="attach-btn"`, `type="file"`, "function meAttach(", "'/app/user/uploads'", "X-Filename", "attachments:", "clipboardData", "addEventListener('drop'", `class="att-chips"`} {
 		if !strings.Contains(on, want) {
 			t.Errorf("composer missing %q", want)
 		}
@@ -36,8 +36,8 @@ func TestMessageFilesRender(t *testing.T) {
 	if _, err := e.Intercom.PostTrusted(e.room, intercom.Squawk{From: e.alice.ID, Body: att.Names([]string{string(img.ID), string(pdf.ID)}), Parts: parts}); err != nil {
 		t.Fatal(err)
 	}
-	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
-	for _, want := range []string{`<img loading="lazy" src="/me/blobs/` + string(img.ID) + `"`, `class="file-chip" href="/me/blobs/` + string(pdf.ID) + `"`, "spec.pdf", "4 B"} {
+	body := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
+	for _, want := range []string{`<img loading="lazy" src="/app/user/blobs/` + string(img.ID) + `"`, `class="file-chip" href="/app/user/blobs/` + string(pdf.ID) + `"`, "spec.pdf", "4 B"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("message missing %q", want)
 		}
@@ -53,7 +53,7 @@ func TestMessageFilesRender(t *testing.T) {
 func TestComposerAttachRobustness(t *testing.T) {
 	e, p := fixture()
 	e.Deps.Attachments = jam.NewAttachments(e.lg, blobstore.NewMem(), e.Intercom, 25<<20)
-	on := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	on := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	for _, want := range []string{"xhr.onerror=", "xhr.onabort=", "getData('text/plain')", "var b=m.querySelector('.body:not(.raw)')", "max 25 MB each"} {
 		if !strings.Contains(on, want) {
 			t.Errorf("page missing %q", want)

@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"bufio"
@@ -17,7 +17,7 @@ type fakeChanges struct{ ch chan struct{} }
 
 func (f *fakeChanges) Subscribe() (<-chan struct{}, func()) { return f.ch, func() {} }
 
-// eventsServer serves h with the participant injected, as the /me gate would.
+// eventsServer serves h with the participant injected, as the /app/user gate would.
 func eventsServer(t *testing.T, h http.Handler, p jam.Participant) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +57,7 @@ func TestEventsStreamsChangedOnEachSignal(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/me/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/app/user/events", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestEventsWithoutChangeSourceIs204(t *testing.T) {
 	// 204 tells EventSource to stop reconnecting; the page falls back to polling.
 	e, p := fixture()
 	srv := eventsServer(t, Handler(e.Deps, nil), p)
-	resp, err := http.Get(srv.URL + "/me/events")
+	resp, err := http.Get(srv.URL + "/app/user/events")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestEventsRequiresParticipant(t *testing.T) {
 	e, _ := fixture()
 	h := Handler(e.Deps, nil, WithChanges(&fakeChanges{ch: make(chan struct{})}))
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/me/events", nil))
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/app/user/events", nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("events without a participant = %d, want 403", rec.Code)
 	}
