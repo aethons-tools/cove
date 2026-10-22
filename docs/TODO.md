@@ -4,7 +4,7 @@ read_when: You want the loose backlog of known follow-ups not yet filed as ticke
 owns: the informal TODO backlog
 prereqs: none
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-22
 ---
 
 * Special `.claude.json` file handling:
@@ -36,3 +36,9 @@ updated: 2026-10-07
   bots). Serve config names one connection per block today, the relay runs one engine
   per service, and its cursor/marker state files are keyed by service: re-key them by
   connection id (spec slice 1 §7) when relays run per connection.
+* Studio SSH: Jam-signed **host** certificates. Sign each studio's sshd host key with the
+  SSH CA at raise (`HostCertificate`), and have `at-jam ssh-config`/`ssh` trust it via a
+  `@cert-authority` known_hosts entry, so no studio's key is ever prompted for or pinned:
+  a rebuilt or upgraded studio stops failing with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+  Today `StrictHostKeyChecking accept-new` only removes the first-connect prompt
+  ([collaboration.md](usage/jam/collaboration.md)).

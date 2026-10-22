@@ -394,6 +394,10 @@ func (t sshTarget) sshOptions() [][2]string {
 		{"IdentityFile", sshConfigPath(sshKeyPath())},
 		{"CertificateFile", sshConfigPath(sshCertPath(t.app, t.studio))},
 		{"IdentitiesOnly", "yes"},
+		// An IDE runs ssh with no terminal, so a first-connect host-key prompt
+		// would just fail it. The hop is Jam's authenticated tunnel to this one
+		// studio; the key is still pinned, so a later change is refused.
+		{"StrictHostKeyChecking", "accept-new"},
 	}
 }
 

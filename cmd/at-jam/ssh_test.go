@@ -178,7 +178,7 @@ func TestSSHConfigBlock(t *testing.T) {
 	if code := run([]string{"ssh-config", "ses_a"}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	for _, want := range []string{"Host jam-ses_a", "ProxyCommand /opt/jam/dist/linux-amd64/at-jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile "} {
+	for _, want := range []string{"Host jam-ses_a", "ProxyCommand /opt/jam/dist/linux-amd64/at-jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile ", "StrictHostKeyChecking accept-new"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, out.String())
 		}
@@ -455,7 +455,7 @@ func TestSSHExecsSSHAfterFreshCert(t *testing.T) {
 		t.Fatalf("exec %s %v", gotPath, gotArgv)
 	}
 	joined := strings.Join(gotArgv, "\x00")
-	for _, want := range []string{"User=agent", "ProxyCommand=/usr/local/bin/at-jam ssh-proxy --admin-url '" + j.URL + "' --operator ses_a", "CertificateFile=", "IdentityFile=", "jam-ses_a\x00-L\x003000:localhost:3000\x00ls"} {
+	for _, want := range []string{"User=agent", "ProxyCommand=/usr/local/bin/at-jam ssh-proxy --admin-url '" + j.URL + "' --operator ses_a", "CertificateFile=", "IdentityFile=", "StrictHostKeyChecking=accept-new", "jam-ses_a\x00-L\x003000:localhost:3000\x00ls"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv missing %q: %q", want, gotArgv)
 		}
