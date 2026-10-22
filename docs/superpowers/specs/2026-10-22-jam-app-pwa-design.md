@@ -222,7 +222,8 @@ bar uses `j-logo-plain.svg` directly.
 - **Title bar** — per principal: exactly the right tabs, current tab marked,
   principal menu contents (sign-out absent for `Local`).
 - **Redirects** — every former `GET /ui/*` and `/me/*` UI route → 308 to its
-  `/app` path, query preserved; `/me/send`, `/me/studios/*`, `/admin/*` unchanged.
+  `/app` path, query preserved (`/me/send` → `/app/user/send`); `/me/studios/*`
+  and `/admin/*` unchanged.
 - **CSRF** — cross-origin writes refused on both areas.
 - **PWA** — manifest is valid JSON with the right scope, start URL and icons;
   manifest, `sw.js` and icons served ungated with correct content types; every
