@@ -130,7 +130,7 @@ func TestExportConfigTreeManagedOnly(t *testing.T) {
 	if !strings.Contains(exp.Files["kits/app/kit.yml"], "kit: web-dev@v1\n") {
 		t.Fatal("a parent outside the tree must keep its stored ref")
 	}
-	want := []string{"destinations/gone.yml", "projects/old/context.md", "projects/old/project.yml"}
+	want := []string{"destinations/gone.yml", "kits/app.source.yml", "projects/old/context.md", "projects/old/project.yml"} // an inline kit's other form
 	if !slices.Equal(exp.Remove, want) {
 		t.Fatalf("remove = %v, want %v", exp.Remove, want)
 	}
@@ -218,5 +218,63 @@ func TestExportConfigTreeBehindPinDeterministic(t *testing.T) {
 		if _, err := ExportConfigTree(st.ExportConfig(), nil, nil, true); err == nil || !strings.HasPrefix(err.Error(), "kit app pins") {
 			t.Fatalf("err = %v", err)
 		}
+	}
+}
+
+func TestExportRendersTrackedKitAsSourceFile(t *testing.T) {
+	st, _ := trackedFixture(t)
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := exp.Files["kits/web-dev.source.yml"]; got != "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//web@main\n" {
+		t.Fatalf("source file %q", got)
+	}
+	if _, ok := exp.Files["kits/web-dev/kit.yml"]; ok {
+		t.Fatal("a tracked kit is also written inline")
+	}
+}
+
+func TestKitCanonCarriesTrackedSource(t *testing.T) {
+	st, _ := trackedFixture(t)
+	objs, err := exportObjects(stateFromSnapshot(st.ExportConfig(), nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, _ := st.GetKit("web-dev")
+	cfg, _ := st.KitConfig("web-dev", k.Current)
+	if got := string(objs[ConfigKey{ConfigKindKit, "web-dev"}].Canon); got != cfg+"\n# source: https://github.com/acme/kits//web@main\n" {
+		t.Fatalf("canon %q", got)
+	}
+	if string(kitCanon(cfg, nil)) != cfg {
+		t.Fatal("an untracked kit's canon is not its config")
+	}
+}
+
+func TestExportRemovesAManagedKitsOtherForm(t *testing.T) {
+	st, _ := trackedFixture(t)
+	if _, _, err := PushStudioKit(st, "app", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	marks := []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}, {Kind: ConfigKindKit, Name: "app"}, {Kind: ConfigKindKit, Name: "gone"}}
+	exp, err := ExportConfigTree(st.ExportConfig(), marks, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"kits/app.source.yml", "kits/gone.source.yml", "kits/gone/kit.yml", "kits/web-dev/kit.yml"}
+	if !slices.Equal(exp.Remove, want) {
+		t.Fatalf("remove %v", exp.Remove)
+	}
+}
+
+func TestExportRefusesPinToSourceKit(t *testing.T) {
+	st, _ := trackedFixture(t)
+	if _, _, err := PushStudioKit(st, "app", "kind: studio\nbase:\n  kit: web-dev@v1\n"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	want := "kit app pins web-dev@v1, a kit from its own source (kits/web-dev.source.yml); versions are per-Jam — base app on web-dev (unpinned) before config write"
+	if !errors.Is(err, ErrConfigKitPinBehind) || err.Error() != want {
+		t.Fatalf("%v", err)
 	}
 }
