@@ -4,7 +4,7 @@ read_when: You want the loose backlog of known follow-ups not yet filed as ticke
 owns: the informal TODO backlog
 prereqs: none
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-22
 ---
 
 * Special `.claude.json` file handling:
@@ -36,3 +36,26 @@ updated: 2026-10-07
   bots). Serve config names one connection per block today, the relay runs one engine
   per service, and its cursor/marker state files are keyed by service: re-key them by
   connection id (spec slice 1 §7) when relays run per connection.
+* Studio SSH: Jam-signed **host** certificates. Sign each studio's sshd host key with the
+  SSH CA at raise (`HostCertificate`), and have `at-jam ssh-config`/`ssh` trust it via a
+  `@cert-authority` known_hosts entry, so no studio's key is ever prompted for or pinned:
+  a rebuilt or upgraded studio stops failing with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+  Today `StrictHostKeyChecking accept-new` only removes the first-connect prompt
+  ([collaboration.md](usage/jam/collaboration.md)).
+* Kit git creds: honour a `user:token` value on github.com and `gitlab` hosts too.
+  `basicAuth` (`internal/jam/gitsource/creds.go`) sends the whole value as the password
+  there (user `x-access-token`/`oauth2`), so `user:token` gets a 401, contradicting
+  [kits-git.md](usage/jam/kits-git.md). Keep the host defaults for a bare token.
+* Kit git creds: trim surrounding whitespace from a resolved `kits.git` value (kit-git
+  path only — not `secret.Resolve`, whose other consumers are byte-exact). A literal is
+  not trimmed at all and a command loses only one trailing `\n`, so a `\r\n` token file
+  fails as an opaque 401. An all-whitespace value should error, naming the cred.
+* Model-specs: warn (never refuse) when a role's spec names a `principal.credential`
+  other than the `cred_name` of the role's provider destination (matched as for header
+  rules). The broker injects the destination's credential and ignores the principal
+  ([model-specs.md](usage/jam/model-specs.md)), so the spec can silently misreport the
+  account. Surface it on the spec/role UI pages and as a WARN at serve start.
+* UI auth: don't fall back silently to the loopback operator `local` when a request
+  carries a session cookie that fails verification (`browserauth.Gate`, loopback trust).
+  A wrong `audience`/`require-scope` then reads as "sign in to request an agent" with
+  no hint; log the verification failure and/or show it in the UI.
