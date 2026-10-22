@@ -55,10 +55,9 @@ git: https://github.com/acme/kits//api@main
   inline kit of the config repo.
 - **Canonical form.** A kit's canonical form is its config plus its tracked
   `repo//dir@ref`. A managed kit therefore drifts when it changes away from
-  the repo: a push or
-  `kit sync` to content the config repo lacks, or a `kit untrack`, shows
-  `update … (drift)` on the next config diff. A `kit sync` to the same
-  content is no drift.
+  the repo: a push or `kit sync` to content the config repo lacks, or a
+  `kit untrack`, shows `update … (drift)` on the next config diff. A
+  `kit sync` to the same content is no drift.
 - **Inline kits are untracked.** An inline kit (`kits/<n>/kit.yml`) applied
   from git records `{config repo, <config dir>/kits/<n>, ref, commit}` and
   tracks nothing: the config repo owns it.
@@ -79,6 +78,9 @@ git: https://github.com/acme/kits//api@main
 - `kits/<n>.source.yml: kit <n>'s base.kit <ref> pins a version; …`: versions are per-Jam.
 - `config source: <dir> is not a directory in the repo` (400): `//dir` is
   missing, a file or a symlink.
+- `kits: N kit sources (distinct repo and ref); at most 16 per config repo`:
+  too many kit references in one tree. A plan refusal (diff shows it, apply
+  writes nothing), not a 502.
 - `no config source is tracked (use config track --git <source>, or --dir)` (409).
 
 Logs name a source as `repo//dir@ref` (an upload: `dir`), never with userinfo.
@@ -94,7 +96,7 @@ Audit: `config tracked` (operator, source, commit), `config untracked`
 | `DELETE /admin/config/source` | Untrack (204, also when none). |
 | `POST /admin/config/sync?force=1&plan=<digest>` | Apply the tracked source; body `{}` (any other Content-Type is 415). |
 
-Statuses: refused, stale or untracked 409; bad source or dir 400; fetch,
+Statuses: refused (including the 16-source cap), stale or untracked 409; bad source or dir 400; fetch,
 auth, limit or timeout (`config fetch timed out`) failure 502; a serve with
 no fetcher 503.
 

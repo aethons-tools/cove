@@ -12,7 +12,8 @@ updated: 2026-10-22
 `at-jam config` turns a Jam's configuration into a directory of small YAML
 files you review and merge like code, and plans/applies such a directory back
 onto a Jam. For a one-file snapshot instead, see [backup.md](backup.md).
-A Jam can also follow a config repo in git, and reference kits by their own source: see [config-git-sources.md](config-git-sources.md).
+A Jam can also follow a config repo in git, and reference kits by their own
+source: see [config-git-sources.md](config-git-sources.md).
 
 ## Layout
 
@@ -82,7 +83,8 @@ refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are
 per-Jam — name the kit`; in a kit's `base.kit`, `kits/<n>/kit.yml: base.kit
 <ref> pins a version; versions are per-Jam — name the kit or use a path
 parent`. Versions
-written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref and commit).
+written by `--dir` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
+and commit).
 `config write` renders a kit's parent as a path parent only when its pin
 equals the parent's current version (apply re-pins to current). A kit the
 write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the write (409 on the route): `kit <child> pins <parent>@v<N>
@@ -106,7 +108,8 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 
 Operator loop: `config write --all` once, `git diff`, commit; afterwards edit,
 `config diff`, `config apply`. A plan with no create/update/delete/adopt
-and no `forget` prints `nothing to apply` and does not prompt. Without `--dir`, diff and apply use `--git` or the tracked source.
+and no `forget` prints `nothing to apply` and does not prompt. Without `--dir`, diff and apply use `--git` or the
+tracked source.
 
 ## The plan
 
@@ -169,7 +172,8 @@ otherwise updated.
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a
 browser's no-cors `text/plain` POST to a loopback admin port is refused;
-`application/json` is a `{source}` body — [config-git-sources.md](config-git-sources.md#routes)). Gzip body ≤ 16 MiB,
+`application/json` is a `{source}` body —
+[config-git-sources.md](config-git-sources.md#routes)). Gzip body ≤ 16 MiB,
 unpacked files ≤ 16 MiB, ≤ 2000 entries, and the decompressed tar stream
 bounded (413 beyond any); regular files and directories only, no absolute
 or `..` paths (400).

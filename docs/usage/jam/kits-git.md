@@ -185,10 +185,9 @@ failure (the message is already redacted), and **500** for a store failure.
 ## In a config repo
 
 A config repo can reference a kit by its source (`kits/<name>.source.yml`);
-`config sync` then fetches and tracks it as a managed kit — see
-[config-git-sources.md](config-git-sources.md). A push or `kit sync` to content
-the config repo lacks, or a `kit untrack`, shows as drift on the next config
-diff.
+`config sync` then fetches and tracks it as a managed kit. See
+[config-git-sources.md](config-git-sources.md) for how changes made in Jam show
+as drift.
 
 ## Future work
 
