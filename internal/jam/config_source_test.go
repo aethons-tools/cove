@@ -479,3 +479,21 @@ func TestConfigFetchDeadlineExcludesQueueWait(t *testing.T) {
 		})
 	}
 }
+
+// A stored source dir (a hand-edited record, say) with a '.' or '..'
+// component is refused without echoing it, even where the path exists.
+func TestConfigCheckoutDirRefusesDotComponents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(root, "cfg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"..", "cfg/..", "./cfg", "cfg/.", "../repo/cfg", "cfg//x", "/cfg"} {
+		_, err := configCheckoutDir(root, dir)
+		if err == nil || strings.Contains(err.Error(), dir) {
+			t.Fatalf("dir %q: %v", dir, err)
+		}
+	}
+	if got, err := configCheckoutDir(root, "cfg"); err != nil || got != filepath.Join(root, "cfg") {
+		t.Fatalf("cfg: %q %v", got, err)
+	}
+}

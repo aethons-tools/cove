@@ -157,11 +157,18 @@ func fetchConfigTree(ctx context.Context, f KitFetcher, src gitsource.Source) (*
 
 // configCheckoutDir is root/dir when every component of dir is a real
 // directory in the checkout: a symlink could lead out of it. dir passed
-// gitsource.Parse (clean, relative), so the refusal may name it.
+// gitsource.Parse (clean, relative), so the refusal may name it; a dir that
+// is not clean and relative anyway (a hand-edited stored record) is refused
+// with a fixed text that does not.
 func configCheckoutDir(root, dir string) (string, error) {
 	cur := root
 	if dir == "" {
 		return cur, nil
+	}
+	for part := range strings.SplitSeq(dir, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", writeErr(http.StatusBadRequest, "config source: the dir is not a clean relative path")
+		}
 	}
 	for part := range strings.SplitSeq(dir, "/") {
 		cur = filepath.Join(cur, part)
