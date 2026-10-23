@@ -144,6 +144,7 @@ type serveConfig struct {
 		// parseServeConfig folds it into Requisitioner and clears it.
 		DeprecatedDispatcher *requisitionerConfig `yaml:"dispatcher"`
 		Discord              *discordConfig       `yaml:"discord"`
+		Push                 *pushConfig          `yaml:"push"`
 		Wake                 *wakeConfig          `yaml:"wake"`
 		// EscalationPollInterval is how often the escalation engine checks
 		// waiting sessions; it wins over runtime.requisitioner's key.
