@@ -49,7 +49,7 @@ func baseInitAgentData(name string) string {
 // `policy drop` that only accepts established/related return traffic contains
 // nested-container egress behind the same lock, while leaving same-network
 // (L2-bridged) container-to-container and the daemon's proxied pulls
-// (loopback/output) unaffected. The output chain must remain unchanged.
+// (loopback/output) unaffected. The output chain's skuid-proxy lock must remain.
 func TestNftablesForwardChainContainsNestedEgress(t *testing.T) {
 	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/nftables.conf")
 	if err != nil {
@@ -80,6 +80,44 @@ func TestNftablesForwardChainContainsNestedEgress(t *testing.T) {
 	}
 	if !strings.Contains(body, "ct state established,related accept") {
 		t.Errorf("forward chain must accept established,related return traffic; got:\n%s", body)
+	}
+}
+
+// TestNftablesOutputAllowsNestedBridges guards host → nested-container traffic
+// on a docker:true sandbox. The output chain default-drops, so without these
+// accepts the agent (and the root-run docker-proxy behind a published port)
+// could not reach a container on a docker bridge: the handshake to docker-proxy
+// on lo succeeds, then its onward hop to the container IP is dropped. Packets
+// onto a local bridge never leave the sandbox — a nested container's onward
+// traffic is still forwarded and dropped by the forward chain — so the egress
+// lock is unchanged. The accepts must sit in the output chain, keyed on the
+// docker interface names (not a subnet docker may choose differently).
+func TestNftablesOutputAllowsNestedBridges(t *testing.T) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/nftables.conf")
+	if err != nil {
+		t.Fatalf("nftables.conf not embedded: %v", err)
+	}
+	s := string(b)
+	i := strings.Index(s, "chain output {")
+	if i < 0 {
+		t.Fatalf("nftables.conf must define the output chain; got:\n%s", s)
+	}
+	body := s[i:]
+	// The chain closes at the first brace on its own line (a set like
+	// { 80, 443 } closes inline).
+	if j := strings.Index(body, "\n    }"); j >= 0 {
+		body = body[:j]
+	}
+	if !strings.Contains(body, "policy drop") {
+		t.Errorf("output chain must still default-drop; got:\n%s", body)
+	}
+	for _, want := range []string{`oifname "docker0" accept`, `oifname "br-*" accept`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("output chain must contain %q so the host can reach nested containers; got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "ip daddr") {
+		t.Errorf("output chain must not open egress by destination address; got:\n%s", body)
 	}
 }
 

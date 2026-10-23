@@ -128,6 +128,13 @@ Under systemd, the sealed hardening ships units (activated only on the systemd p
 
 ## E. Egress
 
+> **Amendment (2026-10-23):** the design missed host → nested-container traffic on the
+> `output` hook. The agent's (or a published port's root-run `docker-proxy`'s) packets to a
+> container leave via a docker bridge and were dropped by the `output` default-drop, breaking
+> testcontainers and host-run services. The `output` chain now accepts
+> `oifname "docker0"` and `oifname "br-*"`: packets onto local bridges stay in the sandbox,
+> and a container's onward traffic is still dropped by the `forward` chain below.
+
 - **Registry pulls ride the existing proxy.** `dockerd`/containerd **and buildkit** honor
   the daemon proxy: a sealed `daemon.json` sets
   `proxies.{http,https}-proxy = http://127.0.0.1:3128`, `no-proxy=localhost,127.0.0.1,::1`.

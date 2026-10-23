@@ -524,6 +524,9 @@ forwarded packets and accepts only established/related, so a nested container re
 the outside only through squid — same allow-list, no bypass. It is **always-on** and
 harmless to non-docker sandboxes (no forwarded traffic) and to same-network
 container-to-container (L2-bridged, never traverses the `forward` hook).
+The `output` chain also accepts traffic onto the sandbox's own docker bridges
+(`docker0`, `br-*`), so host-run code reaches a nested container directly or via a
+published port; that traffic stays inside the sandbox.
 
 **Applied at session start, privileged — not baked.** Per-class egress is *not* baked
 into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the

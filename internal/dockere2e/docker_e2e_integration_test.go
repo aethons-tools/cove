@@ -183,6 +183,16 @@ func TestDockerInSandboxE2E(t *testing.T) {
 		}
 	})
 
+	t.Run("host reaches a nested container (published port and bridge IP)", func(t *testing.T) {
+		// The output chain accepts traffic onto docker bridges, so a host-run
+		// client (and docker-proxy behind a published port) reaches a container —
+		// the testcontainers / host-run-service path.
+		mustExec(t, "docker rm -f cove-e2e-web >/dev/null 2>&1; docker run -d --name cove-e2e-web -p 127.0.0.1:18080:80 nginx:alpine >/dev/null")
+		defer func() { _, _ = dexec(t, "docker rm -f cove-e2e-web >/dev/null 2>&1") }()
+		mustExec(t, "for i in $(seq 1 20); do curl --noproxy '*' -fsS -m 3 http://127.0.0.1:18080/ >/dev/null && exit 0; sleep 1; done; exit 1")
+		mustExec(t, "ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' cove-e2e-web) && curl --noproxy '*' -fsS -m 5 http://$ip/ >/dev/null")
+	})
+
 	t.Run("role egress replaces the kit list within the ceiling", func(t *testing.T) {
 		// Jam applies a role's egress with `docker exec -u root` running the
 		// sealed apply-role-egress.sh; the fixture kit's image.allowed-domains

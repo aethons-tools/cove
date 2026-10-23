@@ -4,7 +4,7 @@ read_when: You are enabling Docker inside a sandbox (a kit that runs `docker bui
 owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-jam colima setup-docker`/`check-docker` commands that automate it
 prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#docker for the flag's schema
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-23
 ---
 
 # Docker inside the sandbox
@@ -166,6 +166,11 @@ would sidestep the agent's `output`-chain egress lock. An **always-on** `nftable
   container-to-container is L2-bridged and never traverses the `forward` hook, and
   loopback is unaffected. Typical single-network `docker compose` / testcontainers
   setups need nothing extra.
+- **The sandbox reaches its containers.** The `output` chain accepts traffic onto the
+  sandbox's own docker bridges (`docker0`, `br-*`), so host-run code — a dev server,
+  migrations, `psql`, testcontainers' published ports — connects to a nested container
+  by published port (`127.0.0.1:5432`) or container IP. That traffic never leaves the
+  sandbox; a container's own onward traffic is still forwarded and dropped.
 - **A container that needs the *external* network must go through the proxy.** Point
   standard proxy env at the sandbox's squid, reachable on the Docker bridge gateway
   (`172.17.0.1` on the default bridge):
