@@ -67,6 +67,7 @@
         <dt>Default credential</dt><dd>{{if .Dest.CredName}}<span class="mono">{{.Dest.CredName}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
         <dt>Allowed paths</dt><dd>{{range .Dest.AllowPaths}}<div class="mono">{{.}}</div>{{else}}<span class="unset">any</span>{{end}}</dd>
         <dt>Note</dt><dd>{{if .Dest.Note}}{{.Dest.Note}}{{else}}<span class="unset">none</span>{{end}}</dd>
+        <dt>Header logging</dt><dd>{{$in := print .Dest.LogHeadersIn}}{{$out := print .Dest.LogHeadersOut}}{{if or (and $in (ne $in "none")) (and $out (ne $out "none"))}}<span class="chip accent">on</span> <span class="mono">in {{or $in "none"}} · out {{or $out "none"}}</span> <span class="sub">(secrets redacted; turn off when done)</span>{{else}}<span class="unset">off</span>{{end}}</dd>
       </dl>
     </div>
   </section>
