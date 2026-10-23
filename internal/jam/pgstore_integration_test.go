@@ -4,6 +4,7 @@ package jam_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -398,6 +399,74 @@ func TestPostgresShareGrantsReload(t *testing.T) {
 	}
 	if got := open().ShareGrants("ses_1"); len(got) != 0 {
 		t.Fatalf("reload after remove: grants = %+v", got)
+	}
+}
+
+// TestPostgresPushSubscriptionsReload proves push subscriptions survive a
+// reload, that eviction and removal persist, and that RemoveUser drops them.
+func TestPostgresPushSubscriptionsReload(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.CreateUser(jam.User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.CreateUser(jam.User{Name: "dave"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(2_000_000, 0).UTC()
+	p := jam.PushSubscription{Endpoint: "https://push/1", UserID: u.ID, P256dh: "k", Auth: "a", UserAgent: "ua", CreatedAt: at, LastOKAt: at}
+	if err := s.PutPushSubscription(p); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < jam.MaxPushSubscriptionsPerUser; i++ { // pushes p out
+		q := p
+		q.Endpoint = fmt.Sprintf("https://push/more/%02d", i)
+		q.CreatedAt = at.Add(time.Duration(i+1) * time.Minute)
+		if err := s.PutPushSubscription(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := p
+	d.Endpoint, d.UserID = "https://push/dave", v.ID
+	if err := s.PutPushSubscription(d); err != nil {
+		t.Fatal(err)
+	}
+	touched := at.Add(time.Hour)
+	if err := s.TouchPushSubscription(d.Endpoint, touched); err != nil {
+		t.Fatal(err)
+	}
+	again := open()
+	if got := again.PushSubscriptions(u.ID); len(got) != jam.MaxPushSubscriptionsPerUser || got[0].Endpoint != "https://push/more/00" {
+		t.Fatalf("reload: %d subs, first %+v", len(got), got[:1])
+	}
+	d.LastOKAt = touched
+	if got := again.PushSubscriptions(v.ID); len(got) != 1 || !reflect.DeepEqual(got[0], d) {
+		t.Fatalf("reload: dave = %+v", got)
+	}
+	if err := again.RemoveUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	third := open()
+	if len(third.PushSubscriptions(u.ID)) != 0 || len(third.PushSubscriptions(v.ID)) != 1 {
+		t.Fatal("reload after RemoveUser: wrong rows")
 	}
 }
 

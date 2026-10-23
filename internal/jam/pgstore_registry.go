@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/jackc/pgx/v5"
@@ -50,6 +51,9 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM memberships WHERE user_id = $1`, id); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE user_id = $1`, id); err != nil {
+			return err
+		}
 		return putUserTx(ctx, tx, u, unlinked)
 	}); err != nil {
 		return err
@@ -59,6 +63,7 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 		s.applyPutAccount(a)
 	}
 	s.applyDropMemberships(id)
+	s.applyDropPushSubscriptions(id)
 	return nil
 }
 
@@ -468,6 +473,9 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := s.loadShareGrants(ctx); err != nil {
 		return err
 	}
+	if err := s.loadPushSubscriptions(ctx); err != nil {
+		return err
+	}
 	return s.loadChannels(ctx)
 }
 
@@ -626,6 +634,100 @@ func (s *PostgresStore) loadShareGrants(ctx context.Context) error {
 			return fmt.Errorf("pgstore: decode share_grant: %w", err)
 		}
 		s.applyPutShareGrant(g)
+	}
+	return rows.Err()
+}
+
+func (s *PostgresStore) PutPushSubscription(p PushSubscription) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	evicted, err := s.preparePushSubscription(p)
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx("PutPushSubscription", func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, user_agent, created_at, last_ok_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)
+			 ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh,
+			   auth = EXCLUDED.auth, user_agent = EXCLUDED.user_agent, created_at = EXCLUDED.created_at,
+			   last_ok_at = EXCLUDED.last_ok_at`,
+			p.Endpoint, p.UserID, p.P256dh, p.Auth, p.UserAgent, p.CreatedAt, p.LastOKAt); err != nil {
+			return err
+		}
+		if len(evicted) > 0 {
+			_, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE endpoint = ANY($1)`, evicted)
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	s.applyPutPushSubscription(p, evicted)
+	return nil
+}
+
+func (s *PostgresStore) DeletePushSubscription(endpoint string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("DeletePushSubscription", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE endpoint = $1`, endpoint)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyDeletePushSubscription(endpoint)
+	return nil
+}
+
+func (s *PostgresStore) DeleteUserPushSubscription(user ident.ID, endpoint string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.pushSubs[endpoint]; !ok || p.UserID != user {
+		return false, nil
+	}
+	if err := s.registryTx("DeleteUserPushSubscription", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2`, endpoint, user)
+		return err
+	}); err != nil {
+		return false, err
+	}
+	s.applyDeletePushSubscription(endpoint)
+	return true, nil
+}
+
+func (s *PostgresStore) TouchPushSubscription(endpoint string, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.pushSubs[endpoint]
+	if !ok {
+		return nil
+	}
+	if err := s.registryTx("TouchPushSubscription", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE push_subscriptions SET last_ok_at = $2 WHERE endpoint = $1`, endpoint, at)
+		return err
+	}); err != nil {
+		return err
+	}
+	p.LastOKAt = at
+	s.pushSubs[endpoint] = p
+	return nil
+}
+
+// loadPushSubscriptions fills the push-subscription map. load's part; no lock.
+func (s *PostgresStore) loadPushSubscriptions(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT endpoint, user_id, p256dh, auth, user_agent, created_at, last_ok_at FROM push_subscriptions`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load push_subscriptions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p PushSubscription
+		if err := rows.Scan(&p.Endpoint, &p.UserID, &p.P256dh, &p.Auth, &p.UserAgent, &p.CreatedAt, &p.LastOKAt); err != nil {
+			return err
+		}
+		p.CreatedAt, p.LastOKAt = p.CreatedAt.UTC(), p.LastOKAt.UTC()
+		s.applyPutPushSubscription(p, nil)
 	}
 	return rows.Err()
 }

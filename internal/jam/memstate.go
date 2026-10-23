@@ -52,6 +52,8 @@ type memState struct {
 	// grants is the studio share grants: session id → user id → grant
 	// (sharegrants.go).
 	grants map[string]map[ident.ID]ShareGrant
+	// pushSubs is the Web Push subscriptions by endpoint (push_subscriptions.go).
+	pushSubs map[string]PushSubscription
 	// channels is the channel registry, keyed by id (archived ones stay), and
 	// chanMembers each channel's membership rows (channel_registry.go).
 	channels    map[ident.ID]Channel
@@ -87,6 +89,7 @@ func newMemState() *memState {
 		aliases:         map[string]map[string]ident.ID{},
 		standing:        map[standingKey]string{},
 		grants:          map[string]map[ident.ID]ShareGrant{},
+		pushSubs:        map[string]PushSubscription{},
 		channels:        map[ident.ID]Channel{},
 		chanMembers:     map[ident.ID][]ChannelMember{},
 		reads:           map[ident.ID]map[ident.ID]int64{},

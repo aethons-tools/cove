@@ -39,6 +39,7 @@ func (fs *MemStore) RemoveUser(id ident.ID) error {
 		fs.applyPutAccount(a)
 	}
 	fs.applyDropMemberships(id)
+	fs.applyDropPushSubscriptions(id)
 	return nil
 }
 
