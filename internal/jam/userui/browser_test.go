@@ -519,19 +519,23 @@ func TestBrowserInboxRegistersServiceWorker(t *testing.T) {
 // push service would.
 const pushStub = `
 (function(){
-  var perm = 'default', fake = null;
-  Object.defineProperty(Notification, 'permission', {get: function(){ return perm; }});
-  Notification.requestPermission = function(){ perm = 'granted'; return Promise.resolve(perm); };
-  PushManager.prototype.getSubscription = function(){ return Promise.resolve(fake); };
-  PushManager.prototype.subscribe = function(opts){
-    window.__pushKeyLen = opts.applicationServerKey.length;
-    fake = {
-      endpoint: 'https://push.example/device-1',
-      unsubscribe: function(){ fake = null; return Promise.resolve(true); },
+  // The fake subscription and permission outlive a reload, as a real one would.
+  var store = sessionStorage;
+  function make(){
+    return {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/device-1',
+      unsubscribe: function(){ store.removeItem('__fakeSub'); return Promise.resolve(true); },
       toJSON: function(){ return {endpoint: this.endpoint, expirationTime: null,
         keys: {p256dh: '` + "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" + `', auth: 'AAAAAAAAAAAAAAAAAAAAAA'}}; }
     };
-    return Promise.resolve(fake);
+  }
+  Object.defineProperty(Notification, 'permission', {get: function(){ return store.getItem('__perm') || 'default'; }});
+  Notification.requestPermission = function(){ store.setItem('__perm', 'granted'); return Promise.resolve('granted'); };
+  PushManager.prototype.getSubscription = function(){ return Promise.resolve(store.getItem('__fakeSub') ? make() : null); };
+  PushManager.prototype.subscribe = function(opts){
+    window.__pushKeyLen = opts.applicationServerKey.length;
+    store.setItem('__fakeSub', '1');
+    return Promise.resolve(make());
   };
 })();`
 
@@ -564,7 +568,7 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 		t.Fatal(err)
 	}
 	subs := stored()
-	if len(subs) != 1 || subs[0].Endpoint != "https://push.example/device-1" || subs[0].UserID != p.UserID {
+	if len(subs) != 1 || subs[0].Endpoint != "https://fcm.googleapis.com/fcm/send/device-1" || subs[0].UserID != p.UserID {
 		t.Fatalf("stored = %+v (requests %v)", subs, seen)
 	}
 	var keyLen int
@@ -572,7 +576,16 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 		t.Errorf("applicationServerKey length = %d (%v), want the decoded key's 11 bytes", keyLen, err)
 	}
 
+	// A reload in the same page session trusts the first registration; a
+	// new session (marker gone) re-sends the live subscription once.
+	isOn := `document.getElementById('push-toggle').textContent === 'Notifications: On' && !document.getElementById('push-toggle').disabled`
 	err = chromedp.Run(ctx,
+		chromedp.Reload(),
+		chromedp.Poll(isOn, nil),
+		chromedp.Evaluate(`Object.keys(sessionStorage).filter(function(k){ return k.indexOf('jam.push.synced:') === 0; }).forEach(function(k){ sessionStorage.removeItem(k); })`, nil),
+		chromedp.Reload(),
+		chromedp.Poll(isOn, nil),
+		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
 		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
 		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off'`, nil),
 	)
@@ -584,7 +597,8 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	want := []string{"GET /app/user/push/key", "POST /app/user/push/subscriptions", "DELETE /app/user/push/subscriptions"}
+	want := []string{"GET /app/user/push/key", "POST /app/user/push/subscriptions",
+		"GET /app/user/push/key", "POST /app/user/push/subscriptions", "DELETE /app/user/push/subscriptions"}
 	if strings.Join(seen, ",") != strings.Join(want, ",") {
 		t.Errorf("requests = %v, want %v", seen, want)
 	}

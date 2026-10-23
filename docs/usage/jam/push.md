@@ -9,6 +9,9 @@ updated: 2026-10-23
 
 # Push notifications
 
+> **Sending arrives with the next release:** until then devices can opt in and
+> subscriptions are stored, but no notifications are sent.
+
 Jam uses standard **Web Push**: a member's browser subscribes with its own
 vendor's push service (Google, Mozilla, Apple, Microsoft) under Jam's **VAPID**
 key, and Jam posts each notification, end-to-end encrypted, to that
@@ -108,8 +111,18 @@ All under the `/app/user` gate (members only; writes must be same-origin), and
 | Route | |
 |---|---|
 | `GET /app/user/push/key` | `{"key": "<VAPID public key, base64url>"}` |
-| `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must be an `https:` URL of at most 2048 bytes and the keys the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller); 204. |
+| `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must pass the [endpoint allowlist](#endpoint-allowlist) and the keys be the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller; an unchanged re-send is a no-op); 204. |
 | `DELETE /app/user/push/subscriptions` | Body `{"endpoint": "…"}`; deletes it only if it is the caller's; 204 either way. |
+
+### Endpoint allowlist
+
+Jam sends from the server to whatever endpoint a browser hands it, so it only
+accepts the Web Push services' own: an `https:` URL of at most 2048 bytes, no
+credentials, on the default port (none or `:443`), whose host is
+`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`,
+or ends in `.push.services.mozilla.com`, `.push.apple.com` or
+`.notify.windows.com`. IP literals and every other host are refused, at
+subscribe time and again before each send.
 
 The design history is in
 [the push notifications spec](../../superpowers/specs/2026-10-23-jam-push-notifications-design.md).

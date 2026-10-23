@@ -60,6 +60,20 @@
       body: JSON.stringify(body)
     });
     if (!r.ok) throw new Error(method + ' subscription: ' + r.status);
+    markSynced(method === 'POST' ? body.endpoint : '');
+  }
+
+  // The endpoint this page session last registered for this user, so the
+  // load-time re-send happens once per session, not on every page.
+  var syncKey = 'jam.push.synced:' + (btn.dataset.user || '');
+  function synced() {
+    try { return sessionStorage.getItem(syncKey); } catch (e) { return null; }
+  }
+  function markSynced(endpoint) {
+    try {
+      if (endpoint) sessionStorage.setItem(syncKey, endpoint);
+      else sessionStorage.removeItem(syncKey);
+    } catch (e) { /* storage off: re-send next page */ }
   }
 
   function subJSON(s) {
@@ -147,6 +161,11 @@
       var reg = await navigator.serviceWorker.ready;
       var s = await reg.pushManager.getSubscription();
       if (s && Notification.permission === 'granted') {
+        // Once per page session per user: later pages trust the first.
+        if (synced() === s.endpoint) {
+          on = true;
+          return;
+        }
         var key = await fetchKey();
         if (sameKey(s, key)) {
           await send('POST', subJSON(s));
@@ -156,8 +175,9 @@
           await subscribe(reg, key);
         }
       }
-    } catch (e) { /* leave it Off */ }
-    busy = false;
-    reflect();
+    } catch (e) { /* leave it Off */ } finally {
+      busy = false;
+      reflect();
+    }
   })();
 })();

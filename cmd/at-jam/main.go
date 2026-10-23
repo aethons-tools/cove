@@ -2040,7 +2040,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	// Web Push (nil: off). The VAPID private key stays in this process's
 	// memory; a set but unresolvable or invalid key refuses to start.
-	push, err := resolvePush(cfg, specs)
+	push, err := resolvePush(runner.OS{}, cfg, specs)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1

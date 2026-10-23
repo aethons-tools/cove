@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,11 +19,10 @@ func WithPush(publicKey string) Option {
 }
 
 const (
-	pushBodyMax     = 8 << 10 // request body cap for the push routes
-	pushEndpointMax = 2048    // longest accepted endpoint URL, bytes
-	pushUAMax       = 256     // stored User-Agent is truncated to this many bytes
-	p256dhLen       = 65      // an uncompressed P-256 point
-	authLen         = 16      // the browser's auth secret
+	pushBodyMax = 8 << 10 // request body cap for the push routes
+	pushUAMax   = 256     // stored User-Agent is truncated to this many bytes
+	p256dhLen   = 65      // an uncompressed P-256 point
+	authLen     = 16      // the browser's auth secret
 )
 
 // pushSubscriptionJSON is the browser's PushSubscription.toJSON().
@@ -63,9 +61,16 @@ func (h *handler) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 	if !decodePushBody(w, r, &in) {
 		return
 	}
-	if !validPushEndpoint(in.Endpoint) || !keyLen(in.Keys.P256dh, p256dhLen) || !keyLen(in.Keys.Auth, authLen) {
+	if jam.ValidPushEndpoint(in.Endpoint) != nil || !keyLen(in.Keys.P256dh, p256dhLen) || !keyLen(in.Keys.Auth, authLen) {
 		http.Error(w, "invalid subscription", http.StatusBadRequest)
 		return
+	}
+	// The page re-sends a live subscription; an unchanged one is a no-op.
+	for _, have := range h.d.Store.PushSubscriptions(p.UserID) {
+		if have.Endpoint == in.Endpoint && have.P256dh == in.Keys.P256dh && have.Auth == in.Keys.Auth {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
 	s := jam.PushSubscription{
 		Endpoint:  in.Endpoint,
@@ -117,14 +122,6 @@ func decodePushBody(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
-}
-
-func validPushEndpoint(s string) bool {
-	if s == "" || len(s) > pushEndpointMax {
-		return false
-	}
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
 }
 
 // keyLen reports whether s is base64url (padding optional) of exactly n bytes.

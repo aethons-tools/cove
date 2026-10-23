@@ -72,6 +72,23 @@ func runPushConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("push_reput_same_user_keeps_times", func(t *testing.T) {
+		s, a, _ := setup(t)
+		_ = s.PutPushSubscription(sub("https://e/1", a.ID, 1))
+		at := base.Add(time.Hour)
+		_ = s.TouchPushSubscription("https://e/1", at)
+		again := sub("https://e/1", a.ID, 9)
+		again.P256dh, again.UserAgent = "p2", "ua2"
+		if err := s.PutPushSubscription(again); err != nil {
+			t.Fatal(err)
+		}
+		got := s.PushSubscriptions(a.ID)
+		if len(got) != 1 || !got[0].CreatedAt.Equal(base.Add(time.Minute)) || !got[0].LastOKAt.Equal(at) ||
+			got[0].P256dh != "p2" || got[0].UserAgent != "ua2" {
+			t.Fatalf("re-put = %+v", got)
+		}
+	})
+
 	t.Run("push_cap_evicts_oldest", func(t *testing.T) {
 		s, a, b := setup(t)
 		_ = s.PutPushSubscription(sub("https://other", b.ID, 0))

@@ -641,7 +641,7 @@ func (s *PostgresStore) loadShareGrants(ctx context.Context) error {
 func (s *PostgresStore) PutPushSubscription(p PushSubscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	evicted, err := s.preparePushSubscription(p)
+	p, evicted, err := s.preparePushSubscription(p)
 	if err != nil {
 		return err
 	}

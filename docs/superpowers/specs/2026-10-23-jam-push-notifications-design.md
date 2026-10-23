@@ -91,8 +91,10 @@ when the user is removed (`RemoveUser`).
 | `DELETE /app/user/push/subscriptions` | body `{"endpoint"}`; deletes only the caller's row; 204 |
 | `POST /app/user/push/focus` | body `{"channel": "<id>" or null}`; 204 (§6) |
 
-Endpoints must be `https:` URLs (≤ 2 KB); keys must decode to the right sizes;
-anything else is 400. Max 20 subscriptions per user (oldest evicted).
+Endpoints must be `https:` URLs (≤ 2 KB) on the default port whose host is a
+Web Push service (`fcm.googleapis.com`, `*.push.services.mozilla.com`,
+`*.push.apple.com`, `*.notify.windows.com`; no IP literals — `jam.ValidPushEndpoint`,
+re-checked at send); keys must decode to the right sizes; anything else is 400. Max 20 subscriptions per user (oldest evicted).
 
 **UI.** The principal menu gains **Notifications: Off / On** for this device
 (members only, push configured). On: `Notification.requestPermission()` →

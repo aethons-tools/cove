@@ -41,14 +41,19 @@ type PushSubscriptionStore interface {
 	TouchPushSubscription(endpoint string, at time.Time) error
 }
 
-// preparePushSubscription validates s and returns the endpoints its
-// insertion evicts. Caller holds mu.
-func (m *memState) preparePushSubscription(s PushSubscription) ([]string, error) {
+// preparePushSubscription validates s and returns the row to store and the
+// endpoints its insertion evicts. A re-put by the same user keeps the stored
+// CreatedAt and LastOKAt (a page re-registering its device doesn't reset
+// them); a different user takes the row over with s's. Caller holds mu.
+func (m *memState) preparePushSubscription(s PushSubscription) (PushSubscription, []string, error) {
 	if s.Endpoint == "" || s.UserID == "" {
-		return nil, errors.New("push subscription: endpoint and user id are required")
+		return s, nil, errors.New("push subscription: endpoint and user id are required")
 	}
 	if _, err := m.liveUser(s.UserID); err != nil {
-		return nil, fmt.Errorf("push subscription: %w", err)
+		return s, nil, fmt.Errorf("push subscription: %w", err)
+	}
+	if old, ok := m.pushSubs[s.Endpoint]; ok && old.UserID == s.UserID {
+		s.CreatedAt, s.LastOKAt = old.CreatedAt, old.LastOKAt
 	}
 	var mine []PushSubscription
 	for _, p := range m.pushSubs {
@@ -58,14 +63,14 @@ func (m *memState) preparePushSubscription(s PushSubscription) ([]string, error)
 	}
 	over := len(mine) + 1 - MaxPushSubscriptionsPerUser
 	if over <= 0 {
-		return nil, nil
+		return s, nil, nil
 	}
 	slices.SortFunc(mine, cmpPushSub)
 	out := make([]string, over)
 	for i := range over {
 		out[i] = mine[i].Endpoint
 	}
-	return out, nil
+	return s, out, nil
 }
 
 func cmpPushSub(a, b PushSubscription) int {
@@ -108,7 +113,7 @@ func (m *memState) PushSubscriptions(user ident.ID) []PushSubscription {
 func (fs *MemStore) PutPushSubscription(s PushSubscription) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	evicted, err := fs.preparePushSubscription(s)
+	s, evicted, err := fs.preparePushSubscription(s)
 	if err != nil {
 		return err
 	}

@@ -129,7 +129,7 @@ func TestTitlebarRenderEscapesHostileStrings(t *testing.T) {
 }
 
 func TestTitlebarPushItem(t *testing.T) {
-	u := &jam.Participant{Name: "Ada"}
+	u := &jam.Participant{Name: "Ada", UserID: "usr_ada"}
 	op := jam.Operator{ID: "op"}
 	bar := func(p appui.Principal, push bool) string {
 		t.Helper()
@@ -154,6 +154,9 @@ func TestTitlebarPushItem(t *testing.T) {
 		out := bar(c.p, c.push)
 		if got := strings.Contains(out, `id="push-toggle"`); got != c.want {
 			t.Errorf("%s: push item shown = %v, want %v", c.name, got, c.want)
+		}
+		if got := strings.Contains(out, `data-user="usr_ada"`); got != c.want {
+			t.Errorf("%s: push item user = %v, want %v", c.name, got, c.want)
 		}
 		if got := strings.Contains(out, `src="/app/static/push.js?v=`); got != c.want {
 			t.Errorf("%s: push.js included = %v, want %v", c.name, got, c.want)

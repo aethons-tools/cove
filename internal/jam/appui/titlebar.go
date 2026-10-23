@@ -41,6 +41,7 @@ type Titlebar struct {
 	// PushScript is push.js's URL when the menu offers this device's
 	// Notifications toggle (a member, push configured); "" hides it.
 	PushScript string
+	PushUser   string // the member's user id, so push.js keys its per-session state by user
 }
 
 // Shell is what the gate puts on the context for the title bar.
@@ -88,6 +89,7 @@ func TitlebarFor(r *http.Request, current string) Titlebar {
 		tb.Tabs = append(tb.Tabs, userTabs...)
 		if sh.Push {
 			tb.PushScript = uiassets.ScriptHref("/app/static/", "push.js")
+			tb.PushUser = string(p.User.UserID)
 		}
 	}
 	if p.Admin {
