@@ -82,3 +82,32 @@ func TestPushPayload(t *testing.T) {
 		t.Fatalf("preview off: body %q", p.Body)
 	}
 }
+
+// Someone who read the message on another device before a retry sent it
+// isn't buzzed for it; an unread message still buzzes.
+func TestPushPayloadSkipsAlreadyRead(t *testing.T) {
+	k := newRelayKit(t)
+	r := pushReader{store: k.st, ic: k.ic}
+	unread := func(u ident.ID) int { return jam.UnreadTotal(k.st, k.ic, k.lg, u) }
+	payload := pushPayload(r, nil, unread, true)
+	m1 := k.send(k.std, "chat:user:alice,user:bob", "first")
+	m2 := k.send(k.std, "chat:user:alice,user:bob", "second")
+	if got := r.ReadThrough(k.alice.ID, m1.Channel); got != 0 {
+		t.Fatalf("ReadThrough before reading = %d", got)
+	}
+	if err := k.st.CommitChannelRead(k.alice.ID, m1.Channel, m1.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.ReadThrough(k.alice.ID, m1.Channel); got != m1.Seq {
+		t.Fatalf("ReadThrough = %d, want %d", got, m1.Seq)
+	}
+	if _, ok := payload(m1, k.alice.ID); ok {
+		t.Fatal("alice already read m1: no push")
+	}
+	if _, ok := payload(m2, k.alice.ID); !ok {
+		t.Fatal("alice hasn't read m2: push")
+	}
+	if _, ok := payload(m1, k.bob.ID); !ok {
+		t.Fatal("bob hasn't read m1: push")
+	}
+}

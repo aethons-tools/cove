@@ -506,6 +506,12 @@ func TestSurfacesPush(t *testing.T) {
 	pushWant(want, k.alice.ID, aliceDevs...)
 	wantSurfaces(t, "bob focused", k.dir.Surfaces("push", m), want)
 
+	// Alice read it elsewhere before this tick: no device of hers.
+	if err := k.st.CommitChannelRead(k.alice.ID, m.Channel, m.Seq); err != nil {
+		t.Fatal(err)
+	}
+	wantSurfaces(t, "alice read it, bob focused", k.dir.Surfaces("push", m), map[string]string{})
+
 	if p := k.dir.Projects("push"); p != nil {
 		t.Fatalf("Projects(push) = %v", p)
 	}

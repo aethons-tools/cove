@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -29,6 +32,9 @@ const (
 	MaxAge = 10 * time.Minute
 	// FailThreshold consecutive transient failures raise ConditionKey.
 	FailThreshold = 5
+	// DefaultBreakFor is how long a push service host is skipped after a
+	// transient failure (Surface.BreakFor's default).
+	DefaultBreakFor = 30 * time.Second
 )
 
 // ConditionKey is the health condition raised while sends keep failing.
@@ -69,6 +75,15 @@ type Surface struct {
 	Now   func() time.Time   // nil: time.Now
 	Conds *condition.Tracker // may be nil
 	Log   *slog.Logger       // may be nil
+	// BreakFor is the per-host circuit breaker's window: after a transient
+	// failure on a push service host, deliveries to every endpoint on that
+	// host fail at once, without a request, until it passes (0:
+	// DefaultBreakFor). The engine delivers serially, so this keeps one
+	// slow or black-holed push service from stalling every other device.
+	BreakFor time.Duration
+
+	mu        sync.Mutex
+	brokenTil map[string]time.Time // host → when its breaker closes
 }
 
 // AddressFor is a device's delivery address: "push:" + the first 16 hex
@@ -114,7 +129,9 @@ func (s *Surface) log() *slog.Logger {
 
 // Deliver pushes m to one device (spec §7). Only a transient failure — a
 // network error, 429 or 5xx — returns an error (the engine retries it);
-// everything else is final, so the egress low-water mark keeps advancing:
+// everything else is final, so the egress low-water mark keeps advancing.
+// While the endpoint's host breaker is open (see BreakFor) the delivery is
+// a transient failure without a request. Final outcomes:
 // a squawk older than MaxAge, a device gone since Surfaces or no longer the
 // recipient's, an endpoint off the allowlist or with unusable keys (deleted),
 // 404/410 (deleted), any other refusal (logged).
@@ -139,13 +156,23 @@ func (s *Surface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squa
 	if err != nil {
 		return "", nil // a Payload always marshals; never stall the log on it
 	}
+	host := endpointHost(sub.Endpoint)
+	if til, open := s.broken(host); open {
+		return "", s.transient(fmt.Errorf("push: %s failed recently; holding its sends until %s", host, til.UTC().Format(time.RFC3339)))
+	}
 	opts := s.Opts
 	opts.TTL, opts.Topic = TTL, TopicFor(m.Channel)
 	status, err := s.Sender.Send(ctx, body, sub, opts)
 	switch {
-	case errors.Is(err, ErrBadSubscription):
+	case errors.Is(err, ErrBadSubscription): // no request was made
 		s.log().Warn("push: subscription keys unusable; deleting it", "device", d.Address, "error", err.Error())
 		return "", s.drop(sub)
+	case err != nil, status == http.StatusTooManyRequests || status >= 500:
+		s.trip(host)
+	default:
+		s.untrip(host) // the host answered
+	}
+	switch {
 	case err != nil:
 		return "", s.transient(fmt.Errorf("push: send: %w", err))
 	case status >= 200 && status < 300:
@@ -164,6 +191,48 @@ func (s *Surface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squa
 		s.log().Warn("push: send refused", "device", d.Address, "status", status)
 		return "", nil
 	}
+}
+
+// endpointHost is an (allowlisted) endpoint's host, the breaker's key.
+func endpointHost(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// broken reports whether host's breaker is open, and until when.
+func (s *Surface) broken(host string) (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	til, ok := s.brokenTil[host]
+	if ok && !s.now().Before(til) {
+		delete(s.brokenTil, host)
+		return time.Time{}, false
+	}
+	return til, ok
+}
+
+// trip opens host's breaker for BreakFor from now.
+func (s *Surface) trip(host string) {
+	d := s.BreakFor
+	if d <= 0 {
+		d = DefaultBreakFor
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.brokenTil == nil {
+		s.brokenTil = map[string]time.Time{}
+	}
+	s.brokenTil[host] = s.now().Add(d)
+}
+
+// untrip closes host's breaker.
+func (s *Surface) untrip(host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.brokenTil, host)
 }
 
 // subscription is user's device at address (ok=false: gone, or moved to

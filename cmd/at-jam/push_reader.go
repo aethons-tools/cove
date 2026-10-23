@@ -46,6 +46,9 @@ func (r pushReader) CanSee(u ident.ID, m intercom.Squawk) bool {
 	return ok && usr.Status == jam.StatusLive && r.store.IsMember(ch.ProjectID, u) && r.ic.CanSee(u, ch)
 }
 
+// ReadThrough is how far u has read ch (the /app/user unread cursor).
+func (r pushReader) ReadThrough(u, ch ident.ID) int64 { return r.store.ChannelReads(u)[ch] }
+
 // PartyLabel is a participant's display label.
 func (r pushReader) PartyLabel(id ident.ID) string { return r.ic.PartyOf(id).Label }
 
@@ -69,7 +72,8 @@ func (r pushReader) ChannelLabel(ch jam.Channel, forUser ident.ID) string {
 
 // pushPayload is the push surface's Payload: m's notification for user,
 // re-checking at send time that user is still one of its recipients (still
-// a member who can see it, not focused on its channel). unread is user's
+// a member who can see it, not focused on its channel, not already read on
+// another device). unread is user's
 // total unread (the app badge).
 func pushPayload(r pushReader, focus *push.Focus, unread func(ident.ID) int, preview bool) func(intercom.Squawk, ident.ID) (push.Payload, bool) {
 	return func(m intercom.Squawk, user ident.ID) (push.Payload, bool) {

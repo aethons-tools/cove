@@ -246,7 +246,7 @@ func TestWebPushSenderRefusesRedirects(t *testing.T) {
 		t.Fatalf("requests = %d: the redirect was followed", n)
 	}
 	c := NewWebPushSender(nil).client
-	if c.Timeout != SendTimeout || c.CheckRedirect == nil {
+	if c.Timeout != SendTimeout || SendTimeout != 5*time.Second || c.CheckRedirect == nil {
 		t.Fatalf("default client: timeout %v, redirect check %v", c.Timeout, c.CheckRedirect != nil)
 	}
 }

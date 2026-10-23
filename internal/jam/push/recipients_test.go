@@ -56,6 +56,20 @@ func TestRecipients(t *testing.T) {
 			m:     intercom.Squawk{ID: "a", Channel: sess, From: ses, Body: "x"},
 			setup: func(f *fakeReader) { f.hidden[u2] = true },
 			want:  []Recipient{{u1, ReasonMessage}}},
+		{name: "already read through it: excluded",
+			m: intercom.Squawk{ID: "a", Seq: 7, Channel: sess, From: ses, Body: "x"},
+			setup: func(f *fakeReader) {
+				f.reads[u1] = map[ident.ID]int64{sess: 7}
+				f.reads[u2] = map[ident.ID]int64{sess: 9}
+			},
+			want: nil},
+		{name: "read only up to before it, or another channel: included",
+			m: intercom.Squawk{ID: "a", Seq: 7, Channel: sess, From: ses, Body: "x"},
+			setup: func(f *fakeReader) {
+				f.reads[u1] = map[ident.ID]int64{sess: 6}
+				f.reads[u2] = map[ident.ID]int64{chat: 99}
+			},
+			want: []Recipient{{u1, ReasonMessage}, {u2, ReasonMessage}}},
 		{name: "focused on that channel: excluded",
 			m:       intercom.Squawk{ID: "a", Channel: sess, From: ses, Body: "x"},
 			focused: func(u, ch ident.ID) bool { return u == u1 && ch == sess },

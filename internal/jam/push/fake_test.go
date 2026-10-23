@@ -15,6 +15,7 @@ type fakeReader struct {
 	members  map[ident.ID][]ident.ID
 	labels   map[ident.ID]string
 	hidden   map[ident.ID]bool
+	reads    map[ident.ID]map[ident.ID]int64 // user → channel → read-through seq
 }
 
 func (f *fakeReader) Channel(id ident.ID) (jam.Channel, bool) {
@@ -25,6 +26,8 @@ func (f *fakeReader) Channel(id ident.ID) (jam.Channel, bool) {
 func (f *fakeReader) Members(ch ident.ID) []ident.ID { return f.members[ch] }
 
 func (f *fakeReader) CanSee(u ident.ID, _ intercom.Squawk) bool { return !f.hidden[u] }
+
+func (f *fakeReader) ReadThrough(u, ch ident.ID) int64 { return f.reads[u][ch] }
 
 func (f *fakeReader) PartyLabel(id ident.ID) string { return f.labels[id] }
 
@@ -69,6 +72,7 @@ func newFake() *fakeReader {
 		},
 		labels: map[ident.ID]string{u1: "Alice", u2: "Bob", u3: "Carol", ses: "Code-review agent", acc: "ext"},
 		hidden: map[ident.ID]bool{},
+		reads:  map[ident.ID]map[ident.ID]int64{},
 	}
 }
 

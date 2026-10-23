@@ -886,3 +886,39 @@ func TestBrowserServiceWorkerNotice(t *testing.T) {
 		t.Errorf("notice = %s\nwant     %s", got, want)
 	}
 }
+
+// The service worker's robustness helpers, run in a page: a payload that
+// isn't a JSON object reads as {}; a garbled one still makes a notification
+// (title "Jam", body "New message"); a click reuses only an /app/user/
+// window, never an /app/admin/ one.
+func TestBrowserServiceWorkerRobust(t *testing.T) {
+	ctx := browserCtx(t)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var got string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
+		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+  (0, eval)(src);
+  var o = 'https://jam.example';
+  var ps = [null, 5, 'str', [1], {body: 'x'}].map(function(v){ return JSON.stringify(jamPayload(v)); });
+  var g = jamNotice({title: 7, body: {}, channel: ['c']}, {n: 'x'});
+  var f = jamFallback({channel: 'chn_1'});
+  var e = jamNotice({}, null);
+  return JSON.stringify([ps, g.title, g.options.body, g.options.tag, g.options.data.n, f.title, f.options.body,
+    f.options.data.channel, e.title, e.options.body,
+    jamPickClient([o + '/app/admin/', o + '/app/user/?c=1', o + '/app/user/']),
+    jamPickClient([o + '/app/admin/x', o + '/app/', 'not a url']),
+    jamPickClient([])]);
+})`, &got, await),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[["{}","{}","{}","{}","{\"body\":\"x\"}"],"Jam","New message","jam",1,"Jam","New message","chn_1","Jam","New message",1,-1,-1]`
+	if got != want {
+		t.Errorf("robust = %s\nwant     %s", got, want)
+	}
+}

@@ -284,7 +284,11 @@ func TestDeliverHealthCondition(t *testing.T) {
 	if c.Severity != condition.Warning || c.Summary == "" || len(c.Summary) > condition.MaxSummary || len(c.Fix) > condition.MaxFix {
 		t.Fatalf("condition = %+v", c)
 	}
+	if got := len(k.sender.calls); got != 1 {
+		t.Fatalf("sends = %d, want 1: the host's breaker holds the rest (each still counts)", got)
+	}
 	k.sender.status = 201
+	k.now = k.now.Add(DefaultBreakFor)
 	if err := k.deliver(t, k.msg()); err != nil {
 		t.Fatal(err)
 	}
@@ -365,4 +369,120 @@ func newBrowserKeys(t *testing.T) browserKeys {
 		t.Fatal(err)
 	}
 	return browserKeys{priv: priv, auth: auth}
+}
+
+// hostSender answers per endpoint host: a host in down fails as a timeout
+// would — after advancing the clock by the request timeout — and every
+// other host answers 201.
+type hostSender struct {
+	k     *surfaceKit
+	down  map[string]bool
+	calls map[string]int
+}
+
+func (h *hostSender) Send(_ context.Context, _ []byte, sub jam.PushSubscription, _ SendOptions) (int, error) {
+	host := endpointHost(sub.Endpoint)
+	h.calls[host]++
+	if h.down[host] {
+		h.k.now = h.k.now.Add(SendTimeout)
+		return 0, context.DeadlineExceeded
+	}
+	return 201, nil
+}
+
+const (
+	hostA = "fcm.googleapis.com"
+	hostB = "updates.push.services.mozilla.com"
+	epA1  = "https://" + hostA + "/fcm/send/a1"
+	epA2  = "https://" + hostA + "/fcm/send/a2"
+	epB1  = "https://" + hostB + "/wpush/v2/b1"
+)
+
+func newBreakerKit(t *testing.T) (*surfaceKit, *hostSender) {
+	t.Helper()
+	k := newSurfaceKit(t,
+		jam.PushSubscription{Endpoint: epA1, UserID: u1},
+		jam.PushSubscription{Endpoint: epA2, UserID: u2},
+		jam.PushSubscription{Endpoint: epB1, UserID: u1})
+	hs := &hostSender{k: k, down: map[string]bool{}, calls: map[string]int{}}
+	k.s.Sender = hs
+	return k, hs
+}
+
+func (k *surfaceKit) deliverTo(user ident.ID, endpoint string, m intercom.Squawk) error {
+	_, err := k.s.Deliver(context.Background(), relay.Delivery{Service: "push", Address: AddressFor(endpoint), BodyPrefix: string(user)}, m)
+	return err
+}
+
+// A black-holed push service costs one timed-out request per breaker
+// window: its other devices fail fast (retried later), and devices on
+// another push service are sent without waiting behind it.
+func TestDeliverBreakerIsolatesASlowHost(t *testing.T) {
+	k, hs := newBreakerKit(t)
+	hs.down[hostA] = true
+	m := k.msg()
+	start := k.now
+	for tick := range 4 { // ticks a couple of seconds apart, all inside the window
+		for _, d := range []struct {
+			user ident.ID
+			ep   string
+		}{{u1, epA1}, {u2, epA2}} {
+			if err := k.deliverTo(d.user, d.ep, m); err == nil {
+				t.Fatalf("tick %d: %s delivered while its host is down", tick, d.ep)
+			}
+		}
+		if err := k.deliverTo(u1, epB1, m); err != nil {
+			t.Fatalf("tick %d: host B: %v", tick, err)
+		}
+		k.now = k.now.Add(2 * time.Second)
+	}
+	if hs.calls[hostA] != 1 || hs.calls[hostB] != 4 {
+		t.Fatalf("sends A=%d B=%d, want A attempted once, B every tick", hs.calls[hostA], hs.calls[hostB])
+	}
+	if spent := k.now.Sub(start); spent > SendTimeout+4*2*time.Second {
+		t.Fatalf("ticks took %v: more than one timeout on host A", spent)
+	}
+
+	// After the window host A is tried again, and still failing re-opens it.
+	k.now = k.now.Add(DefaultBreakFor)
+	_ = k.deliverTo(u1, epA1, m)
+	_ = k.deliverTo(u2, epA2, m)
+	if hs.calls[hostA] != 2 {
+		t.Fatalf("after the window: host A sends = %d, want 2", hs.calls[hostA])
+	}
+
+	// It recovers: the next try after the window succeeds and closes the
+	// breaker, so its other device goes straight out.
+	hs.down[hostA] = false
+	k.now = k.now.Add(DefaultBreakFor)
+	if err := k.deliverTo(u1, epA1, m); err != nil {
+		t.Fatalf("host A recovered: %v", err)
+	}
+	if err := k.deliverTo(u2, epA2, m); err != nil || hs.calls[hostA] != 4 {
+		t.Fatalf("after a success: err %v, host A sends %d, want 4", err, hs.calls[hostA])
+	}
+}
+
+// 429 and 5xx trip the breaker too; its window is configurable; a final
+// answer (404, a refusal) does not trip it.
+func TestDeliverBreakerStatusesAndWindow(t *testing.T) {
+	k := newSurfaceKit(t)
+	k.s.BreakFor = 5 * time.Second
+	m := k.msg()
+	for _, status := range []int{429, 503} {
+		k.sender.status = status
+		_ = k.deliver(t, m)
+		n := len(k.sender.calls)
+		if err := k.deliver(t, m); err == nil || len(k.sender.calls) != n {
+			t.Fatalf("%d: second deliver err %v, sends %d→%d: want held", status, err, n, len(k.sender.calls))
+		}
+		k.now = k.now.Add(5 * time.Second)
+		k.sender.status = 403
+		if err := k.deliver(t, m); err != nil || len(k.sender.calls) != n+1 {
+			t.Fatalf("%d: after the 5 s window: err %v, sends %d", status, err, len(k.sender.calls))
+		}
+		if err := k.deliver(t, m); err != nil || len(k.sender.calls) != n+2 {
+			t.Fatalf("%d: a refusal tripped the breaker: err %v, sends %d", status, err, len(k.sender.calls))
+		}
+	}
 }

@@ -95,7 +95,10 @@ func TestServiceWorker(t *testing.T) {
 		// Push display and click-through (spec §8).
 		"addEventListener('push'", "addEventListener('notificationclick'", "setAppBadge", "tag:",
 		"renotify: true", "/app/user/?c=", "/app/static/icons/icon-192.png", "/app/static/icons/favicon-32.png",
-		"getNotifications", "new messages · latest: ", "clients.openWindow", "matchAll"} {
+		"getNotifications", "new messages", " · latest: ", "clients.openWindow", "matchAll",
+		// Robustness: any payload shape, any failure still shows something;
+		// a click only reuses an /app/user/ window.
+		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sw.js missing %q", want)
 		}

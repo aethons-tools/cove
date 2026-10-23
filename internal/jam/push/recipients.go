@@ -19,6 +19,8 @@ type Reader interface {
 	// CanSee is live-audience visibility: user is still a live member of
 	// the channel's project and may see m.
 	CanSee(user ident.ID, m intercom.Squawk) bool
+	// ReadThrough is the seq user has read ch up to (0: nothing read).
+	ReadThrough(user, ch ident.ID) int64
 	// PartyLabel is a participant's display label.
 	PartyLabel(id ident.ID) string
 	// ChannelLabel is ch's label as forUser sees it (a chat: the other
@@ -42,7 +44,8 @@ type Recipient struct {
 
 // Recipients are the users squawk m notifies, sorted by user (spec §2):
 // users only, current members of its channel who can see it, not its author,
-// not focused on that channel (focused may be nil) — for any message in a
+// not focused on that channel (focused may be nil), not already read past
+// it (on any device) — for any message in a
 // chat or session channel, or, in any channel kind, an ask naming them, a
 // call-in notice inviting them, or an escalation notice targeting them. Ask
 // amend/withdraw/answer events notify nobody.
@@ -75,11 +78,18 @@ func Recipients(r Reader, m intercom.Squawk, focused func(user, channel ident.ID
 	var out []Recipient
 	for u, why := range reasons {
 		if u.Kind() != ident.User || u == m.From || !slices.Contains(members, u) ||
-			!r.CanSee(u, m) || focused != nil && focused(u, ch.ID) {
+			!r.CanSee(u, m) || focused != nil && focused(u, ch.ID) || readPast(r, u, m) {
 			continue
 		}
 		out = append(out, Recipient{User: u, Reason: why})
 	}
 	slices.SortFunc(out, func(a, b Recipient) int { return strings.Compare(string(a.User), string(b.User)) })
 	return out
+}
+
+// readPast reports whether user has already read m's channel through m — a
+// retry tick must not buzz for a message they've since read.
+func readPast(r Reader, user ident.ID, m intercom.Squawk) bool {
+	rt := r.ReadThrough(user, m.Channel)
+	return rt > 0 && rt >= m.Seq
 }

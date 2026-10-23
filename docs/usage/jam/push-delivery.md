@@ -1,7 +1,7 @@
 ---
-summary: How Jam delivers Web Push — the egress-only push relay (recipients per squawk, one push per subscribed device, per-device outcomes and retries, pruning dead subscriptions, the 10-minute staleness cut-off, collapse per conversation, when `push:relay` is raised), the push endpoint allowlist, and the `/app/user/push/*` routes the app calls (key, subscriptions, focus).
+summary: How Jam delivers Web Push — the egress-only push relay (recipients per squawk, one push per subscribed device, per-device outcomes and retries, the per-host breaker for a slow push service, pruning dead subscriptions, the 10-minute staleness cut-off, collapse per conversation, when `push:relay` is raised), the push endpoint allowlist, and the `/app/user/push/*` routes the app calls (key, subscriptions, focus).
 read_when: You're operating or debugging push delivery — the `push:relay` condition is open, a `push: send refused` log line appeared, a subscription vanished, or a push arrived late or not at all — or you're extending the push routes or the endpoint allowlist.
-owns: the push relay's sending behaviour (start mark, TTL/collapse, recipient re-check, per-device outcome table, health), the endpoint allowlist, and the `/app/user/push/*` route table including `POST /app/user/push/focus`. Does NOT own setup, the notify rule or on-device behaviour — see push.md.
+owns: the push relay's sending behaviour (start mark, TTL/collapse, recipient re-check, per-device outcome table, per-host breaker, health), the endpoint allowlist, and the `/app/user/push/*` route table including `POST /app/user/push/focus`. Does NOT own setup, the notify rule or on-device behaviour — see push.md.
 prereqs: push.md (what push is and how it's enabled)
 tier: leaf
 updated: 2026-10-23
@@ -25,20 +25,27 @@ subscribed device, retrying each device on its own:
 - Each push is **held 24 hours** by the push service for an offline device,
   and pushes for one conversation **collapse**: a device that was offline
   gets the latest, not a backlog.
-- The recipient is re-checked when sending, so someone who left, or opened
-  the conversation, in the meantime isn't buzzed.
+- The recipient is re-checked when sending (and on every retry), so someone
+  who left, opened the conversation, or read the message on another device
+  in the meantime isn't buzzed.
 - Outcomes per device:
 
   | Push service answers | Jam |
   |---|---|
   | 2xx | done; the device's last success is recorded |
   | 404 or 410 (subscription gone) | deletes the subscription |
-  | another 4xx | logs `push: send refused` with the status and moves on |
-  | 429, 5xx, or no answer | retries every couple of seconds — until the message is **10 minutes old**, then drops it |
+  | 3xx (redirects are never followed) or another 4xx | logs `push: send refused` with the status and moves on — not retried |
+  | 429, 5xx, or no answer within 5 s | retries — until the message is **10 minutes old**, then drops it |
 
   A stored endpoint off the [allowlist](#endpoint-allowlist), or whose keys
   can't encrypt, is deleted without sending. Logs name a device by a hash of
   its endpoint, never the endpoint itself.
+- **One slow push service can't hold up the rest.** Devices are sent one at
+  a time, so after a 429, 5xx or no answer from a push service host, Jam
+  sends nothing to *any* endpoint on that host for **30 s** — those devices
+  count as failed and are retried after — while devices on other push
+  services go out as normal. The first answer from the host after that
+  clears it.
 - **Health.** Sends that keep failing raise the `push:relay`
   [condition](monitoring.md#v1-conditions) — usually the Jam host's egress to
   the push services ([step 4](push.md#enabling-push-on-a-jam)).
@@ -53,7 +60,7 @@ All under the `/app/user` gate (members only; writes must be same-origin), and
 | `GET /app/user/push/key` | `{"key": "<VAPID public key, base64url>"}` |
 | `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must pass the [endpoint allowlist](#endpoint-allowlist) and the keys be the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller; an unchanged re-send is a no-op); 204. |
 | `DELETE /app/user/push/subscriptions` | Body `{"endpoint": "…"}`; deletes it only if it is the caller's; 204 either way. |
-| `POST /app/user/push/focus` | Body `{"channel": "<id>"}` or `{"channel": null}`: the conversation the caller has open and focused, held in memory for 60 s ([focus](push.md#what-notifies)), or none. The channel must be one the caller can see, else 400; 204. |
+| `POST /app/user/push/focus` | Body `{"channel": "<id>"}` or `{"channel": null}`: the conversation the caller has open and focused, held in memory briefly ([how focus suppresses](push.md#what-notifies)), or none. The channel must be one the caller can see, else 400; 204. |
 
 ### Endpoint allowlist
 

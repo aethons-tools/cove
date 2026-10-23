@@ -17,8 +17,11 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// SendTimeout bounds one push request.
-const SendTimeout = 10 * time.Second
+// SendTimeout bounds one push request. Push services answer in well under
+// a second, so 5 s is ample headroom; it is also the most one unresponsive
+// push service host can stall the serial egress per breaker window
+// (Surface.BreakFor), so it is kept short.
+const SendTimeout = 5 * time.Second
 
 // WebPushSender is the Sender over webpush-go: RFC 8291 encryption, a VAPID
 // JWT, and an HTTP client that never follows a redirect.

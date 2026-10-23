@@ -103,8 +103,9 @@ stops suppressing within 60 s. Nothing about focus is stored.
 - **One notification per conversation.** A newer message replaces the
   conversation's notification instead of stacking another: it reads
   "*N* new messages · latest: …" and buzzes again.
-- **Tapping it** opens the conversation — in an open Jam window if there is
-  one (focused and moved to it), else in a new one.
+- **Tapping it** opens the conversation — in an open Inbox window if there
+  is one (focused and moved to it), else in a new one; an admin window is
+  never navigated away.
 - **App badge.** Where the platform has one (the installed app on desktop
   Chrome/Edge, Android launchers that support it, iOS Home Screen), the icon
   shows your total unread: set by each push, and updated by the Inbox as you
