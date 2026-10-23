@@ -121,8 +121,11 @@ func TestCommittedIconsMatchGenerator(t *testing.T) {
 			t.Fatalf("%s drifted; run `just icons`: %v", s.Name, err)
 		}
 		got, err := png.Decode(bytes.NewReader(b))
-		if err != nil || got.Bounds() != want.Bounds() {
-			t.Fatalf("%s drifted; run `just icons`", s.Name)
+		if err != nil {
+			t.Fatalf("%s drifted; run `just icons`: decode: %v", s.Name, err)
+		}
+		if got.Bounds() != want.Bounds() {
+			t.Fatalf("%s drifted; run `just icons`: bounds %v, want %v", s.Name, got.Bounds(), want.Bounds())
 		}
 		if !withinTolerance(got, want, 2) {
 			t.Fatalf("%s drifted; run `just icons`", s.Name)

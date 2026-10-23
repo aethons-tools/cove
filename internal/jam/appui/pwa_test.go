@@ -32,6 +32,7 @@ func serve(m http.Handler, method, path string) *httptest.ResponseRecorder {
 type gotIcon struct{ Src, Sizes, Type, Purpose string }
 
 type gotManifest struct {
+	ID              string    `json:"id"`
 	Name            string    `json:"name"`
 	ShortName       string    `json:"short_name"`
 	Scope           string    `json:"scope"`
@@ -54,7 +55,7 @@ func TestManifest(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
 		t.Fatalf("manifest not JSON: %v\n%s", err, rec.Body)
 	}
-	if m.Name != brand || m.ShortName != "Jam" || m.Scope != "/app/" || m.StartURL != "/app/" ||
+	if m.ID != "/app/" || m.Name != brand || m.ShortName != "Jam" || m.Scope != "/app/" || m.StartURL != "/app/" ||
 		m.Display != "standalone" || m.ThemeColor != "#2F67B2" || m.BackgroundColor != "#F5F6F8" {
 		t.Errorf("manifest = %+v", m)
 	}
@@ -95,9 +96,9 @@ func TestServiceWorker(t *testing.T) {
 			t.Errorf("sw.js missing %q", want)
 		}
 	}
-	for _, bad := range []string{"caches.", "respondWith"} {
+	for _, bad := range []string{"caches.", "respondWith", "addEventListener('fetch'", `addEventListener("fetch"`} {
 		if strings.Contains(body, bad) {
-			t.Errorf("sw.js must be network-only, has %q", bad)
+			t.Errorf("sw.js must be install/activate only (no fetch handler, no caches), has %q", bad)
 		}
 	}
 }
@@ -144,6 +145,7 @@ func TestHeadTemplate(t *testing.T) {
 		`<link rel="apple-touch-icon" href="` + uiassets.IconHref("/app/static/", "apple-touch-icon.png") + `">`,
 		`?v=`,
 		`<meta name="apple-mobile-web-app-capable" content="yes">`,
+		`<meta name="mobile-web-app-capable" content="yes">`,
 		`<meta name="apple-mobile-web-app-title" content="Jam">`,
 		`<link rel="icon" type="image/png" sizes="32x32" href="` + uiassets.IconHref("/app/static/", "favicon-32.png") + `">`,
 		`if('serviceWorker' in navigator){`,

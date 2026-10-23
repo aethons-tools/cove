@@ -14,7 +14,7 @@
 
 - Manifest at `/app/manifest.webmanifest`, content type `application/manifest+json`: `name` "{display name} Jam" (the shell brand; "Jam" when unset), `short_name` "Jam", `scope` `/app/`, `start_url` `/app/`, `display` `standalone`, `theme_color` `#2F67B2`, `background_color` `#F5F6F8`, `icons` per the table below.
 - Dark theme colour via `<meta name="theme-color" content="#0F1116" media="(prefers-color-scheme: dark)">` (light: `#2F67B2` with `media="(prefers-color-scheme: light)"`).
-- Service worker at `/app/sw.js` (`text/javascript`, `Cache-Control: no-cache`): `install` → `skipWaiting()`, `activate` → `clients.claim()`, network-only `fetch` (no `respondWith`, no caches). Registered with scope `/app/`.
+- Service worker at `/app/sw.js` (`text/javascript`, `Cache-Control: no-cache`): `install` → `skipWaiting()`, `activate` → `clients.claim()`, install/activate only, no `fetch` handler (so every request goes to the network), caches nothing. Registered with scope `/app/`.
 - iOS: `<link rel="apple-touch-icon" href="/app/static/icons/apple-touch-icon.png?v=…">`, `<meta name="apple-mobile-web-app-capable" content="yes">`, `<meta name="apple-mobile-web-app-title" content="Jam">`.
 - Manifest, `sw.js` and `/app/static/*` (icons included) are served **without** the gate; every other `/app/` path stays gated.
 - Icons, rendered from `j-logo-plain.svg`, committed under `internal/jam/uiassets/static/icons/`:
@@ -212,10 +212,10 @@ Plus in adminui and userui tests: a full page's `<head>` contains `rel="manifest
 
 ```js
 // Jam app service worker: present so the app is installable and so push
-// (a later slice) has a home. It caches nothing — every request goes to the network.
+// (a later slice) has a home. It caches nothing and has no fetch handler,
+// so every request goes straight to the network.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', () => {});
 ```
 
 `head.html`:

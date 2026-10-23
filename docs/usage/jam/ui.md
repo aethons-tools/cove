@@ -74,7 +74,8 @@ install: the browser has no service worker there, and the page skips it quietly.
 
 ## Signing in: one login, one Principal
 
-Every `/app` page except login and static sits behind one gate, separate from
+Every `/app` page sits behind one gate (the exceptions are listed under
+[Installing the app](#installing-the-app) and in the route table), separate from
 the JSON admin API's authenticator (see the fail-closed rule in
 [serve.md](serve.md#exposing-the-admin-api-fail-closed)). It resolves each
 request to a **Principal** — a **user**, an **admin**, or both:

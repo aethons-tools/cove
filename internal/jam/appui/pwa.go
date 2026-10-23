@@ -52,6 +52,7 @@ type manifestIcon struct {
 }
 
 type manifest struct {
+	ID              string         `json:"id"`
 	Name            string         `json:"name"`
 	ShortName       string         `json:"short_name"`
 	Scope           string         `json:"scope"`
@@ -69,7 +70,7 @@ func manifestHandler(brand string) http.Handler {
 		return manifestIcon{Src: uiassets.IconHref(staticPrefix, name), Sizes: sizes, Type: "image/png", Purpose: purpose}
 	}
 	body, err := json.Marshal(manifest{
-		Name: brandOr(brand), ShortName: "Jam",
+		ID: "/app/", Name: brandOr(brand), ShortName: "Jam",
 		Scope: "/app/", StartURL: "/app/", Display: "standalone",
 		ThemeColor: "#2F67B2", BackgroundColor: "#F5F6F8",
 		Icons: []manifestIcon{

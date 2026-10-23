@@ -29,7 +29,7 @@ var Specs = []Spec{
 	{Name: "favicon-32.png", Size: 32, Scale: 0.92},
 	{Name: "icon-192.png", Size: 192, Scale: 0.92},
 	{Name: "icon-512.png", Size: 512, Scale: 0.92},
-	{Name: "icon-maskable-512.png", Size: 512, Background: white, Scale: 0.68}, // the mark box corners exceed the 0.4R safe circle above ~0.70
+	{Name: "icon-maskable-512.png", Size: 512, Background: white, Scale: 0.68}, // painted pixels leave the 0.4R safe circle above ~0.70
 	{Name: "apple-touch-icon.png", Size: 180, Background: white, Scale: 0.92},
 }
 
