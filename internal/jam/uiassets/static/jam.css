@@ -54,3 +54,22 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+
+/* App title bar (appui.TitlebarTemplate): logo, tabs, principal menu. */
+.app-titlebar{display:flex;align-items:center;gap:16px;padding:0 16px;height:48px;background:var(--surface);border-bottom:1px solid var(--border)}
+.app-logo{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;text-decoration:none;white-space:nowrap}
+.app-logo img{display:block}
+.app-tabs{display:flex;align-items:center;gap:2px;flex:1;min-width:0;overflow-x:auto}
+.app-tabs a{padding:6px 10px;border-radius:6px;color:var(--muted);text-decoration:none;white-space:nowrap}
+.app-tabs a:hover{color:var(--ink)}
+.app-tabs a[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.app-tabs .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--idle-soft);color:var(--muted);font-size:11px;line-height:18px;text-align:center}
+.app-tabs .badge.red{background:var(--bad);color:#fff}
+.app-principal{position:relative;margin-left:auto}
+.app-principal summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;color:var(--ink)}
+.app-principal summary::-webkit-details-marker{display:none}
+.app-principal .av{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.app-principal .menu{position:absolute;right:0;top:36px;z-index:10;display:flex;flex-direction:column;gap:4px;min-width:180px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.app-principal .menu small{color:var(--muted)}
+.app-principal .menu a{color:var(--accent);text-decoration:none}
+@media (max-width:720px){.app-principal .nm{display:none}.app-titlebar{gap:8px;padding:0 8px}}

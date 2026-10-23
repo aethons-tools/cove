@@ -63,3 +63,10 @@ func TestServesNothingElse(t *testing.T) {
 		}
 	}
 }
+
+func TestServesBrandMark(t *testing.T) {
+	rec := get(t, uiassets.Handler("/app/static/"), "/app/static/brand/j-logo-plain.svg")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("logo = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
