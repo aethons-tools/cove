@@ -3,6 +3,7 @@ package jam
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -593,5 +594,37 @@ func TestConfigMarkStatesRendersTabbedNote(t *testing.T) {
 	}
 	if !slices.ContainsFunc(states, func(s ConfigMarkState) bool { return s.Name == "gh" && s.State == ConfigDrifted }) {
 		t.Fatalf("states %+v", states)
+	}
+}
+
+// A Postgres serve reloads every object from its JSON doc (no migration once
+// its roster schema is current): a repo written before a restart still
+// adopts after it (the live side planned from the snapshot round-tripped
+// through JSON).
+func TestConfigWriteAllAdoptsAfterReload(t *testing.T) {
+	st, f := adoptJam(t)
+	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true, ContextFiles: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	exportToDir(t, dir, exp)
+	b, err := json.Marshal(st.ExportConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap ConfigSnapshot
+	if err := json.Unmarshal(b, &snap); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	FetchConfigKits(context.Background(), f, tr)
+	p := PlanConfig(ConfigPlanInput{Tree: tr, Snapshot: snap, Env: allCreds,
+		Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: time.Unix(100, 0)})
+	for _, r := range notAdopted(p) {
+		t.Errorf("%s", r)
 	}
 }
