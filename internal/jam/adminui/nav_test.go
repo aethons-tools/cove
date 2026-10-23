@@ -17,11 +17,11 @@ import (
 func TestMovedPagesRedirect(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	for from, to := range map[string]string{
-		"/ui/roles":               "/ui/",
-		"/ui/roles/acme/dev":      "/ui/projects/acme/roles/dev",
-		"/ui/roles?x=1":           "/ui/?x=1",
-		"/ui/projects":            "/ui/",
-		"/ui/projects/acme/roles": "/ui/projects/acme/agents",
+		"/app/admin/roles":               "/app/admin/",
+		"/app/admin/roles/acme/dev":      "/app/admin/projects/acme/roles/dev",
+		"/app/admin/roles?x=1":           "/app/admin/?x=1",
+		"/app/admin/projects":            "/app/admin/",
+		"/app/admin/projects/acme/roles": "/app/admin/projects/acme/agents",
 	} {
 		rec := get(t, h, from)
 		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != to {
@@ -39,15 +39,15 @@ func TestProjectEditsAnswerWithTheirSection(t *testing.T) {
 		form         url.Values
 		section      string
 	}{
-		{http.MethodPost, "/ui/projects/acme/context", url.Values{"yaml": {"core: C\n"}}, "<h1>acme</h1>"},
-		{http.MethodDelete, "/ui/projects/acme/context", nil, "<h1>acme</h1>"},
-		{http.MethodPost, "/ui/projects/acme/chat-service", url.Values{"service": {""}}, "<h1>acme</h1>"},
-		{http.MethodPost, "/ui/projects/acme/members", url.Values{"user": {"alice"}, "add": {"1"}}, "<h1>Members</h1>"},
-		{http.MethodDelete, "/ui/projects/acme/members/alice", nil, "<h1>Members</h1>"},
-		{http.MethodPost, "/ui/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}, "<h1>Intercom</h1>"},
-		{http.MethodDelete, "/ui/projects/acme/channels/ops", nil, "<h1>Intercom</h1>"},
-		{http.MethodPost, "/ui/projects/acme/escalation", url.Values{"category": {"infra"}, "tiers": {"human:alice@10m"}}, "<h1>Escalation</h1>"},
-		{http.MethodDelete, "/ui/projects/acme/escalation?category=deploy", nil, "<h1>Escalation</h1>"},
+		{http.MethodPost, "/app/admin/projects/acme/context", url.Values{"yaml": {"core: C\n"}}, "<h1>acme</h1>"},
+		{http.MethodDelete, "/app/admin/projects/acme/context", nil, "<h1>acme</h1>"},
+		{http.MethodPost, "/app/admin/projects/acme/chat-service", url.Values{"service": {""}}, "<h1>acme</h1>"},
+		{http.MethodPost, "/app/admin/projects/acme/members", url.Values{"user": {"alice"}, "add": {"1"}}, "<h1>Members</h1>"},
+		{http.MethodDelete, "/app/admin/projects/acme/members/alice", nil, "<h1>Members</h1>"},
+		{http.MethodPost, "/app/admin/projects/acme/channels", url.Values{"name": {"ops"}, "service": {"discord"}, "ref": {"chan-ops"}}, "<h1>Intercom</h1>"},
+		{http.MethodDelete, "/app/admin/projects/acme/channels/ops", nil, "<h1>Intercom</h1>"},
+		{http.MethodPost, "/app/admin/projects/acme/escalation", url.Values{"category": {"infra"}, "tiers": {"human:alice@10m"}}, "<h1>Escalation</h1>"},
+		{http.MethodDelete, "/app/admin/projects/acme/escalation?category=deploy", nil, "<h1>Escalation</h1>"},
 	} {
 		var rec *httptest.ResponseRecorder
 		if c.method == http.MethodPost {
@@ -71,12 +71,12 @@ func TestProjectEditsAnswerWithTheirSection(t *testing.T) {
 func TestCreateRoleFromProject(t *testing.T) {
 	store := seedProjects(t)
 	h := projHandler(store)
-	page := get(t, h, "/ui/projects/acme/agents").Body.String()
-	if !strings.Contains(page, `<form hx-post="/ui/roles" hx-swap="none">`) || strings.Contains(page, `data-ta="projects"`) {
+	page := get(t, h, "/app/admin/projects/acme/agents").Body.String()
+	if !strings.Contains(page, `<form hx-post="/app/admin/roles" hx-swap="none">`) || strings.Contains(page, `data-ta="projects"`) {
 		t.Errorf("roles section should post the role with its project fixed:\n%s", page)
 	}
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"qa"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/projects/acme/roles/qa" {
+	rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"qa"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/projects/acme/roles/qa" {
 		t.Fatalf("create = %d → %q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
 	if _, ok := store.GetRole("acme", "qa"); !ok {
@@ -118,8 +118,8 @@ func TestProjectIntercomSection(t *testing.T) {
 		}
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
-	body := get(t, h, "/ui/projects/acme/intercom").Body.String()
-	for _, want := range []string{"<h1>Intercom</h1>", "deploy started", `href="/ui/intercom?project=acme"`, `hx-post="/ui/projects/acme/channels"`} {
+	body := get(t, h, "/app/admin/projects/acme/intercom").Body.String()
+	for _, want := range []string{"<h1>Intercom</h1>", "deploy started", `href="/app/admin/intercom?project=acme"`, `hx-post="/app/admin/projects/acme/channels"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("intercom section missing %q", want)
 		}
@@ -128,7 +128,7 @@ func TestProjectIntercomSection(t *testing.T) {
 		t.Error("intercom section shows another project's message")
 	}
 	// no log configured: the rooms still render, the log says so
-	body = get(t, projHandler(store), "/ui/projects/acme/intercom").Body.String()
+	body = get(t, projHandler(store), "/app/admin/projects/acme/intercom").Body.String()
 	if !strings.Contains(body, "The message log is unavailable.") || !strings.Contains(body, "Add room") {
 		t.Errorf("intercom section without a log:\n%s", body)
 	}

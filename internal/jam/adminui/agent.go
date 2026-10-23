@@ -87,7 +87,7 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 	d := agentDetail{
 		Title: id, ID: id, CanEdit: canEdit,
 		SessionsEnabled: sess != nil, SquawksConfigured: msgs != nil,
-		IntercomURL: "/ui/intercom?participant=" + url.QueryEscape(participant),
+		IntercomURL: "/app/admin/intercom?participant=" + url.QueryEscape(participant),
 	}
 	d.Inst, d.Running = store.GetInstance(id)
 	if d.Running {
@@ -115,7 +115,7 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 }
 
 func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, acc accessDeps, canEdit bool) {
-	mux.HandleFunc("GET /ui/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildAgentDetail(store, msgs, sess, acc, r.PathValue("id"), canEdit)
 		if !ok {
 			d.NotFound = true

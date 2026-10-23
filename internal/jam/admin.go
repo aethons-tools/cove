@@ -435,7 +435,8 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
 // alloc (may be nil) admits personal sessions; nil 503s their request route.
-func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, ui, me http.Handler, opts ...AdminOption) http.Handler {
+// browser (may be nil) serves everything outside /admin/ — the /app browser app.
+func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, browser http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -953,25 +954,15 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		o(mux)
 	}
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
-	if ui == nil && me == nil {
+	if browser == nil {
 		return guarded
 	}
-	// The /ui (operator) and /me (participant) subtrees each own their own gate,
-	// so they are mounted OUTSIDE the /admin/* authenticator rather than wrapped
-	// by it. A participant session (jam_participant, Path /me) is never sent to
-	// /ui or /admin, and both of those are gated independently — so the
-	// participant plane cannot reach operator routes.
+	// The browser app (/app, its legacy redirects, and /me/studios) owns its own
+	// gates, so it is mounted OUTSIDE the /admin/* authenticator. Its session
+	// cookies are Path=/app and never reach /admin.
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
-	if ui != nil {
-		parent.Handle("/ui/", ui)
-		parent.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/ui/", http.StatusFound)
-		})
-	}
-	if me != nil {
-		parent.Handle("/me/", me)
-	}
+	parent.Handle("/", browser)
 	return parent
 }
 

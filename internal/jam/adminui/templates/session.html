@@ -30,7 +30,7 @@
   .ev details>summary{cursor:pointer;color:var(--accent);font-weight:600;user-select:none;width:max-content}
   .ev pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 2px;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;font:12px/1.5 "IBM Plex Mono",ui-monospace,monospace;max-height:480px;overflow:auto}
 </style>
-<div class="crumbs"><a href="/ui/agents">Agents</a> / <a href="{{agentURL .ActorID}}">{{.ActorID}}</a> / <a href="{{agentURL .ActorID}}/session">session</a></div>
+<div class="crumbs"><a href="/app/admin/agents">Agents</a> / <a href="{{agentURL .ActorID}}">{{.ActorID}}</a> / <a href="{{agentURL .ActorID}}/session">session</a></div>
 <div class="page-head">
   <h1 class="mono">{{.ActorID}}</h1>
   {{if .Enabled}}<div id="totals" class="facts"><span class="none">loading…</span></div>{{end}}

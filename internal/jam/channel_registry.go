@@ -112,7 +112,7 @@ type ChannelStore interface {
 	// ChannelsOf returns the channels p is currently a member of, sorted.
 	ChannelsOf(p ident.ID) []ident.ID
 
-	// ChannelReads is how far p has read each channel (the /me unread
+	// ChannelReads is how far p has read each channel (the /app/user unread
 	// cursor: a seq); CommitChannelRead moves one forward only.
 	ChannelReads(p ident.ID) map[ident.ID]int64
 	CommitChannelRead(p, ch ident.ID, seq int64) error

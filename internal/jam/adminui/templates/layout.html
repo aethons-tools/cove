@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{stylesheet}}">
-  <script src="/ui/static/htmx.min.js"></script>
+  <script src="/app/static/htmx.min.js"></script>
   <style>
-    /* Tokens and base: jam.css (shared with /me). Admin components below. */
+    /* Tokens and base: jam.css (shared with /app/user). Admin components below. */
     code,.mono,td.id{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
     a{color:var(--accent)}
 
@@ -152,7 +152,7 @@
   <header class="topbar">
     <button type="button" class="railbtn" aria-label="Projects" onclick="document.body.classList.toggle('rail-open')">☰</button>
     <span class="brand"><span class="dot"></span>{{or frame.Brand "Jam"}} <small>Admin</small></span>
-    <form class="topsearch" action="/ui/search" method="get" role="search">
+    <form class="topsearch" action="/app/admin/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
       <input type="hidden" name="go" value="1">
     </form>
@@ -209,7 +209,7 @@
       if (e.detail.successful && f.tagName === 'FORM' && f.hasAttribute('data-reset')) f.reset();
     });
     // Type-ahead for fields that name another entity. An input or textarea with
-    // data-ta="<kind>" suggests from /ui/suggest?kind=<kind>&project=<p>:
+    // data-ta="<kind>" suggests from /app/admin/suggest?kind=<kind>&project=<p>:
     //   data-ta-list     complete the comma-separated token under the cursor
     //                    (within the line, in a textarea; from "@" on is a
     //                    tier's timeout and is never completed);
@@ -222,7 +222,7 @@
     function taFetch(kind, project){
       var key = kind + '|' + project;
       if (!ta.cache[key]) {
-        ta.cache[key] = fetch('/ui/suggest?kind=' + encodeURIComponent(kind) + '&project=' + encodeURIComponent(project))
+        ta.cache[key] = fetch('/app/admin/suggest?kind=' + encodeURIComponent(kind) + '&project=' + encodeURIComponent(project))
           .then(function(r){ return r.ok ? r.json() : []; })
           .catch(function(){ delete ta.cache[key]; return []; });
       }
@@ -366,13 +366,13 @@
   {{template "rail-entries" .}}
   <details class="newproj">
     <summary>+ New project</summary>
-    <form hx-post="/ui/projects" hx-swap="none"><input name="name" placeholder="name" aria-label="Project name" required autocomplete="off"><button type="submit" class="primary small">Create</button></form>
+    <form hx-post="/app/admin/projects" hx-swap="none"><input name="name" placeholder="name" aria-label="Project name" required autocomplete="off"><button type="submit" class="primary small">Create</button></form>
   </details>
 </aside>
 {{end}}
 
 {{define "rail-entries"}}
-<div id="rail-entries" hx-get="{{or .Poll "/ui/rail"}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<div id="rail-entries" hx-get="{{or .Poll "/app/admin/rail"}}" hx-trigger="every 3s" hx-swap="outerHTML">
   <ul>
     <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ {{.Jam.Name}}</span>{{template "badge" .Jam.Badge}}</a></li>
   </ul>
@@ -390,7 +390,7 @@
      anything in it is broken, the breakdown on hover; nothing when zero. */}}
 {{define "badge"}}{{if .N}} <span class="badge{{if .Red}} red{{end}}" title="{{.Title}}">{{.N}}</span>{{end}}{{end}}
 {{/* A config-managed object's badge (managed.go); links the Config page. */}}
-{{define "managed-badge"}}{{with .}}<a class="chip managed" href="/ui/config" title="Applied from the config repo {{.Applied}}; edits here drift from it">managed · config @{{.Commit}}</a>{{end}}{{end}}
+{{define "managed-badge"}}{{with .}}<a class="chip managed" href="/app/admin/config" title="Applied from the config repo {{.Applied}}; edits here drift from it">managed · config @{{.Commit}}</a>{{end}}{{end}}
 {{/* A git source (a sourceView): its repo and commit, linked when the host is known. */}}
 {{define "src-repo"}}{{if .RepoLink}}<a class="mono" href="{{.RepoLink}}" rel="noopener noreferrer">{{.Repo}}</a>{{else}}<span class="mono">{{.Repo}}</span>{{end}}{{end}}
 {{define "src-commit"}}{{if .Commit}}{{if .CommitLink}}<a class="mono" href="{{.CommitLink}}" rel="noopener noreferrer">{{.Commit}}</a>{{else}}<span class="mono">{{.Commit}}</span>{{end}}{{else}}<span class="unset">—</span>{{end}}{{end}}

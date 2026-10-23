@@ -4,7 +4,7 @@ read_when: You want to change something from the Jam admin UI instead of the CLI
 owns: the admin UI's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels and the write banner, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
 prereqs: ui.md for reaching the UI and its sections; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Editing from the admin UI
@@ -74,7 +74,7 @@ A project's role list (**Request**, on its Agents tab) and each role page (**Req
 personal agent — a [personal session](personal-sessions.md) — of that role **for you**, with the
 prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 agent opens the conversation with you on the intercom. You must be signed in
-(`/ui/auth/login`) as a login linked to a member of the role's project.
+(`/app/auth/login`) as a login linked to a member of the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
 delivery checks, and errors are exactly those of `at-jam session request`, and
 the outcome (the new agent id, or the refusal) shows in the page's banner.

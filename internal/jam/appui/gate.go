@@ -64,7 +64,12 @@ type GateConfig struct {
 // identity and gains admin, and off-loopback needs a session.
 func NewGate(c GateConfig) browserauth.Gate {
 	g := browserauth.Gate{LoginPath: c.LoginPath, ExpectedHosts: c.ExpectedHosts, Log: c.Log}
+	login := c.LoginPath != ""
+	g.Forbidden = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		forbidNeither(w, withLogin(r, login))
+	})
 	g.LoopbackTrust = func(r *http.Request) *http.Request {
+		r = withLogin(r, login)
 		p := Principal{Admin: true, Local: true, Operator: jam.Operator{ID: "local"}}
 		if c.Dev != nil {
 			p.Operator.ID = c.Dev.OperatorID()
@@ -76,7 +81,7 @@ func NewGate(c GateConfig) browserauth.Gate {
 	}
 	if c.Sessions != nil {
 		g.Session = func(r *http.Request) (*http.Request, browserauth.SessionOutcome) {
-			rr, out := c.Sessions.Resolve(r)
+			rr, out := c.Sessions.Resolve(withLogin(r, login))
 			if out == browserauth.SessionOK && jam.IsLoopbackRequest(r) {
 				p, _ := PrincipalFrom(rr)
 				if !p.Admin {
@@ -90,11 +95,21 @@ func NewGate(c GateConfig) browserauth.Gate {
 	return g
 }
 
-// RequireUser admits a principal that is a roster member.
+// RequireUser admits a principal that is a roster member. A local admin with
+// no login is asked to sign in (a link when browser login is configured).
 func RequireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if p, ok := PrincipalFrom(r); !ok || p.User == nil {
-			http.Error(w, "signed in, but not a member of any project — ask an admin to add you to a roster", http.StatusForbidden)
+		p, ok := PrincipalFrom(r)
+		switch {
+		case ok && p.User == nil && p.Local:
+			if loginConfigured(r) {
+				forbid(w, "Sign in to use the Inbox.", loginPath, "Sign in")
+			} else {
+				forbid(w, "Sign in to use the Inbox.", "", "")
+			}
+			return
+		case !ok || p.User == nil:
+			forbidSignedIn(w, r, "This area needs a project membership — if you're a member, your sign-in may have expired: sign in again; otherwise ask an admin to add you to a roster.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -105,7 +120,7 @@ func RequireUser(next http.Handler) http.Handler {
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if p, ok := PrincipalFrom(r); !ok || !p.Admin {
-			http.Error(w, "signed in, but not an admin", http.StatusForbidden)
+			forbidSignedIn(w, r, "You're signed in, but this area needs admin rights.")
 			return
 		}
 		next.ServeHTTP(w, r)

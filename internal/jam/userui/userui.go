@@ -1,10 +1,10 @@
-// Package meui serves the participant intercom inbox under /me — a two-pane,
+// Package userui serves the participant intercom inbox under /app/user — a two-pane,
 // server-rendered (html/template + htmx) web UI over the person's channels
 // (intercom slice 2b: jam.UserChannels on the channel log), with a read-only
 // History of the legacy log. It mirrors internal/jam/adminui's mechanism but
 // has its own two-pane chrome and its own gate (no loopback trust); identity
 // is per-request via jam.ParticipantFrom.
-package meui
+package userui
 
 import (
 	"sort"

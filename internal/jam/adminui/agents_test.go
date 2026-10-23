@@ -55,7 +55,7 @@ func agentRow(t *testing.T, body, id string) string {
 // The list merges actors and studios by id, in id order, and names each
 // agent's kind.
 func TestAgentsListMergesAndKinds(t *testing.T) {
-	body := get(t, adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
+	body := get(t, adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/agents").Body.String()
 	for id, kind := range map[string]string{
 		"s-standing": "standing", "s-personal": "personal", "s-ticket": "ticket", "s-manual": "manual", "e-only": "enrolled",
 	} {
@@ -66,7 +66,7 @@ func TestAgentsListMergesAndKinds(t *testing.T) {
 	if n := strings.Count(body, `<tr data-id="s-ticket">`); n != 1 {
 		t.Errorf("an enrolled studio is one row, got %d", n)
 	}
-	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "pending") || !strings.Contains(row, `href="/ui/projects/acme/roles/ops"`) {
+	if row := agentRow(t, body, "e-only"); !strings.Contains(row, "pending") || !strings.Contains(row, `href="/app/admin/projects/acme/roles/ops"`) {
 		t.Errorf("enrolled-only row: %s", row)
 	}
 	last := -1
@@ -94,7 +94,7 @@ func TestAgentsStatusFilter(t *testing.T) {
 		"phase=live":        {"s-standing"}, // old links
 		"phase=raising":     {"s-ticket"},
 	} {
-		body := get(t, h, "/ui/agents?"+query).Body.String()
+		body := get(t, h, "/app/admin/agents?"+query).Body.String()
 		if n := strings.Count(body, `<tr data-id="`); n != len(want) {
 			t.Errorf("%s: %d rows, want %d", query, n, len(want))
 		}
@@ -104,8 +104,8 @@ func TestAgentsStatusFilter(t *testing.T) {
 			}
 		}
 	}
-	body := get(t, h, "/ui/agents?status=running").Body.String()
-	if !strings.Contains(body, `hx-get="/ui/agents?status=running" hx-trigger="every 3s"`) || !strings.Contains(body, `class="tab sel" href="/ui/agents?status=running"`) {
+	body := get(t, h, "/app/admin/agents?status=running").Body.String()
+	if !strings.Contains(body, `hx-get="/app/admin/agents?status=running" hx-trigger="every 3s"`) || !strings.Contains(body, `class="tab sel" href="/app/admin/agents?status=running"`) {
 		t.Errorf("the poll and the filter strip should keep status=running")
 	}
 }
@@ -113,7 +113,7 @@ func TestAgentsStatusFilter(t *testing.T) {
 // Each row shows one status: the studio's phase and the agent's activity on
 // one axis; an agent with no studio is pending.
 func TestAgentsListStatus(t *testing.T) {
-	body := get(t, adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil), "/ui/agents").Body.String()
+	body := get(t, adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/agents").Body.String()
 	for id, want := range map[string]string{
 		"s-standing": `<span class="pill st-running">running</span>`,
 		"s-personal": `<span class="pill st-idled">idled</span>`,
@@ -134,10 +134,10 @@ func TestAgentsListStatus(t *testing.T) {
 func TestAgentRedirects(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil)
 	for from, to := range map[string]string{
-		"/ui/coves":                    "/ui/agents",
-		"/ui/actors":                   "/ui/agents",
-		"/ui/coves/s-ticket":           "/ui/agents/s-ticket",
-		"/ui/coves/s-ticket/session?x": "/ui/agents/s-ticket/session?x",
+		"/app/admin/coves":                    "/app/admin/agents",
+		"/app/admin/actors":                   "/app/admin/agents",
+		"/app/admin/coves/s-ticket":           "/app/admin/agents/s-ticket",
+		"/app/admin/coves/s-ticket/session?x": "/app/admin/agents/s-ticket/session?x",
 	} {
 		rec := get(t, h, from)
 		if rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != to {
@@ -150,27 +150,27 @@ func TestAgentRedirects(t *testing.T) {
 // Revoke — beside its studio; an enrolled-only agent has a page too.
 func TestAgentPageIdentity(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), &jam.Supervisor{}, nil, anyCred, nil)
-	body := get(t, h, "/ui/agents/s-ticket").Body.String()
+	body := get(t, h, "/app/admin/agents/s-ticket").Body.String()
 	for _, want := range []string{
 		`<h1 class="mono">s-ticket</h1>`, `<span class="chip">ticket</span>`,
-		"<h2>Identity</h2>", `href="/ui/projects/acme/roles/dev"`,
-		`hx-delete="/ui/actors/s-ticket/grants/acme/dev"`, `hx-post="/ui/actors/s-ticket/grants"`,
-		`hx-delete="/ui/enrollments/s-ticket"`, `hx-delete="/ui/coves/s-ticket"`,
-		`<a href="/ui/agents">Agents</a> / <a href="/ui/agents/s-ticket">s-ticket</a>`,
+		"<h2>Identity</h2>", `href="/app/admin/projects/acme/roles/dev"`,
+		`hx-delete="/app/admin/actors/s-ticket/grants/acme/dev"`, `hx-post="/app/admin/actors/s-ticket/grants"`,
+		`hx-delete="/app/admin/enrollments/s-ticket"`, `hx-delete="/app/admin/coves/s-ticket"`,
+		`<a href="/app/admin/agents">Agents</a> / <a href="/app/admin/agents/s-ticket">s-ticket</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("agent page missing %q", want)
 		}
 	}
-	rec := get(t, h, "/ui/agents/e-only")
+	rec := get(t, h, "/app/admin/agents/e-only")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "This agent isn't running.") || !strings.Contains(rec.Body.String(), `<span class="chip">enrolled</span>`) {
 		t.Errorf("enrolled-only agent = %d:\n%s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), `hx-delete="/ui/coves/e-only"`) {
+	if strings.Contains(rec.Body.String(), `hx-delete="/app/admin/coves/e-only"`) {
 		t.Error("no studio, no Teardown")
 	}
 	// a studio without an enrolled actor offers no Revoke
-	if body := get(t, h, "/ui/agents/s-manual").Body.String(); strings.Contains(body, `hx-delete="/ui/enrollments/`) || !strings.Contains(body, "Not enrolled") {
+	if body := get(t, h, "/app/admin/agents/s-manual").Body.String(); strings.Contains(body, `hx-delete="/app/admin/enrollments/`) || !strings.Contains(body, "Not enrolled") {
 		t.Error("an unenrolled studio should say so and offer no Revoke")
 	}
 }
@@ -178,10 +178,10 @@ func TestAgentPageIdentity(t *testing.T) {
 // Holders on role and project pages link to their agent pages.
 func TestHoldersLinkAgents(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil)
-	if body := get(t, h, "/ui/projects/acme/roles/ops").Body.String(); !strings.Contains(body, `<a href="/ui/agents/e-only?project=acme"`) {
+	if body := get(t, h, "/app/admin/projects/acme/roles/ops").Body.String(); !strings.Contains(body, `<a href="/app/admin/agents/e-only?project=acme"`) {
 		t.Error("role holders should link their agent pages")
 	}
-	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/ui/agents/e-only?project=acme"><b>e-only</b></a>`) {
+	if body := get(t, h, "/app/admin/projects/acme/agents").Body.String(); !strings.Contains(body, `<a class="mono" href="/app/admin/agents/e-only?project=acme"><b>e-only</b></a>`) {
 		t.Error("a project's agents should link their agent pages")
 	}
 }
@@ -190,10 +190,10 @@ func TestHoldersLinkAgents(t *testing.T) {
 // request with just the table.
 func TestDashboardPollsItself(t *testing.T) {
 	h := adminui.Handler(seedAgents(t), testLogger(), nil, nil, anyCred, nil)
-	if body := get(t, h, "/ui/").Body.String(); !strings.Contains(body, `id="coves" hx-get="/ui/" hx-trigger="every 3s"`) {
-		t.Errorf("dashboard studio table should poll /ui/")
+	if body := get(t, h, "/app/admin/").Body.String(); !strings.Contains(body, `id="coves" hx-get="/app/admin/" hx-trigger="every 3s"`) {
+		t.Errorf("dashboard studio table should poll /app/admin/")
 	}
-	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/app/admin/", nil)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -209,8 +209,8 @@ func TestAgentPageLinksOwner(t *testing.T) {
 	if err := store.PutInstance(jam.Instance{ActorID: "s-own", Project: "acme", Role: "dev", SessionKind: "personal", Owner: "alice", OwnerID: "usr_alice", Phase: jam.PhaseLive}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents/s-own").Body.String()
-	if !strings.Contains(body, `<a href="/ui/users/usr_alice">alice</a>`) {
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/agents/s-own").Body.String()
+	if !strings.Contains(body, `<a href="/app/admin/users/usr_alice">alice</a>`) {
 		t.Errorf("owner should link the user page:\n%s", body)
 	}
 }
@@ -226,7 +226,7 @@ func TestProjectAgentsOneTable(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "b-only", TokenHash: "h3", Grants: []jam.Grant{{Project: "beta", Role: "w"}}}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/projects/acme/agents").Body.String()
 	sec := body[strings.Index(body, `<div id="project">`):]
 	// the role list, then the one agents table
 	if n := strings.Count(sec, "<table"); n != 2 || strings.Index(sec, "<h2>Roles</h2>") > strings.Index(sec, "<h2>Agents</h2>") {
@@ -236,8 +236,8 @@ func TestProjectAgentsOneTable(t *testing.T) {
 		t.Error("the separate Identities table is gone")
 	}
 	for id, want := range map[string][]string{
-		"s-ticket":   {`<span class="chip">ticket</span>`, `href="/ui/projects/acme/roles/dev"`, `class="pill st-setting-up"`}, // studio + enrolled: one row
-		"e-only":     {`<span class="chip">enrolled</span>`, `href="/ui/projects/acme/roles/ops"`, `class="pill st-pending"`},
+		"s-ticket":   {`<span class="chip">ticket</span>`, `href="/app/admin/projects/acme/roles/dev"`, `class="pill st-setting-up"`}, // studio + enrolled: one row
+		"e-only":     {`<span class="chip">enrolled</span>`, `href="/app/admin/projects/acme/roles/ops"`, `class="pill st-pending"`},
 		"s-standing": {`<span class="chip">standing</span>`, `class="pill st-running"`},
 	} {
 		row := agentRow(t, sec, id)
@@ -246,7 +246,7 @@ func TestProjectAgentsOneTable(t *testing.T) {
 				t.Errorf("%s row missing %s:\n%s", id, w, row)
 			}
 		}
-		if !strings.Contains(row, `href="/ui/agents/`+id+`?project=acme"`) {
+		if !strings.Contains(row, `href="/app/admin/agents/`+id+`?project=acme"`) {
 			t.Errorf("%s should link its agent page in acme's scope", id)
 		}
 	}

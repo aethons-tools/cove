@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # The intercom MCP
@@ -45,15 +45,15 @@ to be read:
 Each side can opt out:
 - an agent passes `content_type: "text/plain"` to `send` (`POST /squawks` takes
   the same optional field);
-- a human ticks **Plain text** in the [`/me` composer](intercom-ui.md#sending-unread-and-refresh)
-  (`POST /me/send` takes the same field).
+- a human ticks **Plain text** in the [`/app/user` composer](intercom-ui.md#sending-unread-and-refresh)
+  (`POST /app/user/send` takes the same field).
 
 Anything else is a `400`, and nothing is appended. `read` (`GET /squawks`)
 returns each squawk's `content_type`, so an agent knows when a reply is meant
 literally.
 
 **Rendering:**
-- The [`/me` inbox](intercom-ui.md) and the [admin intercom view](ui.md#intercom)
+- The [`/app/user` inbox](intercom-ui.md) and the [admin intercom view](ui.md#intercom)
   render markdown as sanitized HTML: raw HTML is omitted, `javascript:`-style
   link targets are dropped, and links open in a new tab. Plain text is shown
   as-is.
@@ -74,7 +74,7 @@ The studio's `claude` is pointed at a stdio MCP server named `messaging` in the 
 
 ## Channel membership
 
-Who hears a channel is its members. A member **calls someone in** (`call_in`, or **Call in…** in [`/me`](intercom-ui.md)): `who` is `user:<name|id>` or `session:<label|id>` of the channel's project, and a session inviter's addressing must allow it, as for a send (`403` before `404`); a person may call in only a session they could message themselves (never someone else's personal session). The invitee joins from now on and hears the inviter's "called in" notice, which reaches people's inboxes but is never posted onto a ticket's issue or a room's surface. A **chat** never takes new members (`409`), a **room** takes people but not sessions, and calling in a member does nothing. People also **join** a channel they can see (a ticket, a room, a standing session's channel — never a personal session's, which is invite-only) by posting or with **Join**. Anyone **leaves** (`leave`, **Leave**) except a session from its own channel or ticket, and nobody leaves a chat; what was delivered stays.
+Who hears a channel is its members. A member **calls someone in** (`call_in`, or **Call in…** in [`/app/user`](intercom-ui.md)): `who` is `user:<name|id>` or `session:<label|id>` of the channel's project, and a session inviter's addressing must allow it, as for a send (`403` before `404`); a person may call in only a session they could message themselves (never someone else's personal session). The invitee joins from now on and hears the inviter's "called in" notice, which reaches people's inboxes but is never posted onto a ticket's issue or a room's surface. A **chat** never takes new members (`409`), a **room** takes people but not sessions, and calling in a member does nothing. People also **join** a channel they can see (a ticket, a room, a standing session's channel — never a personal session's, which is invite-only) by posting or with **Join**. Anyone **leaves** (`leave`, **Leave**) except a session from its own channel or ticket, and nobody leaves a chat; what was delivered stays.
 
 ## Enabling it
 
@@ -82,9 +82,9 @@ Who hears a channel is its members. A member **calls someone in** (`call_in`, or
 
 **The channel log.** Each squawk is in one channel, from one participant (a session, a user, or an *account* — an unlinked sender on Linear or Discord), and its audience — the channel's members but the author, at that moment — is recorded with it. A **ticket channel** is created when a session is set up on a ticket (or at serve startup for one already running), bound to the issue; the session joins it, and a re-dispatched ticket's new session joins the same channel (with an empty inbox). A session with no ticket gets its own **session channel** when it is set up (or at serve startup for one already running): the session is in it for good, a personal session's starter is called in once (and may leave), and it is archived when the session ends — after Jam's notice about the end, which its members still get. A **chat** is a fixed set of people and sessions; a **room** is a project's named channel ([comms-addressing.md](comms-addressing.md#project-members-and-rooms)).
 
-**The cutover.** Upgrading to the channel log freezes the earlier log as **legacy history**, read-only: the admin view's Legacy tab and `/me`'s History show it, and seqs carry on from its tail. A session already running at the upgrade still reads (and commits past) the legacy replies to it it hadn't processed, ahead of new ones. Squawks the relays hadn't yet delivered at the upgrade are not delivered. Stop every older Jam before starting this one, and don't roll back past it.
+**The cutover.** Upgrading to the channel log freezes the earlier log as **legacy history**, read-only: the admin view's Legacy tab and `/app/user`'s History show it, and seqs carry on from its tail. A session already running at the upgrade still reads (and commits past) the legacy replies to it it hadn't processed, ahead of new ones. Squawks the relays hadn't yet delivered at the upgrade are not delivered. Stop every older Jam before starting this one, and don't roll back past it.
 
-**Outbound is log→egress (asynchronous, at-least-once).** A `send` appends to the log and returns; a resident egress loop per relay then renders it onto its channel's surfaces (≈ the egress poll interval later). An append failure returns `502`. Every author's squawks are rendered — a person's `/me` post too — but never back onto the surface it came from.
+**Outbound is log→egress (asynchronous, at-least-once).** A `send` appends to the log and returns; a resident egress loop per relay then renders it onto its channel's surfaces (≈ the egress poll interval later). An append failure returns `502`. Every author's squawks are rendered — a person's `/app/user` post too — but never back onto the surface it came from.
 
 **Relays.** When a Requisitioner is configured, the **Linear relay** posts a ticket's conversation as comments on its issue (a person's prefixed `<name>: `, a session's as written), renders a room bound to an issue the same way, and @-mentions a chat's people who have no Discord inbox on the ticket of a session in the chat. Inbound, it polls the team's comments feed and posts each comment on an issue a channel is bound to into that channel (idempotently); a comment on any other issue is dropped. The **Discord relay** (when `runtime.discord` names its connection, with or without a Requisitioner) renders chats and session channels onto their people's inbox channels and rooms onto their bound channels, and routes replies back into the conversation of the post they answer — see [discord.md](discord.md). Both relays share the cursors/markers files in [`state-dir`](serve.md#the-serve-config), keyed by Service; a first-enabled relay's mark is seeded to the log's tail, so it never redelivers the backlog. Wake-on reads what they post.
 

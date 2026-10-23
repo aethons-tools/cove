@@ -42,7 +42,7 @@ func gitJam(t *testing.T, store jam.Store, repoURL, token string, mount func(*gi
 	}
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil,
 		mount(f, log))
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)

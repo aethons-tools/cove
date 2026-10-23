@@ -285,7 +285,7 @@ func TestValidateDestinationRefusesOAuthBeta(t *testing.T) {
 // and stores the migrated shape.
 func TestAdminConfigImportMigratesOAuthBeta(t *testing.T) {
 	dst := NewMemStore()
-	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, testLogger(), nil, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, testLogger(), nil))
 	defer ts.Close()
 	body := `{"version":1,"model_spec_schema":2,
 	  "destinations":[` + legacyDestJSON("anthropic", "https://api.anthropic.com", "anthropic-sub") + `],

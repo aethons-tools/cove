@@ -88,7 +88,7 @@ func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, ni
 
 func mustService(t *testing.T, idp *fakeIdP) *Service {
 	t.Helper()
-	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, OperatorUIMount(), nil, discard())
+	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, testUIMount(), nil, discard())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestCallbackHappyPathSetsSessionCookie(t *testing.T) {
 	}
 	var sess *http.Cookie
 	for _, c := range cbRec.Result().Cookies() {
-		if c.Name == OperatorUIMount().SessionCookie {
+		if c.Name == testUIMount().SessionCookie {
 			sess = c
 		}
 	}
@@ -184,11 +184,11 @@ func TestCallbackHappyPathSetsSessionCookie(t *testing.T) {
 
 func TestReturnToOpenRedirectGuard(t *testing.T) {
 	for _, bad := range []string{"//evil.com", "https://evil.com", "/\\evil", "/admin/x", ""} {
-		if got := safeReturnTo(OperatorUIMount(), bad); got != "/ui/" {
+		if got := safeReturnTo(testUIMount(), bad); got != "/ui/" {
 			t.Errorf("safeReturnTo(%q) = %q, want /ui/", bad, got)
 		}
 	}
-	if got := safeReturnTo(OperatorUIMount(), "/ui/coves"); got != "/ui/coves" {
+	if got := safeReturnTo(testUIMount(), "/ui/coves"); got != "/ui/coves" {
 		t.Errorf("safeReturnTo(/ui/coves) = %q, want /ui/coves", got)
 	}
 }
@@ -200,7 +200,7 @@ func TestLogoutClearsSession(t *testing.T) {
 	svc.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/ui/auth/logout", nil))
 	var cleared bool
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == OperatorUIMount().SessionCookie && c.MaxAge < 0 {
+		if c.Name == testUIMount().SessionCookie && c.MaxAge < 0 {
 			cleared = true
 		}
 	}
@@ -304,7 +304,7 @@ func TestPreviewMountCookiesAreHostPrefixed(t *testing.T) {
 
 func TestExistingMountsTempCookiesUnprefixed(t *testing.T) {
 	idp := newFakeIdP(t)
-	for _, m := range []Mount{OperatorUIMount(), ParticipantMount()} {
+	for _, m := range []Mount{testUIMount(), AppMount()} {
 		svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "cid", Scope: "openid", Audience: "aud"}, m, nil, discard())
 		if err != nil {
 			t.Fatal(err)
@@ -392,7 +392,7 @@ func TestMountReturnToReplacesPrefixCheck(t *testing.T) {
 		}
 	}
 	// Existing mounts keep the prefix check.
-	if got := safeReturnTo(OperatorUIMount(), "https://ok.example/a"); got != "/ui/" {
+	if got := safeReturnTo(testUIMount(), "https://ok.example/a"); got != "/ui/" {
 		t.Errorf("operator mount accepted %q", got)
 	}
 }

@@ -198,7 +198,7 @@ func conditionItems(cs []condition.Condition) []attnItem {
 		default:
 			continue
 		}
-		out = append(out, attnItem{Kind: k, Tab: "health", Subject: "cond:" + c.Key, Href: "/ui/health", Why: c.Summary})
+		out = append(out, attnItem{Kind: k, Tab: "health", Subject: "cond:" + c.Key, Href: "/app/admin/health", Why: c.Summary})
 	}
 	return out
 }

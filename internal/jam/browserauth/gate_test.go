@@ -22,11 +22,39 @@ func (f *fakeIdP) mintAccess(t *testing.T, aud, sub string, exp time.Time) strin
 	})
 }
 
-// operatorGate builds the operator "/ui" gate (loopback-trusted) over an
-// optional session verifier, matching the production wiring.
+// testUIMount is a single-cookie access-token mount, the fixture these gate
+// and service tests run against.
+func testUIMount() Mount {
+	return Mount{Prefix: "/ui", SessionCookie: "jam_session", Session: AccessTokenSession}
+}
+
+// localOperator is a LoopbackTrust hook: a loopback request is the local operator.
+func localOperator() func(*http.Request) *http.Request {
+	return func(r *http.Request) *http.Request {
+		return jam.WithOperator(r, jam.Operator{ID: "local"})
+	}
+}
+
+// accessSession is a Session hook that verifies the access token in cookie
+// with Jam's token verifier and injects the operator.
+func accessSession(auth *jam.OIDCAuthenticator, cookie string) func(*http.Request) (*http.Request, SessionOutcome) {
+	return func(r *http.Request) (*http.Request, SessionOutcome) {
+		c, err := r.Cookie(cookie)
+		if err != nil || c.Value == "" {
+			return r, SessionNone
+		}
+		op, err := auth.VerifyToken(r.Context(), c.Value)
+		if err != nil {
+			return r, SessionNone
+		}
+		return jam.WithOperator(r, op), SessionOK
+	}
+}
+
+// operatorGate builds a loopback-trusted gate over an optional session verifier.
 func operatorGate(sess func(*http.Request) (*http.Request, SessionOutcome)) Gate {
 	return Gate{
-		LoopbackTrust: OperatorLoopbackTrust(),
+		LoopbackTrust: localOperator(),
 		Session:       sess,
 		LoginPath:     "/ui/auth/login",
 		Log:           discard(),
@@ -62,13 +90,13 @@ func TestGateOffLoopbackNoSessionRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	g := operatorGate(accessSession(auth, testUIMount().SessionCookie))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/auth/login" {
-		t.Fatalf("no-session off-loopback = %d %q, want 302 /ui/auth/login", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/auth/login?return_to=%2Fui%2Fcoves" {
+		t.Fatalf("no-session off-loopback = %d %q, want 302 /ui/auth/login?return_to=...", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -78,7 +106,7 @@ func TestGateOffLoopbackWriteWithoutSessionRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	g := operatorGate(accessSession(auth, testUIMount().SessionCookie))
 	var called bool
 	stub := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -119,11 +147,11 @@ func TestGateAttributesOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotSession string
-	gs := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	gs := operatorGate(accessSession(auth, testUIMount().SessionCookie))
 	rec = httptest.NewRecorder()
 	sreq := httptest.NewRequest("GET", "/ui/actors", nil)
 	sreq.RemoteAddr = "203.0.113.7:5555"
-	sreq.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
+	sreq.AddCookie(&http.Cookie{Name: testUIMount().SessionCookie, Value: idp.mintAccess(t, "aud", "auth0|alice", time.Now().Add(time.Hour))})
 	gs.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotSession = jam.OperatorID(r)
 		w.WriteHeader(http.StatusOK)
@@ -142,7 +170,7 @@ func TestGateLoopbackPrefersValidSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	g := operatorGate(accessSession(auth, testUIMount().SessionCookie))
 	for _, tc := range []struct {
 		name, cookie, want string
 	}{
@@ -157,7 +185,7 @@ func TestGateLoopbackPrefersValidSession(t *testing.T) {
 			req.RemoteAddr = "127.0.0.1:5000"
 			req.Host = "localhost"
 			if tc.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: tc.cookie})
+				req.AddCookie(&http.Cookie{Name: testUIMount().SessionCookie, Value: tc.cookie})
 			}
 			g.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				got = jam.OperatorID(r)
@@ -176,12 +204,12 @@ func TestGateOffLoopbackValidSessionAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := operatorGate(OperatorSession(auth, OperatorUIMount().SessionCookie))
+	g := operatorGate(accessSession(auth, testUIMount().SessionCookie))
 	tok := idp.mintAccess(t, "aud", "auth0|bob", time.Now().Add(time.Hour))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
-	req.AddCookie(&http.Cookie{Name: OperatorUIMount().SessionCookie, Value: tok})
+	req.AddCookie(&http.Cookie{Name: testUIMount().SessionCookie, Value: tok})
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("valid session = %d, want 200", rec.Code)
@@ -208,7 +236,7 @@ func TestGateLoopbackRejectsForeignHost(t *testing.T) {
 }
 
 func TestGateLoopbackAllowsConfiguredHost(t *testing.T) {
-	g := Gate{LoopbackTrust: OperatorLoopbackTrust(), LoginPath: "/ui/auth/login", ExpectedHosts: []string{"jam.local.aethons.tools"}, Log: discard()}
+	g := Gate{LoopbackTrust: localOperator(), LoginPath: "/ui/auth/login", ExpectedHosts: []string{"jam.local.aethons.tools"}, Log: discard()}
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "127.0.0.1:5000"
@@ -275,66 +303,11 @@ func TestParticipantGateNoLoopbackBypass(t *testing.T) {
 	req.RemoteAddr = "127.0.0.1:5000" // loopback
 	req.Host = "127.0.0.1:8081"
 	g.Wrap(stub).ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/me/auth/login" {
-		t.Fatalf("loopback no-session = %d %q, want 302 /me/auth/login (no loopback bypass)", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/me/auth/login?return_to=%2Fme%2F" {
+		t.Fatalf("loopback no-session = %d %q, want 302 /me/auth/login?return_to (no loopback bypass)", rec.Code, rec.Header().Get("Location"))
 	}
 	if called {
 		t.Error("participant handler reached on loopback without a session")
-	}
-}
-
-func TestParticipantSessionResolvesAndFailsClosed(t *testing.T) {
-	idp := newFakeIdP(t)
-	svc, err := New(context.Background(), RawConfig{Issuer: idp.url, ClientID: "jam-browser"}, ParticipantMount(), nil, discard())
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Inject a fake token→subject step so we don't need a live-signed token.
-	svc.verifySubject = func(_ context.Context, raw string) (string, error) {
-		switch raw {
-		case "alice-token":
-			return "sub-alice", nil
-		case "stranger-token":
-			return "sub-stranger", nil
-		default:
-			return "", fmt.Errorf("bad token")
-		}
-	}
-	store := participantStore(t, jam.Human{Name: "alice", Identity: []jam.OIDCIdentity{{Issuer: idp.url, Subject: "sub-alice"}}})
-	sess := svc.ParticipantSession(store)
-
-	cases := []struct {
-		name     string
-		cookie   string
-		want     SessionOutcome
-		wantName string
-	}{
-		{"mapped subject → OK", "alice-token", SessionOK, "alice"},
-		{"unmapped subject → Forbidden (not a loop)", "stranger-token", SessionForbidden, ""},
-		{"unverifiable token → None (re-login)", "garbage", SessionNone, ""},
-		{"no cookie → None (re-login)", "", SessionNone, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/me/", nil)
-			if tc.cookie != "" {
-				req.AddCookie(&http.Cookie{Name: ParticipantMount().SessionCookie, Value: tc.cookie})
-			}
-			rr, out := sess(req)
-			if out != tc.want {
-				t.Fatalf("outcome = %v, want %v", out, tc.want)
-			}
-			if tc.want != SessionOK {
-				return
-			}
-			p, has := jam.ParticipantFrom(rr)
-			if !has {
-				t.Fatal("no participant injected on success")
-			}
-			if p.Name != tc.wantName || p.Subject != "sub-alice" || p.Issuer != idp.url {
-				t.Errorf("participant = %+v, want name %q subject sub-alice issuer %s", p, tc.wantName, idp.url)
-			}
-		})
 	}
 }
 
@@ -374,7 +347,47 @@ func TestParticipantGateForbiddenDoesNotLoop(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/me/", nil)
 	req2.RemoteAddr = "203.0.113.7:5555"
 	none.Wrap(stub).ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/me/auth/login" {
-		t.Fatalf("no session = %d %q, want 302 /me/auth/login", rec2.Code, rec2.Header().Get("Location"))
+	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/me/auth/login?return_to=%2Fme%2F" {
+		t.Fatalf("no session = %d %q, want 302 /me/auth/login?return_to", rec2.Code, rec2.Header().Get("Location"))
+	}
+}
+
+func TestGateForbiddenHook(t *testing.T) {
+	g := Gate{
+		Session: func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionForbidden },
+		Forbidden: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, "custom page")
+		}),
+		LoginPath: "/app/auth/login",
+		Log:       discard(),
+	}
+	req := httptest.NewRequest("GET", "/app/", nil)
+	req.RemoteAddr = "203.0.113.7:5555"
+	rec := httptest.NewRecorder()
+	g.Wrap(okHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || rec.Body.String() != "custom page" {
+		t.Fatalf("got %d %q, want 403 custom page", rec.Code, rec.Body)
+	}
+}
+
+func TestGateNoSessionCarriesDeepLink(t *testing.T) {
+	g := Gate{
+		Session:   func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionNone },
+		LoginPath: "/app/auth/login",
+		Log:       discard(),
+	}
+	for _, tc := range []struct{ method, target, want string }{
+		{"GET", "/app/user/?c=chn_x", "/app/auth/login?return_to=%2Fapp%2Fuser%2F%3Fc%3Dchn_x"},
+		{"HEAD", "/app/user/", "/app/auth/login?return_to=%2Fapp%2Fuser%2F"},
+		{"POST", "/app/user/send", "/app/auth/login"},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.target, nil)
+		req.RemoteAddr = "203.0.113.7:5555"
+		g.Wrap(okHandler()).ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+			t.Errorf("%s %s = %d %q, want 302 %q", tc.method, tc.target, rec.Code, rec.Header().Get("Location"), tc.want)
+		}
 	}
 }

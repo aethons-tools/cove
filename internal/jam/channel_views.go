@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// The /me read-model on the channel log (intercom slice 2b): a person's
+// The /app/user read-model on the channel log (intercom slice 2b): a person's
 // channels are the ones they are a member of or have deliveries in, that they
 // may see; unread is their deliveries above their read cursor. The synthetic
 // projection in channels.go now only serves the legacy log (the History).

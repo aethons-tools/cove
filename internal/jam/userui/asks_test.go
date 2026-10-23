@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"net/http"
@@ -36,7 +36,7 @@ func (e *env) page(t *testing.T, p jam.Participant, path string) string {
 }
 
 func (e *env) answer(p jam.Participant, id string, form url.Values) *httptest.ResponseRecorder {
-	req := httptest.NewRequest("POST", "/me/asks/"+id+"/answer", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/app/user/asks/"+id+"/answer", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	Handler(e.Deps, nil).ServeHTTP(rec, jam.WithParticipant(req, p))
@@ -48,8 +48,8 @@ var yesNoOpts = []intercom.AskOption{{ID: "yes", Label: "Ship it"}, {ID: "no", L
 func TestAskCardOpenAndAnswered(t *testing.T) {
 	e, p := fixture()
 	m := e.ask(intercom.AskEvent{Question: "Merge PR #12?", Options: yesNoOpts})
-	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
-	for _, want := range []string{`id="ask-` + m.ID + `"`, "Merge PR #12?", `hx-post="/me/asks/` + m.ID + `/answer"`, `name="version" value="1"`,
+	body := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
+	for _, want := range []string{`id="ask-` + m.ID + `"`, "Merge PR #12?", `hx-post="/app/user/asks/` + m.ID + `/answer"`, `name="version" value="1"`,
 		`value="yes"`, "Ship it", "wait for CI", `value="other"`, "Discuss", `class="asks-panel"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("open card missing %q", want)
@@ -59,13 +59,13 @@ func TestAskCardOpenAndAnswered(t *testing.T) {
 	if rec.Code != http.StatusNoContent || rec.Header().Get("HX-Trigger") != "meChanged" {
 		t.Fatalf("answer = %d %q %s", rec.Code, rec.Header().Get("HX-Trigger"), rec.Body)
 	}
-	body = e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	body = e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	for _, want := range []string{"alice chose", "Hold", "after lunch"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("answered card missing %q", want)
 		}
 	}
-	if strings.Contains(body, `/me/asks/`+m.ID+`/answer"`) {
+	if strings.Contains(body, `/app/user/asks/`+m.ID+`/answer"`) {
 		t.Error("an answered card still offers answering")
 	}
 	if strings.Contains(body, `class="asks-panel"`) {
@@ -116,7 +116,7 @@ func TestAskForOthersAndRail(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.ask(intercom.AskEvent{Question: "Carol only?", Options: yesNoOpts, Of: []ident.ID{carol.ID}})
-	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	body := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	if !strings.Contains(body, "for carol") || strings.Contains(body, `name="choice"`) {
 		t.Error("an ask for carol should be read-only, marked for carol")
 	}
@@ -128,7 +128,7 @@ func TestAskForOthersAndRail(t *testing.T) {
 	if g[0].Bucket != jam.BucketNeedsYou || g[0].Rows[0].OpenAsks != 2 {
 		t.Fatalf("rail = %+v, want the room in Needs you with 2 open asks", g)
 	}
-	if body := e.page(t, p, "/me/rail"); !strings.Contains(body, `class="badge asks"`) {
+	if body := e.page(t, p, "/app/user/rail"); !strings.Contains(body, `class="badge asks"`) {
 		t.Error("rail row should show the open-asks count")
 	}
 }
@@ -140,7 +140,7 @@ func TestAskReplyChip(t *testing.T) {
 	if _, err := e.Intercom.PostTrusted(e.room, intercom.Squawk{From: e.alice.ID, Body: "which PR?", ReplyTo: m.ID}); err != nil {
 		t.Fatal(err)
 	}
-	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	body := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	if !strings.Contains(body, `href="#ask-`+m.ID+`"`) || !strings.Contains(body, "re: Merge?") {
 		t.Error("a reply to an ask should carry a re: chip linking the card")
 	}
@@ -151,34 +151,34 @@ func TestAskReplyChip(t *testing.T) {
 func TestAskReviewFixes(t *testing.T) {
 	e, p := fixture()
 	m := e.ask(intercom.AskEvent{Question: "Merge?", Options: yesNoOpts})
-	body := e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	body := e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	if !strings.Contains(body, "function meAnswering()") || !strings.Contains(body, `[!meSelecting() &amp;&amp; !meAnswering()]`) && !strings.Contains(body, `[!meSelecting() && !meAnswering()]`) {
 		t.Error("the stream refresh should skip while an ask comment is being typed")
 	}
 	if rec := e.answer(p, m.ID, url.Values{"version": {"1"}, "choice": {"yes"}}); rec.Code != http.StatusNoContent {
 		t.Fatal(rec.Code)
 	}
-	body = e.page(t, p, "/me/?c="+url.QueryEscape(engID))
+	body = e.page(t, p, "/app/user/?c="+url.QueryEscape(engID))
 	if strings.Contains(body, "alice</b> alice chose") {
 		t.Error("the answer's system line repeats the name")
 	}
 	// The panel route renders only the panel, for a channel the viewer sees.
 	m2 := e.ask(intercom.AskEvent{Question: "Next?", Options: yesNoOpts})
-	panel := e.page(t, p, "/me/asks?c="+url.QueryEscape(engID))
+	panel := e.page(t, p, "/app/user/asks?c="+url.QueryEscape(engID))
 	if !strings.Contains(panel, "#ask-"+m2.ID) || strings.Contains(panel, `id="rail"`) {
 		t.Errorf("panel = %s", panel)
 	}
-	if other := e.page(t, p, "/me/asks?c=chn_01j9q3zzzzzzzzzzzzzzzzzz"); strings.Contains(other, "asks-panel") {
+	if other := e.page(t, p, "/app/user/asks?c=chn_01j9q3zzzzzzzzzzzzzzzzzz"); strings.Contains(other, "asks-panel") {
 		t.Error("a channel the viewer can't see has no panel")
 	}
 }
 
-// /me uploads and serves attachments for the viewer.
+// /app/user uploads and serves attachments for the viewer.
 func TestMeUploadAndBlob(t *testing.T) {
 	e, p := fixture()
 	e.Deps.Attachments = jam.NewAttachments(e.lg, blobstore.NewMem(), e.Intercom, 1<<20)
 	h := Handler(e.Deps, nil)
-	req := httptest.NewRequest("POST", "/me/uploads", strings.NewReader("PNG"))
+	req := httptest.NewRequest("POST", "/app/user/uploads", strings.NewReader("PNG"))
 	req.Header.Set("Content-Type", "image/png")
 	req.Header.Set("X-Filename", "shot.png")
 	rec := httptest.NewRecorder()
@@ -188,7 +188,7 @@ func TestMeUploadAndBlob(t *testing.T) {
 	}
 	ref := strings.Split(strings.Split(rec.Body.String(), `"ref":"`)[1], `"`)[0]
 	get := httptest.NewRecorder()
-	h.ServeHTTP(get, jam.WithParticipant(httptest.NewRequest("GET", "/me/blobs/"+ref, nil), p))
+	h.ServeHTTP(get, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/blobs/"+ref, nil), p))
 	if get.Code != http.StatusOK || get.Body.String() != "PNG" {
 		t.Fatalf("blob = %d %q", get.Code, get.Body)
 	}

@@ -24,7 +24,7 @@ func configServer(t *testing.T) (string, *jam.MemStore) {
 	st := jam.NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(st, nil, jam.ConfigEnv{CredExists: creds}, log)))
 	t.Cleanup(ts.Close)
 	return ts.URL, st
@@ -215,7 +215,7 @@ func configGitServer(t *testing.T) (string, *jam.MemStore) {
 	st := jam.NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(st, &gitsource.Fetcher{}, jam.ConfigEnv{CredExists: creds}, log)))
 	t.Cleanup(ts.Close)
 	return ts.URL, st

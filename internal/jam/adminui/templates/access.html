@@ -18,7 +18,7 @@
           <td>{{range $i, $r := .Rights}}{{if $i}}, {{end}}{{$r}}{{end}}</td>
           <td>{{if .Expired}}<span class="unset">expired </span>{{end}}<time title="{{.ExpiresAt.Format "2006-01-02 15:04:05 MST"}}">{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</time></td>
           <td><span class="mono">{{.GrantedByName}}</span></td>
-          <td><button class="danger small" hx-delete="/ui/agents/{{$id}}/shares/{{.UserID}}" hx-swap="none"
+          <td><button class="danger small" hx-delete="/app/admin/agents/{{$id}}/shares/{{.UserID}}" hx-swap="none"
               hx-confirm="Unshare {{$id}} from {{.User}}? Their open SSH connections close unless they have access another way."
               hx-on::after-request="if(event.detail.successful) location.reload()">Unshare</button></td></tr>
         {{else}}<tr><td colspan="5" class="empty">Not shared with anyone. <span class="unset">at-jam studio share {{$id}} --with user:&lt;name&gt; --rights ssh</span></td></tr>{{end}}

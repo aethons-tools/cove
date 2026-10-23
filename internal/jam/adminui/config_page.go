@@ -54,7 +54,7 @@ func configObjectHref(kind, name string) string {
 	case jam.ConfigKindModelSpec:
 		return specURL(name)
 	case jam.ConfigKindUser:
-		return "/ui/users/" + url.PathEscape(name)
+		return "/app/admin/users/" + url.PathEscape(name)
 	case jam.ConfigKindKit:
 		return kitURL(name)
 	case jam.ConfigKindProject:
@@ -63,7 +63,7 @@ func configObjectHref(kind, name string) string {
 		p, r, _ := strings.Cut(name, "/")
 		return roleURL(p, r)
 	case jam.ConfigKindJamContext:
-		return "/ui/#jam-context"
+		return "/app/admin/#jam-context"
 	}
 	return ""
 }
@@ -75,7 +75,7 @@ func configReleaseURL(kind, name string) string {
 	for i, s := range segs {
 		segs[i] = url.PathEscape(s)
 	}
-	return "/ui/config/managed/" + url.PathEscape(kind) + "/" + strings.Join(segs, "/")
+	return "/app/admin/config/managed/" + url.PathEscape(kind) + "/" + strings.Join(segs, "/")
 }
 
 // newConfigSourceView is the tracked source as shown. The stored source is
@@ -155,10 +155,10 @@ func configFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err er
 
 func registerConfig(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	canGit := f != nil
-	mux.HandleFunc("GET /ui/config", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/config", func(w http.ResponseWriter, r *http.Request) {
 		render(w, r, "config", buildConfigPage(store, canGit, log))
 	})
-	mux.HandleFunc("DELETE /ui/config/source", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/config/source", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -169,7 +169,7 @@ func registerConfig(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env j
 		log.Info("ui config untracked", "operator", jam.OperatorID(r))
 		renderConfigBody(w, r, buildConfigPage(store, canGit, log), "config source untracked; managed objects and their marks stay")
 	})
-	mux.HandleFunc("DELETE /ui/config/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/config/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -277,7 +277,7 @@ const configPlanStaleMsg = "The Jam or the config repo changed since this plan w
 // registerConfigGit mounts the Config page's git actions on the tracked
 // source: Diff (a dry run), Apply (the reviewed plan's digest), Track.
 func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /ui/config/diff", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -294,7 +294,7 @@ func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, en
 		}
 		renderFragment(w, r, "config", "config-plan", newPlanView(res, force))
 	})
-	mux.HandleFunc("POST /ui/config/apply", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -322,7 +322,7 @@ func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, en
 		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", force)
 		renderConfigBody(w, r, buildConfigPage(store, true, log), applyMsg(res))
 	})
-	mux.HandleFunc("POST /ui/config/source", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/config/source", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

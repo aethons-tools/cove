@@ -37,7 +37,7 @@ func TestOperatorPlaneIssuesSSHCert(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	routes := collabhttp.Routes("/admin", collabhttp.Deps{Store: st, CA: ca, Log: log, Principal: operatorPrincipal(st)})
-	h := jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+	h := jam.NewAdminHandler(st, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil,
 		jam.WithAdminRoute("GET /admin/attention", http.NotFoundHandler()),
 		jam.WithAdminRoute("/admin/studios/", routes))
 

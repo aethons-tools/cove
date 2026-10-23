@@ -29,27 +29,27 @@ func del(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 func credKnown(n string) bool { return n == "git-pat" || n == "other-pat" }
 
 func TestRolePagePrefillsEditForms(t *testing.T) {
-	body := get(t, adminui.Handler(seedRichRole(t), testLogger(), nil, nil, credKnown, nil), "/ui/projects/acme/roles/review").Body.String()
+	body := get(t, adminui.Handler(seedRichRole(t), testLogger(), nil, nil, credKnown, nil), "/app/admin/projects/acme/roles/review").Body.String()
 	for _, want := range []string{
-		`hx-post="/ui/roles/acme/review/scope"`,
+		`hx-post="/app/admin/roles/acme/review/scope"`,
 		`value="git=git-pat,anthropic"`,
 		`value="human:*,channel:eng"`,
 		`value="1h30m"`,
-		`hx-post="/ui/roles/acme/review/allocation"`,
+		`hx-post="/app/admin/roles/acme/review/allocation"`,
 		`name="nag-every" value="2h"`,
-		`hx-post="/ui/roles/acme/review/egress"`,
-		`hx-post="/ui/roles/acme/review/standing"`,
-		`hx-delete="/ui/roles/acme/review/standing/nightly"`,
-		`hx-delete="/ui/roles/acme/review" hx-swap="none"`,
-		`location.href='/ui/projects/acme/agents'`,
+		`hx-post="/app/admin/roles/acme/review/egress"`,
+		`hx-post="/app/admin/roles/acme/review/standing"`,
+		`hx-delete="/app/admin/roles/acme/review/standing/nightly"`,
+		`hx-delete="/app/admin/roles/acme/review" hx-swap="none"`,
+		`location.href='/app/admin/projects/acme/agents'`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role page missing %q", want)
 		}
 	}
 	// with a supervisor the page offers Request, posting to the role's own endpoint
-	sup := get(t, adminui.Handler(seedRichRole(t), testLogger(), &jam.Supervisor{}, nil, credKnown, nil), "/ui/projects/acme/roles/review").Body.String()
-	if !strings.Contains(sup, `hx-post="/ui/roles/acme/review/request" hx-target="#flash"`) {
+	sup := get(t, adminui.Handler(seedRichRole(t), testLogger(), &jam.Supervisor{}, nil, credKnown, nil), "/app/admin/projects/acme/roles/review").Body.String()
+	if !strings.Contains(sup, `hx-post="/app/admin/roles/acme/review/request" hx-target="#flash"`) {
 		t.Errorf("role page should offer Request against the role's endpoint")
 	}
 }
@@ -58,7 +58,7 @@ func TestEditScopeKeepsAllocationAndEgress(t *testing.T) {
 	store := seedRichRole(t)
 	before, _ := store.GetRole("acme", "review")
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	rec := post(t, h, "/ui/roles/acme/review/scope", url.Values{
+	rec := post(t, h, "/app/admin/roles/acme/review/scope", url.Values{
 		"destinations": {"git=other-pat"}, "addressing": {"human:bob"}, "ttl": {"2h"}, "kit": {""},
 	})
 	if rec.Code != http.StatusOK {
@@ -84,11 +84,11 @@ func TestEditScopeRejects(t *testing.T) {
 		"bad ttl":      {"ttl": {"soon"}},
 		"unknown kit":  {"kit": {"ghost"}},
 	} {
-		if rec := post(t, h, "/ui/roles/acme/review/scope", form); rec.Code != http.StatusBadRequest {
+		if rec := post(t, h, "/app/admin/roles/acme/review/scope", form); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s = %d, want 400", name, rec.Code)
 		}
 	}
-	if rec := post(t, h, "/ui/roles/acme/ghost/scope", url.Values{}); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/app/admin/roles/acme/ghost/scope", url.Values{}); rec.Code != http.StatusNotFound {
 		t.Errorf("missing role = %d, want 404", rec.Code)
 	}
 }
@@ -97,7 +97,7 @@ func TestEditAllocationKeepsScopeAndStanding(t *testing.T) {
 	store := seedRichRole(t)
 	before, _ := store.GetRole("acme", "review")
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	rec := post(t, h, "/ui/roles/acme/review/allocation", url.Values{
+	rec := post(t, h, "/app/admin/roles/acme/review/allocation", url.Values{
 		"max-ephemeral": {"3"}, "max-personal": {"1"}, "max-personal-per-owner": {""},
 		"idle-after": {"30m"}, "nag-every": {""}, "reclaim-after": {"72h"},
 	})
@@ -114,7 +114,7 @@ func TestEditAllocationKeepsScopeAndStanding(t *testing.T) {
 		t.Fatalf("allocation edit changed scope or standing")
 	}
 	for _, bad := range []url.Values{{"max-personal": {"-1"}}, {"idle-after": {"later"}}} {
-		if rec := post(t, h, "/ui/roles/acme/review/allocation", bad); rec.Code != http.StatusBadRequest {
+		if rec := post(t, h, "/app/admin/roles/acme/review/allocation", bad); rec.Code != http.StatusBadRequest {
 			t.Errorf("%v = %d, want 400", bad, rec.Code)
 		}
 	}
@@ -123,17 +123,17 @@ func TestEditAllocationKeepsScopeAndStanding(t *testing.T) {
 func TestEditEgressSetAndReset(t *testing.T) {
 	store := seedRichRole(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	if rec := post(t, h, "/ui/roles/acme/review/egress", url.Values{"domains": {"a.com\n.b.org, c.net"}}); rec.Code != http.StatusOK {
+	if rec := post(t, h, "/app/admin/roles/acme/review/egress", url.Values{"domains": {"a.com\n.b.org, c.net"}}); rec.Code != http.StatusOK {
 		t.Fatalf("egress set = %d: %s", rec.Code, rec.Body.String())
 	}
 	r, _ := store.GetRole("acme", "review")
 	if r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 3 {
 		t.Fatalf("egress = %+v", r.Scope.Egress)
 	}
-	if rec := post(t, h, "/ui/roles/acme/review/egress", url.Values{"domains": {"http://x"}}); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/roles/acme/review/egress", url.Values{"domains": {"http://x"}}); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad domain = %d, want 400", rec.Code)
 	}
-	if rec := del(t, h, "/ui/roles/acme/review/egress"); rec.Code != http.StatusOK {
+	if rec := del(t, h, "/app/admin/roles/acme/review/egress"); rec.Code != http.StatusOK {
 		t.Fatalf("egress reset = %d", rec.Code)
 	}
 	if r, _ := store.GetRole("acme", "review"); r.Scope.Egress != nil {
@@ -144,13 +144,13 @@ func TestEditEgressSetAndReset(t *testing.T) {
 func TestEditStandingAddRemove(t *testing.T) {
 	store := seedRichRole(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	if rec := post(t, h, "/ui/roles/acme/review/standing", url.Values{"name": {"weekly"}, "prompt": {"tidy up"}}); rec.Code != http.StatusOK {
+	if rec := post(t, h, "/app/admin/roles/acme/review/standing", url.Values{"name": {"weekly"}, "prompt": {"tidy up"}}); rec.Code != http.StatusOK {
 		t.Fatalf("standing add = %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := post(t, h, "/ui/roles/acme/review/standing", url.Values{"name": {"weekly"}, "prompt": {"again"}}); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/roles/acme/review/standing", url.Values{"name": {"weekly"}, "prompt": {"again"}}); rec.Code != http.StatusBadRequest {
 		t.Errorf("duplicate standing = %d, want 400", rec.Code)
 	}
-	if rec := del(t, h, "/ui/roles/acme/review/standing/nightly"); rec.Code != http.StatusOK {
+	if rec := del(t, h, "/app/admin/roles/acme/review/standing/nightly"); rec.Code != http.StatusOK {
 		t.Fatalf("standing remove = %d", rec.Code)
 	}
 	r, _ := store.GetRole("acme", "review")
@@ -187,11 +187,11 @@ func TestEditStandingReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), sup, nil, credKnown, nil)
-	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
-	if !strings.Contains(body, `hx-post="/ui/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing agent nightly?`) {
+	body := get(t, h, "/app/admin/projects/acme/roles/review").Body.String()
+	if !strings.Contains(body, `hx-post="/app/admin/roles/acme/review/standing/nightly/reset"`) || !strings.Contains(body, `hx-confirm="Reset standing agent nightly?`) {
 		t.Fatalf("role page lacks a confirmed reset button:\n%s", body)
 	}
-	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK {
+	if rec := post(t, h, "/app/admin/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK {
 		t.Fatalf("reset = %d: %s", rec.Code, rec.Body.String())
 	}
 	if _, ok := store.GetInstance(id); ok {
@@ -203,20 +203,20 @@ func TestEditStandingReset(t *testing.T) {
 	// A pending reset is accepted: a success flash over the re-rendered role,
 	// never an error box.
 	rs.err = errors.New("volume in use")
-	if rec := post(t, h, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK ||
+	if rec := post(t, h, "/app/admin/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusOK ||
 		!strings.Contains(rec.Body.String(), `<div id="flash" hx-swap-oob="innerHTML"><p class="ok">`) || !strings.Contains(rec.Body.String(), "volume in use") ||
 		strings.Contains(rec.Body.String(), `class="error"`) {
 		t.Errorf("pending reset = %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := post(t, h, "/ui/roles/acme/review/standing/nobody/reset", url.Values{}); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/app/admin/roles/acme/review/standing/nobody/reset", url.Values{}); rec.Code != http.StatusNotFound {
 		t.Errorf("reset of an undeclared name = %d, want 404", rec.Code)
 	}
 
 	ro := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	if strings.Contains(get(t, ro, "/ui/projects/acme/roles/review").Body.String(), "/standing/nightly/reset") {
+	if strings.Contains(get(t, ro, "/app/admin/projects/acme/roles/review").Body.String(), "/standing/nightly/reset") {
 		t.Error("no supervisor: the reset button must be hidden")
 	}
-	if rec := post(t, ro, "/ui/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusServiceUnavailable {
+	if rec := post(t, ro, "/app/admin/roles/acme/review/standing/nightly/reset", url.Values{}); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("no supervisor: reset = %d, want 503", rec.Code)
 	}
 }
@@ -226,18 +226,18 @@ func TestCreateRoleRedirectsAndRefusesExisting(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/projects/acme/roles/w" {
+	rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"w"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/projects/acme/roles/w" {
 		t.Fatalf("create = %d redirect=%q", rec.Code, rec.Header().Get("HX-Redirect"))
 	}
-	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}}); rec.Code != http.StatusConflict {
+	if rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"w"}}); rec.Code != http.StatusConflict {
 		t.Fatalf("re-create = %d, want 409", rec.Code)
 	}
 }
 
 func TestRoleEditsRefuseCrossOrigin(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, credKnown, nil)
-	req := httptest.NewRequest(http.MethodPost, "/ui/roles/acme/review/scope", strings.NewReader("ttl=1h"))
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/roles/acme/review/scope", strings.NewReader("ttl=1h"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
 	rec := httptest.NewRecorder()
@@ -255,8 +255,8 @@ func TestRoleEditsKeepContext(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
 	for path, form := range map[string]url.Values{
-		"/ui/roles/acme/review/scope":      {"destinations": {"git"}, "ttl": {"2h"}, "kit": {""}},
-		"/ui/roles/acme/review/allocation": {"max-ephemeral": {"2"}},
+		"/app/admin/roles/acme/review/scope":      {"destinations": {"git"}, "ttl": {"2h"}, "kit": {""}},
+		"/app/admin/roles/acme/review/allocation": {"max-ephemeral": {"2"}},
 	} {
 		if rec := post(t, h, path, form); rec.Code != http.StatusOK {
 			t.Fatalf("%s = %d: %s", path, rec.Code, rec.Body.String())
@@ -272,30 +272,30 @@ func TestRoleEditsKeepContext(t *testing.T) {
 func TestEditScopeBindsModelSpec(t *testing.T) {
 	store := seedRichRole(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, credKnown, nil)
-	if rec := post(t, h, "/ui/roles/acme/review/scope", url.Values{"model-spec": {"ghost"}}); rec.Code != http.StatusBadRequest ||
+	if rec := post(t, h, "/app/admin/roles/acme/review/scope", url.Values{"model-spec": {"ghost"}}); rec.Code != http.StatusBadRequest ||
 		!strings.Contains(rec.Body.String(), "does not exist") {
 		t.Fatalf("unknown model-spec = %d %s", rec.Code, rec.Body)
 	}
-	body := get(t, h, "/ui/projects/acme/roles/review").Body.String()
-	if !strings.Contains(body, `href="/ui/model-specs/claude-default"`) || !strings.Contains(body, `placeholder="blank = claude-default"`) {
+	body := get(t, h, "/app/admin/projects/acme/roles/review").Body.String()
+	if !strings.Contains(body, `href="/app/admin/model-specs/claude-default"`) || !strings.Contains(body, `placeholder="blank = claude-default"`) {
 		t.Errorf("unbound role page should show the claude-default resolution")
 	}
 	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.1.0",
 		Principal: jam.ModelPrincipal{Credential: "git-pat"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
 		t.Fatal(err)
 	}
-	if rec := post(t, h, "/ui/roles/acme/review/scope", url.Values{"destinations": {"git=git-pat"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
+	if rec := post(t, h, "/app/admin/roles/acme/review/scope", url.Values{"destinations": {"git=git-pat"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
 		t.Fatalf("bind = %d %s", rec.Code, rec.Body)
 	}
 	if r, _ := store.GetRole("acme", "review"); r.ModelSpec != "opus" {
 		t.Fatalf("binding = %q", r.ModelSpec)
 	}
-	body = get(t, h, "/ui/projects/acme/roles/review").Body.String()
+	body = get(t, h, "/app/admin/projects/acme/roles/review").Body.String()
 	if !strings.Contains(body, `name="model-spec" data-ta="model-specs" value="opus"`) {
 		t.Errorf("role page should prefill the binding")
 	}
 	// The bound spec cannot be deleted from its page.
-	if rec := del(t, h, "/ui/model-specs/opus"); rec.Code != http.StatusConflict {
+	if rec := del(t, h, "/app/admin/model-specs/opus"); rec.Code != http.StatusConflict {
 		t.Fatalf("delete bound spec = %d %s", rec.Code, rec.Body)
 	}
 }

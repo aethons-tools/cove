@@ -36,7 +36,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	rec := post(t, h, "/ui/enrollments", url.Values{"id": {"spider-1"}, "project": {"acme"}, "role": {"worker"}})
+	rec := post(t, h, "/app/admin/enrollments", url.Values{"id": {"spider-1"}, "project": {"acme"}, "role": {"worker"}})
 	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
 		t.Fatalf("enroll = %d, want 200/201", rec.Code)
 	}
@@ -61,7 +61,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 		t.Fatalf("captured token looks too short to be real: %q", token)
 	}
 	// ...but never appears on the roster afterward.
-	roster := get(t, h, "/ui/agents").Body.String()
+	roster := get(t, h, "/app/admin/agents").Body.String()
 	if !strings.Contains(roster, "spider-1") {
 		t.Error("roster should list the new actor")
 	}
@@ -74,7 +74,7 @@ func TestEnrollCreatesActorAndShowsTokenOnce(t *testing.T) {
 func TestEnrollRejectsCrossOrigin(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	req := httptest.NewRequest(http.MethodPost, "/ui/enrollments", strings.NewReader("id=x&role=worker"))
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/enrollments", strings.NewReader("id=x&role=worker"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
 	rec := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestEnrollRejectsCrossOrigin(t *testing.T) {
 		t.Fatalf("cross-origin enroll = %d, want 403", rec.Code)
 	}
 	// No Origin and no Referer → also refused (fail-closed).
-	req2 := httptest.NewRequest(http.MethodPost, "/ui/enrollments", strings.NewReader("id=x&role=worker"))
+	req2 := httptest.NewRequest(http.MethodPost, "/app/admin/enrollments", strings.NewReader("id=x&role=worker"))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
@@ -108,7 +108,7 @@ func TestRevokeActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/enrollments/spider-2", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/enrollments/spider-2", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -128,7 +128,7 @@ func TestCreateAndDeleteRole(t *testing.T) {
 	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
+	rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"review"}, "destinations": {"git"}, "ttl-seconds": {"3600"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create role = %d, want 200", rec.Code)
 	}
@@ -137,13 +137,13 @@ func TestCreateAndDeleteRole(t *testing.T) {
 	}
 
 	// kit that doesn't exist → 400 inline error
-	bad := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "kit": {"ghost"}})
+	bad := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"x"}, "kit": {"ghost"}})
 	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "kit") {
 		t.Fatalf("bad kit = %d %q, want 400 mentioning kit", bad.Code, bad.Body.String())
 	}
 
 	// model-spec that doesn't exist → 400; an existing one is bound.
-	bad = post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "model-spec": {"ghost"}})
+	bad = post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"x"}, "model-spec": {"ghost"}})
 	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "model-spec") {
 		t.Fatalf("bad model-spec = %d %q, want 400 mentioning model-spec", bad.Code, bad.Body.String())
 	}
@@ -151,14 +151,14 @@ func TestCreateAndDeleteRole(t *testing.T) {
 		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
 		t.Fatal(err)
 	}
-	if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"bound"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
+	if rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"bound"}, "model-spec": {"opus"}}); rec.Code != http.StatusOK {
 		t.Fatalf("create bound role = %d %s", rec.Code, rec.Body)
 	}
 	if r, _ := store.GetRole("acme", "bound"); r.ModelSpec != "opus" {
 		t.Fatalf("binding = %q", r.ModelSpec)
 	}
 
-	del := httptest.NewRequest(http.MethodDelete, "/ui/roles/acme/review", nil)
+	del := httptest.NewRequest(http.MethodDelete, "/app/admin/roles/acme/review", nil)
 	del.Header.Set("Origin", "http://"+del.Host)
 	drec := httptest.NewRecorder()
 	h.ServeHTTP(drec, del)
@@ -181,7 +181,7 @@ func TestAddAndRemoveGrant(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
 
-	rec := post(t, h, "/ui/actors/spider-3/grants", url.Values{"project": {"acme"}, "role": {"worker"}})
+	rec := post(t, h, "/app/admin/actors/spider-3/grants", url.Values{"project": {"acme"}, "role": {"worker"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add grant = %d, want 200", rec.Code)
 	}
@@ -190,7 +190,7 @@ func TestAddAndRemoveGrant(t *testing.T) {
 		t.Fatalf("grants = %+v, want one worker grant", a.Grants)
 	}
 
-	del := httptest.NewRequest(http.MethodDelete, "/ui/actors/spider-3/grants/acme/worker", nil)
+	del := httptest.NewRequest(http.MethodDelete, "/app/admin/actors/spider-3/grants/acme/worker", nil)
 	del.Header.Set("Origin", "http://"+del.Host)
 	drec := httptest.NewRecorder()
 	h.ServeHTTP(drec, del)
@@ -206,7 +206,7 @@ func TestAddAndRemoveGrant(t *testing.T) {
 func TestEnrollValidationError(t *testing.T) {
 	store := newStore(t)
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	rec := post(t, h, "/ui/enrollments", url.Values{"id": {""}, "role": {"worker"}}) // missing id
+	rec := post(t, h, "/app/admin/enrollments", url.Values{"id": {""}, "role": {"worker"}}) // missing id
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("missing id = %d, want 400", rec.Code)
 	}
@@ -225,7 +225,7 @@ func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 	n := 0
 	write := func(h http.Handler, header, value string) int {
 		n++ // a fresh role per write: the Roles form only creates
-		req := httptest.NewRequest(http.MethodPost, "/ui/roles", strings.NewReader(fmt.Sprintf("project=acme&name=r%d", n)))
+		req := httptest.NewRequest(http.MethodPost, "/app/admin/roles", strings.NewReader(fmt.Sprintf("project=acme&name=r%d", n)))
 		req.Host = "localhost:8081"
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set(header, value)
@@ -243,7 +243,7 @@ func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
 		want          int
 	}{
 		{"Origin", "http://localhost:8090", http.StatusOK},
-		{"Referer", "http://localhost:8090/ui/roles", http.StatusOK},
+		{"Referer", "http://localhost:8090/app/admin/roles", http.StatusOK},
 		{"Origin", "http://localhost:8091", http.StatusForbidden},  // another port is another origin
 		{"Origin", "https://localhost:8090", http.StatusForbidden}, // so is another scheme
 		{"Origin", "http://evil.example", http.StatusForbidden},
@@ -258,7 +258,7 @@ func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil) // accepts "known-cred"
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}})
+	rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"w"}, "destinations": {"git=known-cred,anthropic"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create role = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -267,11 +267,11 @@ func TestCreateRoleWithDestinationCredentials(t *testing.T) {
 		t.Fatalf("stored role = %+v", r)
 	}
 	// Credential names are references, not secret values: the table shows the mapping.
-	if body := get(t, h, "/ui/projects/acme/agents").Body.String(); !strings.Contains(body, "known-cred") {
+	if body := get(t, h, "/app/admin/projects/acme/agents").Body.String(); !strings.Contains(body, "known-cred") {
 		t.Errorf("roles table should show the credential mapping; got:\n%s", body)
 	}
 	for _, bad := range []string{"git=unknown-cred", "git="} {
-		if rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {
+		if rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {bad}}); rec.Code != http.StatusBadRequest {
 			t.Errorf("destinations %q = %d, want 400", bad, rec.Code)
 		}
 	}
@@ -284,11 +284,11 @@ func TestEnrollOverrideCredentialsValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
-	rec := post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}})
+	rec := post(t, h, "/app/admin/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("enroll with unknown override credential = %d, want 400", rec.Code)
 	}
-	rec = post(t, h, "/ui/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=known-cred"}})
+	rec = post(t, h, "/app/admin/enrollments", url.Values{"id": {"m"}, "project": {"acme"}, "role": {"w"}, "destinations": {"git=known-cred"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("enroll with valid override = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -309,10 +309,10 @@ func TestAddGrantOverrideCredentialsValidated(t *testing.T) {
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
 	// a role that doesn't exist yet: mapped credentials can't be checked → 400.
-	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"later"}, "destinations": {"git=known-cred"}}); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/actors/m/grants", url.Values{"project": {"acme"}, "role": {"later"}, "destinations": {"git=known-cred"}}); rec.Code != http.StatusBadRequest {
 		t.Errorf("grant of missing role with mapped credential = %d, want 400", rec.Code)
 	}
-	if rec := post(t, h, "/ui/actors/m/grants", url.Values{"project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}}); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/actors/m/grants", url.Values{"project": {"acme"}, "role": {"w"}, "destinations": {"git=unknown-cred"}}); rec.Code != http.StatusBadRequest {
 		t.Errorf("grant with unknown credential = %d, want 400", rec.Code)
 	}
 }
@@ -321,7 +321,7 @@ func TestCredentialErrorsDoNotEchoName(t *testing.T) {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
-	rec := post(t, h, "/ui/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
+	rec := post(t, h, "/app/admin/roles", url.Values{"project": {"acme"}, "name": {"x"}, "destinations": {"git=SECRET-TYPO"}})
 	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "SECRET-TYPO") {
 		t.Fatalf("status=%d; error must not echo the credential name; body:\n%s", rec.Code, rec.Body.String())
 	}

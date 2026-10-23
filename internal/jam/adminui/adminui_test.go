@@ -43,9 +43,9 @@ func TestDashboard(t *testing.T) {
 	if err := store.AddActor(jam.Actor{ID: "mgr-1"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/")
+	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /ui/ = %d, want 200", rec.Code)
+		t.Fatalf("GET /app/admin/ = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{`id="coves"`, "spider-9", `hx-trigger="every 3s"`, `data-stat="agents"><b>2</b>`} {
@@ -70,9 +70,9 @@ func seedCove(t *testing.T, store jam.Store) {
 func TestCovesFullPage(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
-	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents")
+	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/agents")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /ui/agents = %d, want 200", rec.Code)
+		t.Fatalf("GET /app/admin/agents = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{"<nav", `id="agents"`, "spider-9", "live", "running", `hx-trigger="every 3s"`} {
@@ -86,7 +86,7 @@ func TestCovesFragment(t *testing.T) {
 	store := newStore(t)
 	seedCove(t, store)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui/agents", nil)
+	req := httptest.NewRequest(http.MethodGet, "/app/admin/agents", nil)
 	req.Header.Set("HX-Request", "true")
 	adminui.Handler(store, testLogger(), nil, nil, anyCred, nil).ServeHTTP(rec, req)
 	body := rec.Body.String()
@@ -107,7 +107,7 @@ func TestCovesNoSecretLeak(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/agents")
+	rec := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/agents")
 	if strings.Contains(rec.Body.String(), "SECRET-HASH-XYZ") {
 		t.Error("cove view leaked the launch-secret hash")
 	}
@@ -123,14 +123,14 @@ func TestRosterView(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	body := get(t, h, "/ui/agents").Body.String()
-	for _, want := range []string{`href="/ui/agents/spider-2"`, "enrolled", `href="/ui/projects/acme/roles/worker"`} {
+	body := get(t, h, "/app/admin/agents").Body.String()
+	for _, want := range []string{`href="/app/admin/agents/spider-2"`, "enrolled", `href="/app/admin/projects/acme/roles/worker"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("agents list missing %q", want)
 		}
 	}
 	// the agent page shows its grants with their effective destinations
-	body = get(t, h, "/ui/agents/spider-2").Body.String()
+	body = get(t, h, "/app/admin/agents/spider-2").Body.String()
 	for _, want := range []string{"acme/worker", "destinations: anthropic"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("agent page missing %q", want)
@@ -144,7 +144,7 @@ func TestRosterViewNoSecretLeak(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	if strings.Contains(get(t, h, "/ui/agents").Body.String()+get(t, h, "/ui/agents/spider-2").Body.String(), "HASH-NOPE") {
+	if strings.Contains(get(t, h, "/app/admin/agents").Body.String()+get(t, h, "/app/admin/agents/spider-2").Body.String(), "HASH-NOPE") {
 		t.Error("roster view leaked a token hash")
 	}
 }
@@ -155,8 +155,8 @@ func TestRolesView(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "review", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Kit: ""}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/agents").Body.String()
-	for _, want := range []string{`href="/ui/projects/acme/roles/review"`, "git", `<input type="hidden" name="project" value="acme">`} {
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/projects/acme/agents").Body.String()
+	for _, want := range []string{`href="/app/admin/projects/acme/roles/review"`, "git", `<input type="hidden" name="project" value="acme">`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("project roles view missing %q", want)
 		}
@@ -168,7 +168,7 @@ func TestKitsView(t *testing.T) {
 	if _, err := store.PushKit("base", "listen: :443"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/kits").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/kits").Body.String()
 	if !strings.Contains(body, "base") {
 		t.Errorf("kits view missing kit name; got:\n%s", body)
 	}
@@ -179,32 +179,10 @@ func TestDestinationsView(t *testing.T) {
 	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic-key"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/destinations").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/destinations").Body.String()
 	for _, want := range []string{"anthropic", "/anthropic/", "https://api.anthropic.com"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("destinations view missing %q", want)
 		}
-	}
-}
-
-func TestStaticRouteDoesNotServeTemplates(t *testing.T) {
-	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
-	rec := get(t, h, "/ui/static/templates/layout.html")
-	if rec.Code == http.StatusOK {
-		t.Errorf("static route exposed template source (%d); templates must be unreachable", rec.Code)
-	}
-}
-
-func TestStaticHtmxServed(t *testing.T) {
-	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
-	rec := get(t, h, "/ui/static/htmx.min.js")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET htmx.min.js = %d, want 200", rec.Code)
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
-		t.Errorf("htmx Content-Type = %q, want text/javascript*", ct)
-	}
-	if rec.Body.Len() == 0 {
-		t.Error("htmx asset body is empty")
 	}
 }

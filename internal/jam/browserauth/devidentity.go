@@ -1,8 +1,6 @@
 package browserauth
 
 import (
-	"net/http"
-
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -64,31 +62,4 @@ func (d DevIdentity) OperatorID() string {
 		return u.Logins[0]
 	}
 	return "local"
-}
-
-// OperatorLoopbackTrust is the /ui LoopbackTrust hook under a dev identity: a
-// loopback request is the operator with the user's first login, or plain
-// "local" when the user is unknown or has none.
-func (d DevIdentity) OperatorLoopbackTrust() func(*http.Request) *http.Request {
-	return func(r *http.Request) *http.Request {
-		return jam.WithOperator(r, jam.Operator{ID: d.OperatorID()})
-	}
-}
-
-// ParticipantSession wraps the /me Session hook next (nil = none): a loopback
-// request is the user's participant, resolved through their first OIDC
-// identity (as a real login would be). Off-loopback, or for a user without an
-// OIDC identity, it defers to next.
-func (d DevIdentity) ParticipantSession(next func(*http.Request) (*http.Request, SessionOutcome)) func(*http.Request) (*http.Request, SessionOutcome) {
-	return func(r *http.Request) (*http.Request, SessionOutcome) {
-		if jam.IsLoopbackRequest(r) {
-			if p, ok := d.Participant(); ok {
-				return jam.WithParticipant(r, p), SessionOK
-			}
-		}
-		if next == nil {
-			return r, SessionNone
-		}
-		return next(r)
-	}
 }

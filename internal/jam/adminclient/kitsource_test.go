@@ -20,7 +20,7 @@ func TestKitSourceRoundTrip(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	f := &gitsource.Fetcher{Creds: gitsource.Creds{{Prefix: repo, Name: "gh", Value: "x-access-token:good-token"}}, Timeout: 30 * time.Second}
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil,
 		jam.WithKitFetcher(store, f, log)))
 	defer ts.Close()
 	c := New(ts.URL, "")
@@ -53,7 +53,7 @@ func TestKitSourceRoundTrip(t *testing.T) {
 
 	// A wrong credential is a 502 that names the cred, never its value.
 	bad := &gitsource.Fetcher{Creds: gitsource.Creds{{Prefix: repo, Name: "gh", Value: "x-access-token:bad-token-xyz"}}, Timeout: 30 * time.Second}
-	ts2 := httptest.NewServer(jam.NewAdminHandler(jam.NewMemStore(), nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil,
+	ts2 := httptest.NewServer(jam.NewAdminHandler(jam.NewMemStore(), nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil,
 		jam.WithKitFetcher(jam.NewMemStore(), bad, log)))
 	defer ts2.Close()
 	_, err = New(ts2.URL, "").ImportKit("", src)

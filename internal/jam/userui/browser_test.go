@@ -1,10 +1,10 @@
 //go:build browser
 
-// Browser tests drive the real /me page in headless Chrome, covering the
+// Browser tests drive the real /app/user page in headless Chrome, covering the
 // composer JS that the string-presence tests in handler_test.go can only see as
 // source. Run with `just test-browser`; each test skips when no browser is
 // installed (see browserCtx).
-package meui
+package userui
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
 // browserCtx returns a chromedp context on a fresh headless browser, skipping
@@ -59,7 +60,7 @@ func browserCtx(t *testing.T) context.Context {
 func serveInbox(t *testing.T) *httptest.Server {
 	t.Helper()
 	e, p := fixture()
-	h := Handler(e.Deps, nil)
+	h := withStatic(Handler(e.Deps, nil))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -92,7 +93,7 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	// must grow to four backticks.
 	var wrapped string
 	err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		copy(srv.URL, "a ```b``` c"),
 		chromedp.SendKeys(box, "see:", chromedp.ByQuery),
@@ -127,10 +128,10 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	ctx := browserCtx(t)
 	e, p := fixture()
-	h := Handler(e.Deps, nil)
-	// /me/send lives outside this package; answer it as a successful send.
+	h := withStatic(Handler(e.Deps, nil))
+	// /app/user/send lives outside this package; answer it as a successful send.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/me/send" {
+		if r.URL.Path == "/app/user/send" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -138,7 +139,7 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	box := `.composer textarea`
-	conv := srv.URL + "/me/?c=" + url.QueryEscape(engID)
+	conv := srv.URL + "/app/user/?c=" + url.QueryEscape(engID)
 
 	// A half-typed reply survives leaving the conversation (a full page load)
 	// and coming back.
@@ -147,7 +148,7 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 		chromedp.Navigate(conv),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		chromedp.SendKeys(box, "half typed", chromedp.ByQuery),
-		chromedp.Navigate(srv.URL+"/me/"),
+		chromedp.Navigate(srv.URL+"/app/user/"),
 		chromedp.Navigate(conv),
 		chromedp.WaitVisible(box, chromedp.ByQuery),
 		chromedp.Value(box, &kept, chromedp.ByQuery),
@@ -181,7 +182,7 @@ func TestBrowserCopyButtons(t *testing.T) {
 	e, p := fixture()
 	src := "Intro **bold**\n\n- one\n- two\n\n```\nline 1\nline 2\n```\n"
 	e.post("bot", src, "")
-	h := Handler(e.Deps, nil)
+	h := withStatic(Handler(e.Deps, nil))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -205,7 +206,7 @@ func TestBrowserCopyButtons(t *testing.T) {
 		return got
 	}
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg.agent pre`, chromedp.ByQuery),
 	); err != nil {
 		t.Fatal(err)
@@ -286,7 +287,7 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	// the viewer (right-aligned, sized to its content rather than stretched).
 	e.post("bot", wide, "")
 	e.post(e.alice.ID, wide, "")
-	h := Handler(e.Deps, nil)
+	h := withStatic(Handler(e.Deps, nil))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
@@ -303,7 +304,7 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	var viewport float64
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`.msg .body.md pre`, chromedp.ByQuery),
 		chromedp.Evaluate(`window.innerWidth`, &viewport),
 		chromedp.Evaluate(`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
@@ -335,19 +336,19 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 	ctx := browserCtx(t)
 	e, p, pr := presenceFixture()
 	var mu sync.Mutex
-	h := Handler(e.Deps, nil, WithPresence(lockedPresence{pr, &mu}))
+	h := withStatic(Handler(e.Deps, nil, WithPresence(lockedPresence{pr, &mu})))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, jam.WithParticipant(r, p))
 	}))
 	t.Cleanup(srv.Close)
-	// The page holds /me/events open; drop it so Close doesn't wait on it.
+	// The page holds /app/user/events open; drop it so Close doesn't wait on it.
 	t.Cleanup(srv.CloseClientConnections)
 
 	// The strip sits between the message list and the composer.
 	var order bool
 	err := chromedp.Run(ctx,
 		chromedp.EmulateViewport(1000, 700),
-		chromedp.Navigate(srv.URL+"/me/?c="+url.QueryEscape(engID)),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
 		chromedp.WaitVisible(`#presence .sess.busy .dots`, chromedp.ByQuery),
 		chromedp.Evaluate(`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
 			p=document.getElementById('presence').getBoundingClientRect(),
@@ -361,7 +362,7 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 		t.Error("presence strip should sit between the messages and the composer")
 	}
 
-	// A status change pushed on /me/events updates the strip in place.
+	// A status change pushed on /app/user/events updates the strip in place.
 	mu.Lock()
 	pr.st["busy"] = sessionevents.Status{State: sessionevents.StatusWriting}
 	mu.Unlock()
@@ -391,3 +392,12 @@ func (l lockedPresence) Status(a string) (sessionevents.Status, bool) {
 	return l.f.Status(a)
 }
 func (l lockedPresence) Subscribe() (<-chan struct{}, func()) { return l.f.Subscribe() }
+
+// withStatic mounts the shared assets at /app/static/ the way appui does in
+// production, so the page's htmx and stylesheet resolve in the browser.
+func withStatic(h http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /app/static/", uiassets.Handler("/app/static/"))
+	mux.Handle("/", h)
+	return mux
+}

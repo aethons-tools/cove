@@ -55,7 +55,7 @@ func upgradeKit(t *testing.T) (http.Handler, Store, *Supervisor, *fakeLauncher, 
 	up := newFakeUpgrader()
 	sup.SetStandingUpgrader(up)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	return h, store, sup, fl, up, id
 }
 

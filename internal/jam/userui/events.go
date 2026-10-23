@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ type Changes interface {
 // Option configures Handler.
 type Option func(*handler)
 
-// WithChanges enables GET /me/events, the live-push stream: each log change is
+// WithChanges enables GET /app/user/events, the live-push stream: each log change is
 // sent as a payload-free `changed` event, and the page refetches its own
 // authorized fragments. Without it the stream answers 204 and the page polls.
 func WithChanges(c Changes) Option {

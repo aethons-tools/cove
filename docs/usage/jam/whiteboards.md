@@ -1,10 +1,10 @@
 ---
-summary: Whiteboards — shared Excalidraw canvases that live in a conversation. People draw on them in /me; agents read them compactly, edit them with simple ops, and look at a server-rendered PNG. Edits merge per element and sync live; access follows the conversation's.
+summary: Whiteboards — shared Excalidraw canvases that live in a conversation. People draw on them in /app/user; agents read them compactly, edit them with simple ops, and look at a server-rendered PNG. Edits merge per element and sync live; access follows the conversation's.
 read_when: You want people and agents to sketch together (diagrams, freehand, planning, annotated screenshots), you're using or wiring the board tools/routes, or a board edit is refused or doesn't show up.
-owns: the board model (in a channel; elements merged per element), board access, the sync routes, the agent tools (board_create, boards, board_read, board_apply, board_snapshot), the server-side renderer, and the `board` live push. Does NOT own the /me editor UI — see intercom-ui.md.
+owns: the board model (in a channel; elements merged per element), board access, the sync routes, the agent tools (board_create, boards, board_read, board_apply, board_snapshot), the server-side renderer, and the `board` live push. Does NOT own the /app/user editor UI — see intercom-ui.md.
 prereqs: intercom.md for channels and the live push; comms-addressing.md for `to`
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # Whiteboards
@@ -29,13 +29,13 @@ and two moving the same one converge. Every accepted change bumps the board's
 
 | Route | Result |
 |---|---|
-| `POST /me/boards` `{channel, title}` / `POST /squawks/boards` `{title, to?}` | `201 {board_id, channel}`; posts the board's card in the conversation |
+| `POST /app/user/boards` `{channel, title}` / `POST /squawks/boards` `{title, to?}` | `201 {board_id, channel}`; posts the board's card in the conversation |
 | `GET …/boards/{id}/elements?since=` | `{seq, elements}` (Excalidraw element JSON) |
 | `POST …/boards/{id}/elements` `{elements}` | `{seq, lost}` — `lost` are the stored winners of elements that lost the merge |
-| `GET /me/boards/{id}/thumb.png`, `GET /squawks/boards/{id}/snapshot.png` | the server-rendered PNG (`?size=` up to 480 gives the thumbnail size; otherwise full size, at most 1600 px) |
+| `GET /app/user/boards/{id}/thumb.png`, `GET /squawks/boards/{id}/snapshot.png` | the server-rendered PNG (`?size=` up to 480 gives the thumbnail size; otherwise full size, at most 1600 px) |
 | `GET /squawks/boards`, `…/{id}/read`, `POST …/{id}/apply` | the agent tools' routes (below) |
 
-Missing and forbidden are both `404`. `/me/events` sends `board` (data: the
+Missing and forbidden are both `404`. `/app/user/events` sends `board` (data: the
 board id) when a board the viewer may read changes. Limits: 500 elements per
 merge, 64 KB per element, 8 MB per request.
 
@@ -67,5 +67,5 @@ thumbnails and `board_snapshot`.
 
 ## Not yet
 
-The /me editor (the Excalidraw bundle, built by `just whiteboard`); images on
+The /app/user editor (the Excalidraw bundle, built by `just whiteboard`); images on
 boards; live cursors; Mermaid import; auto-layout.

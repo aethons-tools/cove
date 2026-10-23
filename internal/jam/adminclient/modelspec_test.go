@@ -14,7 +14,7 @@ func TestClientModelSpecRoundTrip(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	creds := func(n string) bool { return n == "anthropic" }
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithModelSpecs(store, creds, false, log)))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")

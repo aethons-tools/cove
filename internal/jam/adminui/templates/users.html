@@ -2,7 +2,7 @@
 <div class="page-head"><h1>Users</h1><span class="sub">The people agents talk to — open one to edit their logins, OIDC bindings and accounts; add them to a project on its page</span></div>
 <details class="panel">
   <summary>New user</summary>
-  <form hx-post="/ui/users" hx-target="#users" hx-swap="outerHTML">
+  <form hx-post="/app/admin/users" hx-target="#users" hx-swap="outerHTML">
     <div class="grid">
       <label>Name <span class="req">required</span><span class="hint">Jam-wide; addressed as <code>human:&lt;name&gt;</code></span><input name="name" required></label>
       <label class="wide">Logins <span class="hint">one per line — operator identities (OIDC sub, or <code>local</code>) this person signs in as</span><textarea name="logins" spellcheck="false"></textarea></label>

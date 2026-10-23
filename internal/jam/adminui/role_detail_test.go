@@ -69,7 +69,7 @@ func seedRichRole(t *testing.T) jam.Store {
 
 func TestRoleDetailShowsEverything(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, anyCred, nil)
-	rec := get(t, h, "/ui/projects/acme/roles/review")
+	rec := get(t, h, "/app/admin/projects/acme/roles/review")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET role detail = %d", rec.Code)
 	}
@@ -87,9 +87,9 @@ func TestRoleDetailShowsEverything(t *testing.T) {
 		"nightly", "run the nightly sweep",
 		"holder-plain", "holder-ovr", "override",
 		"studio-of-review",
-		`<a href="/ui/projects/acme" aria-current="page"><span class="name">acme</span>`, // its project is selected
-		`href="/ui/projects/acme/agents" aria-current="page">Agents`,                     // under Agents
-		`<a href="/ui/projects/acme/agents">Agents</a> / <a href="/ui/projects/acme/roles/review">review</a>`,
+		`<a href="/app/admin/projects/acme" aria-current="page"><span class="name">acme</span>`, // its project is selected
+		`href="/app/admin/projects/acme/agents" aria-current="page">Agents`,                     // under Agents
+		`<a href="/app/admin/projects/acme/agents">Agents</a> / <a href="/app/admin/projects/acme/roles/review">review</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("role detail missing %q", want)
@@ -111,7 +111,7 @@ func TestRoleDetailUnmanagedEgressAndEmptyAddressing(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "bare"}); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/roles/bare").Body.String()
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/projects/acme/roles/bare").Body.String()
 	for _, want := range []string{"Kit default", "No comms targets"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("bare role detail missing %q", want)
@@ -120,29 +120,29 @@ func TestRoleDetailUnmanagedEgressAndEmptyAddressing(t *testing.T) {
 }
 
 func TestRoleDetailNotFound(t *testing.T) {
-	rec := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/ui/projects/acme/roles/nope")
+	rec := get(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/projects/acme/roles/nope")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing role = %d, want 404", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), `<aside id="rail"`) {
 		t.Errorf("not-found should still render the page chrome")
 	}
-	if !strings.Contains(rec.Body.String(), `href="/ui/projects/acme/agents"`) {
+	if !strings.Contains(rec.Body.String(), `href="/app/admin/projects/acme/agents"`) {
 		t.Errorf("not-found should link back to the project's roles")
 	}
 }
 
 func TestRoleLinksFromRolesAndRoster(t *testing.T) {
 	h := adminui.Handler(seedRichRole(t), testLogger(), nil, nil, anyCred, nil)
-	roles := get(t, h, "/ui/projects/acme/agents").Body.String()
-	if !strings.Contains(roles, `href="/ui/projects/acme/roles/review"`) {
+	roles := get(t, h, "/app/admin/projects/acme/agents").Body.String()
+	if !strings.Contains(roles, `href="/app/admin/projects/acme/roles/review"`) {
 		t.Errorf("roles table should link to the detail page")
 	}
 	if !strings.Contains(roles, "git-pat") {
 		t.Errorf("roles table should show the credential mapping")
 	}
-	roster := get(t, h, "/ui/agents").Body.String()
-	if !strings.Contains(roster, `href="/ui/projects/acme/roles/review"`) {
+	roster := get(t, h, "/app/admin/agents").Body.String()
+	if !strings.Contains(roster, `href="/app/admin/projects/acme/roles/review"`) {
 		t.Errorf("roster grant chips should link to the role")
 	}
 }
@@ -157,13 +157,13 @@ func TestRoleDetailShowsTurnEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)
-	body := get(t, h, "/ui/projects/acme/roles/worker").Body.String()
+	body := get(t, h, "/app/admin/projects/acme/roles/worker").Body.String()
 	for _, want := range []string{"Idle timeout", "45m", "On idle", "teardown"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("worker role detail missing %q", want)
 		}
 	}
-	bare := get(t, h, "/ui/projects/acme/roles/bare").Body.String()
+	bare := get(t, h, "/app/admin/projects/acme/roles/bare").Body.String()
 	for _, want := range []string{"Idle timeout", "none", "On idle", "wake"} {
 		if !strings.Contains(bare, want) {
 			t.Errorf("bare role detail missing %q", want)

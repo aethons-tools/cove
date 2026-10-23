@@ -24,7 +24,7 @@ func uiHandler(t *testing.T, store jam.Store) http.Handler {
 func TestPushKit(t *testing.T) {
 	store := newStore(t)
 	h := uiHandler(t, store)
-	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {"kind: studio\n"}})
+	rec := post(t, h, "/app/admin/kits", url.Values{"name": {"base"}, "config": {"kind: studio\n"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("push kit = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -35,14 +35,14 @@ func TestPushKit(t *testing.T) {
 		t.Errorf("kits fragment should list the kit; got:\n%s", rec.Body.String())
 	}
 	// a config that isn't a studio kit is refused, not stored
-	if rec := post(t, h, "/ui/kits", url.Values{"name": {"y"}, "config": {"listen: :443"}}); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/kits", url.Values{"name": {"y"}, "config": {"listen: :443"}}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("non-studio config = %d, want 400", rec.Code)
 	}
 	if _, ok := store.GetKit("y"); ok {
 		t.Fatal("a refused config must not be stored")
 	}
 	// missing config → 400
-	bad := post(t, h, "/ui/kits", url.Values{"name": {"x"}})
+	bad := post(t, h, "/app/admin/kits", url.Values{"name": {"x"}})
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("missing config = %d, want 400", bad.Code)
 	}
@@ -57,7 +57,7 @@ func TestPinKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := uiHandler(t, store)
-	rec := post(t, h, "/ui/kits/base/pin", url.Values{"version": {"1"}})
+	rec := post(t, h, "/app/admin/kits/base/pin", url.Values{"version": {"1"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pin = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -65,7 +65,7 @@ func TestPinKit(t *testing.T) {
 		t.Errorf("current = %d, want 1 after pin", k.Current)
 	}
 	// non-integer version → 400
-	bad := post(t, h, "/ui/kits/base/pin", url.Values{"version": {"notanint"}})
+	bad := post(t, h, "/app/admin/kits/base/pin", url.Values{"version": {"notanint"}})
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("bad version = %d, want 400", bad.Code)
 	}
@@ -77,7 +77,7 @@ func TestDeleteKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := uiHandler(t, store)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/kits/base", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/kits/base", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -90,12 +90,12 @@ func TestDeleteKit(t *testing.T) {
 }
 
 // TestKitWriteCSRF mirrors TestEnrollRejectsCrossOrigin / TestRaiseCoveCSRF:
-// a cross-origin POST to /ui/kits must be refused, and the kit must not be
+// a cross-origin POST to /app/admin/kits must be refused, and the kit must not be
 // created.
 func TestKitWriteCSRF(t *testing.T) {
 	store := newStore(t)
 	h := uiHandler(t, store)
-	req := httptest.NewRequest(http.MethodPost, "/ui/kits", strings.NewReader("name=base&config=listen%3A+%3A443"))
+	req := httptest.NewRequest(http.MethodPost, "/app/admin/kits", strings.NewReader("name=base&config=listen%3A+%3A443"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
 	rec := httptest.NewRecorder()
@@ -118,7 +118,7 @@ func TestPushKitNoConfigLeak(t *testing.T) {
 	store := newStore(t)
 	h := uiHandler(t, store)
 	const secretConfig = "SECRET-KIT-CONFIG-XYZ"
-	rec := post(t, h, "/ui/kits", url.Values{"name": {"base"}, "config": {"kind: studio\nprompt: " + secretConfig + "\n"}})
+	rec := post(t, h, "/app/admin/kits", url.Values{"name": {"base"}, "config": {"kind: studio\nprompt: " + secretConfig + "\n"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("push kit = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
@@ -137,7 +137,7 @@ func TestDeleteKitReferenced409(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := uiHandler(t, store)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/kits/base", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/kits/base", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -170,7 +170,7 @@ func chainedStore(t *testing.T) jam.Store {
 func TestUIKitRmGuardedByChildren(t *testing.T) {
 	store := chainedStore(t)
 	h := uiHandler(t, store)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/kits/web-dev", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/kits/web-dev", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -185,7 +185,7 @@ func TestUIKitRmGuardedByChildren(t *testing.T) {
 func TestUIKitPinGuardedByFollowers(t *testing.T) {
 	store := chainedStore(t)
 	h := uiHandler(t, store)
-	rec := post(t, h, "/ui/kits/web-dev/pin", url.Values{"version": {"1"}})
+	rec := post(t, h, "/app/admin/kits/web-dev/pin", url.Values{"version": {"1"}})
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "kit web-dev is followed by my-app") {
 		t.Fatalf("pin = %d %s", rec.Code, rec.Body.String())
 	}

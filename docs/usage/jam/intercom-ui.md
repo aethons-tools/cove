@@ -1,21 +1,21 @@
 ---
-summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/me` where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with a New Message picker, per-(participant,channel) unread, and a live status strip for the sessions in each conversation. It reads the channel read-model and writes through the `/me/send` endpoint; it refreshes live over an SSE push (`GET /me/events`), with a 30s poll as fallback.
-read_when: You want a project member to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/me` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
-owns: the `/me` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /me/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /me/read`), the membership controls (`POST /me/join|leave|call-in`), the live push (`GET /me/events`) and fallback poll, and how it wires to the channel read-model and `/me/send`
-prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/me` participant gate (OIDC-always, no loopback trust) and the operator/participant boundary; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
+summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/app/user` where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with a New Message picker, per-(participant,channel) unread, and a live status strip for the sessions in each conversation. It reads the channel read-model and writes through the `/app/user/send` endpoint; it refreshes live over an SSE push (`GET /app/user/events`), with a 30s poll as fallback.
+read_when: You want a project member to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/app/user` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
+owns: the `/app/user` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /app/user/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /app/user/read`), the membership controls (`POST /app/user/join|leave|call-in`), the live push (`GET /app/user/events`) and fallback poll, and how it wires to the channel read-model and `/app/user/send`
+prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
-# The participant intercom inbox (`/me`)
+# The participant intercom inbox (`/app/user`)
 
 A **project member** reads and replies to their intercom channels in a two-pane web
-inbox served under `/me`, rather than through the Discord/Linear relays. It is the
+inbox served under `/app/user`, rather than through the Discord/Linear relays. It is the
 human analog of a studio agent's `/squawks` tools: the same durable squawk Log,
-seen from the human's side. It is served by `internal/jam/meui` (mirroring
+seen from the human's side. It is served by `internal/jam/userui` (mirroring
 `adminui`'s embedded-`html/template` + htmx mechanism) and mounted behind the
-**participant gate** — see [ui.md](ui.md#the-participant-intercom-me) for the gate
-(OIDC-always, no loopback trust) and the operator/participant boundary.
+`/app` gate, which admits a roster member — see
+[ui.md](ui.md#signing-in-one-login-one-principal) for the login and who counts as a user.
 
 ## What it shows
 
@@ -52,16 +52,16 @@ seen from the human's side. It is served by `internal/jam/meui` (mirroring
   its channel), live sessions' tickets, and rooms. A message to a session goes to
   its home channel, which the person joins.
 
-**Writes are same-origin only.** Every `/me` POST (send, mark-read, join,
+**Writes are same-origin only.** Every `/app/user` POST (send, mark-read, join,
 leave, call-in, answering an ask) is refused (`403`) unless its `Origin` (or `Referer`) is the
-page's own host or one of [`ui-origins`](serve.md) — the same check as `/ui`
+page's own host or one of [`ui-origins`](serve.md) — the same check as `/app/admin`
 writes — so another site, a sibling subdomain included, can't post as you.
 
 ## Asks
 
 A session's [ask](asks.md) renders as a **card** where it was asked: the
 question, a button per option (with its detail), **Other…**, and a comment
-box. Answering posts `POST /me/asks/{id}/answer` (`version`, `choice`,
+box. Answering posts `POST /app/user/asks/{id}/answer` (`version`, `choice`,
 `comment`): `204`; `409` "this ask changed — review the new version" (it was
 amended since the card loaded) or "already answered by alice: …"; `403` if
 it isn't yours to answer. An answered card collapses to "✓ alice chose …", a
@@ -70,10 +70,10 @@ someone else (`of`) is read-only, "for carol". Its later events are one-line
 system notes, not bubbles.
 
 **Discuss** on a card starts a reply about it: the composer sends
-`reply_to` (an ask in the same conversation; `/me/send` refuses any other with
+`reply_to` (an ask in the same conversation; `/app/user/send` refuses any other with
 `400`), and that reply shows a **re:** chip linking the card. An **Open asks**
 panel above the stream lists the conversation's open asks
-(`GET /me/asks?c=`, refreshed with the stream); each rail row shows its count,
+(`GET /app/user/asks?c=`, refreshed with the stream); each rail row shows its count,
 and a conversation with an open ask you may answer is under **Needs you**.
 
 ## Attachments
@@ -81,7 +81,7 @@ and a conversation with an open ask you may answer is under **Needs you**.
 With [attachments](attachments.md) on, the composer takes files three ways:
 **📎** (a file picker), **paste** (a screenshot on the clipboard), and
 **drag-and-drop** onto the composer. Each file uploads at once
-(`POST /me/uploads`) as a chip with a progress bar and ✕; Send refuses
+(`POST /app/user/uploads`) as a chip with a progress bar and ✕; Send refuses
 ("Still uploading…") until they finish, then sends their refs (the text may
 be empty). A paste with text on the clipboard stays a text paste. Only a
 conversation's composer attaches, not New message's. A refused
@@ -94,13 +94,13 @@ chip with name and size. With attachments off there is no 📎.
 The conversation header offers **Join** (a channel the person can see but isn't
 in), **Leave** (one they're in; never a chat) and **Call in…** (a picker of the
 project's people, and on ticket and session channels its live sessions, who
-aren't in it yet). They post to `POST /me/join`, `/me/leave` and `/me/call-in`
+aren't in it yet). They post to `POST /app/user/join`, `/app/user/leave` and `/app/user/call-in`
 (`channel`, and `who` = `user:<id>`/`session:<id>`); on success (`204`) the page
 reloads. The rules are the intercom's ([membership](intercom.md#channel-membership)).
 
 ## Sending, unread, and refresh
 
-- **Sending** posts to [`POST /me/send`](intercom.md) (the participant send path):
+- **Sending** posts to [`POST /app/user/send`](intercom.md) (the participant send path):
   the composer sends `{to, body}` — `to` is the open channel's id, or for a new
   conversation `user:<id>` / `session:<id>` — and, on success, refreshes the pane
   and rail. The intercom decides whether the person may post there (a chat
@@ -134,13 +134,13 @@ reloads. The rules are the intercom's ([membership](intercom.md#channel-membersh
   - Stacks live in the browser tab's session storage: they survive switching
     conversations and reloads, and are never sent to Jam.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
-  read via `POST /me/read`, which advances the person's read cursor on it
+  read via `POST /app/user/read`, which advances the person's read cursor on it
   (forward only) to its latest append sequence; the badge clears on the next
   refresh. Unread is the person's deliveries above it.
-- **Refresh is live:** the page holds an SSE stream (`GET /me/events`, behind
+- **Refresh is live:** the page holds an SSE stream (`GET /app/user/events`, behind
   the same gate). Each squawk Log append sends a payload-free `changed` event,
   and the rail and the open conversation's message list re-fetch their fragments
-  (`GET /me/rail`, `GET /me/stream`). Those fragment routes are the only place
+  (`GET /app/user/rail`, `GET /app/user/stream`). Those fragment routes are the only place
   message content is served. A **30s poll** is the fallback, for state that
   appends nothing (a session going Waiting) and for a dropped stream. A reconnect
   also refreshes, to catch up on anything missed. Fragments follow the same
@@ -149,13 +149,13 @@ reloads. The rules are the intercom's ([membership](intercom.md#channel-membersh
   The message list **doesn't refresh while text in it is selected**, so a squawk
   can be selected and copied; a push held by a selection runs once it clears.
   The push is in-process: an `intercom.Notifier` wraps serve's one shared
-  channel-log handle, so every writer (agent send, relay ingress, `/me/send`,
+  channel-log handle, so every writer (agent send, relay ingress, `/app/user/send`,
   Jam's notices) fires it. That's correct while serve is the Log's sole writer. Without a
-  configured Log, `/me/events` answers `204` and the page just polls.
+  configured Log, `/app/user/events` answers `204` and the page just polls.
   A second payload-free event, `presence`, fires when a session's status
   changes (at most one per 250 ms per stream; a change inside that gap is sent
-  when it ends) and refetches just the status strip (`GET /me/presence`).
-  `/me/events` answers `204` only when neither source is configured.
+  when it ends) and refetches just the status strip (`GET /app/user/presence`).
+  `/app/user/events` answers `204` only when neither source is configured.
   A conversation **opens scrolled to its latest message**. If it is scrolled to
   the bottom when a refresh brings a new squawk, it scrolls so the new message
   is fully in view; scrolled up into history, the view stays put. **Send always
@@ -187,14 +187,15 @@ Terminating, lost, and gone sessions are left out. The status comes from the
 session's phase and activity plus its [session events](session-events.md),
 summarized server-side by an in-memory tracker that every published event
 passes through (`sessionevents.Presence`, fed via `Hub.Observe`). Only the
-status and a **tool name** ever reach `/me` — never event content (see
+status and a **tool name** ever reach `/app/user` — never event content (see
 [Sensitivity](session-events.md#sensitivity)). The tracker is in memory, so after
 a restart a running session reads "working" until its next event.
 
 ## Enabling it
 
-The inbox is mounted whenever the participant gate is (browser OIDC login
-configured — see [ui.md](ui.md#the-participant-intercom-me)). Its conversations
+The inbox is always mounted; reaching it takes a login that names a roster
+member (or a loopback [`dev-identity`](serve.md) — see
+[ui.md](ui.md#signing-in-one-login-one-principal)). Its conversations
 come from the channel log, which is always available.
 
 ## Not yet

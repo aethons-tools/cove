@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Asks in /me (intercom structured asks): an ask renders as a card where it
+// Asks in /app/user (intercom structured asks): an ask renders as a card where it
 // was asked, showing its current state; its later events are system lines;
 // open asks also list in a panel above the stream.
 
@@ -135,7 +135,7 @@ func (h *handler) answerAsk(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, jam.ErrSendDenied), errors.Is(err, intercom.ErrAskForbidden):
 		http.Error(w, "not allowed", http.StatusForbidden)
 	default:
-		h.lg.Error("meui answer failed", "ask", id, "error", err.Error())
+		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
 		http.Error(w, "failed", http.StatusInternalServerError)
 	}
 }

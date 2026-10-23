@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"fmt"
@@ -70,7 +70,7 @@ type Conversation struct {
 	Project     string
 	Phase       string
 	NeedsYou    bool
-	SendTo      string // what the composer POSTs to /me/send ("" = read-only History)
+	SendTo      string // what the composer POSTs to /app/user/send ("" = read-only History)
 	Messages    []MessageRow
 	HasMessages bool
 	LastSeq     int64
@@ -200,7 +200,7 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 
 // NewMessageOption is one recipient offered in the New Message picker.
 type NewMessageOption struct {
-	To      string // what to POST to /me/send: user:<id>, session:<id>, or a channel id
+	To      string // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
 	Label   string
 	Kind    string
 	Project string

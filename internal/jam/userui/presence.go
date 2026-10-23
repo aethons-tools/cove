@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"github.com/aethons-tools/cove/internal/jam"
@@ -15,7 +15,7 @@ type Presence interface {
 
 // WithPresence shows each session in a conversation with its live status (the
 // strip under the messages) and pushes a payload-free `presence` event on
-// /me/events when one changes. Only the status and a tool name ever reach the
+// /app/user/events when one changes. Only the status and a tool name ever reach the
 // page — never event content. Without it, a live session reads "working".
 func WithPresence(p Presence) Option {
 	return func(h *handler) { h.presence = p }

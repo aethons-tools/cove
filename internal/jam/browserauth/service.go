@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-
-	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // RawConfig is the browser-login configuration resolved from operator-auth.oidc.
@@ -24,7 +22,7 @@ type RawConfig struct {
 }
 
 // Service serves the <prefix>/auth/* login routes for the code+PKCE flow of one
-// Mount. Operator ("/ui"), participant ("/me") and the previews' login host
+// Mount. The browser app ("/app", AppMount) and the previews' login host
 // ("/__jam", PreviewMount) each get a Service over the same RawConfig; they
 // differ only in their Mount.
 type Service struct {
@@ -152,9 +150,8 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.mount.Complete(w, r, idTok, accessTok, safeReturnTo(s.mount, rt))
 		return
 	}
-	// The session cookie carries the token the gate re-verifies: the access token
-	// for the operator plane (API aud + scope), the ID token for the participant
-	// plane (aud = ClientID, mapped to a roster human), or both for /app.
+	// The session cookie carries the token(s) the gate re-verifies: both for
+	// /app (ID token → roster user, access token → operator scope), or one.
 	switch s.mount.Session {
 	case BothTokensSession:
 		s.mount.setCookie(w, s.mount.IDCookie(), idTok, isSecure(r))
@@ -178,31 +175,6 @@ func (s *Service) Issuer() string { return s.cfg.Issuer }
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 	s.mount.clearSession(w)
 	http.Redirect(w, r, s.mount.loginPath(), http.StatusFound)
-}
-
-// ParticipantSession returns a Gate session verifier for the participant plane:
-// it verifies the session's ID token (aud = ClientID), maps its subject to a
-// roster human via jam.ParticipantByIdentity, and injects the resolved
-// Participant. Outcomes: no/invalid session → SessionNone (the gate redirects to
-// login); a verified subject that is not bound to any roster human →
-// SessionForbidden (the gate returns 403 rather than looping through login);
-// a resolved subject → SessionOK.
-func (s *Service) ParticipantSession(store jam.ParticipantStore) func(*http.Request) (*http.Request, SessionOutcome) {
-	return func(r *http.Request) (*http.Request, SessionOutcome) {
-		c, err := r.Cookie(s.mount.SessionCookie)
-		if err != nil || c.Value == "" {
-			return r, SessionNone
-		}
-		sub, err := s.verifySubject(r.Context(), c.Value)
-		if err != nil {
-			return r, SessionNone
-		}
-		p, ok := jam.ParticipantByIdentity(store, s.cfg.Issuer, sub)
-		if !ok {
-			return r, SessionForbidden
-		}
-		return jam.WithParticipant(r, p), SessionOK
-	}
 }
 
 // safeReturnTo permits only same-site absolute paths under the mount's prefix,

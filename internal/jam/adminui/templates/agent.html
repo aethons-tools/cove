@@ -1,7 +1,7 @@
 {{define "content"}}
 {{if .NotFound}}
 <div class="page-head"><h1>Agent not found</h1></div>
-<div class="banner">Nothing is known about agent <span class="mono">{{.ID}}</span> — it isn't enrolled, isn't running and has no session or squawks. <a href="/ui/agents">Back to agents</a></div>
+<div class="banner">Nothing is known about agent <span class="mono">{{.ID}}</span> — it isn't enrolled, isn't running and has no session or squawks. <a href="/app/admin/agents">Back to agents</a></div>
 {{else}}
 <style>
   .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
@@ -30,7 +30,7 @@
   td.body.md pre{overflow-x:auto;background:var(--bg);padding:6px 8px;border-radius:6px}
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
-{{$f := frame}}<div class="crumbs"><a href="{{if $f.Project}}{{projectURL $f.Project}}/agents{{else}}/ui/agents{{end}}">Agents</a> / <a href="{{agentHref .ID ""}}">{{.ID}}</a></div>
+{{$f := frame}}<div class="crumbs"><a href="{{if $f.Project}}{{projectURL $f.Project}}/agents{{else}}/app/admin/agents{{end}}">Agents</a> / <a href="{{agentHref .ID ""}}">{{.ID}}</a></div>
 <div class="page-head">
   <h1 class="mono">{{.ID}}</h1>
   {{if .Running}}
@@ -44,12 +44,12 @@
   {{else if .Kind}}<span class="chip">{{.Kind}}</span>{{end}}
   <span class="spacer"></span>
   {{if .SessionsEnabled}}<a class="btn" href="{{agentURL .ID}}/session">Open live timeline</a>{{end}}
-  {{if and .Running .CanEdit}}<button class="danger" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+  {{if and .Running .CanEdit}}<button class="danger" hx-delete="/app/admin/coves/{{.ID}}" hx-swap="none"
       hx-confirm="Tear down {{.ID}}?"
-      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Teardown</button>{{end}}
-  {{if .HasActor}}<button class="danger" hx-delete="/ui/enrollments/{{.ID}}" hx-swap="none"
+      hx-on::after-request="if(event.detail.successful) location.href='/app/admin/agents'">Teardown</button>{{end}}
+  {{if .HasActor}}<button class="danger" hx-delete="/app/admin/enrollments/{{.ID}}" hx-swap="none"
       hx-confirm="Revoke {{.ID}}? This invalidates its token."
-      hx-on::after-request="if(event.detail.successful) location.href='/ui/agents'">Revoke</button>{{end}}
+      hx-on::after-request="if(event.detail.successful) location.href='/app/admin/agents'">Revoke</button>{{end}}
 </div>
 
 {{if not .Running}}
@@ -64,14 +64,14 @@
       <div>
       {{range .Actor.Grants}}
         <span class="chip" title="{{if .Destinations}}destinations: {{range $i, $d := .Destinations}}{{if $i}}, {{end}}{{$d}}{{end}}{{else}}no destinations{{end}}"><a href="{{roleURL .Project .Role}}" style="color:inherit">{{.Project}}/{{.Role}}</a>
-          <button type="button" aria-label="Remove grant" hx-delete="/ui/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-swap="none"
+          <button type="button" aria-label="Remove grant" hx-delete="/app/admin/actors/{{$id}}/grants/{{.Project}}/{{.Role}}" hx-swap="none"
             hx-confirm="Remove {{.Role}} grant on {{.Project}} from {{$id}}?" hx-on::after-request="if(event.detail.successful) location.reload()">×</button></span>
       {{else}}<span class="unset">no grants</span>{{end}}
       </div>
       <dl class="kv" style="margin-top:10px"><dt>Token expiry</dt><dd>{{if .Actor.Expiry.IsZero}}<span class="unset">none</span>{{else}}<time title="{{.Actor.Expiry.Format "2006-01-02 15:04:05 MST"}}">{{.Actor.Expiry.Format "2006-01-02"}}</time>{{end}}</dd></dl>
       <details class="grant-add">
         <summary>+ Grant</summary>
-        <form hx-post="/ui/actors/{{$id}}/grants" hx-swap="none" hx-on::after-request="if(event.detail.successful) location.reload()">
+        <form hx-post="/app/admin/actors/{{$id}}/grants" hx-swap="none" hx-on::after-request="if(event.detail.successful) location.reload()">
           <input name="role" data-ta="roles" data-ta-project="@form" placeholder="role" required autocomplete="off" aria-label="Role">
           {{template "project-select"}}
           <input name="destinations" data-ta="destinations" data-ta-list data-ta-eq="credentials" placeholder="overrides, e.g. git=git-pat" autocomplete="off" spellcheck="false" aria-label="Destination overrides">
@@ -156,7 +156,7 @@
         {{range .Squawks}}<tr>
           <td><time>{{.At}}</time></td>
           <td>{{if .AgentID}}<a class="mono" href="{{agentURL .AgentID}}">{{.From}}</a>{{else}}<span class="mono">{{.From}}</span>{{end}}</td>
-          <td>{{if .ChannelID}}<a class="mono" href="/ui/intercom?participant={{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
+          <td>{{if .ChannelID}}<a class="mono" href="/app/admin/intercom?participant={{.ChannelID}}">{{.Channel}}</a>{{end}}{{range .To}}<div><span class="mono">{{.Target}}</span> <span class="reach{{if .External}} ext{{end}}">{{if .External}}external{{else}}internal{{end}}</span></div>{{end}}</td>
           <td class="body {{if .Plain}}plain{{else}}md{{end}}">{{.Body}}</td></tr>
         {{else}}<tr><td colspan="4" class="empty">No squawks.</td></tr>{{end}}
       </tbody>

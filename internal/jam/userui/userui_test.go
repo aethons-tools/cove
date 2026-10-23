@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"testing"

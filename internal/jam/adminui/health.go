@@ -30,7 +30,7 @@ func healthData(t *condition.Tracker, amURL string) map[string]any {
 
 // registerHealth serves the Jam Health tab; an htmx poll gets the body fragment.
 func registerHealth(mux *http.ServeMux, t *condition.Tracker, amURL string) {
-	mux.HandleFunc("GET /ui/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/health", func(w http.ResponseWriter, r *http.Request) {
 		data := healthData(t, amURL)
 		if r.Header.Get("HX-Request") == "true" {
 			renderFragment(w, r, "health", "health-body", data)

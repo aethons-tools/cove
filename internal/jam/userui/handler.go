@@ -1,4 +1,4 @@
-package meui
+package userui
 
 import (
 	"embed"
@@ -30,7 +30,7 @@ func mustParse(names ...string) *template.Template {
 		paths = append(paths, "templates/"+n)
 	}
 	return template.Must(template.New("").Funcs(template.FuncMap{
-		"stylesheet": func() string { return uiassets.StylesheetHref("/me/static/") },
+		"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
 		"mb":         func(n int64) int64 { return n >> 20 },
 	}).ParseFS(files, paths...))
 }
@@ -44,8 +44,8 @@ type inboxPage struct {
 	AttachMax  int64 // per-file cap; 0 = attachments off
 }
 
-// Handler serves the participant intercom inbox under /me. It reads identity per
-// request from jam.ParticipantFrom (the /me gate injects it) — never a
+// Handler serves the participant intercom inbox under /app/user. It reads identity per
+// request from jam.ParticipantFrom (the /app/user gate injects it) — never a
 // constructor argument — so one handler serves every participant. lg may be nil.
 func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
@@ -56,24 +56,22 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 		opt(h)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /me/{$}", h.full)
-	mux.HandleFunc("GET /me/rail", h.rail)
-	mux.HandleFunc("GET /me/stream", h.stream)
-	mux.HandleFunc("POST /me/read", h.markRead)
-	mux.HandleFunc("POST /me/join", h.join)
-	mux.HandleFunc("POST /me/leave", h.leave)
-	mux.HandleFunc("POST /me/call-in", h.callIn)
-	mux.HandleFunc("POST /me/asks/{id}/answer", h.answerAsk)
-	mux.HandleFunc("POST /me/uploads", h.upload)
-	mux.HandleFunc("GET /me/blobs/{id}", h.blob)
-	mux.HandleFunc("POST /me/boards", h.boardCreate)
-	mux.HandleFunc("/me/boards/{id}/elements", h.boardElements)
-	mux.HandleFunc("GET /me/boards/{id}/thumb.png", h.boardThumb)
-	mux.HandleFunc("GET /me/presence", h.presenceStrip)
-	mux.HandleFunc("GET /me/asks", h.askPanel)
-	mux.HandleFunc("GET /me/events", h.events)
-	// The shared assets (jam.css, htmx) — templates are never reachable here.
-	mux.Handle("GET /me/static/", uiassets.Handler("/me/static/"))
+	mux.HandleFunc("GET /app/user/{$}", h.full)
+	mux.HandleFunc("GET /app/user/rail", h.rail)
+	mux.HandleFunc("GET /app/user/stream", h.stream)
+	mux.HandleFunc("POST /app/user/read", h.markRead)
+	mux.HandleFunc("POST /app/user/join", h.join)
+	mux.HandleFunc("POST /app/user/leave", h.leave)
+	mux.HandleFunc("POST /app/user/call-in", h.callIn)
+	mux.HandleFunc("POST /app/user/asks/{id}/answer", h.answerAsk)
+	mux.HandleFunc("POST /app/user/uploads", h.upload)
+	mux.HandleFunc("GET /app/user/blobs/{id}", h.blob)
+	mux.HandleFunc("POST /app/user/boards", h.boardCreate)
+	mux.HandleFunc("/app/user/boards/{id}/elements", h.boardElements)
+	mux.HandleFunc("GET /app/user/boards/{id}/thumb.png", h.boardThumb)
+	mux.HandleFunc("GET /app/user/presence", h.presenceStrip)
+	mux.HandleFunc("GET /app/user/asks", h.askPanel)
+	mux.HandleFunc("GET /app/user/events", h.events)
 	return mux
 }
 
@@ -82,7 +80,7 @@ type handler struct {
 	lg       *slog.Logger
 	changes  Changes  // nil = no `changed` push
 	presence Presence // nil = no `presence` push; live sessions read "working"
-	// Without either, GET /me/events answers 204 and the page polls.
+	// Without either, GET /app/user/events answers 204 and the page polls.
 }
 
 // build assembles the page for the request's participant and ?c selection.
@@ -117,7 +115,7 @@ func (h *handler) render(w http.ResponseWriter, tmpl string, page inboxPage) {
 		err = t.ExecuteTemplate(w, tmpl, page)
 	}
 	if err != nil {
-		h.lg.Error("meui render failed", "tmpl", tmpl, "error", err.Error())
+		h.lg.Error("userui render failed", "tmpl", tmpl, "error", err.Error())
 	}
 }
 
@@ -237,7 +235,7 @@ func (h *handler) markRead(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ident.ID(channel)); ok {
 		if err := h.d.Store.CommitChannelRead(p.UserID, ident.ID(channel), seq); err != nil {
-			h.lg.Warn("meui mark-read failed", "channel", channel, "error", err.Error())
+			h.lg.Warn("userui mark-read failed", "channel", channel, "error", err.Error())
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -284,7 +282,7 @@ func (h *handler) membership(w http.ResponseWriter, r *http.Request, act func(ja
 	case errors.Is(err, jam.ErrFixedMembers):
 		http.Error(w, "this channel's members are fixed", http.StatusConflict)
 	default:
-		h.lg.Error("meui membership change failed", "channel", channel, "error", err.Error())
+		h.lg.Error("userui membership change failed", "channel", channel, "error", err.Error())
 		http.Error(w, "failed", http.StatusInternalServerError)
 	}
 }

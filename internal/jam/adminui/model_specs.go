@@ -123,7 +123,7 @@ func (u specUI) tableData() map[string]any {
 }
 
 // specURL is the detail page path for a model-spec.
-func specURL(name string) string { return "/ui/model-specs/" + url.PathEscape(name) }
+func specURL(name string) string { return "/app/admin/model-specs/" + url.PathEscape(name) }
 
 // formLines reads a one-per-line textarea, trimming and skipping blank lines;
 // nil when empty.
@@ -281,13 +281,13 @@ func specFromForm(r *http.Request, name string) (jam.ModelSpec, error) {
 // jam.CreateModelSpec / jam.UpdateModelSpec (the same validation as the
 // at-jam model-spec verb); audit logs carry operator, name and type only.
 func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /ui/model-specs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		data := u.tableData()
 		data["Title"] = "Model-specs"
 		render(w, r, "model-specs", data)
 	})
 
-	mux.HandleFunc("GET /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := u.store.GetModelSpec(r.PathValue("name"))
 		if !ok {
 			renderStatus(w, r, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
@@ -297,7 +297,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 	})
 
 	// Create only: an existing model-spec is edited on its page.
-	mux.HandleFunc("POST /ui/model-specs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -322,7 +322,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
 	})
 
-	mux.HandleFunc("POST /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -347,7 +347,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 		renderFragment(w, r, "model-spec", "spec-body", u.detail(stored))
 	})
 
-	mux.HandleFunc("DELETE /ui/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

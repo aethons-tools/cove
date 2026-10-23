@@ -82,14 +82,14 @@ func TestKitPageShowsTrackedSource(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	h, store := sourceUI(t, f)
 	trackedKit(t, store, f, "https://github.com/acme/kits.git")
-	body := get(t, h, "/ui/kits/web-dev").Body.String()
+	body := get(t, h, "/app/admin/kits/web-dev").Body.String()
 	for _, want := range []string{
 		`href="https://github.com/acme/kits.git"`,
 		"main",
 		srcSHA1[:12],
 		`href="https://github.com/acme/kits/commit/` + srcSHA1 + `"`,
-		`hx-post="/ui/kits/web-dev/sync"`,
-		`hx-delete="/ui/kits/web-dev/source"`,
+		`hx-post="/app/admin/kits/web-dev/sync"`,
+		`hx-delete="/app/admin/kits/web-dev/source"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q:\n%s", want, body)
@@ -104,7 +104,7 @@ func TestKitPageCommitLinkFormsAndEscaping(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	h, store := sourceUI(t, f)
 	trackedKit(t, store, f, "https://gitlab.example.com/acme/kits")
-	body := get(t, h, "/ui/kits/web-dev").Body.String()
+	body := get(t, h, "/app/admin/kits/web-dev").Body.String()
 	if !strings.Contains(body, `href="https://gitlab.example.com/acme/kits/-/commit/`+srcSHA1+`"`) {
 		t.Errorf("gitlab commit link missing:\n%s", body)
 	}
@@ -114,7 +114,7 @@ func TestKitPageCommitLinkFormsAndEscaping(t *testing.T) {
 	if err := store.SetKitSource("web-dev", &jam.KitSource{Repo: "http://localhost:1/<b>x</b>", Ref: "<i>ref</i>", Commit: srcSHA1}); err != nil {
 		t.Fatal(err)
 	}
-	body = get(t, h, "/ui/kits/web-dev").Body.String()
+	body = get(t, h, "/app/admin/kits/web-dev").Body.String()
 	if strings.Contains(body, "<i>ref</i>") || strings.Contains(body, "<b>x</b>") {
 		t.Errorf("source fields must be escaped:\n%s", body)
 	}
@@ -132,8 +132,8 @@ func TestKitPageUntrackedShowsTrackForm(t *testing.T) {
 	if _, err := store.PushKit("plain", "kind: studio\n"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, h, "/ui/kits/plain").Body.String()
-	if !strings.Contains(body, `hx-post="/ui/kits/plain/source"`) || strings.Contains(body, "/ui/kits/plain/sync") {
+	body := get(t, h, "/app/admin/kits/plain").Body.String()
+	if !strings.Contains(body, `hx-post="/app/admin/kits/plain/source"`) || strings.Contains(body, "/app/admin/kits/plain/sync") {
 		t.Errorf("untracked kit should offer Track only:\n%s", body)
 	}
 }
@@ -142,20 +142,20 @@ func TestKitSourceNoFetcherNoButtons(t *testing.T) {
 	h, store := sourceUI(t, nil)
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	trackedKit(t, store, f, "https://github.com/acme/kits")
-	body := get(t, h, "/ui/kits/web-dev").Body.String()
+	body := get(t, h, "/app/admin/kits/web-dev").Body.String()
 	if !strings.Contains(body, srcSHA1[:12]) {
 		t.Error("read-only source info should still show")
 	}
-	for _, bad := range []string{"/sync", "hx-delete=\"/ui/kits/web-dev/source\"", "/ui/kits/web-dev/source\""} {
+	for _, bad := range []string{"/sync", "hx-delete=\"/app/admin/kits/web-dev/source\"", "/app/admin/kits/web-dev/source\""} {
 		if strings.Contains(body, bad) {
 			t.Errorf("no fetcher: page must not contain %q", bad)
 		}
 	}
-	if strings.Contains(get(t, h, "/ui/kits").Body.String(), "/ui/kits/import") {
+	if strings.Contains(get(t, h, "/app/admin/kits").Body.String(), "/app/admin/kits/import") {
 		t.Error("no fetcher: no import form")
 	}
 	// Without a fetcher the source routes are not mounted at all.
-	if rec := post(t, h, "/ui/kits/web-dev/sync", nil); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+	if rec := post(t, h, "/app/admin/kits/web-dev/sync", nil); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("sync without fetcher = %d, want 404 or 405", rec.Code)
 	}
 }
@@ -166,7 +166,7 @@ func TestKitSyncButton(t *testing.T) {
 	trackedKit(t, store, f, "https://github.com/acme/kits")
 	f.refs["main"] = srcSHA2
 	before := f.fetches
-	rec := post(t, h, "/ui/kits/web-dev/sync", nil)
+	rec := post(t, h, "/app/admin/kits/web-dev/sync", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sync = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -188,14 +188,14 @@ func TestKitTrackAndUntrack(t *testing.T) {
 	if _, err := store.PushKit("web-dev", "kind: studio\n"); err != nil {
 		t.Fatal(err)
 	}
-	rec := post(t, h, "/ui/kits/web-dev/source", url.Values{"source": {"https://github.com/acme/kits@main"}})
+	rec := post(t, h, "/app/admin/kits/web-dev/source", url.Values{"source": {"https://github.com/acme/kits@main"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("track = %d: %s", rec.Code, rec.Body.String())
 	}
 	if k, _ := store.GetKit("web-dev"); k.Source == nil || k.Source.Commit != srcSHA1 {
 		t.Fatalf("not tracked: %+v", k.Source)
 	}
-	req := httptest.NewRequest(http.MethodDelete, "/ui/kits/web-dev/source", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/kits/web-dev/source", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -212,10 +212,10 @@ func TestKitSourceCrossOriginRefused(t *testing.T) {
 	h, store := sourceUI(t, f)
 	trackedKit(t, store, f, "https://github.com/acme/kits")
 	for _, c := range []struct{ method, path string }{
-		{"POST", "/ui/kits/web-dev/sync"},
-		{"POST", "/ui/kits/web-dev/source"},
-		{"DELETE", "/ui/kits/web-dev/source"},
-		{"POST", "/ui/kits/import"},
+		{"POST", "/app/admin/kits/web-dev/sync"},
+		{"POST", "/app/admin/kits/web-dev/source"},
+		{"DELETE", "/app/admin/kits/web-dev/source"},
+		{"POST", "/app/admin/kits/import"},
 	} {
 		req := httptest.NewRequest(c.method, c.path, strings.NewReader("source=https://github.com/acme/kits@main"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -234,17 +234,17 @@ func TestKitSourceCrossOriginRefused(t *testing.T) {
 func TestKitImportForm(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: "kind: studio\nprompt: one\n"}}
 	h, store := sourceUI(t, f)
-	if body := get(t, h, "/ui/kits").Body.String(); !strings.Contains(body, `hx-post="/ui/kits/import"`) {
+	if body := get(t, h, "/app/admin/kits").Body.String(); !strings.Contains(body, `hx-post="/app/admin/kits/import"`) {
 		t.Errorf("kits page should offer Import from git:\n%s", body)
 	}
 
 	// A bad source is an error fragment (400), nothing imported.
-	rec := post(t, h, "/ui/kits/import", url.Values{"source": {"not a source"}})
+	rec := post(t, h, "/app/admin/kits/import", url.Values{"source": {"not a source"}})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `class="error"`) {
 		t.Fatalf("bad source = %d: %s", rec.Code, rec.Body.String())
 	}
 	// A fetch failure is 502 with the redacted message.
-	rec = post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits@nope"}})
+	rec = post(t, h, "/app/admin/kits/import", url.Values{"source": {"https://github.com/acme/kits@nope"}})
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("fetch failure = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -252,8 +252,8 @@ func TestKitImportForm(t *testing.T) {
 		t.Fatal("failed imports must not create kits")
 	}
 
-	rec = post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits@main"}, "name": {"mine"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/mine" {
+	rec = post(t, h, "/app/admin/kits/import", url.Values{"source": {"https://github.com/acme/kits@main"}, "name": {"mine"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/kits/mine" {
 		t.Fatalf("import = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 	k, ok := store.GetKit("mine")
@@ -266,11 +266,11 @@ func TestKitImportForm(t *testing.T) {
 func TestKitImportAndTrack(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	h, store := sourceUI(t, f)
-	if body := get(t, h, "/ui/kits").Body.String(); !strings.Contains(body, `name="track"`) {
+	if body := get(t, h, "/app/admin/kits").Body.String(); !strings.Contains(body, `name="track"`) {
 		t.Fatal("import form has no track checkbox")
 	}
-	rec := post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits@main"}, "track": {"on"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/web-dev" {
+	rec := post(t, h, "/app/admin/kits/import", url.Values{"source": {"https://github.com/acme/kits@main"}, "track": {"on"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/kits/web-dev" {
 		t.Fatalf("import+track = %d: %s", rec.Code, rec.Body.String())
 	}
 	k, _ := store.GetKit("web-dev")
@@ -282,7 +282,7 @@ func TestKitImportAndTrack(t *testing.T) {
 func TestKitSyncUnknownKit(t *testing.T) {
 	f := &srcFetcher{t: t, refs: map[string]string{"main": srcSHA1}, kits: map[string]string{srcSHA1: srcKitV1}}
 	h, _ := sourceUI(t, f)
-	if rec := post(t, h, "/ui/kits/ghost/sync", nil); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/app/admin/kits/ghost/sync", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown kit sync = %d, want 404", rec.Code)
 	}
 }
@@ -299,9 +299,9 @@ func TestKitSourceButtonsDisableInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 	for page, want := range map[string]string{
-		"/ui/kits/web-dev": `hx-post="/ui/kits/web-dev/sync" hx-disabled-elt="this"`,
-		"/ui/kits/plain":   `hx-post="/ui/kits/plain/source" hx-disabled-elt="find button[type=submit]"`,
-		"/ui/kits":         `hx-post="/ui/kits/import" hx-disabled-elt="find button[type=submit]"`,
+		"/app/admin/kits/web-dev": `hx-post="/app/admin/kits/web-dev/sync" hx-disabled-elt="this"`,
+		"/app/admin/kits/plain":   `hx-post="/app/admin/kits/plain/source" hx-disabled-elt="find button[type=submit]"`,
+		"/app/admin/kits":         `hx-post="/app/admin/kits/import" hx-disabled-elt="find button[type=submit]"`,
 	} {
 		if body := get(t, h, page).Body.String(); !strings.Contains(body, want) {
 			t.Errorf("%s: missing %q", page, want)
@@ -341,20 +341,20 @@ func TestKitSetImportAndSyncSurfaces(t *testing.T) {
 		"app/kit.yml": "kind: studio\nbase:\n  kit: ../web\nprompt: app\n",
 	}}
 	h, _ := sourceUI(t, f)
-	rec := post(t, h, "/ui/kits/import", url.Values{"source": {"https://github.com/acme/kits//app@main"}, "track": {"on"}})
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/kits/app" {
+	rec := post(t, h, "/app/admin/kits/import", url.Values{"source": {"https://github.com/acme/kits//app@main"}, "track": {"on"}})
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/kits/app" {
 		t.Fatalf("import = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
-	if body := get(t, h, "/ui/kits/app").Body.String(); !strings.Contains(body, "Part of a set with web-dev") {
+	if body := get(t, h, "/app/admin/kits/app").Body.String(); !strings.Contains(body, "Part of a set with web-dev") {
 		t.Errorf("app page should note its set:\n%s", body)
 	}
-	if body := get(t, h, "/ui/kits/web-dev").Body.String(); strings.Contains(body, "Part of a set") {
+	if body := get(t, h, "/app/admin/kits/web-dev").Body.String(); strings.Contains(body, "Part of a set") {
 		t.Errorf("the root kit has no parents:\n%s", body)
 	}
 
 	f.sha = srcSHA2
 	f.files["web/kit.yml"] = srcKitV2
-	rec = post(t, h, "/ui/kits/app/sync", nil)
+	rec = post(t, h, "/app/admin/kits/app/sync", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "With: web-dev v2") {
 		t.Fatalf("sync = %d, want ancestors in the flash:\n%s", rec.Code, rec.Body.String())
 	}
@@ -376,7 +376,7 @@ func TestKitSetNoteNeedsAnotherDir(t *testing.T) {
 	if _, err := jam.ImportKit(context.Background(), store, f, nil, "app", src, time.Unix(20, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if body := get(t, h, "/ui/kits/app").Body.String(); strings.Contains(body, "Part of a set") {
+	if body := get(t, h, "/app/admin/kits/app").Body.String(); strings.Contains(body, "Part of a set") {
 		t.Errorf("a parent from the same dir is not a set member:\n%s", body)
 	}
 }

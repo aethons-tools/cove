@@ -85,7 +85,7 @@ func isSession(id ident.ID) bool {
 // (Jam posts as itself), never before a session's.
 func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery {
 	if len(m.Parts) > 0 {
-		return nil // relays are paused for parts (asks): /me only
+		return nil // relays are paused for parts (asks): the Inbox (/app/user) only
 	}
 	ch, ok := d.store.GetChannel(m.Channel)
 	if !ok {

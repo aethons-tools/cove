@@ -187,7 +187,7 @@ func (c *messagingClient) boardSnapshot(ctx context.Context, id string) (boardSn
 func addBoardTools(s *mcp.Server, client *messagingClient, cfgErr error) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_create",
-		Description: "Start a whiteboard in your own channel (or `to`, as for send): it posts a card people open in /me. Returns its board_id.",
+		Description: "Start a whiteboard in your own channel (or `to`, as for send): it posts a card people open in the Jam app's Inbox. Returns its board_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in boardCreateIn) (*mcp.CallToolResult, boardCreateOut, error) {
 		if cfgErr != nil {
 			return nil, boardCreateOut{}, cfgErr

@@ -15,7 +15,7 @@ import (
 // their logins, OIDC bindings and service accounts. Project membership is
 // edited on the project page (members section).
 
-func userURL(id ident.ID) string { return "/ui/users/" + url.PathEscape(string(id)) }
+func userURL(id ident.ID) string { return "/app/admin/users/" + url.PathEscape(string(id)) }
 
 // userDetail is the user page payload. A removed user's page is read-only.
 type userDetail struct {
@@ -77,10 +77,10 @@ func registryErr(err error) error {
 }
 
 func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /ui/users", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/users", func(w http.ResponseWriter, r *http.Request) {
 		render(w, r, "users", usersData(store))
 	})
-	mux.HandleFunc("GET /ui/users/{user}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/users/{user}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildUserDetail(store, r.PathValue("user"))
 		if !ok {
 			renderStatus(w, r, http.StatusNotFound, "user", userDetail{Title: "Users", NotFound: true, NotFoundFor: r.PathValue("user")})
@@ -124,7 +124,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		}
 	}
 
-	mux.HandleFunc("POST /ui/users", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/users", func(w http.ResponseWriter, r *http.Request) {
 		var u jam.User
 		if !form(w, r, "created", func() error {
 			ids, err := oidcFromForm(r.FormValue("oidc"))
@@ -140,20 +140,20 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		w.Header().Set("HX-Redirect", userURL(u.ID))
 		renderFragment(w, r, "users", "users-table", usersData(store))
 	})
-	mux.HandleFunc("POST /ui/users/{user}/name", edit("renamed", func(r *http.Request, id ident.ID) error {
+	mux.HandleFunc("POST /app/admin/users/{user}/name", edit("renamed", func(r *http.Request, id ident.ID) error {
 		return jam.RenameUserChecked(store, id, strings.TrimSpace(r.FormValue("name")))
 	}))
-	mux.HandleFunc("POST /ui/users/{user}/logins", edit("logins set", func(r *http.Request, id ident.ID) error {
+	mux.HandleFunc("POST /app/admin/users/{user}/logins", edit("logins set", func(r *http.Request, id ident.ID) error {
 		return store.SetUserLogins(id, splitSpecLines(r.FormValue("logins")))
 	}))
-	mux.HandleFunc("POST /ui/users/{user}/oidc", edit("oidc set", func(r *http.Request, id ident.ID) error {
+	mux.HandleFunc("POST /app/admin/users/{user}/oidc", edit("oidc set", func(r *http.Request, id ident.ID) error {
 		ids, err := oidcFromForm(r.FormValue("oidc"))
 		if err != nil {
 			return err
 		}
 		return store.SetUserOIDC(id, ids)
 	}))
-	mux.HandleFunc("POST /ui/users/{user}/accounts", edit("account added", func(r *http.Request, id ident.ID) error {
+	mux.HandleFunc("POST /app/admin/users/{user}/accounts", edit("account added", func(r *http.Request, id ident.ID) error {
 		_, err := jam.UpsertAccountChecked(store, jam.AccountBody{
 			Connection: strings.TrimSpace(r.FormValue("connection")),
 			ServiceUID: strings.TrimSpace(r.FormValue("uid")),
@@ -164,7 +164,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		return err
 	}))
 	// Unlinking answers with the page of the user named by ?user=.
-	mux.HandleFunc("DELETE /ui/accounts/{account}/user", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/accounts/{account}/user", func(w http.ResponseWriter, r *http.Request) {
 		r.SetPathValue("user", r.URL.Query().Get("user"))
 		edit("account unlinked", func(r *http.Request, user ident.ID) error {
 			acc, err := ident.Parse(r.PathValue("account"))
@@ -177,7 +177,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 			return store.LinkAccount(acc, "")
 		})(w, r)
 	})
-	mux.HandleFunc("DELETE /ui/users/{user}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/users/{user}", func(w http.ResponseWriter, r *http.Request) {
 		if !form(w, r, "removed", func() error {
 			id, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
 			if err != nil {
@@ -191,7 +191,7 @@ func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardW
 		}) {
 			return
 		}
-		w.Header().Set("HX-Redirect", "/ui/users")
+		w.Header().Set("HX-Redirect", "/app/admin/users")
 		w.WriteHeader(http.StatusOK)
 	})
 }

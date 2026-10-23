@@ -1,21 +1,37 @@
 ---
-summary: The Jam admin UI — a server-rendered web view of the agents and their studios, the projects, users and specs, and the durable squawk Log, served by `at-jam serve`; reachable on loopback always, and off-loopback via browser OIDC login. Covers the rail of scopes (Jam and each project), their tabs, the list pages, search, the Intercom log, the session timeline and the participant /me/ surface; what the UI can change is in ui-editing.md.
-read_when: You want to watch a running Jam in a browser — the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the UI (nav, sub-tabs, search), use the participant /me/ page, or configure browser login for it. To change something from the UI, read ui-editing.md instead.
-owns: the `/ui/agents/{id}/session` timeline page; the `/ui/` observability surface (the rail, Jam's tabs and the Specs sub-tabs, what each list shows, search, how to reach it, its loopback + browser-OIDC-login exposure); and the participant `/me/` surface (its OIDC-always/no-loopback gate, reuse of the operator browser client, the operator/participant boundary, and the `POST /me/send` participant send path)
+summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the login and Principal (user / admin / both), the admin console's rail, tabs, list pages, search, Intercom log and session timeline, and the `POST /app/user/send` path; what the console can change is in ui-editing.md.
+read_when: You want to use or expose Jam in a browser — watch the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the console (nav, sub-tabs, search), understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), or follow an old /ui or /me link. To change something from the UI, read ui-editing.md instead.
+owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app/admin/` observability surface (the rail, Jam's tabs and the Specs sub-tabs, what each list shows, search, the `/app/admin/agents/{id}/session` timeline); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-23
 ---
 
-# The Jam admin UI (`/ui/`)
+# The Jam app (`/app/`)
 
-`at-jam serve` serves a web UI on the same **admin listener** as the JSON
-admin API. Point a browser at the admin URL and open `/ui/` (`/` redirects
-there):
+`at-jam serve` serves one browser app on the same **admin listener** as the
+JSON admin API. Point a browser at the admin URL; `/` and `/app/` land on the
+Inbox for a roster member, else on the admin console:
 
 ```
-http://127.0.0.1:8081/ui/
+http://127.0.0.1:8081/app/
 ```
+
+| Path | Holds |
+|---|---|
+| `/app/user/*` | the Inbox ([intercom-ui.md](intercom-ui.md)) and [`POST /app/user/send`](#sending-post-appusersend) |
+| `/app/admin/*` | the admin console, below |
+| `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
+| `/app/static/*` | `jam.css`, htmx (ungated) |
+
+`/me/studios/*` ([collaboration.md](collaboration.md)) and `/admin/*` are APIs
+and stay where they are. **Old URLs:** a `GET`/`HEAD` on a former `/ui/*` or
+`/me/*` page (login and static included) answers `308` to its `/app/...`
+equivalent with the query kept — `/ui/agents?project=p` →
+`/app/admin/agents?project=p`, `/me/?c=chn_x` → `/app/user/?c=chn_x`. Any other
+method on an old path is 404, never replayed. The redirects last one release.
+
+## The admin console (`/app/admin/`)
 
 A permanent **rail** lists **Jam**, then every project, then **+ New project**
 ([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
@@ -24,12 +40,12 @@ the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Config ·
 **Overview · Members · Agents · Intercom · Escalation**
 ([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
 page: its project's Agents; a kit: Jam's Specs) with a breadcrumb below it.
-**Specs** (`/ui/specs`, opening on Kits) groups **Kits · Destinations ·
+**Specs** (`/app/admin/specs`, opening on Kits) groups **Kits · Destinations ·
 Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
 (☰ in the title bar). Rail entries, tabs and rows carry **attention badges**
 ([ui-attention.md](ui-attention.md)). Jam's pages:
 
-- **Dashboard** (`/ui/`) — summary tiles: running / waiting / setting-up /
+- **Dashboard** (`/app/admin/`) — summary tiles: running / waiting / setting-up /
   lost-or-terminating / idled agents, each opening the Agents list filtered to it, and counts
   of projects, agents, users and specs (kits + destinations + model-specs) —
   agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
@@ -44,8 +60,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   Matching is case-insensitive substring, at least 2 characters; results are
   grouped and link to each object's page. **Enter** jumps to the page when one
   object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
-  `/ui/search?q=…`, which updates as you type. Session events aren't searched.
-- **Agents** (`/ui/agents`) — each enrolled identity and each studio, one row
+  `/app/admin/search?q=…`, which updates as you type. Session events aren't searched.
+- **Agents** (`/app/admin/agents`) — each enrolled identity and each studio, one row
   per id, with its **kind** (`standing`, `personal`, `ticket` — a session with
   a unit, `manual`, or `enrolled` — no studio), project/role, [status](ui-pages.md#agent-status),
   connector and image status ([coves.md](coves.md#the-studio-verbs)); it
@@ -53,11 +69,11 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   (`?status=running|waiting|setting-up|idled|attention`; old `?phase=` links still work) match the dashboard tiles. Enroll,
   raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
   page, its **Access** card included ([ui-pages.md](ui-pages.md#agent-pages));
-  `/ui/coves…` and `/ui/actors` redirect here.
-- **Intercom** (`/ui/intercom`) — a read-only, filterable, newest-first table of
+  `/app/admin/coves…` and `/app/admin/actors` redirect here.
+- **Intercom** (`/app/admin/intercom`) — a read-only, filterable, newest-first table of
   the channel log, with the frozen legacy log on a Legacy tab. See [Intercom](#intercom).
-- **Health** (`/ui/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).
-- **Config** (`/ui/config`) — the tracked config repo, its managed objects and their drift, Diff/Apply: [ui-config.md](ui-config.md).
+- **Health** (`/app/admin/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).
+- **Config** (`/app/admin/config`) — the tracked config repo, its managed objects and their drift, Diff/Apply: [ui-config.md](ui-config.md).
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
 
@@ -65,84 +81,86 @@ Every table has a fixed order — agents by id; roles by project, then
 name; kits and destinations by name; squawks newest-first — so rows don't shuffle
 across a poll or an edit, and the JSON admin API and CLI lists match it.
 
-**One look for `/ui` and `/me`.** Both UIs take their colors (light and dark,
+**One look.** The console and the Inbox take their colors (light and dark,
 following the OS setting) and typography from one stylesheet, `jam.css`, in
-`internal/jam/uiassets`, which also holds the single `htmx` copy. Each UI serves
-them under its own prefix (`/ui/static/`, `/me/static/`), so neither gate
-reaches the other. Change a color there and both UIs follow; each UI keeps its
-own component styles in its layout.
+`internal/jam/uiassets`, which also holds the single `htmx` copy, served at
+`/app/static/`. Each area keeps its own component styles in its layout.
 
-## Reaching the UI
+## Signing in: one login, one Principal
 
-The UI has its own gate, separate from the JSON admin API's authenticator (see
-the fail-closed rule in [serve.md](serve.md#exposing-the-admin-api-fail-closed)):
+Every `/app` page except login and static sits behind one gate, separate from
+the JSON admin API's authenticator (see the fail-closed rule in
+[serve.md](serve.md#exposing-the-admin-api-fail-closed)). It resolves each
+request to a **Principal** — a **user**, an **admin**, or both:
 
-- **Loopback** (local host, or an SSH tunnel to the admin port) — reachable with
-  no login: the local operator is trusted. This holds whether or not
-  `operator-auth.oidc` is configured. The request's `Host` must be a loopback
-  literal (`127.0.0.1`/`::1`/`localhost`) or a host listed in `ui-hosts` — if you
-  reach the UI over a custom name that DNS-binds to loopback (e.g.
-  `jam.local.example`), add it to `ui-hosts` (see [serve.md](serve.md)) or the
-  UI refuses it as a possible DNS-rebinding attempt.
-  A loopback viewer is the anonymous operator `local`, unless they have signed
-  in via `/ui/auth/login`: a valid session is used even on loopback, so the UI
-  knows *who* you are (the [role Request](ui-editing.md#runtime-studios) action needs this).
-  A missing or expired session falls back to `local` without a login redirect.
-  For UI development, [`dev-identity`](serve.md) makes loopback requests act as
-  a chosen user on `/ui` and `/me` with no login at all.
-- **Off-loopback, with a `browser-client-id`** set in `operator-auth.oidc` — the
-  browser is redirected through an OIDC **Authorization Code + PKCE** login
-  (`/ui/auth/login` → your IdP → `/ui/auth/callback`); on success a session cookie
-  (the API access token; HttpOnly + Secure + SameSite=Lax) lets you browse until
-  it expires, then you re-login. `require-scope` is enforced on every request,
-  exactly as for the admin API. See [operators.md](operators.md).
-- **Off-loopback, without a `browser-client-id`** — the UI is refused. The
-  programmatic admin API is still reachable with a bearer token.
+- **User** — the login's ID token `(issuer, subject)` is bound to a Jam user
+  (`at-jam user oidc <user> <issuer>:<subject>`; see
+  [comms-addressing.md](comms-addressing.md)) who is a member of at least one
+  project. Users are Jam-wide, so the Inbox spans all their projects.
+- **Admin** — the login's access token verifies with `require-scope`, exactly
+  as for the admin API ([operators.md](operators.md)), or the request is
+  loopback. Jam's own config never grants admin.
+  <a id="empty-require-scope"></a>**With `operator-auth.oidc.require-scope`
+  empty, any access token for the audience verifies, so every signed-in user —
+  Inbox members included — is an admin.** Set `require-scope` to keep the
+  console to operators; `at-jam serve` warns at startup when browser login is
+  configured without it.
 
-Register `https://<your-jam-host>/ui/auth/callback` in your IdP's Allowed
-Callback URLs. Browser login needs TLS (the session cookie is `Secure`).
+`/app/user/*` needs a user, `/app/admin/*` an admin. How you reach it:
 
-The UI never renders a token hash, launch secret, or credential value; the one
-exception is the identity token shown once at enroll time
-([ui-editing.md](ui-editing.md#roster-and-roles)) — and the
-Intercom view, which shows comms bodies (agent/human squawks), not secrets. The
-login routes themselves never expose mutation.
+- **Loopback** (local host, or an SSH tunnel to the admin port) — always an
+  admin, with or without `operator-auth.oidc`. With no session you are the
+  anonymous operator `local` (and the Inbox asks you to sign in); signed in, you
+  keep your session's identity and gain admin, so the console knows *who* you
+  are (the [role Request](ui-editing.md#runtime-studios) action needs this). A
+  missing or expired session falls back to `local` — no login redirect. The
+  request's `Host` must be a loopback literal (`127.0.0.1`/`::1`/`localhost`)
+  or listed in `ui-hosts` (see [serve.md](serve.md)), else it is refused as a
+  possible DNS-rebinding attempt. For UI development,
+  [`dev-identity`](serve.md) makes loopback requests act as a chosen user.
+- **Off-loopback, with a `browser-client-id`** in `operator-auth.oidc` — no
+  session redirects to an OIDC **Authorization Code + PKCE** login
+  (`/app/auth/login` → your IdP → `/app/auth/callback`) asking for `openid`
+  plus `require-scope`. The session is two cookies — `jam_app_id` (ID token)
+  and `jam_app_at` (access token), `Path=/app`, HttpOnly, Secure under TLS,
+  SameSite=Lax — re-verified on every request; they never reach `/admin`.
+- **Off-loopback, without a `browser-client-id`** — refused. The admin API
+  is still reachable with a bearer token.
 
-## The participant intercom (`/me/`)
+A valid login that is **neither** a user nor an admin gets **403** on every
+page, `/app/` included — never a login redirect, which would loop. So does a
+missing requirement (a user-only principal on `/app/admin/`, an admin-only one
+on `/app/user/`). The 403 page says which, and offers **Sign in again**
+(`/app/auth/logout`, then login): the two tokens can expire separately — a
+member admin whose access token lapsed is briefly a user only.
 
-`/me/` is a **separate, participant-facing** surface on the same admin listener,
-distinct from the operator `/ui/`. It is where a **project member** — not the
-operator — reads and replies to their intercom channels: the two-pane inbox UI
-(see [intercom-ui.md](intercom-ui.md)) and the `/me/send` path are mounted here.
-It has its own gate, and a participant session
-**never** carries operator scope and cannot reach the `/admin/*` or `/ui/*`
-routes (the participant cookie is path-scoped to `/me`, and `/admin`/`/ui` are
-gated independently).
+Browser login needs TLS. Upgrading from the old `/ui` and `/me` logins: see
+[Migrating](#migrating-from-ui-and-me).
 
-Auth differs from the operator UI in two deliberate ways:
+The UI never renders a token hash, launch secret, or credential value, except
+the identity token shown once at enroll ([ui-editing.md](ui-editing.md#roster-and-roles)).
 
-- **Always requires OIDC login — no loopback bypass.** Unlike `/ui/` (where a
-  loopback request is trusted as the local operator), `/me/` must know *which*
-  human you are, and loopback cannot say — so even a local request logs in via
-  `/me/auth/login`. The operator god-view stays the loopback affordance.
-- **Reuses the operator's `browser-client-id`.** There is no separate IdP client
-  to configure; operator vs participant is decided by mapping the login's OIDC
-  subject to a user, not by the client. `/me/` is mounted only when
-  browser login (`operator-auth.oidc.browser-client-id`) is configured.
+### Migrating from /ui and /me
 
-The session (cookie `jam_participant`, Path `/me`) is the ID token, verified
-against the browser client id; its `(issuer, subject)` is matched to a user's
-OIDC binding (bind one with `at-jam user oidc <user> <issuer>:<subject>`; see
-[comms-addressing.md](comms-addressing.md)). Users are Jam-wide, so the
-participant's view spans every project they are a member of. An unbound
-subject — or a user who is a member of no project — is refused with **403** (fail closed), not
-redirected back to login (which would loop); the operator adds the binding to
-let them in.
+- **Before deploying**, register `https://<jam-host>/app/auth/callback` at the
+  IdP. Keep the old `/ui/auth/callback` and `/me/auth/callback` until the
+  rollout settles; the previews callback is unchanged.
+- The login now requests `openid` plus `require-scope`. Check that your IdP
+  issues tokens to users not entitled to that scope; one that rejects the
+  authorize request locks out Inbox-only users. See also
+  [empty `require-scope`](#signing-in-one-login-one-principal) (above): it makes
+  everyone an admin.
+- Everyone signs in once more (the old `jam_session` and `jam_participant`
+  cookies are ignored). Reload open tabs: an old tab posts to `/me/send`, which
+  now answers 404.
+- Old `/ui/*` and `/me/*` bookmarks get a `308` to the new path for one release
+  (cached for an hour). `/admin/*` and `/me/studios/*` are unchanged.
 
-### Sending (`POST /me/send`)
+### Sending (`POST /app/user/send`)
 
-`POST /me/send` is the participant's send — the human analog of the agent
-`send` tool. It takes a JSON body `{"to": "<recipient>", "body": "<text>"}`, plus
+`POST /app/user/send` is the participant's send — the human analog of the agent
+`send` tool. Like every write under `/app/user/`, it must come from the page's
+own origin (or a `ui-origins` entry). It takes a JSON body `{"to": "<recipient>", "body": "<text>"}`, plus
 an optional `"content_type"` (`text/markdown` by default, or `text/plain`; see
 [content type](intercom.md#content-type-markdown-or-plain-text)), and returns
 **204** on success. It writes to the **same** durable squawk Log the
@@ -150,7 +168,7 @@ agent `send` tool and the relay ingress write (never a parallel path); the UI is
 an in-process Log writer, not an egress engine.
 
 - **Identity is the resolved session**, never the body: the sender is the
-  gate-injected participant's user id.
+  principal's user id.
 - **`to` is a channel or a new conversation** — an open conversation's channel id
   (`chn_…`), or `user:<id|name>` / `session:<id>` to start (or reuse) a chat with
   a member of one of the person's projects or a live session in one. The
@@ -164,7 +182,7 @@ an in-process Log writer, not an egress engine.
 
 ## Intercom
 
-The Intercom page (`/ui/intercom`) is a read-only view of Jam's
+The Intercom page (`/app/admin/intercom`) is a read-only view of Jam's
 [channel log](intercom.md#enabling-it) (always available; it lives in Postgres — see
 [serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawks,
 each with its sender and channel (`<label> · <kind>`, linking to that channel's
@@ -184,12 +202,12 @@ reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline
 
-`/ui/agents/{id}/session` (linked from running-agents tables and the agent's page) shows a managed
+`/app/admin/agents/{id}/session` (linked from running-agents tables and the agent's page) shows a managed
 studio's agent session: a stream selector (current and past streams), header
 totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
 markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
-behind **show progress events**. It updates live over SSE from `/ui/agents/{id}/session/events` (backfill, then
+behind **show progress events**. It updates live over SSE from `/app/admin/agents/{id}/session/events` (backfill, then
 live; reconnects resume via `Last-Event-ID`). Storage, retention,
 and sensitivity: [session-events.md](session-events.md).
 

@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Standing sessions
@@ -187,7 +187,7 @@ A standing grant must name a declared session. Otherwise it is denied.
 
 A standing session's home is its own **session channel** ([intercom.md](intercom.md)):
 a `send` with no `to` reaches whoever is in it. Any project member may join it
-(from [`/me`](intercom-ui.md), or by posting) or be [called in](intercom.md#channel-membership); a session whose addressing allows
+(from [`/app/user`](intercom-ui.md), or by posting) or be [called in](intercom.md#channel-membership); a session whose addressing allows
 `session:<name>` may post there; an [escalation](escalation.md) calls people in. A
 `to` posts elsewhere, within its role's `--addressing`. Its [session context](session-context.md) says so, and a reply
 wakes it with its own resume text ("… `send` without `to` posts to your own

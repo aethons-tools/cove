@@ -21,7 +21,7 @@ func requestPrompt(owner string) string {
 // role's project. It shares jam.RequestPersonalSession with POST
 // /admin/sessions/personal, so capacity, delivery checks, and rollback match.
 func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /ui/roles/{project}/{name}/request", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/request", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -31,7 +31,7 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 		if !ok {
 			msg := fmt.Sprintf("no member of %s is linked to your login", project)
 			if login == "local" {
-				msg = "sign in to request an agent (/ui/auth/login): Jam needs to know which member you are"
+				msg = "sign in to request an agent (/app/auth/login): Jam needs to know which member you are"
 			}
 			renderError(w, http.StatusForbidden, msg)
 			return

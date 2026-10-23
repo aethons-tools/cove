@@ -44,6 +44,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
@@ -54,12 +55,12 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
-	"github.com/aethons-tools/cove/internal/jam/meui"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
+	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -2129,8 +2130,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	ml := pglog.Legacy()
 	log.Info("Jam message log: postgres (shared control-plane database)")
-	// Every writer (agent send, relay ingress, /me/send, Jam's notices) shares
-	// this one handle, so wrapping it lets live views (/me/events) see each append.
+	// Every writer (agent send, relay ingress, /app/user/send, Jam's notices) shares
+	// this one handle, so wrapping it lets live views (/app/user/events) see each append.
 	logChanges := intercom.NewNotifier(pglog)
 	var chlog intercom.Store = logChanges
 	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
@@ -2198,7 +2199,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}(ledgerRefs(st))
 	sessHub := sessionevents.NewHub()
-	// Derived per-session status for /me's presence strip, fed by every event.
+	// Derived per-session status for the Inbox's presence strip, fed by every event.
 	sessPresence := sessionevents.NewPresence(nil)
 	sessHub.Observe(sessPresence.Observe)
 	rsrv.SetSessionEvents(sessionevents.NewIngest(sessStore, sessHub, nil))
@@ -2564,94 +2565,58 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Config page; config.drift is re-checked on conds after each apply.
 		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds}
 
-		// Compose the /ui subtree with its own gate: loopback always reaches it;
-		// off-loopback needs a browser session when browser login is configured,
-		// else is refused. The login routes (/ui/auth/*) stay unauthenticated.
-
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
 		// read-only reader.
 		squawkReader := adminui.NewSquawkReader(st, ic, chlog, ml)
 
-		uiMux := http.NewServeMux()
-		gate := browserauth.Gate{
-			LoopbackTrust: browserauth.OperatorLoopbackTrust(),
-			LoginPath:     "/ui/auth/login",
-			ExpectedHosts: cfg.UIHosts,
-			Log:           log,
-		}
-		// dev-identity (DEV ONLY; parse refuses it off-loopback): loopback
-		// requests act as one user with no login, on /ui and /me.
-		var dev *browserauth.DevIdentity
-		if d := cfg.DevIdentity; d != nil {
-			dev = &browserauth.DevIdentity{Store: st, User: d.User, LegacyProject: d.DeprecatedProject, LegacyHuman: d.DeprecatedHuman}
-			gate.LoopbackTrust = dev.OperatorLoopbackTrust()
-			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
-				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
-		}
-
-		// Participant intercom plane (/me): mapped to a roster human (no operator
-		// scope) by browser OIDC login and/or the dev identity. Unlike /ui there
-		// is NO loopback trust: we must know which human, and loopback cannot say
-		// (except under the explicit dev identity).
-		var meHandler http.Handler
-		meMux := http.NewServeMux()
-		var meSession func(*http.Request) (*http.Request, browserauth.SessionOutcome)
-		meLoginPath := ""
+		// The browser app (/app): one OIDC login (/app/auth/*, ungated) whose
+		// session names a roster user (ID token) and/or an admin (access token
+		// with the operator scope); loopback is always an admin. Without browser
+		// login it is loopback-only.
+		var sessions *appui.Sessions
+		var authRoutes http.Handler
 		if bc := cfg.browserAuthConfig(); bc != nil {
-			svc, err := browserauth.New(context.Background(), *bc, browserauth.OperatorUIMount(), nil, log)
+			svc, err := browserauth.New(context.Background(), *bc, browserauth.AppMount(), nil, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: browser login:", err)
 				return 1
 			}
-			uiMux.Handle("/ui/auth/", svc.Routes())
+			authRoutes = svc.Routes()
+			m := browserauth.AppMount()
+			sessions = &appui.Sessions{Issuer: svc.Issuer(), IDCookie: m.IDCookie(), AccessCookie: m.AccessCookie(), VerifyID: svc.VerifySubject, Store: st}
 			if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok {
-				gate.Session = browserauth.OperatorSession(oidcAuth, browserauth.OperatorUIMount().SessionCookie)
+				sessions.VerifyAccess = oidcAuth.VerifyToken
 			}
-			log.Info("Jam UI auth: browser OIDC login", "client-id", bc.ClientID)
-
-			// The SAME OIDC client as /ui; the login routes (/me/auth/*) stay ungated.
-			meSvc, err := browserauth.New(context.Background(), *bc, browserauth.ParticipantMount(), nil, log)
-			if err != nil {
-				fmt.Fprintln(stderr, "at-jam: participant login:", err)
-				return 1
+			log.Info("Jam app auth: browser OIDC login", "client-id", bc.ClientID)
+			if cfg.browserLoginAdminsEveryone() {
+				log.Warn("browser login is configured but operator-auth.oidc.require-scope is empty: any access token for the audience verifies, so every signed-in user (Inbox members included) is an admin; set require-scope to keep the console to operators")
 			}
-			meMux.Handle("/me/auth/", meSvc.Routes())
-			meSession = meSvc.ParticipantSession(st)
-			meLoginPath = "/me/auth/login"
-			log.Info("Jam participant intercom: browser OIDC login", "client-id", bc.ClientID)
 		} else {
-			log.Info("Jam UI auth: loopback-only")
+			log.Info("Jam app auth: loopback-only")
 		}
-		if dev != nil {
-			meSession = dev.ParticipantSession(meSession)
+		gc := appui.GateConfig{Sessions: sessions, ExpectedHosts: cfg.UIHosts, Log: log}
+		if sessions != nil {
+			gc.LoginPath = "/app/auth/login"
 		}
-		if meSession != nil {
-			meGate := browserauth.Gate{
-				Session:       meSession,
-				LoginPath:     meLoginPath,
-				ExpectedHosts: cfg.UIHosts,
-				Log:           log,
-			}
-			// The gated participant surface: the landing view and the send
-			// endpoint (POST /me/send), the human analog of the agent send tool.
-			// It writes to the same intercom Log the agent send + relay ingress
-			// use, so a reply wakes a waiting studio.
-			meSurface := http.NewServeMux()
-			sendH := jam.NewParticipantSendHandler(st, ic, log)
-			sendH.SetAttachments(att)
-			meSurface.Handle("/me/send", sendH)
-			// The inbox reads the same channel log, and the legacy log as History.
-			var meOpts []meui.Option
-			meOpts = append(meOpts, meui.WithChanges(logChanges), meui.WithPresence(sessPresence))
-			meSurface.Handle("/me/", meui.Handler(meui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, meOpts...))
-			// Writes (/me/send, /me/read, /me/join|leave|call-in, /me/asks/{id}/answer) must come from
-			// the page itself: the session cookie alone (SameSite=Lax) lets a
-			// sibling subdomain post as the user.
-			meMux.Handle("/me/", meGate.Wrap(browserauth.RequireSameOrigin(cfg.UIOrigins, meSurface)))
-			meHandler = meMux
-			log.Info("Jam participant intercom: inbox + send mounted", "path", "/me/")
+		// dev-identity (DEV ONLY; parse refuses it off-loopback): loopback
+		// requests act as one user with no login.
+		if d := cfg.DevIdentity; d != nil {
+			gc.Dev = &browserauth.DevIdentity{Store: st, User: d.User, LegacyProject: d.DeprecatedProject, LegacyHuman: d.DeprecatedHuman}
+			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
+				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
 		}
+		// The user area: the inbox and the send endpoint (POST /app/user/send),
+		// the human analog of the agent send tool. It writes to the same
+		// intercom Log the agent send + relay ingress use, so a reply wakes a
+		// waiting studio; the inbox reads the same channel log, and the legacy
+		// log as History.
+		userMux := http.NewServeMux()
+		sendH := jam.NewParticipantSendHandler(st, ic, log)
+		sendH.SetAttachments(att)
+		userMux.Handle("/app/user/send", sendH)
+		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence)))
+
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv)}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
@@ -2662,10 +2627,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// expired grant).
 			go liveConns.Run(context.Background(), st, log, collabhttp.RevokeEvery, time.Now)
 		}
-		uiMux.Handle("/ui/", gate.Wrap(adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...)))
+		// Writes in the user area must come from the page itself (the mux
+		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
+		// lets a sibling subdomain post as the user.
+		browser := appui.Handler(appui.Deps{
+			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
+			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
+			TrustedOrigins: cfg.UIOrigins,
+		})
+		log.Info("Jam app mounted", "path", "/app/")
 
 		// Studio collaboration (SSH certs + tunnels); each plane names its caller.
-		// The participant plane mounts the same routes under /me.
+		// The participant plane mounts the same routes under /me (/me/studios).
 		collabDeps := func(principal func(*http.Request) (collab.Principal, string, error)) collabhttp.Deps {
 			return collabhttp.Deps{
 				Store: st, CA: sshCA, Tunnels: tunnels, Log: log, Now: time.Now, Principal: principal, Live: liveConns,
@@ -2680,13 +2653,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				},
 			}
 		}
-		if mountParticipantStudios(meMux, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+		if mountParticipantStudios(browser, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
 			return collabhttp.Routes("/me", collabDeps(p))
 		}) {
-			meHandler = meMux
 			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
+		} else {
+			// Not mounted: answer the CLI with a plain 404, not the /me/ legacy
+			// redirect (a 308 to the login page).
+			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, uiMux, meHandler,
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
@@ -3020,20 +2996,21 @@ var (
 )
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
-// at /me/studios/ on meMux and reports whether it did. They take a bearer ID
-// token from `at-jam login --participant` — not the /me cookie, and not a
-// browser — so they sit outside meGate and RequireSameOrigin. The token is
+// at /me/studios/ on mux and reports whether it did. They take a bearer ID
+// token from `at-jam login --participant` — not the /app session cookie, and
+// not a browser — so they sit outside the /app gate and RequireSameOrigin. The token is
 // verified against the operator OIDC provider already discovered, with the
 // device client as audience, so no further network dependency is added.
 // Without device login (lc nil), an OIDC operator authenticator, or the SSH
-// CA, nothing is mounted: /me/studios/ stays a 404, never open.
-func mountParticipantStudios(meMux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
+// CA, nothing is mounted and the caller registers a plain 404 on /me/studios/
+// (it would otherwise match the /me/ legacy redirect): never open.
+func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
 	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
 	if lc == nil || !ok || ca == nil {
 		return false
 	}
 	verify := oidcAuth.IDTokenVerifier(lc.ClientID)
-	meMux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
+	mux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
 	return true
 }
 

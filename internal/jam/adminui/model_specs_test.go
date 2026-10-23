@@ -58,19 +58,19 @@ func specForm(over url.Values) url.Values {
 func TestModelSpecsListAndNav(t *testing.T) {
 	store := newStore(t)
 	seedSpec(t, store)
-	rec := get(t, specHandler(store, false), "/ui/model-specs")
+	rec := get(t, specHandler(store, false), "/app/admin/model-specs")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list = %d", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`href="/ui/model-specs/default"`, "2.1.0", "anth", "claude-opus-5-5", "vertex",
+		`href="/app/admin/model-specs/default"`, "2.1.0", "anth", "claude-opus-5-5", "vertex",
 		`aria-current="page">Specs`,
-		`hx-post="/ui/model-specs"`,                // the create form
-		`<option value="anth">anth</option>`,       // credential select, names only
-		`<option value="bedrock">bedrock</option>`, // provider select
-		`<option value="bypassPermissions">`,       // policy-mode select
-		`hx-delete="/ui/model-specs/default"`,      // row delete
+		`hx-post="/app/admin/model-specs"`,           // the create form
+		`<option value="anth">anth</option>`,         // credential select, names only
+		`<option value="bedrock">bedrock</option>`,   // provider select
+		`<option value="bypassPermissions">`,         // policy-mode select
+		`hx-delete="/app/admin/model-specs/default"`, // row delete
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("model-specs list missing %q", want)
@@ -79,7 +79,7 @@ func TestModelSpecsListAndNav(t *testing.T) {
 	if strings.Contains(body, `<option value="pool">`) {
 		t.Error("pool must not be offered when no pool is configured")
 	}
-	if !strings.Contains(get(t, specHandler(store, true), "/ui/model-specs").Body.String(), `<option value="pool">pool</option>`) {
+	if !strings.Contains(get(t, specHandler(store, true), "/app/admin/model-specs").Body.String(), `<option value="pool">pool</option>`) {
 		t.Error("pool should be offered when a pool is configured")
 	}
 }
@@ -87,14 +87,14 @@ func TestModelSpecsListAndNav(t *testing.T) {
 func TestModelSpecDetailPrefilled(t *testing.T) {
 	store := newStore(t)
 	seedSpec(t, store)
-	rec := get(t, specHandler(store, false), "/ui/model-specs/default")
+	rec := get(t, specHandler(store, false), "/app/admin/model-specs/default")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("detail = %d", rec.Code)
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
 		"<h1>default</h1>", "the house default",
-		`hx-post="/ui/model-specs/default"`,
+		`hx-post="/app/admin/model-specs/default"`,
 		`name="version" value="2.1.0"`,
 		`name="model-id" value="claude-opus-5-5"`,
 		`<option value="anth" selected>`,
@@ -114,7 +114,7 @@ func TestModelSpecDetailPrefilled(t *testing.T) {
 }
 
 func TestModelSpecDetailNotFound(t *testing.T) {
-	rec := get(t, specHandler(newStore(t), false), "/ui/model-specs/nope")
+	rec := get(t, specHandler(newStore(t), false), "/app/admin/model-specs/nope")
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "<nav") {
 		t.Fatalf("missing model-spec = %d", rec.Code)
 	}
@@ -130,7 +130,7 @@ func TestModelSpecDetailKeepsUnknownPrincipal(t *testing.T) {
 	if err := store.PutModelSpec(m); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, specHandler(store, false), "/ui/model-specs/default").Body.String()
+	body := get(t, specHandler(store, false), "/app/admin/model-specs/default").Body.String()
 	if !strings.Contains(body, `<option value="retired" selected>`) {
 		t.Error("the stored principal should remain selected")
 	}
@@ -139,8 +139,8 @@ func TestModelSpecDetailKeepsUnknownPrincipal(t *testing.T) {
 func TestCreateModelSpecAllFields(t *testing.T) {
 	store := newStore(t)
 	h := specHandler(store, false)
-	rec := post(t, h, "/ui/model-specs", specForm(nil))
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/ui/model-specs/s1" {
+	rec := post(t, h, "/app/admin/model-specs", specForm(nil))
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "/app/admin/model-specs/s1" {
 		t.Fatalf("create = %d redirect=%q: %s", rec.Code, rec.Header().Get("HX-Redirect"), rec.Body.String())
 	}
 	m, ok := store.GetModelSpec("s1")
@@ -157,14 +157,14 @@ func TestCreateModelSpecAllFields(t *testing.T) {
 		len(c.Plugins) != 2 || c.Settings["theme"] != "dark" || c.Settings["nested"] == nil {
 		t.Fatalf("stored claude body = %+v", c)
 	}
-	if rec := post(t, h, "/ui/model-specs", specForm(nil)); rec.Code != http.StatusConflict {
+	if rec := post(t, h, "/app/admin/model-specs", specForm(nil)); rec.Code != http.StatusConflict {
 		t.Errorf("re-create = %d, want 409", rec.Code)
 	}
 }
 
 func TestCreateModelSpecMinimal(t *testing.T) {
 	store := newStore(t)
-	rec := post(t, specHandler(store, false), "/ui/model-specs", url.Values{
+	rec := post(t, specHandler(store, false), "/app/admin/model-specs", url.Values{
 		"name": {"min"}, "type": {"claude"}, "version": {"2.1.0"}, "principal": {"anth"}, "provider": {"anthropic"},
 	})
 	if rec.Code != http.StatusOK {
@@ -203,7 +203,7 @@ func TestCreateModelSpecValidation(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			rec := post(t, specHandler(store, false), "/ui/model-specs", specForm(tc.over))
+			rec := post(t, specHandler(store, false), "/app/admin/model-specs", specForm(tc.over))
 			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) || !strings.Contains(rec.Body.String(), `class="error"`) {
 				t.Fatalf("= %d %q, want 400 containing %q", rec.Code, rec.Body.String(), tc.want)
 			}
@@ -219,7 +219,7 @@ func TestCreateModelSpecValidation(t *testing.T) {
 
 func TestCreateModelSpecPoolWhenConfigured(t *testing.T) {
 	store := newStore(t)
-	if rec := post(t, specHandler(store, true), "/ui/model-specs", specForm(url.Values{"principal": {"pool"}})); rec.Code != http.StatusOK {
+	if rec := post(t, specHandler(store, true), "/app/admin/model-specs", specForm(url.Values{"principal": {"pool"}})); rec.Code != http.StatusOK {
 		t.Fatalf("pool principal with a pool = %d: %s", rec.Code, rec.Body.String())
 	}
 }
@@ -228,7 +228,7 @@ func TestEditModelSpecReplacesEveryField(t *testing.T) {
 	store := newStore(t)
 	seedSpec(t, store)
 	h := specHandler(store, false)
-	rec := post(t, h, "/ui/model-specs/default", url.Values{
+	rec := post(t, h, "/app/admin/model-specs/default", url.Values{
 		"type": {"claude"}, "version": {"3.0.0"}, "principal": {"anth"}, "provider": {"anthropic"},
 		"name": {"renamed"}, // ignored: the name is the key
 	})
@@ -243,13 +243,13 @@ func TestEditModelSpecReplacesEveryField(t *testing.T) {
 	if _, ok := store.GetModelSpec("renamed"); ok {
 		t.Error("edit must not rename")
 	}
-	if rec := post(t, h, "/ui/model-specs/default", specForm(url.Values{"mode": {"yolo"}})); rec.Code != http.StatusBadRequest {
+	if rec := post(t, h, "/app/admin/model-specs/default", specForm(url.Values{"mode": {"yolo"}})); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid edit = %d, want 400", rec.Code)
 	}
 	if m2, _ := store.GetModelSpec("default"); m2.Version != "3.0.0" {
 		t.Error("a refused edit must not change the stored spec")
 	}
-	if rec := post(t, h, "/ui/model-specs/ghost", specForm(nil)); rec.Code != http.StatusNotFound {
+	if rec := post(t, h, "/app/admin/model-specs/ghost", specForm(nil)); rec.Code != http.StatusNotFound {
 		t.Errorf("edit missing = %d, want 404", rec.Code)
 	}
 }
@@ -258,7 +258,7 @@ func TestDeleteModelSpec(t *testing.T) {
 	store := newStore(t)
 	seedSpec(t, store)
 	h := specHandler(store, false)
-	req := httptest.NewRequest(http.MethodDelete, "/ui/model-specs/default", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/model-specs/default", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -268,7 +268,7 @@ func TestDeleteModelSpec(t *testing.T) {
 	if len(store.ListModelSpecs()) != 0 {
 		t.Error("model-spec should be gone")
 	}
-	req = httptest.NewRequest(http.MethodDelete, "/ui/model-specs/default", nil)
+	req = httptest.NewRequest(http.MethodDelete, "/app/admin/model-specs/default", nil)
 	req.Header.Set("Origin", "http://"+req.Host)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -284,9 +284,9 @@ func TestModelSpecWritesCSRF(t *testing.T) {
 	seedSpec(t, store)
 	h := specHandler(store, false)
 	for _, tc := range []struct{ method, path string }{
-		{http.MethodPost, "/ui/model-specs"},
-		{http.MethodPost, "/ui/model-specs/default"},
-		{http.MethodDelete, "/ui/model-specs/default"},
+		{http.MethodPost, "/app/admin/model-specs"},
+		{http.MethodPost, "/app/admin/model-specs/default"},
+		{http.MethodDelete, "/app/admin/model-specs/default"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(specForm(url.Values{"version": {"9.x"}}).Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -308,7 +308,7 @@ func TestModelSpecWritesCSRF(t *testing.T) {
 func TestModelSpecPrincipalHeaders(t *testing.T) {
 	store := newStore(t)
 	h := specHandler(store, false)
-	rec := post(t, h, "/ui/model-specs", specForm(url.Values{
+	rec := post(t, h, "/app/admin/model-specs", specForm(url.Values{
 		"headers": {"anthropic-beta += oauth-2025-04-20\r\n\r\nX-Foo = bar=baz\nX-Bar+=1\n"},
 	}))
 	if rec.Code != http.StatusOK {
@@ -323,7 +323,7 @@ func TestModelSpecPrincipalHeaders(t *testing.T) {
 	if len(m.Principal.Headers) != 3 || m.Principal.Headers[0] != want[0] || m.Principal.Headers[1] != want[1] || m.Principal.Headers[2] != want[2] {
 		t.Fatalf("stored headers = %+v, want %+v", m.Principal.Headers, want)
 	}
-	body := html.UnescapeString(get(t, h, "/ui/model-specs/s1").Body.String())
+	body := html.UnescapeString(get(t, h, "/app/admin/model-specs/s1").Body.String())
 	for _, w := range []string{
 		"anthropic-beta += oauth-2025-04-20\nX-Foo = bar=baz\nX-Bar += 1</textarea>", // the edit form
 		"anthropic-beta += oauth-2025-04-20</span>",                                  // the detail list
@@ -344,7 +344,7 @@ func TestModelSpecPrincipalHeadersRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			rec := post(t, specHandler(store, false), "/ui/model-specs", specForm(url.Values{"headers": {tc.in}}))
+			rec := post(t, specHandler(store, false), "/app/admin/model-specs", specForm(url.Values{"headers": {tc.in}}))
 			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
 				t.Fatalf("= %d %q, want 400 containing %q", rec.Code, rec.Body.String(), tc.want)
 			}

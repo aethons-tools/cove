@@ -45,7 +45,7 @@ func newServer(t *testing.T) (*httptest.Server, jam.Store) {
 		t.Fatal(err)
 	}
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(n string) bool { return n == "git-pat" }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h) // listens on 127.0.0.1 → passes the loopback authenticator
 	t.Cleanup(ts.Close)
 	return ts, store
@@ -106,7 +106,7 @@ func TestClientAddDestinationRejected(t *testing.T) {
 func TestClientLoginConfig(t *testing.T) {
 	store := jam.NewMemStore()
 	lc := &jam.OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -584,7 +584,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
-	h := jam.NewAdminHandler(store, sup, &grantAll{}, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	h := jam.NewAdminHandler(store, sup, &grantAll{}, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
@@ -660,7 +660,7 @@ func TestClientResetStanding(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	var resetErr error
 	sup.SetStandingResetter(resetterFunc(func() error { return resetErr }))
-	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 
@@ -707,7 +707,7 @@ func TestClientUpgradeStanding(t *testing.T) {
 	q := &queueUpgrader{}
 	sup.SetStandingUpgrader(q)
 	jam.SeedStandingSession(store, jam.DefaultProject, "guest", "bot") // a session to upgrade (down)
-	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 

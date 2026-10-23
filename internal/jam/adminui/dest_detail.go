@@ -161,7 +161,7 @@ func (d destDetail) ConflictRoles() []string {
 }
 
 // destURL is the detail page path for a destination.
-func destURL(name string) string { return "/ui/destinations/" + url.PathEscape(name) }
+func destURL(name string) string { return "/app/admin/destinations/" + url.PathEscape(name) }
 
 // parseEnv reads the env textarea: one KEY=TEMPLATE per line, blank lines
 // skipped. Empty means no declared env (the route's legacy default applies).
@@ -229,13 +229,13 @@ func destTableData(store jam.Store) map[string]any {
 }
 
 func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/destinations", func(w http.ResponseWriter, r *http.Request) {
 		data := destTableData(store)
 		data["Title"] = "Destinations"
 		render(w, r, "destinations", data)
 	})
 
-	mux.HandleFunc("GET /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildDestDetail(store, r.PathValue("name"))
 		if !ok {
 			renderStatus(w, r, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
@@ -246,7 +246,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 
 	// Create only: an existing destination is edited on its page, where every
 	// field is pre-filled (so nothing the form can't see is dropped).
-	mux.HandleFunc("POST /ui/destinations", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/destinations", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -272,7 +272,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
 
-	mux.HandleFunc("POST /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}
@@ -297,7 +297,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		renderFragment(w, r, "destination", "dest-body", detail)
 	})
 
-	mux.HandleFunc("DELETE /ui/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
 			return
 		}

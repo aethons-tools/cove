@@ -1,5 +1,5 @@
 // Package squawkrender turns a squawk body into safe HTML for the Jam UIs
-// (/me and /ui), honoring its content type: markdown (the default) is rendered,
+// (/app/user and /app/admin), honoring its content type: markdown (the default) is rendered,
 // text/plain is shown literally.
 package squawkrender
 

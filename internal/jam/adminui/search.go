@@ -198,7 +198,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		}
 	}
 
-	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/ui/intercom?q=" + url.QueryEscape(q)}
+	squawks := searchGroup{Key: "squawks", Name: "Squawks", MoreURL: "/app/admin/intercom?q=" + url.QueryEscape(q)}
 	if msgs != nil {
 		var found []Logged
 		for _, legacy := range []bool{false, true} {
@@ -214,7 +214,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 			squawks.Hits = append(squawks.Hits, searchHit{
 				Title: clip(s.Body, 160),
 				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From + " → " + squawkWhere(s),
-				URL:   "/ui/intercom?q=" + url.QueryEscape(q),
+				URL:   "/app/admin/intercom?q=" + url.QueryEscape(q),
 			})
 		}
 	}
@@ -287,7 +287,7 @@ func highlight(s, q string) template.HTML {
 }
 
 func registerSearch(mux *http.ServeMux, store jam.Store, msgs SquawkReader) {
-	mux.HandleFunc("GET /ui/search", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /app/admin/search", func(w http.ResponseWriter, r *http.Request) {
 		d := search(store, msgs, r.URL.Query().Get("q"))
 		if r.URL.Query().Get("go") != "" { // Enter in the top-bar box: jump on a single exact match
 			if u := d.exactJump(); u != "" {

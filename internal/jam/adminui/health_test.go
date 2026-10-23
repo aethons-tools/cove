@@ -27,19 +27,19 @@ func TestHealthTabAndRailBadge(t *testing.T) {
 	tr.Clear("pool.account.refresh:a")
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, credAny, nil, adminui.WithConditions(tr, "http://localhost:9093"))
 
-	body := get(t, h, "/ui/health").Body.String()
+	body := get(t, h, "/app/admin/health").Body.String()
 	for _, want := range []string{
 		"credential vertex-gcp cannot be resolved", "gcloud auth application-default login", // open + fix
 		"kit cove-ic image is stale",       // info shown on Health
 		"pool account a cannot refresh",    // resolved history
-		`href="/ui/health"`,                // the Health tab
+		`href="/app/admin/health"`,         // the Health tab
 		"http://localhost:9093/#/silences", // silences link
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("health page missing %q", want)
 		}
 	}
-	dash := get(t, h, "/ui/").Body.String()
+	dash := get(t, h, "/app/admin/").Body.String()
 	if !strings.Contains(dash, "credential vertex-gcp cannot be resolved") {
 		t.Error("critical condition not in the dashboard's Needs attention card")
 	}
@@ -50,7 +50,7 @@ func TestHealthTabAndRailBadge(t *testing.T) {
 
 func TestHealthWithoutConditions(t *testing.T) {
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, credAny, nil)
-	rec := get(t, h, "/ui/health")
+	rec := get(t, h, "/app/admin/health")
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Nothing needs attention") {
 		t.Fatalf("health without a tracker: %d\n%s", rec.Code, rec.Body.String())
 	}
@@ -60,7 +60,7 @@ func TestHealthPollFragment(t *testing.T) {
 	tr := condition.New(condition.Options{})
 	tr.Raise(condition.Condition{Key: "k:x", Severity: condition.Warning, Summary: "polled"})
 	h := adminui.Handler(newStore(t), testLogger(), nil, nil, credAny, nil, adminui.WithConditions(tr, ""))
-	rec := getHX(t, h, "/ui/health")
+	rec := getHX(t, h, "/app/admin/health")
 	if !strings.Contains(rec.Body.String(), "polled") || strings.Contains(rec.Body.String(), "<html") {
 		t.Fatalf("poll should return only the fragment:\n%s", rec.Body.String())
 	}

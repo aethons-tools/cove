@@ -11,7 +11,7 @@ const (
 )
 
 // setCookie stores a session token in cookie name, scoped to the mount prefix
-// so the mounts' sessions ("/ui", "/me", "/app") are distinct.
+// so different mounts' sessions are distinct.
 func (m Mount) setCookie(w http.ResponseWriter, name, token string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name: name, Value: token, Path: m.Prefix,

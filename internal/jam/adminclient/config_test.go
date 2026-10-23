@@ -20,7 +20,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.DiscardHandler)
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(store, nil, jam.ConfigEnv{CredExists: creds}, log)))
 	defer ts.Close()
 	c := New(ts.URL, "")
@@ -70,7 +70,7 @@ func TestConfigSourceMethods(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.DiscardHandler)
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(store, &gitsource.Fetcher{}, jam.ConfigEnv{CredExists: creds}, log)))
 	defer ts.Close()
 	c := New(ts.URL, "")
@@ -105,7 +105,7 @@ func TestConfigExportTreeBinary(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.DiscardHandler)
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil, nil,
+	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(store, nil, jam.ConfigEnv{CredExists: creds}, log)))
 	defer ts.Close()
 	dir := t.TempDir()

@@ -3,7 +3,7 @@
 {{if .CanEdit}}
 <details class="panel">
   <summary>Raise agent</summary>
-  <form hx-post="/ui/coves" hx-target="#agents" hx-swap="outerHTML" data-reset>
+  <form hx-post="/app/admin/coves" hx-target="#agents" hx-swap="outerHTML" data-reset>
     <div class="grid">
       <label>Label <span class="req">required</span><span class="hint">its name; the agent gets its own id</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
@@ -17,7 +17,7 @@
 {{end}}
 <details class="panel">
   <summary>Enroll agent</summary>
-  <form hx-post="/ui/enrollments" hx-target="#agents-panel" hx-swap="innerHTML" data-reset>
+  <form hx-post="/app/admin/enrollments" hx-target="#agents-panel" hx-swap="innerHTML" data-reset>
     <div class="grid">
       <label>Agent id <span class="req">required</span><input name="id" required autocomplete="off"></label>
       <label>Role <span class="req">required</span><input name="role" data-ta="roles" data-ta-project="@form" required autocomplete="off"></label>
@@ -28,7 +28,7 @@
   </form>
 </details>
 <div id="agents-panel"></div>
-<div class="filters">{{range .Filters}}<a class="tab{{if eq .Key $.Status}} sel{{end}}" href="/ui/agents{{if .Key}}?status={{.Key}}{{end}}">{{.Label}}</a>{{end}}</div>
+<div class="filters">{{range .Filters}}<a class="tab{{if eq .Key $.Status}} sel{{end}}" href="/app/admin/agents{{if .Key}}?status={{.Key}}{{end}}">{{.Label}}</a>{{end}}</div>
 <style>
   .filters{margin:0 0 12px;display:flex;gap:6px;flex-wrap:wrap}
   .filters .tab{padding:4px 10px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:12.5px}
@@ -40,7 +40,7 @@
 {{/* agents-table is the polled list: one row per agent (an actor, its studio,
      or both), keeping the page's status filter across polls. */}}
 {{define "agents-table"}}
-<div class="card" id="agents" hx-get="/ui/agents{{if .Status}}?status={{.Status}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
+<div class="card" id="agents" hx-get="/app/admin/agents{{if .Status}}?status={{.Status}}{{end}}" hx-trigger="every 3s" hx-swap="outerHTML">
 <table>
   <thead><tr><th>Agent</th><th>Kind</th><th>Project</th><th>Role</th><th>Status</th><th>Connector</th><th>Image</th><th>Last seen</th>{{if .CanEdit}}<th></th>{{end}}</tr></thead>
   <tbody>
@@ -54,7 +54,7 @@
       <td>{{if eq .Connector "stale"}}<span class="pill phase-raising">stale</span>{{else if eq .Connector "error"}}<span class="pill phase-lost">error</span>{{else if eq .Connector "unknown" ""}}<span class="none">{{or .Connector "—"}}</span>{{else}}{{.Connector}}{{end}}</td>
       <td>{{if eq .Image "stale"}}<span class="pill phase-raising" title="raised on an older image than its role would run now">stale</span>{{else if eq .Image "ok"}}ok{{else}}<span class="none">{{or .Image "—"}}</span>{{end}}</td>
       <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "Jan 2 15:04:05"}}</time>{{end}}</td>
-      {{if $.CanEdit}}<td class="actions">{{if .HasStudio}}<button class="danger small" hx-delete="/ui/coves/{{.ID}}" hx-swap="none"
+      {{if $.CanEdit}}<td class="actions">{{if .HasStudio}}<button class="danger small" hx-delete="/app/admin/coves/{{.ID}}" hx-swap="none"
           hx-confirm="Tear down {{.ID}}?" hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', location.pathname + location.search, {target: '#agents', swap: 'outerHTML'})">Teardown</button>{{end}}</td>{{end}}
     </tr>
     {{else}}

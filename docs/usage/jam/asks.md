@@ -1,10 +1,10 @@
 ---
 summary: Structured asks — a session asks people a one-of-N question (plus Other with a comment) with the `ask` tool; a person answers it; the answer reaches the session through `read`. Asks stay open until answered or withdrawn, can pile up, and put the session under Needs you.
 read_when: You want an agent to ask people for a decision with answers to pick from (approve, choose A/B/C) instead of free text, you're answering or debugging an ask, or you're wiring the `/squawks/ask*` endpoints.
-owns: the ask model (open → answered | withdrawn, versions), the `ask`/`amend`/`withdraw`/`asks` tools and their `/squawks` routes, who may ask and answer, the answer as a read entry's part, limits, and how open asks count as asking for a person. Does NOT own the `/me` rendering — see intercom-ui.md.
+owns: the ask model (open → answered | withdrawn, versions), the `ask`/`amend`/`withdraw`/`asks` tools and their `/squawks` routes, who may ask and answer, the answer as a read entry's part, limits, and how open asks count as asking for a person. Does NOT own the `/app/user` rendering — see intercom-ui.md.
 prereqs: intercom.md for channels, read and wake-on; comms-addressing.md for `to`; escalation.md for what asking for a person sets off
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # Asks
@@ -55,13 +55,13 @@ answer in `parts`: `{type: "application/vnd.jam.ask+json", data: {event:
   as "channel archived" within a minute. A restart keeps them.
 - Limits: question ≤ 2 KiB; option id `[a-z0-9_-]{1,32}` (not `other`), label ≤
   200 B, detail ≤ 1 KiB; comment ≤ 4 KiB; reason ≤ 1 KiB.
-- The Discord and Linear relays skip asks: they are answered in `/me` — see
+- The Discord and Linear relays skip asks: they are answered in `/app/user` — see
   [intercom-ui.md](intercom-ui.md#asks) for the card, Discuss and the Open
   asks panel.
 
 ## Asking for a person
 
 While a session has an open ask in a live channel it counts as **asking for a
-person**, like `needs-input` or `escalate`: `/me` shows it under **Needs you**,
+person**, like `needs-input` or `escalate`: `/app/user` shows it under **Needs you**,
 and if it waits, [escalation](escalation.md) calls people in. That lasts until
 its last open ask closes, not until it is next woken.

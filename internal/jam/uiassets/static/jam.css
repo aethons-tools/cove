@@ -1,6 +1,6 @@
 /* jam.css — the Jam UIs' shared design tokens and typography base.
-   Served to both the operator admin UI (/ui) and the participant intercom
-   (/me) from internal/jam/uiassets, so the two read as one product. Only
+   Served to both the operator admin UI (/app/admin) and the participant intercom
+   (/app/user) from internal/jam/uiassets, so the two read as one product. Only
    tokens and base live here: each UI keeps its own component styles (their
    class names overlap with different meanings). */
 :root{
