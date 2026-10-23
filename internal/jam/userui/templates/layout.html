@@ -12,6 +12,7 @@
 try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.classList.add('raw'); } }catch(_){}
 </script>
 <link rel="stylesheet" href="{{stylesheet}}">
+{{- template "app-head" .Head}}
 <style>
 /* Tokens and base: jam.css (shared with /app/admin). Intercom components below. */
 html,body{height:100%}

@@ -8,6 +8,8 @@ package userui
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -475,5 +477,37 @@ func TestBrowserLongBrandKeepsTabsAtMidWidth(t *testing.T) {
 	}
 	if !ok {
 		t.Error("first two tabs and the principal menu should be visible at 900px")
+	}
+}
+
+// Behind the app mux, the Inbox registers the service worker at scope /app/
+// and links the manifest: the page is installable.
+func TestBrowserInboxRegistersServiceWorker(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	inbox := Handler(e.Deps, nil)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	m.Handle("/app/user/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = jam.WithParticipant(r, p)
+		inbox.ServeHTTP(w, appui.WithPrincipal(r, appui.Principal{User: &p}))
+	}))
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var scope, manifest string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitVisible(`.app-titlebar`, chromedp.ByQuery),
+		chromedp.Evaluate(`navigator.serviceWorker.ready.then(function(r){ return r.scope; })`, &scope, await),
+		chromedp.Evaluate(`document.querySelector('link[rel=manifest]').href`, &manifest),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope != srv.URL+"/app/" {
+		t.Errorf("service worker scope = %q, want %q", scope, srv.URL+"/app/")
+	}
+	if manifest != srv.URL+"/app/manifest.webmanifest" {
+		t.Errorf("manifest link = %q", manifest)
 	}
 }

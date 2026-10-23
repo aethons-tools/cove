@@ -96,7 +96,8 @@ func mustParse(meta pageMeta, names ...string) page {
 		paths = append(paths, "templates/"+n)
 	}
 	t := template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
-	return page{t: template.Must(t.Parse(appui.TitlebarTemplate)), meta: meta}
+	template.Must(t.Parse(appui.TitlebarTemplate))
+	return page{t: template.Must(t.Parse(appui.HeadTemplate)), meta: meta}
 }
 
 // funcs are the template helpers shared by every page.
@@ -115,10 +116,11 @@ var funcs = template.FuncMap{
 		return jam.StatusOf(jam.Phase(phase), jam.Activity(activity), hasStudio)
 	},
 	"statusClass": func(s jam.AgentStatus) string { return strings.ReplaceAll(string(s), " ", "-") },
-	// frame, titlebar, attn, agentHref, managed and driftNote are bound per render (frameFuncs);
-	// these are the defaults a fragment renders with.
+	// frame, titlebar, apphead, attn, agentHref, managed and driftNote are bound per
+	// render (frameFuncs); these are the defaults a fragment renders with.
 	"frame":      func() frame { return frame{} },
 	"titlebar":   func() appui.Titlebar { return appui.Titlebar{} },
+	"apphead":    func() appui.Head { return appui.Head{} },
 	"attn":       func(tab, subject string) *attnItem { return nil },
 	"agentHref":  func(id, suffix string) string { return agentURL(id) + suffix },
 	"managed":    func(kind, name string) *managedView { return nil },
@@ -314,8 +316,9 @@ func renderStatus(w http.ResponseWriter, r *http.Request, status int, name strin
 }
 
 // frameFuncs binds f: frame returns it; titlebar is r's app title bar with
-// f's tab current; attn finds the item a row is about (tab and subject, over
-// every scope); agentHref links an agent page, keeping a project scope.
+// f's tab current; apphead is r's installable-app head; attn finds the item a
+// row is about (tab and subject, over every scope); agentHref links an agent
+// page, keeping a project scope.
 func frameFuncs(r *http.Request, f frame) template.FuncMap {
 	return template.FuncMap{
 		"frame": func() frame { return f },
@@ -325,6 +328,13 @@ func frameFuncs(r *http.Request, f frame) template.FuncMap {
 				tb.Brand = f.Brand
 			}
 			return tb
+		},
+		"apphead": func() appui.Head {
+			h := appui.HeadFor(r)
+			if h.Title == "Jam" && f.Brand != "" { // as titlebar: no shell brand
+				h.Title = f.Brand
+			}
+			return h
 		},
 		"attn": func(tab, subject string) *attnItem {
 			for i := range f.All {

@@ -45,3 +45,24 @@ func TestNarrowViewportKeepsRailHead(t *testing.T) {
 		t.Errorf("narrow rule must not hide the rail header: %s", rule)
 	}
 }
+
+// The Inbox's <head> carries the installable-app head once: the manifest link
+// and the guarded service-worker registration.
+func TestUserHeadIsInstallable(t *testing.T) {
+	e, p := fixture()
+	rec := httptest.NewRecorder()
+	Handler(e.Deps, nil).ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/", nil), p))
+	body := rec.Body.String()
+	head, _, ok := strings.Cut(body, "</head>")
+	if !ok {
+		t.Fatal("no </head>")
+	}
+	for _, want := range []string{`rel="manifest"`, `navigator.serviceWorker.register('/app/sw.js'`} {
+		if n := strings.Count(head, want); n != 1 {
+			t.Errorf("<head> has %q %d times, want 1", want, n)
+		}
+	}
+	if strings.Count(body, `rel="manifest"`) != 1 {
+		t.Error("manifest link outside <head>")
+	}
+}

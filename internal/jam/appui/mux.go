@@ -29,6 +29,10 @@ var legacy = []struct{ from, to string }{
 func Handler(d Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET /app/static/", uiassets.Handler("/app/static/"))
+	// Installable-app files are public (the browser fetches them without
+	// credentials); exact paths, so nothing else under /app/ is ungated.
+	mux.Handle("GET /app/manifest.webmanifest", manifestHandler(d.Shell.Brand))
+	mux.Handle("GET /app/sw.js", serviceWorker())
 	if d.AuthRoutes != nil {
 		mux.Handle("/app/auth/", d.AuthRoutes)
 	}

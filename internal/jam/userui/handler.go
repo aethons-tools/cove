@@ -34,12 +34,14 @@ func mustParse(names ...string) *template.Template {
 		"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
 		"mb":         func(n int64) int64 { return n >> 20 },
 	}).ParseFS(files, paths...))
-	return template.Must(t.Parse(appui.TitlebarTemplate))
+	template.Must(t.Parse(appui.TitlebarTemplate))
+	return template.Must(t.Parse(appui.HeadTemplate))
 }
 
 // inboxPage is the full data for the two-pane inbox.
 type inboxPage struct {
 	Bar        appui.Titlebar // the app title bar (full page only)
+	Head       appui.Head     // the installable-app <head> (full page only)
 	Me         string
 	Groups     []RailGroup
 	Conv       *Conversation
@@ -129,6 +131,7 @@ func (h *handler) full(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page.Bar = appui.TitlebarFor(r, "inbox")
+	page.Head = appui.HeadFor(r)
 	h.render(w, "", page)
 }
 
