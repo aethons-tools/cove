@@ -154,14 +154,26 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	// The session cookie carries the token the gate re-verifies: the access token
 	// for the operator plane (API aud + scope), the ID token for the participant
-	// plane (aud = ClientID, mapped to a roster human).
-	tok := accessTok
-	if s.mount.Session == IDTokenSession {
-		tok = idTok
+	// plane (aud = ClientID, mapped to a roster human), or both for /app.
+	switch s.mount.Session {
+	case BothTokensSession:
+		s.mount.setCookie(w, s.mount.IDCookie(), idTok, isSecure(r))
+		s.mount.setCookie(w, s.mount.AccessCookie(), accessTok, isSecure(r))
+	case IDTokenSession:
+		s.mount.setSession(w, idTok, isSecure(r))
+	default:
+		s.mount.setSession(w, accessTok, isSecure(r))
 	}
-	s.mount.setSession(w, tok, isSecure(r))
 	http.Redirect(w, r, safeReturnTo(s.mount, rt), http.StatusFound)
 }
+
+// VerifySubject verifies a browser ID token (aud = ClientID) and returns its subject.
+func (s *Service) VerifySubject(ctx context.Context, raw string) (string, error) {
+	return s.verifySubject(ctx, raw)
+}
+
+// Issuer is the OIDC issuer this service logs in against.
+func (s *Service) Issuer() string { return s.cfg.Issuer }
 
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 	s.mount.clearSession(w)
