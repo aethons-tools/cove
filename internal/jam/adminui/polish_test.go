@@ -18,11 +18,13 @@ func TestNavMarksCurrentPage(t *testing.T) {
 		"/app/admin/kits":         `href="/app/admin/specs"`, // Specs
 		"/app/admin/destinations": `href="/app/admin/specs"`,
 		"/app/admin/users":        `href="/app/admin/users"`,
-		"/app/admin/intercom":     `href="/app/admin/intercom"`,
+		"/app/admin/intercom":     `href="/app/admin/health"`, // the Channel log sits under Health
+		"/app/admin/projects":     `href="/app/admin/projects"`,
+		"/app/admin/projects/p":   `href="/app/admin/projects"`,
 	} {
 		body := get(t, h, path).Body.String()
-		tabs := body[strings.Index(body, `<nav class="tabs"`):]
-		tabs = tabs[:strings.Index(tabs, "</nav>")] // Jam's tabs (sub-tabs mark their own)
+		tabs := body[strings.Index(body, `<nav class="app-tabs"`):]
+		tabs = tabs[:strings.Index(tabs, "</nav>")] // the title bar's tabs (project and sub-tabs mark their own)
 		if !strings.Contains(tabs, href+` aria-current="page"`) {
 			t.Errorf("%s: tabs should mark %s as current", path, href)
 		}

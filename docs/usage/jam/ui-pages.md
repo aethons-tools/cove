@@ -63,8 +63,8 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
 - **Squawks** — the newest 50 squawks in its conversations (and, from before
-  the channel log, to or from `actor:<id>`), rendered as on the Intercom page,
-  with a link to the Intercom page filtered to its own posts.
+  the channel log, to or from `actor:<id>`), rendered as on the Channel log,
+  with a link to the Channel log filtered to its own posts.
 
 A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,

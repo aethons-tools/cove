@@ -2634,7 +2634,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
-			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil},
+			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},
 		})
 		log.Info("Jam app mounted", "path", "/app/")
 

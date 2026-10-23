@@ -204,7 +204,7 @@ type squawksData struct {
 // recipient). A nil reader means no log is configured.
 func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	q := r.URL.Query()
-	data := squawksData{Title: "Intercom", Configured: msgs != nil}
+	data := squawksData{Title: "Channel log", Configured: msgs != nil}
 	data.Legacy = q.Get("log") == "legacy"
 	if msgs == nil {
 		render(w, r, "intercom", data)

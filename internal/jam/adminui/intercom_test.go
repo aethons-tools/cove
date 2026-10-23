@@ -42,7 +42,7 @@ func TestSquawksRendersNewestFirst(t *testing.T) {
 		intercom.LegacySquawk{From: human("alice"), To: []intercom.Target{actor("cove-1")}, Body: "newer reply", At: t0.Add(time.Hour), Project: "acme"},
 	)
 	body := get(t, squawkHandler(t, l), "/app/admin/intercom?log=legacy").Body.String()
-	for _, want := range []string{"<nav", "Intercom", "older ping", "newer reply", "actor:cove-1", "human:alice", "acme"} {
+	for _, want := range []string{"<nav", "<h1>Channel log</h1>", "older ping", "newer reply", "actor:cove-1", "human:alice", "acme"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("messages page missing %q; got:\n%s", want, body)
 		}
@@ -80,10 +80,14 @@ func TestSquawksNotConfigured(t *testing.T) {
 	}
 }
 
+// The channel log is reached from Health, not the title bar.
 func TestSquawksNavLinkPresentOnOtherPages(t *testing.T) {
-	body := get(t, squawkHandler(t, newIntercomLog(t)), "/app/admin/agents").Body.String()
-	if !strings.Contains(body, `href="/app/admin/intercom"`) {
-		t.Errorf("nav should link to /app/admin/intercom; got:\n%s", body)
+	h := squawkHandler(t, newIntercomLog(t))
+	if body := get(t, h, "/app/admin/health").Body.String(); !strings.Contains(body, `<a href="/app/admin/intercom">Channel log</a>`) {
+		t.Errorf("Health should link the Channel log; got:\n%s", body)
+	}
+	if body := get(t, h, "/app/admin/agents").Body.String(); strings.Contains(body, `href="/app/admin/intercom"`) {
+		t.Error("the channel log should not be a top-level tab")
 	}
 }
 

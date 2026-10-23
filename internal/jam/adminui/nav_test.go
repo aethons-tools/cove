@@ -20,7 +20,6 @@ func TestMovedPagesRedirect(t *testing.T) {
 		"/app/admin/roles":               "/app/admin/",
 		"/app/admin/roles/acme/dev":      "/app/admin/projects/acme/roles/dev",
 		"/app/admin/roles?x=1":           "/app/admin/?x=1",
-		"/app/admin/projects":            "/app/admin/",
 		"/app/admin/projects/acme/roles": "/app/admin/projects/acme/agents",
 	} {
 		rec := get(t, h, from)

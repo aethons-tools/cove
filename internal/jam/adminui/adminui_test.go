@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
 func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -30,10 +31,12 @@ func mustCreateProject(t *testing.T, st jam.Store, name string) {
 	}
 }
 
+// get serves GET path to h as a Local admin — as the /app gate does — so the
+// page's title bar carries the admin tabs.
 func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	h.ServeHTTP(rec, appui.WithPrincipal(httptest.NewRequest(http.MethodGet, path, nil), appui.Principal{Admin: true, Local: true}))
 	return rec
 }
 

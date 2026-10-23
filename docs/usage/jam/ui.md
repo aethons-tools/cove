@@ -1,7 +1,7 @@
 ---
-summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the login and Principal (user / admin / both), the admin console's rail, tabs, list pages, search, Intercom log and session timeline, and the `POST /app/user/send` path; what the console can change is in ui-editing.md.
-read_when: You want to use or expose Jam in a browser — watch the agents and their studios, the squawk Log, a session timeline, the projects/users/specs — find your way around the console (nav, sub-tabs, search), understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), or follow an old /ui or /me link. To change something from the UI, read ui-editing.md instead.
-owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app/admin/` observability surface (the rail, Jam's tabs and the Specs sub-tabs, what each list shows, search, the `/app/admin/agents/{id}/session` timeline); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
+summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the login and Principal (user / admin / both), the title bar (blended tabs, principal menu), the admin console's Projects rail, list pages, search, Channel log and session timeline, and the `POST /app/user/send` path; what the console can change is in ui-editing.md.
+read_when: You want to use or expose Jam in a browser — watch the agents and their studios, the Channel log, a session timeline, the projects/users/specs — find your way around the console (nav, sub-tabs, search), understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), or follow an old /ui or /me link. To change something from the UI, read ui-editing.md instead.
+owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu); the `/app/admin/` observability surface (the Projects rail, the slim search bar, the Specs sub-tabs, the Channel log under Health, what each list shows, search, the `/app/admin/agents/{id}/session` timeline); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
 updated: 2026-10-23
@@ -33,30 +33,38 @@ method on an old path is 404, never replayed. The redirects last one release.
 
 ## The admin console (`/app/admin/`)
 
-A permanent **rail** lists **Jam**, then every project, then **+ New project**
-([`display-name`](serve.md#the-serve-config) renames Jam there and in its scope
-title; the title bar reads `<name> Jam`); the selection decides the **tabs** over
-the content. Jam's tabs are **Dashboard · Agents · Users · Specs · Config · Intercom · Health**; a project's are
-**Overview · Members · Agents · Intercom · Escalation**
-([ui-projects.md](ui-projects.md)). A detail page sits under its tab (a role
-page: its project's Agents; a kit: Jam's Specs) with a breadcrumb below it.
-**Specs** (`/app/admin/specs`, opening on Kits) groups **Kits · Destinations ·
-Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
-(☰ in the title bar). Rail entries, tabs and rows carry **attention badges**
-([ui-attention.md](ui-attention.md)). Jam's pages:
+Every `/app` page opens with one **title bar**: the J mark (to `/app/`), the
+Jam's name (`<name> Jam` with a [`display-name`](serve.md#the-serve-config),
+else `Jam`), the **tabs** you may use, and your principal menu at the far
+right (name, roles — member / admin — and **Sign out**; a loopback admin with
+no login reads "Local admin" and has no sign-out). The tabs are blended:
+**Inbox** for a user; **Dashboard · Projects · Agents · Users · Specs · Config ·
+Health** for an admin; the page's own tab is highlighted. Under it, a slim bar
+holds the console's search box.
+
+**Projects** (`/app/admin/projects`, the project list) keeps a left **rail** of
+every project with **+ New project**; selecting one puts its tabs — **Overview ·
+Members · Agents · Intercom · Escalation** — over its pages
+([ui-projects.md](ui-projects.md)). On a narrow screen the rail is a drawer (☰
+in the slim bar). Every other tab is full width with no rail. A detail page
+sits under its tab (a role page: Projects, its project's Agents; a kit: Specs)
+with a breadcrumb below it. **Specs** (`/app/admin/specs`, opening on Kits)
+groups **Kits · Destinations · Model-specs** under a sub-tab strip. The
+title-bar tabs, project rail entries, project tabs and rows carry **attention
+badges** ([ui-attention.md](ui-attention.md)). The console's pages:
 
 - **Dashboard** (`/app/admin/`) — summary tiles: running / waiting / setting-up /
   lost-or-terminating / idled agents, each opening the Agents list filtered to it, and counts
   of projects, agents, users and specs (kits + destinations + model-specs) —
-  agents, users and specs open their tab, projects are listed in the rail; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
+  agents, users and specs open their tab, projects are a plain count; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
   ([ui-pages.md](ui-pages.md#agent-context-cards)), above the running agents.
-- **Search** — the box in the top bar (press `/` from anywhere) searches every
+- **Search** — the box in the slim bar (press `/` from anywhere) searches every
   page's objects at once: agents (id, unit, owner, standing name,
   project/role, grants — one hit per id), roles (project/name, kit,
   destinations), projects, kits (name, current prompt and egress), destinations
   (name, route, upstream, env keys), model-specs (name, type, model, principal),
   users (name, logins, OIDC subject, account handles and ids) and rooms, and
-  squawk bodies (newest 10; the rest via Intercom's `q=`).
+  squawk bodies (newest 10; the rest via the Channel log's `q=`).
   Matching is case-insensitive substring, at least 2 characters; results are
   grouped and link to each object's page. **Enter** jumps to the page when one
   object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
@@ -70,9 +78,8 @@ Model-specs** under a sub-tab strip. On a narrow screen the rail is a drawer
   raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
   page, its **Access** card included ([ui-pages.md](ui-pages.md#agent-pages));
   `/app/admin/coves…` and `/app/admin/actors` redirect here.
-- **Intercom** (`/app/admin/intercom`) — a read-only, filterable, newest-first table of
-  the channel log, with the frozen legacy log on a Legacy tab. See [Intercom](#intercom).
-- **Health** (`/app/admin/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the rail — see [monitoring.md](monitoring.md).
+- **Health** (`/app/admin/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the Health and Dashboard tabs — see [monitoring.md](monitoring.md). It links the **Channel log** (`/app/admin/intercom`): a read-only, filterable, newest-first table of
+  the channel log, with the frozen legacy log on a Legacy tab. See [Channel log](#channel-log).
 - **Config** (`/app/admin/config`) — the tracked config repo, its managed objects and their drift, Diff/Apply: [ui-config.md](ui-config.md).
 - **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
   here ([ui-editing.md](ui-editing.md)); roles live in their project.
@@ -180,9 +187,9 @@ an in-process Log writer, not an egress engine.
   or that doesn't exist, → **403** (alike); a person or session that doesn't
   resolve → **404**; an append failure → **502**; an empty `to`/`body` → **400**.
 
-## Intercom
+## Channel log
 
-The Intercom page (`/app/admin/intercom`) is a read-only view of Jam's
+The Channel log page (`/app/admin/intercom`, under **Health**) is a read-only view of Jam's
 [channel log](intercom.md#enabling-it) (always available; it lives in Postgres — see
 [serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawks,
 each with its sender and channel (`<label> · <kind>`, linking to that channel's
@@ -197,7 +204,7 @@ squawks. The **Legacy** tab (`?log=legacy`) shows the log from before the
 channel log, frozen, as it always did: filter by `kind:ref` participants, each
 recipient badged internal or external.
 
-Unlike the roster/kit/destination pages, Intercom has no mutation — the UI only
+Unlike the roster/kit/destination pages, the Channel log has no mutation — the UI only
 reads the Log (still a full snapshot per load — pagination is a later phase).
 
 ## Session timeline

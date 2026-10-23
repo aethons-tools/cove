@@ -95,10 +95,11 @@ func TestSearchModelSpecsAndAgents(t *testing.T) {
 }
 
 // The dashboard's studio tiles open the Agents list filtered to their phase;
-// its count tiles follow the tabs — Projects, listed in the rail, is a plain
-// count.
+// its count tiles follow the tabs — Projects is a plain count (the title bar
+// links the Projects tab).
 func TestDashboardTilesFollowSections(t *testing.T) {
 	body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	body = body[strings.Index(body, "<main>"):] // the page, not the title bar
 	for _, want := range []string{
 		`href="/app/admin/agents?status=running" data-stat="running"`, `href="/app/admin/agents?status=waiting" data-stat="waiting"`,
 		`href="/app/admin/agents?status=setting-up" data-stat="setting-up"`, `href="/app/admin/agents?status=attention" data-stat="attention"`,
@@ -115,8 +116,8 @@ func TestDashboardTilesFollowSections(t *testing.T) {
 			t.Errorf("dashboard still has %s", gone)
 		}
 	}
-	// The agents page's project fields point at the rail, not a dead list.
-	if body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/app/admin/agents").Body.String(); strings.Contains(body, `href="/app/admin/projects"`) {
+	// The agents page's project fields are type-aheads, not links to the list.
+	if body := get(t, adminui.Handler(seedSpecUse(t), testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/app/admin/agents").Body.String(); strings.Contains(body[strings.Index(body, "<main>"):], `href="/app/admin/projects"`) {
 		t.Error("the agents page still links /app/admin/projects")
 	}
 }

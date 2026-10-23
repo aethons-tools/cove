@@ -159,9 +159,9 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 }
 
 func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, canRequest bool, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// The rail is the project list.
+	// The Projects tab: every project (its rows are the rail's entries).
 	mux.HandleFunc("GET /app/admin/projects", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, "/app/admin/")
+		render(w, r, "projects", map[string]any{"Title": "Projects"})
 	})
 
 	page := func(section projectSection) http.HandlerFunc {

@@ -53,7 +53,7 @@ returns each squawk's `content_type`, so an agent knows when a reply is meant
 literally.
 
 **Rendering:**
-- The [`/app/user` inbox](intercom-ui.md) and the [admin intercom view](ui.md#intercom)
+- The [`/app/user` inbox](intercom-ui.md) and the [admin Channel log](ui.md#channel-log)
   render markdown as sanitized HTML: raw HTML is omitted, `javascript:`-style
   link targets are dropped, and links open in a new tab. Plain text is shown
   as-is.

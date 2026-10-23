@@ -89,7 +89,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and tab title read `<name> Jam` and the rail's Jam entry `<name>`. One line of printable text, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". Don't end it in "Jam" — the title bar adds that. |
+| `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and browser tab title read `<name> Jam`. One line of printable text, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". Don't end it in "Jam" — the title bar adds that. |
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |
@@ -123,7 +123,7 @@ The control plane lives in Postgres — the source of truth — while `serve`
 keeps an in-memory read cache (so the broker's hot path never round-trips the
 DB) and writes through to Postgres transactionally. `serve` applies its schema
 migrations automatically at startup and **fails closed** if it can't connect,
-migrate, or load. The intercom's channel log ([ui.md#intercom](ui.md#intercom)), session
+migrate, or load. The intercom's channel log ([ui.md#channel-log](ui.md#channel-log)), session
 events, and the allocation ledger live in the same database and pool (tables
 auto-created), so the intercom and session events are always on.
 

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
 func frameGet(t *testing.T, h http.Handler, path string) string {
@@ -39,13 +40,14 @@ func frameHandler(t *testing.T) http.Handler {
 	return Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil)
 }
 
-// The rail badges each project with its own items — red when any is broken —
-// and Jam with Jam's items only.
+// The rail badges each project with its own items — red when any is broken;
+// Jam's items are on the title-bar tabs (TestTitlebarBadges), never here.
 func TestRailBadges(t *testing.T) {
-	rail := between(frameGet(t, frameHandler(t), "/app/admin/"), `<aside id="rail"`, "</aside>")
+	rail := between(frameGet(t, frameHandler(t), "/app/admin/projects"), `<aside id="rail"`, "</aside>")
+	if strings.Contains(rail, "◉") || strings.Contains(rail, `title="3 config">3</span>`) {
+		t.Errorf("rail should carry no Jam entry:\n%s", rail)
+	}
 	for _, want := range []string{
-		// Jam: kit bad + two conflicting destinations; never the projects' items
-		`<span class="name">◉ Jam</span> <span class="badge" title="3 config">3</span>`,
 		// acme: three broken studios, two roles and one escalation target (no
 		// image resolver here, so nothing is stale)
 		`<span class="name">acme</span> <span class="badge red" title="3 broken · 3 config">6</span>`,
@@ -58,9 +60,10 @@ func TestRailBadges(t *testing.T) {
 	}
 }
 
-// Each tab shows its scope's items for that tab.
+// Each tab shows its scope's items for that tab: a project's on its tabs,
+// Jam's on the title bar's.
 func TestTabBadges(t *testing.T) {
-	h := frameHandler(t)
+	h := adminFrameHandler(t)
 	tabs := between(frameGet(t, h, "/app/admin/projects/acme"), `<nav class="tabs"`, "</nav>")
 	for _, want := range []string{
 		`>Agents <span class="badge red" title="3 broken · 2 config">5</span>`, // studios + roles
@@ -72,7 +75,7 @@ func TestTabBadges(t *testing.T) {
 			t.Errorf("acme tabs missing %s in\n%s", want, tabs)
 		}
 	}
-	tabs = between(frameGet(t, h, "/app/admin/"), `<nav class="tabs"`, "</nav>")
+	tabs = titleTabs(frameGet(t, h, "/app/admin/"))
 	if !strings.Contains(tabs, `>Specs <span class="badge" title="3 config">3</span>`) || !strings.Contains(tabs, `>Agents</a>`) {
 		t.Errorf("Jam tabs: Specs carries Jam's items, Agents none:\n%s", tabs)
 	}
@@ -117,41 +120,49 @@ func TestRailFragment(t *testing.T) {
 	if body := frameGet(t, h, "/app/admin/projects/acme/agents"); !strings.Contains(body, `<div id="rail-entries" hx-get="/app/admin/rail?scope=acme" hx-trigger="every 3s"`) {
 		t.Error("rail should poll with its scope")
 	}
-	if body := frameGet(t, h, "/app/admin/"); !strings.Contains(body, `<div id="rail-entries" hx-get="/app/admin/rail?jam=1"`) {
-		t.Error("Jam's rail should poll with ?jam=1")
+	if body := frameGet(t, h, "/app/admin/projects"); !strings.Contains(body, `<div id="rail-entries" hx-get="/app/admin/rail" hx-trigger="every 3s"`) {
+		t.Error("the projects list's rail should poll with no selection")
 	}
 	body := frameGet(t, h, "/app/admin/rail?scope=acme")
 	if !strings.HasPrefix(strings.TrimSpace(body), `<div id="rail-entries"`) || strings.Contains(body, "<html") ||
 		!strings.Contains(body, `<a href="/app/admin/projects/acme" aria-current="page">`) {
 		t.Errorf("rail fragment:\n%s", body)
 	}
-	if body := frameGet(t, h, "/app/admin/rail?jam=1"); !strings.Contains(body, `<a class="jam" href="/app/admin/" aria-current="page">`) {
-		t.Errorf("rail fragment for Jam:\n%s", body)
+	if body := frameGet(t, h, "/app/admin/rail"); strings.Contains(body, "aria-current") || strings.Contains(body, `class="jam"`) || !strings.Contains(body, `href="/app/admin/projects/acme"`) {
+		t.Errorf("rail fragment with no selection:\n%s", body)
 	}
 }
 
 // An agent page linked from a project keeps the project's scope.
 func TestAgentPageScope(t *testing.T) {
-	h := frameHandler(t)
+	h := adminFrameHandler(t)
 	body := frameGet(t, h, "/app/admin/agents/s-lost?project=acme")
 	if !strings.Contains(between(body, `<aside id="rail"`, "</aside>"), `<a href="/app/admin/projects/acme" aria-current="page">`) ||
 		!strings.Contains(between(body, `<nav class="tabs"`, "</nav>"), `href="/app/admin/projects/acme/agents" aria-current="page">Agents`) ||
 		!strings.Contains(body, `<a href="/app/admin/projects/acme/agents">Agents</a> / `) {
 		t.Errorf("agent page with ?project=acme should sit under acme's Agents")
 	}
-	body = frameGet(t, h, "/app/admin/agents/s-lost")
-	if !strings.Contains(between(body, `<nav class="tabs"`, "</nav>"), `href="/app/admin/agents" aria-current="page">Agents`) {
-		t.Errorf("agent page without a project sits under Jam's Agents")
+	if !strings.Contains(titleTabs(body), `href="/app/admin/projects" aria-current="page">Projects`) {
+		t.Errorf("agent page with ?project=acme sits under the Projects title-bar tab")
 	}
-	if body := frameGet(t, h, "/app/admin/agents/s-lost?project=nope"); !strings.Contains(between(body, `<nav class="tabs"`, "</nav>"), `href="/app/admin/agents" aria-current="page">Agents`) {
-		t.Errorf("an unknown project falls back to Jam")
+	body = frameGet(t, h, "/app/admin/agents/s-lost")
+	if !strings.Contains(titleTabs(body), `href="/app/admin/agents" aria-current="page">Agents`) || strings.Contains(body, `id="rail"`) {
+		t.Errorf("agent page without a project sits under the Agents title-bar tab, full width")
+	}
+	if body := frameGet(t, h, "/app/admin/agents/s-lost?project=nope"); !strings.Contains(titleTabs(body), `href="/app/admin/agents" aria-current="page">Agents`) {
+		t.Errorf("an unknown project falls back to Agents")
 	}
 }
 
-// Narrow screens open the rail from a button in the title bar.
+// Narrow screens open the rail from a button in the slim bar — on the pages
+// that have one.
 func TestRailDrawerButton(t *testing.T) {
-	if body := frameGet(t, frameHandler(t), "/app/admin/"); !strings.Contains(body, `class="railbtn"`) || !strings.Contains(body, "body.rail-open #rail{display:block}") {
-		t.Error("the title bar should carry the rail drawer button")
+	h := frameHandler(t)
+	if body := frameGet(t, h, "/app/admin/projects/acme"); !strings.Contains(between(body, `<div class="subbar">`, "</div>"), `class="railbtn"`) || !strings.Contains(body, "body.rail-open #rail{display:block}") {
+		t.Error("the slim bar should carry the rail drawer button")
+	}
+	if body := frameGet(t, h, "/app/admin/"); strings.Contains(body, `class="railbtn"`) {
+		t.Error("a page with no rail has no drawer button")
 	}
 }
 
@@ -215,7 +226,7 @@ func TestOddProjectNames(t *testing.T) {
 			t.Errorf("%s: Members tab not current:\n%s", name, tabs)
 		}
 		current := `<a href="` + projectURL(name) + `" aria-current="page">`
-		if rail := html.UnescapeString(between(page, `<aside id="rail"`, "</aside>")); !strings.Contains(rail, current) || strings.Contains(rail, `class="jam" href="/app/admin/" aria-current`) {
+		if rail := html.UnescapeString(between(page, `<aside id="rail"`, "</aside>")); !strings.Contains(rail, current) || strings.Count(rail, "aria-current") != 1 {
 			t.Errorf("%s: rail selection wrong:\n%s", name, rail)
 		}
 		m := pollRe.FindStringSubmatch(page)
@@ -223,19 +234,19 @@ func TestOddProjectNames(t *testing.T) {
 			t.Fatalf("%s: no rail poll", name)
 		}
 		frag := html.UnescapeString(frameGet(t, h, html.UnescapeString(m[1])))
-		if !strings.Contains(frag, current) || strings.Contains(frag, `class="jam" href="/app/admin/" aria-current`) {
+		if !strings.Contains(frag, current) || strings.Count(frag, "aria-current") != 1 {
 			t.Errorf("%s: polled rail (%s) selection wrong:\n%s", name, m[1], frag)
 		}
 	}
-	// Jam's own pages make Jam current, never the project named "~".
-	page := frameGet(t, h, "/app/admin/")
+	// The projects list selects nothing, never the project named "~".
+	page := frameGet(t, h, "/app/admin/projects")
 	m := pollRe.FindStringSubmatch(page)
 	if m == nil {
-		t.Fatal("no rail poll on the dashboard")
+		t.Fatal("no rail poll on the projects list")
 	}
 	for _, rail := range []string{between(page, `<aside id="rail"`, "</aside>"), frameGet(t, h, html.UnescapeString(m[1]))} {
-		if !strings.Contains(rail, `<a class="jam" href="/app/admin/" aria-current="page">`) || strings.Contains(rail, `<a href="/app/admin/projects/~" aria-current`) {
-			t.Errorf("Jam scope rail:\n%s", rail)
+		if strings.Contains(rail, "aria-current") || !strings.Contains(rail, `href="/app/admin/projects/~"`) {
+			t.Errorf("projects list rail:\n%s", rail)
 		}
 	}
 }
@@ -270,14 +281,16 @@ func TestMissingProjectPage(t *testing.T) {
 	}
 }
 
-// A display name brands the title bar and tab title ("Aethon Jam") and names
-// the Jam rail entry and scope ("Aethon"); unset, everything reads "Jam".
+// A display name brands the tab title ("Aethon Jam") and — with no shell
+// brand — the title bar; unset, both read "Jam". No rail entry or scope
+// title names Jam any more.
 func TestDisplayName(t *testing.T) {
 	named := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName("Aethon"))
+	const logo = `<span>Aethon Jam</span></a>`
 	for path, wants := range map[string][]string{
-		"/app/admin/":              {"<title>Aethon Jam — Dashboard</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">Aethon</div>`},
-		"/app/admin/projects/acme": {"<title>Aethon Jam — acme</title>", `<span class="dot"></span>Aethon Jam <small>Admin</small>`, `<span class="name">◉ Aethon</span>`, `<div class="scope-title">acme</div>`},
-		"/app/admin/rail?jam=1":    {`<span class="name">◉ Aethon</span>`},
+		"/app/admin/":              {"<title>Aethon Jam — Dashboard</title>", logo},
+		"/app/admin/projects/acme": {"<title>Aethon Jam — acme</title>", logo, `<div class="scope-title">acme</div>`},
+		"/app/admin/search?q=zz":   {"<title>Aethon Jam — Search</title>", logo},
 	} {
 		body := frameGet(t, named, path)
 		for _, want := range wants {
@@ -285,15 +298,19 @@ func TestDisplayName(t *testing.T) {
 				t.Errorf("%s missing %s", path, want)
 			}
 		}
-	}
-	// a named Jam's search and 404 pages carry the brand too
-	if body := frameGet(t, named, "/app/admin/search?q=zz"); !strings.Contains(body, "<title>Aethon Jam — Search</title>") || !strings.Contains(body, `<span class="name">◉ Aethon</span>`) {
-		t.Error("search page should carry the display name")
+		if strings.Contains(body, "◉") || strings.Contains(body, `<div class="scope-title">Aethon</div>`) {
+			t.Errorf("%s still names Jam in a rail entry or scope title", path)
+		}
 	}
 	rec := httptest.NewRecorder()
 	named.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/admin/projects/nope", nil))
-	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<span class="dot"></span>Aethon Jam <small>Admin</small>`) {
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), logo) {
 		t.Errorf("404 page should carry the display name: %d", rec.Code)
+	}
+	// a shell's brand wins over the display name
+	shelled := appui.WithShell(named, appui.Shell{Brand: "Shell Jam"})
+	if body := frameGet(t, shelled, "/app/admin/"); !strings.Contains(body, `<span>Shell Jam</span></a>`) {
+		t.Error("the shell's brand should title the bar")
 	}
 	// the name is config text: it is escaped wherever it renders
 	hostile := Handler(attnFixture(t), slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, func(string) bool { return true }, nil, WithDisplayName(`<i>&"x`))
@@ -301,7 +318,7 @@ func TestDisplayName(t *testing.T) {
 		t.Error("the display name must be HTML-escaped")
 	}
 	body := frameGet(t, frameHandler(t), "/app/admin/")
-	for _, want := range []string{"<title>Jam — Dashboard</title>", `<span class="dot"></span>Jam <small>Admin</small>`, `<span class="name">◉ Jam</span>`, `<div class="scope-title">Jam</div>`} {
+	for _, want := range []string{"<title>Jam — Dashboard</title>", `<span>Jam</span></a>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("unnamed Jam missing %s", want)
 		}

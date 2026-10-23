@@ -123,7 +123,7 @@ func TestSearchBoxOnEveryPage(t *testing.T) {
 	body := get(t, searchFixture(t), "/app/admin/").Body.String()
 	for _, want := range []string{`action="/app/admin/search"`, `id="q-top"`, `name="go" value="1"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("topbar search missing %q", want)
+			t.Errorf("slim-bar search missing %q", want)
 		}
 	}
 }
@@ -136,6 +136,7 @@ func TestSearchHighlightEscapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/search?q=evil").Body.String()
+	body = body[strings.Index(body, "<main>"):] // the results, not the title bar's principal menu
 	if strings.Contains(body, "<b>") || !strings.Contains(body, "&lt;b&gt;<mark>evil</mark>&lt;/b&gt;") {
 		t.Errorf("highlight must escape the surrounding text")
 	}

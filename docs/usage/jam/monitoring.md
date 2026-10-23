@@ -1,17 +1,17 @@
 ---
-summary: Operator attention — the conditions Jam raises about itself (lapsed credentials, failing pool refreshes, …), where they show (admin UI Health tab + rail badge, `at-jam attention list`, `/metrics`), and the shipped Prometheus + Alertmanager bundle that pushes them to Discord.
+summary: Operator attention — the conditions Jam raises about itself (lapsed credentials, failing pool refreshes, …), where they show (admin UI Health tab + title-bar badge, `at-jam attention list`, `/metrics`), and the shipped Prometheus + Alertmanager bundle that pushes them to Discord.
 read_when: You want to be alerted when Jam needs a human, are setting up `metrics:` or the deploy/monitoring bundle, see a condition on the Health tab and want to know what it means, or a Discord alert from Jam arrived.
 owns: the condition model (keys, severities, lifecycle), the v1 condition kinds, the `/metrics` exposition and its scrape token, the Health tab, `at-jam attention list`, and the deploy/monitoring bundle
 prereqs: serve.md for the serve config and credentials
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Operator attention
 
 Jam turns problems it detects in itself into **conditions** — a key, a
 severity, a one-line summary and a **fix** — and shows them in three places:
-the admin UI (rail badge, "Needs attention", **Health** tab), `at-jam attention
+the admin UI (Health and Dashboard tab badges, "Needs attention", **Health** tab), `at-jam attention
 list`, and `/metrics` for Prometheus. Delivery (Discord, reminders, ack) is
 Alertmanager's job, via the bundle in `deploy/monitoring/`.
 
