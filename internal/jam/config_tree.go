@@ -285,7 +285,11 @@ func (l *treeLoader) loadKits() {
 			continue
 		}
 		if !l.exists(rel + "/" + gitsource.KitFile) {
-			l.refuse("%s: no kit.yml", rel)
+			if l.exists(rel + ".source.yml") { // a config write prunes it but keeps what its .dockerignore excludes
+				l.refuse("%s/ is left over beside %s.source.yml (only files its .dockerignore excludes); remove it", rel, rel)
+			} else {
+				l.refuse("%s: no kit.yml", rel)
+			}
 			continue
 		}
 		set, err := loadKitSet(l.root, gitsource.Source{Repo: ConfigDirRepo, Dir: rel}, n)
@@ -302,7 +306,7 @@ func (l *treeLoader) loadKits() {
 		}
 	}
 	for _, n := range slices.Sorted(maps.Keys(l.tr.KitSources)) {
-		if l.exists("kits/" + n) {
+		if l.exists("kits/" + n + "/" + gitsource.KitFile) {
 			l.refuse("%s: kit %s is also kits/%s/kit.yml", l.tr.KitSources[n].Path, n, n)
 			delete(l.tr.KitSources, n)
 		}

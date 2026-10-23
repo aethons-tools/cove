@@ -4,7 +4,7 @@ read_when: You want a Jam's config reviewable in git, are standing up a replica 
 owns: the config repo layout and file kinds, the `at-jam config write|diff|apply|release` verbs, the plan actions and refusals, managed marks, drift and how it clears, the `/admin/config/diff|apply|export-tree|managed` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-23
 ---
 
 # A Jam's configuration in git
@@ -76,7 +76,7 @@ scope: {destinations: [gh], ttl: 1h}
 `leaves:` (`name`, `read-when`, `body`) followed by the core as the markdown
 body; the core's trailing newlines are trimmed and one is written. A core
 that opens with `---` and has no leaves is written after empty front matter
-(`---` twice) so it reads back as the core.
+(`---` twice) so it reads back as the core. A CRLF core is written with LF (as it is read). A YAML string yaml.v3 would not read back as written (a leading newline or space on a multi-line value, a tab) is written double-quoted, so every value Jam accepts round-trips. After upgrading past this, a managed object whose canonical form changed (a re-quoted string, a CRLF core) reads as drifted (`config.drift`) once, until its next apply.
 
 Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/` (`base: {kit: ../web-dev}`) rewritten to `name@vN`
 on apply. An `@vN` is refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are per-Jam — name the kit`;
@@ -85,8 +85,7 @@ parent`. Versions written by `--dir` record provenance repo `local`, dir `kits/<
 and commit). A packed `base.context` is written as files in `kits/<n>/context/` (bytes, 0644/0755 modes) with
 `base.context-dir: context`; loading repacks them to the identical context, so write → apply is `unchanged`. A context no
 directory can reproduce (hand-made tar, other modes), or past the upload limits below, stays inline (named on stderr) and
-its `context/` is left alone; write prunes only the `context/` of kits it writes as files plus managed kits gone from Jam
-(not files its `.dockerignore` excludes). Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
+its `context/` is left alone; write prunes only the `context/` of kits it writes as files, of kits it now writes as `.source.yml`, and of managed kits gone from Jam, keeping what the `.dockerignore` excludes (the exported one, else the dir's own: a regular file under 64 KiB, or the dir is left alone); a `kits/<n>/` left beside `kits/<n>.source.yml` is refused as left over — remove it. A kit it writes (managed, or any with `--all`) loses its other form: `kits/<n>/kit.yml` when written as `kits/<n>.source.yml`, and back. Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
 a non-022 umask gets one new version on its next sync.
 `config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
 re-pins to current). A kit the write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the
@@ -120,8 +119,9 @@ Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N 
 |---|---|
 | `create` / `update` | In the repo, absent / different in Jam. A managed mark whose object is gone from Jam and present in the repo is a `create`; absent from both, it is a `forget`. |
 | `forget` | A managed mark whose object is gone from Jam and the repo: apply removes the mark only, so a later unmanaged object of that name stays untouched. Counted as a change (`N forgotten`). |
-| `update` + `(drift)` | The Jam object was edited since the last apply. Printed with `jam:` and `repo:` blocks; refused without `--force`. A drifted `delete` is printed the same way, its repo side `(not in the repo)`. |
-| `adopt` | An unmanaged Jam object identical to the repo's: marked managed, nothing written. The seeded `claude-default` model spec differs from the repo's → `update`, not a refusal. |
+| `update` + `(drift)` | The Jam object was edited since the last apply. Printed as a compact line diff (`--- jam` / `+++ repo`, a kit's config one key per line); refused without `--force`. A drifted `delete` prints `jam:` and `repo:` blocks, its repo side `(not in the repo)`. |
+| `update` + `(not managed)` | The repo copy of an unmanaged Jam object differs: refused (below), printed with the same diff, which the Config page shows too. |
+| `adopt` | An unmanaged Jam object identical to the repo's: marked managed, nothing written. Adopted and updated (`update`) instead of refused: the seeded `claude-default` model spec, and a kit tracking the very repo, dir and ref its `kits/<n>.source.yml` names (its ref moved since Jam synced: a new version at the fetched commit). Never an inline kit or another source. |
 | `delete` | Managed, no longer in the repo. Subject to the guards below. |
 | `unchanged` / `unmanaged` | Nothing to do / live but not in the repo's care: never touched, never deleted. |
 

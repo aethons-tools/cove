@@ -16,6 +16,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
@@ -129,12 +130,8 @@ type kitView struct {
 	Digest      string
 }
 
-// diffLine is one line of a version diff: Op is ' ', '+', '-' or '…' (a
-// collapsed run of unchanged lines, Text says how many).
-type diffLine struct {
-	Op   string
-	Text string
-}
+// diffLine is one line of a version or plan diff.
+type diffLine = linediff.Line
 
 // kitDiff compares two versions' display YAML.
 type kitDiff struct {
@@ -456,84 +453,5 @@ func chainOf(store jam.Store, name, config string) (chain []kitParent, eff *kitV
 	return chain, &v, ""
 }
 
-// maxDiffCells bounds the LCS table (lines(a) × lines(b)).
-const maxDiffCells = 4_000_000
-
-// diffContext is how many unchanged lines are kept around a change.
-const diffContext = 3
-
-// lineDiff is a line-level LCS diff of a → b, with long unchanged runs
-// collapsed to a "…" marker. tooLarge reports the inputs exceed maxDiffCells.
-func lineDiff(a, b string) ([]diffLine, bool) {
-	al, bl := splitLines(a), splitLines(b)
-	n, m := len(al), len(bl)
-	if n*m > maxDiffCells {
-		return nil, true
-	}
-	// lcs[i][j] = LCS length of al[i:], bl[j:].
-	lcs := make([][]int32, n+1)
-	for i := range lcs {
-		lcs[i] = make([]int32, m+1)
-	}
-	for i := n - 1; i >= 0; i-- {
-		for j := m - 1; j >= 0; j-- {
-			if al[i] == bl[j] {
-				lcs[i][j] = lcs[i+1][j+1] + 1
-			} else {
-				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
-			}
-		}
-	}
-	var raw []diffLine
-	i, j := 0, 0
-	for i < n || j < m {
-		switch {
-		case i < n && j < m && al[i] == bl[j]:
-			raw = append(raw, diffLine{" ", al[i]})
-			i, j = i+1, j+1
-		case i < n && (j == m || lcs[i+1][j] >= lcs[i][j+1]): // removals before additions
-			raw = append(raw, diffLine{"-", al[i]})
-			i++
-		default:
-			raw = append(raw, diffLine{"+", bl[j]})
-			j++
-		}
-	}
-	return collapse(raw), false
-}
-
-func splitLines(s string) []string {
-	s = strings.TrimSuffix(s, "\n")
-	if s == "" {
-		return nil
-	}
-	return strings.Split(s, "\n")
-}
-
-// collapse keeps diffContext unchanged lines around each change and replaces
-// longer unchanged runs with a single "…" line.
-func collapse(lines []diffLine) []diffLine {
-	keep := make([]bool, len(lines))
-	for i, l := range lines {
-		if l.Op != " " {
-			for k := max(0, i-diffContext); k <= min(len(lines)-1, i+diffContext); k++ {
-				keep[k] = true
-			}
-		}
-	}
-	var out []diffLine
-	for i := 0; i < len(lines); {
-		if keep[i] {
-			out = append(out, lines[i])
-			i++
-			continue
-		}
-		j := i
-		for j < len(lines) && !keep[j] {
-			j++
-		}
-		out = append(out, diffLine{"…", fmt.Sprintf("%d unchanged line(s)", j-i)})
-		i = j
-	}
-	return out
-}
+// lineDiff is the plan and version diff (linediff.Diff).
+var lineDiff = linediff.Diff

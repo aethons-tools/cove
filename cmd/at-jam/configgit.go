@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	iofs "io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
+	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -314,15 +316,42 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 		keep[path.Clean(p)] = true
 	}
 	for _, p := range exp.Prune {
-		var ignore []byte
+		var ignore *[]byte // nil: no context exported here, read the dir's own
 		if di, ok := exp.Binary[p+"/.dockerignore"]; ok {
-			ignore = di.Data
+			ignore = &di.Data
 		}
 		if err := pruneTreeDir(root, p, keep, ignore); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// maxDockerignoreBytes caps an on-disk .dockerignore Prune reads.
+const maxDockerignoreBytes = 64 << 10
+
+// readTreeDockerignore reads the .dockerignore at p in root: nil, true when
+// there is none; ok=false when it is not a regular file (never followed) or
+// is over maxDockerignoreBytes.
+func readTreeDockerignore(root *os.Root, p string) (data []byte, ok bool) {
+	name := filepath.FromSlash(p)
+	fi, err := root.Lstat(name)
+	switch {
+	case errors.Is(err, iofs.ErrNotExist):
+		return nil, true
+	case err != nil || !fi.Mode().IsRegular() || fi.Size() > maxDockerignoreBytes:
+		return nil, false
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	data, err = io.ReadAll(io.LimitReader(f, maxDockerignoreBytes+1))
+	if err != nil || len(data) > maxDockerignoreBytes {
+		return nil, false
+	}
+	return data, true
 }
 
 // writeTreeFile writes data at p in root with mode, past the umask and over
@@ -351,11 +380,12 @@ func isKitContextDir(p string) bool {
 // reads it) does not exclude, then the dirs left empty — p and its kit dir
 // included. It only descends real dirs: a kit or context dir that is a
 // symlink is refused, and a symlink inside p is removed, never followed.
-func pruneTreeDir(root *os.Root, p string, keep map[string]bool, ignore []byte) error {
-	pm, err := studio.DockerignoreMatcher(bytes.NewReader(ignore))
-	if err != nil {
-		return fmt.Errorf("refusing to prune %q: its .dockerignore cannot be read", p)
-	}
+//
+// ignore nil means no context was exported for p (its kit is now written by
+// reference, or gone): p's own .dockerignore then says what was never
+// packed, so those files — and it — stay; one that is not a regular file
+// or is over maxDockerignoreBytes leaves p as it is.
+func pruneTreeDir(root *os.Root, p string, keep map[string]bool, ignore *[]byte) error {
 	for _, d := range []string{path.Dir(p), p} {
 		fi, err := root.Lstat(d)
 		if errors.Is(err, iofs.ErrNotExist) {
@@ -367,6 +397,23 @@ func pruneTreeDir(root *os.Root, p string, keep map[string]bool, ignore []byte) 
 		if !fi.IsDir() {
 			return fmt.Errorf("refusing to prune %q: %s is not a directory", p, d)
 		}
+	}
+	var rules []byte
+	if ignore != nil {
+		rules = *ignore
+	} else {
+		var ok bool
+		if rules, ok = readTreeDockerignore(root, p+"/.dockerignore"); !ok {
+			return nil
+		}
+		if rules != nil {
+			keep = maps.Clone(keep)
+			keep[p+"/.dockerignore"] = true
+		}
+	}
+	pm, err := studio.DockerignoreMatcher(bytes.NewReader(rules))
+	if err != nil {
+		return fmt.Errorf("refusing to prune %q: its .dockerignore cannot be read", p)
 	}
 	var dirs []string
 	err = iofs.WalkDir(root.FS(), p, func(q string, d iofs.DirEntry, err error) error {
@@ -421,16 +468,32 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			continue
 		}
 		mark := ""
-		if op.Drift {
+		switch {
+		case op.Drift:
 			mark = "  (drift)"
+		case op.Unmanaged:
+			mark = "  (not managed)"
 		}
 		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
-		if op.Drift {
-			repo := indent(op.After)
-			if op.After == "" { // a delete: the repo no longer has it
-				repo = "    (not in the repo)"
+		if !op.Drift && !op.Unmanaged {
+			continue
+		}
+		if op.After == "" { // a delete: the repo no longer has it
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n    (not in the repo)\n", indent(op.Before))
+			continue
+		}
+		lines, tooLarge := linediff.Diff(jam.ConfigCanonDisplay(op.Kind, op.Before), jam.ConfigCanonDisplay(op.Kind, op.After))
+		if tooLarge {
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
+			continue
+		}
+		fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
+		for _, l := range lines {
+			if l.Op == "…" {
+				fmt.Fprintf(w, "  … %s\n", l.Text)
+			} else {
+				fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
 			}
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), repo)
 		}
 	}
 	for _, k := range p.Forget {

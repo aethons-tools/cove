@@ -342,3 +342,20 @@ func TestConfigApplyConfirmWithoutChanges(t *testing.T) {
 		t.Fatalf("zero-change confirm:\n%s", body)
 	}
 }
+
+// A repo copy of an unmanaged object that differs is refused, and the plan
+// shows both sides as a diff, open, flagged not managed.
+func TestConfigPlanShowsUnmanagedRefusalDiff(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\nlogins:\n- repo@x\n"}}
+	h, store := configUI(t, f, nil)
+	if _, err := store.CreateUser(jam.User{ID: ident.New(ident.User), Name: "bob", Status: jam.StatusLive, Logins: []string{"jam@x"}}); err != nil {
+		t.Fatal(err)
+	}
+	trackManaged(t, store)
+	body := post(t, h, "/app/admin/config/diff", url.Values{}).Body.String()
+	for _, want := range []string{"user bob exists and is not managed", ">not managed<", "<details open>", "-   - jam@x", "+   - repo@x"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("plan lacks %q:\n%s", want, body)
+		}
+	}
+}

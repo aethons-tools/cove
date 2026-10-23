@@ -3,8 +3,10 @@ package jam
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"path"
+	"runtime/debug"
 	"slices"
 	"strings"
 
@@ -56,9 +58,15 @@ func (m *memState) userNameOf(id ident.ID) (string, bool) {
 // A non-nil inTree also limits the kits to those it reports (the ones an
 // export writes); nil (the planner) renders every kit. contextFiles renders
 // a kit's packed context as context-dir files (renderKitFile).
-func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (map[ConfigKey]configObject, error) {
-	out := map[ConfigKey]configObject{}
-	add := func(f configFile) { o := newConfigObject(f); out[o.Key] = o }
+func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (out map[ConfigKey]configObject, err error) {
+	var at ConfigKey // the object being rendered, for a render that fails
+	defer recoverRender(func() string { return at.String() }, &err)
+	out = map[ConfigKey]configObject{}
+	add := func(f configFile) {
+		at = f.configKey()
+		o := newConfigObject(f)
+		out[o.Key] = o
+	}
 
 	for _, d := range m.dests {
 		add(DestinationFile{Kind: ConfigKindDestination, Version: ConfigFileVersion, Destination: copyDestination(d)})
@@ -99,6 +107,7 @@ func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool)
 			continue
 		}
 		key := ConfigKey{ConfigKindKit, n}
+		at = key
 		if k.Source != nil { // a kit following its own source is written by reference
 			out[key] = configObject{Key: key, Files: map[string][]byte{sourceKitPath(n): renderKitSourceFile(*k.Source)},
 				Canon: kitCanon(cfg, k.Source)}
@@ -114,6 +123,20 @@ func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool)
 		out[key] = configObject{Key: key, Files: map[string][]byte{key.Path(): b}, Binary: ctx, inlineContext: inline, Canon: kitCanon(cfg, nil)}
 	}
 	return out, nil
+}
+
+// recoverRender, deferred, turns a render panic into *err naming what was
+// rendered (what()), never its content, so a value the renderer cannot
+// write fails the export, plan or drift check instead of panicking a serve
+// goroutine or handler. The log has the panic's type and stack, not its
+// value (which may quote a config value).
+func recoverRender(what func() string, err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	slog.Default().Error("config: render panicked", "object", what(), "panic_type", fmt.Sprintf("%T", r), "stack", string(debug.Stack()))
+	*err = fmt.Errorf("%s cannot be rendered as a config file", what())
 }
 
 // kitCanon is a kit's canonical bytes: its stored config, then, for a kit
@@ -306,6 +329,7 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		return ConfigTreeExport{}, err
 	}
 	exp := ConfigTreeExport{Files: map[string]string{}}
+	remove := map[string]bool{}
 	var rendered []ConfigKey // kits with context files, placed within the budget below
 	for k, o := range objs {
 		if !want(k) {
@@ -314,6 +338,9 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		for p, b := range o.Files {
 			exp.Files[p] = string(b)
 		}
+		if k.Kind == ConfigKindKit {
+			otherKitForms(k, o, opt.ContextFiles, remove, &exp)
+		}
 		switch {
 		case k.Kind != ConfigKindKit || !opt.ContextFiles:
 		case o.Binary != nil:
@@ -321,11 +348,15 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		case o.inlineContext:
 			exp.Inline = append(exp.Inline, k.Name) // never pruned: its context/ files are not Jam's
 		}
-		// A kit with no context (or tracked) is not pruned either: files left
-		// under its context/ are unreferenced, and may be hand-made.
+		// A kit with no context is not pruned either: files left under its
+		// context/ are unreferenced, and may be hand-made. A kit now written
+		// by reference is (otherKitForms): that context/ was its other form's,
+		// and the writer keeps what its on-disk .dockerignore excludes.
 	}
 	if serve != nil {
-		exp.Files["jam.yml"] = string(renderYAML(serve))
+		if exp.Files["jam.yml"], err = renderServeYAML(serve); err != nil {
+			return ConfigTreeExport{}, err
+		}
 	}
 	budget := newTreeBudget(exp.Files)
 	slices.SortFunc(rendered, func(a, b ConfigKey) int { return strings.Compare(a.Name, b.Name) })
@@ -340,7 +371,7 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 			continue
 		}
 		// Over the upload limits as files: written inline instead.
-		b, _, _, err := renderKitFile(m, k.Name, m.kits[k.Name].Versions[m.kits[k.Name].Current], inTree, false)
+		b, err := renderInlineKitFile(m, k.Name, inTree)
 		if err != nil {
 			return ConfigTreeExport{}, fmt.Errorf("kit %s: %w", k.Name, err)
 		}
@@ -348,22 +379,14 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		exp.Files[k.Path()] = string(b)
 		exp.Inline = append(exp.Inline, k.Name)
 	}
-	remove := map[string]bool{}
 	for name, p := range m.projects {
 		if want(ConfigKey{ConfigKindProject, name}) && p.Context.Empty() {
 			remove["projects/"+name+"/context.md"] = true
 		}
 	}
 	for k := range managed {
-		if o, ok := objs[k]; ok {
-			if k.Kind == ConfigKindKit { // the kit's other form, left from before it switched
-				for _, p := range []string{k.Path(), sourceKitPath(k.Name)} {
-					if _, ok := o.Files[p]; !ok {
-						remove[p] = true
-					}
-				}
-			}
-			continue
+		if _, ok := objs[k]; ok {
+			continue // written above, its other form removed
 		}
 		remove[k.Path()] = true
 		switch k.Kind {
@@ -385,6 +408,38 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 	slices.Sort(exp.Prune)
 	slices.Sort(exp.Inline)
 	return exp, nil
+}
+
+// renderServeYAML is jam.yml, a render failure an error.
+func renderServeYAML(serve map[string]any) (_ string, err error) {
+	defer recoverRender(func() string { return "jam.yml" }, &err)
+	return string(renderYAML(serve)), nil
+}
+
+// renderInlineKitFile is kit name's kit.yml with its context inline, a
+// render failure an error.
+func renderInlineKitFile(m *memState, name string, inTree func(string) bool) (_ []byte, err error) {
+	defer recoverRender(func() string { return ConfigKey{ConfigKindKit, name}.String() }, &err)
+	b, _, _, err := renderKitFile(m, name, m.kits[name].Versions[m.kits[name].Current], inTree, false)
+	return b, err
+}
+
+// otherKitForms removes the form a written kit o is not written in, left
+// from before it switched (or from an earlier --all): written by reference,
+// its kits/<n>/kit.yml and, with contextFiles, its kits/<n>/context dir
+// (pruned; the writer keeps what the dir's own .dockerignore excludes, as
+// no .dockerignore is exported for it); written inline, its
+// kits/<n>.source.yml. The other form is the same object's file, so this
+// never touches a file the export does not claim.
+func otherKitForms(k ConfigKey, o configObject, contextFiles bool, remove map[string]bool, exp *ConfigTreeExport) {
+	if _, bySource := o.Files[sourceKitPath(k.Name)]; bySource {
+		remove[k.Path()] = true
+		if contextFiles {
+			exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+		}
+		return
+	}
+	remove[sourceKitPath(k.Name)] = true
 }
 
 // The share of the config upload limits (configtar.MaxUnpacked bytes,

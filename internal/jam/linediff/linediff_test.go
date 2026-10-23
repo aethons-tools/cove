@@ -1,14 +1,14 @@
-package adminui
+package linediff
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestLineDiff(t *testing.T) {
+func TestDiff(t *testing.T) {
 	a := "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n"
 	b := "a\nb\nc\nd\nE\nf\ng\nh\ni\nj\nk\n"
-	got, tooLarge := lineDiff(a, b)
+	got, tooLarge := Diff(a, b)
 	if tooLarge {
 		t.Fatal("small diff reported too large")
 	}
@@ -20,7 +20,7 @@ func TestLineDiff(t *testing.T) {
 	if sb.String() != want {
 		t.Fatalf("diff =\n%s\nwant\n%s", sb.String(), want)
 	}
-	if got, _ := lineDiff("same\n", "same\n"); len(got) != 1 || got[0].Op != "…" {
+	if got, _ := Diff("same\n", "same\n"); len(got) != 1 || got[0].Op != "…" {
 		t.Errorf("identical inputs = %+v, want one collapsed run", got)
 	}
 }
