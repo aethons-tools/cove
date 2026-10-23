@@ -4,7 +4,7 @@ read_when: You are adding a destination whose upstream wants the credential in a
 owns: the `identity_in`/`apply` presets, the custom header-spec schema (`identity_in_spec`/`apply_spec`), its validation and storage compatibility
 prereqs: serve.md#destinations for the destination verb
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-23
 ---
 
 # Destination header specs (`identity_in` / `apply`)
@@ -30,7 +30,7 @@ the UI select and every pre-existing destination use):
 | Preset | Inbound | Outbound |
 |---|---|---|
 | `bearer` | `Authorization`, prefixes `Bearer `, `token ` (gh to a GHE host) | `Authorization: Bearer {cred}` |
-| `basic-password` | `Authorization`, basic (password; 401 challenges with `WWW-Authenticate: Basic`) | basic, user `x-access-token` |
+| `basic-password` | `Authorization`, basic (password; 401 challenges with `WWW-Authenticate: Basic`) | basic: a `user:token` credential sends that user and token (e.g. Atlassian's `email:api_token`); a bare token goes as the password with user `x-access-token` |
 | `x-api-key` | `X-Api-Key`, bare | `X-Api-Key: {cred}` |
 | `raw` | `Authorization`, bare | `Authorization: {cred}` (e.g. Linear GraphQL personal API keys) |
 
@@ -58,6 +58,9 @@ hop-by-hop (`Connection`, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`,
 single-line; `encoding` is `raw` (default) or `basic`, and `basic` requires
 header `Authorization` (outbound: plus a `basic_user` without `:`, inbound: no
 prefixes); a spec is only accepted with `custom`, and `custom` requires one.
+`basic_user: "{user}"` takes the username from the credential, as the
+`basic-password` preset does (a `user:token` value splits at its first `:`; a
+bare token uses `x-access-token`); any other `basic_user` is sent as is.
 Errors never echo a template or prefix, and neither is logged.
 
 The admin UI selects offer the presets; a destination already on `custom`

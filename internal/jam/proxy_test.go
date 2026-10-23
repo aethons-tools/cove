@@ -356,3 +356,23 @@ func TestBrokerRefusesEncodedRoutePrefix(t *testing.T) {
 		t.Fatalf("status = %d, upstream hits = %d; want 400 and none", rec.Code, hits)
 	}
 }
+
+// A basic-password destination whose credential is "user:token" sends that
+// user upstream (the studio's own basic username is never forwarded).
+func TestBrokerBasicPasswordSendsCredentialUser(t *testing.T) {
+	var gotUser, gotPass string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, _ = r.BasicAuth()
+		io.WriteString(w, "ok")
+	}))
+	defer up.Close()
+	b, _, tok := newTestBroker(t, "http://unused", up.URL)
+	b.creds = fakeCreds{"git-pat": "me@x.com:API-TOKEN"}
+	req := httptest.NewRequest("GET", "/git/rest/api/3/myself", nil)
+	req.SetBasicAuth("whoever", tok)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, req)
+	if rec.Code != 200 || gotUser != "me@x.com" || gotPass != "API-TOKEN" {
+		t.Fatalf("status %d, upstream basic %q:%q", rec.Code, gotUser, gotPass)
+	}
+}
