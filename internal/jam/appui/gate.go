@@ -109,7 +109,7 @@ func RequireUser(next http.Handler) http.Handler {
 			}
 			return
 		case !ok || p.User == nil:
-			forbidSignedIn(w, r, "You're signed in, but this area needs a project membership — ask an admin to add you to a roster.")
+			forbidSignedIn(w, r, "This area needs a project membership — if you're a member, your sign-in may have expired: sign in again; otherwise ask an admin to add you to a roster.")
 			return
 		}
 		next.ServeHTTP(w, r)

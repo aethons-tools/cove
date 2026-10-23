@@ -18,7 +18,7 @@ func TestForbiddenPages(t *testing.T) {
 		wantMsg      string
 		wantLink     string // "" = no link at all
 	}{
-		{"user area, admin only", true, false, "stranger", "ok", "/app/user/x", "this area needs a project membership", relogin},
+		{"user area, admin only", true, false, "stranger", "ok", "/app/user/x", "your sign-in may have expired", relogin},
 		{"admin area, member only", true, false, "alice", "", "/app/admin/x", "this area needs admin rights", relogin},
 		{"neither", true, false, "stranger", "", "/app/user/x", "not a member of any project and not an admin", relogin},
 		{"neither, landing", true, false, "stranger", "", "/app/", "not a member of any project and not an admin", relogin},

@@ -68,7 +68,24 @@ func TestLegacyRedirects(t *testing.T) {
 			if got := rec.Header().Get("Location"); got != tc.wantLoc {
 				t.Errorf("Location = %q, want %q", got, tc.wantLoc)
 			}
+			if tc.wantCode == 308 {
+				if cc := rec.Header().Get("Cache-Control"); cc != "max-age=3600" {
+					t.Errorf("Cache-Control = %q, want max-age=3600", cc)
+				}
+			}
 		})
+	}
+}
+
+// An explicit /me/studios/ route (cmd registers a 404 when the participant
+// studios are not mounted) beats the /me/ legacy redirect.
+func TestExplicitStudios404BeatsLegacyRedirect(t *testing.T) {
+	m := Handler(Deps{Gate: NewGate(GateConfig{Log: discardLog()})})
+	m.Handle("/me/studios/", http.NotFoundHandler())
+	rec := httptest.NewRecorder()
+	m.ServeHTTP(rec, muxReq("GET", "/me/studios/x", "", ""))
+	if rec.Code != 404 {
+		t.Fatalf("code = %d, want 404", rec.Code)
 	}
 }
 
@@ -84,7 +101,7 @@ func TestLanding(t *testing.T) {
 		{"admin only", "/app/", "stranger", "ok", 302, "/app/admin/"},
 		{"both", "/app/", "alice", "ok", 302, "/app/user/"},
 		{"neither", "/app/", "stranger", "", 403, ""},
-		{"no session", "/app/", "", "", 302, "/app/auth/login"},
+		{"no session", "/app/", "", "", 302, "/app/auth/login?return_to=%2Fapp%2F"},
 	}
 	m := testMux(t)
 	for _, tc := range cases {

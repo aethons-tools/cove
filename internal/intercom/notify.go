@@ -7,7 +7,7 @@ import (
 )
 
 // Notifier wraps a Store and signals subscribers after each successful Append,
-// so live views (the /me SSE stream) refresh on change instead of polling. The
+// so live views (the /app/user SSE stream) refresh on change instead of polling. The
 // signal carries no message: subscribers re-read what they are authorized to
 // see. Each subscriber's channel holds one pending signal, so a burst of
 // appends coalesces and a slow subscriber never blocks a writer. In-process

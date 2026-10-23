@@ -56,7 +56,7 @@ type memState struct {
 	// chanMembers each channel's membership rows (channel_registry.go).
 	channels    map[ident.ID]Channel
 	chanMembers map[ident.ID][]ChannelMember
-	// reads is the /me unread cursor on the channel log: participant →
+	// reads is the /app/user unread cursor on the channel log: participant →
 	// channel → last-read seq (forward only).
 	reads map[ident.ID]map[ident.ID]int64
 	// jamContext is the Jam-wide authored session-context layer; zero = none.

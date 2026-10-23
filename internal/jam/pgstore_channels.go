@@ -191,7 +191,7 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 	return s.loadChannelReads(ctx)
 }
 
-// loadChannelReads fills the /me read cursors. load's part; no lock.
+// loadChannelReads fills the /app/user read cursors. load's part; no lock.
 func (s *PostgresStore) loadChannelReads(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT participant_id, channel_id, seq FROM channel_reads`)
 	if err != nil {

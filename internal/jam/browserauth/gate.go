@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -97,7 +98,13 @@ func (g Gate) Wrap(next http.Handler) http.Handler {
 				return
 			case SessionNone:
 				if g.LoginPath != "" {
-					http.Redirect(w, r, g.LoginPath, http.StatusFound)
+					dest := g.LoginPath
+					if r.Method == http.MethodGet || r.Method == http.MethodHead {
+						// Carry the deep link across login; the login handler
+						// only honours return_to paths under its mount.
+						dest += "?return_to=" + url.QueryEscape(r.URL.RequestURI())
+					}
+					http.Redirect(w, r, dest, http.StatusFound)
 					return
 				}
 			}

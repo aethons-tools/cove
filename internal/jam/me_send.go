@@ -11,8 +11,8 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// ParticipantSendHandler is a person's send from the /me inbox (POST
-// /me/send): into a conversation they're in ({"to": "<channel id>"}), or a
+// ParticipantSendHandler is a person's send from the /app/user inbox (POST
+// /app/user/send): into a conversation they're in ({"to": "<channel id>"}), or a
 // new one ({"to": "user:<id|name>"} or {"to": "session:<id>"}: a chat with
 // them). The sender is the gate's participant, never the body; the intercom
 // decides whether they may post there and who hears it. Implements

@@ -95,8 +95,8 @@ func TestGateOffLoopbackNoSessionRedirects(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ui/coves", nil)
 	req.RemoteAddr = "203.0.113.7:5555"
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/auth/login" {
-		t.Fatalf("no-session off-loopback = %d %q, want 302 /ui/auth/login", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/auth/login?return_to=%2Fui%2Fcoves" {
+		t.Fatalf("no-session off-loopback = %d %q, want 302 /ui/auth/login?return_to=...", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -303,8 +303,8 @@ func TestParticipantGateNoLoopbackBypass(t *testing.T) {
 	req.RemoteAddr = "127.0.0.1:5000" // loopback
 	req.Host = "127.0.0.1:8081"
 	g.Wrap(stub).ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/me/auth/login" {
-		t.Fatalf("loopback no-session = %d %q, want 302 /me/auth/login (no loopback bypass)", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/me/auth/login?return_to=%2Fme%2F" {
+		t.Fatalf("loopback no-session = %d %q, want 302 /me/auth/login?return_to (no loopback bypass)", rec.Code, rec.Header().Get("Location"))
 	}
 	if called {
 		t.Error("participant handler reached on loopback without a session")
@@ -347,8 +347,8 @@ func TestParticipantGateForbiddenDoesNotLoop(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/me/", nil)
 	req2.RemoteAddr = "203.0.113.7:5555"
 	none.Wrap(stub).ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/me/auth/login" {
-		t.Fatalf("no session = %d %q, want 302 /me/auth/login", rec2.Code, rec2.Header().Get("Location"))
+	if rec2.Code != http.StatusFound || rec2.Header().Get("Location") != "/me/auth/login?return_to=%2Fme%2F" {
+		t.Fatalf("no session = %d %q, want 302 /me/auth/login?return_to", rec2.Code, rec2.Header().Get("Location"))
 	}
 }
 
@@ -368,5 +368,26 @@ func TestGateForbiddenHook(t *testing.T) {
 	g.Wrap(okHandler()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden || rec.Body.String() != "custom page" {
 		t.Fatalf("got %d %q, want 403 custom page", rec.Code, rec.Body)
+	}
+}
+
+func TestGateNoSessionCarriesDeepLink(t *testing.T) {
+	g := Gate{
+		Session:   func(r *http.Request) (*http.Request, SessionOutcome) { return r, SessionNone },
+		LoginPath: "/app/auth/login",
+		Log:       discard(),
+	}
+	for _, tc := range []struct{ method, target, want string }{
+		{"GET", "/app/user/?c=chn_x", "/app/auth/login?return_to=%2Fapp%2Fuser%2F%3Fc%3Dchn_x"},
+		{"HEAD", "/app/user/", "/app/auth/login?return_to=%2Fapp%2Fuser%2F"},
+		{"POST", "/app/user/send", "/app/auth/login"},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.target, nil)
+		req.RemoteAddr = "203.0.113.7:5555"
+		g.Wrap(okHandler()).ServeHTTP(rec, req)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+			t.Errorf("%s %s = %d %q, want 302 %q", tc.method, tc.target, rec.Code, rec.Header().Get("Location"), tc.want)
+		}
 	}
 }

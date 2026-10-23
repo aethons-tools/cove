@@ -18,6 +18,9 @@ func LegacyRedirect(from, to string) http.Handler {
 		if r.URL.RawQuery != "" {
 			u += "?" + r.URL.RawQuery
 		}
+		// Bounded cache: a browser must not pin a 308 forever, or a rollback
+		// would leave old bookmarks bouncing to a gone /app.
+		w.Header().Set("Cache-Control", "max-age=3600")
 		http.Redirect(w, r, u, http.StatusPermanentRedirect)
 	})
 }

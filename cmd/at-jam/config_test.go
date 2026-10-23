@@ -432,6 +432,25 @@ operator-auth:
 	}
 }
 
+func TestBrowserLoginAdminsEveryone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		yaml string
+		want bool
+	}{
+		"login, empty scope": {"    browser-client-id: b\n", true},
+		"login, scope set":   {"    browser-client-id: b\n    require-scope: jam:admin\n", false},
+		"no login, empty":    {"", false},
+	} {
+		cfg, err := parseServeConfig([]byte("operator-auth:\n  oidc:\n    issuer: https://idp/\n    audience: aud\n" + tc.yaml))
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		if got := cfg.browserLoginAdminsEveryone(); got != tc.want {
+			t.Errorf("%s: = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
 // The /app login asks for the operator scope (require-scope) so its access
 // token can make the viewer an admin; openid is always present, once.
 func TestBrowserAuthConfigRequestsOperatorScope(t *testing.T) {

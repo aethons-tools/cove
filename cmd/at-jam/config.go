@@ -864,6 +864,13 @@ func (c serveConfig) browserAuthConfig() *browserauth.RawConfig {
 	return &browserauth.RawConfig{Issuer: o.Issuer, ClientID: o.BrowserClientID, Scope: withScopes(scope, "openid", o.RequireScope), Audience: o.Audience}
 }
 
+// browserLoginAdminsEveryone reports whether browser login is configured with
+// no require-scope: any access token for the audience then verifies, so every
+// signed-in user (Inbox members included) is an admin.
+func (c serveConfig) browserLoginAdminsEveryone() bool {
+	return c.browserAuthConfig() != nil && c.OperatorAuth.OIDC.RequireScope == ""
+}
+
 // withScopes adds each non-empty want missing from the space-separated scope:
 // openid in front, the rest at the end.
 func withScopes(scope string, want ...string) string {

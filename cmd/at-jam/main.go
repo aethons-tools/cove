@@ -2589,6 +2589,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				sessions.VerifyAccess = oidcAuth.VerifyToken
 			}
 			log.Info("Jam app auth: browser OIDC login", "client-id", bc.ClientID)
+			if cfg.browserLoginAdminsEveryone() {
+				log.Warn("browser login is configured but operator-auth.oidc.require-scope is empty: any access token for the audience verifies, so every signed-in user (Inbox members included) is an admin; set require-scope to keep the console to operators")
+			}
 		} else {
 			log.Info("Jam app auth: loopback-only")
 		}
@@ -2654,6 +2657,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return collabhttp.Routes("/me", collabDeps(p))
 		}) {
 			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
+		} else {
+			// Not mounted: answer the CLI with a plain 404, not the /me/ legacy
+			// redirect (a 308 to the login page).
+			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
@@ -2995,7 +3002,8 @@ var (
 // verified against the operator OIDC provider already discovered, with the
 // device client as audience, so no further network dependency is added.
 // Without device login (lc nil), an OIDC operator authenticator, or the SSH
-// CA, nothing is mounted: /me/studios/ stays a 404, never open.
+// CA, nothing is mounted and the caller registers a plain 404 on /me/studios/
+// (it would otherwise match the /me/ legacy redirect): never open.
 func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
 	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
 	if lc == nil || !ok || ca == nil {

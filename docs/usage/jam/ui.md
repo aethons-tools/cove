@@ -100,6 +100,11 @@ request to a **Principal** — a **user**, an **admin**, or both:
 - **Admin** — the login's access token verifies with `require-scope`, exactly
   as for the admin API ([operators.md](operators.md)), or the request is
   loopback. Jam's own config never grants admin.
+  <a id="empty-require-scope"></a>**With `operator-auth.oidc.require-scope`
+  empty, any access token for the audience verifies, so every signed-in user —
+  Inbox members included — is an admin.** Set `require-scope` to keep the
+  console to operators; `at-jam serve` warns at startup when browser login is
+  configured without it.
 
 `/app/user/*` needs a user, `/app/admin/*` an admin. How you reach it:
 
@@ -129,13 +134,27 @@ on `/app/user/`). The 403 page says which, and offers **Sign in again**
 (`/app/auth/logout`, then login): the two tokens can expire separately — a
 member admin whose access token lapsed is briefly a user only.
 
-Register `https://<your-jam-host>/app/auth/callback` in your IdP's Allowed
-Callback URLs **before deploying** (it replaces `/ui/auth/callback` and
-`/me/auth/callback`). Browser login needs TLS. The old `jam_session` and
-`jam_participant` cookies are ignored: sign in once.
+Browser login needs TLS. Upgrading from the old `/ui` and `/me` logins: see
+[Migrating](#migrating-from-ui-and-me).
 
 The UI never renders a token hash, launch secret, or credential value, except
 the identity token shown once at enroll ([ui-editing.md](ui-editing.md#roster-and-roles)).
+
+### Migrating from /ui and /me
+
+- **Before deploying**, register `https://<jam-host>/app/auth/callback` at the
+  IdP. Keep the old `/ui/auth/callback` and `/me/auth/callback` until the
+  rollout settles; the previews callback is unchanged.
+- The login now requests `openid` plus `require-scope`. Check that your IdP
+  issues tokens to users not entitled to that scope; one that rejects the
+  authorize request locks out Inbox-only users. See also
+  [empty `require-scope`](#signing-in-one-login-one-principal) (above): it makes
+  everyone an admin.
+- Everyone signs in once more (the old `jam_session` and `jam_participant`
+  cookies are ignored). Reload open tabs: an old tab posts to `/me/send`, which
+  now answers 404.
+- Old `/ui/*` and `/me/*` bookmarks get a `308` to the new path for one release
+  (cached for an hour). `/admin/*` and `/me/studios/*` are unchanged.
 
 ### Sending (`POST /app/user/send`)
 

@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 )
 
-// Participant is the identity behind a /me (participant intercom) request: the
+// Participant is the identity behind an /app/user (participant intercom) request: the
 // person authenticated by a browser OIDC session, i.e. the user bound to
 // (Issuer, Subject). Users are Jam-wide, so Projects lists every project the
 // user is a member of. This is a separate plane from Operator (admin
@@ -51,7 +51,7 @@ func (h Human) HasIdentity(issuer, subject string) bool {
 // subject), whatever their project memberships — for callers whose own
 // authorization decides access (the collaboration bearer, where a share grant
 // may reach a user in no project). The empty issuer or subject never matches.
-// The browser /me pages resolve with ParticipantByIdentity instead.
+// The browser /app/user pages resolve with ParticipantByIdentity instead.
 func UserByIdentity(store interface {
 	UserByOIDC(issuer, subject string) (User, bool)
 }, issuer, subject string) (User, bool) {
@@ -92,7 +92,7 @@ func ParticipantByIdentity(store ParticipantStore, issuer, subject string) (Part
 
 type participantCtxKey struct{}
 
-// WithParticipant returns r carrying the authenticated participant, so /me
+// WithParticipant returns r carrying the authenticated participant, so /app/user
 // handlers can attribute a request to the resolved roster person.
 func WithParticipant(r *http.Request, p Participant) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), participantCtxKey{}, p))
