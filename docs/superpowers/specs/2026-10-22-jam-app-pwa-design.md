@@ -155,7 +155,7 @@ Visual polish beyond this is deferred to a later UI pass.
 
 - **`/app/manifest.webmanifest`** — rendered per Jam: `name` "{display name} Jam",
   `short_name` "Jam", `scope` and `start_url` `/app/`, `display` `standalone`,
-  `theme_color` `#B5306A`, `background_color` `#F5F6F8` (light) / `#0F1116`
+  `theme_color` `#2F67B2` (the logo blue, chosen 2026-10-23), `background_color` `#F5F6F8` (light) / `#0F1116`
   (dark, via a `media` theme-color meta), icons (§6.2). Linked from every page's
   `<head>`.
 - **`/app/sw.js`** — served from `/app/` so its scope is the app. Minimal:

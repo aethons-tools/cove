@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- Manifest at `/app/manifest.webmanifest`, content type `application/manifest+json`: `name` "{display name} Jam" (the shell brand; "Jam" when unset), `short_name` "Jam", `scope` `/app/`, `start_url` `/app/`, `display` `standalone`, `theme_color` `#B5306A`, `background_color` `#F5F6F8`, `icons` per the table below.
-- Dark theme colour via `<meta name="theme-color" content="#0F1116" media="(prefers-color-scheme: dark)">` (light: `#B5306A` with `media="(prefers-color-scheme: light)"`).
+- Manifest at `/app/manifest.webmanifest`, content type `application/manifest+json`: `name` "{display name} Jam" (the shell brand; "Jam" when unset), `short_name` "Jam", `scope` `/app/`, `start_url` `/app/`, `display` `standalone`, `theme_color` `#2F67B2`, `background_color` `#F5F6F8`, `icons` per the table below.
+- Dark theme colour via `<meta name="theme-color" content="#0F1116" media="(prefers-color-scheme: dark)">` (light: `#2F67B2` with `media="(prefers-color-scheme: light)"`).
 - Service worker at `/app/sw.js` (`text/javascript`, `Cache-Control: no-cache`): `install` → `skipWaiting()`, `activate` → `clients.claim()`, network-only `fetch` (no `respondWith`, no caches). Registered with scope `/app/`.
 - iOS: `<link rel="apple-touch-icon" href="/app/static/icons/apple-touch-icon.png?v=…">`, `<meta name="apple-mobile-web-app-capable" content="yes">`, `<meta name="apple-mobile-web-app-title" content="Jam">`.
 - Manifest, `sw.js` and `/app/static/*` (icons included) are served **without** the gate; every other `/app/` path stays gated.
@@ -188,7 +188,7 @@ func serviceWorker() http.Handler
 // GET /app/manifest.webmanifest → 200, Content-Type application/manifest+json;
 //   json.Unmarshal ok; name "Acme \"R&D\" <Ops> Jäm Jam" when Shell.Brand is that brand,
 //   short_name "Jam", scope "/app/", start_url "/app/", display "standalone",
-//   theme_color "#B5306A", background_color "#F5F6F8"; 3 icons with the sizes/purposes
+//   theme_color "#2F67B2", background_color "#F5F6F8"; 3 icons with the sizes/purposes
 //   from Global Constraints, each src == uiassets.IconHref("/app/static/", name).
 // Shell.Brand "" → name "Jam".
 // GET /app/sw.js → 200, Content-Type text/javascript (charset ok), Cache-Control no-cache;
@@ -223,7 +223,7 @@ self.addEventListener('fetch', () => {});
 ```html
 {{define "app-head"}}
 <link rel="manifest" href="/app/manifest.webmanifest">
-<meta name="theme-color" content="#B5306A" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#2F67B2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0F1116" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="32x32" href="{{.Favicon}}">
 <link rel="apple-touch-icon" href="{{.AppleTouch}}">
