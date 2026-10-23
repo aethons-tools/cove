@@ -401,3 +401,23 @@ func withStatic(h http.Handler) http.Handler {
 	mux.Handle("/", h)
 	return mux
 }
+
+// At 500px the channel list hides but the rail header's controls stay visible.
+func TestBrowserNarrowScreenKeepsRailHeadControls(t *testing.T) {
+	ctx := browserCtx(t)
+	srv := serveInbox(t)
+	var vis bool
+	err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(500, 800),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitVisible(`#newmsg summary`, chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.right<=innerWidth;}
+			return v('.viewsel button[data-view=raw]') && v('#newmsg summary') && getComputedStyle(document.getElementById('rail')).display==='none'; })()`, &vis),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vis {
+		t.Error("rail header controls should be visible and the list hidden at 500px")
+	}
+}

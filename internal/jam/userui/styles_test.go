@@ -25,3 +25,23 @@ func TestUserUsesSharedStylesheet(t *testing.T) {
 		t.Error("/app/user should not define its own token block")
 	}
 }
+
+// On a narrow screen the channel list hides but the rail header (view toggle,
+// New message) stays reachable.
+func TestNarrowViewportKeepsRailHead(t *testing.T) {
+	e, p := fixture()
+	rec := httptest.NewRecorder()
+	Handler(e.Deps, nil).ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/", nil), p))
+	body := rec.Body.String()
+	i := strings.Index(body, "@media (max-width:720px)")
+	if i < 0 {
+		t.Fatal("no narrow-viewport rule")
+	}
+	rule := body[i : i+strings.Index(body[i:], "}}")]
+	if !strings.Contains(rule, ".rail-list{display:none}") {
+		t.Errorf("narrow rule should hide .rail-list: %s", rule)
+	}
+	if strings.Contains(rule, ".rail{display:none}") || strings.Contains(rule, ".rail-head{display:none}") {
+		t.Errorf("narrow rule must not hide the rail header: %s", rule)
+	}
+}
