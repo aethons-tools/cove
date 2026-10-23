@@ -61,6 +61,8 @@ jobs:
               - 'go.sum'
               - '.goreleaser.yaml'
               - 'scripts/stage-attask.sh'
+              - 'scripts/whiteboard.sh'
+              - 'web/whiteboard/**' # the editor bundle at-jam embeds
               - 'install.sh' # embedded in at-cove + at-jam (`update`)
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
@@ -218,6 +220,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # The whiteboard editor bundle (a goreleaser before-hook) needs Node.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/whiteboard/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config

@@ -30,6 +30,10 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
 BINARIES=(at-cove at-task at-mint at-switchboard at-jam)
 
+# Build the whiteboard editor bundle at-jam embeds (skipped, with a warning,
+# where npm is missing: at-jam then builds without the editor).
+WHITEBOARD_OPTIONAL=1 ./scripts/whiteboard.sh
+
 # Stage the linux at-task and at-switchboard binaries at-cove embeds, before
 # at-cove is built — shared with the goreleaser before-hook, see
 # scripts/stage-attask.sh.

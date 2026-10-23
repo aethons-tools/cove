@@ -65,7 +65,15 @@ capped font size and drawn area), so a pathological board renders partly
 rather than slowly. It serves the card
 thumbnails and `board_snapshot`.
 
+## In /app/user
+
+A conversation's header has **New whiteboard**; a board's card (title, live
+thumbnail, **Open**) opens the editor in place of the stream — see
+[intercom-ui.md](intercom-ui.md#whiteboards). The editor is built into
+`at-jam` by `just whiteboard` ([DEVELOPMENT.md](../../DEVELOPMENT.md)); a Jam
+built without it shows cards but no editor.
+
 ## Not yet
 
-The /app/user editor (the Excalidraw bundle, built by `just whiteboard`); images on
-boards; live cursors; Mermaid import; auto-layout.
+Images on boards (the image tool is off); live cursors; Mermaid import;
+auto-layout.

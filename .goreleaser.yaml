@@ -24,6 +24,9 @@ before:
   hooks:
     # Build the linux at-task binaries at-cove embeds, before goreleaser builds.
     - bash scripts/stage-attask.sh
+    # Build the whiteboard editor bundle at-jam embeds (git-ignored output, so
+    # the tree stays clean). Required here: a release ships the editor.
+    - bash scripts/whiteboard.sh
     # Snapshot the blessed cove-base-image digests from the registry into the
     # embedded (gitignored) blessed/generated.txt before at-cove is built (COV-44
     # spec §4). A no-op without GITHUB_TOKEN (offline embeds the committed
