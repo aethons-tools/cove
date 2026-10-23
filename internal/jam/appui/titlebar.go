@@ -71,10 +71,7 @@ var adminTabs = []Tab{
 func TitlebarFor(r *http.Request, current string) Titlebar {
 	p, _ := PrincipalFrom(r)
 	sh, _ := r.Context().Value(shellKey{}).(Shell)
-	tb := Titlebar{Brand: sh.Brand, Name: p.DisplayName(), SignOut: sh.SignOut && !p.Local}
-	if tb.Brand == "" {
-		tb.Brand = "Jam"
-	}
+	tb := Titlebar{Brand: brandOr(sh.Brand), Name: p.DisplayName(), SignOut: sh.SignOut && !p.Local}
 	tb.Initial = "?"
 	if c, _ := utf8.DecodeRuneInString(tb.Name); c != utf8.RuneError {
 		tb.Initial = strings.ToUpper(string(c))

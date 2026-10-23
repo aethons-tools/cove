@@ -1,7 +1,7 @@
 ---
-summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
-read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, or follow an old /ui or /me link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
-owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
+summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
+read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui or /me link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
+owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
 updated: 2026-10-23
@@ -22,7 +22,8 @@ http://127.0.0.1:8081/app/
 | `/app/user/*` | the Inbox ([intercom-ui.md](intercom-ui.md)) and [`POST /app/user/send`](#sending-post-appusersend) |
 | `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
-| `/app/static/*` | `jam.css`, htmx (ungated) |
+| `/app/static/*` | `jam.css`, htmx, the J mark and app icons (ungated) |
+| `/app/manifest.webmanifest`, `/app/sw.js` | the [installable app](#installing-the-app)'s manifest and service worker (ungated) |
 
 `/me/studios/*` ([collaboration.md](collaboration.md)) and `/admin/*` are APIs
 and stay where they are. **Old URLs:** a `GET`/`HEAD` on a former `/ui/*` or
@@ -52,9 +53,29 @@ following the OS setting) and typography from one stylesheet, `jam.css`, in
 The console itself — its pages, the Projects rail, search, the Channel log and the
 session timeline — is in [ui-console.md](ui-console.md).
 
+## Installing the app
+
+The Jam app is an installable web app. Over **HTTPS** (or on `localhost`), use
+the browser's own **Install** (Chrome, Edge), **Add to Home Screen** (iOS,
+Android) or **Add to Dock** (Safari on macOS); it opens in its own window at
+`/app/`, named after the Jam (`<name> Jam`, else `Jam`; the short name is
+`Jam`). There is no in-app install prompt. Plain HTTP off localhost can't
+install: the browser has no service worker there, and the page skips it quietly.
+
+- **Nothing is cached** — the service worker is network-only, so the installed
+  app is online-only and always current. It exists to make the app installable
+  (and to host push later).
+- **Public files** — `/app/manifest.webmanifest`, `/app/sw.js` and the icons
+  under `/app/static/icons/` are served without the gate (the browser fetches
+  them without cookies); every other `/app/` path stays gated.
+- **Icons** are PNGs rendered from the J mark and committed under
+  `internal/jam/uiassets/static/icons/`; regenerate them with `just icons` after
+  changing the mark (a test fails when they drift).
+
 ## Signing in: one login, one Principal
 
-Every `/app` page except login and static sits behind one gate, separate from
+Every `/app` page sits behind one gate (the exceptions are listed under
+[Installing the app](#installing-the-app) and in the route table), separate from
 the JSON admin API's authenticator (see the fail-closed rule in
 [serve.md](serve.md#exposing-the-admin-api-fail-closed)). It resolves each
 request to a **Principal** — a **user**, an **admin**, or both:

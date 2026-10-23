@@ -32,3 +32,22 @@ func TestRailOffsetUsesChromeHeight(t *testing.T) {
 		t.Error("rail/subbar should use --chrome-h/--subbar-h")
 	}
 }
+
+// The console's <head> carries the installable-app head once: the manifest
+// link and the guarded service-worker registration.
+func TestAdminHeadIsInstallable(t *testing.T) {
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil)
+	body := get(t, h, "/app/admin/").Body.String()
+	head, _, ok := strings.Cut(body, "</head>")
+	if !ok {
+		t.Fatal("no </head>")
+	}
+	for _, want := range []string{`rel="manifest"`, `navigator.serviceWorker.register('/app/sw.js'`} {
+		if n := strings.Count(head, want); n != 1 {
+			t.Errorf("<head> has %q %d times, want 1", want, n)
+		}
+	}
+	if strings.Count(body, `rel="manifest"`) != 1 {
+		t.Error("manifest link outside <head>")
+	}
+}

@@ -1,0 +1,12 @@
+{{define "app-head"}}
+<link rel="manifest" href="/app/manifest.webmanifest">
+<meta name="application-name" content="{{.Title}}">
+<meta name="theme-color" content="#2F67B2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1116" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="32x32" href="{{.Favicon}}">
+<link rel="apple-touch-icon" href="{{.AppleTouch}}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Jam">
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/app/sw.js',{scope:'/app/'}).catch(function(){});}</script>
+{{end}}
