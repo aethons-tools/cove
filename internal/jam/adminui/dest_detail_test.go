@@ -259,3 +259,25 @@ func TestDestinationHeaderLoggingInUI(t *testing.T) {
 		t.Errorf("bad log-headers-out = %d, want 400", rec.Code)
 	}
 }
+
+// The Broker section says whether header logging is on, so an operator sees a
+// destination left logging.
+func TestDestinationDetailShowsHeaderLogging(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	for _, d := range []jam.Destination{
+		{Name: "on", Route: "/on/", Upstream: "https://on", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, LogHeadersIn: jam.HeaderLogExamined},
+		{Name: "off", Route: "/off/", Upstream: "https://off", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body := get(t, h, "/app/admin/destinations/on").Body.String(); !strings.Contains(body, "in examined · out none") {
+		t.Errorf("logging-on destination does not say so:\n%s", body)
+	}
+	body := get(t, h, "/app/admin/destinations/off").Body.String()
+	if i := strings.Index(body, "<dt>Header logging</dt>"); i < 0 || !strings.Contains(body[i:i+120], `<span class="unset">off</span>`) {
+		t.Errorf("logging-off destination does not say off:\n%s", body)
+	}
+}
