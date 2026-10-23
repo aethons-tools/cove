@@ -403,3 +403,14 @@ func (b *Boards) ServeSnapshot(w http.ResponseWriter, r *http.Request, viewer, i
 	w.Header().Set("Cache-Control", "private, no-cache")
 	_, _ = w.Write(png)
 }
+
+// MayCreateIn reports whether person p may start a board in channel ch: they
+// may post there and it is live.
+func (b *Boards) MayCreateIn(p, ch ident.ID) bool {
+	c, ok := b.ic.store.GetChannel(ch)
+	if !ok || c.Status != StatusLive {
+		return false
+	}
+	_, err := b.ic.PlanChannel(Poster{ID: p}, ch)
+	return err == nil
+}

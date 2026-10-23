@@ -9,10 +9,12 @@ import { createRoot } from "react-dom/client";
 import { Excalidraw, reconcileElements, restoreElements, CaptureUpdateAction } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 
-const SEND_DELAY = 300; // ms: one POST per burst of edits
+const SEND_DELAY = 300; // ms after the last change
+const MAX_WAIT = 1000; // ms: save at least this often during a long drag
+const MAX_ELEMENT = 60000; // bytes: Jam's per-element cap is 64 KB
 const POLL = 30000; // ms: catch up if a live push was missed
 
-function Board({ base, boardId, readOnly }) {
+function Board({ el, base, boardId, readOnly }) {
   const [api, setApi] = useState(null);
   const [initial, setInitial] = useState(null);
   const [error, setError] = useState("");
@@ -47,8 +49,7 @@ function Board({ base, boardId, readOnly }) {
 
   useEffect(() => {
     if (!api) return;
-    // For tests and debugging: how many live elements the editor shows.
-    window.__jamBoardCount = () => api.getSceneElements().length;
+    el.jamElementCount = () => api.getSceneElements().length; // tests and debugging
     const pull = () => fetchSince().then(apply).catch(() => {});
     const onPush = (ev) => { if (ev.detail === boardId) pull(); };
     window.addEventListener("jam-board", onPush);
@@ -56,30 +57,78 @@ function Board({ base, boardId, readOnly }) {
     return () => { window.removeEventListener("jam-board", onPush); clearInterval(poll); };
   }, [api, boardId]);
 
+  // Saving: one POST in flight at a time; each sends the elements whose
+  // version Jam doesn't have, snapshotted (id, version, JSON) before the
+  // request — Excalidraw mutates elements in place, so a later edit is never
+  // mistaken for one already saved. A failure retries with backoff.
+  const inFlight = useRef(false);
+  const dirty = useRef(false);
+  const retry = useRef(1000);
   const send = async () => {
     timer.current = null;
-    const changed = api.getSceneElementsIncludingDeleted().filter((e) => sent.current.get(e.id) !== e.version);
-    if (changed.length === 0) return;
-    for (let i = 0; i < changed.length; i += 500) {
-      const batch = changed.slice(i, i + 500);
-      const r = await fetch(url, {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ elements: batch }),
-      });
-      if (!r.ok) { setError(`save failed (${r.status})`); return; }
-      setError("");
-      remember(batch);
-      const body = await r.json();
-      const lost = restoreElements(body.lost, null);
-      remember(lost);
-      apply(lost);
+    if (inFlight.current) { dirty.current = true; return; }
+    inFlight.current = true;
+    dirty.current = false;
+    let failed = false;
+    try {
+      const changed = api.getSceneElementsIncludingDeleted().filter((e) => sent.current.get(e.id) !== e.version);
+      const snap = [];
+      for (const e of changed) {
+        const json = JSON.stringify(e);
+        if (json.length > MAX_ELEMENT) { // Jam refuses it; never let it block the rest
+          sent.current.set(e.id, e.version);
+          setError("a drawing is too large to save; split it into smaller strokes");
+          continue;
+        }
+        snap.push({ id: e.id, version: e.version, json });
+      }
+      for (let i = 0; i < snap.length; i += 500) {
+        const batch = snap.slice(i, i + 500);
+        const r = await fetch(url, {
+          method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+          body: '{"elements":[' + batch.map((b) => b.json).join(",") + "]}",
+        });
+        if (!r.ok) throw new Error(`save failed (${r.status})`);
+        batch.forEach((b) => sent.current.set(b.id, b.version));
+        const body = await r.json();
+        const lost = restoreElements(body.lost, null);
+        remember(lost);
+        apply(lost);
+      }
+      retry.current = 1000;
+      setError((e) => (e.startsWith("save failed") || e.startsWith("Failed") ? "" : e));
+    } catch (e) {
+      setError(String(e.message || e));
+      dirty.current = failed = true;
+      retry.current = Math.min(retry.current * 2, 30000);
+    } finally {
+      inFlight.current = false;
+      if (dirty.current && !timer.current) timer.current = setTimeout(send, failed ? retry.current : SEND_DELAY);
     }
   };
 
+  // Debounced: SEND_DELAY after the last change, but at least every MAX_WAIT
+  // during a long drag.
+  const firstChange = useRef(0);
   const onChange = () => {
-    if (readOnly || !api || timer.current) return;
-    timer.current = setTimeout(send, SEND_DELAY);
+    if (readOnly || !api) return;
+    const now = Date.now();
+    if (!timer.current) firstChange.current = now;
+    clearTimeout(timer.current);
+    const wait = now - firstChange.current >= MAX_WAIT ? 0 : SEND_DELAY;
+    timer.current = setTimeout(send, wait);
   };
+
+  // Warn before leaving with edits not yet saved.
+  useEffect(() => {
+    const warn = (ev) => {
+      if (!api || readOnly) return;
+      const unsaved = timer.current || inFlight.current || api.getSceneElementsIncludingDeleted().some((e) => sent.current.get(e.id) !== e.version);
+      if (unsaved) { ev.preventDefault(); ev.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [api, readOnly]);
 
   if (error && !initial) return <div className="wb-error">{error}</div>;
   if (!initial) return <div className="wb-loading">Loading the board…</div>;
@@ -102,7 +151,7 @@ function Board({ base, boardId, readOnly }) {
 window.jamBoard = {
   open(el, base, boardId, readOnly) {
     const root = createRoot(el);
-    root.render(<Board base={base} boardId={boardId} readOnly={readOnly} />);
+    root.render(<Board el={el} base={base} boardId={boardId} readOnly={readOnly} />);
     return () => root.unmount();
   },
 };

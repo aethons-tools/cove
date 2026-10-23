@@ -3,6 +3,7 @@ package uiassets_test
 import (
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
@@ -25,6 +26,12 @@ func TestWhiteboardBundle(t *testing.T) {
 	}
 	if rec := get(t, h, "/app/static/whiteboard/.keep"); rec.Code == http.StatusOK {
 		t.Fatal("the placeholder must not be served")
+	}
+	if rec := get(t, h, "/app/static/whiteboard/chunks/"); rec.Code == http.StatusOK {
+		t.Fatal("no directory listings")
+	}
+	if rec := get(t, h, "/app/static/whiteboard/whiteboard.js"); !strings.Contains(rec.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
 	}
 	if uiassets.WhiteboardScript("/app/static/") == "" {
 		t.Fatal("no versioned script URL")

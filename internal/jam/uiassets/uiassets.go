@@ -83,9 +83,18 @@ func Handler(prefix string) http.Handler {
 	board := http.StripPrefix(prefix+"whiteboard/", http.FileServer(http.FS(whiteboard)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if rest, ok := strings.CutPrefix(r.URL.Path, prefix+"whiteboard/"); ok {
-			if !WhiteboardBuilt() || strings.HasPrefix(path.Base(rest), ".") {
+			// Files only: no dotfiles, no directory listings.
+			if !WhiteboardBuilt() || rest == "" || strings.HasSuffix(rest, "/") || strings.HasPrefix(path.Base(rest), ".") {
 				http.NotFound(w, r)
 				return
+			}
+			// Chunks and assets are content-hashed and the entry is
+			// versioned (?v=): cache them for good; fonts keep their names
+			// across builds, so for a day.
+			if strings.HasPrefix(rest, "fonts/") {
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
 			board.ServeHTTP(w, r)
 			return

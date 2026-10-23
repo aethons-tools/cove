@@ -213,9 +213,14 @@ meScrollToEnd(document.getElementById('stream'));
   es.addEventListener('presence', function(){ htmx.trigger(document.body, 'mePresence'); });
   // A board changed: an open editor for it refetches (by seq); its card's
   // thumbnail reloads.
+  var meThumbAt={};
   es.addEventListener('board', function(ev){
     window.dispatchEvent(new CustomEvent('jam-board', {detail: ev.data}));
-    document.querySelectorAll('#board-'+ev.data+' img').forEach(function(img){ img.src=img.src.split('?')[0]+'?t='+Date.now(); });
+    // Thumbnails: at most one reload per board every few seconds.
+    var now=Date.now(), last=meThumbAt[ev.data]||0;
+    if(now-last<3000) return;
+    meThumbAt[ev.data]=now;
+    document.querySelectorAll('#board-'+ev.data+' img').forEach(function(img){ img.src=img.src.split('?')[0]+'?t='+now; });
   });
   es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
   document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });

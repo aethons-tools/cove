@@ -3,14 +3,18 @@
 // and Excalidraw's fonts (without the 13 MB CJK Xiaolai set: those glyphs
 // fall back to system fonts).
 import { build } from "esbuild";
-import { cpSync, mkdirSync, rmSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, "../../internal/jam/uiassets/whiteboard");
-rmSync(out, { recursive: true, force: true });
-mkdirSync(out, { recursive: true });
+const keep = "Placeholder: the whiteboard bundle is built here by `just whiteboard` (git-ignored).\n";
+// Build into a scratch directory and swap it in only on success, so a failed
+// build never leaves the embedded directory empty (go:embed needs .keep).
+const tmp = out + ".tmp";
+rmSync(tmp, { recursive: true, force: true });
+mkdirSync(tmp, { recursive: true });
 
 await build({
   entryPoints: [join(here, "entry.jsx")],
@@ -21,7 +25,7 @@ await build({
   format: "esm",
   splitting: true,
   target: "es2020",
-  outdir: out,
+  outdir: tmp,
   entryNames: "whiteboard",
   chunkNames: "chunks/[name]-[hash]",
   assetNames: "assets/[name]-[hash]",
@@ -35,9 +39,11 @@ await build({
 
 const fonts = join(here, "node_modules/@excalidraw/excalidraw/dist/prod/fonts");
 for (const f of readdirSync(fonts)) {
-  if (f !== "Xiaolai") cpSync(join(fonts, f), join(out, "fonts", f), { recursive: true });
+  if (f !== "Xiaolai") cpSync(join(fonts, f), join(tmp, "fonts", f), { recursive: true });
 }
 for (const [pkg, file] of [["@excalidraw/excalidraw", "LICENSE"], ["react", "LICENSE"], ["react-dom", "LICENSE"]]) {
-  try { cpSync(join(here, "node_modules", pkg, file), join(out, "licenses", pkg.replace("/", "_") + ".txt"), { recursive: true }); } catch {}
+  try { cpSync(join(here, "node_modules", pkg, file), join(tmp, "licenses", pkg.replace("/", "_") + ".txt"), { recursive: true }); } catch {}
 }
-writeFileSync(join(out, ".keep"), "Placeholder: the whiteboard bundle is built here by `just whiteboard` (git-ignored).\n");
+writeFileSync(join(tmp, ".keep"), keep);
+rmSync(out, { recursive: true, force: true });
+renameSync(tmp, out);

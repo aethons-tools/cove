@@ -75,13 +75,17 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "agent-shape", Text: "from an agent"}}); err != nil {
 		t.Fatal(err)
 	}
+	// The live stream's `board` event (the merge above published it) reaches
+	// the editor, which refetches: poll until it shows the agent's shape.
 	var n int
-	if err := chromedp.Run(ctx,
-		chromedp.Evaluate(`window.dispatchEvent(new CustomEvent('jam-board', {detail: `+jsString(string(b.ID))+`}))`, nil),
-		chromedp.Sleep(800*time.Millisecond),
-		chromedp.Evaluate(`window.__jamBoardCount ? window.__jamBoardCount() : -1`, &n),
-	); err != nil {
-		t.Fatal(err)
+	for range 50 {
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('board-editor').jamElementCount()`, &n)); err != nil {
+			t.Fatal(err)
+		}
+		if n >= 3 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if n < 3 { // the rectangle, the ellipse and its label
 		t.Fatalf("editor shows %d elements after the agent's edit", n)
@@ -95,5 +99,3 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 		}
 	}
 }
-
-func jsString(s string) string { b, _ := json.Marshal(s); return string(b) }
