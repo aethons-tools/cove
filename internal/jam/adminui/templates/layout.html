@@ -14,23 +14,21 @@
     code,.mono,td.id{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
     a{color:var(--accent)}
 
-    /* Chrome */
-    .topbar{display:flex;align-items:center;gap:20px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;overflow-x:auto}
-    .brand{display:flex;align-items:baseline;gap:8px;font-weight:600;white-space:nowrap;padding:12px 0}
-    .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);align-self:center}
-    .brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
-    .railbtn{display:none;background:none;border:0;font-size:18px;line-height:1;padding:10px 2px;color:var(--ink);cursor:pointer}
+    /* Chrome: the app title bar (jam.css) and, under it, the slim bar with
+       the rail toggle and search; both stay put (--chrome-h, jam.css, together). */
+    .chrome{position:sticky;top:0;z-index:20}
+    .subbar{display:flex;align-items:center;gap:12px;height:var(--subbar-h);padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+    .railbtn{display:none;background:none;border:0;font-size:18px;line-height:1;padding:6px 2px;color:var(--ink);cursor:pointer}
 
-    /* Rail: Jam, then every project; the selection decides the tabs. */
-    .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 49px)}
-    #rail{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;position:sticky;top:49px;align-self:start;max-height:calc(100vh - 49px);overflow-y:auto}
+    /* Rail (Projects only): every project; the selection decides the tabs. */
+    .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - var(--chrome-h))}
+    .shell.solo{grid-template-columns:minmax(0,1fr)}
+    #rail{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;position:sticky;top:var(--chrome-h);align-self:start;max-height:calc(100vh - var(--chrome-h));overflow-y:auto}
     #rail ul{list-style:none;margin:0;padding:0}
     #rail a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;white-space:nowrap;overflow:hidden}
     #rail a span.name{flex:1;overflow:hidden;text-overflow:ellipsis}
     #rail a:hover{color:var(--ink);background:var(--surface-2)}
     #rail a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
-    #rail .jam{font-weight:600;color:var(--ink)}
-    #rail hr{border:0;border-top:1px solid var(--border);margin:8px 4px}
     #rail .rail-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);padding:4px 10px;font-weight:600}
     #rail details.newproj{margin-top:8px}
     #rail details.newproj>summary{list-style:none;cursor:pointer;padding:6px 10px;color:var(--accent);font-weight:600;font-size:12.5px}
@@ -40,7 +38,7 @@
     .badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:11px;font-weight:700;background:var(--wait-soft);color:var(--wait)}
     .badge.red{background:var(--bad-soft);color:var(--bad)}
 
-    /* Scope head: the selected scope's title and tabs. */
+    /* Project head: the selected project's title and tabs. */
     .scope-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600;margin-bottom:2px}
     nav.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto}
     nav.tabs a{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;padding:9px 10px 8px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
@@ -55,7 +53,7 @@
     .subtabs a{color:var(--muted);text-decoration:none;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:500;white-space:nowrap}
     .subtabs a:hover{color:var(--ink);background:var(--surface-2)}
     .subtabs a[aria-current="page"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
-    .topsearch{margin-left:auto;padding:8px 0}
+    .topsearch{margin-left:auto}
     .topsearch input{width:200px;padding:5px 10px;font-size:12.5px;border-radius:999px}
     main{max-width:1200px;width:100%;margin:0 auto;padding:18px 20px 60px}
     .page-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
@@ -140,26 +138,32 @@
     .ta-menu .ta-opt[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
 
     @media (max-width:720px){
-      main{padding:16px}.topbar{gap:12px;padding:0 16px}th,td{padding:8px 10px}
+      main{padding:16px}.subbar{padding:0 12px}th,td{padding:8px 10px}
       .railbtn{display:block}
       .shell{grid-template-columns:1fr}
-      #rail{display:none;position:fixed;top:49px;left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+      #rail{display:none;position:fixed;top:var(--chrome-h);left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
       body.rail-open #rail{display:block}
     }
   </style>
 </head>
 <body>
-  <header class="topbar">
+  {{- $f := frame}}
+  <div class="chrome">
+  {{template "app-titlebar" titlebar}}
+  <div class="subbar">
+    {{- if $f.Rail}}
     <button type="button" class="railbtn" aria-label="Projects" onclick="document.body.classList.toggle('rail-open')">☰</button>
-    <span class="brand"><span class="dot"></span>{{or frame.Brand "Jam"}} <small>Admin</small></span>
+    {{- end}}
     <form class="topsearch" action="/app/admin/search" method="get" role="search">
       <input id="q-top" name="q" placeholder="Search  /" aria-label="Search" autocomplete="off">
       <input type="hidden" name="go" value="1">
     </form>
-  </header>
-  <div class="shell">
-  {{- $f := frame}}
-  {{template "rail" $f.Rail}}
+  </div>
+  </div>
+  <div class="shell{{if not $f.Rail}} solo{{end}}">
+  {{- with $f.Rail}}
+  {{template "rail" .}}
+  {{- end}}
   <main>
     {{- with $f.Tabs}}
     <div class="scope-title">{{$f.Title}}</div>
@@ -357,8 +361,8 @@
 </body>
 </html>{{end}}
 
-{{/* rail is the permanent scope list (a railView). Only its entry lists
-     (rail-entries) re-fetch themselves every 3s so badges stay live — the
+{{/* rail is the Projects pages' project list (a railView). Only its entry
+     list (rail-entries) re-fetches itself every 3s so badges stay live — the
      "+ New project" form sits outside the swapped element, so a poll never
      wipes what's being typed; Poll keeps the selection across polls. */}}
 {{define "rail"}}
@@ -373,10 +377,6 @@
 
 {{define "rail-entries"}}
 <div id="rail-entries" hx-get="{{or .Poll "/app/admin/rail"}}" hx-trigger="every 3s" hx-swap="outerHTML">
-  <ul>
-    <li><a class="jam" href="{{.Jam.Href}}"{{if .Jam.Current}} aria-current="page"{{end}}><span class="name">◉ {{.Jam.Name}}</span>{{template "badge" .Jam.Badge}}</a></li>
-  </ul>
-  <hr>
   <div class="rail-label">Projects</div>
   <ul>
     {{- range .Projects}}

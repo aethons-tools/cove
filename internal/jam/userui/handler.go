@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
@@ -29,14 +30,16 @@ func mustParse(names ...string) *template.Template {
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return template.Must(template.New("").Funcs(template.FuncMap{
+	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
 		"mb":         func(n int64) int64 { return n >> 20 },
 	}).ParseFS(files, paths...))
+	return template.Must(t.Parse(appui.TitlebarTemplate))
 }
 
 // inboxPage is the full data for the two-pane inbox.
 type inboxPage struct {
+	Bar        appui.Titlebar // the app title bar (full page only)
 	Me         string
 	Groups     []RailGroup
 	Conv       *Conversation
@@ -125,6 +128,7 @@ func (h *handler) full(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no participant", http.StatusUnauthorized)
 		return
 	}
+	page.Bar = appui.TitlebarFor(r, "inbox")
 	h.render(w, "", page)
 }
 

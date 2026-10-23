@@ -4,6 +4,7 @@
    tokens and base live here: each UI keeps its own component styles (their
    class names overlap with different meanings). */
 :root{
+  --titlebar-h:48px;--subbar-h:40px;--chrome-h:calc(var(--titlebar-h) + var(--subbar-h));
   --bg:#F5F6F8;
   --surface:#fff;
   --surface-2:#FBF9FA;
@@ -54,3 +55,23 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
 .mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+
+/* App title bar (appui.TitlebarTemplate): logo, tabs, principal menu. */
+.app-titlebar{display:flex;align-items:center;gap:16px;padding:0 16px;height:var(--titlebar-h);background:var(--surface);border-bottom:1px solid var(--border)}
+.app-logo{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;text-decoration:none;white-space:nowrap;min-width:0;max-width:35%;flex-shrink:1}
+.app-logo img{display:block;flex-shrink:0}
+.app-logo span{overflow:hidden;text-overflow:ellipsis}
+.app-tabs{display:flex;align-items:center;gap:2px;flex:1;min-width:120px;overflow-x:auto}
+.app-tabs a{padding:6px 10px;border-radius:6px;color:var(--muted);text-decoration:none;white-space:nowrap}
+.app-tabs a:hover{color:var(--ink)}
+.app-tabs a[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.app-tabs .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--wait-soft);color:var(--wait);font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.app-tabs .badge.red{background:var(--bad-soft);color:var(--bad)}
+.app-principal{position:relative;margin-left:auto;flex-shrink:0}
+.app-principal summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;color:var(--ink)}
+.app-principal summary::-webkit-details-marker{display:none}
+.app-principal .av{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.app-principal .menu{position:absolute;right:0;top:36px;z-index:10;display:flex;flex-direction:column;gap:4px;min-width:180px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.app-principal .menu small{color:var(--muted)}
+.app-principal .menu a{color:var(--accent);text-decoration:none}
+@media (max-width:720px){.app-principal .nm,.app-logo span{display:none}.app-titlebar{gap:8px;padding:0 8px}}

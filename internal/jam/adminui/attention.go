@@ -3,11 +3,13 @@ package adminui
 import (
 	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -202,3 +204,30 @@ func conditionItems(cs []condition.Condition) []attnItem {
 	}
 	return out
 }
+
+// BadgeSource is the admin title-bar tabs' attention badges (appui.Shell's
+// AdminBadges), keyed by tab: dashboard is Jam's total, projects every
+// project's items, each other tab Jam's items on it.
+func BadgeSource(store jam.Store, img jam.ImageResolver, conds *condition.Tracker) func(*http.Request) map[string]appui.Badge {
+	src := frameSource{store: store, img: img, conds: conds}
+	return func(*http.Request) map[string]appui.Badge {
+		items := src.items()
+		var projects []attnItem
+		for _, it := range items {
+			if it.Scope != "" {
+				projects = append(projects, it)
+			}
+		}
+		out := map[string]appui.Badge{
+			"dashboard": badgeOf(inScope(items, "", "")).app(),
+			"projects":  badgeOf(projects).app(),
+		}
+		for _, tab := range []string{"agents", "users", "specs", "config", "health"} {
+			out[tab] = badgeOf(inScope(items, "", tab)).app()
+		}
+		return out
+	}
+}
+
+// app is b as a title-bar badge.
+func (b attnBadge) app() appui.Badge { return appui.Badge(b) }

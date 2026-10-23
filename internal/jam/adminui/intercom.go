@@ -181,7 +181,7 @@ func filterSquawks(msgs SquawkReader, f squawkFilter, limit int) squawkTable {
 	return t
 }
 
-// squawksData is the Intercom page payload. The filter fields are echoed back
+// squawksData is the Channel log page payload. The filter fields are echoed back
 // into the form so a filtered view round-trips; RawQuery drives the Refresh
 // link; the embedded table's Filtered distinguishes the two empty states and
 // Legacy selects the frozen legacy log's tab.
@@ -204,7 +204,7 @@ type squawksData struct {
 // recipient). A nil reader means no log is configured.
 func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	q := r.URL.Query()
-	data := squawksData{Title: "Intercom", Configured: msgs != nil}
+	data := squawksData{Title: "Channel log", Configured: msgs != nil}
 	data.Legacy = q.Get("log") == "legacy"
 	if msgs == nil {
 		render(w, r, "intercom", data)

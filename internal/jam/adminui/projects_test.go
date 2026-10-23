@@ -66,13 +66,13 @@ func projHandler(store jam.Store) http.Handler {
 	return adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil)
 }
 
-// The rail lists Jam, then every project, on every page; a project page
-// selects its project, a Jam page selects Jam.
+// The rail lists every project on the Projects pages — a project page
+// selects its project, the list nothing; every other page is full width
+// with no rail.
 func TestRailListsProjects(t *testing.T) {
 	h := projHandler(seedProjects(t))
 	for path, current := range map[string]string{
-		"/app/admin/":                        `<a class="jam" href="/app/admin/" aria-current="page">`,
-		"/app/admin/users":                   `<a class="jam" href="/app/admin/" aria-current="page">`,
+		"/app/admin/projects":                "",
 		"/app/admin/projects/acme":           `<a href="/app/admin/projects/acme" aria-current="page"><span class="name">acme</span>`,
 		"/app/admin/projects/beta/agents":    `<a href="/app/admin/projects/beta" aria-current="page"><span class="name">beta</span>`,
 		"/app/admin/projects/acme/roles/dev": `<a href="/app/admin/projects/acme" aria-current="page"><span class="name">acme</span>`,
@@ -84,14 +84,18 @@ func TestRailListsProjects(t *testing.T) {
 				t.Errorf("%s: rail missing %s", path, want)
 			}
 		}
-		if n := strings.Count(rail, `aria-current="page"`); n != 1 {
-			t.Errorf("%s: %d rail entries current, want 1", path, n)
+		want := 1
+		if current == "" {
+			want = 0
+		}
+		if n := strings.Count(rail, `aria-current="page"`); n != want {
+			t.Errorf("%s: %d rail entries current, want %d", path, n, want)
 		}
 	}
-	// search selects nothing
-	body := get(t, h, "/app/admin/search?q=acme").Body.String()
-	if rail := body[strings.Index(body, `<aside id="rail"`):strings.Index(body, "</aside>")]; strings.Contains(rail, "aria-current") {
-		t.Error("search should select no scope")
+	for _, path := range []string{"/app/admin/", "/app/admin/users", "/app/admin/search?q=acme"} {
+		if body := get(t, h, path).Body.String(); strings.Contains(body, `<aside id="rail"`) {
+			t.Errorf("%s should carry no rail", path)
+		}
 	}
 }
 

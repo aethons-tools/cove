@@ -1,5 +1,5 @@
 {{define "content"}}
-<div class="page-head"><h1>Health</h1><span class="sub">Problems Jam has detected in itself — each with how to fix it. Pushed to operators by Alertmanager when configured.</span>{{with .Silences}} <a href="{{.}}">Silences ↗</a>{{end}}</div>
+<div class="page-head"><h1>Health</h1><span class="sub">Problems Jam has detected in itself — each with how to fix it. Pushed to operators by Alertmanager when configured.</span> <a href="/app/admin/intercom">Channel log</a>{{with .Silences}} <a href="{{.}}">Silences ↗</a>{{end}}</div>
 {{template "health-body" .}}
 {{end}}
 

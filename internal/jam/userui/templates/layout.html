@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jam Intercom</title>
+<title>{{.Bar.Brand}}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -16,18 +16,12 @@ try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.class
 /* Tokens and base: jam.css (shared with /app/admin). Intercom components below. */
 html,body{height:100%}
 body{display:flex;flex-direction:column}
+.app-titlebar{flex:0 0 auto}
 .mono,.cove,.tkt{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace}
-.topbar{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface);flex:0 0 auto}
-.brand{display:flex;align-items:baseline;gap:8px;font-weight:600}
-.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent)}
-.brand small{color:var(--faint);font-weight:500;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
-.topbar .spacer{flex:1}
-.who{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
-.who .av{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:600}
 .panes{flex:1 1 auto;display:grid;grid-template-columns:320px 1fr;min-height:0}
-.rail{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;min-height:0}
-.rail-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 4px}
-.rail-head b{font-size:13px}
+.rail{display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);min-height:0}
+.rail-list{flex:1 1 auto;overflow-y:auto;min-height:0}
+.rail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);flex:0 0 auto}
 .newmsg{position:relative}
 .newmsg summary{cursor:pointer;list-style:none;color:var(--accent);font-weight:600;font-size:12.5px;padding:4px 8px;border:1px solid var(--border-strong);border-radius:8px}
 .newmsg[open] summary{background:var(--accent-soft)}
@@ -131,7 +125,7 @@ html.raw .msg .body.raw{display:block}
 .composer .send-col button kbd{font:inherit;font-size:11px;font-weight:500;opacity:.75;margin-left:4px}
 .composer .plain-opt{font-size:11.5px;color:var(--faint);display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
 .composer button{background:var(--accent);color:#fff;border:0;border-radius:9px;font:inherit;font-weight:600;padding:9px 18px;cursor:pointer}
-@media (max-width:720px){.panes{grid-template-columns:1fr}.rail{display:none}}
+@media (max-width:720px){.panes{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}.rail{border-right:0;border-bottom:1px solid var(--border)}.rail-list{display:none}.rail-head{border-bottom:0}}
 .askcard{border:1px solid var(--wait-line);background:var(--wait-soft);border-radius:10px;padding:10px 12px;margin:8px 0;max-width:640px}
 .askcard.answered,.askcard.withdrawn{background:transparent;border-color:var(--line,#ddd)}
 .ask-q{font-weight:600;margin-bottom:6px}.ask-q .edited,.for{font-weight:400;font-size:11.5px;opacity:.7}
@@ -148,25 +142,7 @@ html.raw .msg .body.raw{display:block}
 </style>
 </head>
 <body>
-<header class="topbar">
-  <span class="brand"><span class="dot"></span>Jam <small>Intercom</small></span>
-  <span class="spacer"></span>
-  <div class="viewsel" role="group" aria-label="Message view">
-    <button type="button" data-view="rendered" onclick="meSetView('rendered')" title="Show messages rendered (markdown)">Rendered</button>
-    <button type="button" data-view="raw" onclick="meSetView('raw')" title="Show every message as its raw text, in monospace (for copying markdown)">Raw</button>
-  </div>
-  <details class="newmsg" id="newmsg">
-    <summary>New message</summary>
-    <div class="recips">
-      {{range .Recipients}}
-        <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
-      {{else}}
-        <p class="empty">No active recipients.</p>
-      {{end}}
-    </div>
-  </details>
-  <span class="who"><span class="av">{{if .Me}}{{slice .Me 0 1}}{{else}}?{{end}}</span> <span>{{.Me}}</span></span>
-</header>
+{{template "app-titlebar" .Bar}}
 <div class="panes">
 {{template "content" .}}
 </div>

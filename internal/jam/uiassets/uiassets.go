@@ -12,7 +12,7 @@ import (
 	"net/http"
 )
 
-//go:embed static/jam.css static/htmx.min.js
+//go:embed static/jam.css static/htmx.min.js static/brand/*.svg
 var files embed.FS
 
 var static = func() fs.FS {

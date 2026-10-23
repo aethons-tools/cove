@@ -1,0 +1,17 @@
+{{define "app-titlebar"}}
+<header class="app-titlebar">
+  <a class="app-logo" href="/app/"><img src="/app/static/brand/j-logo-plain.svg" alt="" width="26" height="26"><span>{{.Brand}}</span></a>
+  <nav class="app-tabs" aria-label="Jam">
+    {{- range .Tabs}}
+    <a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}{{if .Badge.N}} <span class="badge{{if .Badge.Red}} red{{end}}" title="{{.Badge.Title}}">{{.Badge.N}}</span>{{end}}</a>
+    {{- end}}
+  </nav>
+  <details class="app-principal">
+    <summary><span class="av">{{.Initial}}</span><span class="nm">{{.Name}}</span></summary>
+    <div class="menu">
+      <b>{{.Name}}</b><small>{{.Roles}}</small>
+      {{- if .SignOut}}<a href="/app/auth/logout">Sign out</a>{{end}}
+    </div>
+  </details>
+</header>
+{{end}}

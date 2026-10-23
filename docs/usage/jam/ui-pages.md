@@ -33,7 +33,7 @@ project's identities, or search) opens `/app/admin/agents/<id>`, the page for on
 agent identity. It sits under Jam's Agents tab, or — linked from a project's
 pages (`?project=<name>`) — under that project's. The header shows its kind, its [status](#agent-status), standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
-(the [session timeline](ui.md#session-timeline); shown when session capture is
+(the [session timeline](ui-console.md#session-timeline); shown when session capture is
 configured), **Teardown** (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 
@@ -63,8 +63,8 @@ studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
 - **Squawks** — the newest 50 squawks in its conversations (and, from before
-  the channel log, to or from `actor:<id>`), rendered as on the Intercom page,
-  with a link to the Intercom page filtered to its own posts.
+  the channel log, to or from `actor:<id>`), rendered as on the Channel log,
+  with a link to the Channel log filtered to its own posts.
 
 A torn-down studio leaves the registry, but its session and squawks remain, so
 its page still renders them under a "not running" banner. An id with no record,

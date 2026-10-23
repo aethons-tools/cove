@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
@@ -37,6 +38,8 @@ var (
 	jamPage   = func(tab string) pageMeta { return pageMeta{Kind: scopeJam, Tab: tab} }
 	specsPage = func(sub string) pageMeta { return pageMeta{Kind: scopeJam, Tab: "specs", SubTab: sub} }
 	projPage  = pageMeta{Kind: scopeProject}
+	// listPage is the projects list: under Projects, with the rail.
+	listPage = pageMeta{Kind: scopeProjects}
 )
 
 var pages = map[string]page{
@@ -47,7 +50,8 @@ var pages = map[string]page{
 	"kits":         mustParse(specsPage("/app/admin/kits"), "kits.html"),
 	"destinations": mustParse(specsPage("/app/admin/destinations"), "dest_fields.html", "destinations.html"),
 	"health":       mustParse(jamPage("health"), "health.html"),
-	"intercom":     mustParse(jamPage("intercom"), "squawks.html", "intercom.html"),
+	"intercom":     mustParse(jamPage("health"), "squawks.html", "intercom.html"), // the Channel log, under Health
+	"projects":     mustParse(listPage, "projects.html"),
 	"session":      mustParse(jamPage("agents"), "session.html"),
 	"role":         mustParse(projPage, "coves.html", "context_panel.html", "role.html"),
 	"destination":  mustParse(specsPage("/app/admin/destinations"), "dest_fields.html", "destination.html"),
@@ -91,7 +95,8 @@ func mustParse(meta pageMeta, names ...string) page {
 	for _, n := range names {
 		paths = append(paths, "templates/"+n)
 	}
-	return page{t: template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...)), meta: meta}
+	t := template.Must(template.New("").Funcs(funcs).ParseFS(files, paths...))
+	return page{t: template.Must(t.Parse(appui.TitlebarTemplate)), meta: meta}
 }
 
 // funcs are the template helpers shared by every page.
@@ -110,9 +115,10 @@ var funcs = template.FuncMap{
 		return jam.StatusOf(jam.Phase(phase), jam.Activity(activity), hasStudio)
 	},
 	"statusClass": func(s jam.AgentStatus) string { return strings.ReplaceAll(string(s), " ", "-") },
-	// frame, attn, agentHref, managed and driftNote are bound per render (frameFuncs); these are
-	// the defaults a fragment renders with.
+	// frame, titlebar, attn, agentHref, managed and driftNote are bound per render (frameFuncs);
+	// these are the defaults a fragment renders with.
 	"frame":      func() frame { return frame{} },
+	"titlebar":   func() appui.Titlebar { return appui.Titlebar{} },
 	"attn":       func(tab, subject string) *attnItem { return nil },
 	"agentHref":  func(id, suffix string) string { return agentURL(id) + suffix },
 	"managed":    func(kind, name string) *managedView { return nil },
@@ -151,8 +157,9 @@ type options struct {
 	configEnv       jam.ConfigEnv
 }
 
-// WithDisplayName names this Jam in the UI: the title bar reads "<name> Jam"
-// and the rail's Jam entry "<name>" ("" keeps "Jam").
+// WithDisplayName names this Jam in the UI: the browser tab title reads
+// "<name> Jam" — and the title bar too when no appui.Shell brands it ("" keeps
+// "Jam").
 func WithDisplayName(name string) Option {
 	return func(o *options) { o.displayName = name }
 }
@@ -221,8 +228,8 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 
 	registerAgents(mux, store, sup, canEdit)
 	registerHealth(mux, o.conds, o.alertmanagerURL)
-	// The rail's entry lists, re-fetched by their own poll so badges stay
-	// live on every page.
+	// The rail's project list, re-fetched by its own poll so badges stay
+	// live on the Projects pages.
 	mux.HandleFunc("GET /app/admin/rail", func(w http.ResponseWriter, r *http.Request) {
 		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, src.items()))
 	})
@@ -295,7 +302,7 @@ func renderStatus(w http.ResponseWriter, r *http.Request, status int, name strin
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	t.Funcs(frameFuncs(f))
+	t.Funcs(frameFuncs(r, f))
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -306,12 +313,19 @@ func renderStatus(w http.ResponseWriter, r *http.Request, status int, name strin
 	_, _ = w.Write(buf.Bytes())
 }
 
-// frameFuncs binds f: frame returns it; attn finds the item a row is about
-// (tab and subject, over every scope); agentHref links an agent page, keeping
-// a project scope.
-func frameFuncs(f frame) template.FuncMap {
+// frameFuncs binds f: frame returns it; titlebar is r's app title bar with
+// f's tab current; attn finds the item a row is about (tab and subject, over
+// every scope); agentHref links an agent page, keeping a project scope.
+func frameFuncs(r *http.Request, f frame) template.FuncMap {
 	return template.FuncMap{
 		"frame": func() frame { return f },
+		"titlebar": func() appui.Titlebar {
+			tb := appui.TitlebarFor(r, f.TitleTab)
+			if tb.Brand == "Jam" && f.Brand != "" { // no shell brand: the display name's
+				tb.Brand = f.Brand
+			}
+			return tb
+		},
 		"attn": func(tab, subject string) *attnItem {
 			for i := range f.All {
 				if f.All[i].Tab == tab && f.All[i].Subject == subject {
@@ -351,7 +365,7 @@ func renderFragment(w http.ResponseWriter, r *http.Request, name, tmpl string, d
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	t.Funcs(frameFuncs(f))
+	t.Funcs(frameFuncs(r, f))
 	var buf bytes.Buffer
 	if err := t.ExecuteTemplate(&buf, tmpl, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

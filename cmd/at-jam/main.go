@@ -2634,6 +2634,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
+			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},
 		})
 		log.Info("Jam app mounted", "path", "/app/")
 
@@ -3029,4 +3030,13 @@ func operatorPrincipal(st jam.Store) func(*http.Request) (collab.Principal, stri
 		}
 		return p, name, nil
 	}
+}
+
+// appBrand is the title-bar brand: "{display name} Jam", or "" (the bar then
+// says "Jam") when no display name is set.
+func appBrand(name string) string {
+	if name == "" {
+		return ""
+	}
+	return name + " Jam"
 }

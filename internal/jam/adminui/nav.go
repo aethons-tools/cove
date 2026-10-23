@@ -10,37 +10,24 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
-// scopeKind is what a page belongs to in the rail: Jam, one project, or —
-// search — neither.
+// scopeKind is what a page belongs to: Jam (a title-bar tab, full width),
+// one project, the projects list, or — search — none.
 type scopeKind int
 
 const (
 	scopeNone scopeKind = iota
 	scopeJam
 	scopeProject
+	scopeProjects
 )
 
-// pageMeta places a page in the frame: its scope kind, the scope tab it sits
-// under, and — for Specs — the sub-tab (an Href). A project page's project and
-// tab come from its URL (frameFor).
+// pageMeta places a page in the frame: its scope kind, the title-bar tab it
+// sits under (a Jam page's), and — for Specs — the sub-tab (an Href). A
+// project page's project and tab come from its URL (frameFor).
 type pageMeta struct {
 	Kind   scopeKind
 	Tab    string
 	SubTab string
-}
-
-// tabDef is one tab of a scope.
-type tabDef struct{ Key, Label, Href string }
-
-// jamTabs are Jam's tabs, in order.
-var jamTabs = []tabDef{
-	{"dashboard", "Dashboard", "/app/admin/"},
-	{"agents", "Agents", "/app/admin/agents"},
-	{"users", "Users", "/app/admin/users"},
-	{"specs", "Specs", "/app/admin/specs"},
-	{"config", "Config", "/app/admin/config"},
-	{"intercom", "Intercom", "/app/admin/intercom"},
-	{"health", "Health", "/app/admin/health"},
 }
 
 // subTab is one sub-tab of a tab; Current marks the page's own.
@@ -52,86 +39,72 @@ type subTab struct {
 // specsSubTabs are the Specs tab's sub-tabs; each Href is also its key.
 var specsSubTabs = []subTab{{Label: "Kits", Href: "/app/admin/kits"}, {Label: "Destinations", Href: "/app/admin/destinations"}, {Label: "Model-specs", Href: "/app/admin/model-specs"}}
 
-// tabView is one rendered tab.
+// tabView is one rendered project tab.
 type tabView struct {
 	Label, Href string
 	Current     bool
 	Badge       attnBadge
 }
 
-// railEntry is one rail row: Jam or a project.
+// railEntry is one rail row: a project.
 type railEntry struct {
 	Name, Href string
 	Current    bool
 	Badge      attnBadge
 }
 
-// railView is the rail. Poll is the URL its entry lists re-fetch themselves
-// from, carrying the current scope: ?jam=1 for Jam, ?scope=<project> for a
-// project, neither for none.
+// railView is the rail: the projects. Poll is the URL its entry list
+// re-fetches itself from, carrying the selected project (?scope=<project>),
+// if any.
 type railView struct {
-	Jam      railEntry
 	Projects []railEntry
 	Poll     string
 }
 
-// frame is everything around a page's content: the rail, the scope's title
-// and tabs (with their badges), the Specs sub-tabs, and the attention items —
-// All of them (row flags) and the scope's own (Needs attention).
+// frame is everything around a page's content: the title-bar tab it sits
+// under, the rail (Projects only), a project's title and tabs (with their
+// badges), the Specs sub-tabs, and the attention items — All of them (row
+// flags) and the scope's own (Needs attention).
 type frame struct {
-	Kind    scopeKind
-	Brand   string // the title bar's and tab title's name (frameSource.brand)
-	Project string // the project scope's name
-	Title   string // the scope's title
-	Tabs    []tabView
-	SubTabs []subTab
-	Rail    railView
-	All     []attnItem
-	Items   []attnItem
-	Marks   map[jam.ConfigKey]jam.ConfigMark // the managed marks: badges and drift warnings
+	Kind     scopeKind
+	Brand    string // the tab title's name, and the title bar's without a shell (frameSource.brand)
+	TitleTab string // the title-bar tab key (appui.TitlebarFor)
+	Project  string // the project scope's name
+	Title    string // the project's title
+	Tabs     []tabView
+	SubTabs  []subTab
+	Rail     *railView // nil: no rail, the page is full width
+	All      []attnItem
+	Items    []attnItem
+	Marks    map[jam.ConfigKey]jam.ConfigMark // the managed marks: badges and drift warnings
 }
 
-// buildRail lays out the rail with the scope kind current (for a project,
-// the named one); items are every attention item.
-func buildRail(src frameSource, kind scopeKind, project string, items []attnItem) railView {
-	store := src.store
-	q := url.Values{}
-	switch kind {
-	case scopeJam:
-		q.Set("jam", "1")
-	case scopeProject:
-		q.Set("scope", project)
+// buildRail lays out the rail of projects with selected current (none when
+// ""); items are every attention item.
+func buildRail(src frameSource, selected string, items []attnItem) railView {
+	rv := railView{Poll: "/app/admin/rail"}
+	if selected != "" {
+		rv.Poll += "?" + url.Values{"scope": {selected}}.Encode()
 	}
-	rv := railView{Poll: "/app/admin/rail", Jam: railEntry{Name: src.jamName(), Href: "/app/admin/", Current: kind == scopeJam, Badge: badgeOf(inScope(items, "", ""))}}
-	if len(q) > 0 {
-		rv.Poll += "?" + q.Encode()
-	}
-	for _, p := range store.ListProjects() {
-		rv.Projects = append(rv.Projects, railEntry{Name: p, Href: projectURL(p), Current: kind == scopeProject && project == p, Badge: badgeOf(inScope(items, p, ""))})
+	for _, p := range src.store.ListProjects() {
+		rv.Projects = append(rv.Projects, railEntry{Name: p, Href: projectURL(p), Current: selected != "" && p == selected, Badge: badgeOf(inScope(items, p, ""))})
 	}
 	return rv
 }
 
 // railFor is the rail a poll asks for (see railView.Poll).
 func railFor(r *http.Request, src frameSource, items []attnItem) railView {
-	q := r.URL.Query()
-	switch {
-	case q.Get("jam") == "1":
-		return buildRail(src, scopeJam, "", items)
-	case q.Has("scope"):
-		return buildRail(src, scopeProject, q.Get("scope"), items)
-	}
-	return buildRail(src, scopeNone, "", items)
+	return buildRail(src, r.URL.Query().Get("scope"), items)
 }
 
 // frameFor builds a page's frame from its meta and request. A project page
 // names its project in its route (/app/admin/projects/{name}[/section] or
 // /app/admin/projects/{project}/roles/{name}) — a missing project leaves the page
-// in no scope; an agent page is in a project's scope when linked with
+// under Projects; an agent page is in a project's scope when linked with
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	items := src.items()
-	f := frame{Kind: meta.Kind, All: items, Brand: src.brand(), Marks: src.marks()}
+	f := frame{Kind: meta.Kind, TitleTab: meta.Tab, All: items, Brand: src.brand(), Marks: src.marks()}
 	if meta.Kind == scopeJam && meta.Tab == "agents" {
 		if p := r.URL.Query().Get("project"); p != "" {
 			if _, ok := src.store.GetProject(p); ok {
@@ -142,27 +115,26 @@ func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	tab := meta.Tab
 	if meta.Kind == scopeProject {
 		f.Project, tab = projectFromRoute(r)
-		if _, ok := src.store.GetProject(f.Project); !ok {
-			f.Kind, f.Project = scopeNone, ""
+		if _, ok := src.store.GetProject(f.Project); !ok { // a missing project's page stays under Projects
+			f.Kind, f.Project = scopeProjects, ""
 		}
 	}
 	switch f.Kind {
-	case scopeJam:
-		f.Title, f.Items = src.jamName(), inScope(items, "", "")
-		for _, t := range jamTabs {
-			f.Tabs = append(f.Tabs, tabView{Label: t.Label, Href: t.Href, Current: t.Key == tab, Badge: badgeOf(inScope(items, "", t.Key))})
-		}
-		f.Rail = buildRail(src, scopeJam, "", items)
+	case scopeJam: // the title bar carries Jam's tabs
+		f.Items = inScope(items, "", "")
 	case scopeProject:
-		f.Title, f.Items = f.Project, inScope(items, f.Project, "")
+		f.TitleTab, f.Title, f.Items = "projects", f.Project, inScope(items, f.Project, "")
 		for _, s := range projectSections {
 			key := string(s.Section)
 			f.Tabs = append(f.Tabs, tabView{Label: s.Label, Href: projectSectionURL(f.Project, s.Section), Current: key == tab,
 				Badge: badgeOf(inScope(items, f.Project, key))})
 		}
-		f.Rail = buildRail(src, scopeProject, f.Project, items)
-	default:
-		f.Rail = buildRail(src, scopeNone, "", items)
+		rail := buildRail(src, f.Project, items)
+		f.Rail = &rail
+	case scopeProjects:
+		f.TitleTab = "projects"
+		rail := buildRail(src, "", items)
+		f.Rail = &rail
 	}
 	if meta.SubTab != "" {
 		for _, s := range specsSubTabs {
@@ -223,17 +195,8 @@ func (s frameSource) marks() map[jam.ConfigKey]jam.ConfigMark {
 	return out
 }
 
-// jamName is what the rail and Jam's scope call this Jam: its display name,
-// else "Jam".
-func (s frameSource) jamName() string {
-	if s.name != "" {
-		return s.name
-	}
-	return "Jam"
-}
-
-// brand is the title bar's and tab title's name: "<display name> Jam", else
-// "Jam".
+// brand is the tab title's name (and the title bar's, without a shell):
+// "<display name> Jam", else "Jam".
 func (s frameSource) brand() string {
 	if s.name != "" {
 		return s.name + " Jam"

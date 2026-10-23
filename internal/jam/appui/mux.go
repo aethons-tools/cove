@@ -14,6 +14,7 @@ type Deps struct {
 	User           http.Handler // serves /app/user/*; nil = none
 	Admin          http.Handler // serves /app/admin/*
 	TrustedOrigins []string
+	Shell          Shell // title-bar context for the pages
 }
 
 // legacy maps the pre-/app browser prefixes to their new homes; the longest
@@ -32,12 +33,12 @@ func Handler(d Deps) *http.ServeMux {
 		mux.Handle("/app/auth/", d.AuthRoutes)
 	}
 	if d.User != nil {
-		mux.Handle("/app/user/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, d.User))))
+		mux.Handle("/app/user/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, WithShell(d.User, d.Shell)))))
 	}
 	if d.Admin != nil {
-		mux.Handle("/app/admin/", d.Gate.Wrap(RequireAdmin(d.Admin)))
+		mux.Handle("/app/admin/", d.Gate.Wrap(RequireAdmin(WithShell(d.Admin, d.Shell))))
 	}
-	mux.Handle("GET /app/{$}", d.Gate.Wrap(http.HandlerFunc(landing)))
+	mux.Handle("GET /app/{$}", d.Gate.Wrap(WithShell(http.HandlerFunc(landing), d.Shell)))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/app/", http.StatusFound)
 	})

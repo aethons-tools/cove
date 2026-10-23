@@ -1,7 +1,7 @@
 ---
-summary: The admin UI's project pages — a project selected in the rail, its tabs (Overview, Members, Agents, Intercom, Escalation) with one URL per tab under /app/admin/projects/<name>, what each tab shows and edits, and the role page at /app/admin/projects/<project>/roles/<name>.
-read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or agent context — or a role's page (scope, egress, allocation, standing agents), or you followed an old /app/admin/roles or /app/admin/projects link.
-owns: a project's tabs and their pages (/app/admin/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/app/admin/projects/<project>/roles/<name>), and the /app/admin/roles and /app/admin/projects redirects
+summary: The admin UI's project pages — the Projects tab's project list and rail, a project selected in it, its tabs (Overview, Members, Agents, Intercom, Escalation) with one URL per tab under /app/admin/projects/<name>, what each tab shows and edits, and the role page at /app/admin/projects/<project>/roles/<name>.
+read_when: You are viewing or editing one project in the Jam admin UI — its members, agents, roles, rooms and recent messages, escalation chains, chat service or agent context — or a role's page (scope, egress, allocation, standing agents), or you open the Projects tab's project list, or you followed an old /app/admin/roles link.
+owns: a project's tabs and their pages (/app/admin/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/app/admin/projects/<project>/roles/<name>), the project list (/app/admin/projects), and the /app/admin/roles redirects
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-attention.md for the badges and Needs attention; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf
 updated: 2026-10-23
@@ -9,7 +9,9 @@ updated: 2026-10-23
 
 # Admin UI project pages
 
-Select a project in the [rail](ui.md) and its tabs — **Overview · Members ·
+The **Projects** title-bar tab opens the project list (`/app/admin/projects`):
+every project with its attention badge, and the rail of projects beside it —
+the rail stays on every project page and only there. Select a project and its tabs — **Overview · Members ·
 Agents · Intercom · Escalation** — sit over its pages. Each tab is its own URL,
 so it can be linked and bookmarked. Roles are listed on the Agents tab (they are
 what its agents are granted); a role page sits under Agents with an `Agents /
@@ -25,8 +27,7 @@ tabs carry the project's [attention badges](ui-attention.md).
 | Intercom | `/app/admin/projects/<name>/intercom` |
 | Escalation | `/app/admin/projects/<name>/escalation` |
 
-**Old links.** `/app/admin/projects` and `/app/admin/roles` redirect (301) to `/app/admin/` (the
-rail is the project list), and `/app/admin/roles/<project>/<role>` to the role's page
+**Old links.** `/app/admin/roles` redirects (301) to `/app/admin/`, and `/app/admin/roles/<project>/<role>` to the role's page
 here. The write endpoints keep their paths. A new project is created from the
 rail's **+ New project**, which opens it.
 
@@ -57,7 +58,7 @@ re-rendered.
   connection: a connection name, or a service for its connection; ref; an
   existing name is rebound) and **Remove**. Below them, the project's newest 50
   messages from the channel log, with **Full log** opening the
-  [Intercom](ui.md#intercom) page filtered to the project.
+  [Channel log](ui-console.md#channel-log) filtered to the project.
 - **Escalation** — the default chain and each category's chain, as ordered
   tiers of targets with their wait ([escalation.md](escalation.md)). Edit a
   chain as one `targets@timeout` per line (the CLI's `--tier`; the first line is
