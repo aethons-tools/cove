@@ -255,6 +255,9 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 		if err := d.ValidateAllowPaths(); err != nil {
 			return bad("destination "+d.Name, err)
 		}
+		if err := d.ValidateHeaderLogging(); err != nil {
+			return bad("destination "+d.Name, err)
+		}
 	}
 	sm := newSpecMigration(s.ModelSpecSchema, s.Destinations)
 	for _, ms := range s.ModelSpecs {

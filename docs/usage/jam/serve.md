@@ -334,6 +334,9 @@ at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinati
   so an encoded segment such as a GitLab project id `group%2Frepo` reaches the
   upstream intact. `--allow-path` matches its decoded form; a request whose
   route prefix arrives percent-encoded is refused **400**.
+- `--log-headers-in none|examined|all` / `--log-headers-out none|changed|all`
+  turn on redacted troubleshooting header logs for the destination — see
+  [destination-header-logging.md](destination-header-logging.md).
 - `--note` (≤ 300 bytes) is a usage hint shown to sessions granted the destination —
   see [connector.md](connector.md#notes-for-sessions).
 - `--cred-name` must resolve to a `credentials:` entry in the serve config —

@@ -47,6 +47,10 @@ type Destination struct {
 	// this destination (the Studio layer of their session context), e.g. how a
 	// tool must be pointed at the route. Not a secret; ≤ MaxDestinationNote bytes.
 	Note string `json:"note,omitempty" yaml:"note,omitempty"`
+	// LogHeadersIn / LogHeadersOut turn on troubleshooting header logs for
+	// this destination (headerlog.go); "" = none. Secrets are always redacted.
+	LogHeadersIn  HeaderLog `json:"log_headers_in,omitempty"  yaml:"log_headers_in,omitempty"`
+	LogHeadersOut HeaderLog `json:"log_headers_out,omitempty" yaml:"log_headers_out,omitempty"`
 }
 
 // ClientEnv is the env a studio sets for this destination, with {url} resolved

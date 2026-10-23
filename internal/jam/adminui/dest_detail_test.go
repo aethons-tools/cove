@@ -236,3 +236,26 @@ func TestDestinationAllowPathsInUI(t *testing.T) {
 		t.Errorf("bad allow-path = %d, want 400", rec.Code)
 	}
 }
+
+func TestDestinationHeaderLoggingInUI(t *testing.T) {
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, credAny, nil)
+	if rec := post(t, h, "/app/admin/destinations", url.Values{
+		"name": {"jira"}, "route": {"/jira/"}, "upstream": {"https://x.atlassian.net"},
+		"identity-in": {"basic-password"}, "apply": {"basic-password"},
+		"log-headers-in": {"examined"}, "log-headers-out": {"none"},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("create = %d: %s", rec.Code, rec.Body.String())
+	}
+	d := store.ListDestinations()[0]
+	if d.LogHeadersIn != jam.HeaderLogExamined || d.LogHeadersOut != "" {
+		t.Fatalf("stored logging = %q/%q, want examined/unset", d.LogHeadersIn, d.LogHeadersOut)
+	}
+	body := get(t, h, "/app/admin/destinations/jira").Body.String()
+	if !strings.Contains(body, `<option value="examined" selected>`) || !strings.Contains(body, `name="log-headers-out"><option value="none" selected>`) {
+		t.Errorf("edit form not pre-filled with header logging:\n%s", body)
+	}
+	if rec := post(t, h, "/app/admin/destinations", url.Values{"name": {"n"}, "route": {"/n/"}, "upstream": {"https://n"}, "log-headers-out": {"changed-raw"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad log-headers-out = %d, want 400", rec.Code)
+	}
+}

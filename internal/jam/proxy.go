@@ -14,16 +14,17 @@ import (
 // allow_paths, resolve Jam's real credential, rewrite the
 // request with it, and proxy to the upstream. Implements http.Handler.
 type Broker struct {
-	store Store
-	creds CredResolver
-	now   func() time.Time
-	log   *slog.Logger
-	warns *warnDedupe // rate-limits the principal header-rule warnings
+	store  Store
+	creds  CredResolver
+	now    func() time.Time
+	log    *slog.Logger
+	warns  *warnDedupe       // rate-limits the principal header-rule warnings
+	hdrLog *headerLogLimiter // rate-limits the per-destination header logs
 }
 
 // NewBroker constructs a Broker that matches destinations from the live store.
 func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
-	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now)}
+	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now), hdrLog: newHeaderLogLimiter(time.Now)}
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +34,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in, hasIn := dest.InboundSpec()
+	b.logHeadersIn(dest, r, in, hasIn)
 	tok, ok := "", false
 	if hasIn {
 		tok, ok = presentedToken(r, in)
@@ -118,6 +120,11 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if fromPool {
 			ensureListItem(out.Header, "anthropic-beta", subscriptionOAuthBeta)
 		}
+		outHeader := ""
+		if spec, ok := outboundSpec(dec.Apply, dec.Dest.ApplySpec); ok {
+			outHeader = spec.Header
+		}
+		b.logHeadersOut(dest, actor.ID, out, r.Header, in.Header, outHeader)
 	}}
 	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
