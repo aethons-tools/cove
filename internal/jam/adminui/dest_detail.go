@@ -217,6 +217,9 @@ func destFromForm(r *http.Request, name string) (jam.Destination, error) {
 		AllowPaths: parseAllowPaths(r.FormValue("allow-paths")),
 		Git:        r.FormValue("git") != "",
 		Note:       strings.TrimSpace(r.FormValue("note")),
+		// "none" is the default; store it as unset.
+		LogHeadersIn:  headerLogField(r.FormValue("log-headers-in")),
+		LogHeadersOut: headerLogField(r.FormValue("log-headers-out")),
 	}, nil
 }
 
@@ -308,4 +311,12 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
 		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
 	})
+}
+
+// headerLogField reads a header-logging select: "none" (or empty) is unset.
+func headerLogField(v string) jam.HeaderLog {
+	if v = strings.TrimSpace(v); v == string(jam.HeaderLogNone) {
+		return ""
+	}
+	return jam.HeaderLog(v)
 }

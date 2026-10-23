@@ -42,6 +42,9 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	if err := d.ValidateAllowPaths(); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
+	if err := d.ValidateHeaderLogging(); err != nil {
+		return writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
 	return nil
 }
 

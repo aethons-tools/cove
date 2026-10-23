@@ -16,6 +16,10 @@
   <label class="wide">Allowed paths <span class="hint">one <code>path.Match</code> pattern per line, matched against the path after the route (<code>*</code> never crosses <code>/</code>); anything else is refused 403. Leave empty to allow any path.</span>
     <textarea name="allow-paths" spellcheck="false" placeholder="/v1/projects/my-project/locations/us-east5/publishers/anthropic/models/*:streamRawPredict">{{.Form.AllowPaths}}</textarea></label>
   <label class="wide">Note <span class="hint">shown to agents granted this destination — how to use it (≤ 300 bytes)</span><input name="note" value="{{.Dest.Note}}" maxlength="300" spellcheck="false"></label>
+  <label>Log incoming headers <span class="hint">troubleshooting; secrets always redacted</span>
+    <select name="log-headers-in"><option value="none"{{if eq (print .Dest.LogHeadersIn) ""}} selected{{end}}>none</option><option value="examined"{{if eq (print .Dest.LogHeadersIn) "examined"}} selected{{end}}>examined</option><option value="all"{{if eq (print .Dest.LogHeadersIn) "all"}} selected{{end}}>all</option></select></label>
+  <label>Log outgoing headers <span class="hint">troubleshooting; secrets always redacted</span>
+    <select name="log-headers-out"><option value="none"{{if eq (print .Dest.LogHeadersOut) ""}} selected{{end}}>none</option><option value="changed"{{if eq (print .Dest.LogHeadersOut) "changed"}} selected{{end}}>changed</option><option value="all"{{if eq (print .Dest.LogHeadersOut) "all"}} selected{{end}}>all</option></select></label>
   <label class="check"><input type="checkbox" name="git"{{if .Dest.Git}} checked{{end}}> Route git <span class="hint">agents send git for the upstream host (e.g. <code>https://github.com/</code>) through this route</span></label>
 </div>
 <style>label.check{flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap}label.check input{width:auto}</style>

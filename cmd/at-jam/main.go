@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -390,6 +391,14 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 	})
 	fs.BoolVar(&d.Git, "git", false, "route studios' git for this destination's upstream host (e.g. https://github.com/) through it")
 	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
+	fs.Func("log-headers-in", "troubleshooting log of incoming headers: none|examined|all (secrets redacted)", func(s string) error {
+		d.LogHeadersIn = jam.HeaderLog(s)
+		return nil
+	})
+	fs.Func("log-headers-out", "troubleshooting log of outgoing headers: none|changed|all (secrets redacted)", func(s string) error {
+		d.LogHeadersOut = jam.HeaderLog(s)
+		return nil
+	})
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -442,6 +451,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			}
 			if dd.Note != "" {
 				ob += ", note"
+			}
+			if dd.LogHeadersIn != "" && dd.LogHeadersIn != jam.HeaderLogNone || dd.LogHeadersOut != "" && dd.LogHeadersOut != jam.HeaderLogNone {
+				ob += fmt.Sprintf(", log-headers=%s/%s", cmp.Or(dd.LogHeadersIn, jam.HeaderLogNone), cmp.Or(dd.LogHeadersOut, jam.HeaderLogNone))
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
