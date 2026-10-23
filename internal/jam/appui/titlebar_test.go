@@ -127,3 +127,36 @@ func TestTitlebarRenderEscapesHostileStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestTitlebarPushItem(t *testing.T) {
+	u := &jam.Participant{Name: "Ada"}
+	op := jam.Operator{ID: "op"}
+	bar := func(p appui.Principal, push bool) string {
+		t.Helper()
+		var got appui.Titlebar
+		probe := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = appui.TitlebarFor(r, "") })
+		r := appui.WithPrincipal(httptest.NewRequest(http.MethodGet, "/app/", nil), p)
+		appui.WithShell(probe, appui.Shell{Push: push}).ServeHTTP(httptest.NewRecorder(), r)
+		return render(t, got)
+	}
+	for _, c := range []struct {
+		name string
+		p    appui.Principal
+		push bool
+		want bool
+	}{
+		{"member, push on", appui.Principal{User: u}, true, true},
+		{"member+admin, push on", appui.Principal{User: u, Admin: true, Operator: op}, true, true},
+		{"member, push off", appui.Principal{User: u}, false, false},
+		{"admin only, push on", appui.Principal{Admin: true, Operator: op}, true, false},
+		{"local admin, push on", appui.Principal{Admin: true, Local: true}, true, false},
+	} {
+		out := bar(c.p, c.push)
+		if got := strings.Contains(out, `id="push-toggle"`); got != c.want {
+			t.Errorf("%s: push item shown = %v, want %v", c.name, got, c.want)
+		}
+		if got := strings.Contains(out, `src="/app/static/push.js?v=`); got != c.want {
+			t.Errorf("%s: push.js included = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

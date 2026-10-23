@@ -381,4 +381,4 @@ pointer in [INDEX.md](INDEX.md).
 
 ## Push notifications
 
-`runtime.push` turns on Web Push for the Jam app; `at-jam push keygen` prints a fresh VAPID key pair (store the private half as the demanded credential). Setup and behaviour: the push notifications doc (written with the sending slice).
+`runtime.push` turns on Web Push for the Jam app; `at-jam push keygen` prints a fresh VAPID key pair (store the private half as the demanded credential). Setup, egress and behaviour: [push.md](push.md).

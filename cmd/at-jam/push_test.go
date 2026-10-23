@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/secret"
 )
 
 func pushCfg(p *pushConfig) serveConfig {
@@ -104,5 +106,35 @@ func TestPushUsage(t *testing.T) {
 		if code := cmdPush(args, &out, &errb); code == 0 || !strings.Contains(errb.String(), "keygen") {
 			t.Errorf("args %v: code %d stderr %q", args, code, errb.String())
 		}
+	}
+}
+
+// resolvePush resolves the VAPID key through the credential specs and derives
+// the public key; no block is off; an unresolvable or invalid key refuses to
+// start without echoing the key.
+func TestResolvePush(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := cmdPush([]string{"keygen"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	priv, pub := strings.TrimPrefix(lines[0], "private: "), strings.TrimPrefix(lines[1], "public: ")
+	cfg := pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "mailto:ops@example.com"})
+
+	k, err := resolvePush(cfg, map[string]secret.Spec{"jam-vapid": {Name: "jam-vapid", Literal: true, Value: priv}})
+	if err != nil || k == nil || k.public != pub || k.private != priv {
+		t.Fatalf("resolvePush = %+v, %v", k, err)
+	}
+	if k, err := resolvePush(serveConfig{}, nil); k != nil || err != nil {
+		t.Fatalf("no push block = %+v, %v", k, err)
+	}
+	bad := "c2VjcmV0LW5vdC1hLWtleQ"
+	_, err = resolvePush(cfg, map[string]secret.Spec{"jam-vapid": {Name: "jam-vapid", Literal: true, Value: bad}})
+	if err == nil || strings.Contains(err.Error(), bad) || !strings.Contains(err.Error(), "jam-vapid") {
+		t.Fatalf("invalid key err = %v", err)
+	}
+	_, err = resolvePush(cfg, map[string]secret.Spec{"jam-vapid": {Name: "jam-vapid", Command: []string{"false"}}})
+	if err == nil {
+		t.Fatal("an unresolvable credential must refuse")
 	}
 }

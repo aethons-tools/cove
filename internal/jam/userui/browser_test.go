@@ -23,6 +23,7 @@ import (
 
 	"github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
@@ -509,5 +510,133 @@ func TestBrowserInboxRegistersServiceWorker(t *testing.T) {
 	}
 	if manifest != srv.URL+"/app/manifest.webmanifest" {
 		t.Errorf("manifest link = %q", manifest)
+	}
+}
+
+// pushStub replaces the browser's push service and notification permission
+// (headless Chrome denies it outright) before the page's scripts run:
+// requestPermission grants, and subscribe returns a fake subscription, as a
+// push service would.
+const pushStub = `
+(function(){
+  var perm = 'default', fake = null;
+  Object.defineProperty(Notification, 'permission', {get: function(){ return perm; }});
+  Notification.requestPermission = function(){ perm = 'granted'; return Promise.resolve(perm); };
+  PushManager.prototype.getSubscription = function(){ return Promise.resolve(fake); };
+  PushManager.prototype.subscribe = function(opts){
+    window.__pushKeyLen = opts.applicationServerKey.length;
+    fake = {
+      endpoint: 'https://push.example/device-1',
+      unsubscribe: function(){ fake = null; return Promise.resolve(true); },
+      toJSON: function(){ return {endpoint: this.endpoint, expirationTime: null,
+        keys: {p256dh: '` + "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" + `', auth: 'AAAAAAAAAAAAAAAAAAAAAA'}}; }
+    };
+    return Promise.resolve(fake);
+  };
+})();`
+
+// The principal menu's Notifications toggle subscribes this device and
+// stores the subscription with Jam, then Off deletes it.
+func TestBrowserPushToggleSubscribes(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	var mu sync.Mutex
+	var seen []string
+	srv := servePush(t, e, p, func(r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+	})
+
+	stored := func() []jam.PushSubscription { return e.st.PushSubscriptions(p.UserID) }
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
+			return err
+		}),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
+		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`, nil),
+		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
+		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: On'`, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := stored()
+	if len(subs) != 1 || subs[0].Endpoint != "https://push.example/device-1" || subs[0].UserID != p.UserID {
+		t.Fatalf("stored = %+v (requests %v)", subs, seen)
+	}
+	var keyLen int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__pushKeyLen`, &keyLen)); err != nil || keyLen != 11 {
+		t.Errorf("applicationServerKey length = %d (%v), want the decoded key's 11 bytes", keyLen, err)
+	}
+
+	err = chromedp.Run(ctx,
+		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
+		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off'`, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subs := stored(); len(subs) != 0 {
+		t.Errorf("after Off stored = %+v", subs)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"GET /app/user/push/key", "POST /app/user/push/subscriptions", "DELETE /app/user/push/subscriptions"}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Errorf("requests = %v, want %v", seen, want)
+	}
+}
+
+// servePush serves the fixture inbox with push on, as member p, with a no-op
+// service worker; onPush sees each /app/user/push/ request.
+func servePush(t *testing.T, e *env, p jam.Participant, onPush func(*http.Request)) *httptest.Server {
+	t.Helper()
+	principal := appui.Principal{User: &p}
+	h := appui.WithShell(withStatic(Handler(e.Deps, nil, WithPush("BOtestPublicKey"))), appui.Shell{Push: true})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/sw.js" {
+			w.Header().Set("Content-Type", "text/javascript")
+			_, _ = io.WriteString(w, "self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/app/user/push/") && onPush != nil {
+			onPush(r)
+		}
+		h.ServeHTTP(w, appui.WithPrincipal(jam.WithParticipant(r, p), principal))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// Without Web Push the item says how to get it on iOS (the Home Screen app)
+// and is hidden elsewhere.
+func TestBrowserPushToggleWithoutWebPush(t *testing.T) {
+	e, p := fixture()
+	srv := servePush(t, e, p, nil)
+	for _, c := range []struct{ ua, want string }{
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", "Add Jam to your Home Screen to get notifications|visible"},
+		{"Mozilla/5.0 (X11; Linux x86_64)", "Notifications: Off|hidden"},
+	} {
+		ctx := browserCtx(t)
+		stub := `delete window.PushManager; Object.defineProperty(navigator, 'userAgent', {get: function(){ return ` + strconv.Quote(c.ua) + `; }});`
+		var got string
+		err := chromedp.Run(ctx,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				_, err := page.AddScriptToEvaluateOnNewDocument(stub).Do(ctx)
+				return err
+			}),
+			chromedp.Navigate(srv.URL+"/app/user/"),
+			chromedp.WaitReady(`#push-toggle`, chromedp.ByQuery),
+			chromedp.Evaluate(`(function(){ var b = document.getElementById('push-toggle'); return b.textContent + '|' + (b.hidden ? 'hidden' : 'visible'); })()`, &got),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want {
+			t.Errorf("%s: item = %q, want %q", c.ua, got, c.want)
+		}
 	}
 }

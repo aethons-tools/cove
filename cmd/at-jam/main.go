@@ -2038,6 +2038,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if blobs != nil {
 		log.Info("Jam attachments: bucket ready", "bucket", cfg.Blobs.Bucket, "max-bytes", cfg.Blobs.maxBytes())
 	}
+	// Web Push (nil: off). The VAPID private key stays in this process's
+	// memory; a set but unresolvable or invalid key refuses to start.
+	push, err := resolvePush(cfg, specs)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	}
+	pushPublic := ""
+	if push != nil {
+		pushPublic = push.public
+		log.Info("Jam push notifications: VAPID key loaded", "cred", cfg.Runtime.Push.VAPIDPrivateKeyCred) // never the key
+	}
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
 	kitFetcher, err := resolveKitFetcher(cfg, specs)
@@ -2632,7 +2644,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence)))
+		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic)))
 
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv)}
 		if sshCA != nil || previewURL != nil {
@@ -2651,7 +2663,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
-			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},
+			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds), Push: push != nil},
 		})
 		log.Info("Jam app mounted", "path", "/app/")
 

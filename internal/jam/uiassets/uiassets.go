@@ -12,7 +12,7 @@ import (
 	"net/http"
 )
 
-//go:embed static/jam.css static/htmx.min.js static/brand/*.svg static/icons/*.png
+//go:embed static/jam.css static/htmx.min.js static/push.js static/brand/*.svg static/icons/*.png
 var files embed.FS
 
 var static = func() fs.FS {
@@ -52,6 +52,21 @@ var iconVersions = func() map[string]string {
 	return m
 }()
 
+// scriptVersions maps each versioned script (served under its own name) to
+// a content hash of its file.
+var scriptVersions = func() map[string]string {
+	m := map[string]string{}
+	for _, name := range []string{"push.js"} {
+		b, err := fs.ReadFile(static, name)
+		if err != nil {
+			panic(err)
+		}
+		sum := sha256.Sum256(b)
+		m[name] = hex.EncodeToString(sum[:6])
+	}
+	return m
+}()
+
 // Handler serves the shared assets at prefix (e.g. "/app/static/"); register it
 // on the "GET <prefix>" pattern.
 func Handler(prefix string) http.Handler {
@@ -71,4 +86,14 @@ func IconHref(prefix, name string) string {
 		panic("uiassets: unknown icon " + name)
 	}
 	return prefix + "icons/" + name + "?v=" + v
+}
+
+// ScriptHref is a script's URL under prefix, versioned by its content hash.
+// It panics on an unknown name: that is a programmer error, not a runtime one.
+func ScriptHref(prefix, name string) string {
+	v, ok := scriptVersions[name]
+	if !ok {
+		panic("uiassets: unknown script " + name)
+	}
+	return prefix + name + "?v=" + v
 }
