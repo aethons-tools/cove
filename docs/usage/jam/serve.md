@@ -123,7 +123,7 @@ The control plane lives in Postgres — the source of truth — while `serve`
 keeps an in-memory read cache (so the broker's hot path never round-trips the
 DB) and writes through to Postgres transactionally. `serve` applies its schema
 migrations automatically at startup and **fails closed** if it can't connect,
-migrate, or load. The intercom's channel log ([ui.md#channel-log](ui.md#channel-log)), session
+migrate, or load. The intercom's channel log ([ui-console.md#channel-log](ui-console.md#channel-log)), session
 events, and the allocation ledger live in the same database and pool (tables
 auto-created), so the intercom and session events are always on.
 

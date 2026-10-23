@@ -25,6 +25,7 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -419,5 +420,32 @@ func TestBrowserNarrowScreenKeepsRailHeadControls(t *testing.T) {
 	}
 	if !vis {
 		t.Error("rail header controls should be visible and the list hidden at 500px")
+	}
+}
+
+// A 64-character brand at 500px must not push the principal menu off-screen
+// or squeeze the tabs to nothing.
+func TestBrowserLongBrandKeepsPrincipalMenuAndTabs(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	h := withStatic(appui.WithShell(Handler(e.Deps, nil), appui.Shell{Brand: strings.Repeat("W", 64) + " Jam"}))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = jam.WithParticipant(r, p)
+		h.ServeHTTP(w, appui.WithPrincipal(r, appui.Principal{User: &p}))
+	}))
+	t.Cleanup(srv.Close)
+	var ok bool
+	err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(500, 800),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitVisible(`.app-principal summary`, chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
+			return v('.app-principal summary') && v('.app-tabs a'); })()`, &ok),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("principal menu and a tab should stay inside the 500px viewport")
 	}
 }

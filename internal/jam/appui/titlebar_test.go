@@ -111,3 +111,19 @@ func TestTitlebarRender(t *testing.T) {
 		t.Errorf("local: %s", local)
 	}
 }
+
+func TestTitlebarRenderEscapesHostileStrings(t *testing.T) {
+	tb := titlebarFor(t, appui.Principal{User: &jam.Participant{Name: `"><img onerror=1>`}}, "inbox")
+	tb.Brand = `<b>x</b>`
+	out := render(t, tb)
+	for _, raw := range []string{`<b>x</b>`, `<img onerror=1>`, `"><img onerror`} {
+		if strings.Contains(out, raw) {
+			t.Errorf("raw %q in output: %s", raw, out)
+		}
+	}
+	for _, esc := range []string{`&lt;b&gt;x&lt;/b&gt;`, `&lt;img onerror=1&gt;`} {
+		if !strings.Contains(out, esc) {
+			t.Errorf("missing escaped %q: %s", esc, out)
+		}
+	}
+}

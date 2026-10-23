@@ -58,7 +58,7 @@ re-rendered.
   connection: a connection name, or a service for its connection; ref; an
   existing name is rebound) and **Remove**. Below them, the project's newest 50
   messages from the channel log, with **Full log** opening the
-  [Channel log](ui.md#channel-log) filtered to the project.
+  [Channel log](ui-console.md#channel-log) filtered to the project.
 - **Escalation** — the default chain and each category's chain, as ordered
   tiers of targets with their wait ([escalation.md](escalation.md)). Edit a
   chain as one `targets@timeout` per line (the CLI's `--tier`; the first line is

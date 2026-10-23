@@ -100,7 +100,7 @@ func railFor(r *http.Request, src frameSource, items []attnItem) railView {
 // frameFor builds a page's frame from its meta and request. A project page
 // names its project in its route (/app/admin/projects/{name}[/section] or
 // /app/admin/projects/{project}/roles/{name}) — a missing project leaves the page
-// in no scope; an agent page is in a project's scope when linked with
+// under Projects; an agent page is in a project's scope when linked with
 // ?project=.
 func frameFor(r *http.Request, meta pageMeta, src frameSource) frame {
 	items := src.items()
@@ -195,8 +195,8 @@ func (s frameSource) marks() map[jam.ConfigKey]jam.ConfigMark {
 	return out
 }
 
-// brand is the tab title's (and, without a shell, the title bar's) name: "<display name> Jam", else
-// "Jam".
+// brand is the tab title's name (and the title bar's, without a shell):
+// "<display name> Jam", else "Jam".
 func (s frameSource) brand() string {
 	if s.name != "" {
 		return s.name + " Jam"

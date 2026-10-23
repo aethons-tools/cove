@@ -33,7 +33,7 @@ project's identities, or search) opens `/app/admin/agents/<id>`, the page for on
 agent identity. It sits under Jam's Agents tab, or — linked from a project's
 pages (`?project=<name>`) — under that project's. The header shows its kind, its [status](#agent-status), standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
-(the [session timeline](ui.md#session-timeline); shown when session capture is
+(the [session timeline](ui-console.md#session-timeline); shown when session capture is
 configured), **Teardown** (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
 

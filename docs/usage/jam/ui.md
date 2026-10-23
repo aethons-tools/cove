@@ -1,7 +1,7 @@
 ---
-summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the login and Principal (user / admin / both), the title bar (blended tabs, principal menu), the admin console's Projects rail, list pages, search, Channel log and session timeline, and the `POST /app/user/send` path; what the console can change is in ui-editing.md.
-read_when: You want to use or expose Jam in a browser — watch the agents and their studios, the Channel log, a session timeline, the projects/users/specs — find your way around the console (nav, sub-tabs, search), understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), or follow an old /ui or /me link. To change something from the UI, read ui-editing.md instead.
-owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu); the `/app/admin/` observability surface (the Projects rail, the slim search bar, the Specs sub-tabs, the Channel log under Health, what each list shows, search, the `/app/admin/agents/{id}/session` timeline); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
+summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
+read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, or follow an old /ui or /me link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
+owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
 updated: 2026-10-23
@@ -20,7 +20,7 @@ http://127.0.0.1:8081/app/
 | Path | Holds |
 |---|---|
 | `/app/user/*` | the Inbox ([intercom-ui.md](intercom-ui.md)) and [`POST /app/user/send`](#sending-post-appusersend) |
-| `/app/admin/*` | the admin console, below |
+| `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
 | `/app/static/*` | `jam.css`, htmx (ungated) |
 
@@ -31,7 +31,7 @@ equivalent with the query kept — `/ui/agents?project=p` →
 `/app/admin/agents?project=p`, `/me/?c=chn_x` → `/app/user/?c=chn_x`. Any other
 method on an old path is 404, never replayed. The redirects last one release.
 
-## The admin console (`/app/admin/`)
+## The title bar and look
 
 Every `/app` page opens with one **title bar**: the J mark (to `/app/`), the
 Jam's name (`<name> Jam` with a [`display-name`](serve.md#the-serve-config),
@@ -40,58 +40,17 @@ right (name, roles — member / admin — and **Sign out**; a loopback admin wit
 no login reads "Local admin" and has no sign-out). The tabs are blended:
 **Inbox** for a user; **Dashboard · Projects · Agents · Users · Specs · Config ·
 Health** for an admin; the page's own tab is highlighted. Under it, a slim bar
-holds the console's search box.
-
-**Projects** (`/app/admin/projects`, the project list) keeps a left **rail** of
-every project with **+ New project**; selecting one puts its tabs — **Overview ·
-Members · Agents · Intercom · Escalation** — over its pages
-([ui-projects.md](ui-projects.md)). On a narrow screen the rail is a drawer (☰
-in the slim bar). Every other tab is full width with no rail. A detail page
-sits under its tab (a role page: Projects, its project's Agents; a kit: Specs)
-with a breadcrumb below it. **Specs** (`/app/admin/specs`, opening on Kits)
-groups **Kits · Destinations · Model-specs** under a sub-tab strip. The
-title-bar tabs, project rail entries, project tabs and rows carry **attention
-badges** ([ui-attention.md](ui-attention.md)). The console's pages:
-
-- **Dashboard** (`/app/admin/`) — summary tiles: running / waiting / setting-up /
-  lost-or-terminating / idled agents, each opening the Agents list filtered to it, and counts
-  of projects, agents, users and specs (kits + destinations + model-specs) —
-  agents, users and specs open their tab, projects are a plain count; Jam's **Needs attention** card; then the Jam-wide **Agent context** card
-  ([ui-pages.md](ui-pages.md#agent-context-cards)), above the running agents.
-- **Search** — the box in the slim bar (press `/` from anywhere) searches every
-  page's objects at once: agents (id, unit, owner, standing name,
-  project/role, grants — one hit per id), roles (project/name, kit,
-  destinations), projects, kits (name, current prompt and egress), destinations
-  (name, route, upstream, env keys), model-specs (name, type, model, principal),
-  users (name, logins, OIDC subject, account handles and ids) and rooms, and
-  squawk bodies (newest 10; the rest via the Channel log's `q=`).
-  Matching is case-insensitive substring, at least 2 characters; results are
-  grouped and link to each object's page. **Enter** jumps to the page when one
-  object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
-  `/app/admin/search?q=…`, which updates as you type. Session events aren't searched.
-- **Agents** (`/app/admin/agents`) — each enrolled identity and each studio, one row
-  per id, with its **kind** (`standing`, `personal`, `ticket` — a session with
-  a unit, `manual`, or `enrolled` — no studio), project/role, [status](ui-pages.md#agent-status),
-  connector and image status ([coves.md](coves.md#the-studio-verbs)); it
-  **auto-refreshes every 3 seconds**. Status filters
-  (`?status=running|waiting|setting-up|idled|attention`; old `?phase=` links still work) match the dashboard tiles. Enroll,
-  raise and teardown: [ui-editing.md](ui-editing.md). Each id opens the agent's
-  page, its **Access** card included ([ui-pages.md](ui-pages.md#agent-pages));
-  `/app/admin/coves…` and `/app/admin/actors` redirect here.
-- **Health** (`/app/admin/health`) — operator-attention conditions (open with fix; resolved in 7 days); open critical/warning also badge the Health and Dashboard tabs — see [monitoring.md](monitoring.md). It links the **Channel log** (`/app/admin/intercom`): a read-only, filterable, newest-first table of
-  the channel log, with the frozen legacy log on a Legacy tab. See [Channel log](#channel-log).
-- **Config** (`/app/admin/config`) — the tracked config repo, its managed objects and their drift, Diff/Apply: [ui-config.md](ui-config.md).
-- **Users / Kits / Destinations / Model-specs** — control-plane tables, editable
-  here ([ui-editing.md](ui-editing.md)); roles live in their project.
-
-Every table has a fixed order — agents by id; roles by project, then
-name; kits and destinations by name; squawks newest-first — so rows don't shuffle
-across a poll or an edit, and the JSON admin API and CLI lists match it.
+holds the console's search box. The name truncates with an ellipsis when long
+and hides under 720px wide (the J mark still links home); the tabs scroll and
+the principal menu always stays visible.
 
 **One look.** The console and the Inbox take their colors (light and dark,
 following the OS setting) and typography from one stylesheet, `jam.css`, in
 `internal/jam/uiassets`, which also holds the single `htmx` copy, served at
 `/app/static/`. Each area keeps its own component styles in its layout.
+
+The console itself — its pages, the Projects rail, search, the Channel log and the
+session timeline — is in [ui-console.md](ui-console.md).
 
 ## Signing in: one login, one Principal
 
@@ -186,37 +145,6 @@ an in-process Log writer, not an egress engine.
 - **Errors mirror the agent send** (`/squawks`): a channel they may not post in,
   or that doesn't exist, → **403** (alike); a person or session that doesn't
   resolve → **404**; an append failure → **502**; an empty `to`/`body` → **400**.
-
-## Channel log
-
-The Channel log page (`/app/admin/intercom`, under **Health**) is a read-only view of Jam's
-[channel log](intercom.md#enabling-it) (always available; it lives in Postgres — see
-[serve.md](serve.md#postgres-store-store-postgres)). It shows a filterable, newest-first table of squawks,
-each with its sender and channel (`<label> · <kind>`, linking to that channel's
-squawks): filter by project, participant (an id — a user, session, account or
-channel), a body substring, and a date window (the `since`/`until` bounds are interpreted as UTC
-day boundaries; a malformed date is ignored, with a notice, rather than
-silently applied). Filters live in the URL, so a filtered view is shareable via
-link.
-
-The page is a manual-refresh snapshot, not a live tail — reload to see new
-squawks. The **Legacy** tab (`?log=legacy`) shows the log from before the
-channel log, frozen, as it always did: filter by `kind:ref` participants, each
-recipient badged internal or external.
-
-Unlike the roster/kit/destination pages, the Channel log has no mutation — the UI only
-reads the Log (still a full snapshot per load — pagination is a later phase).
-
-## Session timeline
-
-`/app/admin/agents/{id}/session` (linked from running-agents tables and the agent's page) shows a managed
-studio's agent session: a stream selector (current and past streams), header
-totals (turns = results answered, episodes, tool calls, tokens in/out, cost = last total per episode), and a flat event list, each
-event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
-markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
-behind **show progress events**. It updates live over SSE from `/app/admin/agents/{id}/session/events` (backfill, then
-live; reconnects resume via `Last-Event-ID`). Storage, retention,
-and sensitivity: [session-events.md](session-events.md).
 
 ## Editing
 

@@ -54,7 +54,7 @@ type devIdentityConfig struct {
 // serveConfig is the on-disk config for `at-jam serve`.
 type serveConfig struct {
 	// DisplayName names this Jam in the admin UI: the title bar reads
-	// "<name> Jam" and the rail's Jam entry "<name>". Optional; one line, at
+	// "<name> Jam" (its brand). Optional; one line, at
 	// most 64 characters, trimmed.
 	DisplayName string `yaml:"display-name"`
 	Listen      string `yaml:"listen"`

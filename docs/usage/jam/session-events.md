@@ -2,7 +2,7 @@
 summary: Session events — Jam's operator-only capture of a managed studio agent's Claude Code stream-json output; how it is captured, buffered, redacted, stored (Postgres), retained, exported (NDJSON), and what its sensitivity means.
 read_when: You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream — or you are configuring its storage/retention, wondering what is redacted or lost, or deciding who may see it.
 owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the operator-only sensitivity stance
-prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui.md#session-timeline for the browser view
+prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui-console.md#session-timeline for the browser view
 tier: leaf
 updated: 2026-10-23
 ---
@@ -90,7 +90,7 @@ recorded before they existed), and the extracted `type`, `subtype`,
 ## UI
 
 The browser timeline lives at `/app/admin/agents/{id}/session`; see
-[ui.md](ui.md#session-timeline). The studio's page lists its streams
+[ui-console.md](ui-console.md#session-timeline). The studio's page lists its streams
 ([ui-pages.md](ui-pages.md#agent-pages)). `/app/user` shows participants only a
 derived status per session, never events — see
 [intercom-ui.md](intercom-ui.md#session-status).

@@ -181,7 +181,7 @@ func filterSquawks(msgs SquawkReader, f squawkFilter, limit int) squawkTable {
 	return t
 }
 
-// squawksData is the Intercom page payload. The filter fields are echoed back
+// squawksData is the Channel log page payload. The filter fields are echoed back
 // into the form so a filtered view round-trips; RawQuery drives the Refresh
 // link; the embedded table's Filtered distinguishes the two empty states and
 // Legacy selects the frozen legacy log's tab.

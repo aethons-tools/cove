@@ -106,7 +106,7 @@ type projectDetail struct {
 }
 
 // recentProjectSquawks caps the Intercom section's log; the full, filterable
-// log is the Intercom page.
+// log is the Channel log page.
 const recentProjectSquawks = 50
 
 func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReader, name string, section projectSection) (projectDetail, bool) {

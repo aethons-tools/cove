@@ -15,15 +15,15 @@
     a{color:var(--accent)}
 
     /* Chrome: the app title bar (jam.css) and, under it, the slim bar with
-       the rail toggle and search; both stay put (90px together). */
+       the rail toggle and search; both stay put (--chrome-h, jam.css, together). */
     .chrome{position:sticky;top:0;z-index:20}
-    .subbar{display:flex;align-items:center;gap:12px;height:40px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+    .subbar{display:flex;align-items:center;gap:12px;height:var(--subbar-h);padding:0 20px;background:var(--surface);border-bottom:1px solid var(--border)}
     .railbtn{display:none;background:none;border:0;font-size:18px;line-height:1;padding:6px 2px;color:var(--ink);cursor:pointer}
 
     /* Rail (Projects only): every project; the selection decides the tabs. */
-    .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 90px)}
+    .shell{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - var(--chrome-h))}
     .shell.solo{grid-template-columns:minmax(0,1fr)}
-    #rail{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;position:sticky;top:90px;align-self:start;max-height:calc(100vh - 90px);overflow-y:auto}
+    #rail{border-right:1px solid var(--border);background:var(--surface);padding:12px 8px;position:sticky;top:var(--chrome-h);align-self:start;max-height:calc(100vh - var(--chrome-h));overflow-y:auto}
     #rail ul{list-style:none;margin:0;padding:0}
     #rail a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;white-space:nowrap;overflow:hidden}
     #rail a span.name{flex:1;overflow:hidden;text-overflow:ellipsis}
@@ -141,7 +141,7 @@
       main{padding:16px}.subbar{padding:0 12px}th,td{padding:8px 10px}
       .railbtn{display:block}
       .shell{grid-template-columns:1fr}
-      #rail{display:none;position:fixed;top:90px;left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
+      #rail{display:none;position:fixed;top:var(--chrome-h);left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
       body.rail-open #rail{display:block}
     }
   </style>
