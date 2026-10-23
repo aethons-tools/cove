@@ -4,7 +4,7 @@
 
 **Goal:** Make the `/app` browser app installable (home screen / dock, own window) with a manifest, a minimal service worker, and icons generated from the J mark.
 
-**Architecture:** A pure-Go generator (`internal/jam/uiassets/icongen`, driven by `cmd/gen-icons` and `just icons`) renders `brand/j-logo-plain.svg` into committed PNGs under `uiassets/static/icons/`; a test regenerates and compares with a small per-pixel tolerance. `appui` serves `/app/manifest.webmanifest` (rendered per Jam) and `/app/sw.js` **outside** the gate, and owns a shared `app-head` template (manifest link, theme colours, icons, iOS meta, service-worker registration) that both `adminui` and `userui` include in `<head>`.
+**Architecture:** A pure-Go generator (`internal/jam/uiassets/icongen`, driven by `cmd/gen-icons` and `just icons`) renders `brand/j-logo-plain.svg` into committed PNGs under `uiassets/static/icons/`; a test regenerates and compares with a drift-fraction tolerance. `appui` serves `/app/manifest.webmanifest` (rendered per Jam) and `/app/sw.js` **outside** the gate, and owns a shared `app-head` template (manifest link, theme colours, icons, iOS meta, service-worker registration) that both `adminui` and `userui` include in `<head>`.
 
 **Tech Stack:** Go 1.27, `github.com/srwiley/oksvg` + `github.com/srwiley/rasterx` (new deps, generator only), `html/template`, `encoding/json`.
 
@@ -28,7 +28,7 @@
 
   The transparent icons are rendered with the mark centred, scaled to fit with 4% padding on each side.
 - Manifest icon entries: `icon-192.png` (`sizes` "192x192", `purpose` "any"), `icon-512.png` ("512x512", "any"), `icon-maskable-512.png` ("512x512", "maskable"); all `type` "image/png"; URLs carry `?v=<content hash>`.
-- Generated PNGs are committed; a test regenerates and fails on drift beyond a per-channel tolerance of 2/255 (float rounding may differ across CPU architectures, e.g. FMA on arm64).
+- Generated PNGs are committed; a test regenerates and fails on drift: a pixel counts as differing when any 8-bit channel is off by more than 2, and the test passes only if at most 0.5% of the icon's pixels differ and no channel differs by more than 48. Antialiasing coverage differs slightly across CPU architectures (Go fuses multiply-add on arm64 but not amd64), so scattered edge-pixel differences must be tolerated while real drift (SVG edit, scale, background) still fails.
 - No custom install prompt. Docs updated in the same PR. Hermetic TDD tests; `just test`, `just lint`.
 - Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Before go/just: `export GOPROXY=https://proxy.golang.org,direct`.
 
@@ -94,8 +94,8 @@ func TestRenderMaskableSafeZone(t *testing.T) {
 
 func TestCommittedIconsMatchGenerator(t *testing.T) {
 	// For each Spec: Render, decode the committed ../static/icons/<Name>, same bounds,
-	// and every RGBA channel within 2 of the regenerated image. On failure:
-	// t.Fatalf("%s drifted; run `just icons`", name).
+	// and apply the drift rule (differing pixels > 0.5% of total, or maxDiff > 48, fails). On failure:
+	// t.Fatalf("%s drifted: n of total (pct), maxDiff; run `just icons`", ...).
 }
 ```
 

@@ -127,25 +127,124 @@ func TestCommittedIconsMatchGenerator(t *testing.T) {
 		if got.Bounds() != want.Bounds() {
 			t.Fatalf("%s drifted; run `just icons`: bounds %v, want %v", s.Name, got.Bounds(), want.Bounds())
 		}
-		if !withinTolerance(got, want, 2) {
-			t.Fatalf("%s drifted; run `just icons`", s.Name)
+		n, maxDiff := diffStats(got, want, 2)
+		if !driftOK(n, maxDiff, total(got)) {
+			t.Fatalf("%s drifted: %d of %d pixels differ by >2 (%.3f%%), maxDiff %d; run `just icons`",
+				s.Name, n, total(got), 100*float64(n)/float64(total(got)), maxDiff)
 		}
 	}
 }
 
-func withinTolerance(a, b image.Image, tol int) bool {
+// Drift rule: oksvg/rasterx antialiasing differs slightly across CPU
+// architectures (Go fuses multiply-add on arm64 but not amd64), so edge pixels
+// may be off by more than 2/255 when CI (amd64) checks icons committed from
+// arm64. Tolerate a small scattered fraction of such pixels with bounded
+// error; real drift (SVG edit, scale, background) changes far more pixels or
+// by far more.
+const (
+	maxDriftFraction = 0.005
+	maxDriftChannel  = 48
+)
+
+func total(img image.Image) int {
+	b := img.Bounds()
+	return b.Dx() * b.Dy()
+}
+
+func driftOK(n, maxDiff, pixels int) bool {
+	return float64(n) <= maxDriftFraction*float64(pixels) && maxDiff <= maxDriftChannel
+}
+
+// diffStats returns the number of pixels where any 8-bit channel differs by
+// more than tol, and the largest channel difference overall.
+func diffStats(a, b image.Image, tol int) (n, maxDiff int) {
 	bd := a.Bounds()
 	for y := bd.Min.Y; y < bd.Max.Y; y++ {
 		for x := bd.Min.X; x < bd.Max.X; x++ {
-			ar, ag, ab, aa := color.RGBAModel.Convert(a.At(x, y)).(color.RGBA).RGBA()
-			br, bg, bb, ba := color.RGBAModel.Convert(b.At(x, y)).(color.RGBA).RGBA()
+			ar, ag, ab, aa := a.At(x, y).RGBA()
+			br, bg, bb, ba := b.At(x, y).RGBA()
+			over := false
 			for _, p := range [][2]uint32{{ar, br}, {ag, bg}, {ab, bb}, {aa, ba}} {
 				d := int(p[0]>>8) - int(p[1]>>8)
-				if d < -tol || d > tol {
-					return false
+				if d < 0 {
+					d = -d
 				}
+				if d > maxDiff {
+					maxDiff = d
+				}
+				if d > tol {
+					over = true
+				}
+			}
+			if over {
+				n++
 			}
 		}
 	}
-	return true
+	return n, maxDiff
+}
+
+func solid(w, h int, c color.RGBA) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, c)
+		}
+	}
+	return img
+}
+
+func TestDriftComparator(t *testing.T) {
+	base := color.RGBA{100, 100, 100, 255}
+	check := func(mod func(*image.RGBA)) bool {
+		a, b := solid(100, 100, base), solid(100, 100, base)
+		mod(b)
+		n, m := diffStats(a, b, 2)
+		return driftOK(n, m, total(a))
+	}
+	bump := func(img *image.RGBA, x, y int, d uint8) {
+		c := img.RGBAAt(x, y)
+		c.R += d
+		img.SetRGBA(x, y, c)
+	}
+	if !check(func(*image.RGBA) {}) {
+		t.Error("identical images should pass")
+	}
+	if !check(func(i *image.RGBA) {
+		for k := 0; k < 5; k++ {
+			bump(i, k*17, k*13, 30)
+		}
+	}) {
+		t.Error("few scattered pixels off by 30 should pass")
+	}
+	if check(func(i *image.RGBA) { bump(i, 50, 50, 200) }) {
+		t.Error("one pixel off by 200 should fail")
+	}
+	if check(func(i *image.RGBA) {
+		for y := 0; y < 100; y++ {
+			for x := 0; x < 2; x++ {
+				bump(i, x, y, 10)
+			}
+		}
+	}) {
+		t.Error("2% block off by 10 should fail")
+	}
+}
+
+func TestDriftComparatorCatchesScaleChange(t *testing.T) {
+	svg := loadSVG(t)
+	s := spec(t, "icon-512.png")
+	want, err := icongen.Render(svg, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Scale = 0.90
+	got, err := icongen.Render(svg, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, m := diffStats(got, want, 2)
+	if driftOK(n, m, total(want)) {
+		t.Errorf("scale 0.90 vs 0.92 should fail drift check (n=%d maxDiff=%d)", n, m)
+	}
 }
