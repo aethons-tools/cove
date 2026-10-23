@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-23
 ---
 
 # Running Jam (`at-jam serve`)
@@ -92,9 +92,9 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and tab title read `<name> Jam` and the rail's Jam entry `<name>`. One line of printable text, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". Don't end it in "Jam" — the title bar adds that. |
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
-| `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#reaching-the-ui). |
-| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/ui` and `/me`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. |
-| `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/ui` and `/me` act as that user with **no login**. `/ui` uses the user's first login, falling back to `local` if they have none. `/me` uses their first OIDC identity, so the user needs one (`at-jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. `/me` is mounted even without browser OIDC. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
+| `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |
+| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. |
+| `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/app` act as that user with **no login**: an admin under the user's first login (or `local` if they have none), and a member through their first OIDC identity, so the user needs one (`at-jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store-postgres` | **yes** | The Postgres store: control plane, squawk Log, session events, allocation ledger. A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. `serve` refuses to start without it. See [Postgres store](#postgres-store-store-postgres) below. |
@@ -147,7 +147,7 @@ The release with intercom slice 2b moves the intercom onto the channel log
 (intercompg migration `0004`, under an advisory lock, at first start). **Stop
 every older Jam first** — an older one would keep writing the renamed legacy
 tables — and don't roll back past it. The earlier log stays as read-only
-history; what this changes for agents, relays and `/me` is in
+history; what this changes for agents, relays and `/app/user` is in
 [intercom.md](intercom.md#enabling-it).
 
 ### Removed keys

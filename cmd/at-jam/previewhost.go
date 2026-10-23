@@ -99,7 +99,7 @@ func loadPreviewCert(certFile, keyFile, domain string) (tls.Certificate, error) 
 }
 
 // newPreviewAuth builds the previews' login (collabhttp.PreviewAuth) over the
-// /ui browser client (bc: same client id, scope and audience, so a login's
+// /app browser client (bc: same client id, scope and audience, so a login's
 // access token is the operator token). Its login routes are a browserauth
 // Service over browserauth.PreviewMount, served on the login host, whose
 // redirect URI is https://jam.<domain>/__jam/auth/callback. lc (nil when there

@@ -71,7 +71,7 @@ func jamWithLoginScope(t *testing.T, issuer, scope string) *httptest.Server {
 	t.Helper()
 	store := jam.NewMemStore()
 	lc := &jam.OperatorLoginConfig{Issuer: issuer, Audience: "https://jam.test/api", ClientID: "cid", Scope: scope}
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts
@@ -199,7 +199,7 @@ func TestLoginNotOIDCGated(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	store := jam.NewMemStore()
 	// nil login config → /admin/login-config 404
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

@@ -68,7 +68,7 @@ type serveConfig struct {
 	// CSRF write check accepts besides the request's own Host — e.g. the
 	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
 	UIOrigins []string `yaml:"ui-origins"`
-	// DevIdentity — DEV ONLY: loopback browser requests to /ui and /me act as
+	// DevIdentity — DEV ONLY: loopback browser requests to /app act as
 	// this user with no login (see browserauth.DevIdentity). serve
 	// refuses it unless admin-listen is loopback.
 	DevIdentity *devIdentityConfig `yaml:"dev-identity"`
@@ -859,7 +859,26 @@ func (c serveConfig) browserAuthConfig() *browserauth.RawConfig {
 	if scope == "" {
 		scope = "openid profile email"
 	}
-	return &browserauth.RawConfig{Issuer: o.Issuer, ClientID: o.BrowserClientID, Scope: scope, Audience: o.Audience}
+	// The login asks for openid (the ID token names the roster user) and the
+	// operator scope (the access token makes the viewer an admin).
+	return &browserauth.RawConfig{Issuer: o.Issuer, ClientID: o.BrowserClientID, Scope: withScopes(scope, "openid", o.RequireScope), Audience: o.Audience}
+}
+
+// withScopes adds each non-empty want missing from the space-separated scope:
+// openid in front, the rest at the end.
+func withScopes(scope string, want ...string) string {
+	have := strings.Fields(scope)
+	for _, w := range want {
+		if w == "" || slices.Contains(have, w) {
+			continue
+		}
+		if w == "openid" {
+			have = append([]string{w}, have...)
+		} else {
+			have = append(have, w)
+		}
+	}
+	return strings.Join(have, " ")
 }
 
 // adminTLS resolves the admin listener's cert/key: admin-tls if set, else the

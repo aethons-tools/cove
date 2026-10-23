@@ -1,10 +1,10 @@
 ---
-summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/ui/agents/<id>: identity, grants, studio, access, session, squawks), a destination's page (/ui/destinations/<name>), a model-spec's page (/ui/model-specs/<name>) and a kit's page (/ui/kits/<name>) — what each shows and how editing them works.
+summary: The Jam admin UI's per-entity pages outside a project — a user's page, an agent's page (/app/admin/agents/<id>: identity, grants, studio, access, session, squawks), a destination's page (/app/admin/destinations/<name>), a model-spec's page (/app/admin/model-specs/<name>) and a kit's page (/app/admin/kits/<name>) — what each shows and how editing them works.
 read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # Admin UI entity pages
@@ -22,14 +22,14 @@ A project's pages (its tabs and role pages) are in
 
 ## User pages
 
-`/ui/users` lists and creates users; `/ui/users/<id>` renames one, replaces its
+`/app/admin/users` lists and creates users; `/app/admin/users/<id>` renames one, replaces its
 logins and OIDC identities, adds or unlinks accounts, and removes it (rename and
 remove are refused while the user owns a live personal session).
 
 ## Agent pages
 
 Each agent id (in the Agents list, a running-agents table, a role's holders, a
-project's identities, or search) opens `/ui/agents/<id>`, the page for one
+project's identities, or search) opens `/app/admin/agents/<id>`, the page for one
 agent identity. It sits under Jam's Agents tab, or — linked from a project's
 pages (`?project=<name>`) — under that project's. The header shows its kind, its [status](#agent-status), standing name or
 personal owner, project, role and unit (linked), with **Open live timeline**
@@ -102,7 +102,7 @@ saving runs the same checks as the API, and **Clear** removes the layer.
 ## Destination pages
 
 Each destination name in the Destinations table links to
-`/ui/destinations/<name>`. The table itself shows route, upstream, auth
+`/app/admin/destinations/<name>`. The table itself shows route, upstream, auth
 (`identity-in → apply`), the default credential, the studio-connector summary
 (env keys, `git`) and how many roles list it.
 
@@ -134,8 +134,8 @@ git** is ticked; the form says so. **Delete** is on the page header.
 
 ## Model-spec pages
 
-Each model-spec name in the Model-specs table (`/ui/model-specs`) links to
-`/ui/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
+Each model-spec name in the Model-specs table (`/app/admin/model-specs`) links to
+`/app/admin/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
 model, policy mode, provider and how many roles use it. The page shows the harness (type, version, constraint, principal
 credential *name* and header rules, model, effort, note), the policy (mode, allow/deny rules), the
 roles that run it (**Used by** — for the default spec, also the roles bound to none) and the
@@ -154,7 +154,7 @@ page header and each table row.
 
 ## Kit pages
 
-Each kit name in the Kits table links to `/ui/kits/<name>`. The table shows the
+Each kit name in the Kits table links to `/app/admin/kits/<name>`. The table shows the
 current version (of how many), the current version's base kind and egress count,
 and how many roles raise it (for `default`, that includes roles with no kit
 set). A kit built on a parent shows `kit: <parent>[@vN]` as its base. A kit

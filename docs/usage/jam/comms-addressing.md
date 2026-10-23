@@ -4,7 +4,7 @@ read_when: You want a studio's agent to send to someone other than its own ticke
 owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Comms addressing (target space & access-graph)
@@ -55,7 +55,7 @@ has two kinds of addressable things:
   their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
   behind an admin request, e.g. to own a
   [personal session](personal-sessions.md). Their **OIDC identity bindings**
-  `{Issuer, Subject}` are for a browser login, e.g. [`/me`](intercom-ui.md);
+  `{Issuer, Subject}` are for a browser login, e.g. [`/app/user`](intercom-ui.md);
   they are opaque, never secrets, and both parts are non-empty.
 - **Rooms** — the project's named channels (`channel:<name>`) in Jam's channel
   registry, each with an id and a **binding** of a `Ref` (a tracker issue

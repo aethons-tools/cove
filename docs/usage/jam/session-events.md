@@ -4,7 +4,7 @@ read_when: You want to watch, audit, or export what a managed studio's agent did
 owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the operator-only sensitivity stance
 prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui.md#session-timeline for the browser view
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Session events
@@ -89,9 +89,9 @@ recorded before they existed), and the extracted `type`, `subtype`,
 
 ## UI
 
-The browser timeline lives at `/ui/agents/{id}/session`; see
+The browser timeline lives at `/app/admin/agents/{id}/session`; see
 [ui.md](ui.md#session-timeline). The studio's page lists its streams
-([ui-pages.md](ui-pages.md#agent-pages)). `/me` shows participants only a
+([ui-pages.md](ui-pages.md#agent-pages)). `/app/user` shows participants only a
 derived status per session, never events — see
 [intercom-ui.md](intercom-ui.md#session-status).
 
@@ -99,7 +99,7 @@ derived status per session, never events — see
 
 Events carry tool inputs and outputs: file contents, command output, possibly
 secrets the agent read. They are visible to operators only. The one thing
-derived from them for participants is the `/me` status strip: a coarse status
+derived from them for participants is the `/app/user` status strip: a coarse status
 and, while a tool runs, its **name** (e.g. `Bash`) — never inputs, outputs, or
 text. This is a
 deliberate exception to [observability rule 3](../observability.md) ("raw

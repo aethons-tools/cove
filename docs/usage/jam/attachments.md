@@ -1,10 +1,10 @@
 ---
 summary: Attachments — people and sessions attach files (screenshots, logs, PDFs; up to `blobs.max-size`, 25 MB by default) to messages. Files are uploaded first, then referenced by a send; Jam stores them in an S3-compatible bucket and serves them access-checked against the message's channel. Kept forever, like messages.
 read_when: You want people or agents to share files in a conversation, you're setting up the attachments bucket (MinIO, S3, R2), or an upload is refused (413/503) or a download 404s.
-owns: the attachment flow (upload → reference → download), who may read a file, the upload/blob routes, the agent `attach`/`fetch` tools, the 24h sweep of unsent uploads, download safety headers, and the MinIO setup. Does NOT own the `blobs:` config keys — see serve.md; nor the `/me` composer and rendering — see intercom-ui.md.
+owns: the attachment flow (upload → reference → download), who may read a file, the upload/blob routes, the agent `attach`/`fetch` tools, the 24h sweep of unsent uploads, download safety headers, and the MinIO setup. Does NOT own the `blobs:` config keys — see serve.md; nor the `/app/user` composer and rendering — see intercom-ui.md.
 prereqs: intercom.md for channels and read; serve.md for the `blobs:` block and credentials
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # Attachments
@@ -16,24 +16,24 @@ may read the message. Attachments are off unless serve has a
 
 ## The flow
 
-1. **Upload** — `POST /me/uploads` (a person) or `POST /squawks/uploads` (a
+1. **Upload** — `POST /app/user/uploads` (a person) or `POST /squawks/uploads` (a
    session): the raw file as the body, its `Content-Type`, and its name in
    `X-Filename` (percent-encoded for non-ASCII names). → `201 {ref, size, type, name}` (`ref` is `blb_…`). Over the
    cap → `413`; attachments off → `503`. The upload is **pending**: only its
    uploader can read it, and it is deleted if not sent within a day (the
    hourly sweep takes it once it is 24 hours old).
-2. **Send** — `attachments: ["blb_…", …]` (at most 10) on `/me/send` or
+2. **Send** — `attachments: ["blb_…", …]` (at most 10) on `/app/user/send` or
    `POST /squawks`. Only your own pending uploads; each attaches to exactly one
    message (to share it elsewhere, upload it again). With files the text may
    be empty — it becomes the file names. A refused ref → `400`, and nothing is
    sent.
-3. **Download** — `GET /me/blobs/{ref}` (a person who can see the message's
+3. **Download** — `GET /app/user/blobs/{ref}` (a person who can see the message's
    channel) or `GET /squawks/blobs/{ref}` (a session in it). Anyone else gets
    `404`, the same as for a file that doesn't exist. Its uploader can always
    read it. Byte ranges work.
 
 A message's attachments are its `parts` with a `ref`: `{type, ref, name,
-size}` — in `read` entries and in `/me`.
+size}` — in `read` entries and in `/app/user`.
 
 ## Agents
 

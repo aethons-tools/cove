@@ -46,7 +46,7 @@ const (
 // Channel is one projected conversation a participant is a member of, tagged so
 // a caller can group by attention (Bucket) OR by Project from the same data.
 // Phase/NeedsYou derive from the backing session's live Instance the same way
-// /ui/coves reads it; Unread/LastSeq derive from the Log and the caller's
+// the admin UI reads it; Unread/LastSeq derive from the Log and the caller's
 // cursor.
 type ChannelView struct {
 	ID       string // stable, deterministic channel id

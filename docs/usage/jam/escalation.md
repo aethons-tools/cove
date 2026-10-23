@@ -4,7 +4,7 @@ read_when: You want a waiting session that asked for a person to actively reach 
 owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project members tiers resolve against
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # Escalation (human tiers)
@@ -105,10 +105,10 @@ conversation, its issue included." The relays render it wherever the channel goe
   by their tracker handles (as before — also when a room holds the issue's
   binding), and each called-in person's Discord inbox in a Discord-chat project.
   A Discord reply to it lands in the ticket's conversation, so it is also posted
-  on the issue; the session's answer goes to the issue (and `/me`), not back to
+  on the issue; the session's answer goes to the issue (and `/app/user`), not back to
   that inbox;
 - a **session channel**: each member's Discord inbox, like any post there; a
-  person with only Linear sees it in [`/me`](intercom-ui.md).
+  person with only Linear sees it in [`/app/user`](intercom-ui.md).
 
 Jam acts on the operator's policy here, so the comms access-graph
 (`Scope.Addressing`) is not consulted. The notice is for people: it never wakes

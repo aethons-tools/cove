@@ -4,7 +4,7 @@ read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator
 owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
 prereqs: serve.md for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-23
 ---
 
 # Operator sign-in & the admin client
@@ -30,7 +30,7 @@ operator-auth:
     require-scope: jam:admin          # optional; matched against the token's scope/permissions
     device-client-id: "…"                # the Native app's client id (for CLI `login`)
     device-scope: "openid profile"       # optional device-flow scopes
-    browser-client-id: "…"               # optional; enables browser (Authorization Code + PKCE) login for /ui
+    browser-client-id: "…"               # optional; enables browser (Authorization Code + PKCE) login for the /app browser app
     browser-scope: "openid profile email" # optional; default shown, must include openid
 ```
 
@@ -41,10 +41,11 @@ latter needs Auth0 RBAC "Add Permissions in the Access Token" + the permission
 assigned to the user).
 
 `device-client-id` gates the CLI **device flow** (this doc). `browser-client-id`
-(a public SPA/Native client) gates **browser login for the `/ui`** via
-Authorization Code + PKCE, reusing the same `issuer`/`audience`/`require-scope`;
-the browser session cookie holds the API access token and is re-verified per
-request just like a bearer. See [ui.md](ui.md#reaching-the-ui).
+(a public SPA/Native client) gates **browser login for `/app`** via
+Authorization Code + PKCE, reusing the same `issuer`/`audience`/`require-scope`
+(the login requests `require-scope` on top of `browser-scope`); the session's
+access token is re-verified per request just like a bearer, and makes the
+viewer an admin. See [ui.md](ui.md#signing-in-one-login-one-principal).
 
 **Auth0 app type matters:** `login` uses the OAuth 2.0 **device flow**, which
 requires a **Native** application with the **Device Code** grant enabled — *not* a

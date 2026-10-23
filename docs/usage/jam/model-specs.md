@@ -4,7 +4,7 @@ read_when: You are authoring, listing, changing or deleting a model-spec, bindin
 owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-23
 ---
 
 # Model-specs
@@ -171,7 +171,7 @@ error rather than silently dropped. A typical edit is
 
 ## In the admin UI
 
-The [admin UI](ui.md) lists model-specs at `/ui/model-specs` and creates, edits
+The [admin UI](ui.md) lists model-specs at `/app/admin/model-specs` and creates, edits
 and deletes them through the same validation as the verb — see
 [ui-pages.md](ui-pages.md#model-spec-pages).
 

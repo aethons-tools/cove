@@ -1,7 +1,7 @@
 // Package uiassets holds the static assets the Jam UIs share — jam.css (the
-// design tokens and typography base) and htmx — so the operator admin UI (/ui)
-// and the participant intercom (/me) read as one product from one source. Each
-// UI mounts Handler under its own static prefix, keeping its own auth gate.
+// design tokens and typography base) and htmx — so the admin UI (/app/admin)
+// and the user Inbox (/app/user) read as one product from one source. The
+// browser app serves them, ungated, under /app/static/.
 package uiassets
 
 import (
@@ -34,7 +34,7 @@ var version = func() string {
 	return hex.EncodeToString(sum[:6])
 }()
 
-// Handler serves the shared assets at prefix (e.g. "/ui/static/"); register it
+// Handler serves the shared assets at prefix (e.g. "/app/static/"); register it
 // on the "GET <prefix>" pattern.
 func Handler(prefix string) http.Handler {
 	return http.StripPrefix(prefix, http.FileServer(http.FS(static)))

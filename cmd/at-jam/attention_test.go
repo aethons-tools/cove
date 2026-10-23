@@ -20,7 +20,7 @@ func TestAttentionList(t *testing.T) {
 	tr.Raise(condition.Condition{Key: "k:old", Severity: condition.Warning, Summary: "old one"})
 	tr.Clear("k:old")
 	h := jam.NewAdminHandler(jam.NewMemStore(), nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil,
-		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(tr)))
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(tr)))
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

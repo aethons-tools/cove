@@ -116,7 +116,7 @@ func configServer(t *testing.T, st *MemStore) *httptest.Server {
 func configServerWith(t *testing.T, st *MemStore, f KitFetcher) *httptest.Server {
 	t.Helper()
 	log := slog.New(slog.DiscardHandler)
-	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil, nil,
+	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil,
 		WithConfig(st, f, allCreds, log)))
 	t.Cleanup(ts.Close)
 	return ts
@@ -311,7 +311,7 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
 	st := NewMemStore()
-	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil, nil,
+	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil,
 		WithConfig(st, repoFetcher{}, allCreds, log)))
 	defer ts.Close()
 	const token = "ghp_s3cretTOKEN"

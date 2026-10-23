@@ -15,7 +15,7 @@ import (
 // end-to-end through httptest.Server + MemStore.
 func TestProjectLifecycleCommands(t *testing.T) {
 	store := jam.NewMemStore()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -59,7 +59,7 @@ func TestProjectLifecycleCommands(t *testing.T) {
 // `project rename` renames a project in place: its roles follow.
 func TestProjectRenameCommand(t *testing.T) {
 	store := jam.NewMemStore()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	var out, errb bytes.Buffer

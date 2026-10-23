@@ -432,6 +432,30 @@ operator-auth:
 	}
 }
 
+// The /app login asks for the operator scope (require-scope) so its access
+// token can make the viewer an admin; openid is always present, once.
+func TestBrowserAuthConfigRequestsOperatorScope(t *testing.T) {
+	for name, extra := range map[string]string{
+		"default scope":        "",
+		"browser-scope set":    "    browser-scope: profile jam:admin\n",
+		"browser-scope openid": "    browser-scope: openid email\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := parseServeConfig([]byte("operator-auth:\n  oidc:\n    issuer: https://idp/\n    audience: aud\n    browser-client-id: bcid\n    require-scope: jam:admin\n" + extra))
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := map[string]int{}
+			for _, s := range strings.Fields(cfg.browserAuthConfig().Scope) {
+				n[s]++
+			}
+			if n["openid"] != 1 || n["jam:admin"] != 1 {
+				t.Fatalf("scope = %q, want openid and jam:admin exactly once each", cfg.browserAuthConfig().Scope)
+			}
+		})
+	}
+}
+
 func TestUIHostsParsed(t *testing.T) {
 	cfg, err := parseServeConfig([]byte("ui-hosts:\n  - jam.local.aethons.tools\n  - jam.internal\n"))
 	if err != nil {

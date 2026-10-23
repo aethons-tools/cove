@@ -16,7 +16,7 @@ func newModelSpecAdmin(t *testing.T, poolConfigured bool) (http.Handler, Store, 
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, nil))
 	credExists := func(n string) bool { return n == "anthropic" }
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, log, nil, nil,
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, log, nil,
 		WithModelSpecs(store, credExists, poolConfigured, log))
 	return h, store, &logs
 }

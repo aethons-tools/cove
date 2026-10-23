@@ -18,7 +18,7 @@ func newTestAdmin(t *testing.T) (http.Handler, Store) {
 	t.Helper()
 	store := NewMemStore()
 	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store
 }
 
@@ -144,36 +144,28 @@ func TestAdminEnrollThenRevoke(t *testing.T) {
 	}
 }
 
-func TestAdminHandlerMountsUI(t *testing.T) {
+func TestAdminHandlerMountsBrowser(t *testing.T) {
 	store := NewMemStore()
-	ui := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	browser := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("UI:" + r.URL.Path))
+		w.Write([]byte("APP:" + r.URL.Path))
 	})
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ui, nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), browser)
 
-	// Root redirects to /ui/.
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq(http.MethodGet, "/", ""))
-	if rec.Code != http.StatusFound {
-		t.Fatalf("GET / = %d, want 302", rec.Code)
-	}
-	if loc := rec.Header().Get("Location"); loc != "/ui/" {
-		t.Errorf("redirect Location = %q, want /ui/", loc)
-	}
-
-	// /ui/* reaches the mounted handler WITHOUT the API auth gate applying — the
-	// ui handler owns its own auth now.
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui/coves", nil)
-	req.RemoteAddr = "203.0.113.9:1000" // off-loopback: the API gate would have 403'd before
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || rec.Body.String() != "UI:/ui/coves" {
-		t.Fatalf("GET /ui/coves = %d %q, want 200 UI:/ui/coves (ui owns its own auth)", rec.Code, rec.Body.String())
+	// Everything outside /admin/ reaches the browser handler WITHOUT the API
+	// auth gate applying — the browser app owns its own gates.
+	for _, p := range []string{"/", "/app/admin/coves", "/ui/coves", "/me/studios/x"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		req.RemoteAddr = "203.0.113.9:1000" // off-loopback: the API gate would have 403'd
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "APP:"+p {
+			t.Fatalf("GET %s = %d %q, want 200 APP:%s (browser owns its own auth)", p, rec.Code, rec.Body.String(), p)
+		}
 	}
 
 	// /admin/* is still guarded by the API auth.
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	badReq := httptest.NewRequest(http.MethodGet, "/admin/actors", nil)
 	badReq.RemoteAddr = "203.0.113.9:1000"
 	h.ServeHTTP(rec, badReq)
@@ -193,7 +185,7 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 	var logbuf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logbuf, nil))
 	credExists := func(n string) bool { return n == "git-pat" }
-	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil, nil)
+	h := NewAdminHandler(store, nil, nil, fixedOperator{id: "auth0|alice"}, credExists, nil, log, nil)
 	mustCreateProject(t, store, "ACME")
 	if err := store.PutRole("ACME", Role{Name: "guest", Scope: Scope{Destinations: []string{"git"}}}); err != nil {
 		t.Fatal(err)
@@ -242,7 +234,7 @@ var errDeny = fmt.Errorf("denied")
 func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 	store := NewMemStore()
 	lc := &OperatorLoginConfig{Issuer: "https://acme.auth0.com/", Audience: "https://jam.acme/api", ClientID: "cid", Scope: "openid"}
-	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, lc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	// login-config is reachable with NO token even though the authenticator denies all.
 	rec := httptest.NewRecorder()
@@ -265,7 +257,7 @@ func TestLoginConfigServedAndAuthExempt(t *testing.T) {
 
 func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	store := NewMemStore()
-	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("GET", "/admin/login-config", ""))
 	if rec.Code != http.StatusNotFound {
@@ -688,7 +680,7 @@ func newTestAdminWithSupervisorAndLauncher(t *testing.T) (http.Handler, Store, *
 	sup := NewSupervisor(store, launcher, "holder-admin",
 		time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	credExists := func(n string) bool { return true }
-	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, credExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	return h, store, sup, launcher
 }
 
@@ -776,7 +768,7 @@ func mustJSON(t *testing.T, v any) []byte {
 func TestAdminConfigExportImport(t *testing.T) {
 	src := populated(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srcH := NewAdminHandler(src, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	srcH := NewAdminHandler(src, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	srcTS := httptest.NewServer(srcH)
 	defer srcTS.Close()
 
@@ -791,7 +783,7 @@ func TestAdminConfigExportImport(t *testing.T) {
 	resp.Body.Close()
 
 	dst := NewMemStore()
-	dstH := NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil)
+	dstH := NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	dstTS := httptest.NewServer(dstH)
 	defer dstTS.Close()
 
@@ -817,7 +809,7 @@ func TestAdminConfigExportImport(t *testing.T) {
 func TestAdminConfigImportBadVersion(t *testing.T) {
 	dst := NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	defer ts.Close()
 	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(`{"version":999}`))
 	if err != nil {
@@ -833,14 +825,14 @@ func TestWithAdminRouteIsGuarded(t *testing.T) {
 	store := NewMemStore()
 	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("extra")) })
 	h := NewAdminHandler(store, nil, nil, denyAll{}, func(string) bool { return true }, nil,
-		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/sessions/w1/events", nil))
 	if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated request reached the route: %d", rec.Code)
 	}
 	h = NewAdminHandler(store, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil,
-		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil, WithAdminRoute("GET /admin/sessions/{actor_id}/events", extra))
 	rec = httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/admin/sessions/w1/events", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
@@ -932,7 +924,7 @@ func TestAdminEnrollReturnsConnector(t *testing.T) {
 func TestAdminConfigImportInvalidContext(t *testing.T) {
 	dst := NewMemStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, nil))
+	ts := httptest.NewServer(NewAdminHandler(dst, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	defer ts.Close()
 	body := fmt.Sprintf(`{"version":%d,"jam_context":{"core":%q}}`, ConfigSnapshotVersion, strings.Repeat("x", 900))
 	r, err := http.Post(ts.URL+"/admin/config", "application/json", strings.NewReader(body))

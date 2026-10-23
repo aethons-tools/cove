@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-23
 ---
 
 # Development notes
@@ -115,7 +115,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
 - `just test-browser` (`go test -tags browser ./internal/jam/userui/`) drives the
-  `/me` page in **headless Chrome** via chromedp, covering the composer JS that
+  `/app/user` page in **headless Chrome** via chromedp, covering the composer JS that
   the hermetic tests can only see as source (e.g. paste-as-code). It needs
   `chrome-headless-shell` on `PATH` (or `COVE_BROWSER=<path>`), and each test
   **skips** without one. The `cove-ic` studio kit

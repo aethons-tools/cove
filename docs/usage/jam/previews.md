@@ -4,7 +4,7 @@ read_when: You want to open or script against a studio preview, set up previews 
 owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the code-server pattern, preview limits and troubleshooting
 prereqs: collaboration.md (who may connect, sharing, the tunnel), serve.md (the previews: block)
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-23
 ---
 
 # Studio previews
@@ -45,7 +45,7 @@ logged as `preview opened` (again after 10 min).
 Preview hosts have no login of their own. A
 browser with no session gets a `__Host-jam_preview_login` cookie (10 min)
 and goes to the login host `jam.<domain>`. It runs the
-same OIDC login as `/ui`, so operators count as operators, and anyone else's
+same OIDC login as `/app`, so operators count as operators, and anyone else's
 login must be linked to a Jam user ([roster.md](roster.md)). It then sends you
 back with a single-use code, valid 60 s, only for that preview host and only
 in the browser holding that login cookie. Someone else's code therefore cannot
@@ -103,7 +103,7 @@ HTTP/2). `CONNECT` is refused (405).
    they share one. Point DNS `*.<domain>` at the Jam host.
 2. Get a wildcard certificate for `*.<domain>`.
 3. In the IdP, add `https://jam.<domain>/__jam/auth/callback` as a redirect
-   URI of the `/ui` browser client ([operators.md](operators.md)). Add
+   URI of the `/app` browser client ([operators.md](operators.md)). Add
    `:<port>` when the admin listener is not on 443: previews are served on
    the admin listener, so preview URLs then carry its port (e.g.
    `https://app--…<domain>:8443/`); `:443` is the cove-facing listener.

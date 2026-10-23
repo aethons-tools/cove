@@ -14,7 +14,7 @@ import (
 
 func newBackupServer(t *testing.T, store jam.Store) *httptest.Server {
 	t.Helper()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	return ts

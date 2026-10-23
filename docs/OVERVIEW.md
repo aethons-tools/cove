@@ -4,7 +4,7 @@ read_when: You need what at-cove is, the kit format, the `at-cove` command surfa
 owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # at-cove — Project Overview
@@ -854,7 +854,7 @@ internal/dispatch/exec/       real Executor: headless command run with injected 
 cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
 cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
 cmd/at-jam/                at-jam entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`model-spec`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are admin-API clients (config + servers over internal/jam)
-internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image); also the intercom on the channel log: the channel registry (channel_registry.go: chat / ticket / room channels, bindings, members, read cursors; rooms.go: roster channels as rooms), the posting rules and writes (intercom_post.go: address → channel, the addressing ceiling, per-source CanPost/CanSee, audience recorded at post; sessions join their ticket's channel at setup), a session's inbox across the channel and legacy logs (session_inbox.go), and the `/me` read-model (channel_views.go; channels.go keeps the legacy log's projection for History)
+internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image); also the intercom on the channel log: the channel registry (channel_registry.go: chat / ticket / room channels, bindings, members, read cursors; rooms.go: roster channels as rooms), the posting rules and writes (intercom_post.go: address → channel, the addressing ceiling, per-source CanPost/CanSee, audience recorded at post; sessions join their ticket's channel at setup), a session's inbox across the channel and legacy logs (session_inbox.go), and the `/app/user` read-model (channel_views.go; channels.go keeps the legacy log's projection for History)
 internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
 internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
 internal/kit/                 locate kit (cwd walk-up); load + validate config.yml

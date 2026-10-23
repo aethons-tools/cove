@@ -4,7 +4,7 @@ read_when: You want a ticket session to report its ticket's state or a session t
 owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-23
 ---
 
 # Turn end
@@ -153,7 +153,7 @@ but background tasks are still running** — cove-master keeps the episode open
   reply that landed while holding still wakes the agent. Only a run that starts from
   `waiting` (or a raise) re-baselines.
 - When the episode finally ends, the studio reports `waiting` as before.
-- In `/me`, a holding session reads "is working in the background".
+- In `/app/user`, a holding session reads "is working in the background".
 
 ## Wake reasons
 

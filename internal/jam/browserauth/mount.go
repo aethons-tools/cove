@@ -7,12 +7,11 @@ import "net/http"
 type SessionToken int
 
 const (
-	// AccessTokenSession stores the access token — the operator plane, where the
-	// gate re-verifies it via jam.OIDCAuthenticator (aud = API audience + require-scope).
+	// AccessTokenSession stores the access token in the one session cookie
+	// (re-verifiable via jam.OIDCAuthenticator: aud = API audience + require-scope).
 	AccessTokenSession SessionToken = iota
-	// IDTokenSession stores the ID token — the participant plane, where the gate
-	// verifies it with the browser verifier (aud = ClientID) and maps its subject
-	// to a roster human. No API audience or scope is required.
+	// IDTokenSession stores the ID token in the one session cookie (verifiable
+	// with VerifySubject: aud = ClientID). No API audience or scope is required.
 	IDTokenSession
 	// BothTokensSession stores both tokens, each in its own cookie (two JWTs can
 	// exceed a single cookie's 4 KB): the ID token names the roster user, the
@@ -21,10 +20,9 @@ const (
 )
 
 // Mount describes one browser-login subtree: the URL prefix it serves, the name
-// of its session cookie, and which token backs the session. Three mounts
-// (operator "/ui", participant "/me" and the unified "/app", see AppMount)
-// share one audited OIDC implementation; their cookies are path-scoped to the
-// prefix so they never collide.
+// of its session cookie, and which token backs the session. The browser app
+// ("/app", see AppMount) and the previews' login host (PreviewMount) share one
+// audited OIDC implementation; session cookies are path-scoped to the prefix.
 //
 // A mount may instead hand the login result to its owner: when Complete is
 // set, the callback calls it with both verified-exchange tokens and the bound
@@ -36,8 +34,8 @@ const (
 // Secure, no Domain), so sibling hosts under a shared parent domain cannot
 // toss them.
 type Mount struct {
-	Prefix        string // e.g. "/ui", "/me" or "/app"
-	SessionCookie string // e.g. "jam_session" or "jam_participant"
+	Prefix        string // e.g. "/app"
+	SessionCookie string // e.g. "jam_app"
 	Session       SessionToken
 
 	Complete func(w http.ResponseWriter, r *http.Request, idToken, accessToken, returnTo string)
@@ -57,16 +55,6 @@ func (m Mount) AccessCookie() string { return m.SessionCookie + "_at" }
 // AppMount is the unified browser app's "/app" mount.
 func AppMount() Mount {
 	return Mount{Prefix: "/app", SessionCookie: "jam_app", Session: BothTokensSession}
-}
-
-// OperatorUIMount is the standard operator "/ui" mount.
-func OperatorUIMount() Mount {
-	return Mount{Prefix: "/ui", SessionCookie: "jam_session", Session: AccessTokenSession}
-}
-
-// ParticipantMount is the standard participant "/me" mount.
-func ParticipantMount() Mount {
-	return Mount{Prefix: "/me", SessionCookie: "jam_participant", Session: IDTokenSession}
 }
 
 // PreviewMount is the previews' login mount, served on the login host

@@ -44,7 +44,7 @@ func TestListsShowImageStatus(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: bot, Project: "acme", Role: "reviewer", Name: "bot", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
-	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
@@ -87,7 +87,7 @@ func TestListsImageFallbacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	bot := jam.SeedStandingSession(store, "acme", "reviewer", "bot")
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	covesReply := "" // "" = fail GET /admin/coves
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin/coves" {

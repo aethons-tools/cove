@@ -11,7 +11,7 @@ import (
 )
 
 // The ask tools (intercom structured asks): a session asks a one-of-N
-// question in a channel; a person answers in /me, and the answer arrives
+// question in a channel; a person answers in the Jam app's Inbox (/app/user), and the answer arrives
 // through read as an entry carrying its ask part.
 
 // partOut mirrors a squawk part in Jam's responses; an ask part's data is
