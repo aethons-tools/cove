@@ -34,6 +34,7 @@ Conditions survive a Jam restart and keep their original start time.
 |---|---|---|---|
 | `cred.unavailable:<cred>` | critical | 3 consecutive failures resolving a brokered credential | the next successful resolve, or at startup if the credential is no longer configured |
 | `pool.account.refresh:<account>` | warning; critical while every account fails | 2 consecutive failed refresh passes | the next successful refresh, a fresh token (`pool add`), or removal of the account |
+| `push:relay` | warning | 5 consecutive transient [push](push.md#how-jam-sends) send failures (network error, 429 or 5xx from a push service) | the next send a push service answers with anything but 429 or 5xx |
 | `config.drift:jam` | info | a config-managed object was edited or removed in Jam since its apply ([config-git.md](config-git.md#drift-and-release)) | an apply, sync or release leaves none drifted (checked every minute and after each) |
 
 Each carries its fix (e.g. `gcloud auth application-default login` for a

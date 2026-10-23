@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -461,4 +463,151 @@ func TestSurfacesSkipAsks(t *testing.T) {
 	}
 	wantSurfaces(t, "an ask on a ticket", k.dir.Surfaces("linear", m), nil)
 	wantSurfaces(t, "an ask over discord", k.dir.Surfaces("discord", m), nil)
+}
+
+// subscribe gives user n push devices; it returns their endpoints.
+func (k *relayKit) subscribe(u ident.ID, names ...string) []string {
+	k.t.Helper()
+	var out []string
+	for _, n := range names {
+		ep := "https://fcm.googleapis.com/fcm/send/" + n
+		if err := k.st.PutPushSubscription(jam.PushSubscription{Endpoint: ep, UserID: u, P256dh: "p", Auth: "a"}); err != nil {
+			k.t.Fatal(err)
+		}
+		out = append(out, ep)
+	}
+	return out
+}
+
+// pushWant is the push deliveries for endpoints of user u.
+func pushWant(want map[string]string, u ident.ID, endpoints ...string) {
+	for _, ep := range endpoints {
+		want[push.Service+":"+push.AddressFor(ep)] = string(u)
+	}
+}
+
+// Push: one delivery per (recipient, device), BodyPrefix the recipient's id;
+// a person focused on the conversation is left out; no ingress.
+func TestSurfacesPush(t *testing.T) {
+	k := newRelayKit(t)
+	k.dir.pushOn, k.dir.pushFocus = true, push.NewFocus(nil)
+	aliceDevs := k.subscribe(k.alice.ID, "a1", "a2")
+	bobDevs := k.subscribe(k.bob.ID, "b1", "b2")
+	k.subscribe(k.carol.ID, "c1")
+	m := k.send(k.std, "chat:user:alice,user:bob", "standup")
+
+	want := map[string]string{}
+	pushWant(want, k.alice.ID, aliceDevs...)
+	pushWant(want, k.bob.ID, bobDevs...)
+	wantSurfaces(t, "group chat", k.dir.Surfaces("push", m), want)
+
+	k.dir.pushFocus.Set(k.bob.ID, m.Channel)
+	want = map[string]string{}
+	pushWant(want, k.alice.ID, aliceDevs...)
+	wantSurfaces(t, "bob focused", k.dir.Surfaces("push", m), want)
+
+	if p := k.dir.Projects("push"); p != nil {
+		t.Fatalf("Projects(push) = %v", p)
+	}
+	if _, ok := k.dir.Route("push", "", relay.Event{ForeignID: "x"}); ok {
+		t.Fatal("push routed an event")
+	}
+	k.dir.pushOn = false
+	wantSurfaces(t, "push off", k.dir.Surfaces("push", m), nil)
+	// The push surfaces never leak onto the others.
+	k.dir.pushOn = true
+	for _, svc := range []string{"linear", "discord"} {
+		for _, d := range k.dir.Surfaces(svc, m) {
+			if d.Service == push.Service {
+				t.Fatalf("%s surfaces carry a push delivery: %+v", svc, d)
+			}
+		}
+	}
+}
+
+// An ask notifies the people it names, in any channel kind — push is not
+// paused for parts as the other relays are.
+func TestSurfacesPushAsk(t *testing.T) {
+	k := newRelayKit(t)
+	k.dir.pushOn = true
+	devs := k.subscribe(k.alice.ID, "a1")
+	k.subscribe(k.bob.ID, "b1")
+	ch, _ := k.ic.HomeChannel(k.ticket)
+	for _, u := range []ident.ID{k.alice.ID, k.bob.ID} {
+		if err := k.st.JoinChannel(ch.ID, u, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ev := intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Of: []ident.ID{k.alice.ID},
+		Options: []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}}
+	m, err := k.ic.PostTrusted(ch, intercom.Squawk{From: ident.ID(k.ticket.ActorID), Body: "asked: Merge?", Parts: []intercom.Part{intercom.AskPart(ev)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	pushWant(want, k.alice.ID, devs...)
+	wantSurfaces(t, "an ask on a ticket", k.dir.Surfaces("push", m), want)
+	plain := k.send(k.ticket, "", "just progress")
+	wantSurfaces(t, "a ticket message", k.dir.Surfaces("push", plain), nil)
+}
+
+// pushSender answers by endpoint: 404 for the dead ones, 201 otherwise.
+type pushSender struct {
+	mu   sync.Mutex
+	dead map[string]bool
+	sent []string
+}
+
+func (s *pushSender) Send(_ context.Context, _ []byte, sub jam.PushSubscription, _ push.SendOptions) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sent = append(s.sent, sub.Endpoint)
+	if s.dead[sub.Endpoint] {
+		return 404, nil
+	}
+	return 201, nil
+}
+
+// One dead device among a person's: the 404 prunes it, the healthy one is
+// pushed, and the push mark moves past the squawk.
+func TestPushEngineDeadEndpoint(t *testing.T) {
+	k := newRelayKit(t)
+	k.dir.pushOn = true
+	devs := k.subscribe(k.alice.ID, "dead", "healthy")
+	dir := t.TempDir()
+	markers, err := newFileMarkers(filepath.Join(dir, "markers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursors, err := newFileCursors(filepath.Join(dir, "cursors.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := k.send(k.personal, "", "done?") // alice's personal session to her
+	sender := &pushSender{dead: map[string]bool{devs[0]: true}}
+	r := pushReader{store: k.st, ic: k.ic}
+	surf := &push.Surface{Store: k.st, Sender: sender, Payload: pushPayload(r, nil, func(ident.ID) int { return 0 }, true)}
+	eng := relay.New(surf, k.lg, markers, cursors, k.dir, relay.Config{EgressEnabled: true, EgressPoll: 5 * time.Millisecond, IngressPoll: time.Hour}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { eng.Run(ctx); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for markers.Egress("push").LastSeq < m.Seq {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("push mark stuck at %d, want %d", markers.Egress("push").LastSeq, m.Seq)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	subs := k.st.PushSubscriptions(k.alice.ID)
+	if len(subs) != 1 || subs[0].Endpoint != devs[1] || subs[0].LastOKAt.IsZero() {
+		t.Fatalf("alice's devices = %+v", subs)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.sent) != 2 {
+		t.Fatalf("sends = %v", sender.sent)
+	}
 }

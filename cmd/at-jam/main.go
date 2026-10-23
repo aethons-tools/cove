@@ -57,6 +57,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
@@ -2050,6 +2051,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		pushPublic = vapid.public
 		log.Info("Jam push notifications: VAPID key loaded", "cred", cfg.Runtime.Push.VAPIDPrivateKeyCred) // never the key
 	}
+	// Who has which conversation open in the app (in memory): the push relay
+	// skips them; the app's focus route (/app/user/push/focus) records it.
+	pushFocus := push.NewFocus(time.Now)
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
 	kitFetcher, err := resolveKitFetcher(cfg, specs)
@@ -2369,7 +2373,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	go eng.Run(context.Background())
 	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
 
-	// Relay state shared by the Linear and Discord relay engines (one cursors
+	// Relay state shared by the Linear, Discord and push relay engines (one cursors
 	// file, one markers file, one directory). Every directory field is set
 	// before any engine starts.
 	var (
@@ -2377,10 +2381,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		relayMarkers *fileMarkers
 		discordTok   string
 	)
-	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker}
+	runPush := vapid != nil
+	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker, pushOn: runPush, pushFocus: pushFocus}
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
-	if dc != nil || runDiscord {
+	if dc != nil || runDiscord || runPush {
 		if stateDir, err = cfg.stateDir(); err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
@@ -2409,7 +2414,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// The relays render only the channel log: a mark still in the legacy
-		// log moves to the cutover (see intercom.md, the cutover).
+		// log moves to the cutover (see intercom.md, the cutover). Push is
+		// not settled: it is seeded at the channel log's tail when first
+		// enabled (below), so it never held a legacy mark or legacy pending ids.
 		for _, service := range []string{"linear", "discord"} {
 			skipped, err := relayMarkers.settleCutover(service, chlog.CutoverSeq(), chlog.SeqOf)
 			if err != nil {
@@ -2556,6 +2563,32 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		deng := relay.New(dsurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go deng.Run(context.Background())
 		log.Info("Jam relay (discord): resident, egress ON")
+	}
+
+	// relay push engine: egress only, over the same Log, markers and
+	// directory — each notified person's devices (Web Push), signed with the
+	// VAPID key resolved above. Gated on runtime.push.
+	if runPush {
+		if relayMarkers.needsSeed(push.Service) { // seed: never buzz for the backlog on first enable
+			if err := relayMarkers.SetEgress(push.Service, relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
+				fmt.Fprintln(stderr, "at-jam: push egress seed:", err)
+				return 1
+			}
+		}
+		reader := pushReader{store: st, ic: ic}
+		unread := func(u ident.ID) int { return jam.UnreadTotal(st, ic, chlog, u) }
+		psurf := &push.Surface{
+			Store:   st,
+			Sender:  push.NewWebPushSender(nil),
+			Payload: pushPayload(reader, pushFocus, unread, cfg.Runtime.Push.preview()),
+			Opts:    push.SendOptions{Subscriber: cfg.Runtime.Push.Subject, VAPIDPrivate: vapid.private, VAPIDPublic: vapid.public},
+			Now:     time.Now,
+			Conds:   conds,
+			Log:     log,
+		}
+		peng := relay.New(psurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+		go peng.Run(context.Background())
+		log.Info("Jam relay (push): resident, egress ON", "preview", cfg.Runtime.Push.preview())
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)

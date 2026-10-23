@@ -1,7 +1,7 @@
 ---
 summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`at-jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies, and the privacy/preview choice.
-read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them and what shows on the lock screen.
-owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, the preview/privacy behaviour, and the `/app/user/push/*` routes. Does NOT own the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
+read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them and what shows on the lock screen; or pushes aren't arriving, or the `push:relay` condition is open.
+owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, how the push relay sends (per-device outcomes, pruning, the 10-minute staleness cut-off, when `push:relay` is raised), the preview/privacy behaviour, and the `/app/user/push/*` routes. Does NOT own the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 prereqs: ui.md (the Jam app, its login and installing it); credentials.md (supplying a credential); serve.md#the-serve-config (the `runtime.push` keys)
 tier: leaf
 updated: 2026-10-23
@@ -89,9 +89,40 @@ buzzed for:
 - in any channel, an **ask** they may answer, a **call-in** inviting them, or
   an **escalation** reaching them.
 
-An ask being amended, withdrawn or answered never notifies. A message not yet
-delivered after 10 minutes (the Jam or a push service was down) is dropped
-rather than buzzing late. Tapping a notification opens the conversation.
+An ask being amended, withdrawn or answered never notifies, and a push that
+can't go out within 10 minutes is dropped rather than buzzing late
+([how Jam sends](#how-jam-sends)). Tapping a notification opens the conversation.
+
+## How Jam sends
+
+A resident **push relay** (egress only, beside the Linear and Discord relays —
+[intercom.md](intercom.md#enabling-it)) picks each new message's recipients
+by the rule above and sends one push per subscribed device, retrying each
+device on its own:
+
+- **First enable starts at the log's tail** — turning push on never buzzes
+  for older messages. Its progress mark lives in `relay-markers.json` under
+  [`state-dir`](serve.md#the-serve-config).
+- Each push is **held 24 hours** by the push service for an offline device,
+  and pushes for one conversation **collapse**: a device that was offline
+  gets the latest, not a backlog.
+- The recipient is re-checked when sending, so someone who left, or opened
+  the conversation, in the meantime isn't buzzed.
+- Outcomes per device:
+
+  | Push service answers | Jam |
+  |---|---|
+  | 2xx | done; the device's last success is recorded |
+  | 404 or 410 (subscription gone) | deletes the subscription |
+  | another 4xx | logs `push: send refused` with the status and moves on |
+  | 429, 5xx, or no answer | retries every couple of seconds — until the message is **10 minutes old**, then drops it |
+
+  A stored endpoint off the [allowlist](#endpoint-allowlist), or whose keys
+  can't encrypt, is deleted without sending. Logs name a device by a hash of
+  its endpoint, never the endpoint itself.
+- **Health.** Sends that keep failing raise the `push:relay`
+  [condition](monitoring.md#v1-conditions) — usually the Jam host's egress to
+  the push services (step 4 above).
 
 ## Privacy and previews
 

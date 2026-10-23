@@ -22,7 +22,7 @@ import (
 // Delivery is one External-bound message already resolved to a concrete
 // Service surface.
 type Delivery struct {
-	Service      string // "linear" | "discord" — the owning Service
+	Service      string // "linear" | "discord" | "push" — the owning Service
 	Address      string // the surface to post onto (a Linear ticket identifier, a Discord channel id)
 	BodyPrefix   string // literal string prepended to m.Body at delivery ("" = none); Surfaces sets it, Deliver renders it
 	SenderName   string // the From actor's display identity (Discord webhook username override; a "<name>:" prefix on Linear)
