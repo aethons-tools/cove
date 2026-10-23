@@ -58,10 +58,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 
 /* App title bar (appui.TitlebarTemplate): logo, tabs, principal menu. */
 .app-titlebar{display:flex;align-items:center;gap:16px;padding:0 16px;height:var(--titlebar-h);background:var(--surface);border-bottom:1px solid var(--border)}
-.app-logo{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;text-decoration:none;white-space:nowrap;min-width:0;flex-shrink:1}
+.app-logo{display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;text-decoration:none;white-space:nowrap;min-width:0;max-width:35%;flex-shrink:1}
 .app-logo img{display:block;flex-shrink:0}
 .app-logo span{overflow:hidden;text-overflow:ellipsis}
-.app-tabs{display:flex;align-items:center;gap:2px;flex:1;min-width:0;overflow-x:auto}
+.app-tabs{display:flex;align-items:center;gap:2px;flex:1;min-width:120px;overflow-x:auto}
 .app-tabs a{padding:6px 10px;border-radius:6px;color:var(--muted);text-decoration:none;white-space:nowrap}
 .app-tabs a:hover{color:var(--ink)}
 .app-tabs a[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}

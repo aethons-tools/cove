@@ -76,7 +76,8 @@ func TestServesBrandMark(t *testing.T) {
 func TestStylesheetTitlebarSurvivesNarrowScreens(t *testing.T) {
 	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
 	for _, want := range []string{
-		"white-space:nowrap;min-width:0;flex-shrink:1}",
+		"white-space:nowrap;min-width:0;max-width:35%;flex-shrink:1}",
+		"flex:1;min-width:120px;overflow-x:auto}",
 		".app-logo span{overflow:hidden;text-overflow:ellipsis}",
 		".app-principal{position:relative;margin-left:auto;flex-shrink:0}",
 		".app-principal .nm,.app-logo span{display:none}",

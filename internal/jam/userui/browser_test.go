@@ -449,3 +449,31 @@ func TestBrowserLongBrandKeepsPrincipalMenuAndTabs(t *testing.T) {
 		t.Error("principal menu and a tab should stay inside the 500px viewport")
 	}
 }
+
+// At 900px a 64-character brand is capped so the first tabs and the principal
+// menu keep real room.
+func TestBrowserLongBrandKeepsTabsAtMidWidth(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	h := withStatic(appui.WithShell(Handler(e.Deps, nil), appui.Shell{Brand: strings.Repeat("W", 64) + " Jam"}))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = jam.WithParticipant(r, p)
+		h.ServeHTTP(w, appui.WithPrincipal(r, appui.Principal{User: &p, Admin: true, Operator: jam.Operator{ID: "op"}}))
+	}))
+	t.Cleanup(srv.Close)
+	var ok bool
+	err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(900, 800),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitVisible(`.app-principal summary`, chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){ function v(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
+			var tabs=document.querySelectorAll('.app-tabs a');
+			return tabs.length>=2 && v(tabs[0]) && v(tabs[1]) && v(document.querySelector('.app-principal summary')); })()`, &ok),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("first two tabs and the principal menu should be visible at 900px")
+	}
+}
