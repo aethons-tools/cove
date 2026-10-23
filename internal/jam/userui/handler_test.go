@@ -11,6 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
 // engID is the fixture room's channel id.
@@ -562,5 +563,39 @@ func TestCallInLeaveJoin(t *testing.T) {
 	}
 	if rec := postAs(t, h, p, "/app/user/join", url.Values{}); rec.Code != http.StatusBadRequest {
 		t.Errorf("join with no channel = %d", rec.Code)
+	}
+}
+
+func TestInboxRendersAppTitlebarAndRailHeadControls(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	get := func(admin bool) string {
+		req := httptest.NewRequest("GET", "/app/user/", nil)
+		req = jam.WithParticipant(req, p)
+		req = appui.WithPrincipal(req, appui.Principal{User: &p, Admin: admin})
+		rec := httptest.NewRecorder()
+		appui.WithShell(h, appui.Shell{Brand: "Acme Jam"}).ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	body := get(false)
+	for _, want := range []string{`class="app-titlebar"`, `aria-current="page">Inbox`, "<title>Acme Jam</title>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox page missing %q", want)
+		}
+	}
+	for _, bad := range []string{`class="topbar"`, "Jam Intercom", `class="who"`, ">Dashboard<"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("member-only inbox page has %q", bad)
+		}
+	}
+	head := body[strings.Index(body, `class="rail-head"`):]
+	head = head[:strings.Index(head, `id="rail"`)]
+	for _, want := range []string{`class="viewsel"`, `id="newmsg"`, "New message"} {
+		if !strings.Contains(head, want) {
+			t.Errorf("rail header missing %q", want)
+		}
+	}
+	if !strings.Contains(get(true), ">Dashboard<") {
+		t.Error("member+admin should see the Dashboard tab")
 	}
 }

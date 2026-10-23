@@ -19,6 +19,11 @@ seen from the human's side. It is served by `internal/jam/userui` (mirroring
 
 ## What it shows
 
+The page carries the shared app title bar (logo, `{display name} Jam`, tabs, principal
+menu; see [ui.md](ui.md)) with **Inbox** current. The Rendered/Raw toggle and New
+Message live in the header of the conversation rail, above the channel list; the
+header stays put when the list refreshes.
+
 - **Left rail — channels grouped by attention:** `Needs you` (a conversation
   with a session that **asked for a person** — a `needs-input` report or
   the `escalate` tool, see [escalation.md](escalation.md) — or is blocked — live, or
@@ -42,11 +47,11 @@ seen from the human's side. It is served by `internal/jam/userui` (mirroring
 - **Session status strip:** under the messages, one line per session taking part
   in the conversation, like a typing indicator — see
   [Session status](#session-status).
-- **View selector (top bar):** **Rendered** (the default) or **Raw**, which shows
+- **View selector (rail header):** **Rendered** (the default) or **Raw**, which shows
   every message as its body text as sent, in monospace. Raw is handy for copying
   markdown. The choice is remembered per browser. The composers always use a
   monospace font.
-- **New Message:** a picker of who to start a conversation with in the person's
+- **New Message (rail header):** a picker of who to start a conversation with in the person's
   projects: other members (a chat with them), the live sessions they may reach
   (a standing or ticket session; a personal session only if they're already in
   its channel), live sessions' tickets, and rooms. A message to a session goes to

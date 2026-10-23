@@ -1,7 +1,27 @@
-{{define "content"}}{{template "rail" .}}{{template "pane" .}}{{end}}
+{{define "content"}}
+<aside class="rail">
+  <div class="rail-head">
+    <div class="viewsel" role="group" aria-label="Message view">
+      <button type="button" data-view="rendered" onclick="meSetView('rendered')" title="Show messages rendered (markdown)">Rendered</button>
+      <button type="button" data-view="raw" onclick="meSetView('raw')" title="Show every message as its raw text, in monospace (for copying markdown)">Raw</button>
+    </div>
+    <details class="newmsg" id="newmsg">
+      <summary>New message</summary>
+      <div class="recips">
+        {{range .Recipients}}
+          <button type="button" onclick="meCompose('{{.To}}', '{{.Label}}')">{{.Label}}<span class="k">{{.Kind}}</span></button>
+        {{else}}
+          <p class="empty">No active recipients.</p>
+        {{end}}
+      </div>
+    </details>
+  </div>
+  {{template "rail" .}}
+</aside>
+{{template "pane" .}}{{end}}
 
 {{define "rail"}}
-<nav class="rail" id="rail" hx-get="/app/user/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
+<nav class="rail-list" id="rail" hx-get="/app/user/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
   {{range .Groups}}
     <div class="group{{if eq (printf "%s" .Bucket) "needs-you"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
