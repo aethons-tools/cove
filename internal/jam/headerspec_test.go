@@ -23,7 +23,7 @@ func TestPresetExpansion(t *testing.T) {
 			OutboundSpec{Header: "Authorization", Template: "Bearer {cred}"}},
 		{ApplyBasicPassword,
 			InboundSpec{Header: "Authorization", Encoding: EncodingBasic},
-			OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "x-access-token"}},
+			OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: BasicUserFromCred}},
 		{ApplyXAPIKey,
 			InboundSpec{Header: "X-Api-Key"},
 			OutboundSpec{Header: "X-Api-Key", Template: "{cred}"}},
@@ -318,5 +318,34 @@ func TestUpdateDestinationKeepSpecs(t *testing.T) {
 	}
 	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Route: "/g/", Upstream: "https://g"}, credOK); WriteStatus(err, 0) != http.StatusNotFound {
 		t.Fatalf("missing = %v", err)
+	}
+}
+
+// basic_user "{user}" (the basic-password preset's) takes the username from a
+// "user:token" credential — Atlassian needs email:api_token — and keeps
+// x-access-token for a bare token; a literal basic_user never splits.
+func TestOutboundBasicUserFromCred(t *testing.T) {
+	preset, _ := Destination{Apply: ApplyBasicPassword}.OutboundSpec()
+	custom := OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: BasicUserFromCred}
+	literal := OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "svc"}
+	for _, c := range []struct {
+		name       string
+		spec       OutboundSpec
+		cred       string
+		user, pass string
+	}{
+		{"preset user:token", preset, "me@x.com:TOK", "me@x.com", "TOK"},
+		{"preset bare token", preset, "TOK", "x-access-token", "TOK"},
+		{"custom user:token", custom, "me@x.com:TOK", "me@x.com", "TOK"},
+		{"custom ':' in token", custom, "me@x.com:a:b", "me@x.com", "a:b"},
+		{"custom empty user", custom, ":TOK", "x-access-token", ":TOK"},
+		{"literal user", literal, "a:b", "svc", "a:b"},
+	} {
+		h := http.Header{}
+		c.spec.apply(h, c.cred)
+		u, p, ok := decodeBasic(h.Get("Authorization"))
+		if !ok || u != c.user || p != c.pass {
+			t.Errorf("%s: basic %q:%q (ok=%v), want %q:%q", c.name, u, p, ok, c.user, c.pass)
+		}
 	}
 }

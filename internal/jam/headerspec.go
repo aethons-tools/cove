@@ -19,7 +19,7 @@ type ApplyMethod string
 
 const (
 	ApplyBearer        ApplyMethod = "bearer"         // Authorization: Bearer <value> (inbound also accepts "token <value>")
-	ApplyBasicPassword ApplyMethod = "basic-password" // HTTP basic auth, <value> as the password (user x-access-token)
+	ApplyBasicPassword ApplyMethod = "basic-password" // HTTP basic auth: a user:token value sends user, a bare token user x-access-token
 	ApplyXAPIKey       ApplyMethod = "x-api-key"      // X-Api-Key: <value> (Anthropic API keys)
 	ApplyRaw           ApplyMethod = "raw"            // Authorization: <value> (e.g. Linear personal API keys)
 	ApplyCustom        ApplyMethod = "custom"         // the destination's own IdentityInSpec / ApplySpec
@@ -56,6 +56,15 @@ type OutboundSpec struct {
 	BasicUser string         `json:"basic_user,omitempty" yaml:"basic_user,omitempty"`
 }
 
+// BasicUserFromCred as a basic_user takes the username from the credential:
+// a "user:token" value sends user, with token as the password (Atlassian's
+// email:api_token); a bare token keeps defaultBasicUser.
+const BasicUserFromCred = "{user}"
+
+// defaultBasicUser is the username a bare token goes with (git smart-HTTP
+// accepts any; GitHub documents this one).
+const defaultBasicUser = "x-access-token"
+
 // bearerIn is the bearer preset's inbound spec — also how the broker's own
 // endpoints (/connector, /context) take the identity.
 var bearerIn = InboundSpec{Header: "Authorization", Prefixes: []string{"Bearer ", "token "}} // "token <x>": gh to a GHE host (GH_HOST=<jam>)
@@ -71,8 +80,9 @@ var (
 	}
 	outboundPresets = map[ApplyMethod]OutboundSpec{
 		ApplyBearer: {Header: "Authorization", Template: "Bearer {cred}"},
-		// git smart-HTTP: any username, PAT as password.
-		ApplyBasicPassword: {Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "x-access-token"},
+		// git smart-HTTP: any username, PAT as password; a user:token credential
+		// sends its own user (BasicUserFromCred).
+		ApplyBasicPassword: {Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: BasicUserFromCred},
 		ApplyXAPIKey:       {Header: "X-Api-Key", Template: "{cred}"},
 		ApplyRaw:           {Header: "Authorization", Template: "{cred}"},
 	}
@@ -135,9 +145,16 @@ func (s InboundSpec) extract(h http.Header) (string, bool) {
 
 // apply sets cred on h per the spec.
 func (s OutboundSpec) apply(h http.Header, cred string) {
+	user := s.BasicUser
+	if s.Encoding == EncodingBasic && user == BasicUserFromCred {
+		user = defaultBasicUser
+		if u, token, ok := strings.Cut(cred, ":"); ok && u != "" {
+			user, cred = u, token
+		}
+	}
 	v := strings.Replace(s.Template, "{cred}", cred, 1)
 	if s.Encoding == EncodingBasic {
-		v = "Basic " + base64.StdEncoding.EncodeToString([]byte(s.BasicUser+":"+v))
+		v = "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+v))
 	}
 	h.Set(s.Header, v)
 }
