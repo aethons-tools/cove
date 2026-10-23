@@ -37,9 +37,12 @@ type ConfigOp struct {
 	Name   string `json:"name"`
 	Action string `json:"action"`
 	Drift  bool   `json:"drift,omitempty"`
-	Path   string `json:"path,omitempty"`
-	Before string `json:"before,omitempty"` // Jam's canonical form (update, delete)
-	After  string `json:"after,omitempty"`  // the repo's (create, update)
+	// Unmanaged: a refused update of an object Jam has but the repo does not
+	// manage; Before and After show why the repo copy did not adopt.
+	Unmanaged bool   `json:"unmanaged,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Before    string `json:"before,omitempty"` // Jam's canonical form (update, delete)
+	After     string `json:"after,omitempty"`  // the repo's (create, update)
 }
 
 // ConfigPlan is a config tree planned against a Jam: every object's action,
@@ -122,8 +125,11 @@ type planner struct {
 	marks map[ConfigKey]ConfigMark
 	repo  map[ConfigKey]bool
 	paths map[ConfigKey]string // op paths other than Key.Path(): kits kept by reference
-	plan  ConfigPlan
-	w     ConfigWrite
+	// adoptable are unmanaged objects a differing repo copy adopts and
+	// updates: a live kit tracking the very source its .source.yml names.
+	adoptable map[ConfigKey]bool
+	plan      ConfigPlan
+	w         ConfigWrite
 }
 
 // PlanConfig plans in.Tree against the Jam in in.Snapshot: it classifies
@@ -138,7 +144,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 	m := stateFromSnapshot(in.Snapshot, in.Instances)
 	live, err := exportObjects(m, nil, false)
 	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{},
-		paths: map[ConfigKey]string{}}
+		paths: map[ConfigKey]string{}, adoptable: map[ConfigKey]bool{}}
 	if err != nil {
 		p.refuse("jam: %s", err)
 	}
@@ -178,10 +184,12 @@ func (p *planner) classify(key ConfigKey, repo configObject) (action string, dri
 		return ConfigCreate, false, true
 	case !managed && bytes.Equal(cur.Canon, repo.Canon):
 		return ConfigAdopt, false, true
-	case !managed && seededConfigObjects[key]:
+	case !managed && (seededConfigObjects[key] || p.adoptable[key]):
 		return ConfigUpdate, false, true
 	case !managed:
 		p.refuse("%s exists and is not managed; config write --all it into the repo, or rename", key)
+		p.op(key, ConfigUpdate, false, cur.Canon, repo.Canon) // the diff shows both sides
+		p.plan.Ops[len(p.plan.Ops)-1].Unmanaged = true
 		return "", false, false
 	case bytes.Equal(cur.Canon, repo.Canon):
 		return ConfigUnchanged, false, true
@@ -451,6 +459,9 @@ func (p *planner) planKits() {
 			tracked = &at
 		}
 		repo := configObject{Key: key, Canon: kitCanon(e.text, tracked)}
+		if track && p.tracksSource(e.Name, at) {
+			p.adoptable[key] = true // only its ref moved since Jam last synced it
+		}
 		action, drift, ok := p.classify(key, repo)
 		if !ok {
 			continue
@@ -464,6 +475,14 @@ func (p *planner) planKits() {
 		p.m.kits[d.Name] = copyKit(d)
 	}
 	p.w.Kits = docs
+}
+
+// tracksSource reports whether live kit name already tracks at's repo, dir
+// and ref (its commit aside): the repo's .source.yml names the source the
+// kit follows, so the repo copy is that kit, whatever commit each side is at.
+func (p *planner) tracksSource(name string, at KitSource) bool {
+	k, ok := p.m.kits[name]
+	return ok && k.Source != nil && k.Source.Repo == at.Repo && k.Source.Dir == at.Dir && k.Source.Ref == at.Ref
 }
 
 // kitProvenance is the KitSource entry e's new version records and whether
@@ -785,4 +804,22 @@ func (p *planner) planJamContext() {
 		p.w.JamContext = &layer
 		return nil
 	})
+}
+
+// ConfigCanonDisplay is a canonical form as a plan diff shows it: a kit's
+// stored config JSON indented one key per line (its "# source:" line kept);
+// every other kind's YAML as is.
+func ConfigCanonDisplay(kind, canon string) string {
+	if kind != ConfigKindKit || canon == "" {
+		return canon
+	}
+	body, src, tracked := strings.Cut(canon, "\n# source: ")
+	var b bytes.Buffer
+	if json.Indent(&b, []byte(body), "", "  ") != nil {
+		return canon
+	}
+	if tracked {
+		b.WriteString("\n# source: " + src)
+	}
+	return b.String()
 }

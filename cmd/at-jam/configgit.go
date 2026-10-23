@@ -18,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
+	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -421,16 +422,32 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			continue
 		}
 		mark := ""
-		if op.Drift {
+		switch {
+		case op.Drift:
 			mark = "  (drift)"
+		case op.Unmanaged:
+			mark = "  (not managed)"
 		}
 		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
-		if op.Drift {
-			repo := indent(op.After)
-			if op.After == "" { // a delete: the repo no longer has it
-				repo = "    (not in the repo)"
+		if !op.Drift && !op.Unmanaged {
+			continue
+		}
+		if op.After == "" { // a delete: the repo no longer has it
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n    (not in the repo)\n", indent(op.Before))
+			continue
+		}
+		lines, tooLarge := linediff.Diff(jam.ConfigCanonDisplay(op.Kind, op.Before), jam.ConfigCanonDisplay(op.Kind, op.After))
+		if tooLarge {
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
+			continue
+		}
+		fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
+		for _, l := range lines {
+			if l.Op == "…" {
+				fmt.Fprintf(w, "  … %s\n", l.Text)
+			} else {
+				fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
 			}
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), repo)
 		}
 	}
 	for _, k := range p.Forget {

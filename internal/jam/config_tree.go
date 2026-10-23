@@ -302,7 +302,7 @@ func (l *treeLoader) loadKits() {
 		}
 	}
 	for _, n := range slices.Sorted(maps.Keys(l.tr.KitSources)) {
-		if l.exists("kits/" + n) {
+		if l.exists("kits/" + n + "/" + gitsource.KitFile) {
 			l.refuse("%s: kit %s is also kits/%s/kit.yml", l.tr.KitSources[n].Path, n, n)
 			delete(l.tr.KitSources, n)
 		}

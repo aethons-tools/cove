@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -125,19 +126,167 @@ func checkHeader(path, wantKind, kind string, version int, wantName string, name
 }
 
 // renderYAML is the one renderer config write, digests and the diff use:
-// yaml.v3, 2-space indent (maps sorted by yaml.v3). The file types hold only
-// strings, numbers, bools, slices, maps and structs, so encoding cannot fail.
+// yaml.v3, 2-space indent (maps sorted by yaml.v3). A string yaml.v3 would
+// not read back as written (a leading newline, a multi-line value opening
+// with a tab) is written double-quoted (yamlNode), so render∘parse is the
+// identity and encoding cannot fail for the file types.
 func renderYAML(v any) []byte {
+	n, ok := v.(*yaml.Node)
+	if !ok {
+		n = yamlNode(v)
+	}
 	var b bytes.Buffer
 	enc := yaml.NewEncoder(&b)
 	enc.SetIndent(2)
-	if err := enc.Encode(v); err != nil {
+	if err := enc.Encode(n); err != nil {
 		panic("config: render: " + err.Error()) // unreachable for the file types (tested per type)
 	}
 	if err := enc.Close(); err != nil {
 		panic("config: render: " + err.Error())
 	}
 	return b.Bytes()
+}
+
+// yamlNode is v as a yaml.Node, its strings that yaml.v3's own style would
+// not round-trip set double-quoted. yaml.v3 builds a Node by emitting and
+// re-parsing, which loses (or fails on) exactly those strings, so they are
+// swapped for placeholders first and put back in the node.
+func yamlNode(v any) *yaml.Node {
+	subs := map[string]string{}
+	c := yamlSafeCopy(reflect.ValueOf(v), subs)
+	n := new(yaml.Node)
+	if err := n.Encode(c.Interface()); err != nil {
+		panic("config: render: " + err.Error()) // unreachable for the file types (tested per type)
+	}
+	if len(subs) > 0 {
+		restoreYAMLStrings(n, subs)
+	}
+	return n
+}
+
+// yamlPlaceholder is the plain scalar standing in for the i'th string
+// yamlSafeCopy swaps out.
+func yamlPlaceholder(i int) string { return fmt.Sprintf("%s%d\ue000", yamlPlaceholderPrefix, i) }
+
+const yamlPlaceholderPrefix = "\ue000cfg"
+
+// yamlSafeCopy is a copy of v with every string value (not map key) that
+// fails yamlStringRoundTrips replaced by a placeholder, recorded in subs. A
+// yaml.Marshaler is copied as what it marshals to.
+func yamlSafeCopy(v reflect.Value, subs map[string]string) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
+	if nilable := v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface; (!nilable || !v.IsNil()) && v.CanInterface() {
+		if m, ok := v.Interface().(yaml.Marshaler); ok {
+			out, err := m.MarshalYAML()
+			if err != nil || out == nil {
+				return v // yaml.v3 reports the error itself
+			}
+			return yamlSafeCopy(reflect.ValueOf(out), subs)
+		}
+	}
+	t := v.Type()
+	switch v.Kind() {
+	case reflect.String:
+		s := v.String()
+		if yamlStringRoundTrips(s) && !strings.HasPrefix(s, yamlPlaceholderPrefix) {
+			return v // a string that looks like a placeholder is swapped too, so none collides
+		}
+		ph := yamlPlaceholder(len(subs))
+		subs[ph] = s
+		nv := reflect.New(t).Elem()
+		nv.SetString(ph)
+		return nv
+	case reflect.Pointer:
+		if v.IsNil() {
+			return v
+		}
+		nv := reflect.New(t.Elem())
+		nv.Elem().Set(yamlSafeCopy(v.Elem(), subs))
+		return nv
+	case reflect.Interface:
+		if v.IsNil() {
+			return v
+		}
+		return yamlSafeCopy(v.Elem(), subs)
+	case reflect.Struct:
+		nv := reflect.New(t).Elem()
+		nv.Set(v)
+		for i := range t.NumField() {
+			if t.Field(i).IsExported() {
+				nv.Field(i).Set(yamlSafeCopy(v.Field(i), subs))
+			}
+		}
+		return nv
+	case reflect.Slice:
+		if v.IsNil() {
+			return v
+		}
+		nv := reflect.MakeSlice(t, v.Len(), v.Len())
+		for i := range v.Len() {
+			nv.Index(i).Set(yamlSafeCopy(v.Index(i), subs))
+		}
+		return nv
+	case reflect.Array:
+		nv := reflect.New(t).Elem()
+		for i := range v.Len() {
+			nv.Index(i).Set(yamlSafeCopy(v.Index(i), subs))
+		}
+		return nv
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		nv := reflect.MakeMapWithSize(t, v.Len())
+		for it := v.MapRange(); it.Next(); {
+			nv.SetMapIndex(it.Key(), yamlSafeCopy(it.Value(), subs))
+		}
+		return nv
+	}
+	return v
+}
+
+// restoreYAMLStrings puts the strings yamlSafeCopy swapped out back into n,
+// double-quoted.
+func restoreYAMLStrings(n *yaml.Node, subs map[string]string) {
+	if n.Kind == yaml.ScalarNode {
+		if s, ok := subs[n.Value]; ok {
+			n.Value, n.Tag, n.Style = s, "!!str", yaml.DoubleQuotedStyle
+		}
+	}
+	for _, c := range n.Content {
+		restoreYAMLStrings(c, subs)
+	}
+}
+
+// yamlStringRoundTrips reports whether s, rendered in yaml.v3's own style,
+// reads back as s. A multi-line string opening with a space, tab or line
+// break never does in every context (its literal block's indentation
+// indicator is mis-written when nested); others are tried at both the
+// encoder's indents, nested. Only strings with a line break, tab or edge
+// space are tried: yaml.v3 quotes every other string that needs it.
+func yamlStringRoundTrips(s string) bool {
+	if !strings.ContainsAny(s, "\n\r\t") && strings.TrimSpace(s) == s {
+		return true
+	}
+	if strings.ContainsAny(s, "\n\r") && strings.ContainsAny(s[:1], " \t\n\r") {
+		return false
+	}
+	doc := []map[string][]map[string]string{{"k": {{"k": s}}}}
+	for _, indent := range []int{2, 4} {
+		var b bytes.Buffer
+		enc := yaml.NewEncoder(&b)
+		enc.SetIndent(indent)
+		if enc.Encode(doc) != nil || enc.Close() != nil {
+			return false
+		}
+		var back []map[string][]map[string]string
+		if yaml.Unmarshal(b.Bytes(), &back) != nil || len(back) != 1 || len(back[0]["k"]) != 1 || back[0]["k"][0]["k"] != s {
+			return false
+		}
+	}
+	return true
 }
 
 // canonFiles is an object's canonical bytes: its files in path order, each
@@ -219,17 +368,14 @@ func (f DestinationFile) configKey() ConfigKey {
 }
 
 func (f DestinationFile) configFiles() map[string][]byte {
-	var n yaml.Node
-	if err := n.Encode(f); err != nil {
-		panic("config: render: " + err.Error())
-	}
+	n := yamlNode(f)
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		if n.Content[i].Value == "name" { // the file name carries it
 			n.Content = slices.Delete(n.Content, i, i+2)
 			break
 		}
 	}
-	return map[string][]byte{f.configKey().Path(): renderYAML(&n)}
+	return map[string][]byte{f.configKey().Path(): renderYAML(n)}
 }
 
 // ParseDestinationFile parses destinations/<name>.yml.
@@ -726,7 +872,7 @@ func ParseContextMarkdown(path string, data []byte) (sessionctx.Layer, error) {
 // it is not read back as front matter.
 func RenderContextMarkdown(l sessionctx.Layer) []byte {
 	var b bytes.Buffer
-	core := strings.TrimRight(l.Core, "\n")
+	core := strings.TrimRight(strings.ReplaceAll(l.Core, "\r\n", "\n"), "\n") // CRLF folds as ParseContextMarkdown folds it
 	switch {
 	case len(l.Leaves) > 0:
 		b.WriteString("---\n")

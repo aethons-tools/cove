@@ -93,10 +93,10 @@
     <thead><tr><th>Action</th><th>Object</th><th>File</th></tr></thead>
     <tbody>
     {{range .Ops}}
-      <tr><td><span class="chip">{{.Action}}</span>{{if .Drift}} <span class="chip st-drifted">drift</span>{{end}}</td>
+      <tr><td><span class="chip">{{.Action}}</span>{{if .Drift}} <span class="chip st-drifted">drift</span>{{end}}{{if .Unmanaged}} <span class="chip st-drifted">not managed</span>{{end}}</td>
         <td><span class="chip">{{.Kind}}</span> {{if .Href}}<a class="mono" href="{{.Href}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
         <td class="mono">{{.Path}}</td></tr>
-      {{if or .Lines .TooLarge}}<tr><td colspan="3"><details{{if .Drift}} open{{end}}><summary>{{if .Drift}}Jam (−) against the repo (+){{else}}Changes{{end}}</summary>
+      {{if or .Lines .TooLarge}}<tr><td colspan="3"><details{{if or .Drift .Unmanaged}} open{{end}}><summary>{{if or .Drift .Unmanaged}}Jam (−) against the repo (+){{else}}Changes{{end}}</summary>
         {{if .TooLarge}}<span class="unset">Too large to diff here.</span>{{else}}<pre class="diff">{{range .Lines}}{{if eq .Op "+"}}<span class="d-add">+ {{.Text}}</span>{{else if eq .Op "-"}}<span class="d-del">- {{.Text}}</span>{{else if eq .Op "…"}}<span class="d-skip">  … {{.Text}}</span>{{else}}<span>  {{.Text}}</span>{{end}}{{end}}</pre>{{end}}
       </details></td></tr>{{end}}
     {{else}}<tr><td colspan="3" class="empty">Nothing to change.</td></tr>{{end}}

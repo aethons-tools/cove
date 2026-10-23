@@ -423,3 +423,33 @@ func TestConfigWriteThenApplyRefreshesMark(t *testing.T) {
 		t.Fatalf("next change: %d\n%s\n%s", code, out, errs)
 	}
 }
+
+// A refused update — drifted, or of an object the repo does not manage —
+// prints Jam's and the repo's canonical forms as a compact line diff.
+func TestPrintConfigPlanRefusedUpdateDiff(t *testing.T) {
+	before := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- a@x\n"
+	after := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- b@x\n"
+	for _, op := range []jam.ConfigOp{
+		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Unmanaged: true, Before: before, After: after},
+		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Drift: true, Before: before, After: after},
+	} {
+		var b strings.Builder
+		printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{op}})
+		mark := "(drift)"
+		if op.Unmanaged {
+			mark = "(not managed)"
+		}
+		want := "update  user bob  " + mark + "\n  --- jam\n  +++ repo\n  … 1 unchanged line(s)\n   kind: user\n   version: 1\n   logins:\n  -- a@x\n  +- b@x\n"
+		if !strings.HasPrefix(b.String(), want) {
+			t.Errorf("got %q\nwant prefix %q", b.String(), want)
+		}
+	}
+	// A kit's config JSON is shown one key per line, so the diff points at the field.
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate, Unmanaged: true,
+		Before: `{"kind":"studio","prompt":"a"}` + "\n# source: https://x/k//ic@main\n",
+		After:  `{"kind":"studio","prompt":"b"}` + "\n# source: https://x/k//ic@main\n"}}})
+	if !strings.Contains(b.String(), "  -  \"prompt\": \"a\"\n  +  \"prompt\": \"b\"\n") {
+		t.Errorf("kit diff %q", b.String())
+	}
+}

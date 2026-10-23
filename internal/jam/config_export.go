@@ -56,9 +56,22 @@ func (m *memState) userNameOf(id ident.ID) (string, bool) {
 // A non-nil inTree also limits the kits to those it reports (the ones an
 // export writes); nil (the planner) renders every kit. contextFiles renders
 // a kit's packed context as context-dir files (renderKitFile).
-func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (map[ConfigKey]configObject, error) {
-	out := map[ConfigKey]configObject{}
-	add := func(f configFile) { o := newConfigObject(f); out[o.Key] = o }
+func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool) (out map[ConfigKey]configObject, err error) {
+	var at ConfigKey // the object being rendered, for a render that fails
+	defer func() {
+		// The renderer handles every value a Jam accepts; should one still
+		// fail, it is an error naming the object (never its content), not a
+		// panic in a serve goroutine (the drift check) or a handler.
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("%s cannot be rendered as a config file", at)
+		}
+	}()
+	out = map[ConfigKey]configObject{}
+	add := func(f configFile) {
+		at = f.configKey()
+		o := newConfigObject(f)
+		out[o.Key] = o
+	}
 
 	for _, d := range m.dests {
 		add(DestinationFile{Kind: ConfigKindDestination, Version: ConfigFileVersion, Destination: copyDestination(d)})
@@ -99,6 +112,7 @@ func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool)
 			continue
 		}
 		key := ConfigKey{ConfigKindKit, n}
+		at = key
 		if k.Source != nil { // a kit following its own source is written by reference
 			out[key] = configObject{Key: key, Files: map[string][]byte{sourceKitPath(n): renderKitSourceFile(*k.Source)},
 				Canon: kitCanon(cfg, k.Source)}
@@ -306,6 +320,7 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		return ConfigTreeExport{}, err
 	}
 	exp := ConfigTreeExport{Files: map[string]string{}}
+	remove := map[string]bool{}
 	var rendered []ConfigKey // kits with context files, placed within the budget below
 	for k, o := range objs {
 		if !want(k) {
@@ -313,6 +328,9 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		}
 		for p, b := range o.Files {
 			exp.Files[p] = string(b)
+		}
+		if k.Kind == ConfigKindKit {
+			otherKitForms(k, o, opt.ContextFiles, remove, &exp)
 		}
 		switch {
 		case k.Kind != ConfigKindKit || !opt.ContextFiles:
@@ -348,22 +366,14 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 		exp.Files[k.Path()] = string(b)
 		exp.Inline = append(exp.Inline, k.Name)
 	}
-	remove := map[string]bool{}
 	for name, p := range m.projects {
 		if want(ConfigKey{ConfigKindProject, name}) && p.Context.Empty() {
 			remove["projects/"+name+"/context.md"] = true
 		}
 	}
 	for k := range managed {
-		if o, ok := objs[k]; ok {
-			if k.Kind == ConfigKindKit { // the kit's other form, left from before it switched
-				for _, p := range []string{k.Path(), sourceKitPath(k.Name)} {
-					if _, ok := o.Files[p]; !ok {
-						remove[p] = true
-					}
-				}
-			}
-			continue
+		if _, ok := objs[k]; ok {
+			continue // written above, its other form removed
 		}
 		remove[k.Path()] = true
 		switch k.Kind {
@@ -385,6 +395,23 @@ func ExportConfigTreeWith(snap ConfigSnapshot, marks []ConfigMark, serve map[str
 	slices.Sort(exp.Prune)
 	slices.Sort(exp.Inline)
 	return exp, nil
+}
+
+// otherKitForms removes the form a written kit o is not written in, left
+// from before it switched (or from an earlier --all): written by reference,
+// its kits/<n>/kit.yml and, with contextFiles, its kits/<n>/context dir
+// (pruned like a managed kit gone from Jam's); written inline, its
+// kits/<n>.source.yml. The other form is the same object's file, so this
+// never touches a file the export does not claim.
+func otherKitForms(k ConfigKey, o configObject, contextFiles bool, remove map[string]bool, exp *ConfigTreeExport) {
+	if _, bySource := o.Files[sourceKitPath(k.Name)]; bySource {
+		remove[k.Path()] = true
+		if contextFiles {
+			exp.Prune = append(exp.Prune, kitContextPath(k.Name))
+		}
+		return
+	}
+	remove[sourceKitPath(k.Name)] = true
 }
 
 // The share of the config upload limits (configtar.MaxUnpacked bytes,

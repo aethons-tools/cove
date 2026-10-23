@@ -1,8 +1,6 @@
 package adminui
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -231,29 +229,11 @@ func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
 			ov.Href = configObjectHref(op.Kind, op.Name)
 		}
 		if op.Before != "" || op.After != "" {
-			ov.Lines, ov.TooLarge = lineDiff(canonDisplay(op.Kind, op.Before), canonDisplay(op.Kind, op.After))
+			ov.Lines, ov.TooLarge = lineDiff(jam.ConfigCanonDisplay(op.Kind, op.Before), jam.ConfigCanonDisplay(op.Kind, op.After))
 		}
 		v.Ops = append(v.Ops, ov)
 	}
 	return v
-}
-
-// canonDisplay is a canonical form as the plan diff shows it: a kit's stored
-// config JSON indented one key per line (its "# source:" line kept); every
-// other kind's YAML as is.
-func canonDisplay(kind, canon string) string {
-	if kind != jam.ConfigKindKit || canon == "" {
-		return canon
-	}
-	body, src, tracked := strings.Cut(canon, "\n# source: ")
-	var b bytes.Buffer
-	if json.Indent(&b, []byte(body), "", "  ") != nil {
-		return canon
-	}
-	if tracked {
-		b.WriteString("\n# source: " + src)
-	}
-	return b.String()
 }
 
 // applyMsg is an apply's outcome for the flash.
