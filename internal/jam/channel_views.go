@@ -38,13 +38,7 @@ func UserChannels(store Store, ic *Intercom, lg intercom.Store, u ident.ID) []Ch
 	for _, st := range lg.InboxChannels(u) {
 		ids[st.Channel] = true
 	}
-	reads := store.ChannelReads(u)
-	unread := map[ident.ID]int{}
-	for _, m := range lg.InboxSince(u, 0, 0) {
-		if m.Seq > reads[m.Channel] {
-			unread[m.Channel]++
-		}
-	}
+	unread := unreadByChannel(store, lg, u)
 	// Every open ask, read once for the whole rail (not per channel).
 	open := map[ident.ID][]intercom.Ask{}
 	for _, a := range lg.ListAsks(intercom.AskFilter{State: intercom.AskOpen}) {
@@ -59,6 +53,34 @@ func UserChannels(store Store, ic *Intercom, lg intercom.Store, u ident.ID) []Ch
 	}
 	sortChannels(out)
 	return out
+}
+
+// unreadByChannel counts user u's deliveries above their read cursor, per
+// channel (seen or not: callers keep only the channels u may see).
+func unreadByChannel(store Store, lg intercom.Store, u ident.ID) map[ident.ID]int {
+	reads := store.ChannelReads(u)
+	unread := map[ident.ID]int{}
+	for _, m := range lg.InboxSince(u, 0, 0) {
+		if m.Seq > reads[m.Channel] {
+			unread[m.Channel]++
+		}
+	}
+	return unread
+}
+
+// UnreadTotal is user u's unread across the channels they may see: the sum
+// of UserChannels' per-channel Unread (the app badge, a push's count).
+func UnreadTotal(store Store, ic *Intercom, lg intercom.Store, u ident.ID) int {
+	if lg == nil || u == "" {
+		return 0
+	}
+	total := 0
+	for id, n := range unreadByChannel(store, lg, u) {
+		if ch, ok := store.GetChannel(id); ok && ic.CanSee(u, ch) {
+			total += n
+		}
+	}
+	return total
 }
 
 // UserChannel is one channel as user u sees it (ok=false: gone, or theirs
