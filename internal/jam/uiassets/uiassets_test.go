@@ -3,6 +3,7 @@ package uiassets_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -112,4 +113,27 @@ func TestStylesheetChromeHeightIsDerived(t *testing.T) {
 			t.Errorf("jam.css missing %q", want)
 		}
 	}
+}
+
+func TestServesIcons(t *testing.T) {
+	rec := get(t, uiassets.Handler("/app/static/"), "/app/static/icons/icon-192.png")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("icon = %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestIconHrefIsVersioned(t *testing.T) {
+	href := uiassets.IconHref("/app/static/", "icon-192.png")
+	if !regexp.MustCompile(`^/app/static/icons/icon-192\.png\?v=[0-9a-f]{12}$`).MatchString(href) {
+		t.Fatalf("href = %q", href)
+	}
+}
+
+func TestIconHrefPanicsOnUnknownIcon(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("want panic for an unknown icon")
+		}
+	}()
+	uiassets.IconHref("/app/static/", "nope.png")
 }

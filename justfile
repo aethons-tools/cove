@@ -54,6 +54,11 @@ install: build
 gen-blessed:
     go run ./cmd/gen-blessed
 
+# regenerate the Jam app's PNG icons from the J mark (internal/jam/uiassets/static/icons).
+# Generated files ARE committed; a test fails when they drift from the SVG.
+icons:
+    go run ./cmd/gen-icons
+
 # regenerate the jam Attach stream's gRPC code (internal/jam/attach/attachpb)
 # from internal/jam/attach/proto/attach.proto. Installs protoc-gen-go,
 # protoc-gen-go-grpc, and buf (pinned) into GOPATH/bin, then runs `buf generate`.
