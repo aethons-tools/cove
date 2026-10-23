@@ -14,7 +14,7 @@ import (
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instances, destinations, model_specs, projects, standing_sessions, share_grants, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants, config_marks`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instances, destinations, model_specs, projects, standing_sessions, share_grants, push_subscriptions, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants, config_marks`); err != nil {
 		return err
 	}
 	// The Jam context lives in jam_settings, which is not truncated (it also
@@ -39,6 +39,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.aliases = map[string]map[string]ident.ID{}
 	s.standing = map[standingKey]string{}
 	s.grants = map[string]map[ident.ID]ShareGrant{}
+	s.pushSubs = map[string]PushSubscription{}
 	s.channels = map[ident.ID]Channel{}
 	s.chanMembers = map[ident.ID][]ChannelMember{}
 	s.reads = map[ident.ID]map[ident.ID]int64{}

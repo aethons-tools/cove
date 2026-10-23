@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
 // TitlebarTemplate defines {{define "app-titlebar"}} over a Titlebar; the
@@ -36,6 +38,10 @@ type Titlebar struct {
 	Initial string // first letter of Name for the avatar; "?" when empty
 	Roles   string // "member", "admin" or "member · admin"
 	SignOut bool   // false for a Local admin or with no browser login
+	// PushScript is push.js's URL when the menu offers this device's
+	// Notifications toggle (a member, push configured); "" hides it.
+	PushScript string
+	PushUser   string // the member's user id, so push.js keys its per-session state by user
 }
 
 // Shell is what the gate puts on the context for the title bar.
@@ -43,6 +49,7 @@ type Shell struct {
 	Brand       string
 	SignOut     bool                                 // browser login configured
 	AdminBadges func(*http.Request) map[string]Badge // nil = none
+	Push        bool                                 // Web Push configured: members get the Notifications toggle
 }
 
 type shellKey struct{}
@@ -80,6 +87,10 @@ func TitlebarFor(r *http.Request, current string) Titlebar {
 	if p.User != nil {
 		roles = append(roles, "member")
 		tb.Tabs = append(tb.Tabs, userTabs...)
+		if sh.Push {
+			tb.PushScript = uiassets.ScriptHref("/app/static/", "push.js")
+			tb.PushUser = string(p.User.UserID)
+		}
 	}
 	if p.Admin {
 		roles = append(roles, "admin")

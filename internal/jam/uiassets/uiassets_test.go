@@ -137,3 +137,20 @@ func TestIconHrefPanicsOnUnknownIcon(t *testing.T) {
 	}()
 	uiassets.IconHref("/app/static/", "nope.png")
 }
+
+func TestScriptHrefVersionsPushJS(t *testing.T) {
+	href := uiassets.ScriptHref("/s/", "push.js")
+	if !regexp.MustCompile(`^/s/push\.js\?v=[0-9a-f]{12}$`).MatchString(href) {
+		t.Fatalf("href = %q", href)
+	}
+	js := get(t, uiassets.Handler("/s/"), "/s/push.js")
+	if js.Code != http.StatusOK || !strings.Contains(js.Body.String(), "push-toggle") {
+		t.Fatalf("push.js = %d", js.Code)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("unknown script should panic")
+		}
+	}()
+	uiassets.ScriptHref("/s/", "nope.js")
+}

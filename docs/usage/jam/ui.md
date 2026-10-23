@@ -22,7 +22,7 @@ http://127.0.0.1:8081/app/
 | `/app/user/*` | the Inbox ([intercom-ui.md](intercom-ui.md)) and [`POST /app/user/send`](#sending-post-appusersend) |
 | `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
-| `/app/static/*` | `jam.css`, htmx, the J mark and app icons (ungated) |
+| `/app/static/*` | `jam.css`, htmx, `push.js`, the J mark and app icons (ungated) |
 | `/app/manifest.webmanifest`, `/app/sw.js` | the [installable app](#installing-the-app)'s manifest and service worker (ungated) |
 
 `/me/studios/*` ([collaboration.md](collaboration.md)) and `/admin/*` are APIs
@@ -37,8 +37,9 @@ method on an old path is 404, never replayed. The redirects last one release.
 Every `/app` page opens with one **title bar**: the J mark (to `/app/`), the
 Jam's name (`<name> Jam` with a [`display-name`](serve.md#the-serve-config),
 else `Jam`), the **tabs** you may use, and your principal menu at the far
-right (name, roles — member / admin — and **Sign out**; a loopback admin with
-no login reads "Local admin" and has no sign-out). The tabs are blended:
+right (name, roles — member / admin — a member's per-device
+**Notifications** toggle when [push](push.md) is on, and **Sign out**; a
+loopback admin with no login reads "Local admin" and has no sign-out). The tabs are blended:
 **Inbox** for a user; **Dashboard · Projects · Agents · Users · Specs · Config ·
 Health** for an admin; the page's own tab is highlighted. Under it, a slim bar
 holds the console's search box. The name truncates with an ellipsis when long
@@ -63,8 +64,9 @@ Android) or **Add to Dock** (Safari on macOS); it opens in its own window at
 install: the browser has no service worker there, and the page skips it quietly.
 
 - **Nothing is cached** — the service worker is network-only, so the installed
-  app is online-only and always current. It exists to make the app installable
-  (and to host push later).
+  app is online-only and always current. It exists so the app is installable,
+  and to receive [push notifications](push.md) (next release; on iOS only the
+  Home Screen app gets them).
 - **Public files** — `/app/manifest.webmanifest`, `/app/sw.js` and the icons
   under `/app/static/icons/` are served without the gate (the browser fetches
   them without cookies); every other `/app/` path stays gated.

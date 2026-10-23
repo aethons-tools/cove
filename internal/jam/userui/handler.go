@@ -77,6 +77,7 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /app/user/presence", h.presenceStrip)
 	mux.HandleFunc("GET /app/user/asks", h.askPanel)
 	mux.HandleFunc("GET /app/user/events", h.events)
+	h.pushRoutes(mux)
 	return mux
 }
 
@@ -85,6 +86,7 @@ type handler struct {
 	lg       *slog.Logger
 	changes  Changes  // nil = no `changed` push
 	presence Presence // nil = no `presence` push; live sessions read "working"
+	pushKey  string   // VAPID public key; "" = Web Push off (routes 404)
 	// Without either, GET /app/user/events answers 204 and the page polls.
 }
 

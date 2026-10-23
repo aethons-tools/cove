@@ -10,6 +10,7 @@
     <summary><span class="av">{{.Initial}}</span><span class="nm">{{.Name}}</span></summary>
     <div class="menu">
       <b>{{.Name}}</b><small>{{.Roles}}</small>
+      {{- if .PushScript}}<button type="button" id="push-toggle" class="push-toggle" data-user="{{.PushUser}}" hidden>Notifications: Off</button><script src="{{.PushScript}}" defer></script>{{end}}
       {{- if .SignOut}}<a href="/app/auth/logout">Sign out</a>{{end}}
     </div>
   </details>
