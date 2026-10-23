@@ -1,16 +1,13 @@
 ---
-summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`at-jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies, and the privacy/preview choice.
-read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them and what shows on the lock screen; or pushes aren't arriving, or the `push:relay` condition is open.
-owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, how the push relay sends (per-device outcomes, pruning, the 10-minute staleness cut-off, when `push:relay` is raised), the preview/privacy behaviour, and the `/app/user/push/*` routes. Does NOT own the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
+summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`at-jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies (and why the open conversation doesn't), how notifications look and behave on the device (grouping, tap-through, app badge, sign-out), the privacy/preview choice, and troubleshooting.
+read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them, what shows on the lock screen, what the app badge counts, or what signing out does to notifications; or pushes aren't arriving.
+owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 prereqs: ui.md (the Jam app, its login and installing it); credentials.md (supplying a credential); serve.md#the-serve-config (the `runtime.push` keys)
 tier: leaf
 updated: 2026-10-23
 ---
 
 # Push notifications
-
-> **Sending arrives with the next release:** until then devices can opt in and
-> subscriptions are stored, but no notifications are sent.
 
 Jam uses standard **Web Push**: a member's browser subscribes with its own
 vendor's push service (Google, Mozilla, Apple, Microsoft) under Jam's **VAPID**
@@ -76,9 +73,10 @@ A device belongs to whoever last signed in on it: opening the app re-registers
 an existing subscription under the current user, so one browser never buzzes
 two people. A member keeps at most 20 subscribed devices; turning on a 21st
 drops their oldest. A subscription the push service reports gone is deleted,
-and removing a user deletes all of theirs.
+and removing a user deletes all of theirs. Signing out turns the device off
+([on the device](#on-the-device)).
 
-## What notifies (next release)
+## What notifies
 
 Only **people** are notified — never sessions or accounts — and only for a
 message they can see in a channel they belong to, not their own, and not in
@@ -91,38 +89,31 @@ buzzed for:
 
 An ask being amended, withdrawn or answered never notifies, and a push that
 can't go out within 10 minutes is dropped rather than buzzing late
-([how Jam sends](#how-jam-sends)). Tapping a notification opens the conversation.
+([how Jam sends](push-delivery.md#how-jam-sends)).
 
-## How Jam sends
+**The conversation you're reading doesn't buzz.** While a conversation is open
+in a visible, focused Jam window, the page tells Jam so (on focus, on
+visibility change and every 30 s), and Jam pushes nothing for it to *any* of
+your devices. Switching tab or app, minimising, or opening another
+conversation ends that at once; a tab that crashed or lost its connection
+stops suppressing within 60 s. Nothing about focus is stored.
 
-A resident **push relay** (egress only, beside the Linear and Discord relays —
-[intercom.md](intercom.md#enabling-it)) picks each new message's recipients
-by the rule above and sends one push per subscribed device, retrying each
-device on its own:
+## On the device
 
-- **First enable starts at the log's tail** — turning push on never buzzes
-  for older messages. Its progress mark lives in `relay-markers.json` under
-  [`state-dir`](serve.md#the-serve-config).
-- Each push is **held 24 hours** by the push service for an offline device,
-  and pushes for one conversation **collapse**: a device that was offline
-  gets the latest, not a backlog.
-- The recipient is re-checked when sending, so someone who left, or opened
-  the conversation, in the meantime isn't buzzed.
-- Outcomes per device:
-
-  | Push service answers | Jam |
-  |---|---|
-  | 2xx | done; the device's last success is recorded |
-  | 404 or 410 (subscription gone) | deletes the subscription |
-  | another 4xx | logs `push: send refused` with the status and moves on |
-  | 429, 5xx, or no answer | retries every couple of seconds — until the message is **10 minutes old**, then drops it |
-
-  A stored endpoint off the [allowlist](#endpoint-allowlist), or whose keys
-  can't encrypt, is deleted without sending. Logs name a device by a hash of
-  its endpoint, never the endpoint itself.
-- **Health.** Sends that keep failing raise the `push:relay`
-  [condition](monitoring.md#v1-conditions) — usually the Jam host's egress to
-  the push services (step 4 above).
+- **One notification per conversation.** A newer message replaces the
+  conversation's notification instead of stacking another: it reads
+  "*N* new messages · latest: …" and buzzes again.
+- **Tapping it** opens the conversation — in an open Jam window if there is
+  one (focused and moved to it), else in a new one.
+- **App badge.** Where the platform has one (the installed app on desktop
+  Chrome/Edge, Android launchers that support it, iOS Home Screen), the icon
+  shows your total unread: set by each push, and updated by the Inbox as you
+  read, so it clears once everything is read.
+- **Signing out** (principal menu → Sign out) first turns Notifications off
+  for *this* device — unsubscribing it and deleting its subscription — so the
+  next person on a shared device isn't buzzed with your messages. If that
+  fails, sign-out goes ahead and the subscription moves to whoever signs in
+  next (see above).
 
 ## Privacy and previews
 
@@ -134,26 +125,18 @@ device on its own:
 - Jam picks a recipient's subscriptions itself; a member can only add or delete
   their own.
 
-## Routes
+## Troubleshooting
 
-All under the `/app/user` gate (members only; writes must be same-origin), and
-404 when push is off:
-
-| Route | |
+| Symptom | Fix |
 |---|---|
-| `GET /app/user/push/key` | `{"key": "<VAPID public key, base64url>"}` |
-| `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must pass the [endpoint allowlist](#endpoint-allowlist) and the keys be the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller; an unchanged re-send is a no-op); 204. |
-| `DELETE /app/user/push/subscriptions` | Body `{"endpoint": "…"}`; deletes it only if it is the caller's; 204 either way. |
+| "Notifications: Blocked in browser settings" | The browser's permission for the Jam site is *Block*. Allow notifications for the site (the padlock/site-settings menu), then reload. Jam can't re-ask once blocked. |
+| "Add Jam to your Home Screen …" on iPhone/iPad | iOS delivers push only to the Home Screen app: Share → Add to Home Screen, open Jam from the icon, turn Notifications on there. |
+| No Notifications item | Push isn't configured, you're not a member, or the browser has no Web Push (a non-HTTPS origin counts). |
+| On, but nothing arrives | You may have the conversation open and focused (by design). Otherwise check the OS's notification settings for the browser or app, then the [`push:relay`](monitoring.md#v1-conditions) condition: open means the Jam host can't reach the push services — open its egress to the hosts in [step 4](#enabling-push-on-a-jam). |
+| A device stopped after a key change | Open the app on it once: it re-subscribes under the new key. |
 
-### Endpoint allowlist
-
-Jam sends from the server to whatever endpoint a browser hands it, so it only
-accepts the Web Push services' own: an `https:` URL of at most 2048 bytes, no
-credentials, on the default port (none or `:443`), whose host is
-`fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`,
-or ends in `.push.services.mozilla.com`, `.push.apple.com` or
-`.notify.windows.com`. IP literals and every other host are refused, at
-subscribe time and again before each send (next release).
+How Jam sends each push, its retries and the `/app/user/push/*` routes:
+[push-delivery.md](push-delivery.md).
 
 The design history is in
 [the push notifications spec](../../superpowers/specs/2026-10-23-jam-push-notifications-design.md).

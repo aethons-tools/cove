@@ -91,14 +91,18 @@ func TestServiceWorker(t *testing.T) {
 		t.Fatalf("sw.js = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"skipWaiting", "clients.claim"} {
+	for _, want := range []string{"skipWaiting", "clients.claim",
+		// Push display and click-through (spec §8).
+		"addEventListener('push'", "addEventListener('notificationclick'", "setAppBadge", "tag:",
+		"renotify: true", "/app/user/?c=", "/app/static/icons/icon-192.png", "/app/static/icons/favicon-32.png",
+		"getNotifications", "new messages · latest: ", "clients.openWindow", "matchAll"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sw.js missing %q", want)
 		}
 	}
 	for _, bad := range []string{"caches.", "respondWith", "addEventListener('fetch'", `addEventListener("fetch"`} {
 		if strings.Contains(body, bad) {
-			t.Errorf("sw.js must be install/activate only (no fetch handler, no caches), has %q", bad)
+			t.Errorf("sw.js must not intercept requests (no fetch handler, no caches), has %q", bad)
 		}
 	}
 }

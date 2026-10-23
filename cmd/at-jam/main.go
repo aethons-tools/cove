@@ -2677,7 +2677,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic)))
+		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
 
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv)}
 		if sshCA != nil || previewURL != nil {

@@ -142,7 +142,7 @@ html.raw .msg .body.raw{display:block}
 .thumb img{max-width:240px;max-height:180px;border-radius:6px;display:block}.file-chip{font-size:13px;border:1px solid var(--line,#ddd);border-radius:6px;padding:4px 8px}
 </style>
 </head>
-<body>
+<body{{if .PushFocus}} data-push-focus{{end}}>
 {{template "app-titlebar" .Bar}}
 <div class="panes">
 {{template "content" .}}
@@ -207,6 +207,45 @@ meScrollToEnd(document.getElementById('stream'));
   es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
   document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });
 })();
+// Focus suppression (with Web Push on): while a conversation is open in a
+// visible, focused window, report it to /app/user/push/focus — on focus,
+// visibility change and every 30s (the server forgets it after 60s, so a
+// crashed tab stops suppressing pushes) — and report null when it is not.
+// meFocus re-checks now (meCompose calls it when it replaces the pane).
+var meFocus=function(){};
+(function(){
+  if(!document.body.hasAttribute('data-push-focus')) return;
+  var last=null;
+  function current(){
+    var p=document.getElementById('pane'), ch=p && p.dataset.channel;
+    return ch && document.visibilityState==='visible' && document.hasFocus() ? ch : null;
+  }
+  function post(ch){
+    last=ch;
+    fetch('/app/user/push/focus',{method:'POST',credentials:'same-origin',keepalive:true,
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch})}).catch(function(){});
+  }
+  meFocus=function(){ var ch=current(); if(ch!==last){ post(ch); } };
+  window.addEventListener('focus', meFocus);
+  window.addEventListener('blur', meFocus);
+  document.addEventListener('visibilitychange', meFocus);
+  window.addEventListener('pagehide', function(){ if(last){ post(null); } });
+  setInterval(function(){ var ch=current(); if(ch){ post(ch); } else { meFocus(); } }, 30000);
+  meFocus();
+})();
+// App badge: the rail carries the total unread (data-unread-total); show it
+// on the installed app's icon, and clear it once everything is read.
+function meBadge(){
+  var r=document.getElementById('rail'), n=r ? parseInt(r.dataset.unreadTotal, 10) : NaN;
+  if(isNaN(n) || n===meBadge.n) return;
+  meBadge.n=n;
+  try{
+    if(n>0 && navigator.setAppBadge){ navigator.setAppBadge(n).catch(function(){}); }
+    else if(n===0 && navigator.clearAppBadge){ navigator.clearAppBadge().catch(function(){}); }
+  }catch(_){}
+}
+document.addEventListener('htmx:afterSettle', meBadge);
+meBadge();
 // meDiscuss starts a reply about an ask: the composer carries reply_to and a
 // "re:" line.
 function meDiscuss(id, btn){
@@ -337,6 +376,7 @@ document.addEventListener('paste', function(e){
 });
 function meCompose(to, label){
   var pane=document.getElementById('pane');
+  delete pane.dataset.channel; meFocus();
   pane.innerHTML='<div class="cv-head"><div class="cv-title">New message</div><div class="cv-sub">to '+label+'</div></div>'
     +'<div class="stream"><p class="empty">New conversation with '+label+'.</p></div>'
     +'<div class="composer"><form onsubmit="return meSend(event, this.dataset.to)" data-to="'+to+'">'

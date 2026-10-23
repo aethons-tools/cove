@@ -3,6 +3,7 @@ package userui
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
 const testVAPIDKey = "BOtestPublicKey"
@@ -175,5 +177,89 @@ func TestPushResubscribeUnchangedIsNoop(t *testing.T) {
 	got := e.st.PushSubscriptions(p.UserID)
 	if len(got) != 1 || !got[0].LastOKAt.Equal(at) || !got[0].CreatedAt.Equal(before.CreatedAt) || got[0].UserAgent != "TestBrowser/1.0" {
 		t.Fatalf("after re-subscribe = %+v", got)
+	}
+}
+
+func TestPushFocusSetsAndClearsCallersFocus(t *testing.T) {
+	e, p := fixture()
+	f := push.NewFocus(nil)
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(f))
+	if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":"`+engID+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("focus = %d %s", rec.Code, rec.Body.String())
+	}
+	if !f.Focused(p.UserID, engID) {
+		t.Fatal("focus not recorded for the caller")
+	}
+	if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":null}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("clear = %d", rec.Code)
+	}
+	if f.Focused(p.UserID, engID) {
+		t.Fatal("null did not clear focus")
+	}
+}
+
+func TestPushFocusRejectsChannelsTheCallerCannotSee(t *testing.T) {
+	e, p := fixture()
+	if err := e.st.CreateProject("other"); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := e.st.GetProject("other")
+	hidden, err := e.st.CreateChannel(jam.Channel{ID: "chn_01j9q3hhhhhhhhhhhhhhhhhhhh", ProjectID: other.ID, Kind: jam.SourceRoom, Key: "ops", Label: "ops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := push.NewFocus(nil)
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(f))
+	for name, body := range map[string]string{
+		"other project": `{"channel":"` + string(hidden.ID) + `"}`,
+		"unknown":       `{"channel":"chn_01j9q3zzzzzzzzzzzzzzzzzzzz"}`,
+		"legacy":        `{"channel":"legacy:x"}`,
+		"malformed":     `{"channel":`,
+		"not a string":  `{"channel":7}`,
+	} {
+		if rec := pushDo(h, p, "POST", "/app/user/push/focus", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: = %d, want 400", name, rec.Code)
+		}
+	}
+	if f.Focused(p.UserID, hidden.ID) {
+		t.Error("focus recorded on a channel the caller cannot see")
+	}
+}
+
+func TestPushFocusOffWithoutPush(t *testing.T) {
+	e, p := fixture()
+	f := push.NewFocus(nil)
+	for _, h := range []http.Handler{Handler(e.Deps, nil, WithPushFocus(f)), Handler(e.Deps, nil, WithPush(testVAPIDKey))} {
+		if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":"`+engID+`"}`); rec.Code != http.StatusNotFound {
+			t.Errorf("focus without push = %d, want 404", rec.Code)
+		}
+	}
+	// The page reports focus only when the server takes it.
+	page := pushDo(Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(f)), p, "GET", "/app/user/?c="+engID, "").Body.String()
+	if !strings.Contains(page, `<body data-push-focus>`) {
+		t.Error("page with push focus lacks data-push-focus")
+	}
+	page = pushDo(Handler(e.Deps, nil, WithPush(testVAPIDKey)), p, "GET", "/app/user/?c="+engID, "").Body.String()
+	if strings.Contains(page, `<body data-push-focus>`) {
+		t.Error("page without push focus carries data-push-focus")
+	}
+}
+
+// The rail fragment carries the user's total unread, for the app badge.
+func TestRailCarriesUnreadTotal(t *testing.T) {
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bobID, _ := e.st.LookupName(ident.User, "bob")
+	e.post(bobID, "one", "")
+	e.post(bobID, "two", "")
+	want := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID)
+	if want < 2 {
+		t.Fatalf("fixture unread = %d, want ≥ 2", want)
+	}
+	rail := pushDo(Handler(e.Deps, nil), p, "GET", "/app/user/rail", "").Body.String()
+	if attr := fmt.Sprintf(`data-unread-total="%d"`, want); !strings.Contains(rail, attr) {
+		t.Errorf("rail lacks %s:\n%s", attr, rail)
 	}
 }

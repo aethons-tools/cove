@@ -201,7 +201,7 @@ a restart a running session reads "working" until its next event.
 The inbox is always mounted; reaching it takes a login that names a roster
 member (or a loopback [`dev-identity`](serve.md) — see
 [ui.md](ui.md#signing-in-one-login-one-principal)). Its conversations
-come from the channel log, which is always available.
+come from the channel log, which is always available. Phone and desktop notifications, and the app badge: [push.md](push.md).
 
 ## Not yet
 
