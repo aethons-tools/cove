@@ -482,7 +482,7 @@ func (p *planner) planKits() {
 // kit follows, so the repo copy is that kit, whatever commit each side is at.
 func (p *planner) tracksSource(name string, at KitSource) bool {
 	k, ok := p.m.kits[name]
-	return ok && k.Source != nil && k.Source.Repo == at.Repo && k.Source.Dir == at.Dir && k.Source.Ref == at.Ref
+	return ok && sameSource(k.Source, at.Repo, at.Dir) && k.Source.Ref == at.Ref
 }
 
 // kitProvenance is the KitSource entry e's new version records and whether

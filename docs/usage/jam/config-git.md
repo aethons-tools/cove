@@ -76,7 +76,7 @@ scope: {destinations: [gh], ttl: 1h}
 `leaves:` (`name`, `read-when`, `body`) followed by the core as the markdown
 body; the core's trailing newlines are trimmed and one is written. A core
 that opens with `---` and has no leaves is written after empty front matter
-(`---` twice) so it reads back as the core. A CRLF core is written with LF (as it is read). A YAML string yaml.v3 would not read back as written (a leading newline or space on a multi-line value, a tab) is written double-quoted, so every value Jam accepts round-trips.
+(`---` twice) so it reads back as the core. A CRLF core is written with LF (as it is read). A YAML string yaml.v3 would not read back as written (a leading newline or space on a multi-line value, a tab) is written double-quoted, so every value Jam accepts round-trips. After upgrading past this, a managed object whose canonical form changed (a re-quoted string, a CRLF core) reads as drifted (`config.drift`) once, until its next apply.
 
 Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/` (`base: {kit: ../web-dev}`) rewritten to `name@vN`
 on apply. An `@vN` is refused: in a role's `kit`, `<path>: kit <ref> pins a version; versions are per-Jam — name the kit`;
@@ -85,7 +85,7 @@ parent`. Versions written by `--dir` record provenance repo `local`, dir `kits/<
 and commit). A packed `base.context` is written as files in `kits/<n>/context/` (bytes, 0644/0755 modes) with
 `base.context-dir: context`; loading repacks them to the identical context, so write → apply is `unchanged`. A context no
 directory can reproduce (hand-made tar, other modes), or past the upload limits below, stays inline (named on stderr) and
-its `context/` is left alone; write prunes only the `context/` of kits it writes as files, of kits it now writes as `.source.yml`, and of managed kits gone from Jam (not files an exported `.dockerignore` excludes). A kit it writes (managed, or any with `--all`) loses its other form: `kits/<n>/kit.yml` when written as `kits/<n>.source.yml`, and back. Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
+its `context/` is left alone; write prunes only the `context/` of kits it writes as files, of kits it now writes as `.source.yml`, and of managed kits gone from Jam, keeping what the `.dockerignore` excludes (the exported one, else the dir's own: a regular file under 64 KiB, or the dir is left alone); a `kits/<n>/` left beside `kits/<n>.source.yml` is refused as left over — remove it. A kit it writes (managed, or any with `--all`) loses its other form: `kits/<n>/kit.yml` when written as `kits/<n>.source.yml`, and back. Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
 a non-022 umask gets one new version on its next sync.
 `config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
 re-pins to current). A kit the write includes (managed, or any with `--all`) pinned behind its in-tree parent fails the

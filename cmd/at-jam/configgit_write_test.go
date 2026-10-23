@@ -243,3 +243,86 @@ func TestConfigWriteNotesInlineContexts(t *testing.T) {
 		t.Fatal("an inline kit's context dir was pruned")
 	}
 }
+
+// A kit that switched to kits/<n>.source.yml exports no context, so Prune
+// reads its on-disk .dockerignore: the files it excludes (never packed,
+// likely gitignored and unrecoverable) survive, the .dockerignore with them.
+func TestWriteConfigTreePruneKeepsOnDiskDockerignored(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "kits/k/context/.dockerignore"), "*.log\nsecrets/\n", 0o644)
+	for _, p := range []string{"kits/k/context/build.log", "kits/k/context/secrets/key", "kits/k/context/Dockerfile"} {
+		mustWrite(t, filepath.Join(dir, p), "x", 0o644)
+	}
+	mustWrite(t, filepath.Join(dir, "kits/k/kit.yml"), "kind: studio\n", 0o644)
+	exp := jam.ConfigTreeExport{
+		Files:  map[string]string{"kits/k.source.yml": "kind: kit-source\n"},
+		Remove: []string{"kits/k/kit.yml"},
+		Prune:  []string{"kits/k/context"},
+	}
+	if err := writeConfigTree(dir, exp); err != nil {
+		t.Fatal(err)
+	}
+	got := readTree(t, dir)
+	for _, p := range []string{"kits/k/context/build.log", "kits/k/context/secrets/key", "kits/k/context/.dockerignore"} {
+		if _, ok := got[p]; !ok {
+			t.Errorf("%s was pruned", p)
+		}
+	}
+	for _, p := range []string{"kits/k/context/Dockerfile", "kits/k/kit.yml"} {
+		if _, ok := got[p]; ok {
+			t.Errorf("%s was kept", p)
+		}
+	}
+}
+
+// An on-disk .dockerignore that is not a regular file (a symlink, say) or
+// is oversized is not read: that context dir is left unpruned.
+func TestWriteConfigTreePruneSkipsOddDockerignore(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	mustWrite(t, filepath.Join(outside, "ignore"), "*\n", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/a/context/stale"), "x", 0o644)
+	if err := os.Symlink(filepath.Join(outside, "ignore"), filepath.Join(dir, "kits/a/context/.dockerignore")); err != nil {
+		t.Skip(err)
+	}
+	mustWrite(t, filepath.Join(dir, "kits/b/context/stale"), "x", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/b/context/.dockerignore"), strings.Repeat("#\n", maxDockerignoreBytes), 0o644)
+	if err := writeConfigTree(dir, jam.ConfigTreeExport{Prune: []string{"kits/a/context", "kits/b/context"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := readTree(t, dir)
+	for _, p := range []string{"kits/a/context/stale", "kits/b/context/stale"} {
+		if _, ok := got[p]; !ok {
+			t.Errorf("%s was pruned", p)
+		}
+	}
+}
+
+// A kit written as kits/<n>/kit.yml with a context dir, then written as
+// kits/<n>.source.yml: its .dockerignore-excluded files survive, and the
+// loader names the left-over kits/<n>/ for what it is.
+func TestConfigWriteSwitchToSourceKeepsIgnoredFiles(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "kits/ic/kit.yml"), "kind: studio\nbase:\n  context-dir: context\n", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/ic/context/.dockerignore"), "*.log\n", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/ic/context/Dockerfile"), "FROM x\n", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/ic/context/build.log"), "local only", 0o644)
+	exp := jam.ConfigTreeExport{
+		Files:  map[string]string{"kits/ic.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//ic@main\n"},
+		Remove: []string{"kits/ic/kit.yml"},
+		Prune:  []string{"kits/ic/context"},
+	}
+	if err := writeConfigTree(dir, exp); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "kits/ic/context/build.log")); err != nil || string(b) != "local only" {
+		t.Fatalf("ignored file lost: %q %v", b, err)
+	}
+	tr, err := jam.LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "kits/ic/ is left over beside kits/ic.source.yml (only files its .dockerignore excludes); remove it"
+	if len(tr.Refusals) != 1 || tr.Refusals[0] != want {
+		t.Fatalf("refusals %q", tr.Refusals)
+	}
+}

@@ -1,9 +1,11 @@
 package jam
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -287,7 +289,8 @@ func TestExportRemovesEveryWrittenKitsOtherForm(t *testing.T) {
 }
 
 // A kits/<n>/ dir with no kit.yml beside kits/<n>.source.yml is refused as
-// what it is — no kit.yml — and the source still loads.
+// what it is — left over from the kit's other form — and the source still
+// loads; without a .source.yml it has no kit.yml.
 func TestLoadConfigTreeKitDirWithoutKitYml(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "kits/ic.source.yml"), string(renderKitSourceFile(KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main"})), 0o644)
@@ -296,11 +299,58 @@ func TestLoadConfigTreeKitDirWithoutKitYml(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(tr.Refusals, []string{"kits/ic: no kit.yml"}) {
+	if !slices.Equal(tr.Refusals, []string{"kits/ic/ is left over beside kits/ic.source.yml (only files its .dockerignore excludes); remove it"}) {
 		t.Errorf("refusals %v", tr.Refusals)
 	}
 	if _, ok := tr.KitSources["ic"]; !ok {
 		t.Error("the source was dropped")
+	}
+	if err := os.Remove(filepath.Join(dir, "kits/ic.source.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if tr, err = LoadConfigTree(dir); err != nil || !slices.Equal(tr.Refusals, []string{"kits/ic: no kit.yml"}) {
+		t.Errorf("refusals %v %v", tr.Refusals, err)
+	}
+}
+
+// The same source is the same repo, ref and checkout dir, however the dir
+// is spelled.
+func TestPlannerTracksSourceCleansDir(t *testing.T) {
+	m := newMemState()
+	m.kits["ic"] = Kit{Name: "ic", Source: &KitSource{Repo: kitsRepo, Dir: "./ic/", Ref: "main", Commit: "c1"}}
+	p := &planner{m: m}
+	for _, tc := range []struct {
+		at   KitSource
+		want bool
+	}{
+		{KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main", Commit: "c2"}, true},
+		{KitSource{Repo: kitsRepo, Dir: "ic", Ref: "dev"}, false},
+		{KitSource{Repo: kitsRepo, Dir: "other", Ref: "main"}, false},
+		{KitSource{Repo: "https://github.com/acme/other", Dir: "ic", Ref: "main"}, false},
+	} {
+		if got := p.tracksSource("ic", tc.at); got != tc.want {
+			t.Errorf("tracksSource(%+v) = %v", tc.at, got)
+		}
+	}
+	if p.tracksSource("missing", KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main"}) {
+		t.Error("a missing kit tracks a source")
+	}
+}
+
+// A value the renderer cannot write (here jam.yml holding a channel) is an
+// error naming what failed, never a panic; the log has the panic's type and
+// stack, never its value.
+func TestExportRenderFailureIsAnError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+	_, err := ExportConfigTreeWith(NewMemStore().ExportConfig(), nil, map[string]any{"x": make(chan int)}, ConfigExportOptions{All: true})
+	if err == nil || err.Error() != "jam.yml cannot be rendered as a config file" {
+		t.Fatalf("err %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "panic_type=string") || !strings.Contains(out, "stack=") || strings.Contains(out, "chan int") {
+		t.Errorf("log %s", out)
 	}
 }
 
