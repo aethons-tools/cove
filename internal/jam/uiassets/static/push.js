@@ -136,6 +136,38 @@
     }
   }
 
+  // Sign out on a shared device: unsubscribe this device and delete its
+  // subscription first, so the next person here doesn't get this user's
+  // notifications. Any failure (or a slow push service) falls through to
+  // the link.
+  var signOut = document.querySelector('.app-principal a[href="/app/auth/logout"]');
+  if (signOut) {
+    signOut.addEventListener('click', function (ev) {
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      var gone = false;
+      function leave() {
+        if (gone) return;
+        gone = true;
+        window.location.href = signOut.href;
+      }
+      setTimeout(leave, 3000);
+      (async function () {
+        try {
+          if (navigator.clearAppBadge) navigator.clearAppBadge().catch(function () {});
+          var reg = await navigator.serviceWorker.getRegistration('/app/');
+          var s = reg && await reg.pushManager.getSubscription();
+          if (s) {
+            var endpoint = s.endpoint;
+            await s.unsubscribe();
+            await send('DELETE', { endpoint: endpoint });
+          }
+        } catch (e) { /* sign out anyway */ }
+        leave();
+      })();
+    });
+  }
+
   btn.addEventListener('click', async function () {
     if (busy) return;
     busy = true;

@@ -10,6 +10,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/relay"
 )
 
@@ -18,7 +19,8 @@ import (
 // ticket and room bindings, a chat's members' inboxes — and a foreign event
 // is routed by its surface (a ticket's binding, a room's channel) or by the
 // receipt of the post it replies to (Discord). project and selfIdentity are
-// the Requisitioner's (Linear ingress only runs with one).
+// the Requisitioner's (Linear ingress only runs with one). The push service
+// is egress only: a squawk's notified people's devices.
 type directory struct {
 	store        jam.Store
 	ic           *jam.Intercom
@@ -28,6 +30,8 @@ type directory struct {
 	discord      ident.ID                // the Discord connection (Jam's bot); "" without one
 	receipts     *fileReceipts           // discord-msg-id → receipt (nil when discord unconfigured)
 	log          *slog.Logger            // optional: debug attribution notes
+	pushOn       bool                    // runtime.push is set: Surfaces("push") lists devices
+	pushFocus    *push.Focus             // who has which conversation open (nil: nobody's suppressed)
 }
 
 func (d *directory) debug(msg string, args ...any) {
@@ -39,7 +43,11 @@ func (d *directory) debug(msg string, args ...any) {
 // Projects lists the projects a relay engine polls, by id. Discord covers every
 // project whose chat service is discord, plus the Requisitioner's project;
 // Linear's feed is team-wide, polled once under the Requisitioner's project.
+// Push polls nothing (no ingress).
 func (d *directory) Projects(service string) []string {
+	if service == push.Service {
+		return nil
+	}
 	if service != "discord" {
 		return []string{d.project}
 	}
@@ -82,8 +90,11 @@ func isSession(id ident.ID) bool {
 //     from a ticket session" delivery).
 //
 // Discord shows "<author>: " before every body; Linear before a person's
-// (Jam posts as itself), never before a session's.
+// (Jam posts as itself), never before a session's. Push: see pushSurfaces.
 func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery {
+	if service == push.Service {
+		return d.pushSurfaces(m) // asks notify: not paused for parts
+	}
 	if len(m.Parts) > 0 {
 		return nil // relays are paused for parts (asks): the Inbox (/app/user) only
 	}
@@ -175,6 +186,29 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 	return out
 }
 
+// pushSurfaces lists one delivery per (recipient, device) of m — its
+// recipients by the notify rule (push.Recipients over the live audience,
+// minus people focused on its channel), each of their subscriptions
+// addressed by push.AddressFor so the engine tracks every device apart. For
+// push, BodyPrefix carries the recipient's user id (push never renders a
+// body prefix): the surface's Deliver reads it to find the device.
+func (d *directory) pushSurfaces(m intercom.Squawk) []relay.Delivery {
+	if !d.pushOn {
+		return nil
+	}
+	var focused func(user, channel ident.ID) bool
+	if d.pushFocus != nil {
+		focused = d.pushFocus.Focused
+	}
+	var out []relay.Delivery
+	for _, rc := range push.Recipients(pushReader{store: d.store, ic: d.ic}, m, focused) {
+		for _, sub := range d.store.PushSubscriptions(rc.User) {
+			out = append(out, relay.Delivery{Service: push.Service, Address: push.AddressFor(sub.Endpoint), BodyPrefix: string(rc.User)})
+		}
+	}
+	return out
+}
+
 // escalated is how an escalation notice reaches the people it called in:
 // their tracker @-handles, and (in a Discord-chat project) their inboxes.
 type escalated struct{ handles, inboxes []string }
@@ -209,7 +243,10 @@ func escalationTargets(d *directory, ch jam.Channel, id string) escalated {
 
 // Route maps a foreign event into the channel log.
 func (d *directory) Route(service, project string, e relay.Event) (relay.Routed, bool) {
-	if service == "discord" {
+	switch service {
+	case push.Service:
+		return relay.Routed{}, false // no ingress (never polled)
+	case "discord":
 		return d.routeDiscord(e)
 	}
 	return d.routeLinear(e)

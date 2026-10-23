@@ -22,13 +22,16 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/browser"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -604,19 +607,20 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 	}
 }
 
-// servePush serves the fixture inbox with push on, as member p, with a no-op
-// service worker; onPush sees each /app/user/push/ request.
+// servePush serves the fixture inbox with push and focus reporting on, as
+// member p, with a no-op service worker and a Sign out link; onPush sees each
+// /app/user/push/ request and /app/auth/logout.
 func servePush(t *testing.T, e *env, p jam.Participant, onPush func(*http.Request)) *httptest.Server {
 	t.Helper()
 	principal := appui.Principal{User: &p}
-	h := appui.WithShell(withStatic(Handler(e.Deps, nil, WithPush("BOtestPublicKey"))), appui.Shell{Push: true})
+	h := appui.WithShell(withStatic(Handler(e.Deps, nil, WithPush("BOtestPublicKey"), WithPushFocus(push.NewFocus(nil)))), appui.Shell{Push: true, SignOut: true})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/app/sw.js" {
 			w.Header().Set("Content-Type", "text/javascript")
 			_, _ = io.WriteString(w, "self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));")
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/app/user/push/") && onPush != nil {
+		if (strings.HasPrefix(r.URL.Path, "/app/user/push/") || r.URL.Path == "/app/auth/logout") && onPush != nil {
 			onPush(r)
 		}
 		h.ServeHTTP(w, appui.WithPrincipal(jam.WithParticipant(r, p), principal))
@@ -652,5 +656,269 @@ func TestBrowserPushToggleWithoutWebPush(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s: item = %q, want %q", c.ua, got, c.want)
 		}
+	}
+}
+
+// requestLog records "METHOD path body" lines for servePush's onPush.
+type requestLog struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (l *requestLog) record(r *http.Request) {
+	b, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(strings.NewReader(string(b)))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.seen = append(l.seen, strings.TrimSpace(r.Method+" "+r.URL.Path+" "+string(b)))
+}
+
+func (l *requestLog) has(line string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, s := range l.seen {
+		if s == line {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *requestLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.seen, "\n")
+}
+
+// waitFor polls cond until it holds or ctx ends.
+func waitFor(ctx context.Context, cond func() bool) bool {
+	for !cond() {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	return true
+}
+
+// An open, focused conversation is reported to /app/user/push/focus; the
+// page going hidden reports null.
+func TestBrowserPushFocusReportsOpenConversation(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	var log requestLog
+	srv := servePush(t, e, p, log.record)
+	focused := `POST /app/user/push/focus {"channel":"` + engID + `"}`
+	err := chromedp.Run(ctx,
+		emulation.SetFocusEmulationEnabled(true),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+engID),
+		chromedp.WaitVisible(`#stream`, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(ctx, func() bool { return log.has(focused) }) {
+		t.Fatalf("no focus report; requests:\n%s", log.String())
+	}
+	err = chromedp.Run(ctx, chromedp.Evaluate(`Object.defineProperty(document, 'visibilityState', {configurable: true, get: function(){ return 'hidden'; }});
+document.dispatchEvent(new Event('visibilitychange'));`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(ctx, func() bool { return log.has(`POST /app/user/push/focus {"channel":null}`) }) {
+		t.Fatalf("no null report on hidden; requests:\n%s", log.String())
+	}
+}
+
+// The app badge follows the rail's unread total: set on load, cleared once
+// the conversation is read and the rail refreshes.
+func TestBrowserAppBadgeFollowsUnreadTotal(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bobID, _ := e.st.LookupName(ident.User, "bob")
+	e.post(bobID, "one", "")
+	want := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID)
+	srv := servePush(t, e, p, nil)
+	stub := `window.__badge = [];
+navigator.setAppBadge = function(n){ window.__badge.push(n); return Promise.resolve(); };
+navigator.clearAppBadge = function(){ window.__badge.push('clear'); return Promise.resolve(); };`
+	var got string
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(stub).Do(ctx)
+			return err
+		}),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitVisible(`#rail`, chromedp.ByQuery),
+		chromedp.Evaluate(`window.__badge.join(',')`, &got),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != strconv.Itoa(want) || want == 0 {
+		t.Fatalf("badge calls on load = %q, want %d", got, want)
+	}
+	// Opening the conversation marks it read; a rail refresh clears the badge.
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/?c="+engID),
+		chromedp.WaitVisible(`#stream`, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(ctx, func() bool { return jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID) == 0 }) {
+		t.Fatal("opening the conversation did not mark it read")
+	}
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`htmx.trigger(document.body, 'meChanged')`, nil),
+		chromedp.Poll(`window.__badge[window.__badge.length-1] === 'clear'`, nil),
+	)
+	if err != nil {
+		var calls string
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`window.__badge.join(',')`, &calls))
+		t.Fatalf("badge not cleared: %v (calls %q)", err, calls)
+	}
+}
+
+// Sign out on a device with a subscription unsubscribes it and deletes it
+// from Jam before going to /app/auth/logout.
+func TestBrowserSignOutDropsPushSubscription(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	var log requestLog
+	srv := servePush(t, e, p, log.record)
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
+			return err
+		}),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
+		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`, nil),
+		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
+		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: On'`, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subs := e.st.PushSubscriptions(p.UserID); len(subs) != 1 {
+		t.Fatalf("stored before sign out = %+v", subs)
+	}
+	var fakeSub string
+	err = chromedp.Run(ctx,
+		chromedp.Click(`.app-principal a[href="/app/auth/logout"]`, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(ctx, func() bool { return log.has("GET /app/auth/logout") }) {
+		t.Fatalf("never signed out; requests:\n%s", log.String())
+	}
+	if err := chromedp.Run(ctx, chromedp.WaitReady(`body`, chromedp.ByQuery), chromedp.Evaluate(`sessionStorage.getItem('__fakeSub') || ''`, &fakeSub)); err != nil {
+		t.Fatal(err)
+	}
+	if subs := e.st.PushSubscriptions(p.UserID); len(subs) != 0 {
+		t.Errorf("subscription survived sign out: %+v", subs)
+	}
+	if fakeSub != "" {
+		t.Error("browser subscription not unsubscribed")
+	}
+	if !log.has(`DELETE /app/user/push/subscriptions {"endpoint":"https://fcm.googleapis.com/fcm/send/device-1"}`) || !log.has("GET /app/auth/logout") {
+		t.Errorf("requests:\n%s", log.String())
+	}
+}
+
+// Sign out with no subscription on the device just signs out.
+func TestBrowserSignOutWithoutSubscription(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	var log requestLog
+	srv := servePush(t, e, p, log.record)
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
+			return err
+		}),
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
+		chromedp.Click(`.app-principal a[href="/app/auth/logout"]`, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !waitFor(ctx, func() bool { return log.has("GET /app/auth/logout") }) {
+		t.Fatalf("never signed out; requests:\n%s", log.String())
+	}
+	if strings.Contains(log.String(), "DELETE") {
+		t.Errorf("deleted with no subscription:\n%s", log.String())
+	}
+}
+
+// The service worker's notification logic, run in a page: a conversation's
+// first push shows its body; a later one replaces it, counting messages; a
+// click opens the conversation.
+func TestBrowserServiceWorkerNotice(t *testing.T) {
+	ctx := browserCtx(t)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var got string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
+		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+  (0, eval)(src);
+  var p = {title: 'bob · eng', body: 'hello', channel: 'chn_1', id: 'sq_1', unread: 3};
+  var a = jamNotice(p, null), b = jamNotice({title: 'bob · eng', body: 'again', channel: 'chn_1'}, a.options.data);
+  return JSON.stringify([a.title, a.options.body, a.options.tag, a.options.renotify, a.options.data.n,
+    b.options.body, b.options.data.n, jamTarget('chn_1')]);
+})`, &got, await),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `["bob · eng","hello","chn_1",true,1,"2 new messages · latest: again",2,"/app/user/?c=chn_1"]`
+	if got != want {
+		t.Errorf("notice = %s\nwant     %s", got, want)
+	}
+}
+
+// The service worker's robustness helpers, run in a page: a payload that
+// isn't a JSON object reads as {}; a garbled one still makes a notification
+// (title "Jam", body "New message"); a click reuses only an /app/user/
+// window, never an /app/admin/ one.
+func TestBrowserServiceWorkerRobust(t *testing.T) {
+	ctx := browserCtx(t)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var got string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
+		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+  (0, eval)(src);
+  var o = 'https://jam.example';
+  var ps = [null, 5, 'str', [1], {body: 'x'}].map(function(v){ return JSON.stringify(jamPayload(v)); });
+  var g = jamNotice({title: 7, body: {}, channel: ['c']}, {n: 'x'});
+  var f = jamFallback({channel: 'chn_1'});
+  var e = jamNotice({}, null);
+  return JSON.stringify([ps, g.title, g.options.body, g.options.tag, g.options.data.n, f.title, f.options.body,
+    f.options.data.channel, e.title, e.options.body,
+    jamPickClient([o + '/app/admin/', o + '/app/user/?c=1', o + '/app/user/']),
+    jamPickClient([o + '/app/admin/x', o + '/app/', 'not a url']),
+    jamPickClient([])]);
+})`, &got, await),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[["{}","{}","{}","{}","{\"body\":\"x\"}"],"Jam","New message","jam",1,"Jam","New message","chn_1","Jam","New message",1,-1,-1]`
+	if got != want {
+		t.Errorf("robust = %s\nwant     %s", got, want)
 	}
 }

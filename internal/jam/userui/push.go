@@ -8,7 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
 // WithPush enables the Web Push subscription API (GET /app/user/push/key,
@@ -16,6 +18,13 @@ import (
 // public key in base64url. "" leaves it off: those routes answer 404.
 func WithPush(publicKey string) Option {
 	return func(h *handler) { h.pushKey = publicKey }
+}
+
+// WithPushFocus enables POST /app/user/push/focus, where the Inbox reports
+// the conversation it has open and focused, so f suppresses pushes for it.
+// It takes effect only with WithPush; nil leaves it off.
+func WithPushFocus(f *push.Focus) Option {
+	return func(h *handler) { h.pushFocus = f }
 }
 
 const (
@@ -41,6 +50,43 @@ func (h *handler) pushRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/push/key", h.pushKeyRoute)
 	mux.HandleFunc("POST /app/user/push/subscriptions", h.pushSubscribe)
 	mux.HandleFunc("DELETE /app/user/push/subscriptions", h.pushUnsubscribe)
+	if h.pushFocus != nil {
+		mux.HandleFunc("POST /app/user/push/focus", h.pushFocusRoute)
+	}
+}
+
+// focusOn reports whether the page should report its focus.
+func (h *handler) focusOn() bool { return h.pushKey != "" && h.pushFocus != nil }
+
+// pushFocusRoute records which conversation the caller has open and focused
+// ({"channel": id}) or that they have none ({"channel": null}). The channel
+// must be one the caller can see.
+func (h *handler) pushFocusRoute(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		http.Error(w, "no participant", http.StatusUnauthorized)
+		return
+	}
+	var in struct {
+		Channel *string `json:"channel"`
+	}
+	if !decodePushBody(w, r, &in) {
+		return
+	}
+	var ch ident.ID
+	if in.Channel != nil && *in.Channel != "" {
+		ch = ident.ID(*in.Channel)
+		if h.d.Log == nil {
+			http.Error(w, "unknown channel", http.StatusBadRequest)
+			return
+		}
+		if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ch); !ok {
+			http.Error(w, "unknown channel", http.StatusBadRequest)
+			return
+		}
+	}
+	h.pushFocus.Set(p.UserID, ch)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) pushKeyRoute(w http.ResponseWriter, _ *http.Request) {

@@ -14,6 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
@@ -47,6 +48,10 @@ type inboxPage struct {
 	Conv       *Conversation
 	Recipients []NewMessageOption
 	AttachMax  int64 // per-file cap; 0 = attachments off
+	// UnreadTotal is the user's unread across their channels (the app badge).
+	UnreadTotal int
+	// PushFocus: the page reports its open, focused conversation.
+	PushFocus bool
 }
 
 // Handler serves the participant intercom inbox under /app/user. It reads identity per
@@ -87,6 +92,8 @@ type handler struct {
 	changes  Changes  // nil = no `changed` push
 	presence Presence // nil = no `presence` push; live sessions read "working"
 	pushKey  string   // VAPID public key; "" = Web Push off (routes 404)
+	// pushFocus records the conversation each user has focused (nil: off).
+	pushFocus *push.Focus
 	// Without either, GET /app/user/events answers 204 and the page polls.
 }
 
@@ -102,7 +109,9 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 		Groups:     Rail(p, h.d, sel),
 		Recipients: newMessageOptions(p, h.d),
 		AttachMax:  h.d.Attachments.MaxBytes(),
+		PushFocus:  h.focusOn(),
 	}
+	page.UnreadTotal = unreadTotal(page.Groups)
 	if sel != "" {
 		if conv, ok := conversation(p, h.d, sel); ok {
 			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)

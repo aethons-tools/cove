@@ -17,6 +17,20 @@ import (
 // IsCallInNotice reports whether a squawk id is a call-in notice.
 func IsCallInNotice(id string) bool { return strings.HasPrefix(id, "callin:") }
 
+// CallInInvitee is who a call-in notice (id "callin:<ch>:<invitee>:<nanos>")
+// called in; ok=false for any other id.
+func CallInInvitee(id string) (ident.ID, bool) {
+	rest, ok := strings.CutPrefix(id, "callin:")
+	if !ok {
+		return "", false
+	}
+	parts := strings.Split(rest, ":")
+	if len(parts) != 3 || parts[1] == "" {
+		return "", false
+	}
+	return ident.ID(parts[1]), true
+}
+
 // IsLocalNotice reports whether a squawk id is one of Jam's own notes inside
 // a channel that the relays never render onto a ticket's issue or a room's
 // surface (only onto people's own inboxes): a call-in notice. The loop

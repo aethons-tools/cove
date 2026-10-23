@@ -192,3 +192,19 @@ func TestIntercomBreakerNotice(t *testing.T) {
 		t.Fatalf("a gone channel is no error: %v", err)
 	}
 }
+
+func TestCallInInvitee(t *testing.T) {
+	for id, want := range map[string]string{
+		"callin:chn_x:usr_y:123":                    "usr_y",
+		"callin:chn_x:standing-acme-impl-spider:12": "standing-acme-impl-spider",
+		"callin:chn_x:usr_y":                        "",
+		"callin:chn_x::123":                         "",
+		"notice:chn_x:usr_y:123":                    "",
+		"":                                          "",
+	} {
+		got, ok := CallInInvitee(id)
+		if string(got) != want || ok != (want != "") {
+			t.Errorf("CallInInvitee(%q) = %q, %v; want %q", id, got, ok, want)
+		}
+	}
+}

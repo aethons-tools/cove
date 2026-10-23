@@ -21,7 +21,7 @@
 {{template "pane" .}}{{end}}
 
 {{define "rail"}}
-<nav class="rail-list" id="rail" hx-get="/app/user/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
+<nav class="rail-list" id="rail" data-unread-total="{{.UnreadTotal}}" hx-get="/app/user/rail{{if .Conv}}?c={{.Conv.ChannelID}}{{end}}" hx-trigger="meChanged from:body, every 30s" hx-swap="outerHTML">
   {{range .Groups}}
     <div class="group{{if eq (printf "%s" .Bucket) "needs-you"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
@@ -46,7 +46,7 @@
      30s poll as the fallback. The refresh skips while text inside #stream is
      selected (meSelecting), since a swap would drop the selection mid-copy. */}}
 {{define "pane"}}
-<section class="convo" id="pane">
+<section class="convo" id="pane"{{with .Conv}}{{if .SendTo}} data-channel="{{.ChannelID}}"{{end}}{{end}}>
   {{with .Conv}}
     <div class="cv-head">
       <div>

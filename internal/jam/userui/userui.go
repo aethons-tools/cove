@@ -168,3 +168,15 @@ func Rail(p jam.Participant, d Deps, selectedID string) []RailGroup {
 	chs := jam.UserChannels(d.Store, d.Intercom, d.Log, p.UserID)
 	return groupRail(append(chs, legacyChannels(p, d)...), selectedID)
 }
+
+// unreadTotal is the rail's total unread (History rows are always read), the
+// same sum as jam.UnreadTotal.
+func unreadTotal(groups []RailGroup) int {
+	n := 0
+	for _, g := range groups {
+		for _, r := range g.Rows {
+			n += r.Unread
+		}
+	}
+	return n
+}
