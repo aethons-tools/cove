@@ -47,8 +47,8 @@ func (m *memState) preparePushSubscription(s PushSubscription) ([]string, error)
 	if s.Endpoint == "" || s.UserID == "" {
 		return nil, errors.New("push subscription: endpoint and user id are required")
 	}
-	if _, ok := m.users[s.UserID]; !ok {
-		return nil, fmt.Errorf("push subscription: unknown user %s", s.UserID)
+	if _, err := m.liveUser(s.UserID); err != nil {
+		return nil, fmt.Errorf("push subscription: %w", err)
 	}
 	var mine []PushSubscription
 	for _, p := range m.pushSubs {

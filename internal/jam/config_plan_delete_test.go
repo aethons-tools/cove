@@ -238,3 +238,20 @@ func TestPlanDeleteDriftShowsJamSide(t *testing.T) {
 		t.Fatal("a clean re-plan has drift")
 	}
 }
+
+// A config plan that deletes a user drops that user's push subscriptions.
+func TestPlanDeleteUserDropsPushSubscriptions(t *testing.T) {
+	st := appliedFull(t)
+	bob := userNamed(t, st, "bob")
+	if err := st.PutPushSubscription(PushSubscription{Endpoint: "https://push/1", UserID: bob.ID}); err != nil {
+		t.Fatal(err)
+	}
+	p := planOn(t, st, treeOf(t, nil), false)
+	if len(p.Refusals) > 0 {
+		t.Fatal(p.Refusals)
+	}
+	applyPlan(t, st, p)
+	if got := st.PushSubscriptions(bob.ID); len(got) != 0 {
+		t.Fatalf("subscriptions survive user deletion: %+v", got)
+	}
+}

@@ -468,6 +468,15 @@ func TestPostgresPushSubscriptionsReload(t *testing.T) {
 	if len(third.PushSubscriptions(u.ID)) != 0 || len(third.PushSubscriptions(v.ID)) != 1 {
 		t.Fatal("reload after RemoveUser: wrong rows")
 	}
+	// A config write that tombstones a user drops their subscriptions too.
+	tomb, _ := third.GetUser(v.ID)
+	tomb.Status, tomb.Logins, tomb.OIDC = jam.StatusRemoved, nil, nil
+	if err := third.ApplyConfig(jam.ConfigWrite{Users: []jam.User{tomb}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(third.PushSubscriptions(v.ID)) != 0 || len(open().PushSubscriptions(v.ID)) != 0 {
+		t.Fatal("config-write user removal kept subscriptions")
+	}
 }
 
 // TestPostgresKitSourceReload proves kit version provenance and the tracked

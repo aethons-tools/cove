@@ -138,6 +138,16 @@ func runPushConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
+	t.Run("push_refuses_removed_user", func(t *testing.T) {
+		s, a, _ := setup(t)
+		if err := s.RemoveUser(a.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutPushSubscription(sub("https://e/1", a.ID, 1)); err == nil {
+			t.Fatal("removed user must be refused")
+		}
+	})
+
 	t.Run("push_remove_user_deletes_subscriptions", func(t *testing.T) {
 		s, a, b := setup(t)
 		_ = s.PutPushSubscription(sub("https://e/1", a.ID, 1))

@@ -43,6 +43,11 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 		if err := putUserTx(ctx, tx, u, nil); err != nil {
 			return err
 		}
+		if u.Status == StatusRemoved {
+			if _, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE user_id = $1`, u.ID); err != nil {
+				return err
+			}
+		}
 	}
 	for _, a := range w.Accounts {
 		if err := putAccountTx(ctx, tx, a); err != nil {
