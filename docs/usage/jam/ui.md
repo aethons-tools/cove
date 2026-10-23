@@ -64,9 +64,9 @@ Android) or **Add to Dock** (Safari on macOS); it opens in its own window at
 install: the browser has no service worker there, and the page skips it quietly.
 
 - **Nothing is cached** — the service worker is network-only, so the installed
-  app is online-only and always current. It exists to make the app installable
-  and to receive [push notifications](push.md) (on iOS only the Home Screen app
-  gets them).
+  app is online-only and always current. It exists so the app is installable,
+  and to receive [push notifications](push.md) (next release; on iOS only the
+  Home Screen app gets them).
 - **Public files** — `/app/manifest.webmanifest`, `/app/sw.js` and the icons
   under `/app/static/icons/` are served without the gate (the browser fetches
   them without cookies); every other `/app/` path stays gated.

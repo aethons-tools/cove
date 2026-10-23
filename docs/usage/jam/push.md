@@ -40,8 +40,8 @@ member turns them on in each browser or installed app they want buzzed.
    ```
 
 4. **Open egress** — the Jam host needs outbound HTTPS to the push services:
-   `fcm.googleapis.com`, `updates.push.services.mozilla.com`,
-   `web.push.apple.com` and `*.notify.windows.com`.
+   `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`
+   and `*.notify.windows.com`.
 5. **Serve over HTTPS** — browsers offer push only to a secure origin (or
    `localhost`), the same rule as [installing the app](ui.md#installing-the-app).
 
@@ -78,7 +78,7 @@ two people. A member keeps at most 20 subscribed devices; turning on a 21st
 drops their oldest. A subscription the push service reports gone is deleted,
 and removing a user deletes all of theirs.
 
-## What notifies
+## What notifies (next release)
 
 Only **people** are notified — never sessions or accounts — and only for a
 message they can see in a channel they belong to, not their own, and not in
@@ -122,7 +122,7 @@ credentials, on the default port (none or `:443`), whose host is
 `fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`,
 or ends in `.push.services.mozilla.com`, `.push.apple.com` or
 `.notify.windows.com`. IP literals and every other host are refused, at
-subscribe time and again before each send.
+subscribe time and again before each send (next release).
 
 The design history is in
 [the push notifications spec](../../superpowers/specs/2026-10-23-jam-push-notifications-design.md).

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +37,10 @@ func TestValidatePush(t *testing.T) {
 		{"missing cred", pushCfg(&pushConfig{Subject: "mailto:a@b.c"}), "vapid-private-key-cred"},
 		{"undeclared cred", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "nope", Subject: "mailto:a@b.c"}), "vapid-private-key-cred"},
 		{"empty subject", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid"}), "subject"},
+		{"empty mailto", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "mailto:"}), "subject"},
+		{"mailto without @", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "mailto:ops"}), "subject"},
+		{"https without host", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "https://"}), "subject"},
+		{"https path only", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "https:///x"}), "subject"},
 		{"ftp subject", pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "ftp://x"}), "subject"},
 	}
 	for _, tc := range bad {
@@ -147,5 +153,32 @@ func TestResolvePush(t *testing.T) {
 	_, err = resolvePush(f, cfg, map[string]secret.Spec{"jam-vapid": {Name: "jam-vapid", Command: []string{"pass", "jam-vapid"}}})
 	if err == nil {
 		t.Fatal("an unresolvable credential must refuse")
+	}
+}
+
+func TestResolvePushNormalizesKey(t *testing.T) {
+	var out, errb bytes.Buffer
+	cmdPush([]string{"keygen"}, &out, &errb)
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	priv := strings.TrimPrefix(lines[0], "private: ")
+	cfg := pushCfg(&pushConfig{VAPIDPrivateKeyCred: "jam-vapid", Subject: "mailto:ops@example.com"})
+	dirty := priv + "==\r\n"
+	k, err := resolvePush(&runner.Fake{}, cfg, map[string]secret.Spec{"jam-vapid": {Name: "jam-vapid", Literal: true, Value: dirty}})
+	if err != nil || k == nil || k.private != priv {
+		t.Fatalf("normalized private mismatch, err = %v", err)
+	}
+}
+
+func TestPushKeysRedacted(t *testing.T) {
+	k := pushKeys{public: "PUBKEY", private: "SECRETKEY"}
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("x", "keys", k)
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("x", "keys", &k)
+	got := fmt.Sprintf("%v|%+v|%s|%#v|%v", k, k, k, k, &k) + buf.String()
+	if strings.Contains(got, "SECRETKEY") {
+		t.Fatalf("private key leaked: %s", got)
+	}
+	if !strings.Contains(got, "PUBKEY") {
+		t.Fatalf("public key missing: %s", got)
 	}
 }

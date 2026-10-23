@@ -43,8 +43,8 @@ gets an endpoint URL plus encryption keys; Jam stores them; to notify, Jam
 encrypts the payload (RFC 8291, only the browser can read it), signs a VAPID JWT
 with its private key, and POSTs to the endpoint; the service delivers over the
 device's existing connection. No vendor account. The Jam host needs outbound
-HTTPS to `fcm.googleapis.com`, `updates.push.services.mozilla.com`,
-`web.push.apple.com` and `*.notify.windows.com`. Library:
+HTTPS to `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`
+and `*.notify.windows.com`. Library:
 `github.com/SherClockHolmes/webpush-go` (MIT). iOS delivers only to the Home
 Screen–installed app.
 

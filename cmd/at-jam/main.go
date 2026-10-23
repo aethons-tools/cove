@@ -2040,14 +2040,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	// Web Push (nil: off). The VAPID private key stays in this process's
 	// memory; a set but unresolvable or invalid key refuses to start.
-	push, err := resolvePush(runner.OS{}, cfg, specs)
+	vapid, err := resolvePush(runner.OS{}, cfg, specs)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
 	pushPublic := ""
-	if push != nil {
-		pushPublic = push.public
+	if vapid != nil {
+		pushPublic = vapid.public
 		log.Info("Jam push notifications: VAPID key loaded", "cred", cfg.Runtime.Push.VAPIDPrivateKeyCred) // never the key
 	}
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
@@ -2663,7 +2663,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
-			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds), Push: push != nil},
+			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds), Push: vapid != nil},
 		})
 		log.Info("Jam app mounted", "path", "/app/")
 

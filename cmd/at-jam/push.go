@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/url"
 	"strings"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -44,16 +46,29 @@ func (c serveConfig) validatePush() error {
 	if p.Subject == "" {
 		return fmt.Errorf("runtime.push.subject is required (mailto: or https:)")
 	}
-	if !strings.HasPrefix(p.Subject, "mailto:") && !strings.HasPrefix(p.Subject, "https://") {
+	switch {
+	case strings.HasPrefix(p.Subject, "mailto:"):
+		if !strings.Contains(strings.TrimPrefix(p.Subject, "mailto:"), "@") {
+			return fmt.Errorf("runtime.push.subject %q needs an address after mailto:", p.Subject)
+		}
+	case strings.HasPrefix(p.Subject, "https://"):
+		if u, err := url.Parse(p.Subject); err != nil || u.Hostname() == "" {
+			return fmt.Errorf("runtime.push.subject %q needs a host after https://", p.Subject)
+		}
+	default:
 		return fmt.Errorf("runtime.push.subject %q must start with mailto: or https://", p.Subject)
 	}
 	return nil
 }
 
+// normalizeVAPIDKey strips surrounding whitespace (incl. CRLF) and base64
+// padding, yielding the raw-URL form every later use expects.
+func normalizeVAPIDKey(s string) string { return strings.TrimRight(strings.TrimSpace(s), "=") }
+
 // vapidPublicKey derives the base64url uncompressed P-256 public point (65
 // bytes) from a base64url private scalar (32 bytes).
 func vapidPublicKey(privateB64 string) (string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(privateB64), "="))
+	raw, err := base64.RawURLEncoding.DecodeString(normalizeVAPIDKey(privateB64))
 	if err != nil {
 		return "", fmt.Errorf("vapid private key is not base64url")
 	}
@@ -94,6 +109,16 @@ type pushKeys struct {
 	private string // base64url, never logged
 }
 
+// String and LogValue redact the private key so a stray %v or slog attribute
+// can't leak it.
+func (k pushKeys) String() string { return "pushKeys{public: " + k.public + ", private: REDACTED}" }
+
+// GoString covers %#v.
+func (k pushKeys) GoString() string { return k.String() }
+
+// LogValue implements slog.LogValuer.
+func (k pushKeys) LogValue() slog.Value { return slog.GroupValue(slog.String("public", k.public)) }
+
 // resolvePush resolves runtime.push's VAPID private key through the
 // credential specs (in memory only) and derives the public key. Absent block
 // ⇒ nil, nil (push off). r runs a command-sourced credential. Errors name the
@@ -112,5 +137,5 @@ func resolvePush(r runner.Runner, cfg serveConfig, specs map[string]secret.Spec)
 	if err != nil {
 		return nil, fmt.Errorf("runtime.push.vapid-private-key-cred %q: %w", name, err)
 	}
-	return &pushKeys{public: pub, private: v[name]}, nil
+	return &pushKeys{public: pub, private: normalizeVAPIDKey(v[name])}, nil
 }
