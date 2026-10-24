@@ -111,7 +111,7 @@ func unavailable(name, reason string) SetupSection {
 
 // RenderSetupText writes the CLI's text form: one block per section headed
 // "== <name> (<source>[, stale][, <at>])", the reason in parentheses, the
-// body, then the diff when one was asked for.
+// body indented by bodyIndent, then the diff when one was asked for.
 func RenderSetupText(w io.Writer, s StudioSetup) {
 	fmt.Fprintf(w, "# %s\n", flat(s.Subject))
 	if s.Note != "" {
@@ -130,7 +130,7 @@ func RenderSetupText(w io.Writer, s StudioSetup) {
 			fmt.Fprintf(w, "(%s)\n", flat(sec.Reason))
 		}
 		if sec.Body != "" {
-			io.WriteString(w, ensureNL(escapeText(sec.Body, true)))
+			io.WriteString(w, indentBody(ensureNL(escapeText(sec.Body, true))))
 		}
 		switch {
 		case !sec.Diffed:
@@ -141,10 +141,27 @@ func RenderSetupText(w io.Writer, s StudioSetup) {
 		default:
 			fmt.Fprintln(w, "-- diff (- this studio, + a raise now)")
 			for _, l := range sec.Diff {
-				fmt.Fprintf(w, "%s %s\n", flat(l.Op), flat(l.Text))
+				fmt.Fprintf(w, "%s%s%s\n", flat(l.Op), bodyIndent, flat(l.Text))
 			}
 		}
 	}
+}
+
+// bodyIndent prefixes every body line (and every diff line's text, after its
+// op) in the text render, so only headers, reasons and verdicts sit at column
+// 0 and body content cannot forge them. The JSON body stays raw.
+const bodyIndent = "  "
+
+// indentBody indents every non-empty line of s by bodyIndent.
+func indentBody(s string) string {
+	var sb strings.Builder
+	for line := range strings.Lines(s) {
+		if line != "\n" {
+			sb.WriteString(bodyIndent)
+		}
+		sb.WriteString(line)
+	}
+	return sb.String()
 }
 
 func diffChanged(lines []linediff.Line) bool {

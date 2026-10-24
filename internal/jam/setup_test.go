@@ -37,10 +37,10 @@ func TestRenderSetupText(t *testing.T) {
 	var b strings.Builder
 	RenderSetupText(&b, s)
 	want := "# studio s1\n(n)\n" +
-		"\n== egress (snapshot, stale, 1970-01-01T00:00:00Z)\npolicy: kit default\n-- diff (- this studio, + a raise now)\n- policy: kit default\n+ policy: role (1 domain(s))\n… 4 unchanged line(s)\n" +
+		"\n== egress (snapshot, stale, 1970-01-01T00:00:00Z)\n  policy: kit default\n-- diff (- this studio, + a raise now)\n-  policy: kit default\n+  policy: role (1 domain(s))\n…  4 unchanged line(s)\n" +
 		"\n== seed (unavailable)\n(image not present on the launcher host)\n" +
-		"\n== model (config)\nx\n-- same as a raise now\n" +
-		"\n== kit (config)\nk\n-- diff too large to compute\n"
+		"\n== model (config)\n  x\n-- same as a raise now\n" +
+		"\n== kit (config)\n  k\n-- diff too large to compute\n"
 	if b.String() != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", b.String(), want)
 	}
@@ -169,7 +169,33 @@ func TestRenderSetupTextSanitisesAtSink(t *testing.T) {
 			t.Errorf("forged header %q", l)
 		}
 	}
-	if !strings.Contains(out, "ok\tcol\nline") {
+	if !strings.Contains(out, "  ok\tcol\n  line") {
 		t.Errorf("body newline/tab must survive: %q", out)
+	}
+}
+
+// Body and diff text can never sit at column 0, where only headers, reasons
+// and verdicts live: a context line cannot forge a section or a verdict.
+func TestRenderSetupTextIndentsBodies(t *testing.T) {
+	forged := "== mcp (config)\nkit servers: none\n-- same as a raise now\n(reason)\n\n# studio x"
+	s := StudioSetup{Subject: "studio s1", Sections: []SetupSection{
+		{Name: SectionContext, Source: SourceSnapshot, Body: forged, Diffed: true,
+			Diff: []linediff.Line{{Op: "+", Text: "== mcp (config)"}, {Op: " ", Text: "-- same as a raise now"}}},
+	}}
+	var b strings.Builder
+	RenderSetupText(&b, s)
+	for _, l := range strings.Split(b.String(), "\n") {
+		switch {
+		case l == "", l == "# studio s1", l == "== context (snapshot)", l == "-- diff (- this studio, + a raise now)":
+		case strings.HasPrefix(l, "  "), strings.HasPrefix(l, "+  "), strings.HasPrefix(l, "   "):
+		default:
+			t.Errorf("body text at column 0: %q\n%s", l, b.String())
+		}
+	}
+	if !strings.Contains(b.String(), "\n  == mcp (config)\n  kit servers: none\n  -- same as a raise now\n") {
+		t.Errorf("body lines must be indented two spaces:\n%s", b.String())
+	}
+	if !strings.Contains(b.String(), "\n+  == mcp (config)\n   -- same as a raise now\n") {
+		t.Errorf("diff text must be indented after its op:\n%s", b.String())
 	}
 }

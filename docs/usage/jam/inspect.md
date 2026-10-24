@@ -48,13 +48,15 @@ snapshot — raised before recording; rendered from config now), `config` (as of
 now), `image`, `unavailable` (with a fixed reason). `stale` (studios only)
 marks a part whose delivered fingerprint differs from what the role would
 deliver now. In `context` the BYTES column is the size **after** redaction,
-and the text is shown redacted at the masked spots.
+and the text is shown redacted at the masked spots. Body lines are indented
+two spaces (diff text two spaces after its `+`/`-`/` ` op), so only headers,
+reasons and verdicts start a line; `--json` bodies are raw.
 
 ## Snapshots
 
 Jam records the masked form of four parts **when it delivers them**, only when
 the fingerprint changes: `context` (raise, `GET /context`), `connector` (raise,
-`GET /connector`), `egress` (raise, each successful re-apply), `kit` (raise).
+`GET /connector`; shown in the `env` section), `egress` (raise, each successful re-apply), `kit` (raise).
 Only the latest per part is kept, capped at 64 KiB (truncated with a marker);
 they go with the studio and are not part of `at-jam export`. A failed write is
 logged, never fatal.
@@ -77,13 +79,18 @@ admin client gives up after 60 s).
 No secret value is shown or stored; everything goes through `RedactEnv`
 (`internal/jam/setup_redact.go`). Credentials appear by name. The identity
 token reads `«identity token»`. A value under a key matching
-`token|secret|key|password|passwd|credential|authorization|auth` (any case)
-reads `«masked»` unless it is only placeholders (`{token}`, `{base}`, `{host}`,
+`token|secret|key|password|passwd|credential|authorization` (any case,
+anywhere in the key), or holding `auth`, `pass` or `pwd` as a whole segment
+(`X_AUTH`, `DB_PASS`, `smtp.pwd`; not `AUTHOR` or `PASSPORT_NO`), reads `«masked»` unless it is only placeholders (`{token}`, `{base}`, `{host}`,
 `{url}`, with at most a `Bearer `/`token ` scheme); `{base}`/`{host}` stay
 placeholders. Credential-shaped text under any key is masked too (`Bearer …`,
-`Authorization:` headers, `--token x` style flags, `NAME_TOKEN=…` assignments,
-well-known token shapes such as `ghp_…`). The same rule covers image `ENV`,
-build args, label values, `settings.json` and the `context` text. URLs lose
+`Authorization:` headers, `--token x` / `--api.key=x` style flags,
+`NAME_TOKEN=…` assignments, well-known token shapes such as `ghp_…`,
+`sk-ant-…`, a 36-character `npm_…`). The same rule covers image `ENV`, build
+args, label values, `settings.json` and each line of the seed's Markdown.
+Authored `context` prose — every line of the core, files and warnings — is
+masked for token shapes, `NAME_TOKEN=…` assignments and URLs, but not for flags or
+`Authorization:` mentions, so docs text stays readable. URLs lose
 their userinfo, and their query/fragment shows as `?«masked»`. A label that is
 not clean UTF-8 text reads `invalid`.
 

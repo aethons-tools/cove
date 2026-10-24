@@ -47,7 +47,8 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "context unavailable", http.StatusInternalServerError)
 			return
 		}
-		RecordSetupPart(store, log, a.ID, SetupPartContext, b.Fingerprint, func() string { return contextSnapshotBody(b) }, now())
 		writeJSON(w, http.StatusOK, b)
+		// after delivery: a write on change must not delay the response
+		RecordSetupPart(store, log, a.ID, SetupPartContext, b.Fingerprint, func() string { return contextSnapshotBody(b) }, now())
 	})
 }

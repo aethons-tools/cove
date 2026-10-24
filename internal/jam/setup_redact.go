@@ -25,9 +25,10 @@ const (
 // scheme or an auth-scheme word (user:pw@host, a bare password) are not
 // detected, nor is a password containing an unencoded space; only the key rule and the value patterns below apply.
 
-// secretKeyRE is the spec's secret-named key rule, plus auth/authorization
-// (whole segment, e.g. _auth, X_AUTH, Authorization).
-var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|credential|authorization|(?:^|[^a-z0-9])auth(?:$|[^a-z0-9])`)
+// secretKeyRE is the spec's secret-named key rule, plus authorization and,
+// as whole segments, auth, pass and pwd (_auth, X_AUTH, DB_PASS, X_PWD,
+// smtp.pass — not PASSPORT_NO or BYPASS).
+var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|credential|authorization|(?:^|[^a-z0-9])(?:auth|pass|pwd)(?:$|[^a-z0-9])`)
 
 // authValueRE finds "<scheme> <credential>" in header/assignment position: the
 // scheme word starts the value or follows ':', '=' or '"', and a
@@ -43,10 +44,10 @@ var authGlueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)\s
 var assignRE = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|credential)\s*[=:]\s*(?:'[A-Za-z0-9._~+/=-]{8,}'?|"[A-Za-z0-9._~+/=-]{8,}"?|[A-Za-z0-9._~+/=-]{8,})`)
 
 // secretFlagRE finds a command-line flag whose name looks secret
-// (--token, --api-key, --password, --secret, --auth, -p, --pass...) and the
-// argument that follows it, space- or =-separated; the argument is
-// "quoted", 'quoted' or one word.
-var secretFlagRE = regexp.MustCompile(`(?i)(^|\s)(--?(?:p|[a-z0-9_-]*(?:token|secret|key|password|passwd|pass|credential|auth)[a-z0-9_-]*))(\s+|=)('[^']*'|"[^"]*"|\S+)`)
+// (--token, --api-key, --api.key, --password, --db.pwd, --secret, --auth, -p,
+// --pass...) and the argument that follows it, space- or =-separated; the
+// argument is "quoted", 'quoted' or one word.
+var secretFlagRE = regexp.MustCompile(`(?i)(^|\s)(--?(?:p|[a-z0-9_.-]*(?:token|secret|key|password|passwd|pass|pwd|credential|auth)[a-z0-9_.-]*))(\s+|=)('[^']*'|"[^"]*"|\S+)`)
 
 // maskSecretFlags masks the argument of every secret-named flag; a following
 // flag (starting with '-') is not an argument.
@@ -223,8 +224,32 @@ func RedactEnv(key, value string) string {
 }
 
 // bareTokenRE catches well-known credential shapes standing alone in free
-// text (ghp_, gho_, github_pat_, sk-/sk-ant-, xox?-, AKIA, AIza, glpat-, npm_).
-var bareTokenRE = regexp.MustCompile(`\b(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|AIza|glpat-|npm_)[A-Za-z0-9_-]{8,}`)
+// text (ghp_, gho_, github_pat_, sk-ant-/sk-proj-/sk-live-/sk-test- or sk-
+// with 20+ chars, xox?-, AKIA, AIza, glpat-, npm_ with exactly 36
+// alphanumerics) — not npm_config_cache or sk-learn-pipeline.
+var bareTokenRE = regexp.MustCompile(`\b(?:(?:gh[pousr]_|github_pat_|sk-(?:ant|proj|live|test)-|xox[abprs]-|AKIA|AIza|glpat-)[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36}\b)`)
+
+// redactProse masks secrets in one line of authored prose (context core,
+// files and warnings): token shapes, secret assignments and URL userinfo,
+// queries and fragments. Unlike RedactEnv it applies neither the flag rule
+// nor the whole-line credential test, which would mangle docs prose
+// ("mkdir -p build", "send the Authorization: header").
+func redactProse(line string) string {
+	return bareTokenRE.ReplaceAllString(stripURLSecrets(assignRE.ReplaceAllString(line, MarkMasked)), MarkMasked)
+}
+
+// redactProseLines is redactProse applied to every line of text.
+func redactProseLines(text string) string {
+	var sb strings.Builder
+	for line := range strings.Lines(text) {
+		body := strings.TrimSuffix(line, "\n")
+		sb.WriteString(redactProse(body))
+		if len(body) != len(line) {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
+}
 
 // RedactJSON re-renders a JSON document (settings.json) indented, every
 // string value passed through RedactEnv under its nearest object key and

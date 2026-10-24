@@ -37,9 +37,10 @@ func NewConnectorHandler(store Store, now func() time.Time, log *slog.Logger) ht
 			http.Error(w, "connector conflict: "+err.Error(), http.StatusConflict)
 			return
 		}
+		writeJSON(w, http.StatusOK, c)
+		// after delivery: a write on change must not delay the response
 		if _, ok := store.GetInstance(a.ID); ok { // a hand-enrolled client has no studio to record
 			RecordSetupPart(store, log, a.ID, SetupPartConnector, snippet.Fingerprint(c), func() string { return connectorBody(c) }, now())
 		}
-		writeJSON(w, http.StatusOK, c)
 	})
 }

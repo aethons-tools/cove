@@ -18,12 +18,16 @@ import (
 // countingSetupStore counts snapshot writes (and can fail them).
 type countingSetupStore struct {
 	*MemStore
-	puts int
-	fail error
+	puts  int
+	fail  error
+	onPut func()
 }
 
 func (c *countingSetupStore) PutSetupSnapshot(s SetupSnapshot) error {
 	c.puts++
+	if c.onPut != nil {
+		c.onPut()
+	}
 	if c.fail != nil {
 		return c.fail
 	}
@@ -223,5 +227,60 @@ func TestRecordSetupPartBuildsBodyOnlyOnChange(t *testing.T) {
 	RecordSetupPart(st, nil, "w1", SetupPartKit, "fp-new", body, *clk)
 	if builds != 1 {
 		t.Fatalf("body built %d times, want once (only on a changed fingerprint)", builds)
+	}
+}
+
+// Authored context prose (core, files, warnings) is masked line by line:
+// token shapes, secret assignments and URL userinfo — but not the flag rule
+// or the whole-line auth-header rule, which would mangle docs prose.
+func TestContextSnapshotBodyMasksProse(t *testing.T) {
+	kit := sessionctx.KitLayer("Kit prompt: TOKEN=abcdefgh1234 here.", []sessionctx.Leaf{{Name: "n.md", ReadWhen: "always", Body: "use ghp_NOTEtoken01234567 to push"}}, nil)
+	b := sessionctx.Compile(sessionctx.Inputs{Kit: kit, Role: sessionctx.Layer{Core: "deploy: export GH_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789\nrun mkdir -p build\nsend the Authorization: header"}})
+	b.Warnings = append(b.Warnings, "bad yaml near password: s3cretWARNvalue")
+	got := contextSnapshotBody(b)
+	for _, bad := range []string{"ghp_abcdefghijklmnopqrstuvwxyz0123456789", "abcdefgh1234", "ghp_NOTEtoken01234567", "s3cretWARNvalue"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("context snapshot body leaks %q:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{"deploy: export " + MarkMasked, "run mkdir -p build", "send the Authorization: header", "use " + MarkMasked + " to push"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("context snapshot body lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// GET /context and GET /connector deliver first, then record: the snapshot
+// write never delays the response.
+func TestDeliveryBeforeSetupRecord(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, st, clk := countingSup(t, fl)
+	_, tok, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// change both parts so each handler records
+	if err := SetRoleContext(st, "default", "guest", sessionctx.Layer{Core: "A new rule."}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", Env: map[string]string{"X": "y"}})
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for name, h := range map[string]http.Handler{
+		"context":   NewContextHandler(st, sup, func() time.Time { return *clk }, logger),
+		"connector": NewConnectorHandler(st, func() time.Time { return *clk }, logger),
+	} {
+		rec := httptest.NewRecorder()
+		written := -1
+		st.onPut = func() { written = rec.Body.Len() }
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		h.ServeHTTP(rec, req)
+		st.onPut = nil
+		if written == -1 {
+			t.Fatalf("%s: no snapshot recorded", name)
+		}
+		if written == 0 {
+			t.Errorf("%s: the snapshot was recorded before the response was written (body %d bytes at put)", name, written)
+		}
 	}
 }

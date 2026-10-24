@@ -57,6 +57,8 @@ const (
 	secretRepoPass     = "Rep0Passw0rd"
 	secretImportedMD   = "ghp_IMPORTEDmdToken0123456"
 	secretSkillDesc    = "ghp_SKILLdescToken01234567"
+	secretRoleCtx      = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	secretKitNote      = "TOKEN=abcdefgh1234"
 )
 
 // setupFixture raises studio w1 of role dev (the my-app → web-dev → default
@@ -74,7 +76,7 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 		Env: map[string]string{"GH_TOKEN": secretDestEnv, "GH_HOST": "{host}"}, Git: true})
 	// my-app v2: a secret build arg and an MCP server with a secret header and arg.
 	app := studio.StudioKit{Kind: studio.Kind, Prompt: "leaf prompt", Egress: []string{"npmjs.org"}, BuildArgs: map[string]string{"NODE_VERSION": "22", "NPM_TOKEN": secretBuildArg},
-		Notes: []studio.KitNote{{Name: "b.md", ReadWhen: "leaf b", Body: "LEAF-B"}, {Name: "c.md", ReadWhen: "leaf c", Body: "LEAF-C"}},
+		Notes: []studio.KitNote{{Name: "b.md", ReadWhen: "leaf b", Body: "LEAF-B\nexport " + secretKitNote}, {Name: "c.md", ReadWhen: "leaf c", Body: "LEAF-C"}},
 		MCPServers: map[string]kit.MCPServer{"api": {Type: "stdio", Command: "api-mcp", Args: []string{"--token", secretMCPArg}},
 			"remote": {Type: "http", URL: "https://mcp.example.com/mcp", Headers: map[string]string{"Authorization": "Bearer ${" + secretMCPHeader + "}"}}}}
 	app.Base.Kit = "web-dev"
@@ -98,7 +100,7 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 	if err := store.PutModelSpec(ms); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.PutRole("default", Role{Name: "dev", Kit: "my-app", ModelSpec: "spec1", Scope: Scope{Destinations: []string{"anthropic", "gh"}, Credentials: map[string]string{"gh": "gh-bot"}, TTL: time.Hour}}); err != nil {
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "my-app", ModelSpec: "spec1", Context: sessionctx.Layer{Core: "deploy: export GH_TOKEN=" + secretRoleCtx}, Scope: Scope{Destinations: []string{"anthropic", "gh"}, Credentials: map[string]string{"gh": "gh-bot"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
 	inst, tok, launch, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "dev", Prompt: "P"})
@@ -203,7 +205,7 @@ func TestSetupNeverShowsSecrets(t *testing.T) {
 	}
 	secrets := append([]string{secretDestEnv, secretImageEnv, "hunter2", "ghp_SETTINGS", "u:p@", "oauthAccount", secretUpstreamPass,
 		"bot:", secretBuildArg, secretMCPHeader, secretMCPArg, secretPrincipalHdr, secretSettingsEnv, secretProviderEnv, secretClaudeMD,
-		secretRepoPass, "kits:", secretImportedMD, secretSkillDesc}, toks...)
+		secretRepoPass, "kits:", secretImportedMD, secretSkillDesc, secretRoleCtx, "abcdefgh1234"}, toks...)
 	for _, secret := range secrets {
 		if secret == "" {
 			continue
@@ -215,7 +217,8 @@ func TestSetupNeverShowsSecrets(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"GH_TOKEN=«masked»", "credential:  gh-bot", "NPM_TOKEN=«masked»", "ANTHROPIC_API_KEY=«identity token»",
-		"https://github.com/o/kits//web-dev@main", "push with «masked»", "docs-audit  Check the docs with «masked»"} {
+		"https://github.com/o/kits//web-dev@main", "push with «masked»", "docs-audit  Check the docs with «masked»",
+		"deploy: export «masked»", "export «masked»"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("credentials must appear by name and secrets as marks: %q missing", want)
 		}

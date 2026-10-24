@@ -178,6 +178,10 @@ func TestRedactEnvSecretFlags(t *testing.T) {
 		"srv --secret=sk_live_EQ1":           "srv --secret=" + MarkMasked,
 		"srv -p hunter2 --auth abc":          "srv -p " + MarkMasked + " --auth " + MarkMasked,
 		"srv --verbose --port 80":            "srv --verbose --port 80",
+		"srv --api.key=abc123":               "srv --api.key=" + MarkMasked,
+		"srv --db.password hunter2 run":      "srv --db.password " + MarkMasked + " run",
+		"srv --db.pwd hunter2":               "srv --db.pwd " + MarkMasked,
+		"srv --api.host example.com":         "srv --api.host example.com",
 	} {
 		if got := RedactEnv("command", in); got != want {
 			t.Errorf("RedactEnv(command, %q) = %q, want %q", in, got, want)
@@ -187,24 +191,51 @@ func TestRedactEnvSecretFlags(t *testing.T) {
 
 func TestRedactEnvTokenShapes(t *testing.T) {
 	for in, want := range map[string]string{
-		"ghp_abcdefghijklmnop":          MarkMasked,
-		"gho_abcdefghijklmnop":          MarkMasked,
-		"github_pat_11ABCDEFG0abcdefgh": MarkMasked,
-		"sk-ant-api03-abcdefgh12345":    MarkMasked,
-		"xoxb-123456789012-abcdef":      MarkMasked,
-		"AKIAIOSFODNN7EXAMPLE":          MarkMasked,
-		"AIzaSyA-abcdefghijklmnop":      MarkMasked,
-		"glpat-abcdefghij1234":          MarkMasked,
-		"npm_abcdefghijklmnop1234":      MarkMasked,
-		"use ghp_abcdefghijklmnop here": "use " + MarkMasked + " here",
-		"sk-":                           "sk-",
-		"skeleton":                      "skeleton",
-		"task-12345678901":              "task-12345678901",
-		"sk-short":                      "sk-short",
-		"https://host/path/ghp_short":   "https://host/path/ghp_short",
+		"ghp_abcdefghijklmnop":                     MarkMasked,
+		"gho_abcdefghijklmnop":                     MarkMasked,
+		"github_pat_11ABCDEFG0abcdefgh":            MarkMasked,
+		"sk-ant-api03-abcdefgh12345":               MarkMasked,
+		"xoxb-123456789012-abcdef":                 MarkMasked,
+		"AKIAIOSFODNN7EXAMPLE":                     MarkMasked,
+		"AIzaSyA-abcdefghijklmnop":                 MarkMasked,
+		"glpat-abcdefghij1234":                     MarkMasked,
+		"use ghp_abcdefghijklmnop here":            "use " + MarkMasked + " here",
+		"sk-":                                      "sk-",
+		"skeleton":                                 "skeleton",
+		"task-12345678901":                         "task-12345678901",
+		"sk-short":                                 "sk-short",
+		"https://host/path/ghp_short":              "https://host/path/ghp_short",
+		"npm_abcdefghijklmnopqrstuvwxyz0123456789": MarkMasked,
+		"npm_config_cache":                         "npm_config_cache",
+		"echo $npm_package_name":                   "echo $npm_package_name",
+		"npm_abcdefghijklmnop1234x":                "npm_abcdefghijklmnop1234x",
+		"sk-learn-pipeline":                        "sk-learn-pipeline",
+		"sk-proj-abcdefgh1234":                     MarkMasked,
+		"sk-live-abcdef12":                         MarkMasked,
+		"sk-test-abcdef12":                         MarkMasked,
+		"sk-abcdefghijklmnopqrstu":                 MarkMasked,
 	} {
 		if got := RedactEnv("note", in); got != want {
 			t.Errorf("RedactEnv(note, %q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The key rule also takes pass and pwd as whole segments.
+func TestRedactEnvPassSegments(t *testing.T) {
+	for _, c := range []struct{ k, want string }{
+		{"DB_PASS", MarkMasked},
+		{"X_PWD", MarkMasked},
+		{"PASS", MarkMasked},
+		{"pwd", MarkMasked},
+		{"smtp.pass", MarkMasked},
+		{"PASSPORT_NO", "v4lue"},
+		{"BYPASS", "v4lue"},
+		{"COMPASS_DIR", "v4lue"},
+		{"PWDX", "v4lue"},
+	} {
+		if got := RedactEnv(c.k, "v4lue"); got != c.want {
+			t.Errorf("RedactEnv(%q, v4lue) = %q, want %q", c.k, got, c.want)
 		}
 	}
 }

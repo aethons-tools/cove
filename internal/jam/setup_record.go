@@ -54,23 +54,24 @@ func contextSnapshotBody(b sessionctx.Bundle) string {
 
 // redactContextBundle is a copy of b with every build-arg row of the kit's
 // tools.md passed through RedactEnv under its tool name (a secret-named build
-// arg reads «masked»), and URL userinfo, queries and fragments stripped from
-// every line of the core, the files and the warnings. File sizes in the
-// rendered body are then the shown sizes.
+// arg reads «masked»), then every line of the core, the files and the
+// warnings passed through redactProse (token shapes, secret assignments, URL
+// userinfo, queries and fragments). File sizes in the rendered body are then
+// the shown sizes.
 func redactContextBundle(b sessionctx.Bundle) sessionctx.Bundle {
 	out := b
-	out.Core = stripURLSecrets(b.Core)
+	out.Core = redactProseLines(b.Core)
 	out.Files = make(map[string]string, len(b.Files))
 	maps.Copy(out.Files, b.Files)
 	for p, body := range out.Files {
 		if p == sessionctx.LayerKit+"/"+sessionctx.ToolsLeaf {
 			body = redactToolsRows(body)
 		}
-		out.Files[p] = stripURLSecrets(body)
+		out.Files[p] = redactProseLines(body)
 	}
 	out.Warnings = make([]string, len(b.Warnings))
 	for i, w := range b.Warnings {
-		out.Warnings[i] = stripURLSecrets(w)
+		out.Warnings[i] = redactProseLines(w)
 	}
 	return out
 }
