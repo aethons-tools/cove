@@ -400,20 +400,21 @@ func TestRawViewToggleAndMonospaceComposer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// Each bubble carries its raw text (escaped) beside the rendered body; a
-	// Rendered/Raw selector flips html.raw, remembered in localStorage and
-	// applied in <head> before first paint. Composers are monospace.
+	// Each bubble carries its raw text (escaped, hidden) beside the rendered
+	// body, for the Markdown copy; there is no Rendered/Raw view selector.
+	// Composers are monospace.
 	for _, want := range []string{
-		`<div class="body raw">**bold** &amp; &lt;b&gt;</div>`, `data-view="rendered"`, `data-view="raw"`,
-		"localStorage.getItem('me-view')", "html.raw .msg .body.raw{display:block}",
+		`<div class="body raw">**bold** &amp; &lt;b&gt;</div>`, ".msg .body.raw{display:none}",
 		`.composer textarea{flex:1;`, `font-family:"IBM Plex Mono"`, "IBM+Plex+Mono:wght@400",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
 	}
-	if i, j := strings.Index(body, "localStorage.getItem('me-view')"), strings.Index(body, "</head>"); i < 0 || i > j {
-		t.Error("the saved view must be applied in <head>, before first paint")
+	for _, gone := range []string{`data-view="raw"`, "meSetView", "me-view"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the Rendered/Raw selector is gone, but the page has %q", gone)
+		}
 	}
 }
 
@@ -590,7 +591,7 @@ func TestInboxRendersAppTitlebarAndRailHeadControls(t *testing.T) {
 	}
 	head := body[strings.Index(body, `class="rail-head"`):]
 	head = head[:strings.Index(head, `id="rail"`)]
-	for _, want := range []string{`class="viewsel"`, `id="newmsg"`, "New message"} {
+	for _, want := range []string{`id="newmsg"`, "New message"} {
 		if !strings.Contains(head, want) {
 			t.Errorf("rail header missing %q", want)
 		}

@@ -8,8 +8,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <script>
-// Apply the saved message view (Rendered / Raw) before first paint.
-try{ if(localStorage.getItem('me-view')==='raw'){ document.documentElement.classList.add('raw'); } }catch(_){}
 </script>
 <link rel="stylesheet" href="{{stylesheet}}">
 {{- template "app-head" .Head}}
@@ -80,13 +78,8 @@ body{display:flex;flex-direction:column}
    of the bubble instead of scrolling inside its own pre (overflow-x:auto below). */
 .msg .body{padding:10px 13px;border-radius:13px;word-break:break-word;max-width:100%}
 .msg .body.plain{white-space:pre-wrap}
-/* Raw view: every bubble shows its body text as sent, in monospace. */
-.msg .body.raw{display:none;white-space:pre-wrap;font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12.5px}
-html.raw .msg .body:not(.raw){display:none}
-html.raw .msg .body.raw{display:block}
-.viewsel{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
-.viewsel button{background:none;border:0;font:inherit;font-size:12.5px;color:var(--muted);padding:4px 10px;cursor:pointer}
-.viewsel button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+/* Each bubble also carries its body as sent, hidden: what Markdown copies. */
+.msg .body.raw{display:none}
 .msg .body.md>:first-child{margin-top:0}.msg .body.md>:last-child{margin-bottom:0}
 .msg .body.md p,.msg .body.md ul,.msg .body.md ol,.msg .body.md pre,.msg .body.md .codebox,.msg .body.md blockquote,.msg .body.md table{margin:0 0 .6em}
 .msg .body.md ul,.msg .body.md ol{padding-left:1.3em}
@@ -507,15 +500,6 @@ document.addEventListener('keydown', function(e){
   else if(e.key==='ArrowUp' && mePopDraft(t.form)){ e.preventDefault(); }
 });
 document.querySelectorAll('.composer form').forEach(function(f){ meRestoreReply(f); meDraftChip(f); });
-// Message view: Rendered (default) or Raw, which shows every bubble's body as
-// sent, in monospace. Flips html.raw (each bubble carries both forms, so it is
-// instant and survives refreshes) and is remembered per browser.
-function meSetView(v){
-  document.documentElement.classList.toggle('raw', v==='raw');
-  try{ localStorage.setItem('me-view', v); }catch(_){}
-  document.querySelectorAll('.viewsel button').forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.view===v)); });
-}
-meSetView(document.documentElement.classList.contains('raw') ? 'raw' : 'rendered');
 // Copy controls. meCopy writes text to the clipboard (the async API where the
 // page is a secure context, else a hidden textarea and execCommand) and flashes
 // a ✓ on the button that asked.
@@ -528,16 +512,11 @@ function meCopy(text, btn){
   try{ if(document.execCommand('copy')){ done(); } }finally{ ta.remove(); }
 }
 // meCopyBubble copies a whole message: as markdown, its body exactly as sent
-// (the Raw view's text); as text, what the rendered bubble shows. innerText
-// needs the rendered body laid out, so in the Raw view the class is lifted for
-// the (synchronous, never painted) read.
+// (the hidden .body.raw); as text, what the rendered bubble shows.
 function meCopyBubble(btn, markdown){
-  var m=btn.closest('.msg'), html=document.documentElement;
+  var m=btn.closest('.msg');
   if(markdown){ var r=m.querySelector('.body.raw'); meCopy(r?r.textContent:'', btn); return; }
-  var raw=html.classList.contains('raw');
-  if(raw){ html.classList.remove('raw'); }
   var b=m.querySelector('.body:not(.raw)'), text=b?b.innerText:'';
-  if(raw){ html.classList.add('raw'); }
   meCopy(text.replace(/\n+$/, ''), btn);
 }
 // meCodeButtons gives each code block under root a copy button, in a wrapper

@@ -15,7 +15,7 @@ import (
 type MessageRow struct {
 	From string
 	Body template.HTML // rendered per the squawk's content type (squawkrender)
-	Raw  string        // the body as sent, for the Raw view (escaped by the template)
+	Raw  string        // the body as sent, for the Markdown copy (escaped by the template)
 	// Plain marks a text/plain squawk, shown literally with its whitespace.
 	Plain bool
 	At    string

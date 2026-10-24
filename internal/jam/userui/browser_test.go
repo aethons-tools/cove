@@ -232,13 +232,6 @@ func TestBrowserCopyButtons(t *testing.T) {
 	if got := clip(`.msg.agent .copy-code`); got != "line 1\nline 2" {
 		t.Errorf("copy code = %q, want %q", got, "line 1\nline 2")
 	}
-	// Text still copies the rendered text while the Raw view hides it.
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`meSetView('raw')`, nil)); err != nil {
-		t.Fatal(err)
-	}
-	if got := clip(`.msg.agent .copy-text`); strings.Contains(got, "**") || !strings.Contains(got, "one\ntwo") {
-		t.Errorf("copy text in Raw view = %q", got)
-	}
 	// On a screen that can hover, the controls stay hidden until the bubble or
 	// code block is hovered. Headless Chrome reports hover:none (a touch
 	// screen, which shows them always) and ignores emulating hover, so drop
@@ -261,7 +254,7 @@ func TestBrowserCopyButtons(t *testing.T) {
 	}
 	var pre []float64
 	err := chromedp.Run(ctx,
-		chromedp.Evaluate(`meSetView('rendered');
+		chromedp.Evaluate(`
 			Array.from(document.styleSheets).forEach(function(ss){
 				try{ for(var i=ss.cssRules.length-1;i>=0;i--){ var r=ss.cssRules[i]; if(r.media && r.media.mediaText.indexOf('hover')>=0){ ss.deleteRule(i); } } }catch(_){}
 			});
@@ -419,7 +412,7 @@ func TestBrowserNarrowScreenKeepsRailHeadControls(t *testing.T) {
 		chromedp.Navigate(srv.URL+"/app/user/"),
 		chromedp.WaitVisible(`#newmsg summary`, chromedp.ByQuery),
 		chromedp.Evaluate(`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.right<=innerWidth;}
-			return v('.viewsel button[data-view=raw]') && v('#newmsg summary') && getComputedStyle(document.getElementById('rail')).display==='none'; })()`, &vis),
+			return v('#newmsg summary') && getComputedStyle(document.getElementById('rail')).display==='none'; })()`, &vis),
 	)
 	if err != nil {
 		t.Fatal(err)
