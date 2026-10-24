@@ -16,6 +16,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/sessionview"
 )
 
 var thinkStream = strings.Repeat("a", 32)
@@ -254,5 +255,42 @@ func TestThinkingNoStore(t *testing.T) {
 	h := Handler(e.Deps, nil)
 	if c := thinkGet(h, p, "/app/user/session/"+personal.ActorID+"/thinking/events").Code; c != http.StatusNoContent {
 		t.Fatalf("no events store = %d", c)
+	}
+}
+
+// An open feed ends (at the next keep-alive) once its viewer loses the
+// session's home channel.
+func TestThinkingEventsEndOnRevoke(t *testing.T) {
+	old := sessionview.KeepAlive
+	sessionview.KeepAlive = 10 * time.Millisecond
+	defer func() { sessionview.KeepAlive = old }()
+	e, p, personal, store, _ := thinkEnv(t)
+	appendText(t, store, personal.ActorID, 1, 1)
+	srv := httptest.NewServer(asWho(Handler(e.Deps, nil), p))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/app/user/session/"+personal.ActorID+"/thinking/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	rd := sseLines(resp.Body)
+	var buf strings.Builder
+	sseRead(t, rd, &buf, "id: "+thinkStream+":1")
+	if err := e.st.LeaveChannel(ident.ID(e.homeOf(t, personal)), p.UserID, 0); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-rd:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("a removed member's feed is still open")
+		}
 	}
 }

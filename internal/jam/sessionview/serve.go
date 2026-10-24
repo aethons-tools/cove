@@ -14,8 +14,11 @@ import (
 const (
 	backfillPage = 500
 	subBuffer    = 256
-	keepAlive    = 25 * time.Second
 )
+
+// KeepAlive is how often Serve writes a keep-alive comment and re-checks
+// Source.Allowed (a var: tests shorten it).
+var KeepAlive = 25 * time.Second
 
 // isNewest reports whether stream is the actor's newest (by first event).
 // Ingest persists before it publishes, so a live event's stream is listed.
@@ -66,11 +69,15 @@ type Source struct {
 	FollowNewest bool
 	Event        func(EventView) string            // the `ev` fragment
 	Totals       func(sessionevents.Totals) string // the `totals` fragment; nil = none sent
+	// Allowed, re-checked on each keep-alive tick, ends the feed once it
+	// reports false (the viewer lost access); nil = always allowed.
+	Allowed func() bool
 }
 
 // Serve streams one actor's events over SSE (see the package doc for the
 // event names): stream, ev (id "<stream>:<seq>"), totals, more, skipped,
-// newstream; keep-alive every 25s.
+// newstream; keep-alive every KeepAlive (25s), when it also re-checks
+// src.Allowed.
 //
 // It subscribes FIRST (so nothing published during backfill is missed),
 // backfills from the store, then drains live events, skipping any seq already
@@ -199,7 +206,7 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 	}
 	fl.Flush()
 
-	tick := time.NewTicker(keepAlive)
+	tick := time.NewTicker(KeepAlive)
 	defer tick.Stop()
 	for {
 		select {
@@ -227,6 +234,9 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 			emit(ev)
 			sendTotals()
 		case <-tick.C:
+			if src.Allowed != nil && !src.Allowed() {
+				return // access revoked; the client's reconnect gets the route's 404
+			}
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 		}
 		fl.Flush()

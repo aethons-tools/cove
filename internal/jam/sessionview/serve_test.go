@@ -326,3 +326,29 @@ func TestServeRejectsBadStream(t *testing.T) {
 		t.Fatalf("code %d", rec.Code)
 	}
 }
+
+// Serve re-checks Allowed on each keep-alive tick and ends the feed once it
+// reports false.
+func TestServeAllowedRevoked(t *testing.T) {
+	old := sessionview.KeepAlive
+	sessionview.KeepAlive = 10 * time.Millisecond
+	defer func() { sessionview.KeepAlive = old }()
+	st, hub := sessionevents.NewMemStore(), sessionevents.NewHub()
+	fill(t, st, streamA, 1, 1, time.Unix(1000, 0))
+	var mu sync.Mutex
+	allowed := true
+	src := sessionview.Source{Store: st, Hub: hub, ActorID: "w1", Tail: 3, Event: evFrag,
+		Allowed: func() bool { mu.Lock(); defer mu.Unlock(); return allowed }}
+	f := open(t, src, "?stream="+streamA, "")
+	f.waitFor(t, idLine(streamA, 1))
+	f.waitFor(t, ": keep-alive") // still allowed: the feed stays open
+	select {
+	case <-f.eof:
+		t.Fatal("feed ended while allowed")
+	default:
+	}
+	mu.Lock()
+	allowed = false
+	mu.Unlock()
+	f.waitEOF(t)
+}

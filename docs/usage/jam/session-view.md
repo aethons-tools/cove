@@ -88,6 +88,7 @@ the tab says so.
 | `raw` | One event's raw JSON, capped at 1 MB |
 
 All three give 404 to anyone who can't see the home channel (as for every route above), and 204 when events aren't recorded.
+An open `events` stream re-checks access every 25s (its keep-alive) and ends once the viewer loses it.
 
 - **Filters:** Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
   one tool, and search matches the visible text.

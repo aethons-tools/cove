@@ -67,7 +67,8 @@ func (h *handler) thinkingFragment(v sessionview.EventView) string {
 }
 
 // thinkingEvents is the session's live Thinking feed (sessionview.Serve,
-// following its newest stream), at most maxThinkingStreams per viewer.
+// following its newest stream), at most maxThinkingStreams per viewer; it
+// ends once the viewer loses access to the session.
 func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 	p, inst, ok := h.thinkingSession(w, r)
 	if !ok {
@@ -91,8 +92,15 @@ func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		h.mu.Unlock()
 	}()
+	id := r.PathValue("id")
+	// Re-checked on each keep-alive: a viewer who loses the session (left
+	// its home channel, the session gone) stops receiving it.
+	allowed := func() bool {
+		again, _, ok := h.sessionFor(p, id)
+		return ok && again.ActorID == inst.ActorID
+	}
 	sessionview.Serve(w, r, sessionview.Source{Store: h.d.Events, Hub: h.d.Hub, ActorID: inst.ActorID,
-		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingFragment})
+		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingFragment, Allowed: allowed})
 }
 
 // thinkingStream is the request's ?stream=, or a 400.
