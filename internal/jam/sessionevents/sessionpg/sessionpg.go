@@ -151,11 +151,24 @@ const selectCols = `actor_id, stream_id, seq, kind, gap_from, gap_to, turn, obse
   cost_usd, input_tokens, output_tokens, duration_ms, is_error, raw::text, raw_text, project_id, owner_id`
 
 func (s *Store) List(f sessionevents.Filter) ([]sessionevents.Event, error) {
-	q := `SELECT ` + selectCols + ` FROM session_events WHERE actor_id=$1 AND stream_id=$2 AND seq > $3 ORDER BY seq`
+	where := `actor_id=$1 AND stream_id=$2 AND seq > $3`
 	args := []any{f.ActorID, f.StreamID, int64(f.AfterSeq)}
-	if f.Limit > 0 {
-		q += ` LIMIT $4`
+	if f.BeforeSeq > 0 {
+		args = append(args, int64(f.BeforeSeq))
+		where += fmt.Sprintf(` AND seq < $%d`, len(args))
+	}
+	q := `SELECT ` + selectCols + ` FROM session_events WHERE ` + where
+	switch {
+	case f.Newest && f.Limit > 0:
+		// Take the last Limit rows, then restore ascending order. selectCols
+		// names are unique, so SELECT * keeps the scan order.
 		args = append(args, f.Limit)
+		q = `SELECT * FROM (` + q + fmt.Sprintf(` ORDER BY seq DESC LIMIT $%d`, len(args)) + `) t ORDER BY seq`
+	case f.Limit > 0:
+		args = append(args, f.Limit)
+		q += fmt.Sprintf(` ORDER BY seq LIMIT $%d`, len(args))
+	default:
+		q += ` ORDER BY seq`
 	}
 	rows, err := s.pool.Query(context.Background(), q, args...)
 	if err != nil {

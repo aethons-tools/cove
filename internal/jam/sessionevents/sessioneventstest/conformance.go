@@ -3,6 +3,7 @@
 package sessioneventstest
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -49,6 +50,36 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) sessionevents.Stor
 		}
 		if hw, _ := s.HighWater("w1", streamB); hw != 0 {
 			t.Fatalf("empty stream high water %d", hw)
+		}
+	})
+
+	t.Run("newest and before paging", func(t *testing.T) {
+		s := newStore(t)
+		t0 := time.Unix(1000, 0)
+		for i := uint64(1); i <= 10; i++ {
+			must(t, s.Append(ev("a", streamA, i, t0.Add(time.Duration(i)*time.Second), `{"type":"x"}`)))
+		}
+		seqs := func(f sessionevents.Filter) []uint64 {
+			t.Helper()
+			evs, err := s.List(f)
+			must(t, err)
+			var out []uint64
+			for _, e := range evs {
+				out = append(out, e.Seq)
+			}
+			return out
+		}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, Newest: true, Limit: 3}); !slices.Equal(got, []uint64{8, 9, 10}) {
+			t.Fatalf("newest 3 = %v", got)
+		}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, Newest: true, Limit: 3, BeforeSeq: 8}); !slices.Equal(got, []uint64{5, 6, 7}) {
+			t.Fatalf("newest 3 before 8 = %v", got)
+		}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, BeforeSeq: 3}); !slices.Equal(got, []uint64{1, 2}) {
+			t.Fatalf("before 3 = %v", got)
+		}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, AfterSeq: 2, BeforeSeq: 5}); !slices.Equal(got, []uint64{3, 4}) {
+			t.Fatalf("between = %v", got)
 		}
 	})
 
