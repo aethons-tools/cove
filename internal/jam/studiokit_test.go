@@ -77,11 +77,21 @@ func TestUnchainedDefinitionKitIsParsedKit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	def, err := kitDefinitionFromConfig(NewMemStore(), KitRef{ID: "k", Version: 1}, text, harnessinstall.Default())
+	def, err := kitDefinitionFromVersion(NewMemStore(), KitRef{ID: "k", Version: 1}, KitVersion{Version: 1, KitYML: []byte(text), Kit: mustParse(t, text)}, harnessinstall.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(def.Kit, want) {
 		t.Fatalf("Kit = %+v, want parsed %+v", def.Kit, want)
 	}
+}
+
+// mustParse parses studio-kit text, failing t when it does not parse.
+func mustParse(t *testing.T, text string) studio.StudioKit {
+	t.Helper()
+	sk, err := studio.ParseStudioKit([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sk
 }

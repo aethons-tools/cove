@@ -87,10 +87,8 @@ func ensureKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, err
 		return KitRef{}, false, err
 	}
 	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
-	if k, ok := store.GetKit(name); ok && k.Current != 0 {
-		if cur, ok := store.KitConfig(name, k.Current); ok && cur == text {
-			return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
-		}
+	if cur, ok := LoadKitVersion(store, name, 0); ok && cur.Version != 0 && string(cur.KitYML) == text {
+		return KitRef{ID: name, Version: cur.Version, Digest: digest}, true, nil
 	}
 	var version int
 	if parent := chainParent(chain); parent != nil {
@@ -124,32 +122,28 @@ func PushStudioKit(store Store, name, config string) (version int, unchanged boo
 // absent, its stored config is not a valid studio kit, or a parent is missing
 // or invalid.
 func StudioKitDefinition(store Store, name string, h harnessinstall.Install) (KitDefinition, error) {
-	ref, text, err := studioKitCurrent(store, name)
+	ref, v, err := studioKitCurrent(store, name)
 	if err != nil {
 		return KitDefinition{}, err
 	}
-	def, err := kitDefinitionFromConfig(store, ref, text, h)
+	def, err := kitDefinitionFromVersion(store, ref, v, h)
 	if err != nil {
 		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", name, err)
 	}
 	return def, nil
 }
 
-// studioKitCurrent is StudioKitDefinition's registry lookup, without the parse:
-// the current version's ref (no digest) and stored config.
-func studioKitCurrent(store Store, name string) (KitRef, string, error) {
+// studioKitCurrent is StudioKitDefinition's registry lookup, without the chain:
+// the current version's ref (no digest) and the version (LoadKitVersion).
+func studioKitCurrent(store Store, name string) (KitRef, KitVersion, error) {
 	if !studio.TagSafeName(name) {
-		return KitRef{}, "", fmt.Errorf("kit name %q is not tag-safe", name)
+		return KitRef{}, KitVersion{}, fmt.Errorf("kit name %q is not tag-safe", name)
 	}
-	k, ok := store.GetKit(name)
-	if !ok || k.Current == 0 {
-		return KitRef{}, "", fmt.Errorf("studio kit %q not in registry", name)
+	v, ok := LoadKitVersion(store, name, 0)
+	if !ok || v.Version == 0 {
+		return KitRef{}, KitVersion{}, fmt.Errorf("studio kit %q not in registry", name)
 	}
-	text, ok := store.KitConfig(name, k.Current)
-	if !ok {
-		return KitRef{}, "", fmt.Errorf("studio kit %q not in registry", name)
-	}
-	return KitRef{ID: name, Version: k.Current}, text, nil
+	return KitRef{ID: name, Version: v.Version}, v, nil
 }
 
 // EnsureDefaultStudioKit seeds the built-in default studio kit into the registry
@@ -166,30 +160,31 @@ func EnsureDefaultStudioKit(store Store) (KitRef, error) {
 // and an ErrKitNotReady PrepareKit. ok=false when the registry has no such
 // (id, version).
 func ResolveKitDefinition(store Store, ref KitRef, h harnessinstall.Install) (KitDefinition, bool, error) {
-	text, ok := store.KitConfig(ref.ID, ref.Version)
+	v, ok := LoadKitVersion(store, ref.ID, ref.Version)
 	if !ok {
 		return KitDefinition{}, false, nil
 	}
-	def, err := kitDefinitionFromConfig(store, ref, text, h)
+	def, err := kitDefinitionFromVersion(store, ref, v, h)
 	return def, err == nil, err
 }
 
-// kitDefinitionFromConfig parses the stored config of kit version ref,
-// resolves its parent chain from store, and returns the effective definition:
-// Kit = the merged chain, Chain = its links (the last is ref itself, at its
-// stored version), Ref.Digest = studio.ChainDigest(chain, h). An unchained kit
-// is a chain of one and keeps its BuildDigest. A missing or invalid parent
-// fails closed.
-func kitDefinitionFromConfig(store Store, ref KitRef, text string, h harnessinstall.Install) (KitDefinition, error) {
-	sk, err := studio.ParseStudioKit([]byte(text))
-	if err != nil {
-		return KitDefinition{}, fmt.Errorf("resolve kit %s: %w", ref, err)
+// kitDefinitionFromVersion is the effective definition of stored version v
+// (ref): its chain resolved from store, Kit = the merged chain, Chain = its
+// links (the last is ref itself, at its stored version, carrying v's files),
+// Ref.Digest = studio.ChainDigest(chain, h). An unchained kit is a chain of
+// one and keeps its BuildDigest. A version that does not parse, or a missing
+// or invalid parent, fails closed.
+func kitDefinitionFromVersion(store Store, ref KitRef, v KitVersion, h harnessinstall.Install) (KitDefinition, error) {
+	if v.Err != nil {
+		return KitDefinition{}, fmt.Errorf("resolve kit %s: %w", ref, v.Err)
 	}
+	sk := v.Kit
 	chain, err := ResolveKitChain(store, ref.ID, sk)
 	if err != nil {
 		return KitDefinition{}, fmt.Errorf("resolve kit %s: %w", ref, err)
 	}
-	chain[len(chain)-1].Ref.Version = ref.Version // self is this stored version
+	self := &chain[len(chain)-1]
+	self.Ref.Version, self.Files = ref.Version, v.Files // self is this stored version
 	kits := chainKits(chain)
 	ref.Digest = studio.ChainDigest(kits, h)
 	merged := sk // an unchained kit is exactly as parsed, not re-merged
