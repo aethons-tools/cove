@@ -145,6 +145,11 @@
       #rail{display:none;position:fixed;top:var(--chrome-h);left:0;bottom:0;width:240px;max-height:none;z-index:30;box-shadow:0 10px 28px rgba(0,0,0,.18)}
       body.rail-open #rail{display:block}
     }
+    /* Line diffs (the diff-lines partial); each page sizes its own pre.diff. */
+    pre.diff span{display:block;white-space:pre}
+    .d-add{background:var(--live-soft);color:var(--live)}
+    .d-del{background:var(--bad-soft);color:var(--bad)}
+    .d-skip{color:var(--faint);font-style:italic}
   </style>
 </head>
 <body>
@@ -392,6 +397,8 @@
 {{define "badge"}}{{if .N}} <span class="badge{{if .Red}} red{{end}}" title="{{.Title}}">{{.N}}</span>{{end}}{{end}}
 {{/* A config-managed object's badge (managed.go); links the Config page. */}}
 {{define "managed-badge"}}{{with .}}<a class="chip managed" href="/app/admin/config" title="Applied from the config repo {{.Applied}}; edits here drift from it">managed · config @{{.Commit}}</a>{{end}}{{end}}
+{{/* diff-lines is a line diff ([]linediff.Line): one span per line, "+"/"-"/"…" marked. */}}
+{{define "diff-lines"}}<pre class="diff">{{range .}}{{if eq .Op "+"}}<span class="d-add">+ {{.Text}}</span>{{else if eq .Op "-"}}<span class="d-del">- {{.Text}}</span>{{else if eq .Op "…"}}<span class="d-skip">  … {{.Text}}</span>{{else}}<span>  {{.Text}}</span>{{end}}{{end}}</pre>{{end}}
 {{/* A git source (a sourceView): its repo and commit, linked when the host is known. */}}
 {{define "src-repo"}}{{if .RepoLink}}<a class="mono" href="{{.RepoLink}}" rel="noopener noreferrer">{{.Repo}}</a>{{else}}<span class="mono">{{.Repo}}</span>{{end}}{{end}}
 {{define "src-commit"}}{{if .Commit}}{{if .CommitLink}}<a class="mono" href="{{.CommitLink}}" rel="noopener noreferrer">{{.Commit}}</a>{{else}}<span class="mono">{{.Commit}}</span>{{end}}{{else}}<span class="unset">—</span>{{end}}{{end}}

@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # Admin UI entity pages
@@ -36,6 +36,7 @@ personal owner, project, role and unit (linked), with **Open live timeline**
 (the [session timeline](ui-console.md#session-timeline); shown when session capture is
 configured), **Teardown** (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and **Revoke** when it is enrolled.
+While it has a studio, its **Setup** tab shows what the agent is set up with — see [inspect.md](inspect.md#in-the-admin-ui).
 
 - **Identity** — its grants as `project/role` chips (× removes one; hover for
   the effective destinations), **+ Grant**, and its token expiry; or "not

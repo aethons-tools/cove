@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # `at-jam` — operating the central service
@@ -58,7 +58,7 @@ five pillars), see the design history:
 | [config-git.md](config-git.md) | You want a Jam's config (kits, destinations, model-specs, users, connections, projects, roles, context, serve settings) in a git repo — writing it out, diffing/applying a checkout, replicating a Jam — or a config apply refused, flagged drift or listed unmanaged objects, or want the repo to stop managing an object (`config release`). |
 | [config-git-sources.md](config-git-sources.md) | You want a Jam to follow a config repo in git (`config track\|sync\|untrack`, `--git`), are referencing a kit by its own source (`kits/<name>.source.yml`), or a config sync failed to fetch or flagged a source kit as drifted. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (cove-master). |
-| [inspect.md](inspect.md) | You want to see everything a studio (or a raise of a role now) is set up with — context files, egress, destinations, env, model-spec, kit/image, seed, MCP, policy — or why a studio differs from its role: `role inspect`, `studio inspect --diff`. |
+| [inspect.md](inspect.md) | You want to see everything a studio (or a raise of a role now) is set up with — context files, egress, destinations, env, model-spec, kit/image, seed, MCP, policy — or why a studio differs from its role: `role inspect`, `studio inspect --diff`, or an agent or role page's Setup tab. |
 | [session-context-authoring.md](session-context-authoring.md) | You want sessions of a role, a project or the whole Jam to know something at raise — rules, goals, repos — and need `at-jam context`, the YAML format or the limits. |
 | [session-context.md](session-context.md) | You are writing a kit prompt, debugging what a session was told at raise, or changing how session context is compiled or delivered. |
 | [personal-sessions.md](personal-sessions.md) | You (a human operator) want your own session of a role: linking your login to the roster, the role's personal caps, `session request\|list\|release`, talking to it over Discord until you release it, its idle ladder (nags, replying `keep`/`release` to one, optional reclaim), and why it needs `store-postgres` and a Discord inbox. |

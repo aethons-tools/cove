@@ -20,14 +20,17 @@ const studioSquawkLimit = 50
 // from the registry, so Running is false and only its audit trail (session
 // streams, squawks) is shown.
 type agentDetail struct {
-	Title    string
-	ID       string
-	Running  bool
-	Inst     jam.Instance
-	CanEdit  bool
-	Kind     string     // standing | personal | ticket | manual | enrolled (agentKind)
-	EgressID string     // short egress fingerprint
-	Access   accessCard // while Running
+	Title   string
+	ID      string
+	Running bool
+	Inst    jam.Instance
+	CanEdit bool
+	// SetupEnabled: the Setup tab is mounted (WithSetupDeps) and the studio
+	// runs (not gone).
+	SetupEnabled bool
+	Kind         string     // standing | personal | ticket | manual | enrolled (agentKind)
+	EgressID     string     // short egress fingerprint
+	Access       accessCard // while Running
 
 	Actor    jam.ActorSummary // the enrolled identity, when HasActor
 	HasActor bool
@@ -114,7 +117,7 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 	return d, d.HasActor || d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
 }
 
-func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, acc accessDeps, canEdit bool) {
+func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, acc accessDeps, canEdit, setupOn bool) {
 	mux.HandleFunc("GET /app/admin/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
 		d, ok := buildAgentDetail(store, msgs, sess, acc, r.PathValue("id"), canEdit)
 		if !ok {
@@ -122,6 +125,7 @@ func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess 
 			renderStatus(w, r, http.StatusNotFound, "agent", d)
 			return
 		}
+		d.SetupEnabled = setupOn && d.Running && d.Inst.Phase != jam.PhaseGone
 		render(w, r, "agent", d)
 	})
 }

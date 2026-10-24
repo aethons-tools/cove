@@ -12,10 +12,6 @@
   #config .chip.st-drifted,#config .chip.st-missing{background:var(--wait-soft);color:var(--wait)}
   #config .form-actions{display:flex;gap:8px;margin-top:10px}
   #config pre.diff{margin:0;padding:8px 12px;overflow-x:auto;font:12.5px/1.55 "IBM Plex Mono",ui-monospace,monospace;background:var(--surface-2)}
-  #config pre.diff span{display:block;white-space:pre}
-  #config .d-add{background:var(--live-soft);color:var(--live)}
-  #config .d-del{background:var(--bad-soft);color:var(--bad)}
-  #config .d-skip{color:var(--faint);font-style:italic}
   #config label.check{flex-direction:row;align-items:center;gap:8px;margin:8px 0;font-size:13px}
   #config label.check input{width:auto}
   #config .htmx-indicator{opacity:0;transition:opacity .2s;color:var(--muted);font-size:12px;align-self:center}
@@ -97,7 +93,7 @@
         <td><span class="chip">{{.Kind}}</span> {{if .Href}}<a class="mono" href="{{.Href}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
         <td class="mono">{{.Path}}</td></tr>
       {{if or .Lines .TooLarge}}<tr><td colspan="3"><details{{if or .Drift .Unmanaged}} open{{end}}><summary>{{if or .Drift .Unmanaged}}Jam (−) against the repo (+){{else}}Changes{{end}}</summary>
-        {{if .TooLarge}}<span class="unset">Too large to diff here.</span>{{else}}<pre class="diff">{{range .Lines}}{{if eq .Op "+"}}<span class="d-add">+ {{.Text}}</span>{{else if eq .Op "-"}}<span class="d-del">- {{.Text}}</span>{{else if eq .Op "…"}}<span class="d-skip">  … {{.Text}}</span>{{else}}<span>  {{.Text}}</span>{{end}}{{end}}</pre>{{end}}
+        {{if .TooLarge}}<span class="unset">Too large to diff here.</span>{{else}}{{template "diff-lines" .Lines}}{{end}}
       </details></td></tr>{{end}}
     {{else}}<tr><td colspan="3" class="empty">Nothing to change.</td></tr>{{end}}
     </tbody>

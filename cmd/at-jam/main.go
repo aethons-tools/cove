@@ -2689,7 +2689,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		userMux.Handle("/app/user/send", sendH)
 		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
 
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv)}
+		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
+		// tabs (WithSetupDeps) render with the same deps.
+		sealed, err := assemble.SealedEgressBase()
+		if err != nil {
+			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
+		}
+		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
@@ -2735,11 +2742,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// redirect (a 308 to the login page).
 			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
-		sealed, err := assemble.SealedEgressBase()
-		if err != nil {
-			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
-		}
-		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),

@@ -59,6 +59,7 @@ type roleDetail struct {
 	Form                 roleForm // current values in the edit forms' syntax
 	CanRequest           bool
 	CanEdit              bool // always false: the role page's studio table is read-only
+	SetupEnabled         bool // the Setup tab is mounted (WithSetupDeps)
 	NotFound             bool
 	Context              contextPanel // the role's session-context card
 }
@@ -156,7 +157,7 @@ func roleWriteBase(project, name string) string {
 	return "/app/admin/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
 }
 
-func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest bool) {
+func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest, setupOn bool) {
 	project, name := r.PathValue("project"), r.PathValue("name")
 	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
@@ -166,5 +167,6 @@ func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, i
 	}
 	d.Crumbs = projectCrumbs(project, sectionAgents, name)
 	d.CanRequest = canRequest
+	d.SetupEnabled = setupOn
 	render(w, r, "role", d)
 }

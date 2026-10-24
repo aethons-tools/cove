@@ -245,3 +245,10 @@ func shortDigest(d string) string {
 	}
 	return d
 }
+
+// SetupDisplayText is a setup body (or reason, path or diff line) as the
+// admin UI shows it: the text render's escaping without its indent — \n and
+// \t kept; every other control or format character (bidi overrides included)
+// and every invalid UTF-8 byte made visible (\x1b, \u202e, \xff). HTML
+// escaping is the template's.
+func SetupDisplayText(s string) string { return escapeText(s, true) }

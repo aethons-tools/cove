@@ -62,6 +62,8 @@ var pages = map[string]page{
 	"agent":        mustParse(jamPage("agents"), "access.html", "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
 	"config":       mustParse(jamPage("config"), "config.html"),
+	"role-setup":   mustParse(projPage, "setup.html"),
+	"agent-setup":  mustParse(jamPage("agents"), "setup.html"),
 }
 
 // roleRow is one project/role pair flattened for the roles table.
@@ -157,6 +159,7 @@ type options struct {
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
 	configEnv       jam.ConfigEnv
+	setup           *jam.SetupDeps // nil: no Setup tabs (WithSetupDeps)
 }
 
 // WithDisplayName names this Jam in the UI: the browser tab title reads
@@ -247,13 +250,13 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
 	})
 	mux.HandleFunc("GET /app/admin/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
-		handleRoleDetail(w, r, store, sup, canEdit)
+		handleRoleDetail(w, r, store, sup, canEdit, o.setup != nil)
 	})
 	mux.HandleFunc("GET /app/admin/intercom", func(w http.ResponseWriter, r *http.Request) {
 		handleIntercom(w, r, msgs)
 	})
 	registerSession(mux, o.sessStore, o.sessHub)
-	registerAgent(mux, store, msgs, o.sessStore, accessDeps{o.live, o.exposures, o.previewURL}, canEdit)
+	registerAgent(mux, store, msgs, o.sessStore, accessDeps{o.live, o.exposures, o.previewURL}, canEdit, o.setup != nil)
 	registerSearch(mux, store, msgs)
 	registerSuggest(mux, store, o.credNames)
 
@@ -269,6 +272,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
 	registerAccess(mux, store, o.live, log, guardWrite)
+	registerSetup(mux, store, o.setup, log)
 	cfgEnv := o.configEnv
 	if cfgEnv.CredExists == nil {
 		cfgEnv.CredExists = credExists

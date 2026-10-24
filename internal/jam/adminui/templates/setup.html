@@ -1,0 +1,76 @@
+{{define "content"}}
+<style>
+  #setup-page .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  #setup-page .crumbs a{color:var(--muted);text-decoration:none}
+  #setup-page .filter{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  #setup-page .filter .spacer{flex:1}
+  #setup-page details.sec{border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-bottom:10px}
+  #setup-page details.sec>summary{cursor:pointer;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;padding:10px 16px}
+  #setup-page details.sec>summary .name{font-weight:600}
+  #setup-page details.sec>.body{padding:0 16px 12px}
+  #setup-page details.file{margin-top:8px}
+  #setup-page details.file>summary{cursor:pointer;font-size:13px}
+  #setup-page pre.body,#setup-page pre.diff{margin:6px 0 0;padding:8px 12px;overflow-x:auto;font:12.5px/1.55 "IBM Plex Mono",ui-monospace,monospace;background:var(--surface-2);border-radius:8px}
+  #setup-page pre.body{white-space:pre}
+  #setup-page .chip.stale{background:var(--wait-soft);color:var(--wait);border:0}
+  #setup-page button.chip.stale{cursor:pointer}
+  #setup-page .chip.src-unavailable{color:var(--faint)}
+  #setup-page .unset{color:var(--faint)}
+  #setup-page h3.sub{margin:10px 0 0;font-size:12.5px;font-weight:600}
+</style>
+<div id="setup-page">
+{{if .Studio}}{{$f := frame}}<div class="crumbs"><a href="{{if $f.Project}}{{projectURL $f.Project}}/agents{{else}}/app/admin/agents{{end}}">Agents</a> / <a href="{{agentHref .ID ""}}">{{.ID}}</a> / <span>Setup</span></div>
+{{else}}{{template "crumbs" .Crumbs}}{{end}}
+{{if .NotFound}}
+<div class="page-head"><h1>Not found</h1></div>
+<div class="banner">{{if .Studio}}No running studio <span class="mono">{{.ID}}</span> — only a running studio has a setup to inspect. <a href="{{agentHref .ID ""}}">Back to the agent</a>{{else}}No role <span class="mono">{{.Name}}</span> in project <span class="mono">{{.Project}}</span>.{{end}}</div>
+{{else}}
+{{if .Studio}}<nav class="subtabs" aria-label="Agent views"><a href="{{agentHref .ID ""}}">Overview</a><a href="{{agentHref .ID "/setup"}}" aria-current="page">Setup</a></nav>
+{{else}}<nav class="subtabs" aria-label="Role views"><a href="{{roleURL .Project .Name}}">Overview</a><a href="{{roleURL .Project .Name}}/setup" aria-current="page">Setup</a></nav>{{end}}
+<div class="page-head">
+  {{if .Studio}}<h1 class="mono">{{.ID}}</h1>{{else}}<h1>{{.Name}}</h1>{{template "managed-badge" (managed "role" .ConfigName)}}{{end}}
+  <span class="sub">{{if .Studio}}what this studio got — its snapshots (else a labelled recompute), config as of now, its image{{else}}what a studio of this role raised now would get{{end}}</span>
+</div>
+{{if .Error}}<div class="banner error">{{.Error}}</div>
+{{else}}
+<div class="filter">
+  {{range .Filter}}<a class="chip{{if .Current}} accent{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
+  <span class="spacer"></span>
+  {{if .Studio}}<a class="btn small" href="{{.DiffHref}}">{{if .Diffing}}Hide diff{{else}}Diff vs role{{end}}</a>{{end}}
+</div>
+<div id="setup-sections" hx-get="{{.SectionsURL}}" hx-trigger="load" hx-swap="innerHTML">
+  <p class="unset">Loading the setup… (a first read of the image on the launcher host can take a few seconds)</p>
+</div>
+{{end}}
+{{end}}
+</div>
+{{end}}
+
+{{/* setup-sections is the lazily loaded fragment (setupView). */}}
+{{define "setup-sections"}}
+{{with .Note}}<div class="banner">{{.}}</div>{{end}}
+{{if .Stale}}<p class="sub">{{.Stale}} section(s) stale vs role — a raise now would deliver something else.{{if .Diffable}} Open a <span class="chip stale">stale vs role</span> badge for that section's diff.{{end}}</p>{{end}}
+{{range .Sections}}{{template "setup-section" .}}{{end}}
+{{end}}
+
+{{/* setup-section is one section (setupSectionView); a stale badge swaps it for its diffed self. */}}
+{{define "setup-section"}}
+<details class="sec" id="setup-sec-{{.Name}}"{{if .Open}} open{{end}}>
+  <summary><span class="name mono">{{.Name}}</span> <span class="chip src-{{.Source}}">{{.Source}}</span>
+    {{- if .DiffURL}} <button type="button" class="chip stale" hx-get="{{.DiffURL}}" hx-target="#setup-sec-{{.Name}}" hx-swap="outerHTML" title="Show this section's diff against a raise of its role now">stale vs role</button>
+    {{- else if .Stale}} <span class="chip stale">stale vs role</span>{{end}}
+    {{- with .At}} <time class="sub" datetime="{{$.AtISO}}">{{.}}</time>{{end}}
+  </summary>
+  <div class="body">
+    {{with .Reason}}<p class="unset">{{.}}</p>{{end}}
+    {{if .Files}}<pre class="body">{{.Head}}</pre>
+      {{range .Files}}<details class="file"><summary><span class="mono">{{.Path}}</span> <span class="unset">{{.Bytes}} B</span></summary><pre class="body">{{.Body}}</pre></details>{{end}}
+    {{else if .Body}}<pre class="body">{{.Body}}</pre>{{end}}
+    {{with .DiffNote}}<p class="unset">{{.}}</p>{{end}}
+    {{if .Diffed}}
+      <h3 class="sub">This studio (−) against a raise of its role now (+)</h3>
+      {{if .DiffTooLarge}}<p class="unset">Too large to diff here.</p>{{else if .DiffSame}}<p class="unset">Same as a raise now.</p>{{else}}{{template "diff-lines" .Diff}}{{end}}
+    {{end}}
+  </div>
+</details>
+{{end}}
