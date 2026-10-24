@@ -53,12 +53,20 @@ type setupSectionView struct {
 	Stale                bool
 	At, AtISO            string // the snapshot time ("" without one)
 	Body                 string
+	Head                 string          // context: the file table, budgets and warnings
+	Files                []setupFileView // context: each file, raw (none: Body is shown whole)
 	Open                 bool
 	DiffURL              string // a stale, undiffed studio section: its diff fragment
 	Diffed, DiffTooLarge bool
 	DiffSame             bool // diffed, and identical to a raise now
 	Diff                 []diffLine
 	DiffNote             string // why there is no diff (the render's note)
+}
+
+// setupFileView is one context file at its real path; Bytes is its shown size.
+type setupFileView struct {
+	Path, Body string
+	Bytes      int
 }
 
 var errSetupDiff = errors.New(`diff: want "role"`)
@@ -160,6 +168,14 @@ func newSectionView(sec jam.SetupSection, diffBase string) setupSectionView {
 	if !sec.At.IsZero() {
 		sv.At, sv.AtISO = sec.At.UTC().Format("2006-01-02 15:04:05 UTC"), sec.At.UTC().Format(time.RFC3339)
 	}
+	if sec.Name == jam.SectionContext {
+		if head, files, ok := jam.SplitContextBody(sec.Body); ok {
+			sv.Head = jam.SetupDisplayText(head)
+			for _, f := range files {
+				sv.Files = append(sv.Files, setupFileView{Path: jam.SetupDisplayText(f.Path), Body: jam.SetupDisplayText(f.Body), Bytes: len(f.Body)})
+			}
+		}
+	}
 	if sec.Diffed {
 		changed := false
 		for _, l := range sec.Diff {
@@ -196,6 +212,8 @@ func setupFail(w http.ResponseWriter, log *slog.Logger, err error, subject, notF
 // registerSetup mounts the Setup tabs (nothing without deps):
 //
 //	GET /app/admin/projects/{project}/roles/{name}/setup[/sections]
+//	GET /app/admin/agents/{id}/setup[/sections]          — a running studio (?diff=role)
+//	GET /app/admin/agents/{id}/setup/sections/{section}  — one section, diffed (the stale badge)
 func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *slog.Logger) {
 	if d == nil {
 		return
@@ -229,5 +247,47 @@ func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *s
 		}
 		auditSetup(log, r, s.Subject, sections, false)
 		renderFragment(w, r, "role-setup", "setup-sections", newSetupView(s, ""))
+	})
+	mux.HandleFunc("GET /app/admin/agents/{id}/setup", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		id := r.PathValue("id")
+		p := setupPage{Title: id + " setup", Studio: true, ID: id}
+		if inst, ok := store.GetInstance(jam.ResolveSession(store, id)); !ok || inst.Phase == jam.PhaseGone {
+			p.NotFound = true
+			renderStatus(w, r, http.StatusNotFound, "agent-setup", p)
+			return
+		}
+		st := fillSetupPage(&p, r)
+		renderStatus(w, r, st, "agent-setup", p)
+	})
+	mux.HandleFunc("GET /app/admin/agents/{id}/setup/sections", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		sections, diff, err := setupQuery(r.URL.Query(), true)
+		if err != nil {
+			renderError(w, http.StatusBadRequest, jam.SetupDisplayText(err.Error()))
+			return
+		}
+		id := r.PathValue("id")
+		s, err := jam.InstanceSetup(r.Context(), deps, id, sections, diff)
+		if err != nil {
+			setupFail(w, log, err, "studio "+id, "studio "+id+" not found")
+			return
+		}
+		auditSetup(log, r, s.Subject, sections, diff)
+		renderFragment(w, r, "agent-setup", "setup-sections", newSetupView(s, agentURL(id)+"/setup/sections"))
+	})
+	mux.HandleFunc("GET /app/admin/agents/{id}/setup/sections/{section}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		id, name := r.PathValue("id"), r.PathValue("section")
+		s, err := jam.InstanceSetup(r.Context(), deps, id, []string{name}, true)
+		if err != nil {
+			setupFail(w, log, err, "studio "+id, "studio "+id+" not found")
+			return
+		}
+		auditSetup(log, r, s.Subject, []string{name}, true)
+		v := newSetupView(s, "")
+		sec := v.Sections[0]  // InstanceSetup validated name: exactly one section
+		sec.DiffNote = v.Note // a role gone: why there is no diff
+		renderFragment(w, r, "agent-setup", "setup-section", sec)
 	})
 }
