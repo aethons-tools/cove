@@ -21,8 +21,10 @@ import (
 // connections, accounts, memberships, legacy aliases) with their ids; import
 // also reads 1, whose roster humans and kind-named chat services it migrates.
 // 4 names projects by id in roles (the map's key) and grants; import also
-// reads 1–3's names. Import rejects any other value rather than mis-loading.
-const ConfigSnapshotVersion = 4
+// reads 1–3's names. 5 carries kit trees and blobs (kit_trees, kit_blobs); import
+// also reads 1–4, whose kits are config text that the import route migrates
+// (MigrateKitTrees). Import rejects any other value rather than mis-loading.
+const ConfigSnapshotVersion = 5
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the

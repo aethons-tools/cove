@@ -304,3 +304,10 @@ func TestConfigSourceNotInExport(t *testing.T) {
 		t.Fatalf("export carries the tracked source: %s", b)
 	}
 }
+
+func TestImportRefusesKitWithoutTree(t *testing.T) {
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, Kits: []Kit{{Name: "a", Current: 1, Trees: map[int]string{1: strings.Repeat("0", 64)}}}}
+	if err := NewMemStore().ImportConfig(snap); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+}

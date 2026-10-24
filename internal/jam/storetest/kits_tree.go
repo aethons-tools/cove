@@ -211,4 +211,23 @@ func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatalf("gc after import = %+v %v", gc, err)
 		}
 	})
+	t.Run("export and import carry trees and blobs", func(t *testing.T) {
+		src := mk(t)
+		tr, objs := treeObjs(t, "kit.yml", "kind: studio\n", "run.sh*", "echo\n")
+		if _, err := src.PushKitVersion("app", tr.Hash(), objs, meta, nil); err != nil {
+			t.Fatal(err)
+		}
+		snap := src.ExportConfig()
+		if snap.Version != jam.ConfigSnapshotVersion || len(snap.KitTrees) != 1 || len(snap.KitBlobs) != 2 {
+			t.Fatalf("snapshot v%d trees %d blobs %d", snap.Version, len(snap.KitTrees), len(snap.KitBlobs))
+		}
+		dst := mk(t)
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatal(err)
+		}
+		e, _ := tr.Lookup("run.sh")
+		if b, ok := dst.KitBlob(e.SHA256); !ok || string(b) != "echo\n" {
+			t.Fatalf("blob after import = %q %v", b, ok)
+		}
+	})
 }

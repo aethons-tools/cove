@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # Backing up and restoring Jam config
@@ -16,7 +16,7 @@ control-plane aggregates:
 
 - **actors** (identities, their **token hashes**, and grants)
 - **roles** (scope incl. egress, allocation incl. standing sessions, session context)
-- **kits** (all versions **and** the pin)
+- **kits** (every version: its files, as content-addressed trees and blobs, with the current pin and provenance)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
 - **projects** (escalation policy, chat service, session context and resources)
