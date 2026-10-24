@@ -120,10 +120,10 @@ func modelBody(ms *ModelSpec) string {
 		if hs, ok := p["headers"].([]any); ok {
 			for _, x := range hs {
 				if m, ok := x.(map[string]any); ok {
-					name, _ := m["name"].(string)
 					for _, k := range []string{"set", "ensure-list-item"} {
 						if val, ok := m[k].(string); ok {
-							m[k] = RedactEnv(name, val)
+							// injected auth by nature: only placeholders show
+							m[k] = RedactEnv("authorization", val)
 						}
 					}
 				}

@@ -169,3 +169,18 @@ func TestStripUserinfo(t *testing.T) {
 		t.Error("unparsable accepted")
 	}
 }
+
+func TestRedactEnvSecretFlags(t *testing.T) {
+	for in, want := range map[string]string{
+		"mcp --token sk_live_SPACE9999":      "mcp --token " + MarkMasked,
+		"srv --api-key sk_live_X -v":         "srv --api-key " + MarkMasked + " -v",
+		"srv --password 'pw with space' run": "srv --password " + MarkMasked + " run",
+		"srv --secret=sk_live_EQ1":           "srv --secret=" + MarkMasked,
+		"srv -p hunter2 --auth abc":          "srv -p " + MarkMasked + " --auth " + MarkMasked,
+		"srv --verbose --port 80":            "srv --verbose --port 80",
+	} {
+		if got := RedactEnv("command", in); got != want {
+			t.Errorf("RedactEnv(command, %q) = %q, want %q", in, got, want)
+		}
+	}
+}

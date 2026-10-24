@@ -145,3 +145,20 @@ func TestSetupConfigFix1(t *testing.T) {
 		t.Errorf("command leaked:\n%s", m)
 	}
 }
+
+func TestSetupConfigFix2(t *testing.T) {
+	ms := &ModelSpec{Name: "m", Type: "claude"}
+	ms.Principal.Credential = "c"
+	ms.Principal.Headers = []modelspec.HeaderRule{{Name: "Cookie", Set: "session=COOKIEVAL12345"}, {Name: "X-Base", Set: "{base}"}}
+	got := modelBody(ms)
+	if strings.Contains(got, "COOKIEVAL12345") {
+		t.Errorf("cookie leaked:\n%s", got)
+	}
+	if !strings.Contains(got, `"set": "{base}"`) {
+		t.Errorf("placeholder-only value hidden:\n%s", got)
+	}
+	m := mcpBody(map[string]kit.MCPServer{"x": {Type: "stdio", Command: "mcp --token sk_live_SPACE9999"}}, true)
+	if strings.Contains(m, "sk_live_SPACE9999") {
+		t.Errorf("command leaked:\n%s", m)
+	}
+}

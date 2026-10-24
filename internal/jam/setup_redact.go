@@ -42,6 +42,24 @@ var authGlueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)\s
 // A quoted value's matching closing quote is consumed with it.
 var assignRE = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|credential)\s*[=:]\s*(?:'[A-Za-z0-9._~+/=-]{8,}'?|"[A-Za-z0-9._~+/=-]{8,}"?|[A-Za-z0-9._~+/=-]{8,})`)
 
+// secretFlagRE finds a command-line flag whose name looks secret
+// (--token, --api-key, --password, --secret, --auth, -p, --pass...) and the
+// argument that follows it, space- or =-separated; the argument is
+// "quoted", 'quoted' or one word.
+var secretFlagRE = regexp.MustCompile(`(?i)(^|\s)(--?(?:p|[a-z0-9_-]*(?:token|secret|key|password|passwd|pass|credential|auth)[a-z0-9_-]*))(\s+|=)('[^']*'|"[^"]*"|\S+)`)
+
+// maskSecretFlags masks the argument of every secret-named flag; a following
+// flag (starting with '-') is not an argument.
+func maskSecretFlags(v string) string {
+	return secretFlagRE.ReplaceAllStringFunc(v, func(m string) string {
+		g := secretFlagRE.FindStringSubmatch(m)
+		if strings.HasPrefix(g[4], "-") && g[3] != "=" {
+			return m
+		}
+		return g[1] + g[2] + g[3] + MarkMasked
+	})
+}
+
 // queryResumeRE is a list delimiter immediately followed by a new URL whose
 // scheme is letters and digits only (so a glued "sk.live+x://" does not
 // resume).
@@ -196,7 +214,7 @@ func RedactEnv(key, value string) string {
 	}
 	shown := strings.ReplaceAll(value, "{token}", MarkIdentityToken)
 	if !secretKeyRE.MatchString(key) {
-		return stripURLSecrets(assignRE.ReplaceAllString(shown, MarkMasked))
+		return stripURLSecrets(assignRE.ReplaceAllString(maskSecretFlags(shown), MarkMasked))
 	}
 	if knownPlaceholder.MatchString(value) && safeTemplateRest.MatchString(knownPlaceholder.ReplaceAllString(value, "")) {
 		return shown
