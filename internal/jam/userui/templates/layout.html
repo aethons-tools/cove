@@ -399,9 +399,16 @@ function mePaneApply(s, fetch){
   div.setAttribute('aria-orientation', place==='right' ? 'vertical' : 'horizontal');
   aside.querySelector('.sp-place').hidden=meNarrow.matches;
   var size=place==='right' ? st.w : st.h;
-  aside.style.flexBasis=size ? size+'px' : '';
+  aside.style.flexBasis=size ? Math.round(mePaneClamp(s, size))+'px' : '';
   meTabsMark();
   if(open){ aside.querySelector('.sp-title').textContent=mePaneTabs[st.tab]; if(fetch) mePaneFetch(s); }
+}
+// meMenuOpen holds the header's refresh while its ⋯ menu is open.
+function meMenuOpen(){ return !!document.querySelector('#session-head details[open]'); }
+// mePaneClamp keeps the pane between 200px and leaving the messages 240px.
+function mePaneClamp(s, px){
+  var r=s.getBoundingClientRect(), total=s.dataset.place==='right' ? r.width : r.height;
+  return Math.max(200, Math.min(total-240, px));
 }
 function meTabsMark(){
   var s=meSplit(), tab=s && s._pane && s._pane.tab;
@@ -433,25 +440,34 @@ function mePanePlace(){
   // Drag (or arrow keys on) the divider to resize; the size is kept per placement.
   var div=s.querySelector('.pane-div');
   function resize(px){
-    var r=s.getBoundingClientRect(), right=s.dataset.place==='right', total=right ? r.width : r.height;
-    px=Math.max(200, Math.min(total-240, px));
+    var right=s.dataset.place==='right';
+    px=mePaneClamp(s, px);
     if(right){ s._pane.w=Math.round(px); }else{ s._pane.h=Math.round(px); }
     s.querySelector('.side-pane').style.flexBasis=Math.round(px)+'px';
   }
   function current(){ var a=s.querySelector('.side-pane').getBoundingClientRect(); return s.dataset.place==='right' ? a.width : a.height; }
   div.addEventListener('pointerdown', function(e){
+    if(e.button!==0) return;
     e.preventDefault(); div.setPointerCapture(e.pointerId);
     function move(ev){ var r=s.getBoundingClientRect(); resize(s.dataset.place==='right' ? r.right-ev.clientX : r.bottom-ev.clientY); }
-    function up(){ div.removeEventListener('pointermove', move); div.removeEventListener('pointerup', up); mePaneSave(s); }
-    div.addEventListener('pointermove', move); div.addEventListener('pointerup', up);
+    function up(){
+      div.removeEventListener('pointermove', move); div.removeEventListener('pointerup', up); div.removeEventListener('pointercancel', up);
+      mePaneSave(s);
+    }
+    div.addEventListener('pointermove', move); div.addEventListener('pointerup', up); div.addEventListener('pointercancel', up);
   });
   div.addEventListener('keydown', function(e){
     var grow={ArrowLeft:1, ArrowUp:1, ArrowRight:-1, ArrowDown:-1}[e.key];
     if(!grow) return;
     e.preventDefault(); resize(current()+grow*24); mePaneSave(s);
   });
-  // Keep the open tab fresh: on pushes, and every 30s.
-  function refresh(){ var sel=window.getSelection(); if(s._pane.tab && !(sel && !sel.isCollapsed && s.querySelector('.side-pane').contains(sel.anchorNode))) mePaneFetch(s); }
+  // Keep the open tab fresh: on pushes, and every 30s. A presence push (a
+  // status change) can't change Artifacts, which reads the whole channel.
+  function refresh(e){
+    var sel=window.getSelection();
+    if(!s._pane.tab || e && e.type==='mePresence' && s._pane.tab==='artifacts') return;
+    if(!(sel && !sel.isCollapsed && s.querySelector('.side-pane').contains(sel.anchorNode))) mePaneFetch(s);
+  }
   document.body.addEventListener('meChanged', refresh);
   document.body.addEventListener('mePresence', refresh);
   setInterval(refresh, 30000);

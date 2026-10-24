@@ -118,6 +118,11 @@ func TestSessionActionsPermissions(t *testing.T) {
 	if c := post(personal, "release", false); c != http.StatusNoContent || len(ops.torn) != 1 || ops.torn[0] != personal.ActorID {
 		t.Fatalf("owner release = %d %v", c, ops.torn)
 	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("POST", "/app/user/session/"+standing.ActorID+"/restart", nil), p, true))
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Error("ending a session should reload the page (its head would 404)")
+	}
 	if c := post(standing, "restart", true); c != http.StatusNoContent || ops.torn[len(ops.torn)-1] != standing.ActorID {
 		t.Fatalf("operator restart = %d %v", c, ops.torn)
 	}
@@ -128,7 +133,7 @@ func TestSessionActionsPermissions(t *testing.T) {
 		t.Fatalf("no such session = %d", c)
 	}
 	// An operator's header shows Restart and Upgrade on the standing session.
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/session/"+standing.ActorID+"/head", nil), p, true))
 	for _, want := range []string{">Restart<", ">Upgrade<", "spider", "standing"} {
 		if !strings.Contains(rec.Body.String(), want) {
@@ -152,5 +157,42 @@ func TestSessionHiddenFromOutsiders(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s %s by an outsider = %d", method, path, rec.Code)
 		}
+	}
+}
+
+// A ticket session's home is its ticket channel: the head shows there, not in
+// its own session channel (where the head's routes would resolve elsewhere).
+func TestSessionHeadOnlyInHome(t *testing.T) {
+	e, p, _, _, _ := sessionEnv(t)
+	e.Deps.Intercom = jam.NewIntercom(e.st, func() (ident.ID, bool) { return "linear", true }, e.lg, nil, nil) // a tracker: ticket channels
+	inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", Unit: "COV-1", Phase: jam.PhaseLive, RaisedAt: time.Now()}
+	if err := e.st.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	proj, _ := e.st.GetProject("proj")
+	ticket, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceTicket, Key: "linear/COV-1", Label: "COV-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceSession, Key: inst.ActorID, Label: "own"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []ident.ID{ticket.ID, own.ID} {
+		if err := e.st.JoinChannel(ch, p.UserID, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := Handler(e.Deps, nil)
+	get := func(ch ident.ID) string {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/?c="+string(ch), nil), p, false))
+		return rec.Body.String()
+	}
+	if !strings.Contains(get(ticket.ID), `id="session-head"`) {
+		t.Error("no head in the ticket channel")
+	}
+	if strings.Contains(get(own.ID), `id="session-head"`) {
+		t.Error("a head in the session's own channel, which isn't its home")
 	}
 }

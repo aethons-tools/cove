@@ -195,7 +195,8 @@ func (h *handler) sessionHeadRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionAction runs release, restart or upgrade on a session, re-checking
-// who may: 204 and a page refresh; 403; 404 alike for missing and unseen.
+// who may: 204 (a page reload once it ends, a refresh after an upgrade);
+// 403; 404 alike for missing and unseen.
 func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
@@ -235,10 +236,14 @@ func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.lg.Error("session action failed", "session", inst.ActorID, "action", r.PathValue("action"), "error", err.Error())
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, "the "+r.PathValue("action")+" failed; see the jam log", http.StatusBadGateway)
 		return
 	}
 	h.lg.Info("session action", "session", inst.ActorID, "action", r.PathValue("action"), "by", string(p.UserID))
-	w.Header().Set("HX-Trigger", "meChanged")
+	if r.PathValue("action") == "upgrade" {
+		w.Header().Set("HX-Trigger", "meChanged")
+	} else {
+		w.Header().Set("HX-Refresh", "true") // the session is going: reload rather than refresh a head that 404s
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

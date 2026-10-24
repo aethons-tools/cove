@@ -28,7 +28,8 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 - **Tabs:** Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **⋯ menu:** each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
-  The server re-checks permission (403 otherwise).
+  The server re-checks permission (403 otherwise). Ending a session reloads the page.
+  The header doesn't refresh while the menu is open.
 
 | Action | Offered to | Does |
 |--------|------------|------|
@@ -67,7 +68,7 @@ tab. A tab clicked while a whiteboard is open goes back to the chat with that ta
 
 `sessionevents.Totals` folds a session's events across all its streams into turns,
 episodes, tool calls, errors, tokens, and cost. Cost is summed per episode from each
-result's cumulative `total_cost_usd`. `sessionevents.TotalsCache` keeps the totals per
+result's cumulative `total_cost_usd`; a turn's cost is its result's increase over the previous one. `sessionevents.TotalsCache` keeps the totals per
 session and reads only events newer than those it has seen. These aggregates are all
 that members see. Event content stays operator-only
 ([Sensitivity](session-events.md#sensitivity)).

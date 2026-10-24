@@ -10,16 +10,17 @@ import (
 // /app/user session view), unlike the events themselves.
 type Totals struct {
 	Turns                     uint32 // results seen: prompts answered
-	Episodes                  uint32 // claude processes: max turn
+	Episodes                  uint32 // claude processes (distinct stream+turn)
 	ToolCalls                 int
 	Errors                    int // results that were errors
 	InputTokens, OutputTokens int64
 	CostUSD                   float64   // total, across episodes
-	TurnCostUSD               float64   // the latest episode's cost
+	TurnCostUSD               float64   // the latest turn's cost (its result's delta)
 	LastAt                    time.Time // the last event observed
 	// episodeCost is the latest total_cost_usd per episode. claude
 	// reports it cumulatively per process, so only the last one counts.
 	episodeCost map[episode]float64
+	episodes    map[episode]bool
 	lastResult  time.Time
 }
 
@@ -37,8 +38,13 @@ func (t *Totals) Add(ev Event) {
 	if ev.ObservedAt.After(t.LastAt) {
 		t.LastAt = ev.ObservedAt
 	}
-	if ev.Turn > t.Episodes {
-		t.Episodes = ev.Turn
+	ep := episode{ev.StreamID, ev.Turn}
+	if !t.episodes[ep] {
+		if t.episodes == nil {
+			t.episodes = map[episode]bool{}
+		}
+		t.episodes[ep] = true
+		t.Episodes++
 	}
 	if ev.Index.Type == "assistant" && ev.Index.ToolName != "" {
 		t.ToolCalls++
@@ -55,11 +61,11 @@ func (t *Totals) Add(ev Event) {
 	if t.episodeCost == nil {
 		t.episodeCost = map[episode]float64{}
 	}
-	ep := episode{ev.StreamID, ev.Turn}
-	t.CostUSD += ev.Index.CostUSD - t.episodeCost[ep]
+	turn := ev.Index.CostUSD - t.episodeCost[ep] // a result's cost is cumulative over its episode
+	t.CostUSD += turn
 	t.episodeCost[ep] = ev.Index.CostUSD
-	if !ev.ObservedAt.Before(t.lastResult) { // the latest result's episode
-		t.lastResult, t.TurnCostUSD = ev.ObservedAt, ev.Index.CostUSD
+	if !ev.ObservedAt.Before(t.lastResult) { // the latest turn
+		t.lastResult, t.TurnCostUSD = ev.ObservedAt, turn
 	}
 }
 

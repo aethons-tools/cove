@@ -66,4 +66,11 @@ func TestTotalsOfAcrossStreamsCached(t *testing.T) {
 	if d := tot.CostUSD - 0.6; d > 1e-9 || d < -1e-9 {
 		t.Fatalf("cost after the new result = %v, want 0.6", tot.CostUSD)
 	}
+	// Each stream's turn 1 is its own episode; the latest turn cost only its delta.
+	if tot.Episodes != 2 {
+		t.Fatalf("episodes across streams = %d, want 2", tot.Episodes)
+	}
+	if d := tot.TurnCostUSD - 0.3; d > 1e-9 || d < -1e-9 {
+		t.Fatalf("this turn = %v, want 0.3 (0.5 cumulative - 0.2)", tot.TurnCostUSD)
+	}
 }

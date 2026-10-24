@@ -187,7 +187,7 @@
 {{/* sessionhead is a session's header: who, what it's doing, cost, uptime,
      quick actions and the pane's tabs; refreshed on the live pushes. */}}
 {{define "sessionhead"}}{{with .Conv}}{{with .Head}}
-<div class="session-head" id="session-head" hx-get="/app/user/session/{{.ID}}/head" hx-trigger="mePresence from:body, meChanged from:body, every 30s" hx-swap="outerHTML">
+<div class="session-head" id="session-head" hx-get="/app/user/session/{{.ID}}/head" hx-trigger="mePresence[!meMenuOpen()] from:body, meChanged[!meMenuOpen()] from:body, every 30s [!meMenuOpen()]" hx-swap="outerHTML">
   <div class="sh-id"><b>{{.Label}}</b> <span class="sh-kind">{{.Kind}}</span>{{if .Ticket}} <span class="sh-ticket">{{.Ticket}}</span>{{end}}
     <span class="sh-sub">{{.Role}} · {{.Project}}{{if .Owner}} · for {{.Owner}}{{end}}</span></div>
   <div class="sh-state sess {{.State.Class}}">{{.State.Text}}{{if .State.Tool}} <b>{{.State.Tool}}</b>{{end}}{{if .Since}} <span class="t">· {{.Since}}</span>{{end}}{{if .OpenAsks}} <span class="badge asks">?{{.OpenAsks}}</span>{{end}}</div>
