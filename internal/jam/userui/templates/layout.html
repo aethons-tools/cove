@@ -576,7 +576,7 @@ function meThinkingOpen(el){
     b.onclick=function(){
       t.prefs.f[b.dataset.f]=!t.prefs.f[b.dataset.f];
       b.setAttribute('aria-pressed', t.prefs.f[b.dataset.f] ? 'true' : 'false');
-      meThSave(); meThClasses();
+      meThSave(); meThClasses(); meThRuns();
     };
   });
   var tool=el.querySelector('.th-tool'), format=el.querySelector('.th-format');

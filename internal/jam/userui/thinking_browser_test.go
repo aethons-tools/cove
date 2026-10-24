@@ -523,6 +523,12 @@ func TestBrowserThinkingKinds(t *testing.T) {
 	if got.Think != "thinking ×2" || got.Thinks != 1 {
 		t.Errorf("empty thinking = %q (%d lines)", got.Think, got.Thinks)
 	}
+	// Showing Progress puts the progress line between them: the run splits.
+	var split int
+	if err := chromedp.Run(ctx, chromedp.Click(`#thinking .th-chips [data-f="progress"]`, chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelectorAll('#thinking .k-thinking:not(.te-absorbed)').length`, &split)); err != nil || split != 2 {
+		t.Errorf("with Progress shown, %d thinking lines (%v); want 2", split, err)
+	}
 	if !strings.HasPrefix(got.Status, "✓") || got.StatusInLine {
 		t.Errorf("status = %q (in the summary line: %v)", got.Status, got.StatusInLine)
 	}
