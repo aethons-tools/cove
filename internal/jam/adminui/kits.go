@@ -24,7 +24,7 @@ func kitTableData(store jam.Store) map[string]any {
 // renderKitBody answers a kit-page write with the re-rendered kit body (the
 // current version), plus an out-of-band #flash message when msg is set.
 func renderKitBody(w http.ResponseWriter, r *http.Request, store jam.Store, canSource bool, name, msg string) {
-	d, ok := buildKitDetail(store, name, 0, 0)
+	d, ok := buildKitDetail(store, name, 0, 0, "")
 	if !ok {
 		renderError(w, http.StatusNotFound, "kit no longer exists")
 		return
@@ -53,12 +53,16 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 	mux.HandleFunc("GET /app/admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		view, _ := strconv.Atoi(r.URL.Query().Get("v"))
 		diff, _ := strconv.Atoi(r.URL.Query().Get("diff"))
-		d, ok := buildKitDetail(store, r.PathValue("name"), view, diff)
+		d, ok := buildKitDetail(store, r.PathValue("name"), view, diff, r.URL.Query().Get("file"))
 		if !ok {
 			renderStatus(w, r, http.StatusNotFound, "kit", kitDetail{Title: "Kits", NotFound: true, NotFoundFor: r.PathValue("name")})
 			return
 		}
 		d.CanSource = f != nil
+		if d.File != nil && d.File.Missing {
+			renderStatus(w, r, http.StatusNotFound, "kit", d)
+			return
+		}
 		render(w, r, "kit", d)
 	})
 

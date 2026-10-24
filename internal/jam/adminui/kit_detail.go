@@ -1,12 +1,6 @@
 package adminui
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
-	"fmt"
-	"io"
 	"maps"
 	"net/url"
 	"path"
@@ -96,13 +90,6 @@ func commitLink(repo *url.URL, sha string) string {
 	return ""
 }
 
-// ctxEntry is one file in a packed base.context.
-type ctxEntry struct {
-	Path string
-	Size int64
-	Mode string
-}
-
 // kv is a sorted key/value pair for build-args and secret demands.
 type kv struct{ Key, Value string }
 
@@ -116,9 +103,7 @@ type kitView struct {
 	Base        string
 	Image       string
 	Files       []string // context-files paths
-	Context     []ctxEntry
-	ContextSize string // encoded size of a packed context
-	ContextNote string // why the entry list is partial or missing
+	ContextSize string   // encoded size of a packed context
 	Egress      []string
 	Ceiling     []string
 	Excluded    []string
@@ -128,6 +113,9 @@ type kitView struct {
 	Notes       []kv // name → read-when
 	Prompt      string
 	Digest      string
+
+	ctx      *ctxRead // the packed context, read once; nil = none
+	diffText string   // what a version diff compares (packed context abbreviated)
 }
 
 // diffLine is one line of a version or plan diff.
@@ -176,9 +164,12 @@ type kitDetail struct {
 	Effective   *kitView    // the chain merged; nil unless chained
 	UsedByKits  []kitChild
 	IsDefault   bool
-	Source      *sourceView // tracked source; nil = not tracked
-	SetWith     string      // chain parents imported from the same repo, comma-joined; "" = not part of a set
-	CanSource   bool        // import/track/sync controls are available
+	Source      *sourceView  // tracked source; nil = not tracked
+	SetWith     string       // chain parents imported from the same repo, comma-joined; "" = not part of a set
+	CanSource   bool         // import/track/sync controls are available
+	Ctx         *ctxListView // the viewed version's packed-context files; nil = none
+	CtxDiff     *ctxDiffView // the two versions' packed contexts compared; nil = no diff or no packed context
+	File        *ctxFileView // one context file (?file=); nil = none asked
 	NotFound    bool
 	NotFoundFor string
 }
@@ -245,11 +236,12 @@ func kitListRows(store jam.Store) []kitListRow {
 }
 
 // displayKit is sk as shown: no legacy name, and a packed context replaced by
-// a one-line summary carrying its digest (so a diff still shows it changed).
-func displayKit(sk studio.StudioKit) studio.StudioKit {
+// its one-line placeholder (ctxRead.placeholder), so neither the YAML nor a version
+// diff carries the base64 blob.
+func displayKit(sk studio.StudioKit, ctx *ctxRead) studio.StudioKit {
 	sk.LegacyName = ""
 	if sk.Base.Context != "" {
-		sk.Base.Context = fmt.Sprintf("<packed tar.gz, %s, build digest %s>", sizeLabel(len(sk.Base.Context)), shortDigest(studio.BuildDigest(sk, harnessinstall.Default())))
+		sk.Base.Context = ctx.placeholder()
 	}
 	return sk
 }
@@ -276,40 +268,6 @@ func toYAML(sk studio.StudioKit) string {
 	return string(b)
 }
 
-// maxCtxEntries caps how many packed-context entries the page lists.
-const maxCtxEntries = 500
-
-// contextEntries lists a packed base.context's files from the tar headers only
-// (no file data is read into memory, nothing is extracted).
-func contextEntries(b64 string) ([]ctxEntry, string) {
-	raw, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return nil, "not valid base64"
-	}
-	gz, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		return nil, "not a readable gzip"
-	}
-	tr := tar.NewReader(gz)
-	var out []ctxEntry
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			return out, ""
-		}
-		if err != nil {
-			return out, "unreadable past this point"
-		}
-		if h.Typeflag == tar.TypeDir {
-			continue
-		}
-		if len(out) == maxCtxEntries {
-			return out, fmt.Sprintf("first %d entries shown", maxCtxEntries)
-		}
-		out = append(out, ctxEntry{Path: h.Name, Size: h.Size, Mode: fmt.Sprintf("%04o", h.Mode&0o7777)})
-	}
-}
-
 func treePaths(t studio.ContextTree, prefix string) []string {
 	var out []string
 	for _, k := range slices.Sorted(maps.Keys(t)) {
@@ -323,25 +281,37 @@ func treePaths(t studio.ContextTree, prefix string) []string {
 	return out
 }
 
-// viewKit parses one stored version for display.
-func viewKit(n int, stored string) kitView {
+// viewKit parses one stored version for display. With unpack, a packed
+// context is read (once) for its file list, keeping the file named want.
+func viewKit(n int, stored string, unpack bool, want string) kitView {
 	v := kitView{N: n}
 	sk, err := studio.ParseStudioKit([]byte(stored))
 	if err != nil {
-		v.ParseErr, v.Raw = err.Error(), stored
+		v.ParseErr, v.Raw, v.diffText = err.Error(), stored, stored
+		if doc, node := storedContextNode(stored); node != nil {
+			v.ctx = readContext(node.Value, unpack, want)
+			// Re-marshalling re-formats the legacy row's YAML (the diff only, never Raw).
+			node.Value, node.Style, node.Tag = v.ctx.placeholder(), 0, "!!str"
+			if b, err := yaml.Marshal(doc); err == nil {
+				v.diffText = string(b)
+			}
+		}
 		return v
+	}
+	if sk.Base.Context != "" {
+		v.ctx = readContext(sk.Base.Context, unpack, want)
 	}
 	full := sk
 	full.LegacyName = ""
 	v.PushYAML = toYAML(full)
-	v.YAML = toYAML(displayKit(sk))
+	v.YAML = toYAML(displayKit(sk, v.ctx))
+	v.diffText = v.YAML
 	v.Base, v.Image, v.Digest = baseLabel(sk.Base), sk.Base.Image, studio.BuildDigest(sk, harnessinstall.Default())
 	if len(sk.Base.ContextFiles) > 0 {
 		v.Files = treePaths(sk.Base.ContextFiles, "")
 	}
 	if sk.Base.Context != "" {
 		v.ContextSize = sizeLabel(len(sk.Base.Context))
-		v.Context, v.ContextNote = contextEntries(sk.Base.Context)
 	}
 	v.Egress = sk.Egress
 	v.Ceiling, v.Excluded = studio.Ceiling(sk.Egress)
@@ -362,8 +332,10 @@ func viewKit(n int, stored string) kitView {
 }
 
 // buildKitDetail gathers the kit page for version view (0 = current), diffed
-// against version diff when diff > 0. false when the kit doesn't exist.
-func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bool) {
+// against version diff when diff > 0, showing the packed-context file named
+// file when it is non-empty (File.Missing when neither version has it). false
+// when the kit doesn't exist.
+func buildKitDetail(store jam.Store, name string, view, diff int, file string) (kitDetail, bool) {
 	k, ok := store.GetKit(name)
 	if !ok {
 		return kitDetail{}, false
@@ -387,7 +359,9 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		}
 		d.Versions = append(d.Versions, ver)
 	}
-	d.View = viewKit(view, k.Versions[view])
+	from, diffing := k.Versions[diff]
+	diffing = diffing && diff != view
+	d.View = viewKit(view, k.Versions[view], true, file)
 	if d.View.ParseErr == "" {
 		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, k.Versions[view])
 	}
@@ -402,17 +376,20 @@ func buildKitDetail(store jam.Store, name string, view, diff int) (kitDetail, bo
 		d.UsedByKits = append(d.UsedByKits, kitChild{Name: c, Pinned: true})
 	}
 	slices.SortFunc(d.UsedByKits, func(a, b kitChild) int { return strings.Compare(a.Name, b.Name) })
-	if from, ok := k.Versions[diff]; ok && diff != view {
-		fv := viewKit(diff, from)
-		a, b := fv.YAML, d.View.YAML
-		if fv.ParseErr != "" {
-			a = fv.Raw
+	d.Ctx = ctxList(name, d.View)
+	if !diffing {
+		if file != "" {
+			d.File = fileView(file, nil, d.View.ctx, false)
 		}
-		if d.View.ParseErr != "" {
-			b = d.View.Raw
-		}
-		lines, tooLarge := lineDiff(a, b)
-		d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
+		return d, true
+	}
+	fv := viewKit(diff, from, true, file)
+	lines, tooLarge := lineDiff(fv.diffText, d.View.diffText)
+	d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
+	d.CtxDiff = ctxDiff(name, fv, d.View)
+	if file != "" {
+		d.File = fileView(file, fv.ctx, d.View.ctx, true)
+		d.File.From, d.File.To = diff, view
 	}
 	return d, true
 }
@@ -446,7 +423,7 @@ func chainOf(store jam.Store, name, config string) (chain []kitParent, eff *kitV
 	for _, l := range links {
 		chain = append(chain, kitParent{Name: l.Name, Version: l.Version, Follow: l.Follow})
 	}
-	v := viewKit(0, y)
+	v := viewKit(0, y, false, "")
 	if v.ParseErr != "" {
 		return chain, nil, v.ParseErr
 	}

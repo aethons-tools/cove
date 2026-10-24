@@ -75,7 +75,7 @@
 
   <div class="stack">
     {{with .Diff}}
-    <section class="card">
+    <section class="card" id="kit-diff">
       <header><h2>Diff v{{.From}} → v{{.To}}</h2>
         <span class="sub">{{if .DigestChanged}}build digest changed — a new image is built{{else}}same build digest — the cached image is reused{{end}}</span>
         <span class="spacer"></span><a class="sub" href="{{kitURL $name}}?v={{.To}}">close</a></header>
@@ -84,6 +84,19 @@
       {{end}}
     </section>
     {{end}}
+    {{with .CtxDiff}}
+    <section class="card" id="ctx-diff">
+      <header><h2>Context files v{{.From}} → v{{.To}}</h2><span class="sub">the packed <span class="mono">base.context</span>, file by file</span></header>
+      {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
+      {{if .Rows}}<table>
+        <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
+        <tbody>{{range .Rows}}<tr data-change="{{.Change}}"><td>{{.Change}}</td><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}}</td></tr>{{end}}</tbody>
+      </table>{{end}}
+      <div class="body unset">{{with .More}}… {{.}} more changed, not listed; {{end}}{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>
+      {{end}}
+    </section>
+    {{end}}
+    {{with .File}}{{if .Diff}}{{template "ctx-file" .}}{{end}}{{end}}
 
     {{with .View}}
     {{if .ParseErr}}
@@ -102,8 +115,6 @@
           <dt>Base</dt><dd>{{.Base}}{{if .Image}} <span class="mono">{{.Image}}</span>{{end}}{{if .ContextSize}} <span class="unset">({{.ContextSize}} encoded)</span>{{end}}</dd>
           {{if $.Chain}}<dt>Built on</dt><dd>{{range $i, $p := $.Chain}}{{if $i}} → {{end}}<a class="chip" href="{{kitURL $p.Name}}">{{$p.Name}} v{{$p.Version}}</a> <span class="unset">{{if $p.Follow}}follows{{else}}pinned{{end}}</span>{{end}} <span class="unset">→ this kit</span></dd>{{end}}
           {{if .Files}}<dt>Context files</dt><dd>{{range .Files}}<span class="chip">{{.}}</span>{{end}}</dd>{{end}}
-          {{if .Context}}<dt>Context</dt><dd><table><thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead><tbody>{{range .Context}}<tr><td class="mono">{{.Path}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody></table>{{with .ContextNote}}<span class="unset">{{.}}</span>{{end}}</dd>
-          {{else if .ContextNote}}<dt>Context</dt><dd class="unset">{{.ContextNote}}</dd>{{end}}
           <dt>Egress</dt><dd>{{range .Egress}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
           <dt>Egress ceiling</dt><dd>{{range .Ceiling}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
           {{if .Excluded}}<dt>Excluded</dt><dd>{{range .Excluded}}<span class="chip">{{.}}</span>{{end}} <span class="unset">Anthropic is reached only through the broker (COV-208)</span></dd>{{end}}
@@ -137,6 +148,20 @@
     </section>
     {{end}}
     {{end}}
+
+    {{with .Ctx}}
+    <section class="card" id="ctx-files">
+      <header><h2>Context files</h2><span class="sub">v{{.N}}'s packed <span class="mono">base.context</span> ({{.Size}} encoded)</span></header>
+      {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
+      <table>
+        <thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
+        <tbody>{{range .Rows}}<tr><td class="mono"><a href="{{.Href}}">{{.Path}}</a>{{if .Dup}} <span class="unset">duplicate entries in tar</span>{{end}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody>
+      </table>
+      {{with .Hidden}}<div class="body unset">{{.}} more file(s) not listed</div>{{end}}
+      {{end}}
+    </section>
+    {{end}}
+    {{with .File}}{{if not .Diff}}{{template "ctx-file" .}}{{end}}{{end}}
 
     <section class="card">
       <header><h2>Used by</h2><span class="sub">roles that raise this kit, and kits built on it</span></header>
@@ -208,4 +233,22 @@
   </div>
 </div>
 </div>
+{{end}}
+
+{{/* ctx-file is one packed-context file (ctxFileView): its content, its line diff, or why neither. */}}
+{{define "ctx-file"}}
+<section class="card" id="ctx-file">
+  {{if .Err}}
+  <header><h2>Context file</h2></header>
+  <div class="body unset">context unreadable: {{.Err}}</div>
+  {{else if .Missing}}
+  <header><h2>Context file</h2></header>
+  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s packed context.</div></div>
+  {{else}}
+  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
+  {{if .Note}}<div class="body unset">{{.Note}}</div>
+  {{else if .Diff}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
+  {{else}}<pre class="yaml">{{.Content}}</pre>{{end}}
+  {{end}}
+</section>
 {{end}}

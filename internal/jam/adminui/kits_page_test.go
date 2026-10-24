@@ -133,7 +133,7 @@ func TestKitPagePackedContextSummarized(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, kitsHandler(store), "/app/admin/kits/ctx").Body.String()
-	for _, want := range []string{"Dockerfile", "install.sh", "0755", "packed tar.gz"} {
+	for _, want := range []string{"Dockerfile", "install.sh", "0755", "«tar.gz, 2 files"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("packed-context kit page missing %q", want)
 		}
@@ -145,7 +145,7 @@ func TestKitPagePackedContextSummarized(t *testing.T) {
 		t.Fatal("no display YAML")
 	}
 	yaml := body[i : i+strings.Index(body[i:], "</pre>")]
-	if strings.Contains(yaml, "H4sI") || !strings.Contains(yaml, "packed tar.gz") {
+	if strings.Contains(yaml, "H4sI") || !strings.Contains(yaml, "«tar.gz, 2 files") {
 		t.Errorf("display YAML should abbreviate the packed context:\n%s", yaml)
 	}
 	if !strings.Contains(body, "H4sI") {
