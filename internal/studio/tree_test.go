@@ -74,9 +74,12 @@ func TestParseFiles(t *testing.T) {
 		t.Fatalf("ParseFiles = %+v %+v %v", tr, sk, blobs)
 	}
 	for files, want := range map[string]string{
-		"kit.yml\x00kind: studio\nbase:\n  context: H4sI\n": "base.context is no longer supported; put a Dockerfile next to kit.yml",
-		"Dockerfile\x00FROM x\n":                            "kit.yml missing at the root",
-		"kit.yml\x00kind: nope\n":                           "",
+		"kit.yml\x00kind: studio\nbase:\n  context: H4sI\n":                          "base.context is no longer supported; put a Dockerfile next to kit.yml",
+		"Dockerfile\x00FROM x\n":                                                     "kit.yml missing at the root",
+		"kit.yml\x00kind: nope\n":                                                    "",
+		"kit.yml\x00kind: studio\nbase:\n  <<: {context: H4sI}\n":                    "base.context is no longer supported; put a Dockerfile next to kit.yml",
+		"kit.yml\x00build-args: &c {context-dir: ctx}\nkind: studio\nbase: *c\n":     "base.context-dir is no longer supported; put a Dockerfile next to kit.yml",
+		"kit.yml\x00build-args: &c {context: H4sI}\nkind: studio\nbase:\n  <<: *c\n": "base.context is no longer supported; put a Dockerfile next to kit.yml",
 	} {
 		kv := strings.Split(files, "\x00")
 		_, _, _, err := ParseFiles(kittreetest.Files(kv...))
@@ -92,6 +95,8 @@ func TestRefuseContextFields(t *testing.T) {
 		"context-files: {dockerfile: x}": "base.context-files is no longer supported; put a Dockerfile next to kit.yml",
 		"contextFiles: {dockerfile: x}":  "base.context-files is no longer supported; put a Dockerfile next to kit.yml",
 		"context-dir: ctx":               "base.context-dir is no longer supported; put a Dockerfile next to kit.yml",
+		"<<: {context-dir: ctx}":         "base.context-dir is no longer supported; put a Dockerfile next to kit.yml",
+		"<<: {contextFiles: {a: x}}":     "base.context-files is no longer supported; put a Dockerfile next to kit.yml",
 	} {
 		if err := RefuseContextFields([]byte("kind: studio\nbase:\n  " + key + "\n")); err == nil || err.Error() != want {
 			t.Fatalf("%s: err = %v", key, err)
@@ -143,9 +148,27 @@ func TestSetBaseKitEditsOnlyTheScalar(t *testing.T) {
 		"kind: studio\n",
 		"kind: studio\nbase:\n  kit: |\n    ../web\n",
 		"kind: studio\nbase: {kit: \"..\\/web\"}\n",
+		"kind: studio\nbase:\n  kit: \n",
+		"kind: studio\nbase:\n  kit: null\n",
+		"kind: studio\nbase:\n  kit: ~\n",
+		"kind: studio\nbase:\n  kit: \"\"\n",
 	} {
 		if _, err := SetBaseKit([]byte(in), "web@v3"); err == nil {
 			t.Fatalf("SetBaseKit(%q) must refuse", in)
+		}
+	}
+	// A value unsafe in the kept quote style would change the document's
+	// meaning: refused, never written.
+	for _, tc := range []struct{ in, value string }{
+		{"kind: studio\nbase:\n  kit: ../web\n", "web # x"},
+		{"kind: studio\nbase:\n  kit: ../web\n", ""},
+		{"kind: studio\nbase:\n  kit: ../web\n", "a: b"},
+		{"kind: studio\nbase:\n  kit: ../web\n", "null"},
+		{"kind: studio\nbase:\n  kit: '../web'\n", "it's"},
+		{"kind: studio\nbase:\n  kit: \"../web\"\n", `a"b`},
+	} {
+		if got, err := SetBaseKit([]byte(tc.in), tc.value); err == nil {
+			t.Fatalf("SetBaseKit(%q, %q) = %q, must refuse", tc.in, tc.value, got)
 		}
 	}
 }

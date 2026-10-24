@@ -177,3 +177,14 @@ func TestBuildDigestBuildContext(t *testing.T) {
 		t.Fatal("a link's build context must key the chain digest")
 	}
 }
+
+// TestChainDigestGolden pins a 2-link chain without Dockerfiles to the digest
+// it had before build contexts existed (computed at 9e605f4).
+func TestChainDigestGolden(t *testing.T) {
+	fixed := harnessinstall.Install{Type: "claude", Version: "2.1.287", Plugins: []string{"superpowers@claude-plugins-official"}}
+	parent := StudioKit{Kind: Kind, Base: Base{Image: "ghcr.io/x/base@sha256:1"}, Egress: []string{"a.com"}}
+	child := StudioKit{Kind: Kind, Base: Base{Kit: "parent@v2"}, Egress: []string{"b.com"}, BuildArgs: map[string]string{"X": "1"}, Prompt: "p"}
+	if got := ChainDigest([]StudioKit{parent, child}, fixed); got != "5193a80c02de89a5b182de1ddb7a5651c28058dca78ee1e0181ea5fecc52c919" {
+		t.Fatalf("chain digest without build contexts changed: %s", got)
+	}
+}

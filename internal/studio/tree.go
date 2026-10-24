@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"unicode/utf8"
 
 	"github.com/go-git/go-billy/v5"
@@ -34,6 +33,11 @@ func ParseFiles(files []kittree.File) (kittree.Tree, map[string][]byte, StudioKi
 	}
 	sk, err := ParseTree(tree, kittree.MapBlobs(blobs))
 	if err != nil {
+		return kittree.Tree{}, nil, StudioKit{}, err
+	}
+	// The parsed kit is the final word: no packed-context field however it
+	// was spelled.
+	if err := refuseDecodedContext(sk.Base); err != nil {
 		return kittree.Tree{}, nil, StudioKit{}, err
 	}
 	return tree, blobs, sk, nil
@@ -77,7 +81,7 @@ func ParseKitFS(fsys billy.Filesystem) (StudioKit, error) {
 		if n.Body != "" {
 			return StudioKit{}, fmt.Errorf("note %q: set body or file, not both", n.Name)
 		}
-		p := path.Clean(filepath.ToSlash(n.File))
+		p := path.Clean(n.File)
 		if kittree.CheckPath(p) != nil {
 			return StudioKit{}, fmt.Errorf("note %q: file must be a relative path inside the kit directory", n.Name)
 		}
@@ -125,19 +129,42 @@ var contextFields = []struct{ key, field string }{
 }
 
 // RefuseContextFields refuses a kit.yml that still uses the packed build
-// context: base.context, base.context-files or base.context-dir. A kit.yml
-// that is not YAML passes; ParseStudioKit reports it.
+// context: base.context, base.context-files or base.context-dir, whether
+// written as keys of base or reached through an alias or a merge key. A
+// kit.yml that is not YAML passes; ParseStudioKit reports it.
 func RefuseContextFields(kitYML []byte) error {
-	base := baseNode(kitYML)
-	if base == nil || base.Kind != yaml.MappingNode {
-		return nil
-	}
-	for _, c := range contextFields {
-		if MapValue(base, c.key) != nil {
-			return fmt.Errorf("%s is no longer supported; put a Dockerfile next to kit.yml", c.field)
+	if base := baseNode(kitYML); base != nil && base.Kind == yaml.MappingNode {
+		for _, c := range contextFields {
+			if MapValue(base, c.key) != nil {
+				return contextFieldErr(c.field)
+			}
 		}
 	}
+	// Decoded leniently, the way ParseStudioKit sees it: aliases and merge
+	// keys resolved. A decode error leaves the fields it reached set.
+	var doc struct {
+		Base Base `yaml:"base"`
+	}
+	_ = yaml.Unmarshal(kitYML, &doc)
+	return refuseDecodedContext(doc.Base)
+}
+
+// refuseDecodedContext refuses a decoded base that carries a packed-context
+// field.
+func refuseDecodedContext(b Base) error {
+	switch {
+	case b.Context != "":
+		return contextFieldErr("base.context")
+	case b.ContextFiles != nil || b.StoredContextFiles != nil:
+		return contextFieldErr("base.context-files")
+	case b.ContextDir != "":
+		return contextFieldErr("base.context-dir")
+	}
 	return nil
+}
+
+func contextFieldErr(field string) error {
+	return fmt.Errorf("%s is no longer supported; put a Dockerfile next to kit.yml", field)
 }
 
 // RenderKitYAML is the kit.yml Jam writes for a definition it holds (the
@@ -151,6 +178,7 @@ func RenderKitYAML(sk StudioKit) ([]byte, error) {
 var (
 	errNoBaseKit    = errors.New("kit.yml: no base.kit to rewrite")
 	errBaseKitShape = errors.New("kit.yml: write base.kit as a one-line plain or quoted value, without escapes")
+	errBaseKitValue = errors.New("kit.yml: the new base.kit value cannot be written in place")
 )
 
 // SetBaseKit returns kitYML with its base.kit value replaced by value (a
@@ -163,7 +191,7 @@ func SetBaseKit(kitYML []byte, value string) ([]byte, error) {
 		return nil, errNoBaseKit
 	}
 	kit := MapValue(base, "kit")
-	if kit == nil || kit.Kind != yaml.ScalarNode {
+	if kit == nil || kit.Kind != yaml.ScalarNode || kit.Value == "" || kit.ShortTag() == "!!null" {
 		return nil, errNoBaseKit
 	}
 	var q string
@@ -184,7 +212,13 @@ func SetBaseKit(kitYML []byte, value string) ([]byte, error) {
 	out := make([]byte, 0, len(kitYML)-len(raw)+len(value)+2)
 	out = append(out, kitYML[:start]...)
 	out = append(out, q+value+q...)
-	return append(out, kitYML[start+len(raw):]...), nil
+	out = append(out, kitYML[start+len(raw):]...)
+	// value must read back as itself in the kept quote style (a "#", ": " or
+	// quote in it would change the document): check, never trust.
+	if got := MapValue(baseNode(out), "kit"); got == nil || got.Kind != yaml.ScalarNode || got.Value != value || got.ShortTag() == "!!null" {
+		return nil, errBaseKitValue
+	}
+	return out, nil
 }
 
 // baseNode is the value node of the document's top-level base key, or nil.
