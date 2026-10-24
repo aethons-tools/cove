@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionview"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -168,7 +169,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		if sk, err := studio.ParseStudioKit([]byte(k.Versions[k.Current])); err == nil {
 			fields = append(append(fields, sk.Prompt), sk.Egress...)
 			if sk.Prompt != "" {
-				sub += " · " + clip(sk.Prompt, 90)
+				sub += " · " + sessionview.Clip(sk.Prompt, 90)
 			}
 		}
 		if m.any(fields...) {
@@ -212,7 +213,7 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 		squawks.Count = len(found)
 		for _, s := range found[:min(len(found), searchSquawks)] {
 			squawks.Hits = append(squawks.Hits, searchHit{
-				Title: clip(s.Body, 160),
+				Title: sessionview.Clip(s.Body, 160),
 				Sub:   s.At.Format("Jan 2 15:04") + " · " + s.From + " → " + squawkWhere(s),
 				URL:   "/app/admin/intercom?q=" + url.QueryEscape(q),
 			})

@@ -2,7 +2,6 @@ package adminui
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -10,9 +9,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/sessionview"
 )
 
 const (
@@ -43,123 +42,6 @@ func registerSession(mux *http.ServeMux, store sessionevents.Store, hub *session
 	mux.HandleFunc("GET /app/admin/agents/{id}/session/events", events)
 	// The pre-agents path, for timelines already open in a browser.
 	mux.HandleFunc("GET /app/admin/coves/{id}/session/events", events)
-}
-
-type eventView struct {
-	Seq            uint64
-	Turn           uint32
-	Label          string
-	Summary        string
-	Detail         string
-	Raw            string
-	IsError        bool
-	Progress       bool // system/thinking_tokens — hidden unless toggled
-	Gap            bool
-	TruncatedBytes uint64
-}
-
-func clip(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n]) + "…"
-}
-
-func pretty(raw []byte) string {
-	var b bytes.Buffer
-	if json.Indent(&b, raw, "", "  ") == nil {
-		return b.String()
-	}
-	return string(raw)
-}
-
-type viewBlock struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text"`
-	Thinking string          `json:"thinking"`
-	Name     string          `json:"name"`
-	Input    json.RawMessage `json:"input"`
-	Content  json.RawMessage `json:"content"`
-	IsError  bool            `json:"is_error"`
-}
-
-// blockText renders a tool_result content field: a string, or an array of
-// {type:text,text} blocks.
-func blockText(c json.RawMessage) string {
-	var s string
-	if json.Unmarshal(c, &s) == nil {
-		return s
-	}
-	var parts []viewBlock
-	if json.Unmarshal(c, &parts) == nil {
-		var out []string
-		for _, p := range parts {
-			if p.Text != "" {
-				out = append(out, p.Text)
-			}
-		}
-		return strings.Join(out, "\n")
-	}
-	return string(c)
-}
-
-func viewOf(ev sessionevents.Event) eventView {
-	v := eventView{Seq: ev.Seq, Turn: ev.Turn, Raw: pretty(ev.Raw), TruncatedBytes: ev.TruncatedBytes, IsError: ev.Index.IsError}
-	if ev.Kind == sessionevents.KindGap {
-		v.Gap, v.Label = true, "gap"
-		v.Summary = fmt.Sprintf("⚠ %d events lost (seq %d–%d)", ev.GapTo-ev.GapFrom+1, ev.GapFrom, ev.GapTo)
-		return v
-	}
-	var env struct {
-		Type    string `json:"type"`
-		Subtype string `json:"subtype"`
-		Message struct {
-			Content json.RawMessage `json:"content"`
-		} `json:"message"`
-		Result string `json:"result"`
-	}
-	if json.Unmarshal(ev.Raw, &env) != nil {
-		v.Label, v.Detail = "unparsed", string(ev.Raw)
-		return v
-	}
-	var blocks []viewBlock
-	_ = json.Unmarshal(env.Message.Content, &blocks)
-	switch env.Type {
-	case "system":
-		v.Label = "system/" + env.Subtype
-		v.Progress = env.Subtype == "thinking_tokens"
-	case "assistant":
-		v.Label = "assistant"
-		for _, b := range blocks {
-			switch b.Type {
-			case "text":
-				v.Summary, v.Detail = clip(b.Text, 300), b.Text
-			case "thinking":
-				v.Label, v.Summary, v.Detail = "thinking", clip(b.Thinking, 160), b.Thinking
-			case "tool_use":
-				v.Label, v.Summary, v.Detail = "tool_use "+b.Name, clip(string(b.Input), 160), pretty(b.Input)
-			}
-		}
-	case "user":
-		v.Label = "user"
-		for _, b := range blocks {
-			if b.Type == "tool_result" {
-				text := blockText(b.Content)
-				v.Label, v.Detail = "tool_result", text
-				v.Summary = fmt.Sprintf("%d bytes", len(text))
-				v.IsError = v.IsError || b.IsError
-			}
-		}
-	case "result":
-		v.Label = "result"
-		v.Summary = fmt.Sprintf("$%.4f episode total · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
-			ev.Index.OutputTokens, time.Duration(ev.Index.DurationMS)*time.Millisecond)
-		v.Detail = env.Result
-	default:
-		v.Label = env.Type
-	}
-	return v
 }
 
 // sseLines normalizes CRLF and CR to LF: SSE parsers treat all three as line
@@ -237,7 +119,7 @@ func serveSessionEvents(w http.ResponseWriter, r *http.Request, store sessioneve
 		tot.Add(ev)
 		last = ev.Seq
 		if ev.Seq > resumeAfter {
-			sseWrite(w, "ev", fmt.Sprintf("%s:%d", ev.StreamID, ev.Seq), fragment("session-event", viewOf(ev)))
+			sseWrite(w, "ev", fmt.Sprintf("%s:%d", ev.StreamID, ev.Seq), fragment("session-event", sessionview.View(ev)))
 		}
 	}
 	// backfill replays the store from `last`; false means the store failed.
