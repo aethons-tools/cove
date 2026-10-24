@@ -1,4 +1,3 @@
-// internal/kittree/tree_test.go
 package kittree
 
 import (
@@ -149,8 +148,10 @@ func TestValidateRejectsTamperedTrees(t *testing.T) {
 	mode.Entries[1].Mode = 0o600
 	sum := Tree{Entries: append([]Entry(nil), good.Entries...)}
 	sum.Entries[1].SHA256 = "zz"
+	upper := Tree{Entries: append([]Entry(nil), good.Entries...)}
+	upper.Entries[1].SHA256 = strings.ToUpper(upper.Entries[1].SHA256)
 	noKit := Tree{Entries: good.Entries[1:]}
-	for name, tr := range map[string]Tree{"order": swap, "mode": mode, "sha": sum, "kit.yml": noKit} {
+	for name, tr := range map[string]Tree{"order": swap, "mode": mode, "sha": sum, "sha case": upper, "kit.yml": noKit} {
 		if tr.Validate() == nil {
 			t.Fatalf("%s: tampered tree validated", name)
 		}

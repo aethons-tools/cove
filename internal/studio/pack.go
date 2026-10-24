@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 
 	"github.com/moby/patternmatcher"
-	"github.com/moby/patternmatcher/ignorefile"
+
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // PackContextDir packs the build context rooted at dir into a base64 string
@@ -151,15 +152,11 @@ func loadDockerignore(fsys fs.FS) (*patternmatcher.PatternMatcher, error) {
 	return DockerignoreMatcher(f)
 }
 
-// DockerignoreMatcher parses a .dockerignore the way the packer does, for a
-// caller that must agree with it on which context paths are ignored (match
-// a slash path with MatchesOrParentMatches).
+// DockerignoreMatcher parses a .dockerignore the way the packer does
+// (kittree's), for a caller that must agree with it on which context paths
+// are ignored (match a slash path with MatchesOrParentMatches).
 func DockerignoreMatcher(r io.Reader) (*patternmatcher.PatternMatcher, error) {
-	patterns, err := ignorefile.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	return patternmatcher.New(patterns)
+	return kittree.DockerignoreMatcher(r)
 }
 
 // ResolveContextDir packs a client-only base.context-dir into base.context (a

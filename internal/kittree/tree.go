@@ -1,5 +1,3 @@
-// internal/kittree/tree.go
-
 // Package kittree is a kit version's files as a content-addressed tree: the
 // model, its hash and limits, reading one in from a directory or a push tar,
 // writing a push body and a build context, a read-only billy view, and the
@@ -192,8 +190,22 @@ func (t Tree) Size() int64 {
 	return n
 }
 
+// isSHA256Hex reports whether s is a sha256 in canonical form: 64 lowercase
+// hex digits, as Build writes it.
+func isSHA256Hex(s string) bool {
+	if len(s) != 2*sha256.Size {
+		return false
+	}
+	for i := range len(s) {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // Validate checks a tree read back from storage or a backup: sorted unique
-// safe paths, the two modes, hex sums, no file where another file's
+// safe paths, the two modes, lowercase hex sums, no file where another file's
 // directory is, kit.yml at the root, and the limits.
 func (t Tree) Validate() error {
 	if len(t.Entries) > MaxEntries {
@@ -210,7 +222,7 @@ func (t Tree) Validate() error {
 		if e.Mode != 0o644 && e.Mode != 0o755 {
 			return fmt.Errorf("%s: mode %o (want 644 or 755)", e.Path, e.Mode)
 		}
-		if b, err := hex.DecodeString(e.SHA256); err != nil || len(b) != sha256.Size {
+		if !isSHA256Hex(e.SHA256) {
 			return fmt.Errorf("%s: not a sha256", e.Path)
 		}
 		if e.Size < 0 || e.Size > MaxFile {
