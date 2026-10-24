@@ -32,6 +32,7 @@
   @media (max-width:720px){.sections{grid-template-columns:1fr}}
 </style>
 {{template "crumbs" .Crumbs}}
+{{if .SetupEnabled}}<nav class="subtabs" aria-label="Role views"><a href="{{roleURL .Project .Name}}" aria-current="page">Overview</a><a href="{{roleURL .Project .Name}}/setup">Setup</a></nav>{{end}}
 {{template "role-body" .}}
 {{end}}
 {{end}}
