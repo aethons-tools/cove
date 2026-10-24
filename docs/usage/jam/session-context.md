@@ -4,7 +4,7 @@ read_when: You are writing a kit prompt, debugging what a session was told (or w
 owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-24
 ---
 
 # Session context
@@ -87,6 +87,8 @@ bundle (logged in `cove-master.log`); a 404 without Jam's `X-Jam-Context` marker
 (an older Jam with no `/context`) stops refreshing for the run, logged once, while a
 marked 404 (the session isn't registered yet, e.g. right after raise) is retried.
 Never failing the episode either way.
+
+To see the files a studio was last delivered — or what a raise would deliver now, and the difference — use [`studio inspect` / `role inspect`](inspect.md).
 
 Studio rendering: admin-authored names are flattened to one line, and a wildcard
 egress entry such as `.github.com` reads `*.github.com (and github.com)`. The
