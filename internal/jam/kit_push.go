@@ -45,6 +45,11 @@ func PushKitFiles(store Store, name string, files []kittree.File) (KitRef, bool,
 	}
 	kitMu.Lock()
 	defer kitMu.Unlock()
+	return pushKitTreeLocked(store, name, tree, objs, sk)
+}
+
+// pushKitTreeLocked is PushKitFiles past kitTreeOf; the caller holds kitMu.
+func pushKitTreeLocked(store Store, name string, tree kittree.Tree, objs KitObjects, sk studio.StudioKit) (KitRef, bool, error) {
 	chain, err := validateKit(store, name, sk)
 	if err != nil {
 		return KitRef{}, false, err
@@ -63,8 +68,12 @@ func PushKitFiles(store Store, name string, files []kittree.File) (KitRef, bool,
 
 // ReplaceKitYML pushes kit name's current files with kit.yml replaced by
 // config: the UI's "push a new version", which edits kit.yml only. A kit
-// with no tree yet is a one-file push.
+// with no tree yet is a one-file push. The current files are read and the
+// version pushed under one kitMu hold, so a push landing in between cannot
+// be silently reverted.
 func ReplaceKitYML(store Store, name, config string) (KitRef, bool, error) {
+	kitMu.Lock()
+	defer kitMu.Unlock()
 	out := []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: []byte(config)}}
 	if cur, ok := LoadKitVersion(store, name, 0); ok && cur.TreeHash != "" {
 		for _, e := range cur.Tree.Entries {
@@ -79,5 +88,9 @@ func ReplaceKitYML(store Store, name, config string) (KitRef, bool, error) {
 			out = append(out, kittree.File{Path: e.Path, Mode: e.Mode, Data: b})
 		}
 	}
-	return PushKitFiles(store, name, out)
+	tree, objs, sk, err := kitTreeOf(name, out)
+	if err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	return pushKitTreeLocked(store, name, tree, objs, sk)
 }

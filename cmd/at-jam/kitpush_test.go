@@ -105,3 +105,31 @@ func TestKitPushNames(t *testing.T) {
 		t.Fatalf("no name: exit=%d err=%q", code, errb.String())
 	}
 }
+
+// A <dir> that cannot be opened says why, without the OS error.
+func TestKitPushDirErrors(t *testing.T) {
+	tmp := t.TempDir()
+	file := filepath.Join(tmp, "kit.yml")
+	if err := os.WriteFile(file, []byte("kind: studio\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for dir, want := range map[string]string{
+		filepath.Join(tmp, "nope"): ": no such directory",
+		file:                       ": not a directory",
+	} {
+		_, _, err := kitPushFiles([]string{dir}, "", "")
+		if err == nil || err.Error() != dir+want {
+			t.Fatalf("%s: err = %v, want %q", dir, err, dir+want)
+		}
+	}
+	locked := filepath.Join(tmp, "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if os.Geteuid() != 0 {
+		if _, _, err := kitPushFiles([]string{filepath.Join(locked, "x")}, "", ""); err == nil || err.Error() != filepath.Join(locked, "x")+": cannot open the directory" {
+			t.Fatalf("unreadable: err = %v", err)
+		}
+	}
+}

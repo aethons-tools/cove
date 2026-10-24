@@ -20,8 +20,8 @@ full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
 A StudioKit is YAML, the `kit.yml` of a kit directory, with a `kind: studio`
 discriminator and its content fields. Unknown fields are
 rejected, so a full-kit field on a studio kit fails at `push`. A kit **does not
-name itself**: its name is the registry key it is pushed under (`kit push
---name`, else the directory's name), and must be tag-safe (`[A-Za-z0-9_.-]`).
+name itself**: its name is the registry key it is pushed under (how `kit push` picks it:
+[the verbs](#the-kit-verbs)), and must be tag-safe (`[A-Za-z0-9_.-]`).
 
 ```yaml
 kind: studio
@@ -108,7 +108,7 @@ Anthropic only through the Jam broker (see [pool.md](pool.md)). An authored
 prints the effective `egress ceiling:` and an `excluded (COV-208):` line, and
 prepare logs the excluded roots.
 
-**Legacy `name:`.** Kit files and registry rows from before names left the schema may still carry `name:`. It is accepted on input (and kept in the stored `kit.yml`, byte for byte), names the kit when `kit push` has no `--name`, and must equal the name the kit is pushed under — a file that names itself `web` can't be pushed as `api` (drop the field). Existing rows keep working as-is.
+**Legacy `name:`.** Kit files and registry rows from before names left the schema may still carry `name:`. It is accepted on input (and kept in the stored `kit.yml`, byte for byte), may name the kit at `kit push` ([the verbs](#the-kit-verbs)), and must equal the name the kit is pushed under — a file that names itself `web` can't be pushed as `api` (drop the field). Existing rows keep working as-is.
 
 ## The model
 

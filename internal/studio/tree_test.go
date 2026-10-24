@@ -51,6 +51,9 @@ func TestParseKitFSRefusals(t *testing.T) {
 		"note body and file": {map[string]string{"kit.yml": "kind: studio\nnotes:\n  - {name: a.md, read-when: x, body: b, file: a.md}\n", "a.md": "x"}, `note "a.md": set body or file, not both`},
 		"note files too big": {map[string]string{"kit.yml": "kind: studio\nnotes:\n  - {name: a.md, read-when: x, file: a.md}\n", "a.md": strings.Repeat("x", maxNoteFileBytes+1)}, `notes: note files exceed the 1048576-byte total cap (at note "a.md")`},
 		"image + Dockerfile": {map[string]string{"kit.yml": "kind: studio\nbase: {image: ghcr.io/x@sha256:1}\n", "Dockerfile": "FROM x"}, "studio kit: base.image and a Dockerfile next to kit.yml are mutually exclusive"},
+		// kit.yml is untrusted: a note's name and file are never echoed raw.
+		"hostile note file":    {map[string]string{"kit.yml": "kind: studio\nnotes:\n  - {name: \"a\\e[2J\\u202e.md\", read-when: x, file: \"b\\e[31m.md\"}\n"}, `note "a\x1b[2J\u202e.md": file must be a relative path inside the kit directory`},
+		"hostile note missing": {map[string]string{"kit.yml": "kind: studio\nnotes:\n  - {name: \"a\\e.md\", read-when: x, file: c.md}\n"}, `note "a\x1b.md": file c.md is not in the kit`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fsys := memfs.New()

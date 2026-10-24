@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"sort"
 	"strconv"
@@ -802,6 +803,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		name := r.PathValue("name")
 		if !studio.TagSafeName(name) {
 			http.Error(w, "kit name is not tag-safe (allowed: [A-Za-z0-9_.-])", http.StatusBadRequest)
+			return
+		}
+		// A tar body only, checked before the body is read: a browser's
+		// no-cors text/plain POST to the loopback admin port is refused.
+		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-tar" {
+			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
 			return
 		}
 		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))

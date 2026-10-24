@@ -1,7 +1,9 @@
 package jam
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kittree"
@@ -113,5 +115,51 @@ func TestEnsureDefaultStudioKitIsAOneFileTree(t *testing.T) {
 	}
 	if again, _ := EnsureDefaultStudioKit(st); again.Version != ref.Version {
 		t.Fatal("seeding the default kit twice made a new version")
+	}
+}
+
+// blobHookStore runs onBlob (once) the first time a blob is read: a push
+// racing a reader of the current files.
+type blobHookStore struct {
+	Store
+	once   sync.Once
+	onBlob func()
+}
+
+func (s *blobHookStore) KitBlob(sha string) ([]byte, bool) {
+	s.once.Do(s.onBlob)
+	return s.Store.KitBlob(sha)
+}
+
+// A push that lands while ReplaceKitYML reads the current files is not
+// reverted: the read and the push are one step under kitMu, so the racing
+// push comes after it and keeps its file.
+func TestReplaceKitYMLDoesNotRevertARacingPush(t *testing.T) {
+	mem := NewMemStore()
+	if _, _, err := PushKitFiles(mem, "app", kittreetest.Files("kit.yml", "kind: studio\n", "a.sh", "a\n")); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	st := &blobHookStore{Store: mem}
+	st.onBlob = func() {
+		go func() {
+			_, _, err := PushKitFiles(mem, "app", kittreetest.Files("kit.yml", "kind: studio\n", "a.sh", "a\n", "b.sh", "b\n"))
+			done <- err
+		}()
+		select { // the racing push either lands now (no lock held) or waits for the lock
+		case err := <-done:
+			done <- err
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if _, _, err := ReplaceKitYML(st, "app", "kind: studio\nprompt: hi\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	v, _ := LoadKitVersion(mem, "app", 0)
+	if _, ok := v.Tree.Lookup("b.sh"); !ok || v.Version != 3 {
+		t.Fatalf("current v%d %+v: the racing push was reverted", v.Version, v.Tree)
 	}
 }

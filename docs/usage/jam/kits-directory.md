@@ -27,7 +27,7 @@ Note files (`notes[].file`) are read from the directory, relative to its root
 and inside it. `base.image` and a `Dockerfile` exclude each other.
 
 `at-jam kit push <dir>` sends the directory as an uncompressed tar to
-`POST /admin/kits/{name}/versions` (admin only); `kit push --config <file>`
+`POST /admin/kits/{name}/versions` (admin only, `Content-Type: application/x-tar`, else 415); `kit push --config <file>`
 sends `kit.yml` alone, a one-file version. A hand-made `tar -C dir -cf - .`
 works: a leading `./` is dropped and directory entries are skipped.
 
@@ -68,6 +68,7 @@ unsafe name:
 | `more than 64 MiB in total (limit 64 MiB)` | The files together are too big. |
 | `<dir>: a file has an unsafe path (…)` | A name with a control or format character, invalid UTF-8, or a `.`/`..` segment; the name is not shown. |
 | `<path>: appears twice` | A tar names one file twice. |
+| `<dir>: no such directory` | `kit push <dir>` cannot find it (`not a directory`, `cannot open the directory` alike). |
 | `not a readable tar` | The upload is not an uncompressed tar. |
 | `kit upload over <N> bytes` | The upload body is over the cap (413). |
 | `base.context is no longer supported; put a Dockerfile next to kit.yml` | The old packed context; `base.context-files` and `base.context-dir` alike. |

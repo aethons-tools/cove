@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -21,7 +22,7 @@ func kitPushFiles(pos []string, config, name string) ([]kittree.File, string, er
 	case len(pos) == 1 && config == "":
 		root, err := os.OpenRoot(pos[0])
 		if err != nil {
-			return nil, "", fmt.Errorf("%s: not a directory", pos[0])
+			return nil, "", fmt.Errorf("%s: %s", pos[0], openDirError(pos[0], err))
 		}
 		defer root.Close()
 		files, err := kittree.ReadDir(root, ".")
@@ -41,6 +42,18 @@ func kitPushFiles(pos []string, config, name string) ([]kittree.File, string, er
 		return []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: data}}, name, nil
 	}
 	return nil, "", errKitPushUsage
+}
+
+// openDirError says, in fixed text, why <dir> could not be opened; the OS
+// error itself is not shown.
+func openDirError(dir string, err error) string {
+	if errors.Is(err, fs.ErrNotExist) {
+		return "no such directory"
+	}
+	if fi, serr := os.Stat(dir); serr == nil && !fi.IsDir() {
+		return "not a directory"
+	}
+	return "cannot open the directory"
 }
 
 // checkKitPush validates files client-side as push would: .dockerignore, then

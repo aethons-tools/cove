@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // ParseFiles is the one ingest pipeline from files to a kit: it builds files
@@ -99,7 +100,9 @@ func ParseKitFS(fsys billy.Filesystem) (StudioKit, error) {
 		case errors.Is(err, errTooLarge):
 			return StudioKit{}, fmt.Errorf("notes: note files exceed the %d-byte total cap (at note %q)", maxNoteFileBytes, n.Name)
 		case errors.Is(err, fs.ErrNotExist):
-			return StudioKit{}, fmt.Errorf("note %q: file %s is not in the kit", n.Name, p)
+			// n.Name is %q-quoted (control and format characters escaped);
+			// p passed CheckPath, and is escaped again in case that changes.
+			return StudioKit{}, fmt.Errorf("note %q: file %s is not in the kit", n.Name, textesc.Escape(p, false))
 		case err != nil:
 			return StudioKit{}, err
 		}

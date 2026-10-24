@@ -17,13 +17,18 @@ import (
 func TestPushTarRoute(t *testing.T) {
 	st := NewMemStore()
 	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
-	postFrom := func(addr, name string, body []byte) *httptest.ResponseRecorder {
+	postAs := func(addr, ctype, name string, body []byte) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/admin/kits/"+name+"/versions", bytes.NewReader(body))
 		r.RemoteAddr = addr
-		r.Header.Set("Content-Type", "application/x-tar")
+		if ctype != "" {
+			r.Header.Set("Content-Type", ctype)
+		}
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		return w
+	}
+	postFrom := func(addr, name string, body []byte) *httptest.ResponseRecorder {
+		return postAs(addr, "application/x-tar", name, body)
 	}
 	post := func(name string, body []byte) *httptest.ResponseRecorder {
 		return postFrom("127.0.0.1:5000", name, body)
@@ -35,7 +40,17 @@ func TestPushTarRoute(t *testing.T) {
 	if w := postFrom("203.0.113.9:1000", "app", body.Bytes()); w.Code != http.StatusForbidden {
 		t.Fatalf("off-loopback push = %d, want 403 (admin only)", w.Code)
 	}
-	w := post("app", body.Bytes())
+	// Only a tar body: a browser's no-cors text/plain POST to the loopback
+	// admin port (CSRF) is refused before the body is read.
+	for _, ctype := range []string{"text/plain", "", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
+		if w := postAs("127.0.0.1:5000", ctype, "app", body.Bytes()); w.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("Content-Type %q = %d, want 415", ctype, w.Code)
+		}
+	}
+	if _, ok := st.GetKit("app"); ok {
+		t.Fatal("a refused Content-Type stored a kit")
+	}
+	w := postAs("127.0.0.1:5000", "application/x-tar; charset=binary", "app", body.Bytes())
 	var res KitResult
 	if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &res) != nil || res.Version != 1 {
 		t.Fatalf("push = %d %s", w.Code, w.Body)
