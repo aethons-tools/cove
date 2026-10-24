@@ -257,6 +257,29 @@ function meBadge(){
 }
 document.addEventListener('htmx:afterSettle', meBadge);
 meBadge();
+// Sounds (sounds.js): after each rail refresh, chime for what changed — the
+// Needs you sound when a conversation starts needing you, else the Messages
+// sound when one has more unread — never for the conversation you are
+// looking at (open, visible, focused). The first rail of a page is the
+// baseline.
+function meChimes(){
+  var rail=document.getElementById('rail'); if(!rail || !window.jamSound) return;
+  var now={}, prev=meChimes.prev, kind='';
+  var open=new URLSearchParams(location.search).get('c');
+  var looking=document.visibilityState==='visible' && document.hasFocus();
+  rail.querySelectorAll('.thread[data-ch]').forEach(function(a){
+    var c={u:parseInt(a.dataset.unread,10)||0, n:a.dataset.needs==='true'};
+    now[a.dataset.ch]=c;
+    var p=prev && prev[a.dataset.ch];
+    if(!prev || (looking && a.dataset.ch===open)) return;
+    if(c.n && !(p && p.n)) kind='needs';
+    else if(c.u > (p ? p.u : 0) && kind!=='needs') kind='messages';
+  });
+  meChimes.prev=now;
+  if(kind) window.jamSound.play(kind);
+}
+document.addEventListener('htmx:afterSettle', function(e){ if(e.target && e.target.id==='rail') meChimes(); });
+window.addEventListener('load', meChimes);
 // meDiscuss starts a reply about an ask: the composer carries reply_to and a
 // "re:" line.
 function meDiscuss(id, btn){

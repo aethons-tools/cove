@@ -11,6 +11,13 @@
     <div class="menu">
       <b>{{.Name}}</b><small>{{.Roles}}</small>
       {{- if .PushScript}}<button type="button" id="push-toggle" class="push-toggle" data-user="{{.PushUser}}" hidden>Notifications: Off</button><script src="{{.PushScript}}" defer></script>{{end}}
+      {{- if .SoundsScript}}<button type="button" id="sounds-toggle" class="push-toggle" aria-expanded="false" aria-controls="sounds-panel" hidden>Sounds…</button>
+      <div id="sounds-panel" class="sounds-panel" hidden>
+        <label>Messages <select name="messages"></select></label> <button type="button" data-preview="messages" aria-label="Play the Messages sound">▶</button>
+        <label>Needs you <select name="needs"></select></label> <button type="button" data-preview="needs" aria-label="Play the Needs you sound">▶</button>
+        <label>Volume <input type="range" name="volume" min="0" max="100"></label>
+        <small>Chimes play while Jam is open. With Jam closed, notifications use your system's sound.</small>
+      </div><script src="{{.SoundsScript}}" defer></script>{{end}}
       {{- if .SignOut}}<a href="/app/auth/logout">Sign out</a>{{end}}
     </div>
   </details>

@@ -14,7 +14,7 @@ func TestBuildTitleAndFields(t *testing.T) {
 	f := newFake()
 	m := intercom.Squawk{ID: "sq-1", Channel: sess, From: ses, Body: "Review done: 3 comments"}
 	got := Build(f, m, Recipient{User: u1, Reason: ReasonMessage}, 7, true)
-	want := Payload{Title: "Code-review agent · PR #812 review", Body: "Review done: 3 comments", Channel: string(sess), ID: "sq-1", Unread: 7}
+	want := Payload{Title: "Code-review agent · PR #812 review", Body: "Review done: 3 comments", Channel: string(sess), ID: "sq-1", Unread: 7, Kind: "messages"}
 	if got != want {
 		t.Fatalf("Build = %+v, want %+v", got, want)
 	}
@@ -106,5 +106,26 @@ func TestBuildFitsIn3KB(t *testing.T) {
 	}
 	if MaxPayload != 3072 {
 		t.Fatalf("MaxPayload = %d", MaxPayload)
+	}
+}
+
+// An ask, a call-in or an escalation takes the device's Needs you sound;
+// anything else its Messages sound.
+func TestBuildKind(t *testing.T) {
+	f := newFake()
+	r := Recipient{User: u1, Reason: ReasonMessage}
+	ask := askMsg(room, intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Of: []ident.ID{u1}})
+	for _, c := range []struct {
+		m    intercom.Squawk
+		want string
+	}{
+		{intercom.Squawk{ID: "sq-1", Channel: sess, From: ses, Body: "hi"}, "messages"},
+		{ask, "needs"},
+		{intercom.Squawk{ID: "callin:x", Channel: sess, From: ses, Body: "called in"}, "needs"},
+		{intercom.Squawk{ID: "escalate:x:1:2:u", Channel: sess, From: ses, Body: "needs input"}, "needs"},
+	} {
+		if got := Build(f, c.m, r, 0, true).Kind; got != c.want {
+			t.Errorf("%s: kind %q, want %q", c.m.ID, got, c.want)
+		}
 	}
 }

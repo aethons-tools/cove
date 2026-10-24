@@ -23,7 +23,7 @@ function jamPayload(v) {
 // showing for that conversation (null: none). A conversation keeps one
 // notification: a newer push replaces it, counting the messages it stands
 // for. Fields of the wrong type read as missing.
-function jamNotice(p, prev) {
+function jamNotice(p, prev, silent) {
   const n = ((prev && typeof prev.n === 'number' && prev.n > 0) ? prev.n : 0) + 1;
   const text = jamStr(p.body);
   const body = n > 1 ? n + ' new messages' + (text ? ' · latest: ' + text : '') : (text || 'New message');
@@ -34,11 +34,42 @@ function jamNotice(p, prev) {
       body: body,
       tag: channel || 'jam',
       renotify: true,
+      silent: !!silent,
       icon: ICON,
       badge: BADGE,
       data: { channel: channel, n: n },
     },
   };
+}
+
+// jamPref is key from IndexedDB "jam", store "prefs" (sounds.js writes
+// "sounds", this device's settings, and "chimer", when a page last could
+// chime), or null.
+function jamPref(key) {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('jam', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('prefs');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        try {
+          const get = req.result.transaction('prefs').objectStore('prefs').get(key);
+          get.onsuccess = () => { resolve(get.result || null); req.result.close(); };
+          get.onerror = () => { resolve(null); req.result.close(); };
+        } catch (_) { resolve(null); }
+      };
+    } catch (_) { resolve(null); }
+  });
+}
+
+// jamSilent reports whether a push of kind should make no sound: a Jam page
+// that can chime (its audio unlocked) said so in the last 90 s — chimerAt,
+// from sounds.js — so it plays its own chime; or this device turned that
+// kind's sound Off. Otherwise the OS plays its notification sound.
+function jamSilent(kind, prefs, chimerAt, now) {
+  if (typeof chimerAt === 'number' && now - chimerAt < 90000) return true;
+  const k = kind === 'needs' ? 'needs' : 'messages';
+  return !!(prefs && prefs[k] === 'off');
 }
 
 // jamFallback is the plain notification shown when building the real one
@@ -71,7 +102,8 @@ self.addEventListener('push', (e) => {
     try {
       const open = await self.registration.getNotifications({ tag: jamStr(p.channel) || 'jam' });
       const prev = open.length ? open[open.length - 1].data : null;
-      const nt = jamNotice(p, prev);
+      const silent = jamSilent(jamStr(p.kind), await jamPref('sounds'), await jamPref('chimer'), Date.now());
+      const nt = jamNotice(p, prev, silent);
       await self.registration.showNotification(nt.title, nt.options);
     } catch (_) {
       const nt = jamFallback(p);

@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-//go:embed static/jam.css static/htmx.min.js static/push.js static/brand/*.svg static/icons/*.png
+//go:embed static/jam.css static/htmx.min.js static/push.js static/sounds.js static/brand/*.svg static/icons/*.png
 var files embed.FS
 
 // whiteboardFiles is the whiteboard editor bundle, built into whiteboard/ by
@@ -65,7 +65,7 @@ var iconVersions = func() map[string]string {
 // a content hash of its file.
 var scriptVersions = func() map[string]string {
 	m := map[string]string{}
-	for _, name := range []string{"push.js"} {
+	for _, name := range []string{"push.js", "sounds.js"} {
 		b, err := fs.ReadFile(static, name)
 		if err != nil {
 			panic(err)

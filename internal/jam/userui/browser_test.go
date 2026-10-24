@@ -970,3 +970,96 @@ func TestBrowserComposerSendKey(t *testing.T) {
 		t.Fatal("Ctrl+Enter didn't send")
 	}
 }
+
+// The service worker silences a push while a page that can chime has said so
+// recently, or when the kind's sound is Off; otherwise the OS sound plays.
+func TestBrowserServiceWorkerSilent(t *testing.T) {
+	ctx := browserCtx(t)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var got string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
+		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+  (0, eval)(src);
+  var now = 1e12, off = {messages: 'off', needs: 'chime'};
+  return JSON.stringify([
+    jamSilent('messages', null, now - 30000, now),
+    jamSilent('messages', null, now - 200000, now),
+    jamSilent('messages', off, null, now),
+    jamSilent('needs', off, null, now),
+    jamNotice({}, null, true).options.silent,
+    jamNotice({}, null).options.silent]);
+})`, &got, await),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `[true,false,true,false,true,false]`; got != want {
+		t.Errorf("silent = %s, want %s", got, want)
+	}
+}
+
+// The Inbox chimes after a rail refresh: the Needs you sound when a
+// conversation starts needing you, else the Messages sound for more unread;
+// never on the first rail.
+func TestBrowserInboxChimes(t *testing.T) {
+	ctx := browserCtx(t)
+	srv := serveInbox(t)
+	var got string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitReady(`#rail`, chromedp.ByQuery),
+		chromedp.Evaluate(`(function(){
+  var played=[]; window.jamSound={play:function(k){ played.push(k); return true; }};
+  var rail=document.getElementById('rail');
+  function row(ch, u, n){ var a=document.createElement('a'); a.className='thread'; a.dataset.ch=ch; a.dataset.unread=String(u); a.dataset.needs=String(n); return a; }
+  function set(rows){ rail.innerHTML=''; rows.forEach(function(r){ rail.appendChild(r); }); meChimes(); }
+  meChimes.prev=undefined;
+  set([row('a',0,false), row('b',0,false)]);          // baseline: silent
+  set([row('a',1,false), row('b',0,false)]);          // more unread: messages
+  set([row('a',1,false), row('b',0,true)]);           // starts needing you: needs
+  set([row('a',2,false), row('b',0,true)]);           // more unread again: messages
+  return JSON.stringify(played);
+})()`, &got),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `["messages","needs","messages"]`; got != want {
+		t.Errorf("chimes = %s, want %s", got, want)
+	}
+}
+
+// sounds.js: the panel lists Off and the chimes, a change persists (and
+// reaches IndexedDB for the service worker), and play respects Off.
+func TestBrowserSoundsSettings(t *testing.T) {
+	ctx := browserCtx(t)
+	srv := serveInbox(t)
+	var got string
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/"),
+		chromedp.WaitReady(`#rail`, chromedp.ByQuery),
+		chromedp.Evaluate(`(async function(){
+  localStorage.removeItem('jam-sounds');
+  document.body.insertAdjacentHTML('beforeend', '<button id="sounds-toggle" hidden></button><div id="sounds-panel" hidden><select name="messages"></select><select name="needs"></select><input type="range" name="volume"><button data-preview="messages"></button></div>');
+  (0, eval)(await (await fetch('/app/static/sounds.js')).text());
+  var msg=document.querySelector('[name=messages]');
+  var opts=Array.from(msg.options).map(function(o){ return o.value; });
+  msg.value='off'; msg.dispatchEvent(new Event('change'));
+  var saved=JSON.parse(localStorage.getItem('jam-sounds'));
+  var played=window.jamSound.play('messages');
+  var idb=await new Promise(function(res){ var r=indexedDB.open('jam',1); r.onsuccess=function(){ var g=r.result.transaction('prefs').objectStore('prefs').get('sounds'); g.onsuccess=function(){ res(g.result); }; }; });
+  return JSON.stringify([opts, saved.messages, played, idb && idb.messages, !document.getElementById('sounds-toggle').hidden]);
+})()`, &got, await),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `[["off","pop","chime","ping","bell"],"off",false,"off",true]`; got != want {
+		t.Errorf("sounds = %s, want %s", got, want)
+	}
+}

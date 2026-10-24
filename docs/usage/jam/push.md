@@ -1,10 +1,10 @@
 ---
 summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`at-jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies (and why the open conversation doesn't), how notifications look and behave on the device (grouping, tap-through, app badge, sign-out), the privacy/preview choice, and troubleshooting.
 read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them, what shows on the lock screen, what the app badge counts, or what signing out does to notifications; or pushes aren't arriving.
-owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
+owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 prereqs: ui.md (the Jam app, its login and installing it); credentials.md (supplying a credential); serve.md#the-serve-config (the `runtime.push` keys)
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # Push notifications
@@ -115,6 +115,31 @@ stops suppressing within 60 s. Nothing about focus is stored.
   next person on a shared device isn't buzzed with your messages. If that
   fails, sign-out goes ahead and the subscription moves to whoever signs in
   next (see above).
+
+## Sounds
+
+**Sounds…** in the principal menu (any member, push on or not) sets this
+device's two sounds — **Messages** (a new message in a conversation you're
+in) and **Needs you** (an ask you can answer, a call-in, an escalation) —
+each **Off** or one of a few chimes, plus one volume and a ▶ preview. The
+settings stay in this browser.
+
+- **While a Jam window is open** (even a background tab), the Inbox plays the
+  chime when something changes: Needs you when a conversation starts needing
+  you (an ask, a call-in or escalation, or a session waiting on a person),
+  else Messages when one has more unread. It stays quiet for the
+  conversation you are looking at. Across your open Jam tabs it plays at
+  most one chime a second (a Needs you chime still plays right after a
+  Messages one; anything else in that second is dropped, not queued).
+  Browsers play sound only after you've clicked or typed in the page once;
+  until then the page stays quiet rather than chiming late.
+- **Push notifications** can't carry a custom sound — the web gives a
+  notification only the OS's sound or none. Jam makes a push **silent** while
+  a Jam page that can chime (clicked at least once, not frozen) has checked
+  in within the last 90 seconds, or when that kind's sound is Off; otherwise
+  the OS plays its notification sound (on macOS, set per app under System
+  Settings → Notifications). Each push says which kind it is (`needs` for an
+  ask, call-in or escalation).
 
 ## Privacy and previews
 
