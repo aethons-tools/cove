@@ -1,6 +1,6 @@
 # intercom: whiteboards — design
 
-**Status:** approved in brainstorming (2026-10-21); not built.
+**Status:** approved in brainstorming (2026-10-21). Built: #435 (store, merge, sync), #436 (renderer, agent tools), #461 (/app/user editor). Images on boards and presence are deferred.
 **Builds on:** channels and the `/me` SSE push ([`2026-10-06-intercom-identity-and-channels-design.md`](2026-10-06-intercom-identity-and-channels-design.md)), message parts ([`…-asks-design.md`](2026-10-21-intercom-asks-design.md)), attachments ([`…-attachments-design.md`](2026-10-21-intercom-attachments-design.md)).
 **Decisions (2026-10-21):** uses in priority order: diagrams, freehand, planning, UI feedback; canvas: **Excalidraw** (MIT), bundled by a **build step** (no committed bundle; Node and the npm registry are build-time only); boards **live in a conversation**; concurrent edits merge **per element** (Excalidraw's version model); agents see a board as **structure plus a server-rendered PNG**.
 
