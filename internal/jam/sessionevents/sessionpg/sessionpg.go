@@ -202,7 +202,7 @@ func (s *Store) List(f sessionevents.Filter) ([]sessionevents.Event, error) {
 
 func (s *Store) Streams(actorID string) ([]sessionevents.StreamInfo, error) {
 	rows, err := s.pool.Query(context.Background(), `SELECT stream_id, MIN(received_at), MAX(received_at), MAX(seq), COUNT(*)
-FROM session_events WHERE actor_id=$1 GROUP BY stream_id ORDER BY MIN(received_at) DESC`, actorID)
+FROM session_events WHERE actor_id=$1 GROUP BY stream_id ORDER BY MIN(received_at) DESC, stream_id COLLATE "C"`, actorID)
 	if err != nil {
 		return nil, err
 	}

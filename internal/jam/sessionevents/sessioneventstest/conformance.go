@@ -75,6 +75,13 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) sessionevents.Stor
 		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, Newest: true, Limit: 3, BeforeSeq: 8}); !slices.Equal(got, []uint64{5, 6, 7}) {
 			t.Fatalf("newest 3 before 8 = %v", got)
 		}
+		all := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, Newest: true, Limit: 50}); !slices.Equal(got, all) {
+			t.Fatalf("newest 50 of 10 = %v", got)
+		}
+		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, Newest: true}); !slices.Equal(got, all) {
+			t.Fatalf("newest, no limit = %v", got)
+		}
 		if got := seqs(sessionevents.Filter{ActorID: "a", StreamID: streamA, BeforeSeq: 3}); !slices.Equal(got, []uint64{1, 2}) {
 			t.Fatalf("before 3 = %v", got)
 		}
@@ -139,6 +146,19 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) sessionevents.Stor
 		got, err := s.Streams("w1")
 		must(t, err)
 		if len(got) != 2 || got[0].StreamID != streamB || got[1].StreamID != streamA || got[1].LastSeq != 2 || got[1].Events != 2 {
+			t.Fatalf("streams: %+v", got)
+		}
+	})
+
+	t.Run("streams with the same first event order by id", func(t *testing.T) {
+		// Ties on first ReceivedAt break by StreamID ascending, in every
+		// backend, so "the newest stream" is the same wherever it is asked.
+		s := newStore(t)
+		must(t, s.Append(ev("w1", streamB, 1, t0, `{}`)))
+		must(t, s.Append(ev("w1", streamA, 1, t0, `{}`)))
+		got, err := s.Streams("w1")
+		must(t, err)
+		if len(got) != 2 || got[0].StreamID != streamA || got[1].StreamID != streamB {
 			t.Fatalf("streams: %+v", got)
 		}
 	})
