@@ -89,6 +89,9 @@ the tab says so.
 
 All three give 404 to anyone who can't see the home channel (as for every route above), and 204 when events aren't recorded.
 An open `events` stream re-checks access every 25s (its keep-alive) and ends once the viewer loses it.
+When the stream is refused, the tab checks the pane: a 404 shows "This session is no longer available
+to you"; anything else (such as the 429) retries after 2s, 5s, and 15s, then shows "Too many Thinking
+views open".
 
 - **Filters:** Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
   one tool, and search matches the visible text.

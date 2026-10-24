@@ -3,8 +3,10 @@
 package userui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -12,7 +14,10 @@ import (
 
 	"github.com/chromedp/chromedp"
 
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/jam/sessionview"
 )
 
 // thinkRaw is one stream-json line as the store keeps it.
@@ -373,5 +378,95 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 		if s.Dividers[k] != v {
 			t.Errorf("divider %s = %q, want %q", k, s.Dividers[k], v)
 		}
+	}
+}
+
+// thinkOpen serves the inbox with a Thinking tab on a session with a few
+// events, opens it busy (so a "working…" line is last) and returns the
+// server and a JS state reader.
+func thinkOpen(t *testing.T, ctx context.Context) (*env, jam.Participant, *httptest.Server, string, func(string) string) {
+	t.Helper()
+	e, p, personal, store, _ := thinkEnv(t)
+	appendText(t, store, personal.ActorID, 1, 3)
+	srv := httptest.NewServer(asWho(withStatic(Handler(e.Deps, nil)), p))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	home := e.homeOf(t, personal)
+	if err := chromedp.Run(ctx, chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+home+"&tab=thinking"),
+		chromedp.Poll(`document.querySelectorAll('#thinking .th-list .te').length===3`, nil, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Evaluate(`document.querySelector('#session-head .sh-state').classList.add('busy'); meThWorking();`, nil)); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return e, p, srv, home, func(cls string) string {
+		t.Helper()
+		var out string
+		js := `(function(){var L=document.querySelector('#thinking .th-list'), m=L.querySelector('.` + cls + `');
+			return m ? m.textContent+(m.nextElementSibling && m.nextElementSibling.classList.contains('te-working') ? ' [before working]' : '') : '';})()`
+		if err := chromedp.Run(ctx, chromedp.Poll(js, &out, chromedp.WithPollingTimeout(10*time.Second))); err != nil {
+			t.Fatalf("waiting for .%s: %v", cls, err)
+		}
+		return out
+	}
+}
+
+// A viewer who loses the session sees why, above the "working…" line.
+func TestBrowserThinkingGone(t *testing.T) {
+	old := sessionview.KeepAlive
+	sessionview.KeepAlive = 50 * time.Millisecond
+	defer func() { sessionview.KeepAlive = old }()
+	ctx := browserCtx(t)
+	e, p, _, home, msg := thinkOpen(t, ctx)
+	if err := e.st.LeaveChannel(ident.ID(home), p.UserID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := msg("te-gone"); got != "This session is no longer available to you [before working]" {
+		t.Fatalf("gone message %q", got)
+	}
+}
+
+// A feed the server refuses (429: too many open) is retried with backoff,
+// then the tab says so.
+func TestBrowserThinkingTooMany(t *testing.T) {
+	ctx := browserCtx(t)
+	_, _, srv, _, msg := thinkOpen(t, ctx)
+	var id string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`meTh.id`, &id)); err != nil {
+		t.Fatal(err)
+	}
+	// hold opens a feed of the same viewer, kept open until the test ends.
+	hold := func() int {
+		c, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		req, _ := http.NewRequestWithContext(c, "GET", srv.URL+"/app/user/session/"+id+"/thinking/events", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+		}
+		return resp.StatusCode
+	}
+	for range maxThinkingStreams - 1 { // with the page's own: full
+		if c := hold(); c != http.StatusOK {
+			t.Fatalf("feed refused early: %d", c)
+		}
+	}
+	// Free the page's slot and take it, then reconnect the page.
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`meThBackoff=[20, 20, 20]; meTh.es.close();`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for hold() != http.StatusOK {
+		if time.Now().After(deadline) {
+			t.Fatal("the page's feed never released its slot")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`meThConnect(meTh.pinned, false)`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := msg("te-gone"); got != "Too many Thinking views open — close one, or reload [before working]" {
+		t.Fatalf("refused message %q", got)
 	}
 }

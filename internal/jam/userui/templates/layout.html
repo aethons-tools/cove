@@ -522,6 +522,9 @@ var meTh=null;
 var meThIcons={thinking:'💭',text:'💬',tool_call:'▶',tool_result:'◀',result:'─',gap:'⚠',progress:'·',other:'·'};
 // meThMax caps the lines the list holds (a var: the browser test lowers it).
 var meThMax=2000, meThClip=40;
+// meThBackoff spaces the retries of a feed the server refused (a var: the
+// browser test shortens it).
+var meThBackoff=[2000, 5000, 15000];
 // meThFmt renders a duration: 850ms, 2.1s, 1m 4s.
 function meThFmt(ms){
   ms=Math.max(0, Math.round(ms)||0);
@@ -590,6 +593,7 @@ function meThinkingClose(){
   if(!meTh) return;
   if(meTh.es) meTh.es.close();
   if(meTh.io) meTh.io.disconnect();
+  clearTimeout(meTh.retry);
   meTh=null;
 }
 // meThConnect (re)opens the feed on stream ('' = the newest), clearing the
@@ -597,6 +601,7 @@ function meThinkingClose(){
 function meThConnect(stream, clear){
   var t=meTh;
   if(t.es){ t.es.close(); t.es=null; }
+  clearTimeout(t.retry);
   t.pinned=stream;
   if(clear){ t.list.textContent=''; t.paused=false; meThSeen(); meThWorking(); }
   var es=new EventSource(meThBase()+'events'+(stream ? '?stream='+encodeURIComponent(stream) : ''));
@@ -613,9 +618,29 @@ function meThConnect(stream, clear){
     if(b) meThEnd();
     meThConnect('', false);
   });
+  on('open', function(){ t.tries=0; });
   on('error', function(){
-    if(es.readyState===EventSource.CLOSED) t.list.appendChild(meThLine('te-gone', 'This session is no longer available to you'));
+    if(es.readyState!==EventSource.CLOSED) return; // EventSource retries by itself
+    es.close(); t.es=null;
+    meThRefused(t, stream);
   });
+}
+// meThRefused handles a feed the server answered with other than a stream
+// (EventSource can't tell which): the pane's 404 means the viewer lost the
+// session; anything else (429 too many feeds, a 502) retries after each
+// meThBackoff delay, then says so.
+function meThRefused(t, stream){
+  function say(text){ t.list.insertBefore(meThLine('te-gone', text), meThTail()); }
+  fetch('/app/user/session/'+encodeURIComponent(t.id)+'/pane?tab=thinking')
+   .then(function(r){ return r.status; }, function(){ return 0; })
+   .then(function(st){
+     if(meTh!==t || t.es) return;
+     if(st===404){ say('This session is no longer available to you'); return; }
+     var n=t.tries||0;
+     if(n>=meThBackoff.length){ say('Too many Thinking views open — close one, or reload'); return; }
+     t.tries=n+1;
+     t.retry=setTimeout(function(){ if(meTh===t && !t.es) meThConnect(stream, true); }, meThBackoff[n]);
+   });
 }
 // meThinkingAdd puts one event line in the list: appended (following the
 // end), or, with at={before:node}, inserted before node without following.
