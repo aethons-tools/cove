@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -294,12 +295,19 @@ func TestReadTarFileTooLargeWhileStreaming(t *testing.T) {
 	}
 }
 
-// onOpen sets the before-open hook for one test.
-func onOpen(t *testing.T, f func(p string)) {
+// onHook sets the walk's test hook for one test, for the hook point at.
+func onHook(t *testing.T, at string, f func(p string)) {
 	t.Helper()
-	testHookBeforeOpen = f
-	t.Cleanup(func() { testHookBeforeOpen = nil })
+	testHook = func(a, p string) {
+		if a == at {
+			f(p)
+		}
+	}
+	t.Cleanup(func() { testHook = nil })
 }
+
+// onOpen hooks the window between a file's Lstat and its open.
+func onOpen(t *testing.T, f func(p string)) { t.Helper(); onHook(t, "open", f) }
 
 func TestReadDirRefusesFinalSymlinkSwappedIn(t *testing.T) {
 	// In the kit dir, the open succeeds and SameFile refuses; out of it, the
@@ -373,5 +381,68 @@ func TestReadDirIgnoredUnsafeNameIsNotRefused(t *testing.T) {
 		if _, err := ReadDir(openRoot(t, root), "kits/app"); err != nil {
 			t.Fatalf("%q: err = %q", rules, err)
 		}
+	}
+}
+
+func TestReadDirRefusesDirectorySwappedBeforeOpen(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/sub/f": "real", "kits/app/decoy/f": "decoy"})
+	onHook(t, "opendir", func(p string) {
+		if p == "kits/app/sub" {
+			sub := filepath.Join(root, "kits/app/sub")
+			if err := os.Rename(sub, filepath.Join(root, "moved")); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink("decoy", sub); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	if _, err := ReadDir(openRoot(t, root), "kits/app"); err == nil || err.Error() != "kits/app/sub: not a directory" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReadDirSkipsAnIgnoredEntryThatCannotBeStatted(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/.dockerignore": "*.log\n", "kits/app/a.log": "x"})
+	onHook(t, "listed", func(p string) {
+		if p == "kits/app" {
+			if err := os.Remove(filepath.Join(root, "kits/app/a.log")); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	if files, err := ReadDir(openRoot(t, root), "kits/app"); err != nil || paths(files) != ".dockerignore:-rw-r--r-- kit.yml:-rw-r--r--" {
+		t.Fatalf("files %s, %v", paths(files), err)
+	}
+}
+
+func TestReadDirCapsNestingDepth(t *testing.T) {
+	for depth, want := range map[int]string{64: "", 65: "kits/app: directories nested deeper than 64"} {
+		root := t.TempDir()
+		deep := "kits/app/" + strings.Repeat("d/", depth) + "f"
+		writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", deep: "x"})
+		_, err := ReadDir(openRoot(t, root), "kits/app")
+		if got := fmt.Sprint(err); (want == "" && err != nil) || (want != "" && got != want) {
+			t.Fatalf("%d levels: err = %v", depth, err)
+		}
+	}
+}
+
+func TestReadDirCapsEntriesPerDirectory(t *testing.T) {
+	withLimits(t, 2, 1<<20, 1<<20)
+	root := t.TempDir()
+	tree := map[string]string{"kits/app/kit.yml": "k", "kits/app/.dockerignore": "*.log\n"}
+	for i := range 6 {
+		tree[fmt.Sprintf("kits/app/%d.log", i)] = "x"
+	}
+	writeTree(t, root, tree)
+	if _, err := ReadDir(openRoot(t, root), "kits/app"); err != nil {
+		t.Fatalf("8 names (limit 8): err = %v", err)
+	}
+	writeTree(t, root, map[string]string{"kits/app/6.log": "x"})
+	if _, err := ReadDir(openRoot(t, root), "kits/app"); err == nil || err.Error() != "kits/app: more than 8 entries" {
+		t.Fatalf("err = %v", err)
 	}
 }

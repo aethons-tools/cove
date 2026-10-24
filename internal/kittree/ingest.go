@@ -91,11 +91,15 @@ func Ignore(files []File) ([]File, error) {
 // entries by name, a directory's files where its name sorts; Build sorts by
 // path).
 //
-// Its .dockerignore is applied as the walk goes: an ignored path is never
-// opened, read, counted or name-checked, so an ignored unsafe name is not
-// refused (with or without "!" rules). Symlinks (the kit directory and its
-// parents included), hard links and irregular files are refused, modes are
-// normalized and the tree limits hold, enforced as the walk reads.
+// Its .dockerignore is applied as the walk goes: an ignored path may be
+// statted (a failed stat skips it), never opened or read, counted against the
+// tree limits or name-checked, so an ignored unsafe name is not refused (with
+// or without "!" rules). The one exception: an ignored directory is still
+// walked when a "!" rule could re-include something beneath it. Symlinks (the
+// kit directory and its parents included), hard links and irregular files are
+// refused, modes are normalized and the tree limits hold, enforced as the
+// walk reads. Directories may nest at most 64 deep, and one directory may hold
+// at most 4×MaxEntries names (ignored ones included), read in batches.
 //
 // The walk holds each directory open and opens every name in it relative to
 // that handle, comparing what it opened with what it listed (os.SameFile), so
@@ -123,7 +127,7 @@ func ReadDir(root *os.Root, dir string) ([]File, error) {
 		return nil, err
 	}
 	w.ignoreData, w.ignoreMode = ignoreData, ignoreMode
-	if err := w.walk(kit, ""); err != nil {
+	if err := w.walk(kit, "", 0); err != nil {
 		return nil, err
 	}
 	return w.files, nil
@@ -159,12 +163,23 @@ func (w *dirWalk) at(rel string) string {
 	return w.show(rel)
 }
 
-// walk reads the directory open as r, at rel ("" for the kit dir).
-func (w *dirWalk) walk(r *os.Root, rel string) error {
-	ents, err := listDir(r)
+// maxDepth caps how deep directories nest below the kit dir.
+const maxDepth = 64
+
+// walk reads the directory open as r, at rel ("" for the kit dir), depth
+// directories below the kit dir.
+func (w *dirWalk) walk(r *os.Root, rel string, depth int) error {
+	if depth > maxDepth {
+		return inDir(w.dir, fmt.Errorf("directories nested deeper than %d", maxDepth))
+	}
+	ents, err := listDir(r, 4*MaxEntries)
+	if errors.Is(err, errTooManyNames) {
+		return fmt.Errorf("%s: more than %d entries", w.at(rel), 4*MaxEntries)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: cannot be read", w.at(rel))
 	}
+	hook("listed", w.show(rel))
 	for _, name := range ents {
 		p := path.Join(rel, name)
 		ignored, err := w.ig.Ignored(p)
@@ -173,6 +188,9 @@ func (w *dirWalk) walk(r *os.Root, rel string) error {
 		}
 		fi, err := r.Lstat(name)
 		if err != nil {
+			if ignored {
+				continue
+			}
 			return fmt.Errorf("%s: cannot be read", w.at(p))
 		}
 		if ignored && (!fi.IsDir() || w.ig.Prunes()) {
@@ -185,24 +203,19 @@ func (w *dirWalk) walk(r *os.Root, rel string) error {
 		}
 		switch {
 		case fi.Mode()&fs.ModeSymlink != 0:
-			if ignored {
-				continue
-			}
 			return fmt.Errorf("%s: symlinks are not allowed", w.show(p))
 		case fi.IsDir():
 			// An ignored directory is still walked when a "!" rule could
 			// re-include something beneath it.
-			sub, err := openSub(r, name, fi)
+			sub, err := openSub(r, name, fi, w.show(p))
 			if err != nil {
 				return fmt.Errorf("%s: %w", w.at(p), err)
 			}
-			err = w.walk(sub, p)
+			err = w.walk(sub, p, depth+1)
 			sub.Close()
 			if err != nil {
 				return err
 			}
-			continue
-		case ignored:
 			continue
 		case !fi.Mode().IsRegular():
 			return fmt.Errorf("%s: not a regular file", w.show(p))
@@ -225,16 +238,30 @@ func (w *dirWalk) walk(r *os.Root, rel string) error {
 	return nil
 }
 
-// listDir lists the directory open as r, by name.
-func listDir(r *os.Root) ([]string, error) {
+var errTooManyNames = errors.New("too many names")
+
+// listDir lists the directory open as r, by name, reading the names in
+// batches and stopping with errTooManyNames past max (ignored names count
+// too), so one huge directory cannot exhaust memory.
+func listDir(r *os.Root, max int) ([]string, error) {
 	f, err := r.Open(".")
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	names, err := f.Readdirnames(-1)
-	if err != nil {
-		return nil, err
+	var names []string
+	for {
+		batch, err := f.Readdirnames(256)
+		names = append(names, batch...)
+		if len(names) > max {
+			return nil, errTooManyNames
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	slices.Sort(names)
 	return names, nil
@@ -243,7 +270,8 @@ func listDir(r *os.Root) ([]string, error) {
 // openSub opens the directory name in r, which must be the directory want
 // that r listed: a symlink or other directory swapped in is refused as "not a
 // directory", an open failure is "cannot be read".
-func openSub(r *os.Root, name string, want fs.FileInfo) (*os.Root, error) {
+func openSub(r *os.Root, name string, want fs.FileInfo, p string) (*os.Root, error) {
+	hook("opendir", p)
 	sub, err := r.OpenRoot(name)
 	if err != nil {
 		return nil, errors.New("cannot be read")
@@ -272,7 +300,7 @@ func openDirChain(root *os.Root, dir string) (*os.Root, error) {
 			cur.Close()
 			return nil, fmt.Errorf("%s: not a directory", dir)
 		}
-		sub, err := openSub(cur, name, fi)
+		sub, err := openSub(cur, name, fi, dir)
 		cur.Close()
 		if err != nil {
 			return nil, fmt.Errorf("%s: not a directory", dir)
@@ -327,9 +355,7 @@ func (w *dirWalk) readIgnorer(kit *os.Root) ([]byte, fs.FileMode, error) {
 // It opens non-blocking where the platform has FIFOs (a FIFO swapped in
 // cannot hang it) and reads at most MaxFile+1 bytes. Errors name p.
 func readRegular(r *os.Root, name string, want fs.FileInfo, p string) ([]byte, fs.FileMode, error) {
-	if testHookBeforeOpen != nil {
-		testHookBeforeOpen(p)
-	}
+	hook("open", p)
 	f, err := r.OpenFile(name, os.O_RDONLY|openFlags, 0)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: cannot be read", p)
@@ -352,9 +378,17 @@ func readRegular(r *os.Root, name string, want fs.FileInfo, p string) ([]byte, f
 	return data, fi.Mode(), nil
 }
 
-// testHookBeforeOpen, when set by a test, runs between a file's check and its
-// open, with the file's display path.
-var testHookBeforeOpen func(p string)
+// testHook, when set by a test, runs at the walk's race windows with the
+// display path: "open" between a file's Lstat and its open, "opendir"
+// between a directory's Lstat and its open, "listed" after a directory is
+// listed.
+var testHook func(at, p string)
+
+func hook(at, p string) {
+	if testHook != nil {
+		testHook(at, p)
+	}
+}
 
 // MaxUpload caps a push body: the files, a header block per file with room
 // for PAX records, and the end blocks.
