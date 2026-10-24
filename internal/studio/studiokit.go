@@ -43,6 +43,10 @@ type StudioKit struct {
 	// into the image at /etc/cove/mcp-servers.json (env references only — never
 	// secret values; see kit.ValidateMCPServers).
 	MCPServers map[string]kit.MCPServer `yaml:"mcp-servers,omitempty" json:"mcp-servers,omitempty"`
+	// BuildContext is the tree hash of the kit's build context (its tree minus
+	// kit.yml) when a Dockerfile sits next to kit.yml; "" otherwise. Set by
+	// ParseTree, never serialized; build-affecting (BuildDigest).
+	BuildContext string `yaml:"-" json:"-"`
 }
 
 // ParseStudioKit unmarshals and validates studio-kit YAML. Unknown fields are

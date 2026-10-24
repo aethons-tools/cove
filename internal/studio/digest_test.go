@@ -142,3 +142,38 @@ func TestBuildDigestGolden(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildDigestBuildContext pins the formula: today's payload with
+// "buildContext" after "base", omitted when empty — so a kit without a
+// Dockerfile keeps its digest exactly.
+func TestBuildDigestBuildContext(t *testing.T) {
+	h := harnessinstall.Default()
+	sk := StudioKit{Kind: Kind, Egress: []string{"b.com", "a.com"}, Prompt: "p"}
+	old := hashDigest(struct {
+		Base       Base                     `json:"base"`
+		Egress     []string                 `json:"egress"`
+		BuildArgs  map[string]string        `json:"buildArgs"`
+		MCPServers map[string]kit.MCPServer `json:"mcpServers,omitempty"`
+		Harness    harnessinstall.Install   `json:"harness"`
+	}{Base: sk.Base, Egress: normEgress(sk.Egress), BuildArgs: normBuildArgs(nil), Harness: normHarness(h)})
+	if got := BuildDigest(sk, h); got != old {
+		t.Fatalf("a kit without a build context changed digest: %s != %s", got, old)
+	}
+	withCtx := sk
+	withCtx.BuildContext = "abc"
+	if BuildDigest(withCtx, h) == old {
+		t.Fatal("a build context must key the digest")
+	}
+	edited := withCtx
+	edited.Prompt = "other"
+	if BuildDigest(edited, h) != BuildDigest(withCtx, h) {
+		t.Fatal("a prompt edit must keep the digest")
+	}
+	parent := StudioKit{Kind: Kind}
+	child := StudioKit{Kind: Kind, Base: Base{Kit: "p"}, BuildContext: "c1"}
+	child2 := child
+	child2.BuildContext = "c2"
+	if ChainDigest([]StudioKit{parent, child}, h) == ChainDigest([]StudioKit{parent, child2}, h) {
+		t.Fatal("a link's build context must key the chain digest")
+	}
+}

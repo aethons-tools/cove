@@ -91,26 +91,14 @@ func storedContextNode(stored string) (*yaml.Node, *yaml.Node) {
 	if yaml.Unmarshal([]byte(stored), &doc) != nil || len(doc.Content) != 1 {
 		return nil, nil
 	}
-	base := mapValue(doc.Content[0], "base")
+	base := studio.MapValue(doc.Content[0], "base")
 	if base == nil {
 		return nil, nil
 	}
-	if c := mapValue(base, "context"); c != nil && c.Kind == yaml.ScalarNode {
+	if c := studio.MapValue(base, "context"); c != nil && c.Kind == yaml.ScalarNode {
 		return &doc, c
 	}
 	return nil, nil
-}
-
-func mapValue(m *yaml.Node, key string) *yaml.Node {
-	if m.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
 }
 
 // pathText is a tar name as shown: SetupDisplayText's escaping, with \n and
