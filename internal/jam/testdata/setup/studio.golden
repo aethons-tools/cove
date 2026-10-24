@@ -1,0 +1,310 @@
+# studio w1
+
+== identity (config)
+project: default
+role: dev
+session kind: ephemeral
+studio: w1
+phase: live
+raised at: 1970-01-01T00:16:40Z
+
+== context (snapshot, 1970-01-01T00:16:40Z)
+FILE                                                 BYTES
+/agent-data/context/CORE.md                          2521
+/agent-data/context/INDEX.md                         501
+/agent-data/context/boilerplate/changing-the-kit.md  828
+/agent-data/context/boilerplate/hardening-limits.md  1196
+/agent-data/context/kit/a.md                         73
+/agent-data/context/kit/b.md                         73
+/agent-data/context/kit/c.md                         73
+/agent-data/context/kit/tools.md                     287
+
+core budget used:
+  boilerplate 1262/2400 B
+  kit 24/800 B
+  studio 396/1600 B
+
+--- /agent-data/context/CORE.md
+# Session context
+
+Sandbox hardening is enforced and cannot be overridden. Otherwise, on conflict the later section wins: Jam rules > Role > Project > Studio > Kit > Boilerplate. Your task (the first message) works within all of them.
+
+Detail lives in /agent-data/context/ — open a file only when its "read when" matches your task. Map: /agent-data/context/INDEX.md
+
+## Boilerplate
+You are an ephemeral worker session for role dev in project default, running in a Jam-managed at-cove sandbox.
+- Sandbox: isolated filesystem; network egress is allow-listed through an in-cove proxy (`http(s)_proxy=http://127.0.0.1:3128`) and nftables drops the rest. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data (your `CLAUDE_CONFIG_DIR`: settings, history, login) persist; installed packages and env tweaks reset when the cove is rebuilt.
+- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn. Ending your turn is how you wait.
+- Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. `send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message).
+- Changing the sandbox (a domain, a tool) is human-gated: you cannot rebuild your own cove and must never weaken the hardening. How: boilerplate/changing-the-kit.md; what no one can change from inside: boilerplate/hardening-limits.md.
+- boilerplate/changing-the-kit.md — read when you need an egress domain, tool or env var the sandbox lacks
+- boilerplate/hardening-limits.md — read when a request or setting is blocked and you are about to work around the proxy, nftables, sshd or a sealed setting
+
+## Kit — my-app@v2
+root prompt
+
+leaf prompt
+- kit/a.md — read when root a
+- kit/b.md — read when leaf b
+- kit/c.md — read when leaf c
+- kit/tools.md — read when you need which tool versions the image has
+
+## Studio
+Destinations via Jam (credentials are injected for you; never ask for them):
+- `anthropic` → https://api.anthropic.com; env ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
+- `gh` → https://api.github.com; env GH_HOST, GH_TOKEN; https://api.github.com/ is routed through Jam
+Egress (other hosts are blocked): github.com, npmjs.org, pkg.go.dev, plus the sealed base and Jam's own routes.
+
+--- /agent-data/context/INDEX.md
+# Session context index
+
+Open a file only when its "read when" matches your task.
+
+| File | Read when |
+|------|-----------|
+| boilerplate/changing-the-kit.md | you need an egress domain, tool or env var the sandbox lacks |
+| boilerplate/hardening-limits.md | a request or setting is blocked and you are about to work around the proxy, nftables, sshd or a sealed setting |
+| kit/a.md | root a |
+| kit/b.md | leaf b |
+| kit/c.md | leaf c |
+| kit/tools.md | you need which tool versions the image has |
+
+--- /agent-data/context/boilerplate/changing-the-kit.md
+---
+summary: boilerplate layer — changing-the-kit.md
+read_when: you need an egress domain, tool or env var the sandbox lacks
+tier: leaf
+---
+
+# Changing the kit
+
+You cannot rebuild your own cove or widen its access. When you need something the sandbox lacks:
+
+1. Work out the exact change: an egress domain, a tool and version, an env var.
+2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit `kit.yml` (`egress:`, `build-args:`, `base:`), or the role's egress policy (`at-jam egress set`), which an operator manages.
+3. It takes effect after the kit is pushed (`at-jam kit push`) and the cove is re-raised; an egress-policy change applies at the next raise.
+
+A one-off install or `export` in this session is fine for now but will not survive a rebuild.
+
+--- /agent-data/context/boilerplate/hardening-limits.md
+---
+summary: boilerplate layer — hardening-limits.md
+read_when: a request or setting is blocked and you are about to work around the proxy, nftables, sshd or a sealed setting
+tier: leaf
+---
+
+# What no one changes from inside
+
+Your cove is built kit base → harness → hardening. The hardening layer is applied last, is a security boundary, and always wins; neither you nor the kit can alter what it owns:
+
+- **Egress**: the proxy and the nftables rules. Your effective allow-list is your role's egress policy (`at-jam egress set`, operator-managed) inside the kit's ceiling; it is applied as root before you start and may be re-applied while you run. You cannot change it from inside.
+- **sshd, the entrypoint and the git credential helper.**
+- **The managed agent settings** (`/etc/claude-code/managed-settings.json`).
+- **The sealed environment**: `CLAUDE_CONFIG_DIR` (always /agent-data) and the proxy variables.
+
+The docs and skills under /agent-data come from the kit's image, not the hardening, and this session context comes from Jam.
+
+If you believe the hardening itself must change, stop and explain why to a human — it is not something a kit change or an egress policy can grant.
+
+--- /agent-data/context/kit/a.md
+---
+summary: kit layer — a.md
+read_when: root a
+tier: leaf
+---
+
+ROOT-A
+
+--- /agent-data/context/kit/b.md
+---
+summary: kit layer — b.md
+read_when: leaf b
+tier: leaf
+---
+
+LEAF-B
+
+--- /agent-data/context/kit/c.md
+---
+summary: kit layer — c.md
+read_when: leaf c
+tier: leaf
+---
+
+LEAF-C
+
+--- /agent-data/context/kit/tools.md
+---
+summary: kit layer — tools.md
+read_when: you need which tool versions the image has
+tier: leaf
+---
+
+Tools and versions this kit's image was built with (its build-args):
+
+| Tool | Version / value |
+|------|-----------------|
+| NPM_TOKEN | «masked» |
+| go | 1.27.1 |
+| node | 22 |
+-- same as a raise now
+
+== egress (snapshot, 1970-01-01T00:16:40Z)
+policy: kit default
+kit ceiling: 3 domain(s)
+HOST        FROM
+github.com  kit
+npmjs.org   kit
+pkg.go.dev  kit
+
+sealed base (always on):
+HOST            FROM
+.anthropic.com  sealed
+.github.com     sealed
+-- same as a raise now
+
+== destinations (config)
+anthropic
+  route:       /anthropic/
+  upstream:    https://api.anthropic.com
+  identity-in: x-api-key
+  apply:       x-api-key
+  credential:  anthropic-key
+  git:         no
+  allow-paths: any
+  env keys:    ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL
+gh
+  route:       /gh/
+  upstream:    https://api.github.com
+  identity-in: bearer
+  apply:       custom (header Authorization, template "token {cred}")
+  credential:  gh-bot
+  git:         routed (https://api.github.com/)
+  allow-paths: any
+  env keys:    GH_HOST, GH_TOKEN
+-- same as a raise now
+
+== env (snapshot, 1970-01-01T00:16:40Z)
+ANTHROPIC_API_KEY=«identity token»
+ANTHROPIC_BASE_URL={base}/anthropic
+AT_HARBOR_IDENTITY_TOKEN=«identity token»
+AT_JAM_IDENTITY_TOKEN=«identity token»
+GH_HOST={host}
+GH_TOKEN=«masked»
+git: https://api.github.com/ → {base}/gh/
+model-spec: spec1
+
+image env (sha256:01234):
+  PATH=/usr/bin
+  DB_PASSWORD=«masked»
+  COVE_SSHENV=GOPATH:GOPROXY
+  API_KEY=«masked»
+transferred into sessions (COVE_SSHENV): GOPATH, GOPROXY
+-- same as a raise now
+
+== model (config)
+{
+  "claude": {
+    "provider": "anthropic",
+    "provider-env": {
+      "VERTEX_API_KEY": "«masked»"
+    },
+    "settings": {
+      "env": {
+        "FOO_TOKEN": "«masked»"
+      }
+    }
+  },
+  "name": "spec1",
+  "principal": {
+    "credential": "anthropic-key",
+    "headers": [
+      {
+        "name": "X-Extra",
+        "set": "«masked»"
+      }
+    ]
+  },
+  "type": "claude",
+  "version": "2.1.0"
+}
+-- same as a raise now
+
+== kit (snapshot, 1970-01-01T00:16:40Z)
+kit: my-app@v2 digest <hex>
+chain (root first): default@v1 → web-dev@v1 → my-app@v2
+image tag: cove-kit:<hex>-asm1
+provenance (root first):
+  KIT         SOURCE
+  default@v1  local file, pushed <time>
+  web-dev@v1  local file, pushed <time>
+  my-app@v2   local file, pushed <time>
+build args:
+  GO_VERSION=1.27.1
+  NODE_VERSION=22
+  NPM_TOKEN=«masked»
+image id: sha256:<hex>
+labels:
+  evil=invalid
+  org.opencontainers.image.source=https://github.com/x/y
+-- same as a raise now
+
+== seed (image)
+image: sha256:01234
+
+--- /agent-data/CLAUDE.md
+Read these:
+@SANDBOX.md
+@../escape.md
+deploy with «masked»
+
+--- /agent-data/SANDBOX.md (imported)
+sandbox rules
+
+skills:
+  NAME        DESCRIPTION
+  docs-audit  Check the docs
+
+--- /agent-data/settings.json (secret-named values masked)
+{
+  "env": {
+    "GH_TOKEN": "«masked»"
+  },
+  "model": "opus"
+}
+
+re-copied every boot (.refresh): CLAUDE.md, skills
+
+other files:
+  PATH                        SIZE
+  /agent-data/.claude.json    210 B
+  /agent-data/reference/x.md  3 B
+
+(seed listing truncated at 200 entries)
+-- same as a raise now
+
+== mcp (config)
+kit servers:
+  NAME    TYPE   URL/COMMAND                  HEADERS
+  api     stdio  api-mcp (+2 args)            -
+  docs    stdio  docs-mcp                     -
+  remote  http   https://mcp.example.com/mcp  Authorization
+intercom (cove-master mcp, always loaded): alarm_clear, alarm_list, alarm_set, amend, ask, asks, board_apply, board_create, board_read, board_snapshot, boards, call_in, commit, end, escalate, expose, exposures, fetch, idle_timeout, leave, list_targets, read, report, send, unexpose, withdraw
+-- same as a raise now
+
+== policy (config)
+allocation: max-ephemeral unset, max-personal 0, max-personal-per-owner pool only
+personal idle: idle-after 4h0m0s, nag-every 24h0m0s, reclaim-after never
+standing: none
+turn-end: idle-timeout none, on-idle wake, time-zone UTC
+collaborate: preview members, ssh none
+escalation (default): none
+idle override: none
+alarms: none
+-- diff (- this studio, + a raise now)
+… 3 unchanged line(s)
+  turn-end: idle-timeout none, on-idle wake, time-zone UTC
+  collaborate: preview members, ssh none
+  escalation (default): none
+- idle override: none
+- alarms: none
