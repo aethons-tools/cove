@@ -922,3 +922,58 @@ func TestBrowserServiceWorkerRobust(t *testing.T) {
 		t.Errorf("robust = %s\nwant     %s", got, want)
 	}
 }
+
+// Shift+Enter inserts a newline; Ctrl+Enter (headless Chrome reports Linux)
+// sends.
+func TestBrowserComposerSendKey(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p := fixture()
+	h := withStatic(Handler(e.Deps, nil))
+	sent := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/user/send" {
+			b, _ := io.ReadAll(r.Body)
+			sent <- string(b)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.ServeHTTP(w, jam.WithParticipant(r, p))
+	}))
+	defer srv.Close()
+	box := `.composer textarea`
+	var val, kbd string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
+		chromedp.WaitVisible(box, chromedp.ByQuery),
+		chromedp.Click(box, chromedp.ByQuery),
+		chromedp.SendKeys(box, "line one", chromedp.ByQuery),
+		chromedp.KeyEvent("\r", chromedp.KeyModifiers(input.ModifierShift)),
+		chromedp.SendKeys(box, "line two", chromedp.ByQuery),
+		chromedp.Value(box, &val, chromedp.ByQuery),
+		chromedp.Text(`.composer kbd`, &kbd, chromedp.ByQuery),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if val != "line one\nline two" {
+		t.Fatalf("after Shift+Enter the box holds %q", val)
+	}
+	select {
+	case b := <-sent:
+		t.Fatalf("Shift+Enter sent %s", b)
+	default:
+	}
+	if kbd != "Ctrl+↵" {
+		t.Fatalf("send key label %q off a Mac", kbd)
+	}
+	if err := chromedp.Run(ctx, chromedp.KeyEvent("\r", chromedp.KeyModifiers(input.ModifierCtrl))); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case b := <-sent:
+		if !strings.Contains(b, `line one\nline two`) {
+			t.Fatalf("sent %s", b)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Ctrl+Enter didn't send")
+	}
+}
