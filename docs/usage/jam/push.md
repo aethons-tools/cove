@@ -126,14 +126,20 @@ settings stay in this browser.
 
 - **While a Jam window is open** (even a background tab), the Inbox plays the
   chime when something changes: Needs you when a conversation starts needing
-  you, else Messages when one has more unread. It stays quiet for the
-  conversation you are looking at, and plays at most one chime a second.
-  Browsers play sound only after you've clicked or typed in the page once.
+  you (an ask, a call-in or escalation, or a session waiting on a person),
+  else Messages when one has more unread. It stays quiet for the
+  conversation you are looking at. Across your open Jam tabs it plays at
+  most one chime a second (a Needs you chime still plays right after a
+  Messages one; anything else in that second is dropped, not queued).
+  Browsers play sound only after you've clicked or typed in the page once;
+  until then the page stays quiet rather than chiming late.
 - **Push notifications** can't carry a custom sound — the web gives a
-  notification only the OS's sound or none. Jam makes a push **silent** when
-  an Inbox window is open (it already chimed) or when that kind's sound is
-  Off; otherwise the OS plays its notification sound (on macOS, set per app
-  under System Settings → Notifications). Each push says which kind it is.
+  notification only the OS's sound or none. Jam makes a push **silent** while
+  a Jam page that can chime (clicked at least once, not frozen) has checked
+  in within the last 90 seconds, or when that kind's sound is Off; otherwise
+  the OS plays its notification sound (on macOS, set per app under System
+  Settings → Notifications). Each push says which kind it is (`needs` for an
+  ask, call-in or escalation).
 
 ## Privacy and previews
 

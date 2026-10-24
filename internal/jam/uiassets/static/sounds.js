@@ -29,19 +29,38 @@
     } catch (_) { return Object.assign({}, DEFAULTS); }
   }
 
-  // store saves the settings for the page and, in IndexedDB, for the service
-  // worker.
-  function store(s) {
-    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
+  // put writes value under key in IndexedDB "jam"/"prefs", where the service
+  // worker reads it.
+  function put(key, value) {
     try {
       var req = indexedDB.open('jam', 1);
       req.onupgradeneeded = function () { req.result.createObjectStore('prefs'); };
       req.onsuccess = function () {
-        var tx = req.result.transaction('prefs', 'readwrite');
-        tx.objectStore('prefs').put(s, 'sounds');
-        tx.oncomplete = function () { req.result.close(); };
+        try {
+          var tx = req.result.transaction('prefs', 'readwrite');
+          tx.objectStore('prefs').put(value, key);
+          tx.oncomplete = function () { req.result.close(); };
+        } catch (_) { req.result.close(); }
       };
     } catch (_) {}
+  }
+
+  // store saves the settings for the page and for the service worker.
+  function store(s) {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
+    put('sounds', s);
+  }
+
+  // While this page can actually chime (its audio unlocked), it says so every
+  // 20 s; the service worker silences a push only while such a heartbeat is
+  // fresh, so a frozen or never-clicked tab never swallows a push's sound.
+  var beating = false;
+  function heartbeat() {
+    if (beating) return;
+    beating = true;
+    var beat = function () { if (ctx && ctx.state === 'running') put('chimer', Date.now()); };
+    beat();
+    setInterval(beat, 20000);
   }
 
   var ctx = null;
@@ -51,19 +70,24 @@
       if (!AC) return null;
       ctx = new AC();
     }
-    if (ctx.state === 'suspended') ctx.resume().catch(function () {});
     return ctx;
   }
   // Browsers start audio only after a user gesture: unlock on the first one.
   ['pointerdown', 'keydown'].forEach(function (ev) {
-    document.addEventListener(ev, function () { audio(); }, { once: true, capture: true });
+    document.addEventListener(ev, function () {
+      var ac = audio();
+      if (ac && ac.state !== 'running') ac.resume().then(heartbeat).catch(function () {});
+      else if (ac) heartbeat();
+    }, { once: true, capture: true });
   });
 
-  // tone plays chime name at volume.
+  // tone plays chime name at volume, only if audio is running now — a chime
+  // scheduled on a locked context would play late, in a burst, on the first
+  // click.
   function tone(name, volume) {
     var notes = CHIMES[name];
     var ac = notes && volume > 0 && audio();
-    if (!ac) return false;
+    if (!ac || ac.state !== 'running') return false;
     var now = ac.currentTime;
     notes.forEach(function (n) {
       var osc = ac.createOscillator(), gain = ac.createGain();
@@ -79,16 +103,25 @@
     return true;
   }
 
-  var last = 0;
-  // jamSound.play plays kind's chime ("messages" or "needs"), at most one
-  // chime per second; it reports whether a sound was started.
+  // recent reports whether any Jam tab in this browser chimed in the last
+  // second, and at which priority (a Needs you chime is never held back by a
+  // Messages one).
+  function recent(kind) {
+    try {
+      var l = JSON.parse(localStorage.getItem(KEY + '-last') || '{}');
+      if (Date.now() - (l.at || 0) >= 1000) return false;
+      return !(kind === 'needs' && l.kind !== 'needs');
+    } catch (_) { return false; }
+  }
+  // jamSound.play plays kind's chime ("messages" or "needs") — at most one a
+  // second across this browser's Jam tabs; it reports whether one played.
   window.jamSound = {
     play: function (kind) {
       var s = load(), name = s[kind];
-      if (!name || name === 'off' || Date.now() - last < 1000) return false;
-      last = Date.now();
-      window.jamSound.last = kind;
-      return tone(name, s.volume);
+      if (!name || name === 'off' || recent(kind)) return false;
+      if (!tone(name, s.volume)) return false;
+      try { localStorage.setItem(KEY + '-last', JSON.stringify({ at: Date.now(), kind: kind })); } catch (_) {}
+      return true;
     },
     settings: load,
   };
@@ -99,7 +132,10 @@
   if (!btn) return;
   var panel = document.getElementById('sounds-panel');
   btn.hidden = false;
-  btn.addEventListener('click', function () { panel.hidden = !panel.hidden; });
+  btn.addEventListener('click', function () {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute('aria-expanded', String(!panel.hidden));
+  });
   function opts(sel, value) {
     sel.innerHTML = '';
     ['off'].concat(Object.keys(CHIMES)).forEach(function (n) {
@@ -119,7 +155,9 @@
   panel.querySelectorAll('[data-preview]').forEach(function (b) {
     b.addEventListener('click', function () {
       var sel = b.dataset.preview === 'needs' ? needs : msg;
-      tone(sel.value, Number(vol.value) / 100);
+      var ac = audio(); // a click: audio may start now
+      var go = function () { tone(sel.value, Number(vol.value) / 100); heartbeat(); };
+      if (ac && ac.state !== 'running') ac.resume().then(go).catch(function () {}); else go();
     });
   });
 })();

@@ -42,9 +42,10 @@ function jamNotice(p, prev, silent) {
   };
 }
 
-// jamSoundPrefs is this device's Sounds settings (sounds.js stores them in
-// IndexedDB "jam", store "prefs", key "sounds"), or null.
-function jamSoundPrefs() {
+// jamPref is key from IndexedDB "jam", store "prefs" (sounds.js writes
+// "sounds", this device's settings, and "chimer", when a page last could
+// chime), or null.
+function jamPref(key) {
   return new Promise((resolve) => {
     try {
       const req = indexedDB.open('jam', 1);
@@ -52,7 +53,7 @@ function jamSoundPrefs() {
       req.onerror = () => resolve(null);
       req.onsuccess = () => {
         try {
-          const get = req.result.transaction('prefs').objectStore('prefs').get('sounds');
+          const get = req.result.transaction('prefs').objectStore('prefs').get(key);
           get.onsuccess = () => { resolve(get.result || null); req.result.close(); };
           get.onerror = () => { resolve(null); req.result.close(); };
         } catch (_) { resolve(null); }
@@ -61,11 +62,12 @@ function jamSoundPrefs() {
   });
 }
 
-// jamSilent reports whether a push of kind should make no sound: a Jam Inbox
-// window is open (it plays its own chime), or this device turned that kind's
-// sound Off. Otherwise the OS plays its notification sound.
-function jamSilent(kind, prefs, urls) {
-  if (jamPickClient(urls) >= 0) return true;
+// jamSilent reports whether a push of kind should make no sound: a Jam page
+// that can chime (its audio unlocked) said so in the last 90 s — chimerAt,
+// from sounds.js — so it plays its own chime; or this device turned that
+// kind's sound Off. Otherwise the OS plays its notification sound.
+function jamSilent(kind, prefs, chimerAt, now) {
+  if (typeof chimerAt === 'number' && now - chimerAt < 90000) return true;
   const k = kind === 'needs' ? 'needs' : 'messages';
   return !!(prefs && prefs[k] === 'off');
 }
@@ -100,8 +102,7 @@ self.addEventListener('push', (e) => {
     try {
       const open = await self.registration.getNotifications({ tag: jamStr(p.channel) || 'jam' });
       const prev = open.length ? open[open.length - 1].data : null;
-      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const silent = jamSilent(jamStr(p.kind), await jamSoundPrefs(), wins.map((c) => c.url));
+      const silent = jamSilent(jamStr(p.kind), await jamPref('sounds'), await jamPref('chimer'), Date.now());
       const nt = jamNotice(p, prev, silent);
       await self.registration.showNotification(nt.title, nt.options);
     } catch (_) {

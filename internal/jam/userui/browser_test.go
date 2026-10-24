@@ -971,8 +971,8 @@ func TestBrowserComposerSendKey(t *testing.T) {
 	}
 }
 
-// The service worker silences a push when an Inbox window is open (it chimes
-// itself) or the kind's sound is Off; otherwise the OS sound plays.
+// The service worker silences a push while a page that can chime has said so
+// recently, or when the kind's sound is Off; otherwise the OS sound plays.
 func TestBrowserServiceWorkerSilent(t *testing.T) {
 	ctx := browserCtx(t)
 	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
@@ -984,12 +984,12 @@ func TestBrowserServiceWorkerSilent(t *testing.T) {
 		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
 		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
   (0, eval)(src);
-  var o = 'https://jam.example', off = {messages: 'off', needs: 'chime'};
+  var now = 1e12, off = {messages: 'off', needs: 'chime'};
   return JSON.stringify([
-    jamSilent('messages', null, [o + '/app/user/?c=1']),
-    jamSilent('messages', null, [o + '/app/admin/']),
-    jamSilent('messages', off, []),
-    jamSilent('needs', off, []),
+    jamSilent('messages', null, now - 30000, now),
+    jamSilent('messages', null, now - 200000, now),
+    jamSilent('messages', off, null, now),
+    jamSilent('needs', off, null, now),
     jamNotice({}, null, true).options.silent,
     jamNotice({}, null).options.silent]);
 })`, &got, await),
