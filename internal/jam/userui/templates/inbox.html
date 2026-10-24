@@ -22,7 +22,7 @@
     <div class="group{{if eq (printf "%s" .Bucket) "needs-you"}} attention{{end}}">
       <div class="group-h">{{.Title}} <span class="count">{{len .Rows}}</span></div>
       {{range .Rows}}
-        <a class="thread{{if .Selected}} sel{{end}}" href="/app/user/?c={{.ID}}">
+        <a class="thread{{if .Selected}} sel{{end}}" data-ch="{{.ID}}" data-unread="{{.Unread}}" data-needs="{{.NeedsYou}}" href="/app/user/?c={{.ID}}">
           <span class="pin {{if .NeedsYou}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
           <span class="cove">{{.Label}}</span>
           {{if gt .OpenAsks 0}}<span class="badge asks" title="open asks">?{{.OpenAsks}}</span>{{end}}

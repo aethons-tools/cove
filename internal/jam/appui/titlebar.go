@@ -42,6 +42,9 @@ type Titlebar struct {
 	// Notifications toggle (a member, push configured); "" hides it.
 	PushScript string
 	PushUser   string // the member's user id, so push.js keys its per-session state by user
+	// SoundsScript is sounds.js's URL for a member: the menu's per-device
+	// Sounds settings, and the chimes the Inbox plays.
+	SoundsScript string
 }
 
 // Shell is what the gate puts on the context for the title bar.
@@ -87,6 +90,7 @@ func TitlebarFor(r *http.Request, current string) Titlebar {
 	if p.User != nil {
 		roles = append(roles, "member")
 		tb.Tabs = append(tb.Tabs, userTabs...)
+		tb.SoundsScript = uiassets.ScriptHref("/app/static/", "sounds.js")
 		if sh.Push {
 			tb.PushScript = uiassets.ScriptHref("/app/static/", "push.js")
 			tb.PushUser = string(p.User.UserID)

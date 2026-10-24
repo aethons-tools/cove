@@ -24,6 +24,10 @@ type Payload struct {
 	Channel string `json:"channel"`
 	ID      string `json:"id"`
 	Unread  int    `json:"unread"`
+	// Kind is "needs" for something that needs the recipient (an ask, a
+	// call-in, an escalation), else "messages": which of the device's two
+	// sounds applies (sounds.js).
+	Kind string `json:"kind"`
 }
 
 // Build is the notification of squawk m for rc: title "<sender> ·
@@ -42,6 +46,7 @@ func Build(r Reader, m intercom.Squawk, rc Recipient, unread int, preview bool) 
 		Channel: string(m.Channel),
 		ID:      m.ID,
 		Unread:  unread,
+		Kind:    kind(m),
 	}
 	if preview {
 		p.Body = body(m)
@@ -52,6 +57,17 @@ func Build(r Reader, m intercom.Squawk, rc Recipient, unread int, preview bool) 
 		p.ID = ""
 	}
 	return p
+}
+
+// kind is which sound m's notification takes.
+func kind(m intercom.Squawk) string {
+	if ev, ok := intercom.AskOf(m); ok && ev.Event == intercom.AskEventAsk {
+		return "needs"
+	}
+	if jam.IsCallInNotice(m.ID) || jam.IsEscalationNotice(m.ID) {
+		return "needs"
+	}
+	return "messages"
 }
 
 // body is m's notification text, prefixed by what it is.

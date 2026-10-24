@@ -23,7 +23,7 @@ function jamPayload(v) {
 // showing for that conversation (null: none). A conversation keeps one
 // notification: a newer push replaces it, counting the messages it stands
 // for. Fields of the wrong type read as missing.
-function jamNotice(p, prev) {
+function jamNotice(p, prev, silent) {
   const n = ((prev && typeof prev.n === 'number' && prev.n > 0) ? prev.n : 0) + 1;
   const text = jamStr(p.body);
   const body = n > 1 ? n + ' new messages' + (text ? ' · latest: ' + text : '') : (text || 'New message');
@@ -34,11 +34,40 @@ function jamNotice(p, prev) {
       body: body,
       tag: channel || 'jam',
       renotify: true,
+      silent: !!silent,
       icon: ICON,
       badge: BADGE,
       data: { channel: channel, n: n },
     },
   };
+}
+
+// jamSoundPrefs is this device's Sounds settings (sounds.js stores them in
+// IndexedDB "jam", store "prefs", key "sounds"), or null.
+function jamSoundPrefs() {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('jam', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('prefs');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        try {
+          const get = req.result.transaction('prefs').objectStore('prefs').get('sounds');
+          get.onsuccess = () => { resolve(get.result || null); req.result.close(); };
+          get.onerror = () => { resolve(null); req.result.close(); };
+        } catch (_) { resolve(null); }
+      };
+    } catch (_) { resolve(null); }
+  });
+}
+
+// jamSilent reports whether a push of kind should make no sound: a Jam Inbox
+// window is open (it plays its own chime), or this device turned that kind's
+// sound Off. Otherwise the OS plays its notification sound.
+function jamSilent(kind, prefs, urls) {
+  if (jamPickClient(urls) >= 0) return true;
+  const k = kind === 'needs' ? 'needs' : 'messages';
+  return !!(prefs && prefs[k] === 'off');
 }
 
 // jamFallback is the plain notification shown when building the real one
@@ -71,7 +100,9 @@ self.addEventListener('push', (e) => {
     try {
       const open = await self.registration.getNotifications({ tag: jamStr(p.channel) || 'jam' });
       const prev = open.length ? open[open.length - 1].data : null;
-      const nt = jamNotice(p, prev);
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const silent = jamSilent(jamStr(p.kind), await jamSoundPrefs(), wins.map((c) => c.url));
+      const nt = jamNotice(p, prev, silent);
       await self.registration.showNotification(nt.title, nt.options);
     } catch (_) {
       const nt = jamFallback(p);

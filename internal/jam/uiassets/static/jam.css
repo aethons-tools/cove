@@ -77,4 +77,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",
 .app-principal .menu .push-toggle{padding:0;border:0;background:none;font:inherit;color:var(--accent);text-align:left;cursor:pointer}
 .app-principal .menu .push-toggle:disabled{color:var(--muted);cursor:default}
 .app-principal .menu .push-toggle[hidden]{display:none}
+.app-principal .menu .sounds-panel{display:grid;grid-template-columns:1fr auto;gap:6px 8px;align-items:center;font-size:12.5px;padding:4px 0}
+.app-principal .menu .sounds-panel[hidden]{display:none}
+.app-principal .menu .sounds-panel input[type=range]{width:100%}
+.app-principal .menu .sounds-panel small{grid-column:1/-1;color:var(--muted)}
 @media (max-width:720px){.app-principal .nm,.app-logo span{display:none}.app-titlebar{gap:8px;padding:0 8px}}

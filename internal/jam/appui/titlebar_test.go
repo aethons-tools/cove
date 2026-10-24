@@ -163,3 +163,26 @@ func TestTitlebarPushItem(t *testing.T) {
 		}
 	}
 }
+
+// A member's menu offers Sounds (with or without push); an admin-only
+// principal's doesn't.
+func TestTitlebarSoundsItem(t *testing.T) {
+	u := &jam.Participant{Name: "Ada", UserID: "usr_ada"}
+	bar := func(p appui.Principal) string {
+		t.Helper()
+		var got appui.Titlebar
+		probe := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = appui.TitlebarFor(r, "") })
+		r := appui.WithPrincipal(httptest.NewRequest(http.MethodGet, "/app/", nil), p)
+		appui.WithShell(probe, appui.Shell{}).ServeHTTP(httptest.NewRecorder(), r)
+		return render(t, got)
+	}
+	out := bar(appui.Principal{User: u})
+	for _, want := range []string{`id="sounds-toggle"`, `id="sounds-panel"`, `name="messages"`, `name="needs"`, `name="volume"`, `data-preview="needs"`, `src="/app/static/sounds.js?v=`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("member menu missing %q", want)
+		}
+	}
+	if out := bar(appui.Principal{Admin: true, Operator: jam.Operator{ID: "op"}}); strings.Contains(out, "sounds-toggle") {
+		t.Error("an admin-only menu offers Sounds")
+	}
+}
