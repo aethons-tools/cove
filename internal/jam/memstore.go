@@ -166,14 +166,14 @@ func (fs *MemStore) PushKitVersion(name, tree string, objs KitObjects, meta KitV
 	if name == "" || tree == "" {
 		return 0, fmt.Errorf("kit name and tree are required")
 	}
-	if err := checkKitObjects(fs.memState, []Kit{{Name: name, Trees: map[int]string{0: tree}}}, objs); err != nil {
-		return 0, err
-	}
-	fs.applyKitObjects(objs)
 	k := copyKit(fs.kits[name])
 	k.Name = name
 	ver := nextKitVersion(k)
+	if err := checkKitObjects(fs.memState, []Kit{{Name: name, Trees: map[int]string{ver: tree}}}, objs); err != nil {
+		return 0, err
+	}
 	setKitTree(&k, ver, tree, meta, track)
+	fs.applyKitObjects(objs)
 	fs.kits[name] = k
 	return ver, nil
 }

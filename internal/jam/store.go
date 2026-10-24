@@ -112,6 +112,10 @@ type Store interface {
 	// ExportConfig snapshots the config aggregates (actors, roles, kits,
 	// destinations, model-specs, projects); it never reads instances or unread cursors.
 	ExportConfig() ConfigSnapshot
+	// configSnapshot is ExportConfig sharing the stored blob slices: the
+	// read-only input of in-process scratch state (planner, drift, export
+	// tree), never handed out.
+	configSnapshot() ConfigSnapshot
 	// ImportConfig restores a snapshot into an EMPTY store, fail-closed: it
 	// returns ErrConfigNotEmpty (writing nothing) if any config aggregate has
 	// entries, or ErrUnsupportedConfigVersion for a bad version.

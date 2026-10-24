@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 
@@ -138,6 +139,15 @@ func (m *memState) applyDropKitObjects(trees, blobs []string) {
 	}
 	for _, sha := range blobs {
 		delete(m.kitBlobs, sha)
+	}
+}
+
+// gcKitObjects collects unreferenced kit objects after a kit removal. A
+// failure leaves them for the next collection (serve start) and is logged at
+// warn, with the store's error only (object ids, never contents).
+func gcKitObjects(store Store, log *slog.Logger) {
+	if _, err := store.GCKitObjects(); err != nil && log != nil {
+		log.Warn("kit objects GC failed", "err", err.Error())
 	}
 }
 

@@ -78,7 +78,16 @@ var ErrUnsupportedConfigVersion = errors.New("unsupported config snapshot versio
 // stable/diffable backup. Runtime state (instances, read cursors) is never
 // read. Safe under the read lock; the returned snapshot shares nothing with the
 // live store.
-func (m *memState) ExportConfig() ConfigSnapshot {
+func (m *memState) ExportConfig() ConfigSnapshot { return m.exportConfig(false) }
+
+// configSnapshot is ExportConfig whose KitBlobs share the store's blob slices
+// (immutable once stored) instead of copying them: the read-only input of
+// in-process scratch state (planner, drift check, export tree). Never hand it
+// out or write to its blobs.
+func (m *memState) configSnapshot() ConfigSnapshot { return m.exportConfig(true) }
+
+// exportConfig is ExportConfig, sharing the blob slices when shareBlobs is set.
+func (m *memState) exportConfig(shareBlobs bool) ConfigSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -117,7 +126,7 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 			if snap.KitBlobs == nil {
 				snap.KitBlobs = map[string][]byte{}
 			}
-			snap.KitBlobs[e.SHA256] = bytes.Clone(m.kitBlobs[e.SHA256])
+			snap.KitBlobs[e.SHA256] = m.kitBlobs[e.SHA256] // copied (or not) below
 		}
 	}
 
@@ -153,14 +162,21 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		jc := m.jamContext
 		snap.JamContext = &jc
 	}
-	return deepCopySnapshot(snap)
+	return copySnapshot(snap, shareBlobs)
 }
 
-// deepCopySnapshot returns a copy sharing no maps/slices/pointers with s, via a
-// JSON round-trip. The config structs are exactly what the store persists as
-// JSON docs, so marshaling cannot fail in practice; a failure yields the zero
-// snapshot rather than an aliased one.
-func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
+// deepCopySnapshot returns a copy sharing no maps/slices/pointers with s.
+func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot { return copySnapshot(s, false) }
+
+// copySnapshot returns a copy of s sharing no maps/slices/pointers with it,
+// via a JSON round-trip — except, when shareBlobs is set, the KitBlobs byte
+// slices (the map itself is new). Blobs never go through JSON: base64 would
+// cost several times their size. The config structs are exactly what the
+// store persists as JSON docs, so marshaling cannot fail in practice; a
+// failure yields the zero snapshot rather than an aliased one.
+func copySnapshot(s ConfigSnapshot, shareBlobs bool) ConfigSnapshot {
+	blobs := s.KitBlobs
+	s.KitBlobs = nil
 	b, err := json.Marshal(s)
 	if err != nil {
 		return ConfigSnapshot{Version: s.Version}
@@ -168,6 +184,43 @@ func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
 	var out ConfigSnapshot
 	if err := json.Unmarshal(b, &out); err != nil {
 		return ConfigSnapshot{Version: s.Version}
+	}
+	if blobs != nil {
+		out.KitBlobs = make(map[string][]byte, len(blobs))
+		for sha, b := range blobs {
+			if !shareBlobs {
+				b = bytes.Clone(b)
+			}
+			out.KitBlobs[sha] = b
+		}
+	}
+	return out
+}
+
+// importedKitObjects is the part of s's trees and blobs an import keeps:
+// the trees its kits reference and the blobs those trees name. The rest is
+// dropped, as GC would.
+func importedKitObjects(s ConfigSnapshot) KitObjects {
+	live := map[string]bool{}
+	for _, k := range s.Kits {
+		for _, sha := range k.Trees {
+			live[sha] = true
+		}
+	}
+	var out KitObjects
+	for _, t := range s.KitTrees {
+		if !live[t.Hash()] {
+			continue
+		}
+		out.Trees = append(out.Trees, t)
+		for _, e := range t.Entries {
+			if b, ok := s.KitBlobs[e.SHA256]; ok {
+				if out.Blobs == nil {
+					out.Blobs = map[string][]byte{}
+				}
+				out.Blobs[e.SHA256] = b
+			}
+		}
 	}
 	return out
 }
@@ -417,11 +470,13 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 	return s
 }
 
-// applyImport overwrites the config maps from a (deep-copied) snapshot. Caller
-// holds the write lock and has already validated with checkImport. State maps
-// (instances, read cursors, channel members) are untouched.
+// applyImport overwrites the config maps from a snapshot. Caller holds the
+// write lock and has already validated with checkImport. State maps
+// (instances, read cursors, channel members) are untouched. Everything is
+// copied except the blob slices, which m shares with s: s is an import's own
+// deep copy (importPlan) or the read-only input of scratch state.
 func applyImport(m *memState, s ConfigSnapshot) {
-	s = withReferencedProjects(deepCopySnapshot(s))
+	s = withReferencedProjects(copySnapshot(s, true))
 	m.actors = map[string]Actor{}
 	for _, a := range s.Actors {
 		m.actors[a.TokenHash] = a
@@ -439,7 +494,11 @@ func applyImport(m *memState, s ConfigSnapshot) {
 		m.kits[k.Name] = copyKit(k)
 	}
 	m.kitTrees, m.kitBlobs = map[string]kittree.Tree{}, map[string][]byte{}
-	m.applyKitObjects(KitObjects{Trees: s.KitTrees, Blobs: s.KitBlobs})
+	objs := importedKitObjects(s)
+	for _, t := range objs.Trees {
+		m.kitTrees[t.Hash()] = t // s's trees are already copies
+	}
+	maps.Copy(m.kitBlobs, objs.Blobs)
 	m.dests = map[string]Destination{}
 	for _, d := range s.Destinations {
 		m.dests[d.Name] = copyDestination(d)

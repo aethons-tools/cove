@@ -85,7 +85,7 @@ func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree 
 func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (_ ConfigApplyResult, wrote bool, _ error) {
 	kitMu.Lock() // configMu → kitMu → store mu, as every kit writer takes kitMu before the store
 	defer kitMu.Unlock()
-	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.ExportConfig(), Instances: store.ListInstances(),
+	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.configSnapshot(), Instances: store.ListInstances(),
 		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
 	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
@@ -117,7 +117,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 		return res, false, fmt.Errorf("config apply: write: %w", err)
 	}
 	if len(w.RemoveKits) > 0 {
-		_, _ = store.GCKitObjects() // a failure leaves unreferenced objects for the next serve start
+		gcKitObjects(store, log)
 	}
 	res.Applied = true
 	logConfigApply(log, actor, opt, plan)

@@ -212,7 +212,7 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			q := r.URL.Query()
-			exp, err := ExportConfigTreeWith(store.ExportConfig(), store.ListConfigMarks(), env.Serve,
+			exp, err := ExportConfigTreeWith(store.configSnapshot(), store.ListConfigMarks(), env.Serve,
 				ConfigExportOptions{All: q.Get("all") == "1", ContextFiles: q.Get("contexts") == "files"})
 			if errors.Is(err, ErrConfigKitPinBehind) {
 				http.Error(w, err.Error(), http.StatusConflict) // kit names and versions only

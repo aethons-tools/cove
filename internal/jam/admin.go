@@ -861,7 +861,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		if err := RemoveKitChecked(store, name); err != nil {
+		if err := RemoveKitChecked(store, log, name); err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
 			return
 		}

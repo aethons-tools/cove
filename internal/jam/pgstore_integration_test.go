@@ -14,6 +14,8 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/storetest"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // TestPostgresStoreConformance runs the shared Store conformance suite against a
@@ -690,5 +692,91 @@ func TestPostgresConfigSourcePersists(t *testing.T) {
 	defer r.Close()
 	if _, ok := r.GetConfigSource(); ok {
 		t.Fatal("a cleared source came back on reopen")
+	}
+}
+
+// TestPostgresKitObjectsFailedTxLeavesCache: a kit write whose transaction
+// fails after its objects were inserted leaves neither the objects nor the
+// docs, in the cache or after a reopen.
+func TestPostgresKitObjectsFailedTxLeavesCache(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\n", "run.sh*", "echo\n")
+	objs := jam.KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}
+	good := jam.Kit{Name: "good", Current: 1, Trees: map[int]string{1: tr.Hash()}}
+	bad := jam.Kit{Name: "bad\x00name", Current: 1, Trees: map[int]string{1: tr.Hash()}}
+	if err := s.PutKitDocs([]jam.Kit{good, bad}, objs); err == nil {
+		t.Fatal("PutKitDocs must fail when an upsert fails")
+	}
+	for label, st := range map[string]*jam.PostgresStore{"cache": s, "reopen": open()} {
+		if _, ok := st.KitTree(tr.Hash()); ok {
+			t.Fatalf("%s: the tree survived a failed write", label)
+		}
+		for sha := range blobs {
+			if _, ok := st.KitBlob(sha); ok {
+				t.Fatalf("%s: a blob survived a failed write", label)
+			}
+		}
+		if _, ok := st.GetKit("good"); ok {
+			t.Fatalf("%s: the doc survived a failed write", label)
+		}
+	}
+}
+
+// TestPostgresLoadRefusesCorruptKitObjects: a tree row whose entries do not
+// hash to its key, or a blob row whose bytes or size do not match, stops the
+// store from opening.
+func TestPostgresLoadRefusesCorruptKitObjects(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	s, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	t.Cleanup(func() { _ = s.TruncateAllForTest(ctx) })
+	for _, tc := range []struct{ name, corrupt, want string }{
+		{"tree", `UPDATE kit_trees SET entries = '[]'`, "kit_trees"},
+		{"blob bytes", `UPDATE kit_blobs SET bytes = 'tampered'::bytea`, "kit_blobs"},
+		{"blob size", `UPDATE kit_blobs SET size = size + 1`, "kit_blobs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.TruncateAllForTest(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PushKit("app", "kind: studio\n"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Pool().Exec(ctx, tc.corrupt); err != nil {
+				t.Fatal(err)
+			}
+			re, err := jam.NewPostgresStore(ctx, dsn, nil)
+			if err == nil {
+				re.Close()
+				t.Fatal("a corrupt kit object must refuse the open")
+			}
+			if !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "tampered") {
+				t.Fatalf("err = %v", err)
+			}
+		})
 	}
 }

@@ -155,4 +155,60 @@ func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatalf("next version = %d %v", v, err)
 		}
 	})
+	t.Run("GC drops a tree version a whole-doc write removed", func(t *testing.T) {
+		st := mk(t)
+		t1, o1 := treeObjs(t, "kit.yml", "kind: studio\n", "old.sh", "old\n")
+		t2, o2 := treeObjs(t, "kit.yml", "kind: studio\n", "new.sh", "new\n")
+		for _, o := range []jam.KitObjects{o1, o2} {
+			if _, err := st.PushKitVersion("app", o.Trees[0].Hash(), o, meta, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		k, _ := st.GetKit("app")
+		delete(k.Trees, 1)
+		delete(k.Meta, 1)
+		if err := st.PutKitDocs([]jam.Kit{k}, jam.KitObjects{}); err != nil {
+			t.Fatal(err)
+		}
+		if gc, err := st.GCKitObjects(); err != nil || gc != (jam.KitGC{Trees: 1, Blobs: 1}) {
+			t.Fatalf("gc = %+v %v (want the old tree and old.sh)", gc, err)
+		}
+		if _, ok := st.KitTree(t1.Hash()); ok {
+			t.Fatal("the dropped version's tree survived")
+		}
+		if _, ok := st.KitTree(t2.Hash()); !ok {
+			t.Fatal("the current tree was collected")
+		}
+	})
+	t.Run("import drops objects no kit references", func(t *testing.T) {
+		src := mk(t)
+		tr, objs := treeObjs(t, "kit.yml", "kind: studio\n")
+		if _, err := src.PushKitVersion("app", tr.Hash(), objs, meta, nil); err != nil {
+			t.Fatal(err)
+		}
+		snap := src.ExportConfig()
+		stray, strayObjs := treeObjs(t, "kit.yml", "stray\n")
+		snap.KitTrees = append(snap.KitTrees, stray)
+		for sha, b := range strayObjs.Blobs {
+			snap.KitBlobs[sha] = b
+		}
+		dst := mk(t)
+		if err := dst.ImportConfig(snap); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := dst.KitTree(stray.Hash()); ok {
+			t.Fatal("an unreferenced tree was imported")
+		}
+		for sha := range strayObjs.Blobs {
+			if _, ok := dst.KitBlob(sha); ok {
+				t.Fatal("an unreferenced blob was imported")
+			}
+		}
+		if cfg, ok := dst.KitConfig("app", 0); !ok || cfg != "kind: studio\n" {
+			t.Fatalf("KitConfig = %q %v", cfg, ok)
+		}
+		if gc, err := dst.GCKitObjects(); err != nil || gc != (jam.KitGC{}) {
+			t.Fatalf("gc after import = %+v %v", gc, err)
+		}
+	})
 }

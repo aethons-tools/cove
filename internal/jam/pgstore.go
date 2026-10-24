@@ -2,6 +2,8 @@ package jam
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -314,7 +316,16 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	return nil
 }
 
-// loadKitObjects reads every kit tree and blob into the cache.
+// errKitObjectCorrupt refuses a store whose kit_trees or kit_blobs row does
+// not match its sha256 key (or, for a blob, its size): fixed text, the row's
+// short key only.
+func errKitObjectCorrupt(table, sha string) error {
+	return fmt.Errorf("pgstore: load %s: row %.12s does not match its sha256 (corrupt store)", table, sha)
+}
+
+// loadKitObjects reads every kit tree and blob into the cache, verifying
+// that each tree's entries hash to its key and each blob's bytes (and size)
+// to its own; a mismatch refuses the open.
 func (s *PostgresStore) loadKitObjects(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT sha256, entries FROM kit_trees`)
 	if err != nil {
@@ -332,22 +343,31 @@ func (s *PostgresStore) loadKitObjects(ctx context.Context) error {
 			rows.Close()
 			return fmt.Errorf("pgstore: decode kit_trees row: %w", err)
 		}
+		if t.Hash() != sha {
+			rows.Close()
+			return errKitObjectCorrupt("kit_trees", sha)
+		}
 		s.kitTrees[sha] = t
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows, err = s.pool.Query(ctx, `SELECT sha256, bytes FROM kit_blobs`)
+	rows, err = s.pool.Query(ctx, `SELECT sha256, size, bytes FROM kit_blobs`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load kit_blobs: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var sha string
+		var size int64
 		var b []byte
-		if err := rows.Scan(&sha, &b); err != nil {
+		if err := rows.Scan(&sha, &size, &b); err != nil {
 			return err
+		}
+		sum := sha256.Sum256(b)
+		if size != int64(len(b)) || hex.EncodeToString(sum[:]) != sha {
+			return errKitObjectCorrupt("kit_blobs", sha)
 		}
 		s.kitBlobs[sha] = b
 	}
@@ -486,7 +506,7 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM kit_blobs`); err != nil {
 			return err
 		}
-		if err := insertKitObjectsTx(ctx, tx, KitObjects{Trees: snap.KitTrees, Blobs: snap.KitBlobs}); err != nil {
+		if err := insertKitObjectsTx(ctx, tx, importedKitObjects(snap)); err != nil {
 			return err
 		}
 		for _, k := range snap.Kits {
@@ -773,12 +793,12 @@ func (s *PostgresStore) PushKitVersion(name, tree string, objs KitObjects, meta 
 	if name == "" || tree == "" {
 		return 0, fmt.Errorf("kit name and tree are required")
 	}
-	if err := checkKitObjects(s.memState, []Kit{{Name: name, Trees: map[int]string{0: tree}}}, objs); err != nil {
-		return 0, err
-	}
 	k := copyKit(s.kits[name]) // don't mutate the cached kit before commit
 	k.Name = name
 	ver := nextKitVersion(k)
+	if err := checkKitObjects(s.memState, []Kit{{Name: name, Trees: map[int]string{ver: tree}}}, objs); err != nil {
+		return 0, err
+	}
 	setKitTree(&k, ver, tree, meta, track)
 	doc, err := json.Marshal(k)
 	if err != nil {

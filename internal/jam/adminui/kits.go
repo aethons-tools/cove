@@ -147,7 +147,7 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 			return
 		}
 		name := r.PathValue("name")
-		if err := jam.RemoveKitChecked(store, name); err != nil {
+		if err := jam.RemoveKitChecked(store, log, name); err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusNotFound), err.Error())
 			return
 		}

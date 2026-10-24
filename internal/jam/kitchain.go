@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -201,8 +202,10 @@ func chainCacheKey(store Store, config string) string {
 // RemoveKitChecked removes a kit unless a role binds it or another kit's
 // current version names it as its parent (409 with the offenders listed). The
 // check and the removal run under kitMu, so a concurrent child push cannot
-// slip in between.
-func RemoveKitChecked(store Store, name string) error {
+// slip in between. It then collects the kit objects nothing references; a
+// collection failure is logged to log (nil = not logged) and never fails the
+// removal: the next serve start collects again.
+func RemoveKitChecked(store Store, log *slog.Logger, name string) error {
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	if project, role, ok := store.RoleReferencingKit(name); ok {
@@ -216,7 +219,7 @@ func RemoveKitChecked(store Store, name string) error {
 	if err := store.RemoveKit(name); err != nil {
 		return err
 	}
-	_, _ = store.GCKitObjects() // a failure leaves unreferenced objects for the next serve start
+	gcKitObjects(store, log)
 	return nil
 }
 
