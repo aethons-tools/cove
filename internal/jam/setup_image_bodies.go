@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -19,15 +20,20 @@ func seedBody(f ImageFacts) string {
 		byPath[s.Path] = s
 	}
 	shown := map[string]bool{}
+	notShown := map[string]bool{}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "image: %s\n", flat(shortDigest(f.ID)))
 	if c, ok := byPath["CLAUDE.md"]; ok && c.HasText {
 		shown["CLAUDE.md"] = true
-		fmt.Fprintf(&sb, "\n--- /agent-data/CLAUDE.md\n%s", ensureNL(escapeText(c.Text, true)))
+		fmt.Fprintf(&sb, "\n--- /agent-data/CLAUDE.md\n%s", ensureNL(redactText(c.Text)))
 		for _, imp := range claudeImports(c.Text) {
+			if !strings.HasSuffix(imp, ".md") {
+				notShown[imp] = true
+				continue
+			}
 			if s, ok := byPath[imp]; ok && s.HasText && !shown[imp] {
 				shown[imp] = true
-				fmt.Fprintf(&sb, "\n--- /agent-data/%s (imported)\n%s", flat(imp), ensureNL(escapeText(s.Text, true)))
+				fmt.Fprintf(&sb, "\n--- /agent-data/%s (imported)\n%s", flat(imp), ensureNL(redactText(s.Text)))
 			}
 		}
 	} else {
@@ -38,7 +44,7 @@ func seedBody(f ImageFacts) string {
 		if dir, ok := skillDir(s.Path); ok && s.HasText {
 			shown[s.Path] = true
 			name, desc := skillMeta(s.Text)
-			skills = append(skills, []string{"  " + flat(cmp.Or(name, dir)), flat(desc)})
+			skills = append(skills, []string{"  " + flat(cmp.Or(name, dir)), flat(redactLines(desc))})
 		}
 	}
 	if len(skills) == 0 {
@@ -62,7 +68,11 @@ func seedBody(f ImageFacts) string {
 	var rest [][]string
 	for _, s := range f.Seed {
 		if !shown[s.Path] {
-			rest = append(rest, []string{"  /agent-data/" + flat(s.Path), fmt.Sprintf("%d B", s.Size)})
+			size := fmt.Sprintf("%d B", s.Size)
+			if notShown[s.Path] {
+				size += " (import not shown)"
+			}
+			rest = append(rest, []string{"  /agent-data/" + flat(s.Path), size})
 		}
 	}
 	if len(rest) > 0 {
@@ -74,6 +84,22 @@ func seedBody(f ImageFacts) string {
 	}
 	return sb.String()
 }
+
+// redactLines passes each line of seeded prose through RedactEnv with no key.
+func redactLines(text string) string {
+	var sb strings.Builder
+	for line := range strings.Lines(text) {
+		body := strings.TrimSuffix(line, "\n")
+		sb.WriteString(bareTokenRE.ReplaceAllString(RedactEnv("", body), "«masked»"))
+		if len(body) != len(line) {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
+}
+
+// redactText is redactLines made inert, keeping newlines and tabs.
+func redactText(text string) string { return escapeText(redactLines(text), true) }
 
 // claudeImports are CLAUDE.md's "@path" lines that stay inside the seed.
 func claudeImports(text string) []string {
@@ -202,7 +228,7 @@ func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) str
 }
 
 func sourceText(s KitSource) string {
-	out := displayURL(s.Repo)
+	out := displayRepo(s.Repo)
 	if s.Dir != "" {
 		out += "//" + flat(s.Dir)
 	}
@@ -212,3 +238,18 @@ func sourceText(s KitSource) string {
 	}
 	return out
 }
+
+// displayRepo is displayURL, but an scp-style repo (user@host:path, no
+// password possible) shows as written instead of invalid.
+func displayRepo(raw string) string {
+	if !strings.Contains(raw, "://") && scpRepoRE.MatchString(raw) {
+		return SafeText(raw)
+	}
+	return displayURL(raw)
+}
+
+var scpRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._/~-]+$`)
+
+// bareTokenRE catches well-known credential shapes standing alone in prose,
+// which RedactEnv (keyed on names and schemes) cannot see.
+var bareTokenRE = regexp.MustCompile(`\b(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|AIza|glpat-|npm_)[A-Za-z0-9_-]{8,}`)

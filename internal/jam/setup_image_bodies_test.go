@@ -74,14 +74,53 @@ func TestKitDetailBody(t *testing.T) {
 
 func TestImageBodiesInertAndNoMutation(t *testing.T) {
 	f := ImageFacts{ID: "sha256:abc", Env: []string{"A\x1b=b\nc", "TOKEN=zzz"},
-		Seed: []SeedFile{{Path: "x\x1b[2J", Size: 1}, {Path: "CLAUDE.md", Text: "hi\x1b[31m\n", HasText: true}}}
+		Labels: map[string]string{"k\x1b": "v\x1b[2J", "ok": "a\x1bb"},
+		Seed: []SeedFile{{Path: "x\x1b[2J", Size: 1},
+			{Path: "CLAUDE.md", Text: "hi\x1b[31m\n@bad\x1b.md\n", HasText: true},
+			{Path: "bad\x1b.md", Text: "imp\x1b[1m", HasText: true},
+			{Path: "settings.json", Text: `{"a\u001b":"b\u001b","env":{"TOKEN":"zzz"}}`, HasText: true}}}
 	env := append([]string(nil), f.Env...)
-	for _, s := range []string{seedBody(f), imageEnvBody(f)} {
+	for _, s := range []string{seedBody(f), imageEnvBody(f), imageLabelsBody(f),
+		kitDetailBody(NewMemStore(), []KitRef{{ID: "a\x1b", Version: 1}}, map[string]string{"A\x1b": "b\x1b", "NPM_TOKEN": "zzz"})} {
 		if strings.ContainsRune(s, 0x1b) || strings.Contains(s, "zzz") {
 			t.Errorf("unsafe:\n%q", s)
 		}
 	}
-	if f.Env[1] != env[1] || f.Seed[1].Text != "hi\x1b[31m\n" {
+	if f.Env[1] != env[1] || f.Seed[1].Text != "hi\x1b[31m\n@bad\x1b.md\n" || f.Labels["ok"] != "a\x1bb" {
 		t.Error("facts mutated")
+	}
+}
+
+func TestSeedImportsAndTextRedaction(t *testing.T) {
+	text := func(p, s string) SeedFile { return SeedFile{Path: p, Size: int64(len(s)), Text: s, HasText: true} }
+	f := ImageFacts{ID: "sha256:0123456789abcdef", Seed: []SeedFile{
+		text("CLAUDE.md", "@settings.json\n@.claude.json\n@notes.md\nghp_abcdefghijklmnop\nAuthorization: Bearer sk-live-abcdef12\nTOKEN=abcdefgh1234\nhttps://u:p@host/x\n"),
+		text("settings.json", `{"env":{"GH_TOKEN":"RAWSETTINGS"}}`),
+		text(".claude.json", `{"oauthAccount":"RAWCLAUDEJSON"}`),
+		text("notes.md", "see https://u:p@host/y TOKEN=abcdefgh1234\n"),
+		text("skills/s/SKILL.md", "---\nname: s\ndescription: use TOKEN=abcdefgh1234 here\n---\n"),
+	}}
+	got := seedBody(f)
+	for _, bad := range []string{"RAWSETTINGS", "RAWCLAUDEJSON", "ghp_abcdefghijklmnop", "sk-live-abcdef12", "abcdefgh1234", "u:p@"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q shown:\n%s", bad, got)
+		}
+	}
+	if !strings.Contains(got, "--- /agent-data/notes.md (imported)") || !strings.Contains(got, "import not shown") {
+		t.Errorf("imports:\n%s", got)
+	}
+}
+
+func TestKitDetailScpRepo(t *testing.T) {
+	st := NewMemStore()
+	ref := mustEnsure(t, st, "base", chainKit("", "b"))
+	k, _ := st.GetKit("base")
+	k.Meta = map[int]KitVersionMeta{ref.Version: {PushedAt: time.Unix(0, 0).UTC(), Source: &KitSource{Repo: "git@github.com:o/r", Ref: "main"}}}
+	if err := st.PutKitDocs([]Kit{k}); err != nil {
+		t.Fatal(err)
+	}
+	got := kitDetailBody(st, []KitRef{ref}, nil)
+	if !strings.Contains(got, "git@github.com:o/r@main") || strings.Contains(got, "invalid") {
+		t.Errorf("scp:\n%s", got)
 	}
 }
