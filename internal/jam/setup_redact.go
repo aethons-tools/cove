@@ -3,6 +3,7 @@ package jam
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/url"
 	"regexp"
 	"strings"
@@ -19,60 +20,125 @@ const (
 	MarkInvalid       = "invalid"
 )
 
-// secretKeyRE is the spec's secret-named key rule.
-var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|credential`)
+// Known limits (documented in inspect.md): a secret under a key that does not
+// look secret ("lookalike" keys such as "cfg") and credentials without a URL
+// scheme or an auth-scheme word (user:pw@host, a bare password) are not
+// detected; only the key rule and the value patterns below apply.
+
+// secretKeyRE is the spec's secret-named key rule, plus auth/authorization
+// (whole segment, e.g. _auth, X_AUTH, Authorization).
+var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|credential|authorization|(?:^|[^a-z0-9])auth(?:$|[^a-z0-9])`)
+
+// authValueRE finds "<scheme> <credential>" auth words in a value.
+var authValueRE = regexp.MustCompile(`(?i)\b(?:bearer|basic|token)\s+(\S+)`)
+
+// authHeaderRE finds an Authorization header line in a value.
+var authHeaderRE = regexp.MustCompile(`(?i)authorization\s*:`)
 
 // knownPlaceholder is a connector template placeholder (ValidateEnv's set).
 var knownPlaceholder = regexp.MustCompile(`\{(?:token|base|host|url)\}`)
+
+var onlyPlaceholder = regexp.MustCompile(`^\{(?:token|base|host|url)\}$`)
 
 // safeTemplateRest is what may remain of a secret-named template once its
 // placeholders are removed: nothing, or one auth scheme word.
 var safeTemplateRest = regexp.MustCompile(`^(?:(?:Bearer|token) )?$`)
 
-// embeddedUserinfo matches "scheme://userinfo@" inside free text.
-var embeddedUserinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]*@`)
+var schemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)
 
-// stripUserinfo re-parses a URL and drops its userinfo, query and fragment.
-// ok=false when s does not parse as a URL.
-func stripUserinfo(s string) (string, bool) {
-	u, err := url.Parse(s)
-	if err != nil {
-		return "", false
-	}
-	u.User = nil
-	u.RawQuery = ""
-	u.ForceQuery = false
-	u.Fragment = ""
-	u.RawFragment = ""
-	return u.String(), true
-}
+// MarkQuery replaces a URL's query and fragment.
+const markQuery = "?" + MarkMasked
 
-// stripURLSecrets removes URL userinfo from a value containing "://": a
-// whole URL is re-parsed (userinfo, query and fragment dropped); free text
-// has embedded userinfo removed.
+// stripURLSecrets, for EVERY scheme:// occurrence in v, removes the userinfo
+// (up to the last '@' of the authority) and replaces a following query or
+// fragment with markQuery. It does not depend on url.Parse succeeding, and
+// handles lists ("a,https://u:p@h" or ";"-separated) and free text.
 func stripURLSecrets(v string) string {
 	if !strings.Contains(v, "://") {
 		return v
 	}
-	if !strings.ContainsAny(v, " \t") {
-		if s, ok := stripUserinfo(v); ok {
-			return s
+	var out strings.Builder
+	pos := 0
+	for pos < len(v) {
+		loc := schemeRE.FindStringIndex(v[pos:])
+		if loc == nil {
+			break
+		}
+		out.WriteString(v[pos : pos+loc[1]])
+		start := pos + loc[1]
+		// authority: up to '/', whitespace or end
+		authEnd := len(v)
+		if i := strings.IndexFunc(v[start:], func(r rune) bool { return r == '/' || unicode.IsSpace(r) }); i >= 0 {
+			authEnd = start + i
+		}
+		// a later scheme inside the authority starts the next URL of a list
+		if m := schemeRE.FindStringIndex(v[start:]); m != nil && start+m[0] < authEnd {
+			authEnd = start + m[0]
+		}
+		auth := v[start:authEnd]
+		if i := strings.LastIndexByte(auth, '@'); i >= 0 {
+			auth = auth[i+1:]
+		}
+		out.WriteString(auth)
+		pos = authEnd
+		// a query/fragment in this whitespace-free run, before any later scheme
+		runEnd := len(v)
+		if i := strings.IndexFunc(v[pos:], unicode.IsSpace); i >= 0 {
+			runEnd = pos + i
+		}
+		q := strings.IndexAny(v[pos:runEnd], "?#")
+		if q < 0 {
+			continue
+		}
+		if next := schemeRE.FindStringIndex(v[pos:runEnd]); next != nil && next[0] < q {
+			continue
+		}
+		out.WriteString(v[pos : pos+q])
+		out.WriteString(markQuery)
+		pos = runEnd
+	}
+	out.WriteString(v[pos:])
+	return out.String()
+}
+
+// stripUserinfo re-parses a single URL and returns it without userinfo, with
+// any query/fragment replaced by markQuery. ok=false when s does not parse.
+func stripUserinfo(s string) (string, bool) {
+	if _, err := url.Parse(s); err != nil {
+		return "", false
+	}
+	return stripURLSecrets(s), true
+}
+
+// valueLooksSecret reports a credential-shaped value: an auth scheme word
+// followed by anything but a placeholder, or an Authorization header.
+func valueLooksSecret(v string) bool {
+	if authHeaderRE.MatchString(v) {
+		return true
+	}
+	for _, m := range authValueRE.FindAllStringSubmatch(v, -1) {
+		if !onlyPlaceholder.MatchString(m[1]) {
+			return true
 		}
 	}
-	return embeddedUserinfo.ReplaceAllString(v, "$1")
+	return false
 }
 
 // RedactEnv is THE redaction of one value for a setup render and for a stored
 // snapshot (env, image ENV, build args, label values, settings.json strings).
-// The identity-token vars and every {token} read MarkIdentityToken; a value
-// under a secret-named key is MarkMasked unless it is only placeholders (plus
-// at most a "Bearer "/"token " scheme); anything else is shown as is, with
-// URL userinfo removed.
+// The identity-token vars and every {token} read MarkIdentityToken; a
+// credential-shaped value, or a value under a secret-named key that is not
+// only placeholders (plus at most a "Bearer "/"token " scheme), is
+// MarkMasked; anything else is shown as is, with URL userinfo, query and
+// fragment removed from every URL in it.
 func RedactEnv(key, value string) string {
 	for _, v := range snippet.IdentityTokenVars() {
 		if key == v {
 			return MarkIdentityToken
 		}
+	}
+	if valueLooksSecret(value) {
+		return MarkMasked
 	}
 	shown := strings.ReplaceAll(value, "{token}", MarkIdentityToken)
 	if !secretKeyRE.MatchString(key) {
@@ -90,7 +156,12 @@ func RedactEnv(key, value string) string {
 // ok=false when b is not JSON.
 func RedactJSON(b []byte) (string, bool) {
 	var v any
-	if err := json.Unmarshal(b, &v); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
+		return "", false
+	}
+	if _, err := dec.Token(); err != io.EOF {
 		return "", false
 	}
 	var out bytes.Buffer
@@ -140,7 +211,7 @@ func SafeText(s string) string {
 		return MarkInvalid
 	}
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return MarkInvalid
 		}
 	}
@@ -149,7 +220,8 @@ func SafeText(s string) string {
 
 // RedactLabel re-parses an image label for display: an unsafe key hides the
 // whole label; a URL value loses its userinfo (unparsable: invalid); the
-// value then goes through RedactEnv under the label key.
+// value then goes through RedactEnv under the label key (which strips every
+// URL's userinfo, query and fragment).
 func RedactLabel(key, value string) (string, string) {
 	if SafeText(key) == MarkInvalid {
 		return MarkInvalid, MarkInvalid
@@ -158,12 +230,11 @@ func RedactLabel(key, value string) (string, string) {
 	if v == MarkInvalid {
 		return key, MarkInvalid
 	}
-	if strings.Contains(v, "://") {
-		s, ok := stripUserinfo(v)
-		if !ok {
+	// invalid only for a single-token URL that fails to parse
+	if strings.Count(v, "://") == 1 && !strings.ContainsFunc(v, unicode.IsSpace) {
+		if _, err := url.Parse(v); err != nil {
 			return key, MarkInvalid
 		}
-		v = s
 	}
 	return key, RedactEnv(key, v)
 }
