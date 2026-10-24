@@ -8,10 +8,10 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam/linediff"
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // Setup section names, in render order (spec §1).
@@ -185,37 +185,7 @@ func flat(s string) string { return escapeText(s, false) }
 
 // escapeText escapes what could forge structure or drive a terminal. With
 // keepLayout, \n and \t pass through (multi-line bodies).
-func escapeText(s string, keepLayout bool) string {
-	var sb strings.Builder
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		switch {
-		case r == utf8.RuneError && n == 1:
-			fmt.Fprintf(&sb, `\x%02x`, s[i])
-		case keepLayout && (r == '\n' || r == '\t'):
-			sb.WriteRune(r)
-		case r == '\n':
-			sb.WriteString(`\n`)
-		case r == '\r':
-			sb.WriteString(`\r`)
-		case r == '\t':
-			sb.WriteString(`\t`)
-		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029:
-			switch {
-			case r < 0x100:
-				fmt.Fprintf(&sb, `\x%02x`, r)
-			case r < 0x10000:
-				fmt.Fprintf(&sb, `\u%04x`, r)
-			default:
-				fmt.Fprintf(&sb, `\U%08x`, r)
-			}
-		default:
-			sb.WriteString(s[i : i+n])
-		}
-		i += n
-	}
-	return sb.String()
-}
+func escapeText(s string, keepLayout bool) string { return textesc.Escape(s, keepLayout) }
 
 func ensureNL(s string) string {
 	if s == "" || strings.HasSuffix(s, "\n") {
