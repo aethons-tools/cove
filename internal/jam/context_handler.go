@@ -13,7 +13,8 @@ import (
 // identity's session context, recompiled from the current config (ContextFor),
 // so cove-master can refresh a running session. The identity arrives as a
 // bearer (or gh's "token" scheme); unknown or expired → 401, no registered
-// instance → 404. Logs the actor id only.
+// instance → 404. Logs the actor id only. Records the delivered part as a
+// setup snapshot (on change).
 func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(sessionctx.EndpointHeader, "1")
@@ -46,6 +47,7 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "context unavailable", http.StatusInternalServerError)
 			return
 		}
+		RecordSetupPart(store, log, a.ID, SetupPartContext, b.Fingerprint, func() string { return contextSnapshotBody(b) }, now())
 		writeJSON(w, http.StatusOK, b)
 	})
 }

@@ -439,6 +439,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		}
 		return Instance{}, "", "", err
 	}
+	s.recordRaiseSetup(inst, spec, def)
 	if s.tunnels != nil {
 		s.tunnels.Reopen(spec.ActorID) // the same id may have been closed by an earlier teardown
 	}
@@ -1235,6 +1236,7 @@ func (s *Supervisor) Resume(ctx context.Context, actorID string) error {
 		}
 		inst.Egress, inst.EgressFailures = EgressFingerprint(want), 0
 		s.logEgressApplied(inst, want)
+		s.recordEgress(inst, want)
 	}
 	now := s.now()
 	if _, ok := s.patchInstance(actorID, func(i *Instance) {
@@ -1465,6 +1467,7 @@ func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
 	if err == nil {
 		s.patchEgress(inst.ActorID, func(cur *Instance) { cur.Egress, cur.EgressFailures = fp, 0 })
 		s.logEgressApplied(inst, want)
+		s.recordEgress(inst, want)
 		return
 	}
 	failures := 0
