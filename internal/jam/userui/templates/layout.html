@@ -553,6 +553,8 @@ function meThUnseen(n){ var t=meTh; t.unseen+=n; t.newBtn.querySelector('span').
 function meThEnd(){ var L=meTh.list; L.scrollTop=L.scrollHeight; meThSeen(); }
 // meThTail is where a new line goes: before the "working…" line, if any.
 function meThTail(){ return meTh.list.querySelector('.te-working'); }
+// meThDrop removes a line, and Raw's observer with it.
+function meThDrop(n){ if(meTh.io) meTh.io.unobserve(n); n.remove(); }
 function meThLine(cls, text){ var d=document.createElement('div'); d.className=cls; d.textContent=text; return d; }
 
 function meThinkingOpen(el){
@@ -637,7 +639,7 @@ function meThinkingAdd(node, at){
   if(kind==='tool_call'){
     node.querySelector('.te-status').textContent='…';
     var orphan=tid && L.querySelector('.te[data-kind="tool_result"]'+tid);
-    if(orphan){ meThPair(node, orphan); orphan.remove(); }
+    if(orphan){ meThPair(node, orphan); meThDrop(orphan); }
   }
   L.insertBefore(node, at ? (at.before||meThTail()) : meThTail());
   meThFilter(node);
@@ -687,7 +689,7 @@ function meThCosts(){
 function meThCap(){
   var L=meTh.list, all=L.querySelectorAll('.te'), n=all.length-meThMax;
   if(n<=0) return 0;
-  for(var i=0; i<n; i++) all[i].remove();
+  for(var i=0; i<n; i++) meThDrop(all[i]);
   meThMore(L.querySelector('.te').dataset.seq);
   return n;
 }
@@ -697,7 +699,7 @@ function meThCap(){
 function meThTrimNewest(){
   var L=meTh.list, all=L.querySelectorAll('.te'), n=all.length-meThMax;
   if(n<=0) return;
-  for(var i=all.length-n; i<all.length; i++) all[i].remove();
+  for(var i=all.length-n; i<all.length; i++) meThDrop(all[i]);
   meTh.paused=true;
   meThUnseen(n);
 }

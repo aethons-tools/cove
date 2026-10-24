@@ -254,6 +254,23 @@ func TestBrowserThinking(t *testing.T) {
 	run("pill reloads the tail", chromedp.Click(`#thinking .th-new`, chromedp.ByQuery),
 		poll(`(function(){var L=document.querySelector('#thinking .th-list'), all=L.querySelectorAll('.te');
 			return all.length===300 && all[all.length-1].dataset.seq==='305' && document.querySelector('#thinking .th-new').hidden;})()`))
+
+	// (k) Raw's observer lets go of lines the caps remove (off-screen ones,
+	// not yet fetched): the oldest by meThCap, the newest by meThTrimNewest.
+	const leaked = `Array.from(window.__obs).filter(function(n){ return !n.isConnected; }).length`
+	run("spy", chromedp.Evaluate(`window.__obs=new Set(); (function(){var P=IntersectionObserver.prototype, o=P.observe, u=P.unobserve, d=P.disconnect;
+		P.observe=function(n){ __obs.add(n); return o.call(this, n); }; P.unobserve=function(n){ __obs.delete(n); return u.call(this, n); };
+		P.disconnect=function(){ __obs.clear(); return d.call(this); };})()`, nil),
+		setSel("#thinking .th-format", "raw"), chromedp.Sleep(200*time.Millisecond))
+	var k struct{ Observed, AfterCap, AfterTrim int }
+	eval(`window.__obs.size`, &k.Observed)
+	eval(`(function(){ meThMax=250; meThCap(); return `+leaked+`; })()`, &k.AfterCap)
+	run("scroll top", chromedp.Evaluate(`document.querySelector('#thinking .th-list').scrollTop=0`, nil), chromedp.Sleep(200*time.Millisecond))
+	eval(`(function(){ meThMax=200; meThTrimNewest(); return `+leaked+`; })()`, &k.AfterTrim)
+	if k.Observed == 0 || k.AfterCap != 0 || k.AfterTrim != 0 {
+		t.Fatalf("(k) removed lines still observed: %+v", k)
+	}
+	run("narrative", setSel("#thinking .th-format", "narrative"))
 }
 
 // Load earlier when the top line is an orphan result whose call is on the
