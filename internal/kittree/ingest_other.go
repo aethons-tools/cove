@@ -4,7 +4,7 @@ package kittree
 
 import "io/fs"
 
-// openFlags adds nothing where the platform has no FIFO or O_NOFOLLOW.
+// openFlags adds nothing where the platform has no FIFOs.
 const openFlags = 0
 
 // hardLinked cannot be told from fs.FileInfo here; the walk's type checks

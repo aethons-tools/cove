@@ -7,9 +7,10 @@ import (
 	"syscall"
 )
 
-// openFlags opens a tree file without blocking on a FIFO and without
-// following a symlink swapped in after the walk saw a regular file.
-const openFlags = syscall.O_NONBLOCK | syscall.O_NOFOLLOW
+// openFlags opens a tree file without blocking on a FIFO swapped in after the
+// walk saw a regular file. (os.Root follows symlinks whatever the flags; the
+// SameFile check after the open refuses one.)
+const openFlags = syscall.O_NONBLOCK
 
 // hardLinked reports whether the opened file has more than one link.
 func hardLinked(fi fs.FileInfo) bool {

@@ -30,3 +30,19 @@ func TestReadDirRefusesHardlink(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestReadDirLocatesAnUnreadableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 directory")
+	}
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/locked/x": "y"})
+	locked := filepath.Join(root, "kits/app/locked")
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	if _, err := ReadDir(openRoot(t, root), "kits/app"); err == nil || err.Error() != "kits/app/locked: cannot be read" {
+		t.Fatalf("err = %v", err)
+	}
+}

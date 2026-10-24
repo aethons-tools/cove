@@ -293,3 +293,85 @@ func TestReadTarFileTooLargeWhileStreaming(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// onOpen sets the before-open hook for one test.
+func onOpen(t *testing.T, f func(p string)) {
+	t.Helper()
+	testHookBeforeOpen = f
+	t.Cleanup(func() { testHookBeforeOpen = nil })
+}
+
+func TestReadDirRefusesFinalSymlinkSwappedIn(t *testing.T) {
+	// In the kit dir, the open succeeds and SameFile refuses; out of it, the
+	// open (confined to the kit dir) fails.
+	for target, want := range map[string]string{"kit.yml": "kits/app/a: not a regular file", "../../secret": "kits/app/a: cannot be read"} {
+		root := t.TempDir()
+		writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/a": "real", "secret": "decoy"})
+		onOpen(t, func(p string) {
+			if p == "kits/app/a" {
+				full := filepath.Join(root, "kits/app/a")
+				if err := os.Remove(full); err != nil {
+					t.Error(err)
+				}
+				if err := os.Symlink(target, full); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+		files, err := ReadDir(openRoot(t, root), "kits/app")
+		if err == nil || err.Error() != want {
+			t.Fatalf("%s: err = %v, files %s", target, err, paths(files))
+		}
+	}
+}
+
+func TestReadDirIntermediateSymlinkSwapNeverReadsTheDecoy(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/sub/f": "real", "decoy/f": "decoy"})
+	onOpen(t, func(p string) {
+		if p == "kits/app/sub/f" {
+			sub := filepath.Join(root, "kits/app/sub")
+			if err := os.Rename(sub, sub+".moved"); err != nil {
+				t.Error(err)
+			}
+			if err := os.Symlink("../../decoy", sub); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	// The walk holds sub open, so it reads the real file through that handle.
+	files, err := ReadDir(openRoot(t, root), "kits/app")
+	for _, f := range files {
+		if string(f.Data) == "decoy" {
+			t.Fatalf("%s: read the decoy through a swapped-in symlink (err %v)", f.Path, err)
+		}
+	}
+	if err != nil || len(files) != 2 || files[1].Path != "sub/f" || string(files[1].Data) != "real" {
+		t.Fatalf("files %s, %v", paths(files), err)
+	}
+}
+
+func TestReadDirReadsDockerignoreOnce(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/.dockerignore": "*.log\n", "kits/app/a.log": "x"})
+	n := 0
+	onOpen(t, func(p string) {
+		if p == "kits/app/.dockerignore" {
+			n++
+		}
+	})
+	files, err := ReadDir(openRoot(t, root), "kits/app")
+	if err != nil || paths(files) != ".dockerignore:-rw-r--r-- kit.yml:-rw-r--r--" || n != 1 {
+		t.Fatalf("files %s, %v, .dockerignore opened %d times", paths(files), err, n)
+	}
+}
+
+func TestReadDirIgnoredUnsafeNameIsNotRefused(t *testing.T) {
+	for _, rules := range []string{"bad*\n", "bad*\n!keep\n"} {
+		root := t.TempDir()
+		writeTree(t, root, map[string]string{"kits/app/kit.yml": "k", "kits/app/.dockerignore": rules, "kits/app/bad\x1bname": "x", "kits/app/badd\x1b/x": "y"})
+		if _, err := ReadDir(openRoot(t, root), "kits/app"); err != nil {
+			t.Fatalf("%q: err = %q", rules, err)
+		}
+	}
+}

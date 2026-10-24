@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -88,12 +87,24 @@ func Ignore(files []File) ([]File, error) {
 }
 
 // ReadDir reads the kit directory dir (slash, relative to root; "." for the
-// root) of an untrusted tree into files. Its .dockerignore is applied as the
-// walk goes, so an ignored file is never read nor counted. Symlinks (the kit
-// directory and its parents included), hard links and irregular files are
-// refused, modes are normalized and the tree limits hold, enforced as the walk
-// reads. Errors name paths as dir/rel (the limit errors as "dir: …") and never
-// echo content or an unsafe name.
+// root) of an untrusted tree into files, in walk order (each directory's
+// entries by name, a directory's files where its name sorts; Build sorts by
+// path).
+//
+// Its .dockerignore is applied as the walk goes: an ignored path is never
+// opened, read, counted or name-checked, so an ignored unsafe name is not
+// refused (with or without "!" rules). Symlinks (the kit directory and its
+// parents included), hard links and irregular files are refused, modes are
+// normalized and the tree limits hold, enforced as the walk reads.
+//
+// The walk holds each directory open and opens every name in it relative to
+// that handle, comparing what it opened with what it listed (os.SameFile), so
+// a symlink or other file swapped in after the check is refused and a
+// directory swapped for a symlink is never followed.
+//
+// Errors name the failing path as dir/rel (when the name is safe; else the
+// kit dir), the limit errors as "dir: …", and never echo content or an unsafe
+// name.
 func ReadDir(root *os.Root, dir string) ([]File, error) {
 	dir = path.Clean(dir)
 	if dir != "." {
@@ -101,64 +112,174 @@ func ReadDir(root *os.Root, dir string) ([]File, error) {
 			return nil, err
 		}
 	}
-	if err := lstatDirs(root, dir); err != nil {
-		return nil, err
-	}
-	ig, err := readIgnorer(root, dir)
+	kit, err := openDirChain(root, dir)
 	if err != nil {
 		return nil, err
 	}
-	var files []File
-	var total int64
-	err = fs.WalkDir(root.FS(), dir, func(p string, d fs.DirEntry, werr error) error {
-		if werr != nil {
-			return fmt.Errorf("%s: cannot be read", dir)
-		}
-		if p == dir {
-			return nil
-		}
-		rel := p
-		if dir != "." {
-			rel = strings.TrimPrefix(p, dir+"/")
-		}
-		if err := CheckPath(rel); err != nil {
-			return inDir(dir, err)
-		}
-		ignored, err := ig.Ignored(rel)
+	defer kit.Close()
+	w := &dirWalk{dir: dir}
+	ignoreData, ignoreMode, err := w.readIgnorer(kit)
+	if err != nil {
+		return nil, err
+	}
+	w.ignoreData, w.ignoreMode = ignoreData, ignoreMode
+	if err := w.walk(kit, ""); err != nil {
+		return nil, err
+	}
+	return w.files, nil
+}
+
+// dirWalk is one ReadDir in progress.
+type dirWalk struct {
+	dir        string
+	ig         Ignorer
+	ignoreData []byte // the root .dockerignore as read (nil: none)
+	ignoreMode fs.FileMode
+	files      []File
+	total      int64
+}
+
+// show is rel's display path: dir/rel, or rel for the root.
+func (w *dirWalk) show(rel string) string {
+	if w.dir == "." {
+		return rel
+	}
+	if rel == "" {
+		return w.dir
+	}
+	return w.dir + "/" + rel
+}
+
+// at is where an error about rel is located: rel's display path when its
+// name is safe, else the kit dir.
+func (w *dirWalk) at(rel string) string {
+	if rel != "" && CheckPath(rel) != nil {
+		return w.dir
+	}
+	return w.show(rel)
+}
+
+// walk reads the directory open as r, at rel ("" for the kit dir).
+func (w *dirWalk) walk(r *os.Root, rel string) error {
+	ents, err := listDir(r)
+	if err != nil {
+		return fmt.Errorf("%s: cannot be read", w.at(rel))
+	}
+	for _, name := range ents {
+		p := path.Join(rel, name)
+		ignored, err := w.ig.Ignored(p)
 		if err != nil {
-			return ignoreErr(dir, err)
+			return ignoreErr(w.dir, err)
 		}
-		if ignored {
-			if d.IsDir() && ig.Prunes() {
-				return fs.SkipDir
+		fi, err := r.Lstat(name)
+		if err != nil {
+			return fmt.Errorf("%s: cannot be read", w.at(p))
+		}
+		if ignored && (!fi.IsDir() || w.ig.Prunes()) {
+			continue
+		}
+		if !ignored {
+			if err := CheckPath(p); err != nil {
+				return inDir(w.dir, err)
 			}
-			return nil
 		}
 		switch {
-		case d.Type()&fs.ModeSymlink != 0:
-			return fmt.Errorf("%s: symlinks are not allowed", p)
-		case d.IsDir():
-			return nil
-		case !d.Type().IsRegular():
-			return fmt.Errorf("%s: not a regular file", p)
+		case fi.Mode()&fs.ModeSymlink != 0:
+			if ignored {
+				continue
+			}
+			return fmt.Errorf("%s: symlinks are not allowed", w.show(p))
+		case fi.IsDir():
+			// An ignored directory is still walked when a "!" rule could
+			// re-include something beneath it.
+			sub, err := openSub(r, name, fi)
+			if err != nil {
+				return fmt.Errorf("%s: %w", w.at(p), err)
+			}
+			err = w.walk(sub, p)
+			sub.Close()
+			if err != nil {
+				return err
+			}
+			continue
+		case ignored:
+			continue
+		case !fi.Mode().IsRegular():
+			return fmt.Errorf("%s: not a regular file", w.show(p))
 		}
-		if len(files) == MaxEntries {
-			return inDir(dir, tooManyFiles(MaxEntries+1))
+		if len(w.files) == MaxEntries {
+			return inDir(w.dir, tooManyFiles(MaxEntries+1))
 		}
-		data, mode, err := readRegular(root, p)
-		if err != nil {
+		var data []byte
+		var mode fs.FileMode
+		if p == dockerignoreFile {
+			data, mode = w.ignoreData, w.ignoreMode
+		} else if data, mode, err = readRegular(r, name, fi, w.show(p)); err != nil {
 			return err
 		}
-		if total += int64(len(data)); total > MaxTotal {
-			return inDir(dir, treeTooLarge())
+		if w.total += int64(len(data)); w.total > MaxTotal {
+			return inDir(w.dir, treeTooLarge())
 		}
-		files = append(files, File{Path: rel, Mode: NormMode(mode), Data: data})
-		return nil
-	})
+		w.files = append(w.files, File{Path: p, Mode: NormMode(mode), Data: data})
+	}
+	return nil
+}
+
+// listDir lists the directory open as r, by name.
+func listDir(r *os.Root) ([]string, error) {
+	f, err := r.Open(".")
 	if err != nil {
 		return nil, err
 	}
-	return files, nil
+	defer f.Close()
+	names, err := f.Readdirnames(-1)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// openSub opens the directory name in r, which must be the directory want
+// that r listed: a symlink or other directory swapped in is refused as "not a
+// directory", an open failure is "cannot be read".
+func openSub(r *os.Root, name string, want fs.FileInfo) (*os.Root, error) {
+	sub, err := r.OpenRoot(name)
+	if err != nil {
+		return nil, errors.New("cannot be read")
+	}
+	got, err := sub.Stat(".")
+	if err != nil || !os.SameFile(got, want) {
+		sub.Close()
+		return nil, errors.New("not a directory")
+	}
+	return sub, nil
+}
+
+// openDirChain opens dir under root one name at a time, each a real
+// directory (not a symlink, which os.Root would follow within the root).
+func openDirChain(root *os.Root, dir string) (*os.Root, error) {
+	cur, err := root.OpenRoot(".")
+	if err != nil {
+		return nil, fmt.Errorf("%s: not a directory", dir)
+	}
+	if dir == "." {
+		return cur, nil
+	}
+	for _, name := range strings.Split(dir, "/") {
+		fi, err := cur.Lstat(name)
+		if err != nil || !fi.IsDir() {
+			cur.Close()
+			return nil, fmt.Errorf("%s: not a directory", dir)
+		}
+		sub, err := openSub(cur, name, fi)
+		cur.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%s: not a directory", dir)
+		}
+		cur = sub
+	}
+	return cur, nil
 }
 
 // inDir locates err at dir: "dir: err", or err alone for the root.
@@ -177,56 +298,45 @@ func ignoreErr(dir string, err error) error {
 	return fmt.Errorf("%s/%w", dir, err)
 }
 
-// lstatDirs requires dir and each of its parents to be a real directory, not
-// a symlink (which os.Root would otherwise follow within the root).
-func lstatDirs(root *os.Root, dir string) error {
-	if dir == "." {
-		return nil
-	}
-	parts := strings.Split(dir, "/")
-	for i := range parts {
-		fi, err := root.Lstat(filepath.FromSlash(strings.Join(parts[:i+1], "/")))
-		if err != nil || !fi.IsDir() {
-			return fmt.Errorf("%s: not a directory", dir)
-		}
-	}
-	return nil
-}
-
-// readIgnorer reads dir's .dockerignore (a regular file of at most MaxFile
-// bytes; absent: nothing is ignored).
-func readIgnorer(root *os.Root, dir string) (Ignorer, error) {
-	p := path.Join(dir, dockerignoreFile)
-	fi, err := root.Lstat(filepath.FromSlash(p))
+// readIgnorer reads the kit dir's .dockerignore (open as kit; a regular file
+// of at most MaxFile bytes; absent: nothing is ignored) into w.ig, returning
+// its bytes and mode for the walk to reuse.
+func (w *dirWalk) readIgnorer(kit *os.Root) ([]byte, fs.FileMode, error) {
+	fi, err := kit.Lstat(dockerignoreFile)
 	if errors.Is(err, fs.ErrNotExist) {
-		return NewIgnorer(nil)
+		w.ig, err = NewIgnorer(nil)
+		return nil, 0, err
 	}
+	p := w.show(dockerignoreFile)
 	if err != nil || !fi.Mode().IsRegular() {
-		return Ignorer{}, fmt.Errorf("%s: not a regular file", p)
+		return nil, 0, fmt.Errorf("%s: not a regular file", p)
 	}
-	data, _, err := readRegular(root, p)
+	data, mode, err := readRegular(kit, dockerignoreFile, fi, p)
 	if err != nil {
-		return Ignorer{}, err
+		return nil, 0, err
 	}
-	ig, err := NewIgnorer(data)
-	if err != nil {
-		return Ignorer{}, ignoreErr(dir, err)
+	if w.ig, err = NewIgnorer(data); err != nil {
+		return nil, 0, ignoreErr(w.dir, err)
 	}
-	return ig, nil
+	return data, mode, nil
 }
 
-// readRegular reads p through root, non-blocking (a FIFO swapped in cannot
-// hang it) and, where the platform allows, without following a final symlink,
-// judging the opened file: anything but a regular file, a hard-linked file, or
-// over MaxFile, is refused. At most MaxFile+1 bytes are read.
-func readRegular(root *os.Root, p string) ([]byte, fs.FileMode, error) {
-	f, err := root.OpenFile(filepath.FromSlash(p), os.O_RDONLY|openFlags, 0)
+// readRegular reads name in the directory open as r, which must be the file
+// want that r listed: anything else (a symlink or file swapped in after the
+// check), an irregular file, a hard-linked file, or over MaxFile, is refused.
+// It opens non-blocking where the platform has FIFOs (a FIFO swapped in
+// cannot hang it) and reads at most MaxFile+1 bytes. Errors name p.
+func readRegular(r *os.Root, name string, want fs.FileInfo, p string) ([]byte, fs.FileMode, error) {
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(p)
+	}
+	f, err := r.OpenFile(name, os.O_RDONLY|openFlags, 0)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s: cannot be read", p)
 	}
 	defer f.Close()
 	fi, err := f.Stat()
-	if err != nil || !fi.Mode().IsRegular() {
+	if err != nil || !fi.Mode().IsRegular() || !os.SameFile(fi, want) {
 		return nil, 0, fmt.Errorf("%s: not a regular file", p)
 	}
 	if hardLinked(fi) {
@@ -241,6 +351,10 @@ func readRegular(root *os.Root, p string) ([]byte, fs.FileMode, error) {
 	}
 	return data, fi.Mode(), nil
 }
+
+// testHookBeforeOpen, when set by a test, runs between a file's check and its
+// open, with the file's display path.
+var testHookBeforeOpen func(p string)
 
 // MaxUpload caps a push body: the files, a header block per file with room
 // for PAX records, and the end blocks.
@@ -257,8 +371,9 @@ func (e *tarError) Unwrap() error { return e.err }
 // "./" is dropped and directory entries are skipped; links, devices and
 // unsafe names are refused; the tree limits hold as the body streams. A pax
 // global header (git archive writes one) carries no file and is skipped. It
-// does not apply
-// .dockerignore (Ignore does).
+// does not apply .dockerignore (Ignore does) and does not cap the body's
+// bytes: the caller does, at MaxUpload (http.MaxBytesReader; its error is
+// kept as the cause of "not a readable tar"). Files come in tar order.
 func ReadTar(r io.Reader) ([]File, error) {
 	tr := tar.NewReader(r)
 	var files []File
