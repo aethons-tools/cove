@@ -125,12 +125,9 @@ var whiteboardVersion = func() string {
 func WhiteboardBuilt() bool { return whiteboardVersion != "" }
 
 // WhiteboardScript is the editor's entry module URL under prefix, versioned
-// ("" when not built); WhiteboardStyles its stylesheet; WhiteboardBase the
+// (callers check WhiteboardBuilt first); WhiteboardStyles its stylesheet; WhiteboardBase the
 // directory Excalidraw loads its fonts and chunks from.
 func WhiteboardScript(prefix string) string {
-	if !WhiteboardBuilt() {
-		return ""
-	}
 	return prefix + "whiteboard/whiteboard.js?v=" + whiteboardVersion
 }
 
