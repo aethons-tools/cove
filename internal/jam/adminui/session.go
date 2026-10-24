@@ -58,36 +58,6 @@ type eventView struct {
 	TruncatedBytes uint64
 }
 
-type totals struct {
-	Turns                     uint32 // results seen: prompts answered
-	Episodes                  uint32 // claude processes: max turn
-	ToolCalls                 int
-	InputTokens, OutputTokens int64
-	CostUSD                   float64
-	// episodeCost is the latest total_cost_usd per episode (turn). claude
-	// reports it cumulatively per process, so only the last one counts.
-	episodeCost map[uint32]float64
-}
-
-func (t *totals) add(ev sessionevents.Event) {
-	if ev.Turn > t.Episodes {
-		t.Episodes = ev.Turn
-	}
-	if ev.Index.Type == "assistant" && ev.Index.ToolName != "" {
-		t.ToolCalls++
-	}
-	if ev.Index.Type == "result" {
-		t.Turns++
-		t.InputTokens += ev.Index.InputTokens
-		t.OutputTokens += ev.Index.OutputTokens
-		if t.episodeCost == nil {
-			t.episodeCost = map[uint32]float64{}
-		}
-		t.CostUSD += ev.Index.CostUSD - t.episodeCost[ev.Turn]
-		t.episodeCost[ev.Turn] = ev.Index.CostUSD
-	}
-}
-
 func clip(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if utf8.RuneCountInString(s) <= n {
@@ -261,10 +231,10 @@ func serveSessionEvents(w http.ResponseWriter, r *http.Request, store sessioneve
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, "retry: 3000\n\n")
 
-	var tot totals
+	var tot sessionevents.Totals
 	var last uint64 // highest seq handled (sent or counted)
 	emit := func(ev sessionevents.Event) {
-		tot.add(ev)
+		tot.Add(ev)
 		last = ev.Seq
 		if ev.Seq > resumeAfter {
 			sseWrite(w, "ev", fmt.Sprintf("%s:%d", ev.StreamID, ev.Seq), fragment("session-event", viewOf(ev)))

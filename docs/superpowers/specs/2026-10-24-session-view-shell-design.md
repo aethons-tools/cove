@@ -1,6 +1,6 @@
 # Session view, part 1: the shell — design
 
-**Status:** approved in brainstorming (2026-10-24); not built.
+**Status:** approved in brainstorming (2026-10-24); built (header and pane shipped in one PR). User doc: [session-view.md](../../usage/jam/session-view.md).
 **Context:** the session view (the user's "Session layout" board): a session's conversation gains a header and a splittable, tabbed pane of other views. Sub-projects, in order: **1 the shell (this)**, 2 the thinking view, 3 the studio view (code-server, inline previews), 4 process tails.
 
 ## Decisions (2026-10-24)

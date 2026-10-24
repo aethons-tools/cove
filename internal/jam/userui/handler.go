@@ -52,6 +52,8 @@ type inboxPage struct {
 	UnreadTotal int
 	// PushFocus: the page reports its open, focused conversation.
 	PushFocus bool
+	// Pane is one session-pane tab (its fragment only).
+	Pane *SessionPane
 }
 
 // Handler serves the participant intercom inbox under /app/user. It reads identity per
@@ -82,6 +84,9 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /app/user/presence", h.presenceStrip)
 	mux.HandleFunc("GET /app/user/asks", h.askPanel)
 	mux.HandleFunc("GET /app/user/events", h.events)
+	mux.HandleFunc("GET /app/user/session/{id}/head", h.sessionHeadRoute)
+	mux.HandleFunc("GET /app/user/session/{id}/pane", h.sessionPaneRoute)
+	mux.HandleFunc("POST /app/user/session/{id}/{action}", h.sessionAction)
 	h.pushRoutes(mux)
 	return mux
 }
@@ -116,6 +121,10 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 		if conv, ok := conversation(p, h.d, sel); ok {
 			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
 			conv.NewBoard = h.d.Boards != nil && whiteboardBuilt() && conv.SendTo != "" && h.d.Boards.MayCreateIn(p.UserID, ident.ID(sel))
+			if inst, ok := homeSession(h.d, sel); ok {
+				hd := h.sessionHead(r, p, inst)
+				conv.Head = &hd
+			}
 			if id := r.URL.Query().Get("board"); id != "" {
 				conv.Board = boardEditor(p, h.d, sel, id)
 			}

@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: the `/app/user` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /app/user/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /app/user/read`), the membership controls (`POST /app/user/join|leave|call-in`), the live push (`GET /app/user/events`) and fallback poll, and how it wires to the channel read-model and `/app/user/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # The participant intercom inbox (`/app/user`)
@@ -214,6 +214,8 @@ The inbox is always mounted; reaching it takes a login that names a roster
 member (or a loopback [`dev-identity`](serve.md) — see
 [ui.md](ui.md#signing-in-one-login-one-principal)). Its conversations
 come from the channel log, which is always available. Phone and desktop notifications, and the app badge: [push.md](push.md).
+
+A session's home channel also gets a header and a tabbed side pane: [session-view.md](session-view.md).
 
 ## Not yet
 

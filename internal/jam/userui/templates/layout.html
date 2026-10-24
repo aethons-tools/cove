@@ -43,8 +43,8 @@ body{display:flex;flex-direction:column}
 .badge{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px}
 .badge.unread{background:var(--accent);color:#fff;min-width:18px;text-align:center}
 .empty{color:var(--faint);font-size:13px;padding:14px}
-.convo{display:grid;grid-template-rows:auto 1fr auto;min-height:0;background:var(--bg)}
-.cv-empty{display:grid;place-items:center;color:var(--faint)}
+.convo{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg)}
+.cv-empty{flex:1;display:grid;place-items:center;color:var(--faint)}
 .cv-readonly{padding:10px 16px;color:var(--faint);border-top:1px solid var(--border)}
 .cv-head{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .cv-title{font-weight:600;font-size:15px}
@@ -53,7 +53,7 @@ body{display:flex;flex-direction:column}
 .cv-head .callin{display:inline-flex;gap:6px;align-items:center}
 .cv-head .callin select,.cv-head button{font:inherit;font-size:12.5px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:inherit}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--wait-line);background:var(--wait-soft);color:var(--wait)}
-.stream{overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
+.stream{flex:1;overflow-y:auto;min-height:0;padding:20px;display:flex;flex-direction:column;gap:14px}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:4px}
 .msg .from{font-size:11.5px;color:var(--faint);font-weight:600;padding:0 4px;position:relative}
 /* Copy controls: shown on hover or keyboard focus (always on touch screens).
@@ -140,6 +140,33 @@ body{display:flex;flex-direction:column}
 .board-bar{padding:6px 12px;border-bottom:1px solid var(--line,#ddd);display:flex;gap:10px;align-items:center}
 #board-editor{flex:1;min-height:480px;position:relative}#board-editor .wb-canvas{position:absolute;inset:0}
 .wb-error{color:#b00;padding:8px}.wb-banner{position:absolute;top:0;left:50%;z-index:10;background:#fff}
+.session-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface)}
+.session-head .sh-kind,.session-head .sh-ticket{font-size:11.5px;border:1px solid var(--border-strong);border-radius:999px;padding:1px 7px;color:var(--muted)}
+.session-head .sh-sub,.session-head .t{color:var(--muted);font-size:12.5px}
+.session-head .sh-tabs button,.session-head .sh-ssh{background:none;border:1px solid var(--border-strong);border-radius:6px;padding:3px 9px;font:inherit;font-size:12.5px;cursor:pointer}
+.session-head .sh-tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.session-head .sh-more{position:relative}.session-head .sh-more summary{list-style:none;cursor:pointer;padding:2px 8px}
+.session-head .sh-more .menu{position:absolute;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:20}
+/* The session pane: beside the messages (right), or under them (below; always
+   when narrow), split by a draggable divider. */
+.cv-split{flex:1;min-height:0;display:flex}
+.cv-split[data-place="below"]{flex-direction:column}
+.cv-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.side-pane{flex:0 0 380px;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.cv-split[data-place="below"] .side-pane{flex-basis:280px}
+.pane-div{flex:0 0 5px;cursor:col-resize;background:var(--border);touch-action:none}
+.cv-split[data-place="below"] .pane-div{cursor:row-resize}
+.pane-div:hover,.pane-div:focus-visible{background:var(--accent)}
+.side-pane[hidden],.pane-div[hidden]{display:none}
+.sp-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border)}
+.sp-bar .spacer{flex:1}.sp-bar button{background:none;border:0;font:inherit;cursor:pointer;padding:2px 6px;color:var(--muted)}
+.sp-body{flex:1;min-height:0;overflow:auto;padding:8px 12px 14px}
+.sp-body h4{margin:12px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.sp-row{display:block;padding:5px 0;border-bottom:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-row small{color:var(--muted)}
+.sp-boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.sp-board{display:flex;flex-direction:column;gap:4px;font-size:12.5px}.sp-board img{width:100%;aspect-ratio:4/3;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff}
+.sp-status{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:6px 0;font-size:13px}.sp-status dt{color:var(--muted)}.sp-status dd{margin:0}
 </style>
 </head>
 <body{{if .PushFocus}} data-push-focus{{end}}>
@@ -343,6 +370,94 @@ function meNewBoard(channel){
    .then(function(b){ location.href='/app/user/?c='+encodeURIComponent(channel)+'&board='+encodeURIComponent(b.board_id); })
    .catch(function(s){ alert('Could not start a whiteboard ('+s+')'); });
 }
+// The session pane (a session's home channel only): mePane(tab) opens it on
+// tab (null closes it); a header tab toggles it. Its layout (tab, placement,
+// size) is remembered per session (localStorage jam-pane:<id>); a session
+// never opened starts from the last layout used (jam-pane:last). ?tab= opens
+// a tab. Below 900px the pane always sits below the messages.
+var mePaneTabs={previews:'Previews',artifacts:'Artifacts',status:'Status'};
+var meNarrow=window.matchMedia('(max-width:900px)');
+function meSplit(){ return document.getElementById('cv-split'); }
+function mePaneLoad(id){
+  try{ return JSON.parse(localStorage.getItem('jam-pane:'+id) || localStorage.getItem('jam-pane:last') || 'null') || {}; }catch(e){ return {}; }
+}
+function mePaneSave(s){
+  var v=JSON.stringify(s._pane);
+  try{ localStorage.setItem('jam-pane:'+s.dataset.session, v); localStorage.setItem('jam-pane:last', v); }catch(e){}
+}
+function mePaneFetch(s){
+  var st=s._pane; if(!st.tab) return;
+  htmx.ajax('GET', '/app/user/session/'+encodeURIComponent(s.dataset.session)+'/pane?tab='+encodeURIComponent(st.tab), {target:'#side-pane-body', swap:'innerHTML'});
+}
+// mePaneApply lays the pane out from s._pane; fetch reloads its tab.
+function mePaneApply(s, fetch){
+  var st=s._pane, open=!!mePaneTabs[st.tab];
+  var aside=s.querySelector('.side-pane'), div=s.querySelector('.pane-div');
+  aside.hidden=!open; div.hidden=!open;
+  var place=meNarrow.matches ? 'below' : (st.place==='below' ? 'below' : 'right');
+  s.dataset.place=place;
+  div.setAttribute('aria-orientation', place==='right' ? 'vertical' : 'horizontal');
+  aside.querySelector('.sp-place').hidden=meNarrow.matches;
+  var size=place==='right' ? st.w : st.h;
+  aside.style.flexBasis=size ? size+'px' : '';
+  meTabsMark();
+  if(open){ aside.querySelector('.sp-title').textContent=mePaneTabs[st.tab]; if(fetch) mePaneFetch(s); }
+}
+function meTabsMark(){
+  var s=meSplit(), tab=s && s._pane && s._pane.tab;
+  document.querySelectorAll('.sh-tabs button').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.tab===tab ? 'true' : 'false'); });
+}
+function mePane(tab){
+  var s=meSplit();
+  if(!s){ // e.g. a whiteboard is open: go back to the chat, on that tab
+    var p=document.getElementById('pane'), ch=p && p.dataset.channel;
+    if(ch && tab){ location.href='/app/user/?c='+encodeURIComponent(ch)+'&tab='+encodeURIComponent(tab); }
+    return;
+  }
+  s._pane.tab=mePaneTabs[tab] ? tab : null;
+  mePaneSave(s); mePaneApply(s, true);
+}
+function mePaneToggle(tab){ var s=meSplit(); mePane(s && s._pane.tab===tab ? null : tab); }
+function mePanePlace(){
+  var s=meSplit(); if(!s) return;
+  s._pane.place=s.dataset.place==='right' ? 'below' : 'right';
+  mePaneSave(s); mePaneApply(s, false);
+}
+(function(){
+  var s=meSplit(); if(!s) return;
+  s._pane=mePaneLoad(s.dataset.session);
+  var q=new URLSearchParams(location.search).get('tab');
+  if(mePaneTabs[q]){ s._pane.tab=q; mePaneSave(s); }
+  mePaneApply(s, true);
+  meNarrow.addEventListener('change', function(){ mePaneApply(s, false); });
+  // Drag (or arrow keys on) the divider to resize; the size is kept per placement.
+  var div=s.querySelector('.pane-div');
+  function resize(px){
+    var r=s.getBoundingClientRect(), right=s.dataset.place==='right', total=right ? r.width : r.height;
+    px=Math.max(200, Math.min(total-240, px));
+    if(right){ s._pane.w=Math.round(px); }else{ s._pane.h=Math.round(px); }
+    s.querySelector('.side-pane').style.flexBasis=Math.round(px)+'px';
+  }
+  function current(){ var a=s.querySelector('.side-pane').getBoundingClientRect(); return s.dataset.place==='right' ? a.width : a.height; }
+  div.addEventListener('pointerdown', function(e){
+    e.preventDefault(); div.setPointerCapture(e.pointerId);
+    function move(ev){ var r=s.getBoundingClientRect(); resize(s.dataset.place==='right' ? r.right-ev.clientX : r.bottom-ev.clientY); }
+    function up(){ div.removeEventListener('pointermove', move); div.removeEventListener('pointerup', up); mePaneSave(s); }
+    div.addEventListener('pointermove', move); div.addEventListener('pointerup', up);
+  });
+  div.addEventListener('keydown', function(e){
+    var grow={ArrowLeft:1, ArrowUp:1, ArrowRight:-1, ArrowDown:-1}[e.key];
+    if(!grow) return;
+    e.preventDefault(); resize(current()+grow*24); mePaneSave(s);
+  });
+  // Keep the open tab fresh: on pushes, and every 30s.
+  function refresh(){ var sel=window.getSelection(); if(s._pane.tab && !(sel && !sel.isCollapsed && s.querySelector('.side-pane').contains(sel.anchorNode))) mePaneFetch(s); }
+  document.body.addEventListener('meChanged', refresh);
+  document.body.addEventListener('mePresence', refresh);
+  setInterval(refresh, 30000);
+})();
+// The header refreshes itself (outerHTML): re-mark its tabs.
+document.addEventListener('htmx:afterSettle', meTabsMark);
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();
