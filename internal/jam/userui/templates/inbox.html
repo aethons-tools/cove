@@ -44,6 +44,7 @@
 {{define "pane"}}
 <section class="convo" id="pane"{{with .Conv}}{{if .SendTo}} data-channel="{{.ChannelID}}"{{end}}{{end}}>
   {{with .Conv}}
+    {{if .Head}}{{template "sessionhead" $}}{{end}}
     <div class="cv-head">
       <div>
         <div class="cv-title">{{.Label}}</div>
@@ -69,6 +70,7 @@
       </script>
     </div>
     {{else}}
+    {{if .Head}}<div class="cv-split" id="cv-split" data-session="{{.Head.ID}}"><div class="cv-main">{{end}}
     <div id="asks" hx-get="/app/user/asks?c={{.ChannelID}}" hx-trigger="meChanged from:body, every 30s" hx-swap="innerHTML">{{template "askpanel" $}}</div>
     <div class="stream" id="stream" hx-get="/app/user/stream?c={{.ChannelID}}" hx-trigger="meChanged[!meSelecting() && !meAnswering()] from:body, every 30s [!meSelecting() && !meAnswering()]" hx-swap="innerHTML">
       {{template "messages" $}}
@@ -86,12 +88,37 @@
     {{else}}
     <div class="cv-readonly">From before the upgrade: read-only.</div>
     {{end}}
+    {{if .Head}}</div>
+      <div class="pane-div" role="separator" tabindex="0" aria-label="Resize the session pane" hidden></div>
+      <aside class="side-pane" id="side-pane" aria-label="Session pane" hidden>
+        <div class="sp-bar"><b class="sp-title"></b><span class="spacer"></span><button type="button" class="sp-place" onclick="mePanePlace()" title="Move the pane right or below">⇄</button><button type="button" onclick="mePane(null)" aria-label="Close the pane">×</button></div>
+        <div class="sp-body" id="side-pane-body" role="tabpanel"></div>
+      </aside>
+    </div>{{end}}
     {{end}}
   {{else}}
     <div class="cv-empty">Select a conversation, or start a New message.</div>
   {{end}}
 </section>
 {{end}}
+
+{{/* sessionpane renders one tab of the session pane (the
+     /app/user/session/{id}/pane?tab= target; layout.html's mePane loads it). */}}
+{{define "sessionpane"}}{{with .Pane}}
+{{if eq .Tab "previews"}}
+  {{if .PreviewsOff}}<p class="empty">Previews aren't available to you here.</p>
+  {{else}}{{range .Previews}}<a class="sp-row" href="{{.URL}}" target="_blank" rel="noopener">{{.Name}} <small>port {{.Port}} ↗</small></a>
+  {{else}}<p class="empty">No previews exposed. A session exposes one with its <code>expose</code> tool.</p>{{end}}{{end}}
+{{else if eq .Tab "artifacts"}}
+  {{if .Boards}}<h4>Whiteboards</h4><div class="sp-boards">{{range .Boards}}<a class="sp-board" href="/app/user/?c={{.Channel}}&board={{.ID}}"><img loading="lazy" src="/app/user/boards/{{.ID}}/thumb.png" alt=""><span>{{.Title}}</span></a>{{end}}</div>{{end}}
+  {{if .Files}}<h4>Files</h4><div class="files">{{range .Files}}{{if .Image}}<a class="thumb" href="/app/user/blobs/{{.ID}}" target="_blank" rel="noopener"><img loading="lazy" src="/app/user/blobs/{{.ID}}" alt="{{.Name}}"></a>{{else}}<a class="file-chip" href="/app/user/blobs/{{.ID}}" download>📄 {{.Name}} <small>{{.Size}}</small></a>{{end}}{{end}}</div>{{end}}
+  {{if .Asks}}<h4>Asks</h4>{{range .Asks}}<a class="sp-row" href="#ask-{{.ID}}">{{.Question}} <small class="ask-{{.State}}">{{.State}}</small></a>{{end}}{{end}}
+  {{if .Links}}<h4>Links</h4>{{range .Links}}<a class="sp-row sp-link" href="{{.URL}}" target="_blank" rel="noopener" title="{{.URL}}">{{.Label}}</a>{{end}}{{end}}
+  {{if not (or .Boards .Files .Asks .Links)}}<p class="empty">Nothing shared here yet.</p>{{end}}
+{{else}}
+  {{if .Status}}<dl class="sp-status">{{range .Status}}<dt>{{.Name}}</dt><dd>{{.Value}}</dd>{{end}}</dl>{{else}}<p class="empty">No status yet.</p>{{end}}
+{{end}}
+{{end}}{{end}}
 
 {{/* sessions renders the presence strip: one line per session taking part,
      like a typing indicator. It is the /app/user/presence refresh target, pushed by
@@ -156,3 +183,27 @@
   {{else}}<img loading="lazy" src="/app/user/boards/{{.ID}}/thumb.png" alt="{{.Title}}"><div class="t">whiteboard not built on this Jam</div>{{end}}
 </div>
 {{end}}{{end}}
+
+{{/* sessionhead is a session's header: who, what it's doing, cost, uptime,
+     quick actions and the pane's tabs; refreshed on the live pushes. */}}
+{{define "sessionhead"}}{{with .Conv}}{{with .Head}}
+<div class="session-head" id="session-head" hx-get="/app/user/session/{{.ID}}/head" hx-trigger="mePresence[!meMenuOpen()] from:body, meChanged[!meMenuOpen()] from:body, every 30s [!meMenuOpen()]" hx-swap="outerHTML">
+  <div class="sh-id"><b>{{.Label}}</b> <span class="sh-kind">{{.Kind}}</span>{{if .Ticket}} <span class="sh-ticket">{{.Ticket}}</span>{{end}}
+    <span class="sh-sub">{{.Role}} · {{.Project}}{{if .Owner}} · for {{.Owner}}{{end}}</span></div>
+  <div class="sh-state sess {{.State.Class}}">{{.State.Text}}{{if .State.Tool}} <b>{{.State.Tool}}</b>{{end}}{{if .Since}} <span class="t">· {{.Since}}</span>{{end}}{{if .OpenAsks}} <span class="badge asks">?{{.OpenAsks}}</span>{{end}}</div>
+  {{if .Cost}}<div class="sh-cost" title="{{.Tokens}}">{{.Cost}} <span class="t">· this turn {{.TurnCost}}</span></div>{{end}}
+  {{if .Uptime}}<div class="sh-up t" title="since it started">up {{.Uptime}}</div>{{end}}
+  <span class="spacer"></span>
+  <div class="sh-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="previews" onclick="mePaneToggle(this.dataset.tab)">Previews</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="artifacts" onclick="mePaneToggle(this.dataset.tab)">Artifacts</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="status" onclick="mePaneToggle(this.dataset.tab)">Status</button>
+  </div>
+  {{if .SSH}}<button type="button" class="sh-ssh" title="{{.SSH}}" onclick="meCopy(this.title, this)">Copy SSH</button>{{end}}
+  {{if or .CanRelease .CanRestart .CanUpgrade}}<details class="sh-more"><summary aria-label="More actions">⋯</summary><div class="menu">
+    {{if .CanRelease}}<button type="button" hx-post="/app/user/session/{{.ID}}/release" hx-confirm="Release this session? It ends now." hx-swap="none">Release</button>{{end}}
+    {{if .CanRestart}}<button type="button" hx-post="/app/user/session/{{.ID}}/restart" hx-confirm="{{.RestartLabel}} {{.Label}}?" hx-swap="none">{{.RestartLabel}}</button>{{end}}
+    {{if .CanUpgrade}}<button type="button" hx-post="/app/user/session/{{.ID}}/upgrade" hx-confirm="Upgrade {{.Label}} to the current image?" hx-swap="none">Upgrade</button>{{if .UpgradeState}} <span class="t">{{.UpgradeState}}</span>{{end}}{{end}}
+  </div></details>{{end}}
+</div>
+{{end}}{{end}}{{end}}

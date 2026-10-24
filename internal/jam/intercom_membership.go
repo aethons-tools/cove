@@ -240,3 +240,7 @@ func (ic *Intercom) homeIfExists(inst Instance) (Channel, bool) {
 	}
 	return ic.ownSessionChannel(inst)
 }
+
+// HomeChannelIfExists is inst's home channel if it already exists (creating
+// none).
+func (ic *Intercom) HomeChannelIfExists(inst Instance) (Channel, bool) { return ic.homeIfExists(inst) }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // Deps are what the inbox reads: the store, the intercom (who may see and
@@ -26,6 +27,13 @@ type Deps struct {
 	Attachments *jam.Attachments
 	// Boards serves whiteboards (nil: off).
 	Boards *jam.Boards
+	// Ops runs the session header's actions (nil: none offered); Totals
+	// derives its cost and counts from session events (nil: none shown).
+	Ops    SessionOps
+	Totals *sessionevents.TotalsCache
+	// PreviewURL maps a session's exposed port name to the URL a
+	// collaborator opens (nil: previews off).
+	PreviewURL func(actorID, name string) (string, error)
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).

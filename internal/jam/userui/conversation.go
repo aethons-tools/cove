@@ -91,6 +91,8 @@ type Conversation struct {
 	// and the editor is built); Board is the board ?board= opened.
 	NewBoard bool
 	Board    *BoardEditor
+	// Head is the session header when this is a session's home channel.
+	Head *SessionHead
 }
 
 func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {

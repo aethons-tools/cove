@@ -42,11 +42,11 @@ func TestTotalsCostIsLastPerEpisode(t *testing.T) {
 		return sessionevents.Event{Kind: sessionevents.KindEvent, Turn: turn,
 			Index: sessionevents.Index{Type: "result", CostUSD: cost, InputTokens: in, OutputTokens: out}}
 	}
-	var tot totals
-	tot.add(sessionevents.Event{Kind: sessionevents.KindEvent, Turn: 1, Index: sessionevents.Index{Type: "assistant", ToolName: "Bash"}})
-	tot.add(res(1, 0.1364288, 10, 116))
-	tot.add(res(1, 0.145289, 20, 21))
-	tot.add(res(2, 0.05, 5, 7))
+	var tot sessionevents.Totals
+	tot.Add(sessionevents.Event{Kind: sessionevents.KindEvent, Turn: 1, Index: sessionevents.Index{Type: "assistant", ToolName: "Bash"}})
+	tot.Add(res(1, 0.1364288, 10, 116))
+	tot.Add(res(1, 0.145289, 20, 21))
+	tot.Add(res(2, 0.05, 5, 7))
 	if math.Abs(tot.CostUSD-0.195289) > 1e-9 {
 		t.Fatalf("CostUSD = %v, want 0.195289 (last per episode, summed)", tot.CostUSD)
 	}
