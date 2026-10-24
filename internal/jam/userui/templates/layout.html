@@ -558,7 +558,7 @@ function meThLine(cls, text){ var d=document.createElement('div'); d.className=c
 function meThinkingOpen(el){
   meThinkingClose();
   var t={el:el, id:el.dataset.session, list:el.querySelector('.th-list'), newBtn:el.querySelector('.th-new'),
-    prefs:meThPrefs(), q:'', costs:{}, unseen:0, es:null, io:null, stream:''};
+    prefs:meThPrefs(), q:'', unseen:0, es:null, io:null, stream:''};
   meTh=t;
   el.querySelectorAll('.th-chips button').forEach(function(b){
     b.setAttribute('aria-pressed', t.prefs.f[b.dataset.f] ? 'true' : 'false');
@@ -596,7 +596,7 @@ function meThConnect(stream, clear){
   var t=meTh;
   if(t.es){ t.es.close(); t.es=null; }
   t.pinned=stream;
-  if(clear){ t.list.textContent=''; t.costs={}; t.paused=false; meThSeen(); meThWorking(); }
+  if(clear){ t.list.textContent=''; t.paused=false; meThSeen(); meThWorking(); }
   var es=new EventSource(meThBase()+'events'+(stream ? '?stream='+encodeURIComponent(stream) : ''));
   t.es=es;
   function on(name, fn){ es.addEventListener(name, function(e){ if(meTh===t && t.es===es) fn(e); }); }
@@ -639,12 +639,11 @@ function meThinkingAdd(node, at){
     var orphan=tid && L.querySelector('.te[data-kind="tool_result"]'+tid);
     if(orphan){ meThPair(node, orphan); orphan.remove(); }
   }
-  if(kind==='result') meThResult(node);
   L.insertBefore(node, at ? (at.before||meThTail()) : meThTail());
   meThFilter(node);
   if(t.io) t.io.observe(node);
-  if(at) return;
-  meThCap();
+  if(at) return; // meThPage relabels the costs once per page
+  if(meThCap() || kind==='result') meThCosts();
   if(atBottom){ meThEnd(); }
   else{ meThUnseen(1); }
 }
@@ -668,21 +667,29 @@ function meThPair(call, res){
   }
   if(note) call.insertBefore(note, call.querySelector('.te-raw'));
 }
-// meThResult makes a result a divider: its turn, the turn's cost (the delta
-// from the episode's previous cumulative cost) and duration.
-function meThResult(node){
-  var c=node.querySelector('.te-cost'), cost=c ? parseFloat(c.dataset.cost)||0 : 0, ms=c ? +c.dataset.ms||0 : 0;
-  var k=node.dataset.stream+':'+node.dataset.turn, prev=meTh.costs[k]||0;
-  meTh.costs[k]=cost;
-  node.querySelector('.te-text').textContent='turn '+node.dataset.turn+' · $'+(cost-prev).toFixed(2)+' · '+meThFmt(ms);
+// meThCosts labels every result line, in list order, as a divider: its
+// episode, its cost since the previous loaded result of the same stream and
+// episode (results carry the episode's cumulative cost) — or, with none
+// loaded before it, the episode's total so far — and its duration. Run after
+// each insert or removal, as pages arrive out of order.
+function meThCosts(){
+  var prev={};
+  meTh.list.querySelectorAll('.te[data-kind="result"]').forEach(function(n){
+    var c=n.querySelector('.te-cost'), cost=c ? parseFloat(c.dataset.cost)||0 : 0, ms=c ? +c.dataset.ms||0 : 0;
+    var k=n.dataset.stream+':'+n.dataset.turn, p=prev[k], x=n.querySelector('.te-text');
+    prev[k]=cost;
+    var label='episode '+n.dataset.turn+' · $'+(p===undefined ? cost.toFixed(2)+' episode total' : (cost-p).toFixed(2))+' · '+meThFmt(ms);
+    if(x.textContent!==label){ x.textContent=label; meThFilter(n); }
+  });
 }
 // meThCap keeps the newest meThMax lines, offering the rest as a page
-// (the live path).
+// (the live path); it returns how many it removed.
 function meThCap(){
   var L=meTh.list, all=L.querySelectorAll('.te'), n=all.length-meThMax;
-  if(n<=0) return;
+  if(n<=0) return 0;
   for(var i=0; i<n; i++) all[i].remove();
   meThMore(L.querySelector('.te').dataset.seq);
+  return n;
 }
 // meThTrimNewest keeps an inserted older page within meThMax by dropping
 // the newest lines instead, pausing following (the .th-new pill reloads
@@ -704,17 +711,23 @@ function meThMore(before){
 }
 // meThPage fetches the page of stream below before, adding its lines (from
 // seq from up) before node; done gets the page's own "Load earlier", if any.
+// The lines go before a marker, not node itself: a page's tool call removes
+// an orphan result it pairs, which node may be.
 function meThPage(stream, before, from, node, done){
   var t=meTh;
   fetch(meThBase()+'page?stream='+encodeURIComponent(stream)+'&before='+encodeURIComponent(before))
    .then(function(r){ return r.ok ? r.text() : Promise.reject(r.status); })
    .then(function(html){
      if(meTh!==t) return;
-     var frag=meThParse(html), h=t.list.scrollHeight;
-     Array.prototype.slice.call(frag.querySelectorAll('.te')).forEach(function(n){ if(+n.dataset.seq>=from) meThinkingAdd(n, {before:node}); });
+     var frag=meThParse(html), h=t.list.scrollHeight, mark=document.createElement('span');
+     mark.hidden=true;
+     t.list.insertBefore(mark, node||meThTail());
+     Array.prototype.slice.call(frag.querySelectorAll('.te')).forEach(function(n){ if(+n.dataset.seq>=from) meThinkingAdd(n, {before:mark}); });
+     mark.remove();
      done(frag.querySelector('.te-more'));
      t.list.scrollTop+=t.list.scrollHeight-h;
      meThTrimNewest();
+     meThCosts();
    }, function(){ done(undefined); });
 }
 function meThEarlier(m){

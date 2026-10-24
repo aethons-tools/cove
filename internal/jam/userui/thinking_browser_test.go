@@ -255,3 +255,106 @@ func TestBrowserThinking(t *testing.T) {
 		poll(`(function(){var L=document.querySelector('#thinking .th-list'), all=L.querySelectorAll('.te');
 			return all.length===300 && all[all.length-1].dataset.seq==='305' && document.querySelector('#thinking .th-new').hidden;})()`))
 }
+
+// Load earlier when the top line is an orphan result whose call is on the
+// page: the call pairs it, and the button keeps working. Result dividers
+// show each one's cost since the previous loaded result of its episode.
+func TestBrowserThinkingEarlier(t *testing.T) {
+	oldTail, oldPage := thinkingTail, thinkingPageSize
+	thinkingTail, thinkingPageSize = 2, 3
+	defer func() { thinkingTail, thinkingPageSize = oldTail, oldPage }()
+	ctx := browserCtx(t)
+	e, p, personal, store, _ := thinkEnv(t)
+	stream := strings.Repeat("e", 32)
+	t0 := time.Now().Add(-10 * time.Minute)
+	result := func(cost float64, ms int64) (json.RawMessage, sessionevents.Index) {
+		return thinkRaw(map[string]any{"type": "result", "result": "done"}), sessionevents.Index{Type: "result", CostUSD: cost, DurationMS: ms}
+	}
+	evs := []sessionevents.Event{
+		{Raw: assistantBlock(map[string]any{"type": "text", "text": "one"}), Index: sessionevents.Index{Type: "assistant"}},
+		{}, // result .10
+		{Raw: assistantBlock(map[string]any{"type": "text", "text": "two"}), Index: sessionevents.Index{Type: "assistant"}},
+		{}, // result .25
+		{Raw: assistantBlock(map[string]any{"type": "tool_use", "id": "tuA", "name": "Bash", "input": map[string]any{"command": "ls"}}),
+			Index: sessionevents.Index{Type: "assistant", ToolName: "Bash"}},
+		{Raw: toolResultBlock("tuA", "a.go", false), Index: sessionevents.Index{Type: "user", ToolName: "Bash"}},
+		{}, // result .45
+	}
+	evs[1].Raw, evs[1].Index = result(0.10, 1000)
+	evs[3].Raw, evs[3].Index = result(0.25, 2000)
+	evs[6].Raw, evs[6].Index = result(0.45, 3000)
+	for i, ev := range evs {
+		ev.ActorID, ev.Kind, ev.StreamID, ev.Seq, ev.Turn = personal.ActorID, sessionevents.KindEvent, stream, uint64(i+1), 1
+		ev.ObservedAt = t0.Add(time.Duration(i) * time.Second)
+		ev.ReceivedAt = ev.ObservedAt
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := withStatic(Handler(e.Deps, nil))
+	srv := httptest.NewServer(asWho(h, p))
+	defer func() { srv.CloseClientConnections(); srv.Close() }()
+	home := e.homeOf(t, personal)
+	poll := func(js string) chromedp.Action {
+		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	run := func(what string, acts ...chromedp.Action) {
+		t.Helper()
+		if err := chromedp.Run(ctx, acts...); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	type state struct {
+		Errs       []string
+		Seqs       []string
+		Dividers   map[string]string
+		BashStatus string
+		Orphans    int
+		More       string
+		MoreOff    bool
+	}
+	get := func() state {
+		t.Helper()
+		var s state
+		run("state", chromedp.Evaluate(`(function(){var L=document.querySelector('#thinking .th-list'), d={};
+			L.querySelectorAll('.te[data-kind="result"]').forEach(function(n){ d[n.dataset.seq]=n.querySelector('.te-text').textContent; });
+			var c=L.querySelector('.te[data-kind="tool_call"]'), m=L.querySelector('.te-more');
+			return {Errs:window.__errs, Seqs:Array.prototype.map.call(L.querySelectorAll('.te'), function(n){return n.dataset.seq;}), Dividers:d,
+				BashStatus:c ? c.querySelector('.te-status').textContent : '', Orphans:L.querySelectorAll('.te[data-kind="tool_result"]').length,
+				More:m ? m.dataset.before : '', MoreOff:!!m && m.disabled};})()`, &s))
+		return s
+	}
+	run("open", chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(srv.URL+"/app/user/?c="+home+"&tab=thinking"),
+		chromedp.Evaluate(`window.__errs=[]; window.addEventListener('error', function(e){ __errs.push(e.message); });
+			window.addEventListener('unhandledrejection', function(e){ __errs.push(String(e.reason)); });`, nil),
+		poll(`document.querySelectorAll('#thinking .th-list .te').length===2 && !!document.querySelector('#thinking .te-more')`))
+	s := get()
+	if s.Orphans != 1 || s.Dividers["7"] != "episode 1 · $0.45 episode total · 3s" {
+		t.Fatalf("tail: %+v", s)
+	}
+	// Page 1 (seqs 3-5): the call (5) pairs the orphan result (6).
+	run("load earlier", chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+		poll(`!!document.querySelector('#thinking .te[data-seq="3"]') && !!document.querySelector('#thinking .te-more:not([disabled])')`))
+	s = get()
+	if len(s.Errs) != 0 || strings.Join(s.Seqs, ",") != "3,4,5,7" || s.Orphans != 0 || !strings.Contains(s.BashStatus, "✓") ||
+		s.More != "3" || s.MoreOff {
+		t.Fatalf("after page 1: %+v", s)
+	}
+	if s.Dividers["4"] != "episode 1 · $0.25 episode total · 2s" || s.Dividers["7"] != "episode 1 · $0.20 · 3s" {
+		t.Fatalf("dividers after page 1: %+v", s.Dividers)
+	}
+	// Page 2 (seqs 1-2): the button still works; every delta is recomputed.
+	run("load earlier again", chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+		poll(`!!document.querySelector('#thinking .te[data-seq="1"]')`))
+	s = get()
+	if len(s.Errs) != 0 || strings.Join(s.Seqs, ",") != "1,2,3,4,5,7" || s.More != "" {
+		t.Fatalf("after page 2: %+v", s)
+	}
+	want := map[string]string{"2": "episode 1 · $0.10 episode total · 1s", "4": "episode 1 · $0.15 · 2s", "7": "episode 1 · $0.20 · 3s"}
+	for k, v := range want {
+		if s.Dividers[k] != v {
+			t.Errorf("divider %s = %q, want %q", k, s.Dividers[k], v)
+		}
+	}
+}

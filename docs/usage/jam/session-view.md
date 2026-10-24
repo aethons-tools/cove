@@ -94,8 +94,10 @@ An open `events` stream re-checks access every 25s (its keep-alive) and ends onc
   one tool, and search matches the visible text.
 - **Formats:** Narrative (one line each, the default), Detailed (full inputs and outputs),
   Raw (the JSON).
-- **Pairing:** a tool call and its result are joined, with ✓ or ✗ and the duration. Each turn
-  ends in a divider with its cost.
+- **Pairing:** a tool call and its result are joined, with ✓ or ✗ and the duration, even when
+  Load earlier brings the call in after its result.
+- **Dividers:** each result is a divider: its episode, its cost since the previous loaded result
+  of that episode (or, with none loaded before it, the episode's total so far), and its duration.
 - **Following:** while scrolled to the bottom, new lines keep it there. Scrolling up pauses
   following and shows "↓ N new". **Load earlier** fetches the previous page.
 - **Streams:** the picker offers Current and past streams. A new stream (the studio
