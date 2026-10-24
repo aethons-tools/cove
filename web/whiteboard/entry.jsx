@@ -92,8 +92,12 @@ function Board({ el, base, boardId, readOnly }) {
         batch.forEach((b) => sent.current.set(b.id, b.version));
         const body = await r.json();
         const lost = restoreElements(body.lost, null);
-        remember(lost);
         apply(lost);
+        // Whatever the scene now holds for a lost element — Jam's winner, or
+        // the local one reconcile kept because it is being edited — counts
+        // as settled, so it isn't re-sent (and lost again) until it changes.
+        const now = new Map(api.getSceneElementsIncludingDeleted().map((e) => [e.id, e.version]));
+        lost.forEach((e) => sent.current.set(e.id, now.get(e.id) ?? e.version));
       }
       retry.current = 1000;
       setError((e) => (e.startsWith("save failed") || e.startsWith("Failed") ? "" : e));

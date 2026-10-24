@@ -2,6 +2,7 @@ package jam
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -175,3 +176,65 @@ func TestNextIndex(t *testing.T) {
 		}
 	}
 }
+
+func elDoc(docs []json.RawMessage, id string) map[string]any {
+	for _, d := range docs {
+		var m map[string]any
+		_ = json.Unmarshal(d, &m)
+		if m["id"] == id {
+			return m
+		}
+	}
+	return nil
+}
+
+func lastPoint(m map[string]any) (float64, float64) {
+	pts := m["points"].([]any)
+	p := pts[len(pts)-1].([]any)
+	return p[0].(float64), p[1].(float64)
+}
+
+// A one-ended arrow pointing up-left keeps its free end when its shape moves;
+// moving an arrow itself moves its points; deleting a shape unbinds its arrows
+// from the other end, and a deleted frame frees its children.
+func TestBoardOpsGeometryAndDeletes(t *testing.T) {
+	docs, _, err := ApplyBoardOps(nil, []BoardOp{
+		{Op: "add", Type: "rectangle", ID: "s", X: fptr(300), Y: fptr(300), W: fptr(100), H: fptr(60)},
+		{Op: "add", Type: "arrow", ID: "a", From: "s", X: fptr(100), Y: fptr(100), W: fptr(0), H: fptr(0)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := elDoc(docs, "a")
+	ex, ey := num(a, "x")+mustLast(a)[0], num(a, "y")+mustLast(a)[1]
+	moved, _, _ := ApplyBoardOps(docs, []BoardOp{{Op: "update", ID: "s", X: fptr(320)}})
+	a2 := elDoc(merge(docs, moved), "a")
+	if fx, fy := num(a2, "x")+mustLast(a2)[0], num(a2, "y")+mustLast(a2)[1]; math.Abs(fx-ex) > 0.01 || math.Abs(fy-ey) > 0.01 {
+		t.Fatalf("free end moved from (%v,%v) to (%v,%v)", ex, ey, fx, fy)
+	}
+
+	all, _, _ := ApplyBoardOps(nil, []BoardOp{
+		{Op: "add", Type: "rectangle", ID: "p", X: fptr(0), Y: fptr(0)},
+		{Op: "add", Type: "rectangle", ID: "q", X: fptr(300), Y: fptr(0)},
+		{Op: "add", Type: "arrow", ID: "pq", From: "p", To: "q"},
+		{Op: "add", Type: "line", ID: "free", X: fptr(0), Y: fptr(200), W: fptr(50), H: fptr(0)},
+		{Op: "add", Type: "frame", ID: "f", X: fptr(0), Y: fptr(300), W: fptr(400), H: fptr(200), Text: "F"},
+		{Op: "add", Type: "rectangle", ID: "child", X: fptr(10), Y: fptr(310), Frame: "f"},
+	})
+	up, _, _ := ApplyBoardOps(all, []BoardOp{{Op: "update", ID: "free", W: fptr(80), H: fptr(20)}})
+	if x, y := lastPoint(elDoc(merge(all, up), "free")); x != 80 || y != 20 {
+		t.Fatalf("resized line's points end at (%v,%v), want (80,20)", x, y)
+	}
+	del, _, _ := ApplyBoardOps(all, []BoardOp{{Op: "delete", ID: "p"}, {Op: "delete", ID: "f"}})
+	after := merge(all, del)
+	for _, b := range elDoc(after, "q")["boundElements"].([]any) {
+		if b.(map[string]any)["id"] == "pq" {
+			t.Fatal("q still lists the deleted arrow")
+		}
+	}
+	if fid := elDoc(after, "child")["frameId"]; fid != nil {
+		t.Fatalf("child keeps a deleted frame: %v", fid)
+	}
+}
+
+func mustLast(m map[string]any) [2]float64 { x, y := lastPoint(m); return [2]float64{x, y} }

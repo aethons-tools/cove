@@ -3,7 +3,9 @@ package intercom
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
@@ -48,19 +50,52 @@ func ElementOf(doc json.RawMessage) (Element, error) {
 	if len(doc) > MaxElementBytes {
 		return Element{}, fmt.Errorf("%w: element over %d bytes", ErrInvalid, MaxElementBytes)
 	}
-	var f struct {
-		ID           string `json:"id"`
-		Version      int64  `json:"version"`
-		VersionNonce int64  `json:"versionNonce"`
-		IsDeleted    bool   `json:"isDeleted"`
+	if !utf8.Valid(doc) {
+		return Element{}, fmt.Errorf("%w: element is not valid UTF-8", ErrInvalid)
 	}
-	if err := json.Unmarshal(doc, &f); err != nil {
+	// Decode the top level by exact key (encoding/json folds case, so
+	// "Version" would otherwise set the merge version the client never sees).
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(doc, &top); err != nil {
 		return Element{}, fmt.Errorf("%w: element: %v", ErrInvalid, err)
 	}
-	if f.ID == "" || len(f.ID) > 128 {
+	var e Element
+	if err := json.Unmarshal(top["id"], &e.ID); err != nil || e.ID == "" {
 		return Element{}, fmt.Errorf("%w: element has no id", ErrInvalid)
 	}
-	return Element{ID: f.ID, Version: f.Version, Nonce: f.VersionNonce, Deleted: f.IsDeleted, Doc: doc}, nil
+	if len(e.ID) > 128 || strings.ContainsRune(e.ID, 0) {
+		return Element{}, fmt.Errorf("%w: element id must be 1–128 bytes, no NUL", ErrInvalid)
+	}
+	var err error
+	if e.Version, err = safeInt(top["version"]); err != nil {
+		return Element{}, fmt.Errorf("%w: version: %v", ErrInvalid, err)
+	}
+	if e.Nonce, err = safeInt(top["versionNonce"]); err != nil {
+		return Element{}, fmt.Errorf("%w: versionNonce: %v", ErrInvalid, err)
+	}
+	if v, ok := top["isDeleted"]; ok {
+		_ = json.Unmarshal(v, &e.Deleted)
+	}
+	e.Doc = doc
+	return e, nil
+}
+
+// maxSafeInt is the largest integer a JavaScript number holds exactly.
+const maxSafeInt = 1<<53 - 1
+
+// safeInt reads a non-negative integer a browser can round-trip (absent: 0).
+func safeInt(raw json.RawMessage) (int64, error) {
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return 0, err
+	}
+	if f < 0 || f > maxSafeInt || f != float64(int64(f)) {
+		return 0, fmt.Errorf("want an integer 0–2^53")
+	}
+	return int64(f), nil
 }
 
 // Wins reports whether incoming replaces stored: a higher version, or the

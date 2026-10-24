@@ -277,3 +277,29 @@ func TestBoardsApplySerializedWithMerges(t *testing.T) {
 		}
 	}
 }
+
+// An oversize batch is refused before any doc is parsed; a failed card post
+// leaves no board behind.
+func TestBoardsCleanups(t *testing.T) {
+	f := newICFixture(t)
+	bs := NewBoards(f.log, f.ic)
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := bs.Create(Poster{ID: f.alice.ID}, string(f.room.ID), "x", f.now)
+	docs := make([]json.RawMessage, 501)
+	for i := range docs {
+		docs[i] = json.RawMessage(`not json`)
+	}
+	if _, _, err := bs.Merge(f.alice.ID, b.ID, docs); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("501 docs: %v (want the batch cap, before parsing)", err)
+	}
+	// A session whose post is refused (beyond its addressing) creates nothing.
+	before := len(bs.ForChannelsOf(ident.ID(f.standing.ActorID)))
+	if _, err := bs.Create(f.poster(f.standing), "channel:eng", "nope", f.now); err == nil {
+		t.Fatal("create beyond addressing")
+	}
+	if after := len(bs.ForChannelsOf(ident.ID(f.standing.ActorID))); after != before {
+		t.Fatal("a refused create left a board")
+	}
+}

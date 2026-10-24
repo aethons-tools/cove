@@ -393,10 +393,11 @@ func (a *applier) addConnector(id string, op BoardOp) error {
 }
 
 // route sets a connector's position and points: between its bound shapes'
-// facing edges, else from (x, y) by (w, h).
-func (a *applier) route(m doc, w, h float64) {
+// facing edges; an unbound end stays where it is — (x, y) for the start, the
+// start plus (dx, dy) for the end.
+func (a *applier) route(m doc, dx, dy float64) {
 	x0, y0 := num(m, "x"), num(m, "y")
-	x1, y1 := x0+w, y0+h
+	x1, y1 := x0+dx, y0+dy
 	from, fok := a.bound(m, "startBinding")
 	to, tok := a.bound(m, "endBinding")
 	switch {
@@ -413,6 +414,32 @@ func (a *applier) route(m doc, w, h float64) {
 	m["x"], m["y"] = x0, y0
 	m["width"], m["height"] = math.Abs(x1-x0), math.Abs(y1-y0)
 	m["points"] = []any{[]any{0.0, 0.0}, []any{x1 - x0, y1 - y0}}
+}
+
+// endVector is a connector's end relative to its start (its last point).
+func endVector(m doc) (float64, float64) {
+	if pts := pointsOf(m); len(pts) > 0 {
+		return pts[len(pts)-1][0], pts[len(pts)-1][1]
+	}
+	return num(m, "width"), num(m, "height")
+}
+
+// reroute routes connector ar again, keeping its free end in place, and
+// re-centres its label.
+func (a *applier) reroute(ar doc) {
+	dx, dy := endVector(ar)
+	endX, endY := num(ar, "x")+dx, num(ar, "y")+dy // the end, absolute
+	a.route(ar, dx, dy)                            // the start follows its shape (if bound)
+	if _, bound := a.bound(ar, "endBinding"); !bound {
+		a.route(ar, endX-num(ar, "x"), endY-num(ar, "y")) // a free end stays put
+	}
+	a.touch(ar)
+	for _, lb := range boundOf(ar, "text") {
+		if l, ok := a.live(lb); ok {
+			a.placeLabel(ar, l)
+			a.touch(l)
+		}
+	}
 }
 
 func (a *applier) bound(m doc, key string) (doc, bool) {
@@ -492,15 +519,18 @@ func (a *applier) update(op BoardOp) error {
 		}
 		for _, arID := range boundOf(m, "arrow") {
 			if ar, ok := a.live(arID); ok {
-				a.route(ar, num(ar, "width"), num(ar, "height"))
-				a.touch(ar)
-				for _, lb := range boundOf(ar, "text") {
-					if l, ok := a.live(lb); ok {
-						a.placeLabel(ar, l)
-						a.touch(l)
-					}
-				}
+				a.reroute(ar)
 			}
+		}
+		if t == "arrow" || t == "line" { // the connector itself moved or resized
+			dx, dy := endVector(m)
+			if op.W != nil {
+				dx = *op.W
+			}
+			if op.H != nil {
+				dy = *op.H
+			}
+			a.route(m, dx, dy)
 		}
 	}
 	return nil
@@ -520,10 +550,39 @@ func (a *applier) delete(id string) error {
 			gone = append(gone, boundOf(ar, "text")...)
 		}
 	}
+	isGone := map[string]bool{}
 	for _, g := range gone {
-		if e, ok := a.live(g); ok {
-			e["isDeleted"] = true
-			a.touch(e)
+		isGone[g] = true
+	}
+	for _, g := range gone {
+		e, ok := a.live(g)
+		if !ok {
+			continue
+		}
+		// Unbind a deleted connector from the shapes at its ends.
+		for _, key := range []string{"startBinding", "endBinding"} {
+			if end, ok := a.bound(e, key); ok && !isGone[str(end, "id")] {
+				var keep []any
+				for _, be := range listOf(end["boundElements"]) {
+					if bm, ok := be.(doc); !ok || str(bm, "id") != g {
+						keep = append(keep, be)
+					}
+				}
+				end["boundElements"] = append([]any{}, keep...)
+				a.touch(end)
+			}
+		}
+		e["isDeleted"] = true
+		a.touch(e)
+	}
+	if str(m, "type") == "frame" { // its children stay, out of the frame
+		for _, c := range a.els {
+			if str(c, "frameId") == id {
+				if del, _ := c["isDeleted"].(bool); !del {
+					c["frameId"] = nil
+					a.touch(c)
+				}
+			}
 		}
 	}
 	return nil

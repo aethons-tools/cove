@@ -30,7 +30,7 @@ Exactly the channel's: a person who can see the channel reads it, a session read
 - `POST /me/boards` `{channel, title}` → creates a board and posts its card (a squawk with an `application/vnd.jam.board+json` part `{board_id}`; body "started a whiteboard: Title").
 - `GET /me/boards/{id}/elements?since=seq` → elements with `seq` > since, and the board's `seq`.
 - `POST /me/boards/{id}/elements` `{elements: [...]}` → merges, returns the new `seq` and the elements that lost (so the client re-applies the winners).
-- Each change pushes a `board` event `{id, seq}` on the existing `/me` SSE; open editors fetch the delta and reconcile.
+- Each change pushes a `board` event (data: the board id) on the existing live stream; open editors fetch the delta since their own seq and reconcile.
 - Board edits post nothing to the chat and **never wake a session**; people say so in the conversation.
 
 ## 5. Agents (MCP)

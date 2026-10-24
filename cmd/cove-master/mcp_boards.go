@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -18,7 +20,10 @@ import (
 // boards, reads one compactly, applies ops, and renders it to PNG to look
 // at. Edits never post to chat or wake anyone.
 
-var boardRef = regexp.MustCompile(`^brd_[0-9a-z]{26}$`)
+var (
+	boardRef = regexp.MustCompile(`^brd_[0-9a-z]{26}$`)
+	digits   = regexp.MustCompile(`^[0-9]{1,19}$`)
+)
 
 type boardCreateIn struct {
 	Title string `json:"title" jsonschema:"the board's title"`
@@ -140,10 +145,14 @@ func (c *messagingClient) postJSONReason(ctx context.Context, path string, in, o
 }
 
 func trimReason(b []byte) string {
-	if len(b) > 300 {
-		b = b[:300]
+	s := strings.ToValidUTF8(string(b), "")
+	if len(s) > 300 {
+		s = s[:300]
+		for !utf8.ValidString(s) { // don't cut a character in half
+			s = s[:len(s)-1]
+		}
 	}
-	return string(b)
+	return strings.TrimSpace(s)
 }
 
 func (c *messagingClient) boardSnapshot(ctx context.Context, id string) (boardSnapshotOut, error) {
@@ -161,8 +170,17 @@ func (c *messagingClient) boardSnapshot(ctx context.Context, id string) (boardSn
 		return boardSnapshotOut{}, fmt.Errorf("board_snapshot: status %d", resp.StatusCode)
 	}
 	seq := resp.Header.Get("X-Board-Seq")
+	if !digits.MatchString(seq) {
+		return boardSnapshotOut{}, fmt.Errorf("board_snapshot: Jam sent no board seq")
+	}
+	if c.home == "" {
+		return boardSnapshotOut{}, fmt.Errorf("board_snapshot: HOME is not set")
+	}
 	dir := filepath.Join(c.home, "boards")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return boardSnapshotOut{}, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil { // tighten one made earlier
 		return boardSnapshotOut{}, err
 	}
 	path := filepath.Join(dir, id+"-"+seq+".png")
