@@ -1,6 +1,6 @@
 # Session view, part 2: the thinking view — design
 
-**Status:** built — PR 1 #475 (sessionview, tail mode), PR 2 (the Thinking tab).
+**Status:** built — PR 1 #475 (sessionview, tail mode), PR 2 #477 (the Thinking tab).
 **Context:** sub-project 2 of the session view ([part 1, the shell](2026-10-24-session-view-shell-design.md); user doc [session-view.md](../../usage/jam/session-view.md)). A **Thinking** tab in the session pane shows what the session's agent is thinking and doing, live, beside the chat.
 
 ## Decisions (2026-10-24)
