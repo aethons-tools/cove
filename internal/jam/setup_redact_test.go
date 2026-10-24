@@ -36,10 +36,21 @@ func TestRedactEnv(t *testing.T) {
 		{"NOTE", "https://h/x#f", "https://h/x?«masked»"},
 		{"REPO", "https://u:p@ss@h/x", "https://h/x"},
 		{"REPO", "https://u:p@ss", "https://ss"},
+		{"U", "https://h?token=abc", "https://h?«masked»"},
+		{"U", "https://u:p@h?token=abc", "https://h?«masked»"},
+		{"U", "https://h#f", "https://h?«masked»"},
+		{"U", "https://u:p@h?x=1,https://v:q@b/y", "https://h?«masked»,https://b/y"},
+		{"U", "https://a/x?t=1,https://v:q@b/y", "https://a/x?«masked»,https://b/y"},
+		{"U", "https://a/x?t=1;https://v:q@b/y?z=2|https://c#f", "https://a/x?«masked»;https://b/y?«masked»|https://c?«masked»"},
 		{"ANTHROPIC_CUSTOM_HEADERS", "Authorization: Bearer sk-live", MarkMasked},
 		{"HDR", "authorization : x", MarkMasked},
 		{"AUTHORIZATION", "Bearer x", MarkMasked},
-		{"HDR", "Bearer sk-live", MarkMasked},
+		{"HDR", "Bearer sk-live-abcdef12", MarkMasked},
+		{"HDR", "x: Basic dXNlcjpwYXNz", MarkMasked},
+		{"HDR", "TOKEN=ghp_abcdefgh", MarkMasked},
+		{"DESC", "A basic tool", "A basic tool"},
+		{"DESC", "token expired", "token expired"},
+		{"DESC", "basic setup", "basic setup"},
 		{"HDR", "Basic dXNlcjpwdw==", MarkMasked},
 		{"HDR", "Bearer {token}", "Bearer " + MarkIdentityToken},
 		{"npm_config__auth", "dXNlcjpwdw==", MarkMasked},
@@ -72,6 +83,10 @@ func TestRedactJSON(t *testing.T) {
 	if strings.Contains(hd, "sk-hdr") || !strings.Contains(hd, `"Accept": "json"`) {
 		t.Errorf("headers: %s", hd)
 	}
+	uj, _ := RedactJSON([]byte(`{"u":"https://u:p@h?token=abc"}`))
+	if strings.Contains(uj, "abc") || strings.Contains(uj, "u:p") {
+		t.Errorf("json url: %s", uj)
+	}
 	num, _ := RedactJSON([]byte(`{"big":12345678901234567890,"f":1.50}`))
 	if !strings.Contains(num, "12345678901234567890") || !strings.Contains(num, "1.50") {
 		t.Errorf("numbers not exact: %s", num)
@@ -86,7 +101,7 @@ func TestRedactJSON(t *testing.T) {
 
 func TestSafeText(t *testing.T) {
 	for in, want := range map[string]string{
-		"ok": "ok", "a\nb": MarkInvalid, "a\u202eb": MarkInvalid, "a\u200bb": MarkInvalid, "\xff": MarkInvalid, strings.Repeat("a", 257): MarkInvalid, strings.Repeat("a", 256): strings.Repeat("a", 256),
+		"ok": "ok", "a\nb": MarkInvalid, "a\u202eb": MarkInvalid, "a\u200bb": MarkInvalid, "a\u2028b": MarkInvalid, "a\u2029b": MarkInvalid, "\xff": MarkInvalid, strings.Repeat("a", 257): MarkInvalid, strings.Repeat("a", 256): strings.Repeat("a", 256),
 	} {
 		if got := SafeText(in); got != want {
 			t.Errorf("SafeText(%q) = %q", in, got)
@@ -106,6 +121,7 @@ func TestRedactLabel(t *testing.T) {
 		{"urls", "https://a,https://u:pw@corp/x", "urls", "https://a,https://corp/x"},
 		{"desc", "clone https://u:p@h/x?t=1 please", "desc", "clone https://h/x?«masked» please"},
 		{"u", "https://u:p@h/x?t=1", "u", "https://h/x?«masked»"},
+		{"u", "https://u:p@h?t=1", "u", "https://h?«masked»"},
 	} {
 		k, v := RedactLabel(c.k, c.v)
 		if k != c.wantK || v != c.wantV {

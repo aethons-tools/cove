@@ -23,22 +23,22 @@ const (
 // Known limits (documented in inspect.md): a secret under a key that does not
 // look secret ("lookalike" keys such as "cfg") and credentials without a URL
 // scheme or an auth-scheme word (user:pw@host, a bare password) are not
-// detected; only the key rule and the value patterns below apply.
+// detected, nor is a password containing an unencoded space; only the key rule and the value patterns below apply.
 
 // secretKeyRE is the spec's secret-named key rule, plus auth/authorization
 // (whole segment, e.g. _auth, X_AUTH, Authorization).
 var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|credential|authorization|(?:^|[^a-z0-9])auth(?:$|[^a-z0-9])`)
 
-// authValueRE finds "<scheme> <credential>" auth words in a value.
-var authValueRE = regexp.MustCompile(`(?i)\b(?:bearer|basic|token)\s+(\S+)`)
+// authValueRE finds "<scheme> <credential>" in header/assignment position: the
+// scheme word starts the value or follows ':', '=' or '"', and a
+// credential-like token (>= 8 chars) follows.
+var authValueRE = regexp.MustCompile(`(?i)(?:^|[:="])\s*(?:bearer|basic|token)(?:\s+|=)[A-Za-z0-9._~+/=-]{8,}`)
 
 // authHeaderRE finds an Authorization header line in a value.
 var authHeaderRE = regexp.MustCompile(`(?i)authorization\s*:`)
 
 // knownPlaceholder is a connector template placeholder (ValidateEnv's set).
 var knownPlaceholder = regexp.MustCompile(`\{(?:token|base|host|url)\}`)
-
-var onlyPlaceholder = regexp.MustCompile(`^\{(?:token|base|host|url)\}$`)
 
 // safeTemplateRest is what may remain of a secret-named template once its
 // placeholders are removed: nothing, or one auth scheme word.
@@ -49,10 +49,22 @@ var schemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)
 // MarkQuery replaces a URL's query and fragment.
 const markQuery = "?" + MarkMasked
 
+// queryEnd is where a masked query/fragment ends: the next list delimiter
+// (',', ';', '|') or whitespace at or after from, else the end of v.
+func queryEnd(v string, from int) int {
+	if i := strings.IndexFunc(v[from:], func(r rune) bool {
+		return r == ',' || r == ';' || r == '|' || unicode.IsSpace(r)
+	}); i >= 0 {
+		return from + i
+	}
+	return len(v)
+}
+
 // stripURLSecrets, for EVERY scheme:// occurrence in v, removes the userinfo
-// (up to the last '@' of the authority) and replaces a following query or
-// fragment with markQuery. It does not depend on url.Parse succeeding, and
-// handles lists ("a,https://u:p@h" or ";"-separated) and free text.
+// (up to the last '@' before the first '/' or whitespace) and replaces a
+// query or fragment (also on a path-less URL) with markQuery, continuing
+// after the next list delimiter. It does not depend on url.Parse succeeding,
+// and handles lists (",", ";", "|") and free text.
 func stripURLSecrets(v string) string {
 	if !strings.Contains(v, "://") {
 		return v
@@ -75,11 +87,17 @@ func stripURLSecrets(v string) string {
 		if m := schemeRE.FindStringIndex(v[start:]); m != nil && start+m[0] < authEnd {
 			authEnd = start + m[0]
 		}
-		auth := v[start:authEnd]
-		if i := strings.LastIndexByte(auth, '@'); i >= 0 {
-			auth = auth[i+1:]
+		hostStart := start
+		if i := strings.LastIndexByte(v[start:authEnd], '@'); i >= 0 {
+			hostStart = start + i + 1
 		}
-		out.WriteString(auth)
+		if q := strings.IndexAny(v[hostStart:authEnd], "?#"); q >= 0 {
+			out.WriteString(v[hostStart : hostStart+q])
+			out.WriteString(markQuery)
+			pos = queryEnd(v, hostStart+q)
+			continue
+		}
+		out.WriteString(v[hostStart:authEnd])
 		pos = authEnd
 		// a query/fragment in this whitespace-free run, before any later scheme
 		runEnd := len(v)
@@ -95,7 +113,7 @@ func stripURLSecrets(v string) string {
 		}
 		out.WriteString(v[pos : pos+q])
 		out.WriteString(markQuery)
-		pos = runEnd
+		pos = queryEnd(v, pos+q)
 	}
 	out.WriteString(v[pos:])
 	return out.String()
@@ -116,10 +134,8 @@ func valueLooksSecret(v string) bool {
 	if authHeaderRE.MatchString(v) {
 		return true
 	}
-	for _, m := range authValueRE.FindAllStringSubmatch(v, -1) {
-		if !onlyPlaceholder.MatchString(m[1]) {
-			return true
-		}
+	if authValueRE.MatchString(v) {
+		return true
 	}
 	return false
 }
@@ -211,7 +227,7 @@ func SafeText(s string) string {
 		return MarkInvalid
 	}
 	for _, r := range s {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029 {
 			return MarkInvalid
 		}
 	}
