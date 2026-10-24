@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
@@ -38,6 +39,83 @@ func contextBody(b sessionctx.Bundle) string {
 		fmt.Fprintf(&sb, "\n--- %s/%s\n%s", sessionctx.Dir, flat(p), ensureNL(files[p]))
 	}
 	return sb.String()
+}
+
+// ContextBodyFile is one file of a context section body: its real path and
+// its text.
+type ContextBodyFile struct{ Path, Body string }
+
+// SplitContextBody splits a context section body (contextBody's output, a
+// snapshot or a recompute) back into its head — the file table, the budgets,
+// the warnings — and its files, in the table's order. Marker searches start
+// after the table's bytes, and each file's extent comes from the table's
+// size when the next marker sits exactly there, so a file holding a later
+// file's marker line stays its own. A truncated body yields the files it
+// still holds (the last one carrying the truncation marker). ok is false when
+// body does not start with the table or holds none of its files (an
+// unavailable or empty section).
+func SplitContextBody(body string) (head string, files []ContextBodyFile, ok bool) {
+	lines := strings.Split(body, "\n")
+	if !strings.HasPrefix(lines[0], "FILE") {
+		return "", nil, false
+	}
+	var paths []string
+	var sizes []int
+	tableEnd := len(lines[0]) + 1
+	for _, l := range lines[1:] {
+		f := strings.Fields(l)
+		if len(f) != 2 || !strings.HasPrefix(f[0], sessionctx.Dir+"/") {
+			break
+		}
+		n, err := strconv.Atoi(f[1])
+		if err != nil || n < 0 {
+			break
+		}
+		paths = append(paths, f[0])
+		sizes = append(sizes, n)
+		tableEnd += len(l) + 1
+	}
+	tableEnd = min(tableEnd, len(body))
+	marker := func(p string) string { return "\n--- " + p + "\n" }
+	start := -1 // where the current file's text begins
+	for i, p := range paths {
+		var at int // where this file's marker begins
+		if start < 0 {
+			j := strings.Index(body[tableEnd:], marker(p))
+			if j < 0 {
+				break
+			}
+			at = tableEnd + j
+			head = body[:at]
+		} else {
+			// The previous file's text is ensureNL(content): its size, plus
+			// a newline when the content lacked one.
+			end := -1
+			for _, extra := range []int{0, 1} {
+				e := start + sizes[i-1] + extra
+				if e <= len(body) && strings.HasPrefix(body[e:], marker(p)) && (extra == 0 || body[e-1] == '\n') {
+					end = e
+					break
+				}
+			}
+			if end < 0 { // sizes do not fit: first marker after the file starts
+				j := strings.Index(body[start:], marker(p))
+				if j < 0 {
+					break // truncated before this file
+				}
+				end = start + j
+			}
+			files[len(files)-1].Body = body[start:end]
+			at = end
+		}
+		files = append(files, ContextBodyFile{Path: p})
+		start = at + len(marker(p))
+	}
+	if start < 0 {
+		return "", nil, false
+	}
+	files[len(files)-1].Body = body[start:]
+	return head, files, true
 }
 
 // egressBody renders an egress policy as it applies in the box: a role list
