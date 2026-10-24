@@ -2,8 +2,9 @@
 
 Assets for running a local dev instance of Jam.
 
-- **`docker-compose.yml`** — a local PostgreSQL 18 for Jam.
-- **`jam.dev.yml`** — a sample `at-jam serve` config wired to that DB.
+- **`docker-compose.yml`** — a local PostgreSQL 18 and Garage (the attachments blob store) for Jam.
+- **`garage.toml`** — Garage's dev config.
+- **`jam.dev.yml`** — a sample `at-jam serve` config wired to both.
 
 ## Postgres
 
@@ -29,6 +30,29 @@ Run the Jam integration tests against it:
 export JAM_TEST_POSTGRES_DSN="host=localhost port=15432 dbname=jam user=jam password=jam sslmode=disable"
 just integration-jam
 ```
+
+## Attachments: Garage
+
+The compose file also runs [Garage](https://garagehq.deuxfleurs.fr/), an
+S3-compatible store, as the [attachments](../docs/usage/jam/attachments.md)
+bucket: one node, S3 API on host port **13900**, data in the `garagemeta` and
+`garagedata` volumes. On first start it lays itself out and creates the dev
+access key and the `jam-attachments` bucket (`--single-node --default-bucket`,
+from the `GARAGE_DEFAULT_*` variables), so there is nothing to set up by hand;
+restarts keep them. The sample config's `blobs:` block points at it (region
+`garage`, path-style). The key and the RPC secret in the compose file are
+dev-only values — never reuse them.
+
+Check it from the host with any S3 client, e.g. with `awscli`:
+
+```sh
+AWS_ACCESS_KEY_ID=GKjamdev0000000000000000 \
+AWS_SECRET_ACCESS_KEY=jam-dev-secret-not-secret-0000000000000000 \
+AWS_DEFAULT_REGION=garage \
+aws --endpoint-url http://localhost:13900 s3 ls s3://jam-attachments/blobs/
+```
+
+or `docker compose -f dev/docker-compose.yml exec garage /garage bucket info jam-attachments`.
 
 ## Running `at-jam serve`
 

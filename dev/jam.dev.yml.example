@@ -49,11 +49,22 @@ store-postgres:
   sslmode: disable
   password-cred: jam-db   # references the credentials entry below
 
+# Attachments: the Garage in dev/docker-compose.yml (just dev-up).
+blobs:
+  endpoint: http://localhost:13900
+  bucket: jam-attachments
+  region: garage
+  path-style: true
+  access-key-cred: blobs-key
+  secret-key-cred: blobs-secret
+
 credentials:
   # DEV ONLY: inline literal values. In production each is a `command:` resolver
   # run on the host — never an inline value. Fill these in your copy.
   jam-db:
     value: jam
+  blobs-key:    { value: GKjamdev0000000000000000 }                    # dev/docker-compose.yml's Garage
+  blobs-secret: { value: jam-dev-secret-not-secret-0000000000000000 }
   anthropic-key:            { value: "<your-anthropic-api-key>" }        # unused once the pool is enabled + destination flipped
   git-pat:                  { value: "<your-github-pat>" }
   linear-token:
