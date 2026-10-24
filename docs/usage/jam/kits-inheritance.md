@@ -4,7 +4,7 @@ read_when: You want one kit to build on another (a role bound to `my-app` gets `
 owns: the kit-inheritance story — the `base.kit` syntax and its refusals, follow vs pin, the chain cap/cycle/missing-parent errors, the merge rules, push-time checks on the merged kit, the stage-by-stage chain build and stage cache, chain staleness, the recorded raise chain, the rm/pin chain guards, and the chain in `kit show`/`kit list`
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # Kits building on kits
@@ -33,11 +33,12 @@ prompt: "You work on my-app …"
   whatever is current at push, raise, build and staleness time.
 - **`kit: <name>@v<N>`** pins version N (N ≥ 1). The parent's later pushes
   don't affect the child.
-- **The child's own stage:** `kit` combines with at most one of
-  `context-files`, `context` or `context-dir`. That context's Dockerfile builds
-  `FROM ${COVE_BASE_IMAGE}` (declare `ARG COVE_BASE_IMAGE` before the `FROM`,
-  as docker requires for a build arg in `FROM`), which now resolves to the
-  parent's stage.
+- **The child's own stage:** a `Dockerfile` next to the child's `kit.yml`
+  makes its [directory](kits-directory.md#the-directory) the stage's build
+  context, built `FROM ${COVE_BASE_IMAGE}` (declare `ARG COVE_BASE_IMAGE`
+  before the `FROM`, as docker requires for a build arg in `FROM`), which now
+  resolves to the parent's stage. A pre-tree version's packed `context-files`
+  or `context` still builds the same way.
 - **No context:** the child reuses its parent's image as it is and only adds
   definition.
 - `kit` and `image` are mutually exclusive.
@@ -101,8 +102,8 @@ launcher builds the chain from the root down:
 3. The harness and the sealed hardening layer are applied **once**, on the last
    stage.
 
-A stage is cached as `cove-kit-base:<32 hex>`, keyed on the parent stage and
-the kit's own `base`. So siblings of one parent share its stage, and a pinned
+A stage is cached as `cove-kit-base:<32 hex>`, keyed on the parent stage, the
+kit's own `base` and its build context's tree hash. So siblings of one parent share its stage, and a pinned
 parent's stage survives the parent's later pushes. A following and a pinned
 child with identical contexts still build separate stages, because their
 `base.kit` text differs.

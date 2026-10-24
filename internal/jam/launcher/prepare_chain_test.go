@@ -47,7 +47,7 @@ func chainDef(buildArgs map[string]string, links ...jam.KitLink) KitDefinition {
 
 func mustStage(t *testing.T, parentRef string, b studio.Base) string {
 	t.Helper()
-	tag, err := kitStageTag(newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm).asm, parentRef, b)
+	tag, err := kitStageTag(newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm).asm, parentRef, studio.StudioKit{Base: b})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +63,13 @@ func TestKitStageTagFormula(t *testing.T) {
 	js, _ := json.Marshal(b)
 	sum := sha256.Sum256(append(append(append(append([]byte("asm"), 0), []byte("cove-kit-base:p")...), 0), js...))
 	want := "cove-kit-base:" + hex.EncodeToString(sum[:])[:32]
-	if got, _ := kitStageTag("asm", "cove-kit-base:p", b); got != want {
+	if got, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: b}); got != want {
 		t.Fatalf("stage tag = %q, want %q", got, want)
 	}
-	if q, _ := kitStageTag("asm", "cove-kit-base:q", b); q == want {
+	if q, _ := kitStageTag("asm", "cove-kit-base:q", studio.StudioKit{Base: b}); q == want {
 		t.Fatal("a different parent stage must give a different stage tag")
 	}
-	if y, _ := kitStageTag("asm", "cove-kit-base:p", ctxBase("web-dev", "y")); y == want {
+	if y, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: ctxBase("web-dev", "y")}); y == want {
 		t.Fatal("a different own base must give a different stage tag")
 	}
 }
@@ -259,8 +259,8 @@ func TestMalformedChainRefused(t *testing.T) {
 // the stage tag and the second prepare rebuilds (and gates) the stage.
 func TestStageTagIncludesAssemblyFingerprint(t *testing.T) {
 	b := ctxBase("web-dev", "x")
-	a1, _ := kitStageTag("asm1", "p", b)
-	a2, _ := kitStageTag("asm2", "p", b)
+	a1, _ := kitStageTag("asm1", "p", studio.StudioKit{Base: b})
+	a2, _ := kitStageTag("asm2", "p", studio.StudioKit{Base: b})
 	if a1 == a2 {
 		t.Fatal("different assembly fingerprints must give different stage tags")
 	}

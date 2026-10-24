@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-24
 ---
 
 # Managed studios (the supervisor)
@@ -109,8 +109,8 @@ so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. A
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the `at-jam` binary and the launcher's key), with
 **no source kit directory**, so the build can move to a remote substrate. The
-[session context](session-context.md) is compiled at raise, outside the image. A Dockerfile-context base
-is not yet buildable (deferred).
+[session context](session-context.md) is compiled at raise, outside the image. A kit's own stage is built
+from its directory ([kits-directory.md](kits-directory.md)).
 
 ### Egress drift
 
