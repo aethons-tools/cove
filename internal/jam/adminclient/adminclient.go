@@ -938,11 +938,12 @@ func (c *Client) ConfigSync(force bool, planDigest string) (jam.ConfigApplyResul
 }
 
 // ConfigExportTree renders Jam's managed objects (every live one with all)
-// as a config tree, kit contexts as kits/<n>/context/ files (Binary, Prune).
+// as a config tree: its files, the paths to remove, and each kit directory's
+// files at their modes (Kits).
 func (c *Client) ConfigExportTree(all bool) (jam.ConfigTreeExport, error) {
-	path := "/admin/config/export-tree?contexts=files"
+	path := "/admin/config/export-tree"
 	if all {
-		path += "&all=1"
+		path += "?all=1"
 	}
 	var exp jam.ConfigTreeExport
 	err := c.do("GET", path, nil, &exp)

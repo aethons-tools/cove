@@ -411,9 +411,7 @@ func TestConfigRoundTripWithSourceKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for p, body := range exp.Files {
-		mustWrite(t, filepath.Join(dir, filepath.FromSlash(p)), body, 0o644)
-	}
+	writeExport(t, dir, exp)
 	tr, err := LoadConfigTree(dir)
 	if err != nil || len(tr.Refusals) > 0 {
 		t.Fatalf("%v %v", err, tr.Refusals)

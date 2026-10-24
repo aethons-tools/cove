@@ -49,7 +49,7 @@ func ConfigMarkStates(store Store) ([]ConfigMarkState, error) {
 	if len(marks) == 0 {
 		return nil, nil
 	}
-	live, err := exportObjects(stateFromSnapshot(store.configSnapshot(), nil), nil, false)
+	live, err := exportObjects(stateFromSnapshot(store.configSnapshot(), nil), nil)
 	if err != nil {
 		return nil, fmt.Errorf("config drift: %w", err)
 	}

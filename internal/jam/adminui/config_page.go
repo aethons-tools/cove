@@ -229,7 +229,7 @@ func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
 			ov.Href = configObjectHref(op.Kind, op.Name)
 		}
 		if op.Before != "" || op.After != "" {
-			ov.Lines, ov.TooLarge = lineDiff(jam.ConfigCanonDisplay(op.Kind, op.Before), jam.ConfigCanonDisplay(op.Kind, op.After))
+			ov.Lines, ov.TooLarge = lineDiff(op.Before, op.After)
 		}
 		v.Ops = append(v.Ops, ov)
 	}

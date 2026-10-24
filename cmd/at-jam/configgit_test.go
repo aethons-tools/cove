@@ -444,12 +444,13 @@ func TestPrintConfigPlanRefusedUpdateDiff(t *testing.T) {
 			t.Errorf("got %q\nwant prefix %q", b.String(), want)
 		}
 	}
-	// A kit's config JSON is shown one key per line, so the diff points at the field.
+	// A kit's canonical form is its kit.yml and file listing: the diff points
+	// at the changed line.
 	var b strings.Builder
 	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate, Unmanaged: true,
-		Before: `{"kind":"studio","prompt":"a"}` + "\n# source: https://x/k//ic@main\n",
-		After:  `{"kind":"studio","prompt":"b"}` + "\n# source: https://x/k//ic@main\n"}}})
-	if !strings.Contains(b.String(), "  -  \"prompt\": \"a\"\n  +  \"prompt\": \"b\"\n") {
+		Before: "kind: studio\nprompt: a\n# files:\n#   0644 25 aa kit.yml\n# source: https://x/k//ic@main\n",
+		After:  "kind: studio\nprompt: b\n# files:\n#   0644 25 bb kit.yml\n# source: https://x/k//ic@main\n"}}})
+	if !strings.Contains(b.String(), "  -prompt: a\n  +prompt: b\n") || !strings.Contains(b.String(), "  -#   0644 25 aa kit.yml\n  +#   0644 25 bb kit.yml\n") {
 		t.Errorf("kit diff %q", b.String())
 	}
 }

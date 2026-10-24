@@ -85,6 +85,30 @@ func treeOf(t *testing.T, files map[string]string) *ConfigTree {
 	return tr
 }
 
+// exportTree is exp written as config write writes it, loaded back.
+func exportTree(t *testing.T, exp ConfigTreeExport) *ConfigTree {
+	t.Helper()
+	dir := t.TempDir()
+	writeExport(t, dir, exp)
+	tr, err := LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tr
+}
+
+// plannedKitYML is kit k's version v's kit.yml as the plan's write carries it.
+func plannedKitYML(w ConfigWrite, k Kit, v int) string {
+	for _, tr := range w.KitObjects.Trees {
+		if tr.Hash() == k.Trees[v] {
+			if e, ok := tr.Lookup("kit.yml"); ok {
+				return string(w.KitObjects.Blobs[e.SHA256])
+			}
+		}
+	}
+	return ""
+}
+
 func planOn(t *testing.T, st *MemStore, tr *ConfigTree, force bool) ConfigPlan {
 	t.Helper()
 	return PlanConfig(ConfigPlanInput{
@@ -127,7 +151,7 @@ func TestPlanCreatesInOrder(t *testing.T) {
 	if !slices.Equal(order, want) {
 		t.Fatalf("order %v", order)
 	}
-	if p.write.Kits[1].Versions[1] == "" || !strings.Contains(p.write.Kits[1].Versions[1], `"web-dev@v1"`) {
+	if yml := plannedKitYML(p.write, p.write.Kits[1], 1); yml != "kind: studio\nbase: {kit: web-dev@v1}\n" {
 		t.Fatalf("app not pinned to its parent: %+v", p.write.Kits)
 	}
 	if m := p.write.Kits[0].Meta[1]; m.Source == nil || m.Source.Repo != ConfigDirRepo || m.Source.Dir != "kits/web-dev" {
@@ -247,7 +271,7 @@ func TestPlanReapplyIsUnchanged(t *testing.T) {
 		}
 	}
 	exp, _ := ExportConfigTree(st.ExportConfig(), st.ListConfigMarks(), nil, false)
-	if p := planOn(t, st, treeOf(t, exp.Files), false); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
+	if p := planOn(t, st, exportTree(t, exp), false); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
 		t.Fatalf("write-then-plan is not a no-op: %+v", p)
 	}
 }

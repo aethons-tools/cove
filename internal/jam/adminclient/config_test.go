@@ -13,7 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
-	"github.com/aethons-tools/cove/internal/studio"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -100,55 +100,28 @@ func TestConfigSourceMethods(t *testing.T) {
 	}
 }
 
-// ConfigExportTree decodes a context kit's files, binary content and modes.
-func TestConfigExportTreeBinary(t *testing.T) {
+// ConfigExportTree decodes a kit directory's files, binary content and modes.
+func TestConfigExportTreeKits(t *testing.T) {
 	store := jam.NewMemStore()
 	log := slog.New(slog.DiscardHandler)
 	creds := func(string) bool { return true }
 	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
 		jam.WithConfig(store, nil, jam.ConfigEnv{CredExists: creds}, log)))
 	defer ts.Close()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM x\n"), 0o644); err != nil {
+	if _, _, err := jam.PushKitFiles(store, "k", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "FROM x\n", "b.bin*", "\xff\x00")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "b.bin"), []byte{0xff, 0x00}, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Join(dir, "b.bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	b64, err := studio.PackContextDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedKit(t, store, "k", "kind: studio\nbase:\n  context: "+b64+"\n")
 	exp, err := New(ts.URL, "").ConfigExportTree(true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := exp.Binary["kits/k/context/b.bin"]; !bytes.Equal(b.Data, []byte{0xff, 0x00}) || b.Mode != 0o755 {
-		t.Fatalf("blob %+v", b)
+	var b jam.ConfigKitFile
+	for _, f := range exp.Kits["kits/k"] {
+		if f.Path == "b.bin" {
+			b = f
+		}
 	}
-	if len(exp.Prune) != 1 || exp.Prune[0] != "kits/k/context" {
-		t.Fatalf("prune %v", exp.Prune)
-	}
-}
-
-// seedKit stores config under name the way a pre-tree Jam would have:
-// parsed, as canonical JSON, unchecked (Store.PushKit). For fixtures of
-// packed-context kits, which a push now refuses.
-func seedKit(t *testing.T, st jam.Store, name, config string) {
-	t.Helper()
-	sk, err := studio.ParseStudioKit([]byte(config))
-	if err != nil {
-		t.Fatal(err)
-	}
-	text, err := sk.ToJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.PushKit(name, string(text)); err != nil {
-		t.Fatal(err)
+	if !bytes.Equal(b.Data, []byte{0xff, 0x00}) || b.Mode != 0o755 || len(exp.Kits["kits/k"]) != 3 {
+		t.Fatalf("kits %+v", exp.Kits)
 	}
 }

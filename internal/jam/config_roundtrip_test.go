@@ -2,7 +2,6 @@ package jam
 
 import (
 	"context"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -20,9 +19,7 @@ func TestConfigRoundTripReplicates(t *testing.T) {
 		t.Fatalf("the fixture's %s model spec is not exported", DefaultModelSpec)
 	}
 	dir := t.TempDir()
-	for p, body := range exp.Files {
-		mustWrite(t, filepath.Join(dir, filepath.FromSlash(p)), body, 0o644)
-	}
+	writeExport(t, dir, exp)
 	tr, err := LoadConfigTree(dir)
 	if err != nil || len(tr.Refusals) > 0 {
 		t.Fatalf("%v %v", err, tr.Refusals)
@@ -53,6 +50,9 @@ func TestConfigRoundTripReplicates(t *testing.T) {
 			}
 		}
 		t.FailNow()
+	}
+	if !reflect.DeepEqual(got.Kits, exp.Kits) {
+		t.Fatalf("kit dirs differ on the replica:\n%+v\n---\n%+v", exp.Kits, got.Kits)
 	}
 	if len(dst.ListActors()) != 0 {
 		t.Fatal("actors replicated")

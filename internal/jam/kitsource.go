@@ -126,7 +126,7 @@ func importKit(ctx context.Context, store Store, f KitFetcher, name string, src 
 			return err
 		}
 		if docs := buildKitDocs(store, entries, src, commit, now, track); len(docs) > 0 {
-			if err := store.PutKitDocs(docs, KitObjects{}); err != nil {
+			if err := store.PutKitDocs(docs, kitSetObjects(entries)); err != nil {
 				return fmt.Errorf("studio kit %q: write: %w", entries[len(entries)-1].Name, err)
 			}
 		}

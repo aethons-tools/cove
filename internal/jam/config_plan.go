@@ -17,6 +17,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // The plan actions (spec §3).
@@ -142,7 +143,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 		in.Tree = &ConfigTree{}
 	}
 	m := stateFromSnapshot(in.Snapshot, in.Instances)
-	live, err := exportObjects(m, nil, false)
+	live, err := exportObjects(m, nil)
 	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{},
 		paths: map[ConfigKey]string{}, adoptable: map[ConfigKey]bool{}}
 	if err != nil {
@@ -451,6 +452,7 @@ func (p *planner) planKits() {
 		return
 	}
 	var docs []Kit
+	var versioned []kitSetEntry // the entries whose doc gets a new version
 	for _, e := range entries {
 		key := ConfigKey{ConfigKindKit, e.Name}
 		at, track := p.kitProvenance(e)
@@ -458,7 +460,7 @@ func (p *planner) planKits() {
 		if track {
 			tracked = &at
 		}
-		repo := configObject{Key: key, Canon: kitCanon(e.text, tracked)}
+		repo := configObject{Key: key, Canon: kitCanon(e.tree, kittree.MapBlobs(e.blobs), tracked)}
 		if track && p.tracksSource(e.Name, at) {
 			p.adoptable[key] = true // only its ref moved since Jam last synced it
 		}
@@ -468,9 +470,15 @@ func (p *planner) planKits() {
 		}
 		if doc, write := configKitDoc(p.store, e, at, track, p.in.Now); write {
 			docs = append(docs, doc)
+			if !e.Unchanged {
+				versioned = append(versioned, e)
+			}
 		}
 		p.record(key, action, drift, repo)
 	}
+	objs := kitSetObjects(versioned)
+	p.m.applyKitObjects(objs)
+	p.w.KitObjects = objs
 	for _, d := range docs {
 		p.m.kits[d.Name] = copyKit(d)
 	}
@@ -804,22 +812,4 @@ func (p *planner) planJamContext() {
 		p.w.JamContext = &layer
 		return nil
 	})
-}
-
-// ConfigCanonDisplay is a canonical form as a plan diff shows it: a kit's
-// stored config JSON indented one key per line (its "# source:" line kept);
-// every other kind's YAML as is.
-func ConfigCanonDisplay(kind, canon string) string {
-	if kind != ConfigKindKit || canon == "" {
-		return canon
-	}
-	body, src, tracked := strings.Cut(canon, "\n# source: ")
-	var b bytes.Buffer
-	if json.Indent(&b, []byte(body), "", "  ") != nil {
-		return canon
-	}
-	if tracked {
-		b.WriteString("\n# source: " + src)
-	}
-	return b.String()
 }

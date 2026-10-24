@@ -364,11 +364,11 @@ func TestKitLocksPruned(t *testing.T) {
 	}
 }
 
-// A kit whose context-dir is the repo root must not pack Jam's clone
-// metadata: refetching the same commit is then `unchanged`, not a new version.
-func TestImportRootContextDirIsDeterministic(t *testing.T) {
+// A kit directory at the repo root must not read Jam's clone metadata:
+// refetching the same commit is then `unchanged`, not a new version.
+func TestImportRootKitDirIsDeterministic(t *testing.T) {
 	url, _, _ := gittest.Serve(t, map[string]string{
-		"kit.yml":    "kind: studio\nname: rootkit\nbase:\n  context-dir: .\n",
+		"kit.yml":    "kind: studio\nname: rootkit\n",
 		"Dockerfile": "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
 	})
 	st := NewMemStore()
@@ -377,6 +377,9 @@ func TestImportRootContextDirIsDeterministic(t *testing.T) {
 	res, err := ImportKit(context.Background(), st, f, nil, "", src, time.Unix(10, 0))
 	if err != nil || res.Version != 1 || res.Unchanged {
 		t.Fatalf("first import: %+v %v", res, err)
+	}
+	if v, _ := LoadKitVersion(st, "rootkit", 0); len(v.Tree.Entries) != 2 {
+		t.Fatalf("root kit tree %+v (the clone's .git must not be read)", v.Tree.Entries)
 	}
 	res, err = ImportKit(context.Background(), st, f, nil, "", src, time.Unix(11, 0))
 	if err != nil || !res.Unchanged || res.Version != 1 {

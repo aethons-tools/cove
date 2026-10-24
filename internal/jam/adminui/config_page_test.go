@@ -104,18 +104,6 @@ func TestConfigPageUntrack(t *testing.T) {
 	}
 }
 
-// A Jam the drift check cannot render: the page says so instead of failing.
-func TestConfigPageDriftUnknown(t *testing.T) {
-	h, store := managedUI(t)
-	if _, err := store.PushKit("bad", "listen: :443"); err != nil {
-		t.Fatal(err)
-	}
-	rec := get(t, h, "/app/admin/config")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Could not compare with the live Jam") || !strings.Contains(rec.Body.String(), "unknown") {
-		t.Fatalf("%d %s", rec.Code, rec.Body.String())
-	}
-}
-
 // A stored source that does not re-parse (a hand-made URL with userinfo) is
 // shown as "invalid": no credential reaches the page.
 func TestConfigPageInvalidSource(t *testing.T) {

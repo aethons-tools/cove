@@ -3,6 +3,7 @@ package jam
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -29,8 +31,10 @@ type kitSetEntry struct {
 	Version   int              // the version this import leaves it at
 	Unchanged bool
 
-	text   string        // Kit's canonical JSON, the stored config
-	parent *KitParentRef // the parent Version is resolved against; nil = none
+	files  []kittree.File    // as loaded; kit.yml rewritten when its path ref is
+	tree   kittree.Tree      // files as a tree (set by resolveKitEntries)
+	blobs  map[string][]byte // tree's blobs by sha256
+	parent *KitParentRef     // the parent Version is resolved against; nil = none
 }
 
 // planKitSet loads src.Dir's kit and its path ancestors from root (root first),
@@ -51,7 +55,7 @@ func planKitSet(store Store, root string, src gitsource.Source, name string) ([]
 // leaves the checkout or has no kit.yml, a cycle, a set longer than
 // MaxKitChain and two kits sharing a name are refused (400).
 func loadKitSet(root string, src gitsource.Source, name string) ([]kitSetEntry, error) {
-	sk, hint, err := gitsource.Load(root, src.Dir)
+	sk, files, hint, err := gitsource.Load(root, src.Dir)
 	if err != nil {
 		// The kit in the repo is unusable: the operator's input, not a
 		// fetch failure.
@@ -66,7 +70,7 @@ func loadKitSet(root string, src gitsource.Source, name string) ([]kitSetEntry, 
 	if err := sk.CheckName(name); err != nil {
 		return nil, writeErr(http.StatusBadRequest, "%s", err)
 	}
-	set := []kitSetEntry{{Name: name, Dir: src.Dir, Kit: sk}} // child → parent
+	set := []kitSetEntry{{Name: name, Dir: src.Dir, Kit: sk, files: files}} // child → parent
 	for {
 		child := set[len(set)-1]
 		p, isPath := child.Kit.Base.ParentPath()
@@ -83,7 +87,7 @@ func loadKitSet(root string, src gitsource.Source, name string) ([]kitSetEntry, 
 				return nil, writeErr(http.StatusBadRequest, "cycle: %s", strings.Join(append(names, e.Name), " → "))
 			}
 		}
-		psk, phint, err := gitsource.LoadDir(root, dir)
+		psk, pfiles, phint, err := gitsource.LoadDir(root, dir)
 		switch {
 		case errors.Is(err, gitsource.ErrOutsideCheckout):
 			return nil, writeErr(http.StatusBadRequest, "parent path %s (of %s) leaves the checkout", p, child.Name)
@@ -110,7 +114,7 @@ func loadKitSet(root string, src gitsource.Source, name string) ([]kitSetEntry, 
 		if dir == "." {
 			dir = "" // a KitSource spells the root ""
 		}
-		set = append(set, kitSetEntry{Name: pname, Dir: dir, Kit: psk})
+		set = append(set, kitSetEntry{Name: pname, Dir: dir, Kit: psk, files: pfiles})
 	}
 	slices.Reverse(set)
 	return set, nil
@@ -129,7 +133,8 @@ func sameSource(s *KitSource, repo, dir string) bool {
 // before it, refuses an ancestor that is not this source's to write
 // (checkSetAncestor), validates the entry through an overlay of store holding
 // the set's pending versions, and assigns its version: the current one when
-// the stored config is identical, else the next. set is not modified.
+// the stored tree is identical (same tree hash), else the next. set is not
+// modified.
 func resolveKitSet(store Store, set []kitSetEntry, repo string) ([]kitSetEntry, error) {
 	return resolveKitEntries(store, set, func(i int, e kitSetEntry) error {
 		if i < len(set)-1 {
@@ -139,9 +144,32 @@ func resolveKitSet(store Store, set []kitSetEntry, repo string) ([]kitSetEntry, 
 	})
 }
 
+// kitYMLOf is files' kit.yml content.
+func kitYMLOf(files []kittree.File) []byte {
+	for _, f := range files {
+		if f.Path == kittree.KitFile {
+			return f.Data
+		}
+	}
+	return nil
+}
+
+// withKitYML is files with kit.yml's content replaced (a copy; files is not modified).
+func withKitYML(files []kittree.File, yml []byte) []kittree.File {
+	out := slices.Clone(files)
+	for i := range out {
+		if out[i].Path == kittree.KitFile {
+			out[i].Data = yml
+		}
+	}
+	return out
+}
+
 // resolveKitEntries is resolveKitSet for any parents-first list: each path
-// ref is rewritten to name@v<N> of the earlier entry at that dir; check (nil =
-// none) vets entry i before it is validated.
+// ref is rewritten to name@v<N> of the earlier entry at that dir, in place in
+// the entry's kit.yml (studio.SetBaseKit: only that value changes); check
+// (nil = none) vets entry i before it is validated. An entry whose tree
+// (after the rewrite) is its kit's current one is unchanged.
 func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSetEntry) error) ([]kitSetEntry, error) {
 	out := slices.Clone(set)
 	ov := &overlayStore{Store: store, pending: map[string]kitSetEntry{}}
@@ -153,7 +181,12 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 			if j < 0 {
 				return nil, writeErr(http.StatusBadRequest, "parent path %s (of %s) is not in this set", p, e.Name)
 			}
-			e.Kit.Base.Kit = fmt.Sprintf("%s@v%d", out[j].Name, out[j].Version)
+			ref := fmt.Sprintf("%s@v%d", out[j].Name, out[j].Version)
+			yml, err := studio.SetBaseKit(kitYMLOf(e.files), ref)
+			if err != nil {
+				return nil, writeErr(http.StatusBadRequest, "%s/kit.yml: %s", checkoutDir(e.Dir), err)
+			}
+			e.Kit.Base.Kit, e.files = ref, withKitYML(e.files, yml)
 		}
 		if check != nil {
 			if err := check(i, *e); err != nil {
@@ -164,13 +197,13 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 		if err != nil {
 			return nil, err
 		}
-		text, err := e.Kit.ToJSON()
+		tree, blobs, err := kittree.Build(e.files)
 		if err != nil {
-			return nil, writeErr(http.StatusBadRequest, "studio kit %q: %s", e.Name, err.Error())
+			return nil, writeErr(http.StatusBadRequest, "kit %s: %s", e.Name, err)
 		}
-		e.text, e.parent = string(text), chainParent(chain)
+		e.tree, e.blobs, e.parent = tree, blobs, chainParent(chain)
 		k, _ := store.GetKit(e.Name)
-		if cur, ok := store.KitConfig(e.Name, k.Current); ok && k.Current != 0 && cur == string(text) {
+		if k.Current != 0 && k.Trees[k.Current] == tree.Hash() {
 			e.Version, e.Unchanged = k.Current, true
 		} else {
 			e.Version, e.Unchanged = nextKitVersion(k), false
@@ -178,6 +211,19 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 		ov.pending[e.Name] = *e
 	}
 	return out, nil
+}
+
+// kitSetObjects are the trees and blobs of the entries that get a new version.
+func kitSetObjects(entries []kitSetEntry) KitObjects {
+	objs := KitObjects{Blobs: map[string][]byte{}}
+	for _, e := range entries {
+		if e.Unchanged {
+			continue
+		}
+		objs.Trees = append(objs.Trees, e.tree)
+		maps.Copy(objs.Blobs, e.blobs)
+	}
+	return objs
 }
 
 // checkSetAncestor refuses (409) to write a path parent's name over a kit that
@@ -211,8 +257,9 @@ func checkSetAncestor(store Store, name, repo, dir string) error {
 }
 
 // overlayStore is store with a kit set's pending versions laid over it: a
-// pending kit's GetKit has the pending version as current, and KitConfig
-// serves its config. Everything else reads through.
+// pending kit's GetKit has the pending version as current, its tree, and
+// KitTree and KitBlob serve the pending trees and blobs. Everything else
+// reads through.
 type overlayStore struct {
 	Store
 	pending map[string]kitSetEntry
@@ -226,18 +273,29 @@ func (o *overlayStore) GetKit(name string) (Kit, bool) {
 	}
 	k = copyKit(k)
 	k.Name, k.Current = name, e.Version
-	if k.Versions == nil {
-		k.Versions = map[int]string{}
+	if k.Trees == nil {
+		k.Trees = map[int]string{}
 	}
-	k.Versions[e.Version] = e.text
+	k.Trees[e.Version] = e.tree.Hash()
 	return k, true
 }
 
-func (o *overlayStore) KitConfig(name string, version int) (string, bool) {
-	if e, has := o.pending[name]; has && version == e.Version {
-		return e.text, true
+func (o *overlayStore) KitTree(sha string) (kittree.Tree, bool) {
+	for _, e := range o.pending {
+		if e.tree.Hash() == sha {
+			return e.tree, true
+		}
 	}
-	return o.Store.KitConfig(name, version)
+	return o.Store.KitTree(sha)
+}
+
+func (o *overlayStore) KitBlob(sha string) ([]byte, bool) {
+	for _, e := range o.pending {
+		if b, ok := e.blobs[sha]; ok {
+			return b, true
+		}
+	}
+	return o.Store.KitBlob(sha)
 }
 
 // buildKitDocs is the new doc of each kit the planned set changes, root
@@ -281,10 +339,10 @@ func addKitVersion(doc *Kit, e kitSetEntry, at KitSource, now time.Time) {
 	if doc.Meta == nil {
 		doc.Meta = map[int]KitVersionMeta{}
 	}
-	if doc.Versions == nil {
-		doc.Versions = map[int]string{}
+	if doc.Trees == nil {
+		doc.Trees = map[int]string{}
 	}
-	doc.Versions[e.Version] = e.text
+	doc.Trees[e.Version] = e.tree.Hash()
 	doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}
 	doc.Current = e.Version
 }

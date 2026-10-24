@@ -294,7 +294,7 @@ func (l *treeLoader) loadKits() {
 		}
 		set, err := loadKitSet(l.root, gitsource.Source{Repo: ConfigDirRepo, Dir: rel}, n)
 		if err != nil {
-			l.refuse("%s/kit.yml: %s", rel, err)
+			l.refuse("%s", locate(rel, err))
 			continue
 		}
 		if msg := l.checkTreeKitSet(set); msg != "" {
@@ -316,6 +316,16 @@ func (l *treeLoader) loadKits() {
 		l.refuse("kits: cycle among %s", strings.Join(cycle, ", "))
 	}
 	l.tr.Kits, l.tr.KitCycle = ordered, cycle
+}
+
+// locate is err as a refusal of the kit at rel (kits/<n>): kept when it
+// already names a path under rel (a file the read refused), else located at
+// rel/kit.yml.
+func locate(rel string, err error) string {
+	if msg := err.Error(); strings.HasPrefix(msg, rel+"/") || strings.HasPrefix(msg, rel+":") {
+		return msg
+	}
+	return rel + "/kit.yml: " + err.Error()
 }
 
 // loadKitSource loads kits/<name>.source.yml into the tree's KitSources.

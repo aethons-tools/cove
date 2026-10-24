@@ -102,7 +102,7 @@ func TestWriteAndApplyClearsConfigDrift(t *testing.T) {
 	}
 	env := allCreds
 	env.Conditions = tr
-	res, err := ApplyConfigTree(context.Background(), st, nil, treeOf(t, exp.Files), env, dirOpts(), nil, "alice")
+	res, err := ApplyConfigTree(context.Background(), st, nil, exportTree(t, exp), env, dirOpts(), nil, "alice")
 	if err != nil || res.Applied {
 		t.Fatalf("write-and-apply: %+v %v", res, err)
 	}
@@ -111,18 +111,38 @@ func TestWriteAndApplyClearsConfigDrift(t *testing.T) {
 	}
 }
 
-// A live Jam that cannot be rendered (a kit that does not parse) leaves the
-// condition as it was: no crash, no flapping.
+// pushUnrenderableKit stores kit name with its files' bytes then lost (a
+// store that cannot happen through the API): a Jam that cannot be rendered.
+func pushUnrenderableKit(t *testing.T, st *MemStore, name string) {
+	t.Helper()
+	if _, err := st.PushKit(name, "kind: studio\nprompt: unrenderable "+name+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	k := st.kits[name]
+	for _, e := range st.kitTrees[k.Trees[k.Current]].Entries {
+		delete(st.kitBlobs, e.SHA256)
+	}
+}
+
+// A live Jam that cannot be rendered (a kit whose files are not stored)
+// leaves the condition as it was: no crash, no flapping. A kit.yml that does
+// not parse renders (as it is): one bad kit never blocks the check.
 func TestCheckConfigDriftKeepsStateOnError(t *testing.T) {
 	st := appliedFull(t)
 	tr := condition.New(condition.Options{})
 	editGH(t, st, "edited in Jam")
 	CheckConfigDrift(st, tr, nil)
-	if _, err := st.PushKit("bad", "listen: :443"); err != nil { // not a studio kit
+	if _, err := st.PushKit("odd", "listen: :443"); err != nil { // not a studio kit
 		t.Fatal(err)
 	}
+	if _, err := ConfigMarkStates(st); err != nil {
+		t.Fatalf("an unparseable kit does not render: %v", err)
+	}
+	pushUnrenderableKit(t, st, "bad")
 	if _, err := ConfigMarkStates(st); err == nil {
-		t.Fatal("an unparseable kit rendered")
+		t.Fatal("a kit with no stored files rendered")
 	}
 	CheckConfigDrift(st, tr, nil)
 	if !tr.IsOpen(ConfigDriftKey) {
@@ -155,9 +175,7 @@ func TestCheckConfigDriftWarnsOncePerError(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	CheckConfigDrift(st, tr, log) // a good check resets what was last warned
-	if _, err := st.PushKit("bad", "listen: :443"); err != nil {
-		t.Fatal(err)
-	}
+	pushUnrenderableKit(t, st, "bad")
 	CheckConfigDrift(st, tr, log)
 	CheckConfigDrift(st, tr, log)
 	if n := strings.Count(buf.String(), "level=WARN"); n != 1 {
@@ -167,9 +185,7 @@ func TestCheckConfigDriftWarnsOncePerError(t *testing.T) {
 		t.Fatal(err)
 	}
 	CheckConfigDrift(st, tr, log)
-	if _, err := st.PushKit("bad", "listen: :443"); err != nil {
-		t.Fatal(err)
-	}
+	pushUnrenderableKit(t, st, "bad")
 	CheckConfigDrift(st, tr, log)
 	if n := strings.Count(buf.String(), "level=WARN"); n != 2 {
 		t.Fatalf("%d warnings, want 2 (the error came back):\n%s", n, buf.String())
