@@ -37,6 +37,20 @@ func TestRedactEnv(t *testing.T) {
 		{"REPO", "https://u:p@ss@h/x", "https://h/x"},
 		{"REPO", "https://u:p@ss", "https://ss"},
 		{"U", "https://h?token=abc", "https://h?«masked»"},
+		{"U", "https://h?password=p@ssword123", "https://h?«masked»"},
+		{"U", "https://h#frag@evil", "https://h?«masked»"},
+		{"U", "https://u:p@h?password=p@ssword123", "https://h?«masked»"},
+		{"U", "https://h/x?a=1;b=secret", "https://h/x?«masked»"},
+		{"U", "https://h?a=1,b=2", "https://h?«masked»"},
+		{"U", "https://h?a=1|secretpart", "https://h?«masked»"},
+		{"U", "https://h/x?a=1 then https://v:q@b/y", "https://h/x?«masked» then https://b/y"},
+		{"HDR", "Bearer {token}sk-live-abcdef", MarkMasked},
+		{"HDR", "token {token}", "token " + MarkIdentityToken},
+		{"HDR", "-H 'Bearer abcdefghijkl'", MarkMasked},
+		{"DESC", "export GH_TOKEN=ghp_abcdefghijk", "export " + MarkMasked},
+		{"DESC", "token: ghp_abcdefghijk", MarkMasked},
+		{"DESC", "set password = 'hunter2hunter2' ok", "set " + MarkMasked + "' ok"},
+		{"DESC", "run with api_key=abcdefgh12 now", "run with " + MarkMasked + " now"},
 		{"U", "https://u:p@h?token=abc", "https://h?«masked»"},
 		{"U", "https://h#f", "https://h?«masked»"},
 		{"U", "https://u:p@h?x=1,https://v:q@b/y", "https://h?«masked»,https://b/y"},
@@ -122,6 +136,7 @@ func TestRedactLabel(t *testing.T) {
 		{"desc", "clone https://u:p@h/x?t=1 please", "desc", "clone https://h/x?«masked» please"},
 		{"u", "https://u:p@h/x?t=1", "u", "https://h/x?«masked»"},
 		{"u", "https://u:p@h?t=1", "u", "https://h?«masked»"},
+		{"u", "https://h?p=a@secret", "u", "https://h?«masked»"},
 	} {
 		k, v := RedactLabel(c.k, c.v)
 		if k != c.wantK || v != c.wantV {

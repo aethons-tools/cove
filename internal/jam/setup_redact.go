@@ -32,7 +32,17 @@ var secretKeyRE = regexp.MustCompile(`(?i)token|secret|key|password|passwd|crede
 // authValueRE finds "<scheme> <credential>" in header/assignment position: the
 // scheme word starts the value or follows ':', '=' or '"', and a
 // credential-like token (>= 8 chars) follows.
-var authValueRE = regexp.MustCompile(`(?i)(?:^|[:="])\s*(?:bearer|basic|token)(?:\s+|=)[A-Za-z0-9._~+/=-]{8,}`)
+var authValueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)(?:\s+|=)[A-Za-z0-9._~+/=-]{8,}`)
+
+// authGlueRE finds an auth-scheme value whose placeholder has literal text
+// glued to it ("Bearer {token}sk-live"); only exact templates may render.
+var authGlueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)\s+(?:[^\s{]+\{(?:token|base|host|url)\}|\{(?:token|base|host|url)\}\S+)`)
+
+// assignRE finds a secret assignment inside free text ("export GH_TOKEN=...").
+var assignRE = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|credential)\s*[=:]\s*['"]?[A-Za-z0-9._~+/=-]{8,}`)
+
+// queryResumeRE is a list delimiter immediately followed by a new URL.
+var queryResumeRE = regexp.MustCompile(`[,;|][A-Za-z][A-Za-z0-9+.-]*://`)
 
 // authHeaderRE finds an Authorization header line in a value.
 var authHeaderRE = regexp.MustCompile(`(?i)authorization\s*:`)
@@ -49,15 +59,18 @@ var schemeRE = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://`)
 // MarkQuery replaces a URL's query and fragment.
 const markQuery = "?" + MarkMasked
 
-// queryEnd is where a masked query/fragment ends: the next list delimiter
-// (',', ';', '|') or whitespace at or after from, else the end of v.
+// queryEnd is where a masked query/fragment starting at from ends: at a list
+// delimiter only when "scheme://" immediately follows it, else at the end of
+// the whitespace-free run.
 func queryEnd(v string, from int) int {
-	if i := strings.IndexFunc(v[from:], func(r rune) bool {
-		return r == ',' || r == ';' || r == '|' || unicode.IsSpace(r)
-	}); i >= 0 {
-		return from + i
+	runEnd := len(v)
+	if i := strings.IndexFunc(v[from:], unicode.IsSpace); i >= 0 {
+		runEnd = from + i
 	}
-	return len(v)
+	if m := queryResumeRE.FindStringIndex(v[from:runEnd]); m != nil {
+		return from + m[0]
+	}
+	return runEnd
 }
 
 // stripURLSecrets, for EVERY scheme:// occurrence in v, removes the userinfo
@@ -78,9 +91,10 @@ func stripURLSecrets(v string) string {
 		}
 		out.WriteString(v[pos : pos+loc[1]])
 		start := pos + loc[1]
-		// authority: up to '/', whitespace or end
+		// authority: up to '/', '?', '#', whitespace or end ('@' may appear in
+		// a query or fragment, but '?'/'#' may not appear in userinfo)
 		authEnd := len(v)
-		if i := strings.IndexFunc(v[start:], func(r rune) bool { return r == '/' || unicode.IsSpace(r) }); i >= 0 {
+		if i := strings.IndexFunc(v[start:], func(r rune) bool { return r == '/' || r == '?' || r == '#' || unicode.IsSpace(r) }); i >= 0 {
 			authEnd = start + i
 		}
 		// a later scheme inside the authority starts the next URL of a list
@@ -91,10 +105,10 @@ func stripURLSecrets(v string) string {
 		if i := strings.LastIndexByte(v[start:authEnd], '@'); i >= 0 {
 			hostStart = start + i + 1
 		}
-		if q := strings.IndexAny(v[hostStart:authEnd], "?#"); q >= 0 {
-			out.WriteString(v[hostStart : hostStart+q])
+		if authEnd < len(v) && (v[authEnd] == '?' || v[authEnd] == '#') {
+			out.WriteString(v[hostStart:authEnd])
 			out.WriteString(markQuery)
-			pos = queryEnd(v, hostStart+q)
+			pos = queryEnd(v, authEnd)
 			continue
 		}
 		out.WriteString(v[hostStart:authEnd])
@@ -134,7 +148,7 @@ func valueLooksSecret(v string) bool {
 	if authHeaderRE.MatchString(v) {
 		return true
 	}
-	if authValueRE.MatchString(v) {
+	if authValueRE.MatchString(v) || authGlueRE.MatchString(v) {
 		return true
 	}
 	return false
@@ -158,7 +172,7 @@ func RedactEnv(key, value string) string {
 	}
 	shown := strings.ReplaceAll(value, "{token}", MarkIdentityToken)
 	if !secretKeyRE.MatchString(key) {
-		return stripURLSecrets(shown)
+		return stripURLSecrets(assignRE.ReplaceAllString(shown, MarkMasked))
 	}
 	if knownPlaceholder.MatchString(value) && safeTemplateRest.MatchString(knownPlaceholder.ReplaceAllString(value, "")) {
 		return shown
