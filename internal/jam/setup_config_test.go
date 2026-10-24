@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
@@ -105,5 +106,42 @@ func TestIdentityBodies(t *testing.T) {
 	want := "project: default\nrole: dev\nsession kind: standing (name bot)\nstudio: s1\nphase: live\nraised at: 1970-01-01T00:00:00Z\n"
 	if got := instanceIdentityBody(st, inst); got != want {
 		t.Errorf("instance identity = %q", got)
+	}
+}
+
+func TestSetupConfigFix1(t *testing.T) {
+	ms := &ModelSpec{Name: "m", Type: "claude"}
+	ms.Principal.Credential = "anthropic-key"
+	ms.Principal.Headers = []modelspec.HeaderRule{
+		{Name: "X-Goog-Api-Key", Set: "sk_live_HDR1"},
+		{Name: "x-custom-token", EnsureListItem: "sk_live_HDR2"},
+	}
+	ms.Claude = &ClaudeSpec{Provider: "vertex", ProviderEnv: map[string]string{"VERTEX_API_KEY": "sk_live_PENV"}}
+	got := modelBody(ms)
+	for _, bad := range []string{"sk_live_HDR1", "sk_live_HDR2", "sk_live_PENV"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q leaked:\n%s", bad, got)
+		}
+	}
+	ms.Principal.Credential = "Bearer sk_live_CRED1234"
+	if got := modelBody(ms); strings.Contains(got, "sk_live_CRED1234") {
+		t.Errorf("secret-looking credential leaked:\n%s", got)
+	}
+
+	st := NewMemStore()
+	_ = st.AddDestination(Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer,
+		Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred};static=sk_live_LITERAL123"}, CredName: "gh-pat"})
+	_ = st.PutRole("default", Role{Name: "r", Scope: Scope{Destinations: []string{"gh"}}})
+	d := destinationsBody(st, Actor{Grants: []Grant{{Project: "default", Role: "r"}}})
+	if strings.Contains(d, "sk_live_LITERAL123") || !strings.Contains(d, MarkMasked) {
+		t.Errorf("template literal leaked:\n%s", d)
+	}
+	if got := outboundText(ApplyCustom, &OutboundSpec{Header: "Authorization", Template: "Bearer {cred}"}); !strings.Contains(got, "Bearer {cred}") {
+		t.Errorf("scheme template = %q", got)
+	}
+
+	m := mcpBody(map[string]kit.MCPServer{"x": {Type: "stdio", Command: "env API_KEY=sk_live_12345678 mcp"}}, true)
+	if strings.Contains(m, "sk_live_12345678") {
+		t.Errorf("command leaked:\n%s", m)
 	}
 }

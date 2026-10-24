@@ -58,7 +58,7 @@ func destinationsBody(store Store, a Actor) string {
 		fmt.Fprintf(&sb, "  apply:       %s\n", outboundText(d.Apply, d.ApplySpec))
 		fmt.Fprintf(&sb, "  credential:  %s\n", cmp.Or(SafeText(cmp.Or(creds[n], d.CredName)), "none"))
 		fmt.Fprintf(&sb, "  git:         %s\n", git)
-		fmt.Fprintf(&sb, "  allow-paths: %s\n", joinOr(d.AllowPaths, "any"))
+		fmt.Fprintf(&sb, "  allow-paths: %s\n", joinOr(flatAll(d.AllowPaths), "any"))
 		fmt.Fprintf(&sb, "  env keys:    %s\n", joinOr(slices.Sorted(maps.Keys(d.ClientEnv())), "none"))
 	}
 	return sb.String()
@@ -73,9 +73,20 @@ func inboundText(m ApplyMethod, s *InboundSpec) string {
 
 func outboundText(m ApplyMethod, s *OutboundSpec) string {
 	if m == ApplyCustom && s != nil {
-		return fmt.Sprintf("custom (header %s, template %q)", SafeText(s.Header), SafeText(s.Template))
+		return fmt.Sprintf("custom (header %s, template %q)", SafeText(s.Header), templateText(s.Template))
 	}
 	return cmp.Or(string(m), "none")
+}
+
+// templateText shows an outbound template only when, once {cred} is removed,
+// nothing but an optional scheme word remains; any literal text is masked.
+func templateText(t string) string {
+	rest := strings.TrimSpace(strings.ReplaceAll(t, "{cred}", ""))
+	switch strings.ToLower(rest) {
+	case "", "bearer", "basic", "token":
+		return SafeText(t)
+	}
+	return MarkMasked
 }
 
 // displayURL renders a URL for display without its userinfo, query or
@@ -106,10 +117,25 @@ func modelBody(ms *ModelSpec) string {
 	var credName any
 	if p, ok := v["principal"].(map[string]any); ok {
 		credName = p["credential"]
+		if hs, ok := p["headers"].([]any); ok {
+			for _, x := range hs {
+				if m, ok := x.(map[string]any); ok {
+					name, _ := m["name"].(string)
+					for _, k := range []string{"set", "ensure-list-item"} {
+						if val, ok := m[k].(string); ok {
+							m[k] = RedactEnv(name, val)
+						}
+					}
+				}
+			}
+		}
 	}
 	v = redactJSONValue("", v).(map[string]any)
 	if p, ok := v["principal"].(map[string]any); ok {
 		if n, ok := credName.(string); ok {
+			if valueLooksSecret(n) {
+				n = MarkMasked
+			}
 			p["credential"] = SafeText(n)
 		}
 	}
@@ -139,7 +165,7 @@ func mcpBody(servers map[string]kit.MCPServer, kitKnown bool) string {
 			s := servers[n]
 			where := displayURL(s.URL)
 			if s.Type == "stdio" {
-				where = SafeText(s.Command)
+				where = flat(RedactEnv("command", s.Command))
 				if len(s.Args) > 0 {
 					where += fmt.Sprintf(" (+%d args)", len(s.Args))
 				}
@@ -172,8 +198,8 @@ func rolePolicyBody(store Store, project string, r Role) string {
 	}
 	fmt.Fprintf(&sb, "standing: %s\n", joinOr(names, "none"))
 	te := r.TurnEnd
-	fmt.Fprintf(&sb, "turn-end: idle-timeout %s, on-idle %s, time-zone %s\n", durOr(te.IdleTimeout, "none"), te.Action(), cmp.Or(te.TimeZone, "UTC"))
-	fmt.Fprintf(&sb, "collaborate: preview %s, ssh %s\n", cmp.Or(r.Collaborate.Preview, "members"), cmp.Or(r.Collaborate.SSH, "none"))
+	fmt.Fprintf(&sb, "turn-end: idle-timeout %s, on-idle %s, time-zone %s\n", durOr(te.IdleTimeout, "none"), te.Action(), flat(cmp.Or(te.TimeZone, "UTC")))
+	fmt.Fprintf(&sb, "collaborate: preview %s, ssh %s\n", flat(cmp.Or(r.Collaborate.Preview, "members")), flat(cmp.Or(r.Collaborate.SSH, "none")))
 	p, _ := store.GetProject(orDefaultProject(project))
 	fmt.Fprintf(&sb, "escalation (default): %s\n", tiersText(p.Escalation))
 	for _, c := range slices.Sorted(maps.Keys(p.EscalationByCategory)) {
@@ -187,7 +213,7 @@ func rolePolicyBody(store Store, project string, r Role) string {
 func instancePolicyBody(inst Instance) string {
 	var sb strings.Builder
 	if o := inst.IdleOverride; o != nil {
-		fmt.Fprintf(&sb, "idle override: %s (%s)\n", durOr(o.Duration, "off"), o.Scope)
+		fmt.Fprintf(&sb, "idle override: %s (%s)\n", durOr(o.Duration, "off"), flat(string(o.Scope)))
 	} else {
 		sb.WriteString("idle override: none\n")
 	}
@@ -228,7 +254,7 @@ func durOr(d time.Duration, zero string) string {
 }
 
 func roleIdentityBody(store Store, project, role string) string {
-	return fmt.Sprintf("project: %s\nrole: %s\nsession kind: ephemeral (a would-be raise: no unit, no owner)\n", ProjectName(store, orDefaultProject(project)), role)
+	return fmt.Sprintf("project: %s\nrole: %s\nsession kind: ephemeral (a would-be raise: no unit, no owner)\n", ProjectName(store, orDefaultProject(project)), flat(role))
 }
 
 func instanceIdentityBody(store Store, inst Instance) string {
@@ -243,5 +269,13 @@ func instanceIdentityBody(store Store, inst Instance) string {
 		kind += ", unit " + SafeText(inst.Unit)
 	}
 	return fmt.Sprintf("project: %s\nrole: %s\nsession kind: %s\nstudio: %s\nphase: %s\nraised at: %s\n",
-		ProjectName(store, inst.Project), inst.Role, kind, inst.ActorID, inst.Phase, inst.RaisedAt.UTC().Format(time.RFC3339))
+		ProjectName(store, inst.Project), flat(inst.Role), kind, flat(inst.ActorID), flat(string(inst.Phase)), inst.RaisedAt.UTC().Format(time.RFC3339))
+}
+
+func flatAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, x := range ss {
+		out[i] = flat(x)
+	}
+	return out
 }
