@@ -163,6 +163,20 @@ func TestServeTail(t *testing.T) {
 	}
 }
 
+func TestServeTailLiveDedup(t *testing.T) {
+	// A live event the tail backfill already sent (published again, as when
+	// it raced the backfill) is not sent twice; a new one is.
+	st, hub := sessionevents.NewMemStore(), sessionevents.NewHub()
+	fill(t, st, streamA, 1, 10, time.Unix(1000, 0))
+	f := open(t, sessionview.Source{Store: st, Hub: hub, ActorID: "w1", Tail: 3, Event: evFrag}, "?stream="+streamA, "")
+	f.waitFor(t, idLine(streamA, 10))
+	hub.Publish(sessionevents.Event{ActorID: "w1", StreamID: streamA, Seq: 10, Kind: sessionevents.KindEvent})
+	f.barrier(t, hub, streamA, 11)
+	if n := strings.Count(f.String(), idLine(streamA, 10)); n != 1 {
+		t.Fatalf("seq 10 sent %d times:\n%s", n, f.String())
+	}
+}
+
 func TestServeTailNoMoreFromStart(t *testing.T) {
 	st, hub := sessionevents.NewMemStore(), sessionevents.NewHub()
 	fill(t, st, streamA, 1, 3, time.Unix(1000, 0))
