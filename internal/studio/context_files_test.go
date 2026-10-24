@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +52,34 @@ func TestContextFilesRefusesUnsafe(t *testing.T) {
 	notGzip := base64.StdEncoding.EncodeToString([]byte("plain"))
 	if _, err := ContextFiles(notGzip, "", 0); err == nil {
 		t.Error("a non-gzip context must be refused")
+	}
+}
+
+// Duplicate tar names (the last wins, as on extraction) keep the wanted
+// bytes once: listing never retains more than keep bytes in total.
+func TestContextFilesDuplicateNamesKeepOnce(t *testing.T) {
+	entries := []tarGzEntry{{name: "Dockerfile", body: "FROM x\n"}}
+	for i := 0; i < maxZipEntries-2; i++ {
+		entries = append(entries, tarGzEntry{name: "f", body: strings.Repeat("x", 1000)})
+	}
+	entries = append(entries, tarGzEntry{name: "f", body: strings.Repeat("y", 1000)})
+	b64 := base64.StdEncoding.EncodeToString(tarGzBytes(t, entries))
+	const keep = 1001
+	files, err := ContextFiles(b64, "f", keep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept, retained int
+	for _, f := range files {
+		if f.Data != nil {
+			kept++
+		}
+		retained += cap(f.Data)
+	}
+	if kept != 1 || retained > 2*keep {
+		t.Fatalf("kept %d entries' data, %d bytes retained; want 1 entry, ≤ %d bytes", kept, retained, 2*keep)
+	}
+	if last := files[len(files)-1]; string(last.Data) != strings.Repeat("y", 1000) {
+		t.Fatalf("the last duplicate should keep its data, got %d bytes", len(last.Data))
 	}
 }

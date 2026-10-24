@@ -2,6 +2,7 @@ package studio
 
 import (
 	"archive/tar"
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -26,26 +27,31 @@ type ContextEntry struct {
 // checks (caps; no absolute or ".." names, links or irregular entries; a root
 // Dockerfile) — but, unlike ContextDirFiles, without requiring that a
 // context-dir reproduces it. Content is hashed as it streams; only the file
-// whose path is want keeps its first keep bytes, so listing a context never
-// holds more than that in memory.
+// whose path is want keeps its first keep bytes (the last entry of that name,
+// as extraction keeps), so listing a context never holds more than that.
 func ContextFiles(b64, want string, keep int) ([]ContextEntry, error) {
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return nil, ErrContextBase64
 	}
 	var out []ContextEntry
+	kept := -1 // the entry holding want's bytes: a later duplicate replaces it
 	err = walkContextTar(raw, func(hdr *tar.Header, r io.Reader) error {
 		e := ContextEntry{Path: hdr.Name, Mode: fs.FileMode(hdr.Mode & 0o7777)}
 		h := sha256.New()
 		if hdr.Name == want {
-			buf := make([]byte, keep)
-			n, err := io.ReadFull(r, buf)
-			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			var buf bytes.Buffer
+			n, err := io.Copy(io.MultiWriter(&buf, h), io.LimitReader(r, int64(keep)))
+			if err != nil {
 				return fmt.Errorf("base.context: %w", err)
 			}
-			e.Data = buf[:n]
-			h.Write(buf[:n])
-			e.Size = int64(n)
+			if kept >= 0 {
+				out[kept].Data = nil
+			}
+			e.Data, e.Size, kept = bytes.Clone(buf.Bytes()), n, len(out)
+			if e.Data == nil {
+				e.Data = []byte{}
+			}
 		}
 		n, err := io.Copy(h, r)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -179,6 +180,59 @@ func TestKitContextUnknownFile(t *testing.T) {
 			t.Errorf("%s: the requested name is echoed", path)
 		}
 	}
+	// under a diff, the card sits below the context diff and names both versions
+	body := get(t, h, "/app/admin/kits/w?v=2&diff=1&file=nope").Body.String()
+	if f := section(body, "ctx-file"); !strings.Contains(f, "either version") {
+		t.Errorf("diff-mode missing file:\n%s", f)
+	}
+	if i, j := strings.Index(body, `id="ctx-diff"`), strings.Index(body, `id="ctx-file"`); i < 0 || j < i {
+		t.Errorf("missing-file card should follow the context diff (%d, %d)", i, j)
+	}
+	if f := section(get(t, h, "/app/admin/kits/w?v=1&file=nope").Body.String(), "ctx-file"); !strings.Contains(f, "this version") {
+		t.Errorf("view-mode missing file:\n%s", f)
+	}
+}
+
+// Two contexts differing in one same-length byte still diff: the
+// placeholder carries a short hash of the stored base64.
+func TestKitDiffPlaceholderHash(t *testing.T) {
+	df := ctxFile{name: "Dockerfile", body: "FROM x\n"}
+	store := newStore(t)
+	for _, b := range []string{"a\n", "b\n"} {
+		if _, _, err := jam.PushStudioKit(store, "h", "kind: studio\nbase:\n  context: "+packCtx(t, df, ctxFile{name: "a.txt", body: b})+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := section(get(t, kitsHandler(store), "/app/admin/kits/h?v=2&diff=1").Body.String(), "kit-diff")
+	if !strings.Contains(d, `<span class="d-del">-     context: «tar.gz, 2 files, `) || !strings.Contains(d, `<span class="d-add">+     context: «tar.gz, 2 files, `) || strings.Count(d, ", sha256:") != 2 {
+		t.Errorf("a same-size context change should show in the YAML diff:\n%s", d)
+	}
+}
+
+// A name packed twice is listed once, marked; a context diff past
+// maxCtxEntries rows says how many more changed.
+func TestKitContextDuplicatesAndDiffCap(t *testing.T) {
+	df := ctxFile{name: "Dockerfile", body: "FROM x\n"}
+	store := newStore(t)
+	dup := packCtx(t, df, ctxFile{name: "dup.txt", body: "1\n"}, ctxFile{name: "dup.txt", body: "22\n"})
+	many := []ctxFile{df}
+	for i := 0; i < 510; i++ {
+		many = append(many, ctxFile{name: fmt.Sprintf("f%03d", i), body: "x"})
+	}
+	for _, c := range []string{dup, packCtx(t, many...)} {
+		if _, _, err := jam.PushStudioKit(store, "d", "kind: studio\nbase:\n  context: "+c+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := kitsHandler(store)
+	c := section(get(t, h, "/app/admin/kits/d?v=1").Body.String(), "ctx-files")
+	if strings.Count(c, ">dup.txt</a>") != 1 || !strings.Contains(c, "duplicate entries in tar") || !strings.Contains(c, "<td>3 B</td>") {
+		t.Errorf("duplicate names:\n%s", c)
+	}
+	c = section(get(t, h, "/app/admin/kits/d?v=2&diff=1").Body.String(), "ctx-diff")
+	if n := strings.Count(c, "data-change="); n != 500 || !strings.Contains(c, "… 11 more") {
+		t.Errorf("context diff rows = %d, want 500 and a note of 11 more", n)
+	}
 }
 
 func TestKitVersionContextFiles(t *testing.T) {
@@ -225,5 +279,13 @@ func TestKitContextUnreadable(t *testing.T) {
 	}
 	if c := section(body, "ctx-diff"); !strings.Contains(c, "context unreadable") {
 		t.Errorf("context diff with an unreadable side:\n%s", c)
+	}
+	// a file asked of contexts that can't be read says so, not "no such file"
+	for _, path := range []string{"/app/admin/kits/u?v=2&diff=1&file=Dockerfile", "/app/admin/kits/u?v=1&file=Dockerfile"} {
+		rec := get(t, h, path)
+		f := section(rec.Body.String(), "ctx-file")
+		if rec.Code != http.StatusOK || !strings.Contains(f, "context unreadable") || strings.Contains(f, "No such file") {
+			t.Errorf("%s = %d:\n%s", path, rec.Code, f)
+		}
 	}
 }

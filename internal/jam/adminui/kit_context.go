@@ -2,8 +2,11 @@ package adminui
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strconv"
@@ -24,6 +27,7 @@ const maxCtxEntries = 500
 // ctxRead is one version's packed base.context, read once per request.
 type ctxRead struct {
 	size   string // encoded size label
+	sum    string // "sha256:" + 8 hex of SHA-256 over the stored base64
 	read   bool   // the files were listed (false: not unpacked, or unreadable)
 	err    string // fixed reason the context is unreadable; "" = readable
 	files  []studio.ContextEntry
@@ -34,7 +38,8 @@ type ctxRead struct {
 // set. An unreadable context gets a fixed reason, never the scan's message
 // (which may quote an entry name).
 func readContext(b64 string, unpack bool, want string) *ctxRead {
-	c := &ctxRead{size: sizeLabel(len(b64))}
+	h := sha256.Sum256([]byte(b64))
+	c := &ctxRead{size: sizeLabel(len(b64)), sum: "sha256:" + hex.EncodeToString(h[:4])}
 	if !unpack {
 		return c
 	}
@@ -53,17 +58,18 @@ func readContext(b64 string, unpack bool, want string) *ctxRead {
 	return c
 }
 
-// placeholder stands in for the base64 blob in shown and diffed YAML.
+// placeholder stands in for the base64 blob in shown and diffed YAML; its
+// short hash makes any change to the blob show as a changed line.
 func (c *ctxRead) placeholder() string {
 	switch {
 	case c.err != "":
-		return fmt.Sprintf("«tar.gz, unreadable, %s»", c.size)
+		return fmt.Sprintf("«tar.gz, unreadable, %s, %s»", c.size, c.sum)
 	case !c.read:
-		return fmt.Sprintf("«tar.gz, %s»", c.size)
+		return fmt.Sprintf("«tar.gz, %s, %s»", c.size, c.sum)
 	case len(c.files) == 1:
-		return fmt.Sprintf("«tar.gz, 1 file, %s»", c.size)
+		return fmt.Sprintf("«tar.gz, 1 file, %s, %s»", c.size, c.sum)
 	}
-	return fmt.Sprintf("«tar.gz, %d files, %s»", len(c.files), c.size)
+	return fmt.Sprintf("«tar.gz, %d files, %s, %s»", len(c.files), c.size, c.sum)
 }
 
 func (c *ctxRead) get(p string) (studio.ContextEntry, bool) {
@@ -130,6 +136,7 @@ func fileHref(kit string, v, diff int, p string) string {
 type ctxRow struct {
 	Path, Href, Mode string
 	Size             int64
+	Dup              bool // the tar packs this name more than once (the last is shown, as extraction keeps)
 }
 
 // ctxListView is the viewed version's packed-context file list.
@@ -146,13 +153,18 @@ func ctxList(kit string, v kitView) *ctxListView {
 		return nil
 	}
 	l := &ctxListView{N: v.N, Size: v.ctx.size, Err: v.ctx.err}
-	files := slices.SortedFunc(slices.Values(v.ctx.files), func(a, b studio.ContextEntry) int { return strings.Compare(a.Path, b.Path) })
-	for i, f := range files {
+	count := map[string]int{}
+	for _, f := range v.ctx.files {
+		count[f.Path]++
+	}
+	paths := slices.Sorted(maps.Keys(count))
+	for i, p := range paths {
 		if i == maxCtxEntries {
-			l.Hidden = len(files) - i
+			l.Hidden = len(paths) - i
 			break
 		}
-		l.Rows = append(l.Rows, ctxRow{Path: pathText(f.Path), Href: fileHref(kit, v.N, 0, f.Path), Mode: modeText(f), Size: f.Size})
+		f, _ := v.ctx.get(p)
+		l.Rows = append(l.Rows, ctxRow{Path: pathText(p), Href: fileHref(kit, v.N, 0, p), Mode: modeText(f), Size: f.Size, Dup: count[p] > 1})
 	}
 	return l
 }
@@ -169,6 +181,7 @@ type ctxDiffView struct {
 	From, To  int
 	Err       string // a side is unreadable: which and why
 	Rows      []ctxChange
+	More      int // changed files past maxCtxEntries, not listed
 	Unchanged int
 }
 
@@ -222,6 +235,10 @@ func ctxDiff(kit string, from, to kitView) *ctxDiffView {
 				row.Size = bytesText(a.Size) + " → " + bytesText(b.Size)
 			}
 		}
+		if len(d.Rows) == maxCtxEntries {
+			d.More++
+			continue
+		}
 		d.Rows = append(d.Rows, row)
 	}
 	return d
@@ -238,20 +255,24 @@ type ctxFileView struct {
 	Content  string
 	Note     string // binary or oversize: why no content, with sizes
 	Missing  bool   // in neither version
+	Err      string // no version's context is readable: why (fixed text)
 }
 
 // fileView shows file p of to (and, when diff, compares it with from's).
 func fileView(p string, from, to *ctxRead, diff bool) *ctxFileView {
 	a, inA := from.get(p)
 	b, inB := to.get(p)
+	if !diff {
+		inA = false
+	}
 	if !inA && !inB {
-		return &ctxFileView{Missing: true}
+		if e := unreadable(from, to, diff); e != "" {
+			return &ctxFileView{Diff: diff, Err: e}
+		}
+		return &ctxFileView{Missing: true, Diff: diff}
 	}
 	f := &ctxFileView{Path: pathText(p), Diff: diff}
 	if !diff {
-		if !inB {
-			return &ctxFileView{Missing: true}
-		}
 		switch {
 		case b.Size > maxFileShow:
 			f.Note = "too large to show (" + bytesText(b.Size) + ")"
@@ -276,6 +297,27 @@ func fileView(p string, from, to *ctxRead, diff bool) *ctxFileView {
 		f.Lines, f.TooLarge = lines, tooLarge
 	}
 	return f
+}
+
+// unreadable is why a file can't be looked up: every context there is to read
+// (to's, and from's when diff) is unreadable; "" when one is readable or none
+// exists.
+func unreadable(from, to *ctxRead, diff bool) string {
+	sides := []*ctxRead{to}
+	if diff {
+		sides = append(sides, from)
+	}
+	var why string
+	for _, c := range sides {
+		switch {
+		case c == nil:
+		case c.err == "":
+			return ""
+		default:
+			why = c.err
+		}
+	}
+	return why
 }
 
 func sideSize(e studio.ContextEntry, ok bool) string {

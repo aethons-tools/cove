@@ -92,7 +92,7 @@
         <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
         <tbody>{{range .Rows}}<tr data-change="{{.Change}}"><td>{{.Change}}</td><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}}</td></tr>{{end}}</tbody>
       </table>{{end}}
-      <div class="body unset">{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>
+      <div class="body unset">{{with .More}}… {{.}} more changed, not listed; {{end}}{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>
       {{end}}
     </section>
     {{end}}
@@ -155,7 +155,7 @@
       {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
       <table>
         <thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
-        <tbody>{{range .Rows}}<tr><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody>
+        <tbody>{{range .Rows}}<tr><td class="mono"><a href="{{.Href}}">{{.Path}}</a>{{if .Dup}} <span class="unset">duplicate entries in tar</span>{{end}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody>
       </table>
       {{with .Hidden}}<div class="body unset">{{.}} more file(s) not listed</div>{{end}}
       {{end}}
@@ -238,7 +238,10 @@
 {{/* ctx-file is one packed-context file (ctxFileView): its content, its line diff, or why neither. */}}
 {{define "ctx-file"}}
 <section class="card" id="ctx-file">
-  {{if .Missing}}
+  {{if .Err}}
+  <header><h2>Context file</h2></header>
+  <div class="body unset">context unreadable: {{.Err}}</div>
+  {{else if .Missing}}
   <header><h2>Context file</h2></header>
   <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s packed context.</div></div>
   {{else}}

@@ -161,7 +161,7 @@ at-jam kit untrack web                                      # stop tracking (ver
 
 The admin UI does the same from each kit's page — versions, diffs, pin, push
 ([ui-pages.md](ui-pages.md#kit-pages)). Its YAML and diffs show a packed `context`
-as `«tar.gz, N files, SIZE»`, never base64; a **Context files** table lists its files
+as `«tar.gz, N files, SIZE, sha256:<8 hex>»`, never base64; a **Context files** table lists its files
 (a diff: added, removed, modified with sizes, mode-changed; unchanged counted), and
 `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
 

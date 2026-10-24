@@ -290,6 +290,7 @@ func viewKit(n int, stored string, unpack bool, want string) kitView {
 		v.ParseErr, v.Raw, v.diffText = err.Error(), stored, stored
 		if doc, node := storedContextNode(stored); node != nil {
 			v.ctx = readContext(node.Value, unpack, want)
+			// Re-marshalling re-formats the legacy row's YAML (the diff only, never Raw).
 			node.Value, node.Style, node.Tag = v.ctx.placeholder(), 0, "!!str"
 			if b, err := yaml.Marshal(doc); err == nil {
 				v.diffText = string(b)
