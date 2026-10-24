@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -111,5 +112,64 @@ func TestKitRefsBody(t *testing.T) {
 	}
 	if kitFingerprint(kit, "t") == kitFingerprint(kit, "u") {
 		t.Fatal("the image tag must key the kit fingerprint")
+	}
+}
+
+const hostile = "a\x1b[2J\t ‮\xff\nb"
+
+func assertTame(t *testing.T, what, out string) {
+	t.Helper()
+	for _, r := range out {
+		if r == 0x1b || r == 0x2028 || r == 0x202e || r == 0xfffd {
+			t.Errorf("%s: raw %U in %q", what, r, out)
+		}
+	}
+	if strings.Contains(out, "\xff") {
+		t.Errorf("%s: raw invalid byte in %q", what, out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if (strings.HasPrefix(l, "== ") && what != "render") || strings.HasPrefix(l, "b") {
+			t.Errorf("%s: forged line %q", what, l)
+		}
+	}
+}
+
+func TestFlatEscapesControls(t *testing.T) {
+	got := flat(hostile)
+	if got != `a\x1b[2J\t\u2028\u202e\xff\nb` {
+		t.Fatalf("flat = %q", got)
+	}
+	if got := shortDigest("0123456789é€abcdef"); !utf8.ValidString(got) {
+		t.Fatalf("shortDigest split a rune: %q", got)
+	}
+}
+
+func TestSetupBuildersTameHostileInput(t *testing.T) {
+	kit := KitRef{ID: hostile, Version: 1, Digest: hostile + "0123456789abcdef"}
+	assertTame(t, "kit", kitRefsBody(kit, []KitRef{{ID: hostile, Version: 1}}, hostile))
+	assertTame(t, "env", connectorBody(snippet.Connector{Env: map[string]string{hostile: "v"}, GitRoute: "/git/"}))
+	assertTame(t, "egress", egressBody(&EgressPolicy{Domains: []string{hostile}}, []string{hostile}, true))
+	assertTame(t, "context", contextBody(sessionctx.Bundle{Core: "x", Warnings: []string{hostile}}))
+	if !strings.Contains(connectorBody(snippet.Connector{Env: map[string]string{hostile: "v"}}), MarkInvalid+"=") {
+		t.Error("invalid env key must render as MarkInvalid")
+	}
+}
+
+func TestRenderSetupTextSanitisesAtSink(t *testing.T) {
+	s := StudioSetup{Subject: hostile, Note: hostile, Sections: []SetupSection{
+		{Name: SectionEgress, Source: SourceUnavailable, Reason: hostile, Body: "ok\tcol\nline\x1b[31m \xff\n",
+			Diffed: true, Diff: []linediff.Line{{Op: "+", Text: hostile}}},
+	}}
+	var b strings.Builder
+	RenderSetupText(&b, s)
+	out := b.String()
+	assertTame(t, "render", out)
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "== ") && !strings.HasPrefix(l, "== egress ") {
+			t.Errorf("forged header %q", l)
+		}
+	}
+	if !strings.Contains(out, "ok\tcol\nline") {
+		t.Errorf("body newline/tab must survive: %q", out)
 	}
 }

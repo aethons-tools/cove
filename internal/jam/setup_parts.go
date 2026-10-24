@@ -20,7 +20,7 @@ func contextBody(b sessionctx.Bundle) string {
 	var sb strings.Builder
 	rows := make([][]string, 0, len(paths))
 	for _, p := range paths {
-		rows = append(rows, []string{sessionctx.Dir + "/" + p, fmt.Sprint(len(files[p]))})
+		rows = append(rows, []string{flat(sessionctx.Dir + "/" + p), fmt.Sprint(len(files[p]))})
 	}
 	writeTable(&sb, []string{"FILE", "BYTES"}, rows)
 	if len(b.Budgets) > 0 {
@@ -35,7 +35,7 @@ func contextBody(b sessionctx.Bundle) string {
 		fmt.Fprintf(&sb, "warning: %s\n", flat(w))
 	}
 	for _, p := range paths {
-		fmt.Fprintf(&sb, "\n--- %s/%s\n%s", sessionctx.Dir, p, ensureNL(files[p]))
+		fmt.Fprintf(&sb, "\n--- %s/%s\n%s", sessionctx.Dir, flat(p), ensureNL(files[p]))
 	}
 	return sb.String()
 }
@@ -99,7 +99,7 @@ func connectorBody(c snippet.Connector) string {
 	maps.Copy(env, c.Env)
 	var sb strings.Builder
 	for _, k := range slices.Sorted(maps.Keys(env)) {
-		fmt.Fprintf(&sb, "%s=%s\n", flat(k), flat(RedactEnv(k, env[k])))
+		fmt.Fprintf(&sb, "%s=%s\n", SafeText(k), flat(RedactEnv(k, env[k])))
 	}
 	if c.GitRoute != "" {
 		fmt.Fprintf(&sb, "git: %s → {base}%s\n", flat(c.RewriteTarget()), flat(c.GitRoute))
@@ -123,12 +123,12 @@ func kitRefsBody(kit KitRef, chain []KitRef, imageTag string) string {
 	refs := chainOrSelf(chain, kit)
 	names := make([]string, len(refs))
 	for i, r := range refs {
-		names[i] = r.String()
+		names[i] = flat(r.String())
 	}
 	if imageTag == "" {
 		imageTag = "unknown"
 	}
-	return fmt.Sprintf("kit: %s digest %s\nchain (root first): %s\nimage tag: %s\n", kit, shortDigest(kit.Digest), strings.Join(names, " → "), imageTag)
+	return fmt.Sprintf("kit: %s digest %s\nchain (root first): %s\nimage tag: %s\n", flat(kit.String()), flat(shortDigest(kit.Digest)), strings.Join(names, " → "), flat(imageTag))
 }
 
 // kitFingerprint keys the kit snapshot part.

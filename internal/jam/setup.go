@@ -7,6 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam/linediff"
 )
@@ -99,9 +101,9 @@ func unavailable(name, reason string) SetupSection {
 // "== <name> (<source>[, stale][, <at>])", the reason in parentheses, the
 // body, then the diff when one was asked for.
 func RenderSetupText(w io.Writer, s StudioSetup) {
-	fmt.Fprintf(w, "# %s\n", s.Subject)
+	fmt.Fprintf(w, "# %s\n", flat(s.Subject))
 	if s.Note != "" {
-		fmt.Fprintf(w, "(%s)\n", s.Note)
+		fmt.Fprintf(w, "(%s)\n", flat(s.Note))
 	}
 	for _, sec := range s.Sections {
 		head := sec.Source
@@ -111,12 +113,12 @@ func RenderSetupText(w io.Writer, s StudioSetup) {
 		if !sec.At.IsZero() {
 			head += ", " + sec.At.UTC().Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "\n== %s (%s)\n", sec.Name, head)
+		fmt.Fprintf(w, "\n== %s (%s)\n", flat(sec.Name), flat(head))
 		if sec.Reason != "" {
-			fmt.Fprintf(w, "(%s)\n", sec.Reason)
+			fmt.Fprintf(w, "(%s)\n", flat(sec.Reason))
 		}
 		if sec.Body != "" {
-			io.WriteString(w, ensureNL(sec.Body))
+			io.WriteString(w, ensureNL(escapeText(sec.Body, true)))
 		}
 		switch {
 		case !sec.Diffed:
@@ -127,7 +129,7 @@ func RenderSetupText(w io.Writer, s StudioSetup) {
 		default:
 			fmt.Fprintln(w, "-- diff (- this studio, + a raise now)")
 			for _, l := range sec.Diff {
-				fmt.Fprintf(w, "%s %s\n", l.Op, l.Text)
+				fmt.Fprintf(w, "%s %s\n", flat(l.Op), flat(l.Text))
 			}
 		}
 	}
@@ -147,8 +149,44 @@ func writeTable(w io.Writer, head []string, rows [][]string) {
 	tw.Flush()
 }
 
-// flat keeps a value on one line, so it cannot fake a row or a header.
-func flat(s string) string { return strings.NewReplacer("\n", `\n`, "\r", `\r`).Replace(s) }
+// flat keeps a value on one line and inert: every control, format, line or
+// paragraph separator character and every invalid UTF-8 byte is escaped
+// (\x1b, \u202e, \xff), tabs and newlines included.
+func flat(s string) string { return escapeText(s, false) }
+
+// escapeText escapes what could forge structure or drive a terminal. With
+// keepLayout, \n and \t pass through (multi-line bodies).
+func escapeText(s string, keepLayout bool) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == utf8.RuneError && n == 1:
+			fmt.Fprintf(&sb, `\x%02x`, s[i])
+		case keepLayout && (r == '\n' || r == '\t'):
+			sb.WriteRune(r)
+		case r == '\n':
+			sb.WriteString(`\n`)
+		case r == '\r':
+			sb.WriteString(`\r`)
+		case r == '\t':
+			sb.WriteString(`\t`)
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029:
+			switch {
+			case r < 0x100:
+				fmt.Fprintf(&sb, `\x%02x`, r)
+			case r < 0x10000:
+				fmt.Fprintf(&sb, `\u%04x`, r)
+			default:
+				fmt.Fprintf(&sb, `\U%08x`, r)
+			}
+		default:
+			sb.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	return sb.String()
+}
 
 func ensureNL(s string) string {
 	if s == "" || strings.HasSuffix(s, "\n") {
@@ -170,7 +208,11 @@ func shortDigest(d string) string {
 	case d == "":
 		return "unknown"
 	case len(d) > 12:
-		return d[:12]
+		n := 12
+		for n > 0 && !utf8.RuneStart(d[n]) {
+			n--
+		}
+		return d[:n]
 	}
 	return d
 }
