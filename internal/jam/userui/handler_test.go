@@ -104,17 +104,17 @@ func TestInboxComposerSendsOnShiftEnter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	body := rec.Body.String()
-	// Shift-Enter sends and inserts nothing; plain Enter is left alone, a
-	// newline. The handler is delegated on document so it also
-	// covers the meCompose (New message) composer; the Send button shows the
-	// combo.
-	for _, want := range []string{"⇧↵ to send", "document.addEventListener('keydown'", "!e.shiftKey", "requestSubmit()",
-		`<button type="submit">Send <kbd>⇧↵</kbd></button>`} {
+	// ⌘-Enter (Ctrl-Enter off a Mac) sends and inserts nothing; plain and
+	// Shift-Enter are left alone, a newline. The handler is delegated on
+	// document so it also covers the meCompose (New message) composer; the
+	// Send button shows the combo.
+	for _, want := range []string{"⌘↵ to send", "document.addEventListener('keydown'", "e.metaKey && !e.ctrlKey", "e.shiftKey || e.altKey", "requestSubmit()",
+		`<button type="submit">Send <kbd>⌘↵</kbd></button>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inbox page missing composer key wiring %q", want)
 		}
 	}
-	for _, gone := range []string{"Enter twice to send", "_enterArmed"} {
+	for _, gone := range []string{"Enter twice to send", "_enterArmed", "⇧↵ to send"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("the double-Enter send is gone, but the page still has %q", gone)
 		}
