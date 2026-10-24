@@ -89,6 +89,12 @@ type Inputs struct {
 	Jam     Layer
 }
 
+// LayerBudget is one emitted layer's always-on core size against its budget.
+type LayerBudget struct {
+	Used   int `json:"used"`
+	Budget int `json:"budget"`
+}
+
 // Bundle is the compiled context. Files are relative to Dir.
 type Bundle struct {
 	Core        string            `json:"core"`
@@ -96,6 +102,9 @@ type Bundle struct {
 	Fingerprint string            `json:"fingerprint"`
 	Layers      map[string]string `json:"layers"` // layer → fingerprint, for change notices
 	Warnings    []string          `json:"warnings,omitempty"`
+	// Budgets is each emitted layer's core size and budget (setup inspection);
+	// not part of the fingerprint.
+	Budgets map[string]LayerBudget `json:"budgets,omitempty"`
 }
 
 var leafNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.md$`)
@@ -127,7 +136,7 @@ func Compile(in Inputs) Bundle {
 		{LayerRole, titled("Role", in.Session.Role), in.Role, BudgetRole},
 		{LayerJam, "Jam", in.Jam, BudgetJam},
 	}
-	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}}
+	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}}
 	var core strings.Builder
 	fmt.Fprintf(&core, "# Session context\n\n%s\n\nDetail lives in %s/ — open a file only when its \"read when\" matches your task. Map: %s/INDEX.md\n", Precedence, Dir, Dir)
 	type row struct{ path, when string }
@@ -144,6 +153,7 @@ func Compile(in Inputs) Bundle {
 			l.Leaves = append(slices.Clone(l.Leaves), Leaf{Name: "CORE-full.md", ReadWhen: "the " + s.name + " core above was truncated and you need the rest", Body: c})
 			c = truncateCore(c, s.budget-len(note)) + note
 		}
+		b.Budgets[s.name] = LayerBudget{Used: len(c), Budget: s.budget}
 		fmt.Fprintf(&core, "\n## %s\n", s.title)
 		if c != "" {
 			core.WriteString(c + "\n")
