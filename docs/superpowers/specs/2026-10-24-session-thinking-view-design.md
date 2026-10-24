@@ -1,6 +1,6 @@
 # Session view, part 2: the thinking view — design
 
-**Status:** approved in brainstorming (2026-10-24); not built.
+**Status:** built — PR 1 #475 (sessionview, tail mode), PR 2 (the Thinking tab).
 **Context:** sub-project 2 of the session view ([part 1, the shell](2026-10-24-session-view-shell-design.md); user doc [session-view.md](../../usage/jam/session-view.md)). A **Thinking** tab in the session pane shows what the session's agent is thinking and doing, live, beside the chat.
 
 ## Decisions (2026-10-24)
@@ -8,6 +8,10 @@
 - **Who sees it:** a session's event content (thinking, text, tool inputs and outputs) is visible to **anyone who can see the session's home channel**, "for now". This reverses session-events.md's operator-only stance for content. cove-master's existing redaction stays. The admin timeline and the NDJSON export stay operator-only.
 - **Purpose:** both following along and inspecting. A compact narrative is the default, and options choose **what** is shown (filters) and **how** (format).
 - **Approach:** server-rendered event fragments (html/template, as in adminui today), filtered and formatted in the browser with CSS and a little JS. No client-side rendering of event content.
+
+## Planning amendment
+
+Fragment templates stay with their UIs (adminui, userui); `sessionview.Serve` takes render callbacks (`Source.Event` and `Source.Totals`) instead of owning templates.
 
 ## 1. Architecture
 
