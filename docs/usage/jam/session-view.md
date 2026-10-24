@@ -94,7 +94,7 @@ to you"; anything else (such as the 429) retries after 2s, 5s, and 15s, then sho
 views open".
 
 - **Filters:** Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
-  one tool, and search matches the visible text.
+  one tool, and search matches each line's text, including its details.
 - **Formats:** Narrative (one line each, the default), Detailed (full inputs and outputs),
   Raw (the JSON).
 - **Pairing:** a tool call and its result are joined, with ✓ or ✗ and the duration, even when

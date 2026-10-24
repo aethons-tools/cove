@@ -203,9 +203,9 @@ once it asks.
 Terminating, lost, and gone sessions are left out. The status comes from the
 session's phase and activity plus its [session events](session-events.md),
 summarized server-side by an in-memory tracker that every published event
-passes through (`sessionevents.Presence`, fed via `Hub.Observe`). Only the
-status and a **tool name** ever reach `/app/user` — never event content (see
-[Sensitivity](session-events.md#sensitivity)). The tracker is in memory, so after
+passes through (`sessionevents.Presence`, fed via `Hub.Observe`). The strip shows
+only the status and a **tool name**; event content is for members of the session's
+home channel, in its Thinking tab (see [Sensitivity](session-events.md#sensitivity)). The tracker is in memory, so after
 a restart a running session reads "working" until its next event.
 
 ## Enabling it
