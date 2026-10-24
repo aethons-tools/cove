@@ -198,7 +198,7 @@ func checkSetAncestor(store Store, name, repo, dir string) error {
 	if (k.Source != nil && !sameSource(k.Source, repo, dir)) || last == 0 {
 		return writeErr(http.StatusConflict, "kit %s exists and is not from %s; rename the kit or untrack it first", name, from)
 	}
-	for v := range k.Versions {
+	for _, v := range k.VersionNumbers() {
 		if m, ok := k.Meta[v]; v > last && (!ok || m.Source == nil) {
 			return writeErr(http.StatusConflict, "kit %s has a local push newer than its last import from %s; re-push or untrack it first", name, from)
 		}
@@ -222,6 +222,9 @@ func (o *overlayStore) GetKit(name string) (Kit, bool) {
 	}
 	k = copyKit(k)
 	k.Name, k.Current = name, e.Version
+	if k.Versions == nil {
+		k.Versions = map[int]string{}
+	}
 	k.Versions[e.Version] = e.text
 	return k, true
 }
@@ -273,6 +276,9 @@ func buildKitDocs(store Store, entries []kitSetEntry, src gitsource.Source, comm
 func addKitVersion(doc *Kit, e kitSetEntry, at KitSource, now time.Time) {
 	if doc.Meta == nil {
 		doc.Meta = map[int]KitVersionMeta{}
+	}
+	if doc.Versions == nil {
+		doc.Versions = map[int]string{}
 	}
 	doc.Versions[e.Version] = e.text
 	doc.Meta[e.Version] = KitVersionMeta{PushedAt: now, Source: copyKitSource(&at), Parent: e.parent}

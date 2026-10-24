@@ -224,8 +224,9 @@ func kitUses(store jam.Store, name string) []kitUse {
 func kitListRows(store jam.Store) []kitListRow {
 	var out []kitListRow
 	for _, k := range store.ListKits() {
-		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.Versions), UsedBy: len(kitUses(store, k.Name))}
-		if sk, err := studio.ParseStudioKit([]byte(k.Versions[k.Current])); err == nil {
+		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.VersionNumbers()), UsedBy: len(kitUses(store, k.Name))}
+		cfg, _ := store.KitConfig(k.Name, k.Current)
+		if sk, err := studio.ParseStudioKit([]byte(cfg)); err == nil {
 			row.Base, row.Egress = baseLabel(sk.Base), len(sk.Egress)
 		} else {
 			row.Invalid = true
@@ -340,12 +341,12 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 	if !ok {
 		return kitDetail{}, false
 	}
-	if _, ok := k.Versions[view]; !ok {
+	if !k.HasVersion(view) {
 		view = k.Current
 	}
 	d := kitDetail{Title: "Kits", Name: name, Current: k.Current, IsDefault: name == studio.DefaultStudioKitID, Uses: kitUses(store, name), Source: newSourceView(k.Source)}
 	prev := 0
-	for _, n := range slices.Sorted(maps.Keys(k.Versions)) {
+	for _, n := range k.VersionNumbers() {
 		ver := kitVersion{N: n, Prev: prev, Current: n == k.Current}
 		if m, ok := k.Meta[n]; ok {
 			ver.Source = newSourceView(m.Source)
@@ -354,16 +355,18 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 			}
 		}
 		prev = n
-		if sk, err := studio.ParseStudioKit([]byte(k.Versions[n])); err == nil {
+		cfg, _ := store.KitConfig(name, n)
+		if sk, err := studio.ParseStudioKit([]byte(cfg)); err == nil {
 			ver.Digest = shortDigest(studio.BuildDigest(sk, harnessinstall.Default()))
 		}
 		d.Versions = append(d.Versions, ver)
 	}
-	from, diffing := k.Versions[diff]
-	diffing = diffing && diff != view
-	d.View = viewKit(view, k.Versions[view], true, file)
+	from, _ := store.KitConfig(name, diff)
+	cur, _ := store.KitConfig(name, view)
+	diffing := k.HasVersion(diff) && diff != view
+	d.View = viewKit(view, cur, true, file)
 	if d.View.ParseErr == "" {
-		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, k.Versions[view])
+		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, cur)
 	}
 	if src := k.Meta[view].Source; src != nil {
 		d.SetWith = setParents(store, d.Chain, src)

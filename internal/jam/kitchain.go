@@ -213,7 +213,11 @@ func RemoveKitChecked(store Store, name string) error {
 		slices.Sort(children)
 		return writeErr(http.StatusConflict, "kit %s is the parent of %s", name, strings.Join(children, ", "))
 	}
-	return store.RemoveKit(name)
+	if err := store.RemoveKit(name); err != nil {
+		return err
+	}
+	_, _ = store.GCKitObjects() // a failure leaves unreferenced objects for the next serve start
+	return nil
 }
 
 // PinKitChecked rolls a kit's current pointer to version, unless a kit
@@ -222,7 +226,7 @@ func RemoveKitChecked(store Store, name string) error {
 func PinKitChecked(store Store, name string, version int) error {
 	kitMu.Lock()
 	defer kitMu.Unlock()
-	if _, ok := store.KitConfig(name, version); !ok {
+	if k, ok := store.GetKit(name); !ok || !k.HasVersion(version) {
 		return store.PinKit(name, version) // the store's own not-found/bad-version error
 	}
 	if follow, _ := KitsReferencing(store, name); len(follow) > 0 {

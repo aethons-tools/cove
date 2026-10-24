@@ -74,11 +74,11 @@ func writeExport(t *testing.T, dir string, exp ConfigTreeExport) {
 
 func currentKitConfig(t *testing.T, st *MemStore, name string) string {
 	t.Helper()
-	k, ok := st.GetKit(name)
+	cfg, ok := st.KitConfig(name, 0)
 	if !ok {
 		t.Fatalf("no kit %s", name)
 	}
-	return k.Versions[k.Current]
+	return cfg
 }
 
 // An inline kit with a packed context exports as kits/<n>/kit.yml naming

@@ -61,7 +61,7 @@ func TestExportConfigIncludesConfigExcludesState(t *testing.T) {
 	if _, ok := snap.Roles[string(def.ID)]["guest"]; !ok {
 		t.Fatalf("roles = %+v", snap.Roles)
 	}
-	if len(snap.Kits) != 1 || snap.Kits[0].Versions[1] != "image: x" {
+	if len(snap.Kits) != 1 || len(snap.Kits[0].Trees) != 1 || len(snap.KitTrees) != 1 || len(snap.KitBlobs) != 1 {
 		t.Fatalf("kits = %+v", snap.Kits)
 	}
 	if len(snap.Destinations) != 1 || len(snap.Projects) != 1 {
@@ -77,7 +77,10 @@ func TestExportConfigIsDeepCopied(t *testing.T) {
 	// Mutating the snapshot must not reach the store.
 	def, _ := s.GetProject(DefaultProject)
 	snap.Roles[string(def.ID)]["guest"] = Role{Name: "hacked"}
-	snap.Kits[0].Versions[1] = "tampered"
+	snap.Kits[0].Trees[1] = "tampered"
+	for _, b := range snap.KitBlobs {
+		b[0] = 'X'
+	}
 	if r, _ := s.GetRole(DefaultProject, "guest"); r.Name != "guest" {
 		t.Fatalf("store role mutated via snapshot: %+v", r)
 	}

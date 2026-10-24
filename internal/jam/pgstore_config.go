@@ -89,6 +89,9 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 			return err
 		}
 	}
+	if err := insertKitObjectsTx(ctx, tx, w.KitObjects); err != nil {
+		return err
+	}
 	for _, k := range w.Kits {
 		doc, err := json.Marshal(copyKit(k))
 		if err != nil {

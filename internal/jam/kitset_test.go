@@ -49,13 +49,13 @@ type putRecorder struct {
 	puts [][]string
 }
 
-func (s *putRecorder) PutKitDocs(kits []Kit) error {
+func (s *putRecorder) PutKitDocs(kits []Kit, objs KitObjects) error {
 	var names []string
 	for _, k := range kits {
 		names = append(names, k.Name)
 	}
 	s.puts = append(s.puts, names)
-	return s.Store.PutKitDocs(kits)
+	return s.Store.PutKitDocs(kits, objs)
 }
 
 func TestSetImportTwoKits(t *testing.T) {
@@ -145,8 +145,8 @@ func TestSetSyncParentUnchanged(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 	web, _ := st.GetKit("web-dev")
-	if len(web.Versions) != 1 || web.Source.Commit != "c2" {
-		t.Fatalf("web-dev: versions=%d source=%+v", len(web.Versions), web.Source)
+	if len(web.VersionNumbers()) != 1 || web.Source.Commit != "c2" {
+		t.Fatalf("web-dev: versions=%d source=%+v", len(web.VersionNumbers()), web.Source)
 	}
 	if got := storedKit(t, st, "app", 2).Base.Kit; got != "web-dev@v1" {
 		t.Fatalf("app v2 base.kit = %q", got)
@@ -473,7 +473,7 @@ func TestPlanKitSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 {
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 1 {
 		t.Fatal("planning wrote")
 	}
 }

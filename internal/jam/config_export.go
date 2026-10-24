@@ -102,7 +102,7 @@ func exportObjects(m *memState, inTree func(kit string) bool, contextFiles bool)
 			continue // an export leaves this kit out: neither rendered nor pin-checked
 		}
 		k := m.kits[n]
-		cfg, ok := k.Versions[k.Current]
+		cfg, ok := m.kitConfigLocked(n, k.Current)
 		if !ok {
 			continue
 		}
@@ -420,7 +420,8 @@ func renderServeYAML(serve map[string]any) (_ string, err error) {
 // render failure an error.
 func renderInlineKitFile(m *memState, name string, inTree func(string) bool) (_ []byte, err error) {
 	defer recoverRender(func() string { return ConfigKey{ConfigKindKit, name}.String() }, &err)
-	b, _, _, err := renderKitFile(m, name, m.kits[name].Versions[m.kits[name].Current], inTree, false)
+	cfg, _ := m.kitConfigLocked(name, 0)
+	b, _, _, err := renderKitFile(m, name, cfg, inTree, false)
 	return b, err
 }
 

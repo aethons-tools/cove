@@ -26,6 +26,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runSetupConformance(t, newStore)
 	runKitSourceConformance(t, newStore)
 	runKitSetConformance(t, newStore)
+	runKitTreeConformance(t, newStore)
 	runConfigConformance(t, newStore)
 
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
@@ -254,7 +255,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatalf("PushKit #2 = %d, %v (want 2)", v2, err)
 		}
 		k, ok := s.GetKit("base")
-		if !ok || k.Current != 2 || len(k.Versions) != 2 {
+		if !ok || k.Current != 2 || len(k.VersionNumbers()) != 2 {
 			t.Fatalf("GetKit = %+v, %v", k, ok)
 		}
 		if cfg, ok := s.KitConfig("base", 0); !ok || cfg != "v2" { // 0 => current

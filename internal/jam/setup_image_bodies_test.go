@@ -57,7 +57,7 @@ func TestKitDetailBody(t *testing.T) {
 	ref := mustEnsure(t, st, "base", chainKit("", "b"))
 	k, _ := st.GetKit("base")
 	k.Meta = map[int]KitVersionMeta{ref.Version: {PushedAt: time.Unix(0, 0).UTC(), Source: &KitSource{Repo: "https://x:y@github.com/o/kits", Dir: "base", Ref: "main", Commit: "abcdef0123456789"}}}
-	if err := st.PutKitDocs([]Kit{k}); err != nil {
+	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	got := kitDetailBody(st, []KitRef{ref, {ID: "ghost", Version: 3}}, map[string]string{"GO_VERSION": "1.27", "NPM_TOKEN": "npm_live"})
@@ -116,7 +116,7 @@ func TestKitDetailScpRepo(t *testing.T) {
 	ref := mustEnsure(t, st, "base", chainKit("", "b"))
 	k, _ := st.GetKit("base")
 	k.Meta = map[int]KitVersionMeta{ref.Version: {PushedAt: time.Unix(0, 0).UTC(), Source: &KitSource{Repo: "git@github.com:o/r", Ref: "main"}}}
-	if err := st.PutKitDocs([]Kit{k}); err != nil {
+	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	got := kitDetailBody(st, []KitRef{ref}, nil)

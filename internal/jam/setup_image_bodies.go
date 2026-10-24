@@ -209,7 +209,7 @@ func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) str
 					src = sourceText(*m.Source)
 				}
 				src += ", pushed " + m.PushedAt.UTC().Format(time.RFC3339)
-			} else if _, ok := k.Versions[r.Version]; ok {
+			} else if k.HasVersion(r.Version) {
 				src = "legacy version (no provenance)"
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // ErrNotFound reports that a named record (e.g. a kit) does not exist.
@@ -45,12 +46,21 @@ type Store interface {
 	RenameProject(ref, name string) error
 	ListProjects() []string
 
+	// PushKit records config as the next version: a one-file tree (kit.yml),
+	// without the push-time checks — seeding and tests; operator pushes go
+	// through jam.PushKitFiles.
 	PushKit(name, config string) (int, error)
 	// PushKitMeta is PushKit with explicit provenance for the new version.
 	PushKitMeta(name, config string, meta KitVersionMeta) (int, error)
 	// PushKitTracked is PushKitMeta that also sets the kit's tracked source to
 	// track in the same write — both land or neither does.
 	PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error)
+	// PushKitVersion records tree as the kit's next version (current), with
+	// meta and, when track is non-nil, the tracked source. objs are written
+	// in the same transaction; tree must be among them or already stored, and
+	// a tree whose blobs are neither, or a blob that is not its sha256, refuses
+	// the call with nothing written.
+	PushKitVersion(name, tree string, objs KitObjects, meta KitVersionMeta, track *KitSource) (int, error)
 	// SetKitSource sets (or, when nil, clears) a kit's tracked source;
 	// ErrNotFound for an unknown kit.
 	SetKitSource(name string, src *KitSource) error
@@ -58,10 +68,20 @@ type Store interface {
 	// current) in one atomic step: every kit is written or none is. An empty
 	// name refuses the whole call. The store does not enforce version
 	// immutability; the caller (jam) owns that, building each doc from copyKit
-	// of the current one plus new versions.
-	PutKitDocs(kits []Kit) error
+	// of the current one plus new versions. objs (the trees and blobs the
+	// docs reference) are written in the same step; a doc naming a tree that
+	// is neither written nor stored refuses the call.
+	PutKitDocs(kits []Kit, objs KitObjects) error
 	GetKit(name string) (Kit, bool)
+	// KitConfig is version's kit.yml text (a pre-tree version's stored
+	// config); 0 = current.
 	KitConfig(name string, version int) (string, bool)
+	// KitTree and KitBlob read a stored tree or blob by sha256 (copies).
+	KitTree(sha string) (kittree.Tree, bool)
+	KitBlob(sha string) ([]byte, bool)
+	// GCKitObjects deletes the trees no kit version references and the blobs
+	// no remaining tree names, reporting how many of each went.
+	GCKitObjects() (KitGC, error)
 	PinKit(name string, version int) error
 	ListKits() []Kit
 	RemoveKit(name string) error

@@ -202,7 +202,7 @@ func TestKitTrackAndUntrack(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("untrack = %d: %s", rec.Code, rec.Body.String())
 	}
-	if k, _ := store.GetKit("web-dev"); k.Source != nil || len(k.Versions) != 2 {
+	if k, _ := store.GetKit("web-dev"); k.Source != nil || len(k.VersionNumbers()) != 2 {
 		t.Fatalf("untrack must keep versions: %+v", k)
 	}
 }
@@ -274,7 +274,7 @@ func TestKitImportAndTrack(t *testing.T) {
 		t.Fatalf("import+track = %d: %s", rec.Code, rec.Body.String())
 	}
 	k, _ := store.GetKit("web-dev")
-	if k.Source == nil || k.Source.Ref != "main" || k.Source.Commit != srcSHA1 || len(k.Versions) != 1 {
+	if k.Source == nil || k.Source.Ref != "main" || k.Source.Commit != srcSHA1 || len(k.VersionNumbers()) != 1 {
 		t.Fatalf("import+track must push one version and track: %+v", k)
 	}
 }

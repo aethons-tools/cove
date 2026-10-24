@@ -200,9 +200,9 @@ func TestConfigWriteContextDirRoundTrip(t *testing.T) {
 	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", dstURL); code != 0 {
 		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
 	}
-	sk, _ := src.GetKit("builder")
-	dk, _ := dst.GetKit("builder")
-	if dk.Versions[dk.Current] != sk.Versions[sk.Current] {
+	scfg, _ := src.KitConfig("builder", 0)
+	dcfg, _ := dst.KitConfig("builder", 0)
+	if dcfg != scfg {
 		t.Fatal("the replica's stored kit differs")
 	}
 	if code, out, _ := runJam("config", "apply", "--dir", repo, "--admin-url", dstURL); code != 0 || !strings.Contains(out, "nothing to apply") {

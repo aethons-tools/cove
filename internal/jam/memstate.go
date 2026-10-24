@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // memState is the in-memory representation of the control plane, shared by
@@ -32,6 +33,8 @@ type memState struct {
 	dests     map[string]Destination       // keyed by Name
 	specs     map[string]ModelSpec         // keyed by Name; values are owned deep copies
 	kits      map[string]Kit               // keyed by Name
+	kitTrees  map[string]kittree.Tree      // kit tree sha256 → tree (kit_objects.go)
+	kitBlobs  map[string][]byte            // blob sha256 → bytes
 	instances map[string]Instance          // keyed by ActorID
 	projects  map[string]Project           // live projects, keyed by Name
 	// removedProjects are tombstones, keyed by id (their names are free).
@@ -82,6 +85,8 @@ func newMemState() *memState {
 		dests:           map[string]Destination{},
 		specs:           map[string]ModelSpec{},
 		kits:            map[string]Kit{},
+		kitTrees:        map[string]kittree.Tree{},
+		kitBlobs:        map[string][]byte{},
 		instances:       map[string]Instance{},
 		projects:        map[string]Project{},
 		removedProjects: map[ident.ID]Project{},
@@ -192,15 +197,7 @@ func (m *memState) GetKit(name string) (Kit, bool) {
 func (m *memState) KitConfig(name string, version int) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	k, ok := m.kits[name]
-	if !ok {
-		return "", false
-	}
-	if version == 0 {
-		version = k.Current
-	}
-	cfg, ok := k.Versions[version]
-	return cfg, ok
+	return m.kitConfigLocked(name, version)
 }
 
 func (m *memState) ListKits() []Kit {
@@ -547,30 +544,10 @@ func (m *memState) applyRemoveRole(project ident.ID, name string) bool {
 // nextKitVersion returns the next version number for a kit (max existing + 1).
 func nextKitVersion(k Kit) int {
 	next := 0
-	for v := range k.Versions {
-		if v > next {
-			next = v
-		}
+	for _, v := range k.VersionNumbers() {
+		next = max(next, v)
 	}
 	return next + 1
-}
-
-// applyPushKitMeta appends config as a new version (max existing + 1), advances
-// Current, and returns the new version number.
-func (m *memState) applyPushKitMeta(name, config string, meta KitVersionMeta) int {
-	k, ok := m.kits[name]
-	if !ok {
-		k = Kit{Name: name, Versions: map[int]string{}}
-	}
-	if k.Meta == nil {
-		k.Meta = map[int]KitVersionMeta{}
-	}
-	next := nextKitVersion(k)
-	k.Versions[next] = config
-	k.Meta[next] = copyKitMeta(meta)
-	k.Current = next
-	m.kits[name] = k
-	return next
 }
 
 // applySetKitSource replaces the kit's tracked source (nil clears it).
@@ -796,11 +773,8 @@ func checkKitDocs(kits []Kit) error {
 }
 
 func copyKit(k Kit) Kit {
-	vs := make(map[int]string, len(k.Versions))
-	for v, c := range k.Versions {
-		vs[v] = c
-	}
-	out := Kit{Name: k.Name, Current: k.Current, Versions: vs, Source: copyKitSource(k.Source)}
+	out := Kit{Name: k.Name, Current: k.Current, Versions: maps.Clone(k.Versions), Trees: maps.Clone(k.Trees),
+		Broken: maps.Clone(k.Broken), Legacy: maps.Clone(k.Legacy), Source: copyKitSource(k.Source)}
 	if k.Meta != nil {
 		out.Meta = make(map[int]KitVersionMeta, len(k.Meta))
 		for v, m := range k.Meta {

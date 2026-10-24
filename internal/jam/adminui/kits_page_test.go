@@ -209,8 +209,8 @@ func TestPushVersionOnKitPage(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "unchanged") {
 		t.Errorf("identical push should report unchanged: %s", rec.Body.String())
 	}
-	if k, _ := store.GetKit("web"); k.Current != 3 || len(k.Versions) != 3 {
-		t.Fatalf("kit = current v%d, %d versions; want v3 of 3", k.Current, len(k.Versions))
+	if k, _ := store.GetKit("web"); k.Current != 3 || len(k.VersionNumbers()) != 3 {
+		t.Fatalf("kit = current v%d, %d versions; want v3 of 3", k.Current, len(k.VersionNumbers()))
 	}
 	if rec := post(t, h, "/app/admin/kits/ghost/versions", url.Values{"config": {kitV1}}); rec.Code != http.StatusNotFound {
 		t.Errorf("push to missing kit = %d, want 404", rec.Code)

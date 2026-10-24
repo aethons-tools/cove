@@ -24,7 +24,7 @@ func runKitSetConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		a := doc("a", 2, `{"kind":"studio"}`, `{"kind":"studio","prompt":"x"}`)
 		a.Source = src
 		b := doc("b", 1, `{"kind":"studio"}`)
-		if err := st.PutKitDocs([]jam.Kit{a, b}); err != nil {
+		if err := st.PutKitDocs([]jam.Kit{a, b}, jam.KitObjects{}); err != nil {
 			t.Fatal(err)
 		}
 		ga, ok := st.GetKit("a")
@@ -42,7 +42,7 @@ func runKitSetConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatalf("store aliased the input: %+v", ga)
 		}
 		// Replaces the whole doc, not a merge.
-		if err := st.PutKitDocs([]jam.Kit{doc("a", 1, `{"kind":"studio","prompt":"y"}`)}); err != nil {
+		if err := st.PutKitDocs([]jam.Kit{doc("a", 1, `{"kind":"studio","prompt":"y"}`)}, jam.KitObjects{}); err != nil {
 			t.Fatal(err)
 		}
 		if ga, _ = st.GetKit("a"); len(ga.Versions) != 1 || ga.Source != nil || ga.Current != 1 {
@@ -55,10 +55,10 @@ func runKitSetConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatal(err)
 		}
 		before := st.ListKits()
-		if err := st.PutKitDocs(nil); err != nil {
+		if err := st.PutKitDocs(nil, jam.KitObjects{}); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.PutKitDocs([]jam.Kit{}); err != nil {
+		if err := st.PutKitDocs([]jam.Kit{}, jam.KitObjects{}); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(st.ListKits(), before) {
@@ -67,7 +67,7 @@ func runKitSetConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 	})
 	t.Run("put kit docs refuses an empty name and writes nothing", func(t *testing.T) {
 		st := mk(t)
-		if err := st.PutKitDocs([]jam.Kit{doc("a", 1, `{"kind":"studio"}`), doc("", 1, `{"kind":"studio"}`)}); err == nil {
+		if err := st.PutKitDocs([]jam.Kit{doc("a", 1, `{"kind":"studio"}`), doc("", 1, `{"kind":"studio"}`)}, jam.KitObjects{}); err == nil {
 			t.Fatal("empty name must be refused")
 		}
 		if _, ok := st.GetKit("a"); ok {

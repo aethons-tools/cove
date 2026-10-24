@@ -108,8 +108,8 @@ func TestImportAndTrackRecordProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, _ = st.GetKit("web-dev")
-	if k.Source == nil || k.Source.Commit != "c1" || len(k.Versions) != 1 {
-		t.Fatalf("track: %+v versions=%d", k.Source, len(k.Versions))
+	if k.Source == nil || k.Source.Commit != "c1" || len(k.VersionNumbers()) != 1 {
+		t.Fatalf("track: %+v versions=%d", k.Source, len(k.VersionNumbers()))
 	}
 }
 
@@ -156,8 +156,8 @@ func TestSyncUnchanged(t *testing.T) {
 	if err != nil || !res.Unchanged || res.Commit != "c2" {
 		t.Fatalf("identical content: %+v %v", res, err)
 	}
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 || k.Source.Commit != "c2" {
-		t.Fatalf("versions=%d commit=%s", len(k.Versions), k.Source.Commit)
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 1 || k.Source.Commit != "c2" {
+		t.Fatalf("versions=%d commit=%s", len(k.VersionNumbers()), k.Source.Commit)
 	}
 	fetched := f.fetches
 	res, err = SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(21, 5))
@@ -209,7 +209,7 @@ func TestSyncUntrackedAndUntrack(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, _ := st.GetKit("web-dev")
-	if k.Source != nil || len(k.Versions) != 1 {
+	if k.Source != nil || len(k.VersionNumbers()) != 1 {
 		t.Fatalf("untrack: %+v", k)
 	}
 	if _, err := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(50, 0)); !errors.Is(err, ErrNotTracked) {
@@ -236,11 +236,11 @@ func (s *failStore) PushKitTracked(name, config string, meta KitVersionMeta, tra
 
 // PutKitDocs fails as the write it stands for: with failPush when any doc
 // adds a version, else (a source-only move) with failSet.
-func (s *failStore) PutKitDocs(kits []Kit) error {
+func (s *failStore) PutKitDocs(kits []Kit, objs KitObjects) error {
 	push := false
 	for _, k := range kits {
 		cur, _ := s.Store.GetKit(k.Name)
-		push = push || len(k.Versions) > len(cur.Versions)
+		push = push || len(k.VersionNumbers()) > len(cur.VersionNumbers())
 	}
 	if push && s.failPush {
 		return errors.New("push failed")
@@ -248,7 +248,7 @@ func (s *failStore) PutKitDocs(kits []Kit) error {
 	if !push && s.failSet {
 		return errors.New("set failed")
 	}
-	return s.Store.PutKitDocs(kits)
+	return s.Store.PutKitDocs(kits, objs)
 }
 
 func (s *failStore) SetKitSource(name string, src *KitSource) error {
@@ -305,8 +305,8 @@ func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
-		t.Fatalf("versions=%d, want 2", len(k.Versions))
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 2 {
+		t.Fatalf("versions=%d, want 2", len(k.VersionNumbers()))
 	}
 	// One fetch for the track, one for the first sync: the rest wait on the
 	// kit lock, then see the commit is current.

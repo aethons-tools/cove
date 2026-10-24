@@ -263,8 +263,8 @@ func TestConcurrentSyncsAndKitPush(t *testing.T) {
 		t.Fatal("deadlock between config syncs, a kit push and a kit sync")
 	}
 	for _, n := range []string{"web", "app", "solo"} {
-		if k, _ := st.GetKit(n); len(k.Versions) != 1 {
-			t.Fatalf("racing syncs wrote %d versions of %s", len(k.Versions), n)
+		if k, _ := st.GetKit(n); len(k.VersionNumbers()) != 1 {
+			t.Fatalf("racing syncs wrote %d versions of %s", len(k.VersionNumbers()), n)
 		}
 	}
 	if res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); err != nil || res.Applied {

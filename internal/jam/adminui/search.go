@@ -166,7 +166,8 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	for _, k := range store.ListKits() {
 		fields := []string{k.Name}
 		sub := "current v" + itoa(k.Current)
-		if sk, err := studio.ParseStudioKit([]byte(k.Versions[k.Current])); err == nil {
+		cfg, _ := store.KitConfig(k.Name, k.Current)
+		if sk, err := studio.ParseStudioKit([]byte(cfg)); err == nil {
 			fields = append(append(fields, sk.Prompt), sk.Egress...)
 			if sk.Prompt != "" {
 				sub += " · " + sessionview.Clip(sk.Prompt, 90)

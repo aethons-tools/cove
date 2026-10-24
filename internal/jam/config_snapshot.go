@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // ConfigSnapshotVersion is the on-the-wire/on-disk schema version of a config
@@ -32,8 +34,10 @@ type ConfigSnapshot struct {
 	Version      int                        `json:"version"`
 	ExportedAt   time.Time                  `json:"exported_at"`
 	Actors       []Actor                    `json:"actors"`
-	Roles        map[string]map[string]Role `json:"roles"` // project → name → Role
-	Kits         []Kit                      `json:"kits"`  // full: Current + all Versions
+	Roles        map[string]map[string]Role `json:"roles"`               // project → name → Role
+	Kits         []Kit                      `json:"kits"`                // full: Current + all Versions
+	KitTrees     []kittree.Tree             `json:"kit_trees,omitempty"` // every tree a kit version references, by hash order
+	KitBlobs     map[string][]byte          `json:"kit_blobs,omitempty"` // every blob those trees name (base64 in JSON)
 	Destinations []Destination              `json:"destinations"`
 	// ModelSpecs is omitted when empty, so pre-model-spec backups and readers
 	// are unaffected (no version bump).
@@ -100,6 +104,22 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		snap.Kits = append(snap.Kits, copyKit(k))
 	}
 	sort.Slice(snap.Kits, func(i, j int) bool { return snap.Kits[i].Name < snap.Kits[j].Name })
+	live := map[string]bool{}
+	for _, k := range m.kits {
+		for _, sha := range k.Trees {
+			live[sha] = true
+		}
+	}
+	for _, sha := range slices.Sorted(maps.Keys(live)) {
+		t := m.kitTrees[sha]
+		snap.KitTrees = append(snap.KitTrees, kittree.Tree{Entries: slices.Clone(t.Entries)})
+		for _, e := range t.Entries {
+			if snap.KitBlobs == nil {
+				snap.KitBlobs = map[string][]byte{}
+			}
+			snap.KitBlobs[e.SHA256] = bytes.Clone(m.kitBlobs[e.SHA256])
+		}
+	}
 
 	for _, d := range m.dests {
 		snap.Destinations = append(snap.Destinations, copyDestination(d))
@@ -168,6 +188,11 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	}
 	if err := validateSnapshotProjectRefs(s); err != nil {
 		return err
+	}
+	// Against an empty state: every tree a kit names comes with the snapshot
+	// (the import replaces whatever unreferenced objects the target holds).
+	if err := checkKitObjects(newMemState(), s.Kits, KitObjects{Trees: s.KitTrees, Blobs: s.KitBlobs}); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	return validateSnapshotContext(s)
 }
@@ -413,6 +438,8 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	for _, k := range s.Kits {
 		m.kits[k.Name] = copyKit(k)
 	}
+	m.kitTrees, m.kitBlobs = map[string]kittree.Tree{}, map[string][]byte{}
+	m.applyKitObjects(KitObjects{Trees: s.KitTrees, Blobs: s.KitBlobs})
 	m.dests = map[string]Destination{}
 	for _, d := range s.Destinations {
 		m.dests[d.Name] = copyDestination(d)

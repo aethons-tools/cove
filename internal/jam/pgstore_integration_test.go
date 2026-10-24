@@ -550,7 +550,7 @@ func TestPostgresPutKitDocsAtomic(t *testing.T) {
 	before, _ := s.GetKit("existing")
 	changed := jam.Kit{Name: "existing", Current: 1, Versions: map[int]string{1: `{"kind":"studio","prompt":"new"}`}}
 	bad := jam.Kit{Name: "bad\x00name", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
-	if err := s.PutKitDocs([]jam.Kit{changed, bad}); err == nil {
+	if err := s.PutKitDocs([]jam.Kit{changed, bad}, jam.KitObjects{}); err == nil {
 		t.Fatal("PutKitDocs must fail when an upsert fails")
 	}
 	for label, st := range map[string]*jam.PostgresStore{"cache": s, "reopen": open()} {
@@ -565,7 +565,7 @@ func TestPostgresPutKitDocsAtomic(t *testing.T) {
 	// And a good batch persists across reopen.
 	ok1 := jam.Kit{Name: "k1", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
 	ok2 := jam.Kit{Name: "k2", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}
-	if err := s.PutKitDocs([]jam.Kit{ok1, ok2}); err != nil {
+	if err := s.PutKitDocs([]jam.Kit{ok1, ok2}, jam.KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	re := open()

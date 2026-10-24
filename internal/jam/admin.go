@@ -786,7 +786,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
-			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.Versions)}
+			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
 			if cfg, ok := store.KitConfig(k.Name, k.Current); ok {
 				sum.Parent = kitParentSpec(cfg)
 			}
@@ -831,12 +831,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit", http.StatusNotFound)
 			return
 		}
-		vers := make([]int, 0, len(k.Versions))
-		for v := range k.Versions {
-			vers = append(vers, v)
-		}
-		sort.Ints(vers)
-		writeJSON(w, http.StatusOK, vers)
+		writeJSON(w, http.StatusOK, k.VersionNumbers())
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/history", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := store.GetKit(r.PathValue("name"))
@@ -844,11 +839,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit", http.StatusNotFound)
 			return
 		}
-		vers := make([]int, 0, len(k.Versions))
-		for v := range k.Versions {
-			vers = append(vers, v)
-		}
-		sort.Ints(vers)
+		vers := k.VersionNumbers()
 		out := make([]KitVersionInfo, 0, len(vers))
 		for _, v := range vers {
 			m := k.Meta[v]

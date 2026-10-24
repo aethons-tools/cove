@@ -149,7 +149,7 @@ func TestApplyVsConcurrentKitPush(t *testing.T) {
 	k, _ := st.GetKit("app")
 	cfg, _ := st.KitConfig("app", k.Current)
 	web, _ := st.GetKit("web")
-	if _, ok := web.Versions[parentVersion(t, cfg)]; !ok {
+	if !web.HasVersion(parentVersion(t, cfg)) {
 		t.Fatalf("app pins a web version that does not exist: %s", cfg)
 	}
 }

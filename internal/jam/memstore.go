@@ -148,17 +148,34 @@ func (fs *MemStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, 
 	return fs.PushKitTracked(name, config, meta, nil)
 }
 
+// PushKitTracked stores config as a one-file tree (kit.yml) version.
 func (fs *MemStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
-	fs.mu.Lock()
-	defer fs.mu.Unlock()
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
-	v := fs.applyPushKitMeta(name, config, meta)
-	if track != nil {
-		fs.applySetKitSource(name, track)
+	t, objs, err := oneFileKit(config)
+	if err != nil {
+		return 0, fmt.Errorf("kit %s: %w", name, err)
 	}
-	return v, nil
+	return fs.PushKitVersion(name, t.Hash(), objs, meta, track)
+}
+
+func (fs *MemStore) PushKitVersion(name, tree string, objs KitObjects, meta KitVersionMeta, track *KitSource) (int, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if name == "" || tree == "" {
+		return 0, fmt.Errorf("kit name and tree are required")
+	}
+	if err := checkKitObjects(fs.memState, []Kit{{Name: name, Trees: map[int]string{0: tree}}}, objs); err != nil {
+		return 0, err
+	}
+	fs.applyKitObjects(objs)
+	k := copyKit(fs.kits[name])
+	k.Name = name
+	ver := nextKitVersion(k)
+	setKitTree(&k, ver, tree, meta, track)
+	fs.kits[name] = k
+	return ver, nil
 }
 
 func (fs *MemStore) SetKitSource(name string, src *KitSource) error {
@@ -171,16 +188,28 @@ func (fs *MemStore) SetKitSource(name string, src *KitSource) error {
 	return nil
 }
 
-func (fs *MemStore) PutKitDocs(kits []Kit) error {
+func (fs *MemStore) PutKitDocs(kits []Kit, objs KitObjects) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	if err := checkKitDocs(kits); err != nil {
 		return err
 	}
+	if err := checkKitObjects(fs.memState, kits, objs); err != nil {
+		return err
+	}
+	fs.applyKitObjects(objs)
 	for _, k := range kits {
 		fs.kits[k.Name] = copyKit(k)
 	}
 	return nil
+}
+
+func (fs *MemStore) GCKitObjects() (KitGC, error) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	trees, blobs := fs.deadKitObjects()
+	fs.applyDropKitObjects(trees, blobs)
+	return KitGC{Trees: len(trees), Blobs: len(blobs)}, nil
 }
 
 // ApplyConfig applies a config write whole, or refuses it with nothing written.
@@ -211,7 +240,7 @@ func (fs *MemStore) PinKit(name string, version int) error {
 	if !ok {
 		return fmt.Errorf("kit %q not found", name)
 	}
-	if _, ok := k.Versions[version]; !ok {
+	if !k.HasVersion(version) {
 		return fmt.Errorf("kit %q has no version %d", name, version)
 	}
 	fs.applyPinKit(name, version)

@@ -509,7 +509,7 @@ func TestPlanSourceKitReapplyAndCommitOnlyMove(t *testing.T) {
 	if op := opOf(moved, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(moved) != 0 {
 		t.Fatalf("commit-only move: %+v", moved.Ops)
 	}
-	if len(moved.write.Kits) != 1 || moved.write.Kits[0].Source.Commit != "k2" || len(moved.write.Kits[0].Versions) != 1 {
+	if len(moved.write.Kits) != 1 || moved.write.Kits[0].Source.Commit != "k2" || len(moved.write.Kits[0].VersionNumbers()) != 1 {
 		t.Fatalf("the tracked commit does not advance alone: %+v", moved.write.Kits)
 	}
 	if len(moved.refreshMarks) != 0 {
@@ -585,7 +585,7 @@ func TestPlanInlineKitFromGitRecordsProvenanceAndUntracks(t *testing.T) {
 		t.Fatalf("op %+v", op)
 	}
 	applyPlan(t, st, p)
-	if k, _ := st.GetKit("web"); k.Source != nil || len(k.Versions) != 1 {
+	if k, _ := st.GetKit("web"); k.Source != nil || len(k.VersionNumbers()) != 1 {
 		t.Fatalf("%+v", k)
 	}
 }

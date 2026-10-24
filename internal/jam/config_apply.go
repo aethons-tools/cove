@@ -106,7 +106,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 		// object — the .source.yml kits' tracked commits, the config
 		// source's commit, the stale marks of unchanged objects: no
 		// version, no other mark, no audit entry.
-		if meta := (ConfigWrite{Kits: w.Kits, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
+		if meta := (ConfigWrite{Kits: w.Kits, KitObjects: w.KitObjects, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
 			if err := store.ApplyConfig(meta); err != nil {
 				return res, false, fmt.Errorf("config apply: write: %w", err)
 			}
@@ -115,6 +115,9 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 	}
 	if err := store.ApplyConfig(w); err != nil {
 		return res, false, fmt.Errorf("config apply: write: %w", err)
+	}
+	if len(w.RemoveKits) > 0 {
+		_, _ = store.GCKitObjects() // a failure leaves unreferenced objects for the next serve start
 	}
 	res.Applied = true
 	logConfigApply(log, actor, opt, plan)

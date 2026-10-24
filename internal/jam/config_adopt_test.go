@@ -393,8 +393,9 @@ func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 	}
 	applyPlan(t, st, p)
 	k, _ := st.GetKit("ic")
-	if !strings.Contains(k.Versions[k.Current], "then review") || k.Source == nil || k.Source.Commit != "c2" {
-		t.Fatalf("kit after apply: v%d %q source %+v", k.Current, k.Versions[k.Current], k.Source)
+	cfg, _ := st.KitConfig("ic", k.Current)
+	if !strings.Contains(cfg, "then review") || k.Source == nil || k.Source.Commit != "c2" {
+		t.Fatalf("kit after apply: v%d %q source %+v", k.Current, cfg, k.Source)
 	}
 	if !slices.ContainsFunc(st.ListConfigMarks(), func(m ConfigMark) bool { return m.Key() == ConfigKey{ConfigKindKit, "ic"} }) {
 		t.Fatal("kit ic is not managed after the apply")

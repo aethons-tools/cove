@@ -104,7 +104,7 @@ func TestMemStoreKitPushPinResolve(t *testing.T) {
 	if err := fs.PinKit("web", 99); err == nil {
 		t.Fatal("PinKit to absent version should fail")
 	}
-	if k, ok := fs.GetKit("web"); !ok || k.Current != 1 || len(k.Versions) != 2 {
+	if k, ok := fs.GetKit("web"); !ok || k.Current != 1 || len(k.VersionNumbers()) != 2 {
 		t.Fatalf("GetKit = %+v, %v", k, ok)
 	}
 	if err := fs.RemoveKit("nope"); err == nil {
@@ -189,7 +189,7 @@ func TestMemStoreGetKitConcurrentSafe(t *testing.T) {
 			// Range the returned Versions map outside any lock, exactly as the
 			// admin /versions handler does — this is what raced against
 			// PushKit's write to the live map before GetKit deep-copied it.
-			for range k.Versions {
+			for range k.Trees {
 			}
 		}
 	}()
