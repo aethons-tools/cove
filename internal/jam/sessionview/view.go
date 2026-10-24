@@ -27,6 +27,7 @@ type Kind string
 const (
 	KindThinking   Kind = "thinking"
 	KindText       Kind = "text"
+	KindPrompt     Kind = "prompt" // a user message that isn't a tool result: what started the turn
 	KindToolCall   Kind = "tool_call"
 	KindToolResult Kind = "tool_result"
 	KindResult     Kind = "result"
@@ -201,6 +202,10 @@ func build(ev sessionevents.Event) EventView {
 		}
 	case "user":
 		v.Label = "user"
+		if text := promptText(env.Message.Content, blocks); text != "" {
+			v.Kind, v.Label = KindPrompt, "prompt"
+			v.Summary, v.Detail, v.Narrative = Clip(text, 300), text, Clip(firstLine(text), 160)
+		}
 		for _, b := range blocks {
 			if b.Type == "tool_result" {
 				text := blockText(b.Content)
@@ -222,5 +227,27 @@ func build(ev sessionevents.Event) EventView {
 	default:
 		v.Label = env.Type
 	}
+	if v.Kind == KindOther {
+		v.Narrative = v.Label // the member view shows only the type of what it doesn't render
+	}
 	return v
+}
+
+// promptText is a user message's text — a string content, or its text
+// blocks — when it carries no tool result; "" otherwise.
+func promptText(content json.RawMessage, blocks []viewBlock) string {
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s
+	}
+	var parts []string
+	for _, b := range blocks {
+		switch b.Type {
+		case "tool_result":
+			return ""
+		case "text":
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }

@@ -96,8 +96,12 @@ views open".
 - **Filters:** Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
   one tool, and search matches each line's text, including its details.
 - **Formats:** Narrative (one line each, the default), Detailed (full inputs and outputs),
-  Raw (the JSON).
-- **Pairing:** a tool call and its result are joined, with ✓ or ✗ and the duration, even when
+  Raw (the JSON). Every line shows its local time beneath it.
+- **Lines:** 💭 thinking, 💬 text, → the prompt that started the turn (filtered with Text), ▶ a
+  tool call. Thinking with no visible text (only its signature came back) is a muted
+  "thinking" line, and a run of them collapses ("thinking ×3"). Anything else (system events
+  such as hooks, rate-limit notices) shows only its type, muted, with no detail.
+- **Pairing:** a tool call and its result are joined, with ✓ or ✗ and the duration under the call's line, even when
   Load earlier brings the call in after its result.
 - **Dividers:** each result is a divider: its episode, its cost since the previous loaded result
   of that episode (or, with none loaded before it, the episode's total so far), and its duration.
