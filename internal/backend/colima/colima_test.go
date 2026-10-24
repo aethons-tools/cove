@@ -893,3 +893,12 @@ func TestPreflightNamesTheContext(t *testing.T) {
 		t.Fatalf("preflight error should name the context + its profile; got %v", err)
 	}
 }
+
+func TestDockerArgsPinsTheContext(t *testing.T) {
+	if got := NewWithContext(&runner.Fake{}, "colima-jam").DockerArgs("image", "inspect", "x"); strings.Join(got, " ") != "--context colima-jam image inspect x" {
+		t.Fatalf("DockerArgs = %v", got)
+	}
+	if got := NewWithContext(&runner.Fake{}, "").DockerArgs("ps"); strings.Join(got, " ") != "--context colima ps" {
+		t.Fatalf("default context = %v", got)
+	}
+}

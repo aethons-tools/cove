@@ -245,3 +245,11 @@ func TestFakeRunIORecordsStdin(t *testing.T) {
 		t.Fatalf("stdin not recorded: %+v", f.Calls)
 	}
 }
+
+func TestFakeRunIOStreamsQueuedStderr(t *testing.T) {
+	f := &Fake{Outputs: []FakeResult{{Stdout: "out", Stderr: "err", Err: errors.New("x")}}}
+	var o, e bytes.Buffer
+	if err := f.RunIO(nil, &o, &e, "docker"); err == nil || o.String() != "out" || e.String() != "err" {
+		t.Fatalf("err %v stdout %q stderr %q", err, o.String(), e.String())
+	}
+}

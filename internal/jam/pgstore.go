@@ -210,6 +210,9 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.loadSetupSnapshots(ctx); err != nil {
+		return err
+	}
 	if err := s.loadDocs(ctx, "destinations", func(doc []byte) error {
 		var d Destination
 		if err := json.Unmarshal(doc, &d); err != nil {
@@ -833,6 +836,41 @@ func (s *PostgresStore) RemoveInstance(actorID string) error {
 	}
 	s.applyRemoveInstance(actorID)
 	return nil
+}
+
+func (s *PostgresStore) PutSetupSnapshot(p SetupSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareSetupSnapshot(p); err != nil {
+		return err
+	}
+	if err := s.exec("PutSetupSnapshot",
+		`INSERT INTO instance_setup (actor_id, part, at, fingerprint, body) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (actor_id, part) DO UPDATE SET at = EXCLUDED.at, fingerprint = EXCLUDED.fingerprint, body = EXCLUDED.body`,
+		p.ActorID, p.Part, p.At, p.Fingerprint, p.Body); err != nil {
+		return err
+	}
+	s.applyPutSetupSnapshot(p)
+	return nil
+}
+
+// loadSetupSnapshots fills the setup-snapshot map. load's part, after the
+// instances; no lock.
+func (s *PostgresStore) loadSetupSnapshots(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT actor_id, part, at, fingerprint, body FROM instance_setup`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load instance_setup: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p SetupSnapshot
+		if err := rows.Scan(&p.ActorID, &p.Part, &p.At, &p.Fingerprint, &p.Body); err != nil {
+			return err
+		}
+		p.At = p.At.UTC()
+		s.applyPutSetupSnapshot(p)
+	}
+	return rows.Err()
 }
 
 func (s *PostgresStore) AdvanceCommitCursor(actorID, upToID string, upToSeq int64) (Instance, error) {

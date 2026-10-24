@@ -32,6 +32,10 @@ const (
 	gitHelper = `'` + gitHelperValue + `'`
 )
 
+// IdentityTokenVars are the env vars a studio holds its identity token in,
+// the current name first — for showing a connector's env without the token.
+func IdentityTokenVars() []string { return []string{tokenVar, legacyTokenVar} }
+
 // Env returns the environment variables a client sets to route Anthropic through
 // Jam at baseURL with the given identity token — the Legacy contract, expanded.
 // ANTHROPIC_API_KEY (not AUTH_TOKEN): Claude Code then sends the identity on the

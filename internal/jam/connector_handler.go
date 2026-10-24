@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 )
 
 // NewConnectorHandler serves GET /connector on the cove-facing listener: the
@@ -11,6 +13,7 @@ import (
 // learns what env and git routing its destinations need. The identity arrives
 // as a bearer (or gh's "token" scheme); unknown or expired → 401, an env/git
 // conflict among the identity's destinations → 409. Logs the actor id only.
+// Records the delivered part as a setup snapshot (on change).
 func NewConnectorHandler(store Store, now func() time.Time, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -35,5 +38,9 @@ func NewConnectorHandler(store Store, now func() time.Time, log *slog.Logger) ht
 			return
 		}
 		writeJSON(w, http.StatusOK, c)
+		// after delivery: a write on change must not delay the response
+		if _, ok := store.GetInstance(a.ID); ok { // a hand-enrolled client has no studio to record
+			RecordSetupPart(store, log, a.ID, SetupPartConnector, snippet.Fingerprint(c), func() string { return connectorBody(c) }, now())
+		}
 	})
 }

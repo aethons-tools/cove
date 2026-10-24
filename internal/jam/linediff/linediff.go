@@ -10,8 +10,8 @@ import (
 // Line is one line of a diff: Op is " ", "+", "-" or "…" (a collapsed run
 // of unchanged lines, Text says how many).
 type Line struct {
-	Op   string
-	Text string
+	Op   string `json:"op"`
+	Text string `json:"text"`
 }
 
 // maxCells bounds the LCS table (lines(a) × lines(b)).

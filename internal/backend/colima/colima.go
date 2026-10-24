@@ -52,6 +52,11 @@ func (c *Colima) dargs(args ...string) []string {
 	return append([]string{"--context", c.contextName()}, args...)
 }
 
+// DockerArgs is dargs for other packages: a docker subcommand's argv pinned
+// to this backend's context, so a reader (Jam's setup inspection) queries
+// exactly the daemon the launcher builds and runs on.
+func (c *Colima) DockerArgs(args ...string) []string { return c.dargs(args...) }
+
 // dnsArgs renders the docker run --dns flags for the container's resolvers, one
 // pair per IP. Empty dns yields no flags, so the container inherits Docker's
 // default resolver — on colima that chains to the VM/host resolver, so a

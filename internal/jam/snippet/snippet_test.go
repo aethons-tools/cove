@@ -63,3 +63,9 @@ func TestGitConfigHasNoToken(t *testing.T) {
 	// GitConfig takes no token — it is token-free by construction; the helper
 	// reads the value from the environment at run time.
 }
+
+func TestIdentityTokenVars(t *testing.T) {
+	if got := IdentityTokenVars(); len(got) != 2 || got[0] != "AT_JAM_IDENTITY_TOKEN" || got[1] != "AT_HARBOR_IDENTITY_TOKEN" {
+		t.Fatalf("IdentityTokenVars = %v", got)
+	}
+}
