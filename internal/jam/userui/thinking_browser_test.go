@@ -232,4 +232,26 @@ func TestBrowserThinking(t *testing.T) {
 	if !h2.Orphan {
 		t.Fatal("(i) orphan tool_result not shown")
 	}
+
+	// (j) The line cap on an inserted page: reload the stream, lower the cap
+	// to 302, Load earlier: the newest lines go, the oldest stay, following
+	// pauses behind the pill, which reloads the live tail.
+	run("reload stream", setSel("#thinking .th-stream", old),
+		poll(`(function(){var L=document.querySelector('#thinking .th-list'); return !!L.querySelector('.te-more') && L.querySelectorAll('.te').length===300;})()`),
+		chromedp.Evaluate(`meThMax=302`, nil),
+		chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+		poll(`!!document.querySelector('#thinking .th-list .te[data-seq="1"]')`))
+	var j struct {
+		Count       int
+		First, Last string
+		Pill        bool
+	}
+	eval(`(function(){`+js+`var all=L.querySelectorAll('.te'), b=document.querySelector('#thinking .th-new');
+		return {Count:all.length, First:all[0].dataset.seq, Last:all[all.length-1].dataset.seq, Pill:!b.hidden};})()`, &j)
+	if j.Count > 302 || j.First != "1" || j.Last == "305" || !j.Pill {
+		t.Fatalf("(j) Load earlier past the cap: %+v", j)
+	}
+	run("pill reloads the tail", chromedp.Click(`#thinking .th-new`, chromedp.ByQuery),
+		poll(`(function(){var L=document.querySelector('#thinking .th-list'), all=L.querySelectorAll('.te');
+			return all.length===300 && all[all.length-1].dataset.seq==='305' && document.querySelector('#thinking .th-new').hidden;})()`))
 }

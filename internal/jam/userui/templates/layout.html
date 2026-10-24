@@ -520,6 +520,7 @@ document.addEventListener('htmx:afterSettle', meTabsMark);
 // meThinkingClose() stops it (the pane closing or leaving the tab, unload).
 var meTh=null;
 var meThIcons={thinking:'💭',text:'💬',tool_call:'▶',tool_result:'◀',result:'─',gap:'⚠',progress:'·',other:'·'};
+// meThMax caps the lines the list holds (a var: the browser test lowers it).
 var meThMax=2000, meThClip=40;
 // meThFmt renders a duration: 850ms, 2.1s, 1m 4s.
 function meThFmt(ms){
@@ -547,7 +548,8 @@ function meThSave(){
 function meThBase(){ return '/app/user/session/'+encodeURIComponent(meTh.id)+'/thinking/'; }
 function meThParse(html){ var tpl=document.createElement('template'); tpl.innerHTML=html; return tpl.content; }
 function meThAtBottom(L){ return L.scrollHeight-L.scrollTop-L.clientHeight<16; }
-function meThSeen(){ meTh.unseen=0; meTh.newBtn.hidden=true; }
+function meThSeen(){ if(meTh.paused) return; meTh.unseen=0; meTh.newBtn.hidden=true; }
+function meThUnseen(n){ var t=meTh; t.unseen+=n; t.newBtn.querySelector('span').textContent=t.unseen; t.newBtn.hidden=false; }
 function meThEnd(){ var L=meTh.list; L.scrollTop=L.scrollHeight; meThSeen(); }
 // meThTail is where a new line goes: before the "working…" line, if any.
 function meThTail(){ return meTh.list.querySelector('.te-working'); }
@@ -574,7 +576,8 @@ function meThinkingOpen(el){
   format.onchange=function(){ t.prefs.format=format.value; meThSave(); meThClasses(); };
   el.querySelector('.th-search').oninput=function(){ t.q=this.value.toLowerCase(); meThFilterAll(); };
   el.querySelector('.th-stream').onchange=function(){ meThConnect(this.value, true); };
-  t.newBtn.onclick=meThEnd;
+  // Paused (an older page pushed the newest lines out): reload the live tail.
+  t.newBtn.onclick=function(){ if(t.paused){ meThConnect(t.pinned, true); }else{ meThEnd(); } };
   t.list.addEventListener('scroll', function(){ if(meTh===t && meThAtBottom(t.list)) meThSeen(); });
   t.list.addEventListener('click', meThClick);
   meThClasses();
@@ -592,7 +595,8 @@ function meThinkingClose(){
 function meThConnect(stream, clear){
   var t=meTh;
   if(t.es){ t.es.close(); t.es=null; }
-  if(clear){ t.list.textContent=''; t.costs={}; meThSeen(); meThWorking(); }
+  t.pinned=stream;
+  if(clear){ t.list.textContent=''; t.costs={}; t.paused=false; meThSeen(); meThWorking(); }
   var es=new EventSource(meThBase()+'events'+(stream ? '?stream='+encodeURIComponent(stream) : ''));
   t.es=es;
   function on(name, fn){ es.addEventListener(name, function(e){ if(meTh===t && t.es===es) fn(e); }); }
@@ -615,6 +619,7 @@ function meThConnect(stream, clear){
 // end), or, with at={before:node}, inserted before node without following.
 function meThinkingAdd(node, at){
   var t=meTh, L=t.list, kind=node.dataset.kind, s=node.dataset.stream, q=node.dataset.seq;
+  if(!at && t.paused){ meThUnseen(1); return; } // the newest end was trimmed: don't evict the pages asked for
   var key='[data-stream="'+CSS.escape(s)+'"]';
   if(L.querySelector('.te'+key+'[data-seq="'+CSS.escape(q)+'"],.te'+key+'[data-rseq="'+CSS.escape(q)+'"]')) return;
   node.querySelector('.te-icon').textContent=meThIcons[kind]||'·';
@@ -641,7 +646,7 @@ function meThinkingAdd(node, at){
   if(at) return;
   meThCap();
   if(atBottom){ meThEnd(); }
-  else{ t.unseen++; t.newBtn.querySelector('span').textContent=t.unseen; t.newBtn.hidden=false; }
+  else{ meThUnseen(1); }
 }
 // meThPair folds result res into its tool call's line.
 function meThPair(call, res){
@@ -671,12 +676,23 @@ function meThResult(node){
   meTh.costs[k]=cost;
   node.querySelector('.te-text').textContent='turn '+node.dataset.turn+' · $'+(cost-prev).toFixed(2)+' · '+meThFmt(ms);
 }
-// meThCap keeps the newest meThMax lines, offering the rest as a page.
+// meThCap keeps the newest meThMax lines, offering the rest as a page
+// (the live path).
 function meThCap(){
   var L=meTh.list, all=L.querySelectorAll('.te'), n=all.length-meThMax;
   if(n<=0) return;
   for(var i=0; i<n; i++) all[i].remove();
   meThMore(L.querySelector('.te').dataset.seq);
+}
+// meThTrimNewest keeps an inserted older page within meThMax by dropping
+// the newest lines instead, pausing following (the .th-new pill reloads
+// the live tail).
+function meThTrimNewest(){
+  var L=meTh.list, all=L.querySelectorAll('.te'), n=all.length-meThMax;
+  if(n<=0) return;
+  for(var i=all.length-n; i<all.length; i++) all[i].remove();
+  meTh.paused=true;
+  meThUnseen(n);
 }
 function meThMore(before){
   var L=meTh.list, m=L.querySelector('.te-more');
@@ -698,6 +714,7 @@ function meThPage(stream, before, from, node, done){
      Array.prototype.slice.call(frag.querySelectorAll('.te')).forEach(function(n){ if(+n.dataset.seq>=from) meThinkingAdd(n, {before:node}); });
      done(frag.querySelector('.te-more'));
      t.list.scrollTop+=t.list.scrollHeight-h;
+     meThTrimNewest();
    }, function(){ done(undefined); });
 }
 function meThEarlier(m){
