@@ -4,7 +4,7 @@ read_when: You want to find your way around the admin console — what a tab or 
 owns: the `/app/admin/` console's page-by-page contents (Dashboard tiles, Agents list, Health, Users/Specs tables, fixed table order); the Projects rail and Specs sub-tabs; console search; the Channel log page (`/app/admin/intercom`); the `/app/admin/agents/{id}/session` timeline
 prereqs: ui.md for the routes, the login and the title bar these pages sit under; ui-attention.md for the badges; ui-editing.md for what can be changed
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # The admin console (`/app/admin/`)
@@ -85,5 +85,7 @@ totals (turns = results answered, episodes, tool calls, tokens in/out, cost = la
 event tagged with its turn (`tN`) (text, thinking, tool use/results expandable, results, gap and truncation
 markers), with a raw-JSON toggle. `system`/`thinking_tokens` events are hidden
 behind **show progress events**. It updates live over SSE from `/app/admin/agents/{id}/session/events` (backfill, then
-live; reconnects resume via `Last-Event-ID`). Storage, retention,
+live; reconnects resume via `Last-Event-ID`). The feed and the event model are
+served by `internal/jam/sessionview`, shared with the member view (which tails
+the newest events instead of replaying the whole stream). Storage, retention,
 and sensitivity: [session-events.md](session-events.md).
