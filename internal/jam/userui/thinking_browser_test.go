@@ -470,3 +470,69 @@ func TestBrowserThinkingTooMany(t *testing.T) {
 		t.Fatalf("refused message %q", got)
 	}
 }
+
+// Prompts get a line; events the view doesn't render show only their type,
+// muted, with no detail; thinking without visible text is a muted
+// "thinking" line, a run of them collapsing; every line shows its time, and
+// a tool's ✓/✗ and duration sit under its summary.
+func TestBrowserThinkingKinds(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p, personal, store, _ := thinkEnv(t)
+	stream := strings.Repeat("e", 32)
+	t0 := time.Date(2026, 10, 24, 14, 31, 2, 0, time.Local)
+	raws := [][]byte{
+		thinkRaw(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "You were woken:\nnew squawk"}}),
+		thinkRaw(map[string]any{"type": "system", "subtype": "hook_response", "output": "hook output"}),
+		assistantBlock(map[string]any{"type": "thinking", "thinking": "", "signature": "a"}),
+		thinkRaw(map[string]any{"type": "system", "subtype": "thinking_tokens"}), // hidden progress: doesn't break the run
+		assistantBlock(map[string]any{"type": "thinking", "thinking": "", "signature": "b"}),
+		assistantBlock(map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "ls"}}),
+		toolResultBlock("tu1", "a\nb", false),
+	}
+	for i, raw := range raws {
+		ev := sessionevents.Event{ActorID: personal.ActorID, StreamID: stream, Seq: uint64(i + 1), Turn: 1, Kind: sessionevents.KindEvent,
+			ObservedAt: t0.Add(time.Duration(i) * time.Second), Raw: raw}
+		ev.ReceivedAt = ev.ObservedAt
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := httptest.NewServer(asWho(withStatic(Handler(e.Deps, nil)), p))
+	defer func() { srv.CloseClientConnections(); srv.Close() }()
+	var got struct {
+		Prompt, Other, Think, Status, Time string
+		OtherDetail, Thinks                int
+		StatusInLine                       bool
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/app/user/?c="+e.homeOf(t, personal)+"&tab=thinking"),
+		chromedp.Poll(`!!document.querySelector('#thinking .te[data-kind="tool_call"][data-rseq]')`, nil, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Evaluate(`(function(){var L=document.querySelector('#thinking .th-list'), q=function(s){var x=L.querySelector(s); if(!x) throw new Error("missing "+s); return x};
+			var call=q('.te[data-kind="tool_call"]');
+			return {Prompt:q('.k-prompt .te-text').textContent, Other:q('.k-other .te-text').textContent,
+				OtherDetail:L.querySelectorAll('.k-other .te-detail').length,
+				Think:q('.k-thinking .te-text').textContent, Thinks:L.querySelectorAll('.k-thinking:not(.te-absorbed)').length,
+				Status:call.querySelector('.te-meta .te-status').textContent, StatusInLine:!!call.querySelector('.te-line .te-status'),
+				Time:q('.k-prompt .te-time').textContent};})()`, &got),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got.Prompt != "You were woken:" || got.Other != "system/hook_response" || got.OtherDetail != 0 {
+		t.Errorf("prompt/other = %+v", got)
+	}
+	if got.Think != "thinking ×2" || got.Thinks != 1 {
+		t.Errorf("empty thinking = %q (%d lines)", got.Think, got.Thinks)
+	}
+	// Showing Progress puts the progress line between them: the run splits.
+	var split int
+	if err := chromedp.Run(ctx, chromedp.Click(`#thinking .th-chips [data-f="progress"]`, chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelectorAll('#thinking .k-thinking:not(.te-absorbed)').length`, &split)); err != nil || split != 2 {
+		t.Errorf("with Progress shown, %d thinking lines (%v); want 2", split, err)
+	}
+	if !strings.HasPrefix(got.Status, "✓") || got.StatusInLine {
+		t.Errorf("status = %q (in the summary line: %v)", got.Status, got.StatusInLine)
+	}
+	if got.Time != "14:31:02" {
+		t.Errorf("time = %q", got.Time)
+	}
+}

@@ -180,7 +180,11 @@ body{display:flex;flex-direction:column}
 .te-line{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:2px 0}
 .te-icon{display:inline-block;width:1.4em;color:var(--muted)}
 .te-tool{margin-right:2px}
-.te-status{margin-left:8px;color:var(--muted)}
+.te-meta{font-size:11px;line-height:1.3;color:var(--faint);padding-left:1.4em;white-space:nowrap}
+.te-status{margin-left:8px;color:var(--muted)}.te-status:empty{display:none}
+.k-other .te-line,.k-other .te-icon,.k-thinking.te-empty .te-text{color:var(--faint);cursor:default}
+.k-prompt .te-text{font-weight:600}
+.te.te-absorbed{display:none}
 .te.err .te-status{color:var(--wait)}
 .te-trunc,.te-note{margin-left:8px;color:var(--faint);font-size:11px}
 .te-detail,.te-out,.te-raw{white-space:pre-wrap;word-break:break-word;margin:2px 0 6px 18px;max-height:none;font:inherit;padding:4px 6px;background:var(--surface-2);border-radius:4px}
@@ -195,7 +199,7 @@ body{display:flex;flex-direction:column}
 .k-gap,.te-skip{color:var(--wait)}
 .te-div,.te-gone{color:var(--muted);text-align:center;padding:4px 0;font-size:11.5px}
 .te-working{color:var(--muted);padding:2px 0}
-.th-list.hide-thinking .k-thinking,.th-list.hide-text .k-text,.th-list.hide-tools .k-tool_call,.th-list.hide-tools .k-tool_result{display:none}
+.th-list.hide-thinking .k-thinking,.th-list.hide-text .k-text,.th-list.hide-text .k-prompt,.th-list.hide-tools .k-tool_call,.th-list.hide-tools .k-tool_result{display:none}
 .th-list:not(.show-progress) .k-progress{display:none}
 .th-list.only-errors .k-tool_call:not(.err),.th-list.only-errors .k-tool_result:not(.err){display:none}
 .th-list .te.tool-miss:not(.k-gap),.th-list .te.search-miss:not(.k-gap){display:none}
@@ -519,7 +523,7 @@ document.addEventListener('htmx:afterSettle', meTabsMark);
 // the search). meThinkingOpen(el) starts it on a freshly loaded #thinking;
 // meThinkingClose() stops it (the pane closing or leaving the tab, unload).
 var meTh=null;
-var meThIcons={thinking:'💭',text:'💬',tool_call:'▶',tool_result:'◀',result:'─',gap:'⚠',progress:'·',other:'·'};
+var meThIcons={thinking:'💭',text:'💬',prompt:'→',tool_call:'▶',tool_result:'◀',result:'─',gap:'⚠',progress:'·',other:'·'};
 // meThMax caps the lines the list holds (a var: the browser test lowers it).
 var meThMax=2000, meThClip=40;
 // meThBackoff spaces the retries of a feed the server refused (a var: the
@@ -555,6 +559,8 @@ function meThSeen(){ if(meTh.paused) return; meTh.unseen=0; meTh.newBtn.hidden=t
 function meThUnseen(n){ var t=meTh; t.unseen+=n; t.newBtn.querySelector('span').textContent=t.unseen; t.newBtn.hidden=false; }
 function meThEnd(){ var L=meTh.list; L.scrollTop=L.scrollHeight; meThSeen(); }
 // meThTail is where a new line goes: before the "working…" line, if any.
+// meThTime is an event's local time of day (HH:MM:SS).
+function meThTime(ms){ return ms ? new Date(ms).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false}) : ''; }
 function meThTail(){ return meTh.list.querySelector('.te-working'); }
 // meThDrop removes a line, and Raw's observer with it.
 function meThDrop(n){ if(meTh.io) meTh.io.unobserve(n); n.remove(); }
@@ -570,7 +576,7 @@ function meThinkingOpen(el){
     b.onclick=function(){
       t.prefs.f[b.dataset.f]=!t.prefs.f[b.dataset.f];
       b.setAttribute('aria-pressed', t.prefs.f[b.dataset.f] ? 'true' : 'false');
-      meThSave(); meThClasses();
+      meThSave(); meThClasses(); meThRuns();
     };
   });
   var tool=el.querySelector('.th-tool'), format=el.querySelector('.th-format');
@@ -650,6 +656,11 @@ function meThinkingAdd(node, at){
   var key='[data-stream="'+CSS.escape(s)+'"]';
   if(L.querySelector('.te'+key+'[data-seq="'+CSS.escape(q)+'"],.te'+key+'[data-rseq="'+CSS.escape(q)+'"]')) return;
   node.querySelector('.te-icon').textContent=meThIcons[kind]||'·';
+  node.querySelector('.te-time').textContent=meThTime(+node.dataset.at);
+  if(kind==='thinking' && !node.querySelector('.te-text').textContent.trim()){
+    node.classList.add('te-empty'); // only its signature came back: a muted "thinking" line (meThRuns)
+    node.querySelector('.te-text').textContent='thinking';
+  }
   node.querySelectorAll('.te-detail,.te-note').forEach(function(d){ d.hidden=false; }); // the format's CSS shows them
   if(node.dataset.tool) meThTool(node.dataset.tool);
   var atBottom=meThAtBottom(L), tid=node.dataset.tid ? '[data-tid="'+CSS.escape(node.dataset.tid)+'"]' : '';
@@ -670,7 +681,9 @@ function meThinkingAdd(node, at){
   meThFilter(node);
   if(t.io) t.io.observe(node);
   if(at) return; // meThPage relabels the costs once per page
-  if(meThCap() || kind==='result') meThCosts();
+  var capped=meThCap();
+  if(capped || kind==='result') meThCosts();
+  if(capped || kind==='thinking') meThRuns();
   if(atBottom){ meThEnd(); }
   else{ meThUnseen(1); }
 }
@@ -754,7 +767,7 @@ function meThPage(stream, before, from, node, done){
      done(frag.querySelector('.te-more'));
      t.list.scrollTop+=t.list.scrollHeight-h;
      meThTrimNewest();
-     meThCosts();
+     meThCosts(); meThRuns();
    }, function(){ done(undefined); });
 }
 function meThEarlier(m){
@@ -829,7 +842,24 @@ function meThFilter(n){
   n.classList.toggle('tool-miss', !!t.prefs.tool && n.dataset.tool!==t.prefs.tool);
   n.classList.toggle('search-miss', !!t.q && n.textContent.toLowerCase().indexOf(t.q)<0);
 }
-function meThFilterAll(){ meThClasses(); meTh.list.querySelectorAll('.te').forEach(meThFilter); }
+function meThFilterAll(){ meThClasses(); meTh.list.querySelectorAll('.te').forEach(meThFilter); meThRuns(); }
+// meThRuns collapses each run of textless thinking lines into its first
+// ("thinking ×3"), the rest kept but hidden (te-absorbed), so seq dedup,
+// raw and Load earlier see every event. Hidden progress lines don't break
+// a run; any other line does. Recomputed in DOM order after each change.
+function meThRuns(){
+  var L=meTh.list, skipProgress=!L.classList.contains('show-progress'), head=null, n=0;
+  L.querySelectorAll('.te').forEach(function(x){
+    if(skipProgress && x.classList.contains('k-progress')) return;
+    if(!x.classList.contains('te-empty')){ head=null; return; }
+    if(head && head.dataset.stream===x.dataset.stream){
+      n++; x.classList.add('te-absorbed');
+      head.querySelector('.te-text').textContent='thinking ×'+n;
+      return;
+    }
+    head=x; n=1; x.classList.remove('te-absorbed'); x.querySelector('.te-text').textContent='thinking';
+  });
+}
 // meThWorking keeps a "working…" line last while the session is busy.
 function meThWorking(){
   if(!meTh) return;
