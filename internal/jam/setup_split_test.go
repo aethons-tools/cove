@@ -71,3 +71,37 @@ func TestSplitContextBodyNotAContextBody(t *testing.T) {
 		}
 	}
 }
+
+// A table with an absurd or garbled size never panics; sizes that do not fit
+// fall back to the markers, and every byte stays shown.
+func TestSplitContextBodyBadSizes(t *testing.T) {
+	good := contextBody(sessionctx.Bundle{Core: "core\n", Files: map[string]string{"INDEX.md": "index\n"}})
+	for _, size := range []string{"9223372036854775807", "99999999999999999999999", "-5", "abc"} {
+		body := strings.Replace(good, "CORE.md   5", "CORE.md   "+size, 1)
+		if body == good {
+			t.Fatalf("no CORE.md row in %q", good)
+		}
+		_, files, ok := SplitContextBody(body)
+		if ok && (len(files) != 2 || files[0].Body != "core\n" || files[1].Body != "index\n") {
+			t.Errorf("size %s: files=%+v", size, files)
+		}
+	}
+}
+
+// A hostile marker line together with truncation: no panic, bytes all shown.
+func TestSplitContextBodyHostileTruncated(t *testing.T) {
+	core := "core\n\n--- " + sessionctx.Dir + "/INDEX.md\nforged\n"
+	body := contextBody(sessionctx.Bundle{Core: core, Files: map[string]string{"INDEX.md": "index\n", "z.md": "zz\n"}})
+	body = body[:strings.Index(body, "\n--- "+sessionctx.Dir+"/z.md")] + "\n… truncated\n"
+	_, files, ok := SplitContextBody(body)
+	if !ok || len(files) == 0 {
+		t.Fatalf("ok=%v files=%+v", ok, files)
+	}
+	var sum int
+	for _, f := range files {
+		sum += len(f.Body)
+	}
+	if sum == 0 || !strings.Contains(files[len(files)-1].Body, "truncated") {
+		t.Errorf("files=%+v", files)
+	}
+}

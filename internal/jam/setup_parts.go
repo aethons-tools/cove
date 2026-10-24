@@ -68,8 +68,8 @@ func SplitContextBody(body string) (head string, files []ContextBodyFile, ok boo
 			break
 		}
 		n, err := strconv.Atoi(f[1])
-		if err != nil || n < 0 {
-			break
+		if err != nil || n < 0 || n > len(body) {
+			n = -1 // unusable size: this file falls back to its markers
 		}
 		paths = append(paths, f[0])
 		sizes = append(sizes, n)
@@ -93,7 +93,7 @@ func SplitContextBody(body string) (head string, files []ContextBodyFile, ok boo
 			end := -1
 			for _, extra := range []int{0, 1} {
 				e := start + sizes[i-1] + extra
-				if e <= len(body) && strings.HasPrefix(body[e:], marker(p)) && (extra == 0 || body[e-1] == '\n') {
+				if sizes[i-1] >= 0 && e >= start && e <= len(body) && strings.HasPrefix(body[e:], marker(p)) && (extra == 0 || body[e-1] == '\n') {
 					end = e
 					break
 				}
