@@ -1,7 +1,7 @@
 ---
-summary: Session events — Jam's operator-only capture of a managed studio agent's Claude Code stream-json output; how it is captured, buffered, redacted, stored (Postgres), retained, exported (NDJSON), and what its sensitivity means.
+summary: Session events — Jam's capture of a managed studio agent's Claude Code stream-json output; how it is captured, buffered, redacted, stored (Postgres), retained, exported (NDJSON), and who may see its content (operators; home-channel members in the Thinking tab).
 read_when: You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream — or you are configuring its storage/retention, wondering what is redacted or lost, or deciding who may see it.
-owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the operator-only sensitivity stance
+owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the sensitivity stance (operator-only storage and export; content visible to a session's home-channel members in the Thinking tab)
 prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui-console.md#session-timeline for the browser view
 tier: leaf
 updated: 2026-10-24
@@ -12,8 +12,9 @@ updated: 2026-10-24
 Jam records every `stream-json` stdout line of a managed studio's agent
 (`claude -p --output-format stream-json --verbose`) as an ordered, per-stream
 event log that operators can watch live, audit, and export. This includes hook
-events and `system`/`thinking_tokens` progress events. It is **operator-only**
-and carries agent output by design (see [Sensitivity](#sensitivity)).
+events and `system`/`thinking_tokens` progress events. Storage and export are
+**operator-only**; the content is also shown to the session's home-channel members in the
+Thinking tab. It carries agent output by design (see [Sensitivity](#sensitivity)).
 
 ## Cove side (cove-master)
 
@@ -91,18 +92,17 @@ recorded before they existed), and the extracted `type`, `subtype`,
 
 The browser timeline lives at `/app/admin/agents/{id}/session`; see
 [ui-console.md](ui-console.md#session-timeline). The studio's page lists its streams
-([ui-pages.md](ui-pages.md#agent-pages)). `/app/user` shows participants only a
-derived status per session and, in a session's home channel, its aggregates
-(cost, tokens, turn and tool counts), never events — see
-[intercom-ui.md](intercom-ui.md#session-status) and [session-view.md](session-view.md).
+([ui-pages.md](ui-pages.md#agent-pages)). `/app/user` shows a session's home-channel members the status strip, the session
+view's aggregates, and the Thinking tab — see [intercom-ui.md](intercom-ui.md#session-status)
+and [session-view.md](session-view.md#thinking).
 
 ## Sensitivity
 
 Events carry tool inputs and outputs: file contents, command output, possibly
-secrets the agent read. They are visible to operators only. What is
-derived from them for participants is the `/app/user` status strip: a coarse status
-and, while a tool runs, its **name** (e.g. `Bash`), plus the session view's
-counts and cost — never inputs, outputs, or text. This is a
+secrets the agent read. **For now**, anyone who can see a session's home channel sees
+them in `/app/user`'s Thinking tab ([session-view.md](session-view.md#thinking)). The admin timeline and the
+NDJSON export stay operator-only. cove-master's redaction applies (exact match of the
+cove's own secrets only). This is a
 deliberate exception to [observability rule 3](../observability.md) ("raw
 agent/VM output stays VM-local"), which governs the structured log sink, not
 this separate audit channel.

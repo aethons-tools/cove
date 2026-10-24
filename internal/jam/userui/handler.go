@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/push"
+	"github.com/aethons-tools/cove/internal/jam/sessionview"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
@@ -34,6 +36,8 @@ func mustParse(names ...string) *template.Template {
 	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
 		"mb":         func(n int64) int64 { return n >> 20 },
+		// thinkingRow wraps one event for the thinking-event fragment.
+		"thinkingRow": func(v sessionview.EventView) inboxPage { return inboxPage{PaneEvent: &v} },
 	}).ParseFS(files, paths...))
 	template.Must(t.Parse(appui.TitlebarTemplate))
 	return template.Must(t.Parse(appui.HeadTemplate))
@@ -54,6 +58,11 @@ type inboxPage struct {
 	PushFocus bool
 	// Pane is one session-pane tab (its fragment only).
 	Pane *SessionPane
+	// PaneEvent is one Thinking-tab event (the thinking-event fragment);
+	// PaneEvents and PaneBefore are a Thinking page (thinkingpage).
+	PaneEvent  *sessionview.EventView
+	PaneEvents []sessionview.EventView
+	PaneBefore uint64 // > 0: older events exist below this seq
 }
 
 // Handler serves the participant intercom inbox under /app/user. It reads identity per
@@ -63,7 +72,7 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
 		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	h := &handler{d: d, lg: lg}
+	h := &handler{d: d, lg: lg, streams: map[ident.ID]int{}}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -86,6 +95,9 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /app/user/events", h.events)
 	mux.HandleFunc("GET /app/user/session/{id}/head", h.sessionHeadRoute)
 	mux.HandleFunc("GET /app/user/session/{id}/pane", h.sessionPaneRoute)
+	mux.HandleFunc("GET /app/user/session/{id}/thinking/events", h.thinkingEvents)
+	mux.HandleFunc("GET /app/user/session/{id}/thinking/page", h.thinkingPage)
+	mux.HandleFunc("GET /app/user/session/{id}/thinking/raw", h.thinkingRaw)
 	mux.HandleFunc("POST /app/user/session/{id}/{action}", h.sessionAction)
 	h.pushRoutes(mux)
 	return mux
@@ -100,6 +112,11 @@ type handler struct {
 	// pushFocus records the conversation each user has focused (nil: off).
 	pushFocus *push.Focus
 	// Without either, GET /app/user/events answers 204 and the page polls.
+
+	// mu guards streams: each viewer's open Thinking feeds (capped at
+	// maxThinkingStreams).
+	mu      sync.Mutex
+	streams map[ident.ID]int
 }
 
 // build assembles the page for the request's participant and ?c selection.
