@@ -4,7 +4,7 @@ read_when: You are viewing or editing one project in the Jam admin UI — its me
 owns: a project's tabs and their pages (/app/admin/projects/<name>[/members|agents|roles|intercom|escalation]), creating a role from a project, the role page (/app/admin/projects/<project>/roles/<name>), the project list (/app/admin/projects), and the /app/admin/roles redirects
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-attention.md for the badges and Needs attention; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # Admin UI project pages
@@ -96,3 +96,5 @@ only that section:
 **Request agent** and **Delete** (which returns to the project's Agents tab) are on the page header. These writes share
 one lock with the JSON admin API's role, egress and standing routes, so an edit
 here and a CLI change can't overwrite each other.
+
+The page's **Setup** tab shows what a studio of the role raised now would get — see [inspect.md](inspect.md#in-the-admin-ui).

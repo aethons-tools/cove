@@ -1,7 +1,7 @@
 ---
-summary: Seeing everything a studio's agent is set up with from outside the container — `at-jam role inspect` / `studio inspect [--diff]` and their admin routes, the sections and sources, snapshots, image facts, and redaction with its known limits.
-read_when: You want to know what a studio (or a raise of a role now) gets — its session-context files, egress, destinations, env, model-spec, kit and image, /agent-data seed, MCP servers or policy — or why a studio differs from its role.
-owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits
+summary: Seeing everything a studio's agent is set up with from outside the container — `at-jam role inspect` / `studio inspect [--diff]`, their admin routes and the admin UI's Setup tab, the sections and sources, snapshots, image facts, and redaction with its known limits.
+read_when: You want to know what a studio (or a raise of a role now) gets — its session-context files, egress, destinations, env, model-spec, kit and image, /agent-data seed, MCP servers or policy — or why a studio differs from its role — in the CLI, the admin API or the Setup tab of an agent or role page.
+owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits, the admin UI Setup tab (…/setup on agent and role pages)
 prereqs: coves.md, session-context.md, connector.md
 tier: leaf
 updated: 2026-10-24
@@ -24,6 +24,21 @@ Routes (operator auth, like every `/admin/*` route; each call is logged
 
 - `GET /admin/roles/{project}/{role}/setup?sections=a,b`
 - `GET /admin/instances/{id}/setup?sections=a,b&diff=role`
+
+## In the admin UI
+
+A running studio's agent page and a role page carry an **Overview · Setup**
+strip. **Setup** (`/app/admin/agents/<id>/setup`,
+`/app/admin/projects/<project>/roles/<name>/setup`) shows the sections below,
+one collapsible block each, headed with its source, `stale vs role` and the
+snapshot time. `context` lists each file at its real path, **raw** — never
+rendered as markdown, so nothing in it is hidden or fetched. Text is escaped
+as in the CLI (a bidi override shows as `\u202e`). The sections load after the
+page opens, so a slow image read never holds up the agent or role page. Chips
+filter to one section (`?sections=`). On a studio, a `stale vs role` badge
+opens that section's diff against a raise now, and **Diff vs role**
+(`?diff=role`) diffs every section. Read-only, behind the same admin auth;
+each load is logged `ui setup inspected` (operator, subject, sections).
 
 ## Sections
 
