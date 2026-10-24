@@ -66,6 +66,18 @@ Two consequences worth knowing when adding a dependency:
   transitive test-dep, not your change; `go get <mod>` + `go build ./...` already
   write correct `go.mod`/`go.sum` entries. Don't chase a mirror.
 
+## The whiteboard editor bundle
+
+The `/app/user` whiteboard editor is Excalidraw, bundled from `web/whiteboard/`
+(`package.json` + committed `package-lock.json` + `entry.jsx`) into
+`internal/jam/uiassets/whiteboard/` — git-ignored, embedded by `at-jam`.
+`just whiteboard` (`scripts/whiteboard.sh`: `npm ci` + esbuild) builds it;
+it needs Node 20+ and the npm registry. `just build` runs it when npm is
+present (`WHITEBOARD_OPTIONAL=1`), and the gate and the release pipeline
+always do. Without the bundle `at-jam` still builds and every test still
+runs; `/app/user` just hides New whiteboard. `just test-browser` drives the
+editor in headless Chrome when the bundle is built.
+
 ## Regenerating gRPC code
 
 `internal/jam/attach/attachpb` (the Jam Attach stream's generated types

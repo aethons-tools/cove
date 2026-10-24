@@ -94,6 +94,20 @@ upload shows why on its chip ("too large (max …)"). In the stream, images
 show as inline thumbnails that open full size; other files as a download
 chip with name and size. With attachments off there is no 📎.
 
+## Whiteboards
+
+A conversation you can post in has **New whiteboard** in its header (asks a
+title, then opens the board). A [whiteboard](whiteboards.md)'s card shows its
+title, a live thumbnail and **Open**; opening (`?c=<channel>&board=<id>`)
+replaces the stream with the Excalidraw editor and **← Back to chat**. Edits
+save as you draw (changed elements, ~300 ms after the last change and at
+least every second during a long drag; a failed save retries, and leaving
+with unsaved edits warns); others' and agents'
+edits appear live (the `board` event, with a 30 s poll as fallback). Where you
+can see but not post, the board opens view-only. The image tool is off for
+now. A Jam built without the editor bundle shows cards ("whiteboard not
+built") but no New whiteboard.
+
 ## Membership controls
 
 The conversation header offers **Join** (a channel the person can see but isn't

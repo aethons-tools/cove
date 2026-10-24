@@ -140,6 +140,13 @@ html.raw .msg .body.raw{display:block}
 .att-chip progress{width:60px;height:6px;vertical-align:middle}.att-chip button{border:0;background:none;cursor:pointer}
 .attach-btn{cursor:pointer;margin-right:6px}.files{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .thumb img{max-width:240px;max-height:180px;border-radius:6px;display:block}.file-chip{font-size:13px;border:1px solid var(--line,#ddd);border-radius:6px;padding:4px 8px}
+.board-card{border:1px solid var(--line,#ddd);border-radius:10px;padding:8px 10px;margin:8px 0;max-width:520px}
+.board-card img{max-width:100%;max-height:260px;display:block;border-radius:6px;margin:6px 0;background:#fff}
+.board-title{font-weight:600}.board-open{font-size:13px}
+.board-pane{display:flex;flex-direction:column;flex:1;min-height:0}
+.board-bar{padding:6px 12px;border-bottom:1px solid var(--line,#ddd);display:flex;gap:10px;align-items:center}
+#board-editor{flex:1;min-height:480px;position:relative}#board-editor .wb-canvas{position:absolute;inset:0}
+.wb-error{color:#b00;padding:8px}.wb-banner{position:absolute;top:0;left:50%;z-index:10;background:#fff}
 </style>
 </head>
 <body{{if .PushFocus}} data-push-focus{{end}}>
@@ -204,6 +211,17 @@ meScrollToEnd(document.getElementById('stream'));
   // A session's status changed: refetch only the presence strip (it never
   // touches #stream, so no selection guard is needed).
   es.addEventListener('presence', function(){ htmx.trigger(document.body, 'mePresence'); });
+  // A board changed: an open editor for it refetches (by seq); its card's
+  // thumbnail reloads.
+  var meThumbAt={};
+  es.addEventListener('board', function(ev){
+    window.dispatchEvent(new CustomEvent('jam-board', {detail: ev.data}));
+    // Thumbnails: at most one reload per board every few seconds.
+    var now=Date.now(), last=meThumbAt[ev.data]||0;
+    if(now-last<3000) return;
+    meThumbAt[ev.data]=now;
+    document.querySelectorAll('#board-'+ev.data+' img').forEach(function(img){ img.src=img.src.split('?')[0]+'?t='+now; });
+  });
   es.addEventListener('open', function(){ if(connected){ changed(); } connected=true; });
   document.addEventListener('selectionchange', function(){ if(pending && !meSelecting()){ changed(); } });
 })();
@@ -301,6 +319,14 @@ document.addEventListener('drop', function(e){
   if(!f||!f.querySelector('.att-chips')||!e.dataTransfer.files.length) return;
   e.preventDefault(); meAttach(f, e.dataTransfer.files);
 });
+// meNewBoard starts a whiteboard in the conversation and opens it.
+function meNewBoard(channel){
+  var title=prompt('Whiteboard title'); if(!title) return;
+  fetch('/app/user/boards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:channel,title:title})})
+   .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+   .then(function(b){ location.href='/app/user/?c='+encodeURIComponent(channel)+'&board='+encodeURIComponent(b.board_id); })
+   .catch(function(s){ alert('Could not start a whiteboard ('+s+')'); });
+}
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();

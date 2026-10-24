@@ -29,6 +29,10 @@ type MessageRow struct {
 	ReAsk   *AskRef
 	// Files are the message's attachments.
 	Files []FileChip
+	// Board is a board's card (the squawk that started it).
+	Board *BoardCard
+	// Channel is the conversation's id (a board card links into it).
+	Channel string
 }
 
 // FileChip is one attachment of a message: an inline image or a download.
@@ -83,6 +87,10 @@ type Conversation struct {
 	// Leave (one they're in; never a chat), and who they may call in.
 	CanJoin, CanLeave bool
 	CallIn            []NewMessageOption
+	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
+	// and the editor is built); Board is the board ?board= opened.
+	NewBoard bool
+	Board    *BoardEditor
 }
 
 func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
@@ -118,6 +126,9 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
 		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
 		decorateAsk(&row, p, d, m)
+		if card := boardCard(d, m); card != nil {
+			row.Board, row.Channel = card, channelID
+		}
 		if chips, filesOnly := fileChips(m); len(chips) > 0 {
 			row.Files = chips
 			if filesOnly {

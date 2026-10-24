@@ -115,6 +115,10 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 	if sel != "" {
 		if conv, ok := conversation(p, h.d, sel); ok {
 			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
+			conv.NewBoard = h.d.Boards != nil && whiteboardBuilt() && conv.SendTo != "" && h.d.Boards.MayCreateIn(p.UserID, ident.ID(sel))
+			if id := r.URL.Query().Get("board"); id != "" {
+				conv.Board = boardEditor(p, h.d, sel, id)
+			}
 			page.Conv = &conv
 		}
 	}

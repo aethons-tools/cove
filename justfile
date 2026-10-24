@@ -122,6 +122,11 @@ dev-watch:
 test:
     go test ./...
 
+# build the whiteboard editor bundle at-jam embeds (needs Node/npm; see
+# scripts/whiteboard.sh). `just build` runs it when npm is available.
+whiteboard:
+    ./scripts/whiteboard.sh
+
 # headless-Chrome tests of the /app/user UI's JS (needs chrome-headless-shell on PATH or
 # COVE_BROWSER; each test skips without one)
 test-browser:

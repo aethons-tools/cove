@@ -55,3 +55,52 @@ func TestMeBoardsRoutesAndPush(t *testing.T) {
 		t.Fatalf("thumb = %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 }
+
+// A board's card shows its title, thumbnail and Open; opening it shows the
+// editor wired to the bundle; the header offers New whiteboard — all only when
+// this binary carries the editor.
+func TestBoardCardAndEditor(t *testing.T) {
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Architecture", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	withEditor := func(on bool) func() {
+		old := whiteboardBuilt
+		whiteboardBuilt = func() bool { return on }
+		return func() { whiteboardBuilt = old }
+	}
+	defer withEditor(true)()
+	body := e.page(t, p, "/app/user/?c="+engID)
+	for _, want := range []string{`class="board-card"`, "Architecture", `src="/app/user/boards/` + string(b.ID) + `/thumb.png`, `href="/app/user/?c=` + engID + `&board=` + string(b.ID) + `"`, "New whiteboard", "addEventListener('board'"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("conversation missing %q", want)
+		}
+	}
+	ed := e.page(t, p, "/app/user/?c="+engID+"&board="+string(b.ID))
+	for _, want := range []string{`id="board-editor"`, `data-board="` + string(b.ID) + `"`, `type="module"`, "whiteboard/whiteboard.js", "EXCALIDRAW_ASSET_PATH", "Back to chat"} {
+		if !strings.Contains(ed, want) {
+			t.Errorf("editor missing %q", want)
+		}
+	}
+	if strings.Contains(ed, `id="stream"`) {
+		t.Error("the editor replaces the stream")
+	}
+	// Without the bundle: no New whiteboard, and the card says so.
+	defer withEditor(false)()
+	off := e.page(t, p, "/app/user/?c="+engID)
+	if strings.Contains(off, "New whiteboard") || !strings.Contains(off, "whiteboard not built") {
+		t.Error("without the bundle: no New whiteboard; cards say it isn't built")
+	}
+}
+
+// A board in a channel the viewer can't see doesn't open.
+func TestBoardEditorRefusesUnseen(t *testing.T) {
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	body := e.page(t, p, "/app/user/?c="+engID+"&board=brd_01j9q3zzzzzzzzzzzzzzzzzz")
+	if strings.Contains(body, `id="board-editor"`) {
+		t.Error("an unknown board opened the editor")
+	}
+}

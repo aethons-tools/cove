@@ -25,3 +25,10 @@
 
 # local monitoring secrets
 /deploy/monitoring/.local/
+
+# The whiteboard editor bundle, built by `just whiteboard` (scripts/whiteboard.sh)
+# and embedded by at-jam; only its placeholder is committed.
+/internal/jam/uiassets/whiteboard/*
+/internal/jam/uiassets/whiteboard.tmp/
+!/internal/jam/uiassets/whiteboard/.keep
+/web/whiteboard/node_modules/
