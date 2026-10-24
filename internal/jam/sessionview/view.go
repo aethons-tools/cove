@@ -5,9 +5,9 @@
 //   - stream: data = the stream id being followed.
 //   - ev: one event's fragment; id "<stream>:<seq>" (the Last-Event-ID to resume).
 //   - totals: the totals fragment, whole-stream (only when Source.Totals is set).
-//   - more: tail mode; data = the lowest seq sent, when older events exist.
+//   - more: tail mode, fresh connect; data = the lowest seq sent, when older events exist.
 //   - skipped: tail-mode resume; data = "<from>-<to>", the seqs not sent.
-//   - newstream: FollowNewest; data = the newer stream's id; the response ends.
+//   - newstream: FollowNewest, unpinned; data = the newest stream's id; the response ends.
 package sessionview
 
 import (

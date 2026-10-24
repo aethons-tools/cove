@@ -17,6 +17,13 @@ const (
 	keepAlive    = 25 * time.Second
 )
 
+// isNewest reports whether stream is the actor's newest (by first event).
+// Ingest persists before it publishes, so a live event's stream is listed.
+func isNewest(src Source, stream string) bool {
+	streams, err := src.Store.Streams(src.ActorID)
+	return err == nil && len(streams) > 0 && streams[0].StreamID == stream
+}
+
 // sseLines normalizes CRLF and CR to LF: SSE parsers treat all three as line
 // terminators, so any of them inside a field value would end the line early.
 var sseLines = strings.NewReplacer("\r\n", "\n", "\r", "\n")
@@ -44,11 +51,16 @@ type Source struct {
 	Store   sessionevents.Store
 	Hub     *sessionevents.Hub
 	ActorID string
-	// Tail > 0: backfill only the newest Tail events (then `more` with the
-	// lowest seq sent, when older exist); 0 = the whole stream (admin).
+	// Tail > 0: backfill only the newest Tail events; on a fresh connect,
+	// then `more` with the lowest seq sent, when older exist (a resume sends
+	// neither: the client holds the rest, or `skipped` marks the hole).
+	// 0 = the whole stream (admin).
 	Tail int
-	// FollowNewest: with no stream chosen, follow the newest; when a newer
-	// stream's event arrives, send `newstream` (data = its id) and return.
+	// FollowNewest: with no ?stream=, follow the newest stream (or the one
+	// resumed via Last-Event-ID); when an event arrives from another stream
+	// that is now the actor's newest, send `newstream` (data = its id) and
+	// return. Events from other, older streams are ignored. A stream pinned
+	// by ?stream= never triggers newstream.
 	FollowNewest bool
 	Event        func(EventView) string            // the `ev` fragment
 	Totals       func(sessionevents.Totals) string // the `totals` fragment; nil = none sent
@@ -69,6 +81,7 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 		return
 	}
 	stream := r.URL.Query().Get("stream")
+	pinned := stream != ""
 	var resumeAfter uint64
 	if lid := r.Header.Get("Last-Event-ID"); lid != "" {
 		if s, n, ok := strings.Cut(lid, ":"); ok && sessionevents.ValidStreamID(s) {
@@ -154,7 +167,7 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 		for _, ev := range evs {
 			emit(ev)
 		}
-		if first := evs[0].Seq; first > 1 {
+		if first := evs[0].Seq; resumeAfter == 0 && first > 1 {
 			WriteSSE(w, "more", "", strconv.FormatUint(first, 10))
 		}
 		return true
@@ -191,7 +204,7 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 					return
 				}
 				sendTotals()
-			} else if src.FollowNewest && ev.StreamID != stream {
+			} else if ev.StreamID != stream && src.FollowNewest && !pinned && isNewest(src, ev.StreamID) {
 				WriteSSE(w, "newstream", "", ev.StreamID)
 				fl.Flush()
 				return
