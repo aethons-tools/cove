@@ -80,7 +80,7 @@ func TestSessionHeader(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/?c="+e.homeOf(t, personal), nil), p, false))
 	body := rec.Body.String()
-	for _, want := range []string{`id="session-head"`, "personal", "pair", "proj", "$0.42", "1h 30m", "is idle", `data-tab="previews"`, `data-tab="artifacts"`, `data-tab="status"`, "Release"} {
+	for _, want := range []string{`id="session-head"`, "personal", "pair", "proj", "$0.42", "1h 30m", "is idle", `data-tab="thinking"`, `data-tab="previews"`, `data-tab="artifacts"`, `data-tab="status"`, "Release"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("header missing %q", want)
 		}

@@ -375,7 +375,7 @@ function meNewBoard(channel){
 // size) is remembered per session (localStorage jam-pane:<id>); a session
 // never opened starts from the last layout used (jam-pane:last). ?tab= opens
 // a tab. Below 900px the pane always sits below the messages.
-var mePaneTabs={previews:'Previews',artifacts:'Artifacts',status:'Status'};
+var mePaneTabs={thinking:'Thinking',previews:'Previews',artifacts:'Artifacts',status:'Status'};
 var meNarrow=window.matchMedia('(max-width:900px)');
 function meSplit(){ return document.getElementById('cv-split'); }
 function mePaneLoad(id){

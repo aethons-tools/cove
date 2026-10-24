@@ -105,7 +105,28 @@
 {{/* sessionpane renders one tab of the session pane (the
      /app/user/session/{id}/pane?tab= target; layout.html's mePane loads it). */}}
 {{define "sessionpane"}}{{with .Pane}}
-{{if eq .Tab "previews"}}
+{{if eq .Tab "thinking"}}
+  {{if .EventsOff}}<p class="empty">Session events aren't recorded on this jam.</p>
+  {{else}}
+  <div class="th" id="thinking" data-session="{{.ID}}">
+    <div class="th-bar">
+      <span class="th-chips" role="group" aria-label="Show">
+        <button type="button" data-f="thinking" aria-pressed="true">Thinking</button>
+        <button type="button" data-f="text" aria-pressed="true">Text</button>
+        <button type="button" data-f="tools" aria-pressed="true">Tools</button>
+        <button type="button" data-f="errors" aria-pressed="false">Errors only</button>
+        <button type="button" data-f="progress" aria-pressed="false">Progress</button>
+      </span>
+      <select class="th-tool" aria-label="Tool"><option value="">All tools</option></select>
+      <input class="th-search" type="search" placeholder="Search" aria-label="Search events">
+      <select class="th-format" aria-label="Format"><option value="narrative">Narrative</option><option value="detailed">Detailed</option><option value="raw">Raw</option></select>
+      <select class="th-stream" aria-label="Stream"><option value="">Current</option>{{range .Streams}}<option value="{{.StreamID}}">{{.FirstAt.Local.Format "Jan 2 15:04"}} · {{.Events}} events</option>{{end}}</select>
+    </div>
+    <div class="th-list" role="log" aria-live="polite"></div>
+    <button type="button" class="th-new" hidden>↓ <span>0</span> new</button>
+  </div>
+  {{end}}
+{{else if eq .Tab "previews"}}
   {{if .PreviewsOff}}<p class="empty">Previews aren't available to you here.</p>
   {{else}}{{range .Previews}}<a class="sp-row" href="{{.URL}}" target="_blank" rel="noopener">{{.Name}} <small>port {{.Port}} ↗</small></a>
   {{else}}<p class="empty">No previews exposed. A session exposes one with its <code>expose</code> tool.</p>{{end}}{{end}}
@@ -210,6 +231,7 @@
   {{if .Uptime}}<div class="sh-up t" title="since it started">up {{.Uptime}}</div>{{end}}
   <span class="spacer"></span>
   <div class="sh-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="thinking" onclick="mePaneToggle(this.dataset.tab)">Thinking</button>
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="previews" onclick="mePaneToggle(this.dataset.tab)">Previews</button>
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="artifacts" onclick="mePaneToggle(this.dataset.tab)">Artifacts</button>
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="status" onclick="mePaneToggle(this.dataset.tab)">Status</button>

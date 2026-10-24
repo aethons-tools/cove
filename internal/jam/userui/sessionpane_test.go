@@ -110,3 +110,23 @@ func TestLinksIn(t *testing.T) {
 		t.Errorf("linksIn = %q, want %q", got, want)
 	}
 }
+
+func TestSessionPaneThinking(t *testing.T) {
+	e, p, personal, store, _ := thinkEnv(t)
+	appendText(t, store, personal.ActorID, 1, 2)
+	code, body := e.paneTab(t, p, personal.ActorID, "thinking", false)
+	if code != 200 {
+		t.Fatalf("code = %d", code)
+	}
+	for _, want := range []string{`id="thinking"`, `data-f="errors"`, `class="th-stream"`, `<option value="` + thinkStream + `">`, "2 events"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+
+	e.Deps.Events = nil
+	_, body = e.paneTab(t, p, personal.ActorID, "thinking", false)
+	if !strings.Contains(body, "aren't recorded") || strings.Contains(body, `id="thinking"`) {
+		t.Errorf("events off body = %s", body)
+	}
+}
