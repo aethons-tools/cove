@@ -1,5 +1,5 @@
 ---
-summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Previews, Artifacts, Status, Thinking) that can sit right of or below the messages, with its layout remembered per session.
+summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
 read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Release, Restart/End, Upgrade), the side pane and its tabs, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
 owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview
@@ -25,7 +25,7 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
   long it has been in that state, and open asks.
 - **Cost:** the total and the latest turn's cost. The tooltip shows input and output tokens.
 - **Uptime:** time since the session was raised.
-- **Tabs:** Previews, Artifacts, Status, Thinking. These open the pane.
+- **Tabs:** Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **⋯ menu:** each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
   The server re-checks permission (403 otherwise). Ending a session reloads the page.
@@ -83,11 +83,11 @@ the tab says so.
 
 | Route (`/app/user/session/{id}/thinking/`) | Returns |
 |-------|---------|
-| `events` | A live SSE stream of new event fragments; 204 when events aren't recorded; 429 beyond 4 streams per viewer |
+| `events` | A live SSE stream of new event fragments; 429 beyond 4 streams per viewer |
 | `page` | An older page of 300 events (Load earlier) |
 | `raw` | One event's raw JSON, capped at 1 MB |
 
-All three give 404 to anyone who can't see the home channel (as for every route above).
+All three give 404 to anyone who can't see the home channel (as for every route above), and 204 when events aren't recorded.
 
 - **Filters:** Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
   one tool, and search matches the visible text.
@@ -99,8 +99,8 @@ All three give 404 to anyone who can't see the home channel (as for every route 
   following and shows "↓ N new". **Load earlier** fetches the previous page.
 - **Streams:** the picker offers Current and past streams. A new stream (the studio
   restarted) starts with a "session restarted" divider.
-- **Memory:** filters, tool, search and format are saved per browser in
-  `localStorage['jam-thinking']`.
+- **Memory:** filters, tool and format are saved per browser in
+  `localStorage['jam-thinking']`. The search isn't saved.
 
 **Limits:** the view opens on the newest 300 events; page size is 300; a detail is clipped at
 64 KB (the raw route reaches 1 MB); 4 streams per viewer; 2000 lines in the list, and
