@@ -142,6 +142,11 @@ func Render(docs []json.RawMessage, images func(fileID string) (image.Image, boo
 			connectors[e.ID] = true
 		}
 	}
+	defer func() {
+		for _, f := range c.faces {
+			_ = f.Close()
+		}
+	}()
 	for _, e := range els {
 		if e.Type == "text" && e.ContainerID != nil && connectors[*e.ContainerID] {
 			// A connector's label sits on a white patch, off the line.
@@ -173,9 +178,27 @@ func bounds(e element) (x0, y0, x1, y1 float64) {
 
 type canvas struct {
 	img    *image.RGBA
-	ox, oy float64 // scene origin of the image
-	s      float64 // scale
-	budget int64   // pixels left to rasterize (pixelBudget)
+	ox, oy float64           // scene origin of the image
+	s      float64           // scale
+	budget int64             // pixels left to rasterize (pixelBudget)
+	faces  map[int]font.Face // by pixel size, for this render
+}
+
+// face is the font at px pixels, made once per size per render.
+func (c *canvas) face(px float64) (font.Face, error) {
+	k := int(math.Round(px))
+	if f, ok := c.faces[k]; ok {
+		return f, nil
+	}
+	f, err := opentype.NewFace(face, &opentype.FaceOptions{Size: float64(k), DPI: 72, Hinting: font.HintingFull})
+	if err != nil {
+		return nil, err
+	}
+	if c.faces == nil {
+		c.faces = map[int]font.Face{}
+	}
+	c.faces[k] = f
+	return f, nil
 }
 
 // pixelBudget bounds one render's rasterized area: about 25 full-size
@@ -442,11 +465,10 @@ func (c *canvas) text(s string, x, y, width, size float64, align string, col col
 	// A glyph's cost grows with its size squared: no taller than the canvas,
 	// and no more than maxTextPx.
 	px = min(px, float64(c.img.Bounds().Dy()), maxTextPx)
-	ff, err := opentype.NewFace(face, &opentype.FaceOptions{Size: px, DPI: 72, Hinting: font.HintingFull})
+	ff, err := c.face(px)
 	if err != nil {
 		return
 	}
-	defer ff.Close()
 	d := &font.Drawer{Dst: c.img, Src: image.NewUniform(col), Face: ff}
 	maxW := width * c.s
 	lineH := px * 1.25
@@ -473,18 +495,23 @@ func wrap(d *font.Drawer, s string, maxW float64) []string {
 	if maxW <= 0 {
 		return []string{s}
 	}
+	// Linear: each word is measured once; a line's width is the running sum.
+	space := float64(d.MeasureString(" ")) / 64
 	var out []string
-	line := ""
+	var line []string
+	width := 0.0
 	for _, w := range strings.Fields(s) {
-		try := strings.TrimSpace(line + " " + w)
-		if line != "" && float64(d.MeasureString(try))/64 > maxW {
-			out = append(out, line)
-			line = w
-			continue
+		ww := float64(d.MeasureString(w)) / 64
+		if len(line) > 0 && width+space+ww > maxW {
+			out = append(out, strings.Join(line, " "))
+			line, width = nil, 0
 		}
-		line = try
+		if len(line) > 0 {
+			width += space
+		}
+		line, width = append(line, w), width+ww
 	}
-	return append(out, line)
+	return append(out, strings.Join(line, " "))
 }
 
 // parseColor reads "#rgb", "#rrggbb" or "transparent"; opacity is 0–100.

@@ -165,7 +165,7 @@ func withAsk(m Squawk, ev AskEvent) Squawk {
 // validateParts checks m's parts: inline only (no attachments yet), known
 // types, at most one ask whose data decodes.
 func validateParts(parts []Part) error {
-	asks, refs := 0, 0
+	asks, refs, boards := 0, 0, 0
 	for _, p := range parts {
 		if p.Ref != "" {
 			if err := validateRef(p); err != nil {
@@ -177,6 +177,9 @@ func validateParts(parts []Part) error {
 			continue
 		}
 		if p.Type == BoardPartType {
+			if boards++; boards > 1 {
+				return fmt.Errorf("%w: more than one board part", ErrInvalid)
+			}
 			var d struct {
 				BoardID ident.ID `json:"board_id"`
 			}

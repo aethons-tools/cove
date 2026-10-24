@@ -67,15 +67,17 @@ func (b *Boards) Create(p Poster, target, title string, now time.Time) (intercom
 		return intercom.Board{}, err
 	}
 	bd := intercom.Board{ID: ident.New(ident.Board), Channel: pl.Channel.ID, CreatedBy: p.ID, Title: title, Created: now.UTC()}
-	if err := b.lg.CreateBoard(bd); err != nil {
-		return intercom.Board{}, err
-	}
 	data, _ := json.Marshal(struct {
 		BoardID ident.ID `json:"board_id"`
 	}{bd.ID})
 	card := intercom.Squawk{From: p.ID, Body: "started a whiteboard: " + title, ContentType: intercom.ContentPlain,
 		Parts: []intercom.Part{{Type: intercom.BoardPartType, Data: data}}}
+	// The card first: if it can't be posted there is no board; if the board
+	// can't be recorded after, the card renders as its plain text.
 	if _, err := b.ic.Post(pl, card); err != nil {
+		return intercom.Board{}, err
+	}
+	if err := b.lg.CreateBoard(bd); err != nil {
 		return intercom.Board{}, err
 	}
 	return bd, nil
@@ -87,9 +89,15 @@ func (b *Boards) CanRead(viewer, id ident.ID) (intercom.Board, Channel, bool) {
 	if !ok {
 		return intercom.Board{}, Channel{}, false
 	}
+	ch, ok := b.canReadBoard(viewer, bd)
+	return bd, ch, ok
+}
+
+// canReadBoard reports whether viewer may read bd, with its channel.
+func (b *Boards) canReadBoard(viewer ident.ID, bd intercom.Board) (Channel, bool) {
 	ch, ok := b.ic.store.GetChannel(bd.Channel)
 	if !ok {
-		return intercom.Board{}, Channel{}, false
+		return Channel{}, false
 	}
 	if isSessionID(viewer) {
 		// A member — or the board's creator, who may have posted it into a
@@ -98,7 +106,7 @@ func (b *Boards) CanRead(viewer, id ident.ID) (intercom.Board, Channel, bool) {
 	} else {
 		ok = b.ic.CanSee(viewer, ch)
 	}
-	return bd, ch, ok
+	return ch, ok
 }
 
 // CanWrite is board id if viewer may edit it: they may read it and post in
@@ -175,7 +183,7 @@ func (b *Boards) ForChannelsOf(viewer ident.ID) []intercom.Board {
 	seen := map[ident.ID]bool{}
 	add := func(bd intercom.Board) {
 		if !seen[bd.ID] {
-			if _, _, ok := b.CanRead(viewer, bd.ID); ok {
+			if _, ok := b.canReadBoard(viewer, bd); ok {
 				seen[bd.ID] = true
 				out = append(out, bd)
 			}

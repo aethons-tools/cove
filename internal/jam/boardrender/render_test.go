@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -157,5 +158,23 @@ func TestRenderOrderByIndex(t *testing.T) {
 	}
 	if dark < 20 {
 		t.Fatal("the label (higher index) must draw over the box")
+	}
+}
+
+// Many text elements and very long lines render quickly (faces are cached
+// per size; wrapping is linear).
+func TestRenderTextCheap(t *testing.T) {
+	long := strings.Repeat("word ", 4000)
+	var els []json.RawMessage
+	for i := range 400 {
+		els = append(els, doc(map[string]any{"id": "t" + strconv.Itoa(i), "type": "text", "x": float64(i % 20 * 60), "y": float64(i / 20 * 40), "width": 50, "height": 30, "text": "label", "fontSize": 20}))
+	}
+	els = append(els, doc(map[string]any{"id": "long", "type": "text", "x": 0, "y": 900, "width": 1200, "height": 400, "text": long, "fontSize": 16}))
+	start := time.Now()
+	if _, err := Render(els, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("text render took %v", d)
 	}
 }

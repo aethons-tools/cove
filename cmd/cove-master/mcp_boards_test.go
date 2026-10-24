@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type boardJam struct{ method, path, body string }
@@ -77,3 +78,12 @@ func TestMCPBoardTools(t *testing.T) {
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+func TestTrimReasonAndSeq(t *testing.T) {
+	if s := trimReason([]byte(strings.Repeat("é", 200))); !utf8.ValidString(s) || len(s) > 300 {
+		t.Fatalf("trimReason cut a character: %q", s)
+	}
+	if digits.MatchString("") || !digits.MatchString("42") {
+		t.Fatal("seq check")
+	}
+}

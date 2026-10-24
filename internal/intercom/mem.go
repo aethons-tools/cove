@@ -287,7 +287,12 @@ func (l *Log) ListBoards(channel ident.ID) []Board {
 			out = append(out, b)
 		}
 	}
-	slices.SortFunc(out, func(a, b Board) int { return a.Created.Compare(b.Created) })
+	slices.SortFunc(out, func(a, b Board) int {
+		if c := a.Created.Compare(b.Created); c != 0 {
+			return c
+		}
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
 	return out
 }
 
