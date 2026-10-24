@@ -184,3 +184,27 @@ func TestRedactEnvSecretFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactEnvTokenShapes(t *testing.T) {
+	for in, want := range map[string]string{
+		"ghp_abcdefghijklmnop":          MarkMasked,
+		"gho_abcdefghijklmnop":          MarkMasked,
+		"github_pat_11ABCDEFG0abcdefgh": MarkMasked,
+		"sk-ant-api03-abcdefgh12345":    MarkMasked,
+		"xoxb-123456789012-abcdef":      MarkMasked,
+		"AKIAIOSFODNN7EXAMPLE":          MarkMasked,
+		"AIzaSyA-abcdefghijklmnop":      MarkMasked,
+		"glpat-abcdefghij1234":          MarkMasked,
+		"npm_abcdefghijklmnop1234":      MarkMasked,
+		"use ghp_abcdefghijklmnop here": "use " + MarkMasked + " here",
+		"sk-":                           "sk-",
+		"skeleton":                      "skeleton",
+		"task-12345678901":              "task-12345678901",
+		"sk-short":                      "sk-short",
+		"https://host/path/ghp_short":   "https://host/path/ghp_short",
+	} {
+		if got := RedactEnv("note", in); got != want {
+			t.Errorf("RedactEnv(note, %q) = %q, want %q", in, got, want)
+		}
+	}
+}

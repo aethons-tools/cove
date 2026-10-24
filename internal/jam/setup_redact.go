@@ -214,13 +214,17 @@ func RedactEnv(key, value string) string {
 	}
 	shown := strings.ReplaceAll(value, "{token}", MarkIdentityToken)
 	if !secretKeyRE.MatchString(key) {
-		return stripURLSecrets(assignRE.ReplaceAllString(maskSecretFlags(shown), MarkMasked))
+		return bareTokenRE.ReplaceAllString(stripURLSecrets(assignRE.ReplaceAllString(maskSecretFlags(shown), MarkMasked)), MarkMasked)
 	}
 	if knownPlaceholder.MatchString(value) && safeTemplateRest.MatchString(knownPlaceholder.ReplaceAllString(value, "")) {
 		return shown
 	}
 	return MarkMasked
 }
+
+// bareTokenRE catches well-known credential shapes standing alone in free
+// text (ghp_, gho_, github_pat_, sk-/sk-ant-, xox?-, AKIA, AIza, glpat-, npm_).
+var bareTokenRE = regexp.MustCompile(`\b(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|AIza|glpat-|npm_)[A-Za-z0-9_-]{8,}`)
 
 // RedactJSON re-renders a JSON document (settings.json) indented, every
 // string value passed through RedactEnv under its nearest object key and

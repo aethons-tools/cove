@@ -90,7 +90,7 @@ func redactLines(text string) string {
 	var sb strings.Builder
 	for line := range strings.Lines(text) {
 		body := strings.TrimSuffix(line, "\n")
-		sb.WriteString(bareTokenRE.ReplaceAllString(RedactEnv("", body), "«masked»"))
+		sb.WriteString(RedactEnv("", body))
 		if len(body) != len(line) {
 			sb.WriteByte('\n')
 		}
@@ -249,7 +249,3 @@ func displayRepo(raw string) string {
 }
 
 var scpRepoRE = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._/~-]+$`)
-
-// bareTokenRE catches well-known credential shapes standing alone in prose,
-// which RedactEnv (keyed on names and schemes) cannot see.
-var bareTokenRE = regexp.MustCompile(`\b(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|AIza|glpat-|npm_)[A-Za-z0-9_-]{8,}`)
