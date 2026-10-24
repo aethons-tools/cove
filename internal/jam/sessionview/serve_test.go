@@ -240,6 +240,23 @@ func TestServeFollowNewestNewstream(t *testing.T) {
 	}
 }
 
+func TestServeResumeStaleStreamNewstream(t *testing.T) {
+	// A reconnect resumes A via Last-Event-ID, but B is now the newest: the
+	// feed must move to B rather than stay on A.
+	st, hub := sessionevents.NewMemStore(), sessionevents.NewHub()
+	fill(t, st, streamA, 1, 3, time.Unix(1000, 0))
+	fill(t, st, streamB, 1, 2, time.Unix(2000, 0))
+	f := open(t, sessionview.Source{Store: st, Hub: hub, ActorID: "w1", Tail: 3, FollowNewest: true, Event: evFrag}, "", streamA+":1")
+	f.waitEOF(t)
+	body := f.String()
+	if !strings.Contains(body, "event: newstream\ndata: "+streamB+"\n") {
+		t.Fatalf("no newstream to B:\n%s", body)
+	}
+	if strings.Contains(body, "event: ev") || strings.Contains(body, "event: stream\n") {
+		t.Fatalf("stale stream backfilled:\n%s", body)
+	}
+}
+
 func TestServePinnedStreamNoNewstream(t *testing.T) {
 	st, hub := sessionevents.NewMemStore(), sessionevents.NewHub()
 	fill(t, st, streamA, 1, 2, time.Unix(1000, 0))

@@ -56,9 +56,11 @@ type Source struct {
 	// neither: the client holds the rest, or `skipped` marks the hole).
 	// 0 = the whole stream (admin).
 	Tail int
-	// FollowNewest: with no ?stream=, follow the newest stream (or the one
-	// resumed via Last-Event-ID); when an event arrives from another stream
-	// that is now the actor's newest, send `newstream` (data = its id) and
+	// FollowNewest: with no ?stream=, follow the actor's newest stream. A
+	// resume via Last-Event-ID continues its stream only while that is still
+	// the newest; otherwise Serve sends `newstream` (data = the newest id)
+	// before any backfill and returns. Likewise, when a live event arrives
+	// from another stream that is now the newest, send `newstream` and
 	// return. Events from other, older streams are ignored. A stream pinned
 	// by ?stream= never triggers newstream.
 	FollowNewest bool
@@ -83,10 +85,11 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 	stream := r.URL.Query().Get("stream")
 	pinned := stream != ""
 	var resumeAfter uint64
+	resumed := false // stream came from Last-Event-ID
 	if lid := r.Header.Get("Last-Event-ID"); lid != "" {
 		if s, n, ok := strings.Cut(lid, ":"); ok && sessionevents.ValidStreamID(s) {
 			if seq, err := strconv.ParseUint(n, 10, 64); err == nil {
-				stream, resumeAfter = s, seq
+				stream, resumeAfter, resumed = s, seq, true
 			}
 		}
 	}
@@ -96,16 +99,25 @@ func Serve(w http.ResponseWriter, r *http.Request, src Source) {
 	}
 	sub := src.Hub.Subscribe(src.ActorID, subBuffer)
 	defer sub.Close()
-	if stream == "" && src.FollowNewest {
+	var newest string // the actor's newest stream, when following it
+	if src.FollowNewest && !pinned {
 		if streams, err := src.Store.Streams(src.ActorID); err == nil && len(streams) > 0 {
-			stream = streams[0].StreamID // newest first
+			newest = streams[0].StreamID // newest first
 		}
+	}
+	if stream == "" {
+		stream = newest
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(w, "retry: 3000\n\n")
+	if resumed && newest != "" && newest != stream { // resuming a stream that is no longer the newest
+		WriteSSE(w, "newstream", "", newest)
+		fl.Flush()
+		return
+	}
 
 	var tot sessionevents.Totals
 	var last uint64 // highest seq handled (sent or counted)
