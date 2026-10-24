@@ -90,11 +90,11 @@ dev-cert:
       -keyout dev/tls/key.pem -out dev/tls/cert.pem
     echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=jam.local.aethons.tools)"
 
-# raise the local dev Postgres for Jam (host port 15432; see dev/README.md)
+# raise the local dev Postgres (host port 15432) and Garage blob store (13900) for Jam; see dev/README.md
 dev-up:
     docker compose -f dev/docker-compose.yml up -d
 
-# stop the local dev Postgres. Pass ARGS=-v to also wipe its data volume.
+# stop the local dev Postgres and Garage. Pass ARGS=-v to also wipe their data volumes.
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 

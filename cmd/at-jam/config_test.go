@@ -1377,3 +1377,19 @@ func TestValidateBlobs(t *testing.T) {
 		t.Fatalf("absent blobs must validate: %v", err)
 	}
 }
+
+// The dev sample config parses, and its blobs block (dev/docker-compose.yml's
+// Garage) validates.
+func TestDevSampleConfigValidates(t *testing.T) {
+	b, err := os.ReadFile("../../dev/jam.dev.yml.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := parseServeConfig(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.validateBlobs(); err != nil || c.Blobs == nil {
+		t.Fatalf("blobs: %+v %v", c.Blobs, err)
+	}
+}

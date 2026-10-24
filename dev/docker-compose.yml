@@ -1,8 +1,9 @@
 # Dev instance assets for Jam.
 #
 # Raises a local PostgreSQL matching Jam's CI/integration conventions
-# (see .github/workflows/store-integration.yml). Jam auto-migrates on
-# startup, so no init SQL is needed here.
+# (see .github/workflows/store-integration.yml) — Jam auto-migrates on
+# startup, so no init SQL is needed here — and Garage, an S3-compatible
+# store for attachments (dev/README.md#attachments-garage).
 #
 #   docker compose -f dev/docker-compose.yml up -d   (or: just dev-up)
 #
@@ -30,5 +31,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # Attachments' blob store: Garage (AGPL-3.0, S3-compatible), one node. On
+  # first start it lays itself out and creates the dev key and bucket below
+  # (idempotent on restarts). S3 API on host port 13900.
+  garage:
+    image: dxflrs/garage:v2.5.0
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_RPC_SECRET: "6a616d2d6465762d6f6e6c792d7270632d7365637265742d6e6f742d73656372"
+      GARAGE_DEFAULT_ACCESS_KEY: GKjamdev0000000000000000
+      GARAGE_DEFAULT_SECRET_KEY: jam-dev-secret-not-secret-0000000000000000
+      GARAGE_DEFAULT_BUCKET: jam-attachments
+    ports:
+      - "13900:3900"
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garagemeta:/var/lib/garage/meta
+      - garagedata:/var/lib/garage/data
+
 volumes:
   pgdata:
+  garagemeta:
+  garagedata:
