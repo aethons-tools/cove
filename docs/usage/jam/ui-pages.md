@@ -175,11 +175,11 @@ two versions' YAML (long unchanged runs collapsed) and says whether the build
 digest changed — i.e. whether that version builds a new image.
 
 For the viewed version it shows the base (image ref, context-files paths, or a
-packed `context`'s file list with modes and sizes — read from the tar headers,
-nothing extracted), egress with the effective ceiling and anything excluded
+packed `context`'s files — [kits.md](kits.md#the-kit-verbs) has the table, the
+per-file view and diff), egress with the effective ceiling and anything excluded
 (COV-208), build args, secret demands (name + description; never values), the
 prompt, the build digest, and the YAML rendered back from the stored kit (a
-packed context abbreviated) with **Copy**. A stored version that isn't a valid
+packed context as a placeholder) with **Copy**. A stored version that isn't a valid
 studio kit (a pre-studio row) shows its parse error and raw text instead.
 
 A kit built on a parent kit ([kits-inheritance.md](kits-inheritance.md)) also

@@ -4,7 +4,7 @@ read_when: You are registering a kit in Jam, pushing a new version, rolling a ki
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # The kit registry
@@ -160,7 +160,10 @@ at-jam kit untrack web                                      # stop tracking (ver
   the referencing role or kits. Rebind the role first.
 
 The admin UI does the same from each kit's page — versions, diffs, pin, push
-([ui-pages.md](ui-pages.md#kit-pages)).
+([ui-pages.md](ui-pages.md#kit-pages)). Its YAML and diffs show a packed `context`
+as `«tar.gz, N files, SIZE»`, never base64; a **Context files** table lists its files
+(a diff: added, removed, modified with sizes, mode-changed; unchanged counted), and
+`&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
 
 All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md).

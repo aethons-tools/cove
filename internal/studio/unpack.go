@@ -35,7 +35,7 @@ var ErrContextNotReproducible = errors.New("base.context: not reproducible from 
 func ContextDirFiles(b64 string) ([]ContextFile, error) {
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, errors.New("base.context: invalid base64")
+		return nil, ErrContextBase64
 	}
 	var files []ContextFile
 	err = walkContextTar(raw, func(hdr *tar.Header, r io.Reader) error {
