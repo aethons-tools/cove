@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -713,5 +715,25 @@ func TestMCPExposeToolsEndToEnd(t *testing.T) {
 	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "expose", Arguments: map[string]any{"port": 3000, "name": "web"}})
 	if err != nil || !res.IsError || !strings.Contains(text(res), "previews are not enabled on this Jam") {
 		t.Fatalf("refusal reason not surfaced: %v %+v", err, res)
+	}
+}
+
+// TestIntercomToolsMatchJam pins jam.IntercomTools — what Jam's setup
+// inspection says every session is offered — to the tools this server
+// registers.
+func TestIntercomToolsMatchJam(t *testing.T) {
+	env := map[string]string{"AT_JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "AT_JAM_IDENTITY_TOKEN": "tok"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	res, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range res.Tools {
+		got = append(got, tool.Name)
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, jam.IntercomTools) {
+		t.Fatalf("cove-master mcp tools = %v\njam.IntercomTools  = %v", got, jam.IntercomTools)
 	}
 }

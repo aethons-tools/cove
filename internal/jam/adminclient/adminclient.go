@@ -582,6 +582,47 @@ func (c *Client) ClearEgress(project, role string) error {
 	return c.do("DELETE", egressPath(project, role), nil, nil)
 }
 
+// setupTimeout bounds a setup inspect: a first read of an image's seed runs
+// docker create/cp on the launcher host.
+const setupTimeout = 60 * time.Second
+
+// setupPath is a setup route with its sections and diff query.
+func setupPath(path string, sections []string, diff bool) string {
+	q := url.Values{}
+	if len(sections) > 0 {
+		q.Set("sections", strings.Join(sections, ","))
+	}
+	if diff {
+		q.Set("diff", "role")
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	return path
+}
+
+func (c *Client) doSetup(path string, out *jam.StudioSetup) error {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = setupTimeout
+	return c.doWith(&hc, "GET", path, nil, out)
+}
+
+// RoleSetup is what a studio of project/role raised now would get (sections
+// nil = all).
+func (c *Client) RoleSetup(project, role string, sections []string) (jam.StudioSetup, error) {
+	var out jam.StudioSetup
+	err := c.doSetup(setupPath("/admin/roles/"+url.PathEscape(project)+"/"+url.PathEscape(role)+"/setup", sections, false), &out)
+	return out, err
+}
+
+// StudioSetup is what studio (an id or a live manual label) got; diff adds
+// each section's line diff against its role's render.
+func (c *Client) StudioSetup(studio string, sections []string, diff bool) (jam.StudioSetup, error) {
+	var out jam.StudioSetup
+	err := c.doSetup(setupPath("/admin/instances/"+url.PathEscape(studio)+"/setup", sections, diff), &out)
+	return out, err
+}
+
 // ContextScope names one authored session-context layer: a role (Project+Role),
 // a project (Project only) or the Jam (Jam).
 type ContextScope struct {

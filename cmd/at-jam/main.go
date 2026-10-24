@@ -33,6 +33,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/allocator/allocpg"
+	"github.com/aethons-tools/cove/internal/assemble"
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
@@ -55,6 +56,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/jam/imagefacts"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/push"
@@ -92,7 +94,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
-			{Name: "role", Brief: "manage roles (add|list|rm) via the admin API", Run: cmdRole},
+			{Name: "role", Brief: "manage roles (add|list|rm|inspect) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
@@ -106,7 +108,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "grant", Brief: "grant a role to an actor", Run: cmdGrant},
 			{Name: "ungrant", Brief: "remove a role grant from an actor", Run: cmdUngrant},
 			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
-			{Name: "studio", Brief: "manage studios (raise|list|status|teardown) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
+			{Name: "studio", Brief: "manage studios (raise|list|status|teardown|inspect) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
@@ -500,10 +502,13 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 
 func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam role: expected add|list|rm")
+		fmt.Fprintln(stderr, "at-jam role: expected add|list|rm|inspect")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub == "inspect" {
+		return cmdRoleInspect(rest, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
@@ -1212,11 +1217,13 @@ func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 // Studio; ids, routes and the admin API still say "cove").
 func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown|share|unshare|access")
+		fmt.Fprintln(stderr, "at-jam studio: expected raise|list|status|teardown|inspect|share|unshare|access")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
+	case "inspect":
+		return cmdStudioInspect(rest, stdout, stderr)
 	case "share", "unshare", "access":
 		return cmdStudioShare(sub, rest, stdout, stderr)
 	}
@@ -2075,9 +2082,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var lch jam.Launcher = placeholderLauncher{}
 	var defaultRef jam.KitRef
 	var haveDefaultKit bool
+	var images jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
 	if lc := cfg.Runtime.Launcher; lc != nil {
 		// docker-context picks the colima instance (profile) studios run in.
-		var be launcher.Backend = colima.NewWithContext(runner.OS{}, lc.DockerContext)
+		col := colima.NewWithContext(runner.OS{}, lc.DockerContext)
+		var be launcher.Backend = col
+		images = imagefacts.New(runner.OS{}, col) // setup inspection reads images on the same daemon
 		// The launcher builds each studio kit's image on demand, so it needs the
 		// public half of the SSH identity to bake into the image's authorized_keys
 		// (the same key at-cove install baked; its private half is IdentityFile). No
@@ -2725,13 +2735,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// redirect (a 308 to the login page).
 			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
+		sealed, err := assemble.SealedEgressBase()
+		if err != nil {
+			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
+		}
+		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser,
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
-			jam.WithConfig(st, kitFetcher, cfgEnv, log))
+			jam.WithConfig(st, kitFetcher, cfgEnv, log),
+			jam.WithSetupInspect(setupDeps, log))
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

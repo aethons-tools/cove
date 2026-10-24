@@ -3,6 +3,7 @@ package assemble
 import (
 	"embed"
 	"io/fs"
+	"strings"
 )
 
 // hardeningFS holds the non-overridable sealed layer (Dockerfile + image-files).
@@ -17,3 +18,20 @@ var hardeningFS embed.FS
 // it as part of at-cove's build identity for the install currency check (COV-38);
 // assembly itself copies it via copyEmbed.
 func HardeningFS() fs.FS { return hardeningFS }
+
+// SealedEgressBase is the sealed hardening layer's always-on egress list
+// (/etc/squid/allowed_domains.txt) as baked into every image this binary
+// assembles — the "sealed" rows of Jam's setup inspection.
+func SealedEgressBase() ([]string, error) {
+	b, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/squid/allowed_domains.txt")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for line := range strings.Lines(string(b)) {
+		if l := strings.TrimSpace(line); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}

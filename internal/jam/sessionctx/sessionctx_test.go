@@ -176,3 +176,16 @@ func TestLintCaseAndPunctuation(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileRecordsLayerBudgets(t *testing.T) {
+	b := Compile(Inputs{Session: SessionFacts{Kind: KindEphemeral}, Kit: Layer{Core: "abc"}})
+	if got := b.Budgets[LayerKit]; got != (LayerBudget{Used: 3, Budget: BudgetKit}) {
+		t.Fatalf("kit budget = %+v", got)
+	}
+	if got := b.Budgets[LayerBoilerplate]; got.Used == 0 || got.Budget != BudgetBoilerplate {
+		t.Fatalf("boilerplate budget = %+v", got)
+	}
+	if _, ok := b.Budgets[LayerJam]; ok {
+		t.Fatal("an empty layer has no budget row")
+	}
+}

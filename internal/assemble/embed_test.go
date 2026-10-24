@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -680,5 +681,15 @@ func TestCollaboratorDefaultIsEmpty(t *testing.T) {
 	}
 	if strings.TrimSpace(string(b)) != "" {
 		t.Fatalf("default COLLABORATOR.md must be empty, got %q", b)
+	}
+}
+
+func TestSealedEgressBase(t *testing.T) {
+	got, err := SealedEgressBase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got, ".github.com") || slices.ContainsFunc(got, func(s string) bool { return s == "" || strings.HasPrefix(s, "#") }) {
+		t.Fatalf("sealed base = %v", got)
 	}
 }
