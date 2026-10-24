@@ -150,6 +150,7 @@ type Call struct {
 // FakeResult is one queued result for Fake.Output.
 type FakeResult struct {
 	Stdout string
+	Stderr string // streamed to RunIO's stderr writer, when one is injected
 	Err    error
 }
 
@@ -188,6 +189,9 @@ func (f *Fake) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, arg
 		r := f.Outputs[f.out]
 		f.out++
 		_, _ = io.WriteString(stdout, r.Stdout)
+		if stderr != nil {
+			_, _ = io.WriteString(stderr, r.Stderr)
+		}
 		if r.Err != nil {
 			return r.Err
 		}

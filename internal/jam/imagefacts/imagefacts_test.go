@@ -10,13 +10,16 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-const inspectJSON = `{"Id":"sha256:aaaaaaaaaaaaaaaa","Config":{"Env":["PATH=/usr/bin","DB_PASSWORD=hunter2"],"Labels":{"cove.kit":"my-app@v1"}}}`
+const imageID = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+const inspectJSON = `{"Id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Config":{"Env":["PATH=/usr/bin","DB_PASSWORD=hunter2"],"Labels":{"cove.kit":"my-app@v1"}}}`
 
 type entry struct {
 	name string
@@ -76,9 +79,9 @@ func TestImageFactsArgvNeverStarts(t *testing.T) {
 	}
 	want := [][]string{
 		{"--context", "colima-jam", "image", "inspect", "--format", "{{json .}}", "cove-kit:abc-asm"},
-		{"--context", "colima-jam", "create", "sha256:aaaaaaaaaaaaaaaa"},
+		{"--context", "colima-jam", "create", "--pull=never", imageID, "/bin/true"},
 		{"--context", "colima-jam", "cp", "0123456789abcdef:" + SeedDir, "-"},
-		{"--context", "colima-jam", "rm", "-f", "0123456789abcdef"},
+		{"--context", "colima-jam", "rm", "-f", "-v", "0123456789abcdef"},
 	}
 	if len(f.Calls) != len(want) {
 		t.Fatalf("calls = %+v", f.Calls)
@@ -89,7 +92,7 @@ func TestImageFactsArgvNeverStarts(t *testing.T) {
 		}
 	}
 	assertNeverStarts(t, f.Calls)
-	if got.ID != "sha256:aaaaaaaaaaaaaaaa" || len(got.Env) != 2 || got.Labels["cove.kit"] != "my-app@v1" {
+	if got.ID != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || len(got.Env) != 2 || got.Labels["cove.kit"] != "my-app@v1" {
 		t.Fatalf("facts = %+v", got)
 	}
 	if len(got.Seed) != 1 || got.Seed[0].Path != "CLAUDE.md" || !got.Seed[0].HasText || got.SeedNote != "" || got.SeedErr {
@@ -178,7 +181,7 @@ func TestImageFactsCopyErrorStillRemovesContainer(t *testing.T) {
 		t.Fatalf("facts = %+v, %v", got, err)
 	}
 	last := f.Calls[len(f.Calls)-1]
-	if len(f.Calls) != 4 || !slices.Equal(last.Args, []string{"--context", "colima-jam", "rm", "-f", "0123456789abcdef"}) {
+	if len(f.Calls) != 4 || !slices.Equal(last.Args, []string{"--context", "colima-jam", "rm", "-f", "-v", "0123456789abcdef"}) {
 		t.Fatalf("the created container must be removed after a failed cp: %+v", f.Calls)
 	}
 	assertNeverStarts(t, f.Calls)
@@ -219,57 +222,83 @@ func TestImageFactsOversizeStreamIsCapped(t *testing.T) {
 	}
 }
 
-// gatedRunner answers by docker verb and holds the first `create` until two
-// inspects have run, so a second caller must find the first's read in flight.
-type gatedRunner struct {
+// waitersForTest is how many callers wait on id's in-flight read.
+func (x *Reader) waitersForTest(id string) int {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if c, ok := x.inflight[id]; ok {
+		return c.waiters
+	}
+	return 0
+}
+
+// scriptRunner answers docker calls by verb, safe for concurrent callers.
+// onCreate runs (outside the lock) on each create, numbered from 1.
+type scriptRunner struct {
 	mu       sync.Mutex
-	inspects int
-	creates  int
 	calls    []runner.Call
-	twoIn    chan struct{}
+	creates  int
+	onCreate func(n int)
 	tarball  string
 }
 
-func (g *gatedRunner) RunIO(_ io.Reader, stdout, _ io.Writer, name string, args ...string) error {
+func (g *scriptRunner) RunIO(_ io.Reader, stdout, _ io.Writer, name string, args ...string) error {
 	g.mu.Lock()
 	g.calls = append(g.calls, runner.Call{Name: name, Args: append([]string(nil), args...)})
 	verb := args[2]
+	if verb == "create" {
+		g.creates++
+	}
+	n := g.creates
+	g.mu.Unlock()
 	switch verb {
 	case "image":
-		g.inspects++
-		if g.inspects == 2 {
-			close(g.twoIn)
-		}
-		g.mu.Unlock()
 		_, _ = io.WriteString(stdout, inspectJSON)
-		return nil
 	case "create":
-		g.creates++
-		first := g.creates == 1
-		g.mu.Unlock()
-		if first {
-			<-g.twoIn
+		if g.onCreate != nil {
+			g.onCreate(n)
 		}
 		_, _ = io.WriteString(stdout, "0123456789abcdef")
-		return nil
 	case "cp":
-		g.mu.Unlock()
 		_, _ = io.WriteString(stdout, g.tarball)
-		return nil
 	}
-	g.mu.Unlock()
 	return nil
 }
-func (g *gatedRunner) Run(string, ...string) error                           { panic("unused") }
-func (g *gatedRunner) RunEnv([]string, string, ...string) error              { panic("unused") }
-func (g *gatedRunner) RunStdin(io.Reader, string, ...string) error           { panic("unused") }
-func (g *gatedRunner) Probe(string, ...string) error                         { panic("unused") }
-func (g *gatedRunner) Output(string, ...string) (string, error)              { panic("unused") }
-func (g *gatedRunner) OutputEnv([]string, string, ...string) (string, error) { panic("unused") }
+func (g *scriptRunner) Run(string, ...string) error                           { panic("unused") }
+func (g *scriptRunner) RunEnv([]string, string, ...string) error              { panic("unused") }
+func (g *scriptRunner) RunStdin(io.Reader, string, ...string) error           { panic("unused") }
+func (g *scriptRunner) Probe(string, ...string) error                         { panic("unused") }
+func (g *scriptRunner) Output(string, ...string) (string, error)              { panic("unused") }
+func (g *scriptRunner) OutputEnv([]string, string, ...string) (string, error) { panic("unused") }
+
+func (g *scriptRunner) createCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.creates
+}
+
+// waitFor polls cond for up to two seconds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Errorf("timed out waiting for %s", what)
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func TestImageFactsSeedReadIsSingleflight(t *testing.T) {
-	g := &gatedRunner{twoIn: make(chan struct{}), tarball: seedTar(t, entry{name: ".init-agent-data/CLAUDE.md", body: []byte("x")})}
+	g := &scriptRunner{tarball: seedTar(t, entry{name: ".init-agent-data/CLAUDE.md", body: []byte("x")})}
 	r := New(g, colima.NewWithContext(g, "colima-jam"))
+	// Hold the first create until the second caller is waiting on it.
+	g.onCreate = func(n int) {
+		if n == 1 {
+			waitFor(t, "a second caller joining the in-flight read", func() bool { return r.waitersForTest(imageID) == 1 })
+		}
+	}
 	var wg sync.WaitGroup
 	results := make([]jam.ImageFacts, 2)
 	for i := range 2 {
@@ -291,6 +320,99 @@ func TestImageFactsSeedReadIsSingleflight(t *testing.T) {
 		}
 	}
 	assertNeverStarts(t, g.calls)
+}
+
+func TestImageFactsSeedPanicDoesNotWedge(t *testing.T) {
+	g := &scriptRunner{onCreate: func(int) { panic("boom") }}
+	r := New(g, colima.NewWithContext(g, "colima-jam"))
+	for i := range 2 {
+		done := make(chan jam.ImageFacts, 1)
+		go func() {
+			f, _ := r.ImageFacts(context.Background(), "t")
+			done <- f
+		}()
+		select {
+		case f := <-done:
+			if !f.SeedErr || f.SeedNote != seedUnreadable || len(f.Env) != 2 {
+				t.Fatalf("call %d after a panic = %+v, want SeedErr", i, f)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("call %d blocked: a panicked seed read wedged the image", i)
+		}
+	}
+	if r.waitersForTest(imageID) != 0 || len(r.inflight) != 0 {
+		t.Fatal("the in-flight entry outlived the panic")
+	}
+	if g.createCount() != 2 {
+		t.Fatalf("creates = %d, want 2 (a panicked read is not cached)", g.createCount())
+	}
+}
+
+func TestImageFactsWaiterHonoursContext(t *testing.T) {
+	release := make(chan struct{})
+	g := &scriptRunner{tarball: seedTar(t), onCreate: func(int) { <-release }}
+	r := New(g, colima.NewWithContext(g, "colima-jam"))
+	first := make(chan struct{})
+	go func() {
+		_, _ = r.ImageFacts(context.Background(), "t")
+		close(first)
+	}()
+	waitFor(t, "the first read reaching create", func() bool { return g.createCount() == 1 })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan jam.ImageFacts, 1)
+	go func() {
+		f, _ := r.ImageFacts(ctx, "t")
+		done <- f
+	}()
+	waitFor(t, "the second caller waiting", func() bool { return r.waitersForTest(imageID) == 1 })
+	cancel()
+	select {
+	case f := <-done:
+		if !f.SeedErr || len(f.Env) != 2 {
+			t.Fatalf("a cancelled waiter = %+v, want SeedErr with env", f)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a cancelled waiter kept blocking on the in-flight read")
+	}
+	close(release)
+	<-first
+}
+
+func TestImageFactsNoSeedDirIsCached(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: inspectJSON},
+		{Stdout: "0123456789abcdef"},
+		{Stderr: "Error response from daemon: Could not find the file /home/agent/.init-agent-data in container 0123456789abcdef\n", Err: errors.New("exit status 1")},
+		{},
+		{Stdout: inspectJSON},
+	}}
+	r := newReader(f)
+	got, err := r.ImageFacts(context.Background(), "t")
+	if err != nil || got.SeedErr || got.Seed != nil || got.SeedNote != seedNone {
+		t.Fatalf("facts = %+v, %v (want a cacheable %q note)", got, err, seedNone)
+	}
+	if !slices.Equal(f.Calls[3].Args, []string{"--context", "colima-jam", "rm", "-f", "-v", "0123456789abcdef"}) {
+		t.Fatalf("container not removed: %+v", f.Calls)
+	}
+	again, _ := r.ImageFacts(context.Background(), "t")
+	if len(f.Calls) != 5 || again.SeedNote != seedNone {
+		t.Fatalf("an image that seeds nothing must be cached by id: calls %d, %+v", len(f.Calls), again)
+	}
+	for _, stderr := range []string{"Error: No such container:path: 0123456789abcdef:/home/agent/.init-agent-data\n"} {
+		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: inspectJSON}, {Stdout: "0123456789abcdef"}, {Stderr: stderr, Err: errors.New("exit status 1")}, {}}}
+		if got, _ := newReader(f).ImageFacts(context.Background(), "t"); got.SeedErr || got.SeedNote != seedNone {
+			t.Errorf("stderr %q: %+v", stderr, got)
+		}
+	}
+}
+
+func TestImageFactsRejectsOddImageID(t *testing.T) {
+	for _, id := range []string{"sha256:abc", "-x", "sha256:" + strings.Repeat("A", 64), "md5:" + strings.Repeat("a", 64)} {
+		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"Id":"` + id + `"}`}}}
+		if _, err := newReader(f).ImageFacts(context.Background(), "t"); !errors.Is(err, jam.ErrImageUnreadable) || len(f.Calls) != 1 {
+			t.Errorf("id %q: err %v calls %d", id, err, len(f.Calls))
+		}
+	}
 }
 
 func TestParseSeedTarCaps(t *testing.T) {
@@ -315,6 +437,15 @@ func TestParseSeedTarCaps(t *testing.T) {
 	}
 	if _, note := parseSeedTar(strings.NewReader(seedTar(t, entry{name: ".init-agent-data/a", body: []byte("x")})[:700])); !strings.Contains(note, "incomplete") {
 		t.Errorf("a cut archive = %q", note)
+	}
+}
+
+func TestParseSeedTarCapsBeforeSkipping(t *testing.T) {
+	// An entry outside the seed paths still counts against the byte cap, so
+	// its body is never drained past it.
+	_, note := parseSeedTar(strings.NewReader(seedTar(t, entry{name: ".init-agent-data", body: bytes.Repeat([]byte("a"), MaxSeedBytes+1)})))
+	if !strings.Contains(note, "1048576 bytes") {
+		t.Fatalf("note = %q", note)
 	}
 }
 
