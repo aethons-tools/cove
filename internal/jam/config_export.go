@@ -139,10 +139,17 @@ func recoverRender(what func() string, err *error) {
 	*err = fmt.Errorf("%s cannot be rendered as a config file", what())
 }
 
-// kitCanon is a kit's canonical bytes: its stored config, then, for a kit
-// that tracks a source, that source (not its commit: a sync that only moves
-// the commit is not a change).
+// kitCanon is a kit's canonical bytes: its stored config as canonical JSON
+// (a kit.yml stored verbatim by a push compares equal to the same kit
+// written in a config repo; a config that does not parse stays as stored),
+// then, for a kit that tracks a source, that source (not its commit: a sync
+// that only moves the commit is not a change).
 func kitCanon(config string, tracked *KitSource) []byte {
+	if sk, err := studio.ParseStudioKit([]byte(config)); err == nil {
+		if text, err := sk.ToJSON(); err == nil {
+			config = string(text)
+		}
+	}
 	if tracked == nil {
 		return []byte(config)
 	}

@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -85,6 +86,9 @@ func TestParseFiles(t *testing.T) {
 		_, _, _, err := ParseFiles(kittreetest.Files(kv...))
 		if err == nil || (want != "" && err.Error() != want) {
 			t.Fatalf("ParseFiles(%q) err = %v, want %q", kv[0], err, want)
+		}
+		if _, isTree := errors.AsType[*TreeError](err); isTree != (kv[0] == "Dockerfile") {
+			t.Fatalf("ParseFiles(%q) err %v: a *TreeError = %v", kv[0], err, isTree)
 		}
 	}
 }

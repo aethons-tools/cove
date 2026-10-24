@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // ctxFile is one file of a test context (mode 0 → 0644).
@@ -67,9 +68,7 @@ func seedCtxKit(t *testing.T) jam.Store {
 	)
 	store := newStore(t)
 	for _, c := range []string{v1, v2} {
-		if _, _, err := jam.PushStudioKit(store, "w", "kind: studio\nbase:\n  context: "+c+"\n"); err != nil {
-			t.Fatal(err)
-		}
+		seedKit(t, store, "w", "kind: studio\nbase:\n  context: "+c+"\n")
 	}
 	return store
 }
@@ -199,9 +198,7 @@ func TestKitDiffPlaceholderHash(t *testing.T) {
 	df := ctxFile{name: "Dockerfile", body: "FROM x\n"}
 	store := newStore(t)
 	for _, b := range []string{"a\n", "b\n"} {
-		if _, _, err := jam.PushStudioKit(store, "h", "kind: studio\nbase:\n  context: "+packCtx(t, df, ctxFile{name: "a.txt", body: b})+"\n"); err != nil {
-			t.Fatal(err)
-		}
+		seedKit(t, store, "h", "kind: studio\nbase:\n  context: "+packCtx(t, df, ctxFile{name: "a.txt", body: b})+"\n")
 	}
 	d := section(get(t, kitsHandler(store), "/app/admin/kits/h?v=2&diff=1").Body.String(), "kit-diff")
 	if !strings.Contains(d, `<span class="d-del">-     context: «tar.gz, 2 files, `) || !strings.Contains(d, `<span class="d-add">+     context: «tar.gz, 2 files, `) || strings.Count(d, ", sha256:") != 2 {
@@ -220,9 +217,7 @@ func TestKitContextDuplicatesAndDiffCap(t *testing.T) {
 		many = append(many, ctxFile{name: fmt.Sprintf("f%03d", i), body: "x"})
 	}
 	for _, c := range []string{dup, packCtx(t, many...)} {
-		if _, _, err := jam.PushStudioKit(store, "d", "kind: studio\nbase:\n  context: "+c+"\n"); err != nil {
-			t.Fatal(err)
-		}
+		seedKit(t, store, "d", "kind: studio\nbase:\n  context: "+c+"\n")
 	}
 	h := kitsHandler(store)
 	c := section(get(t, h, "/app/admin/kits/d?v=1").Body.String(), "ctx-files")
@@ -258,9 +253,7 @@ func TestKitContextUnreadable(t *testing.T) {
 	store := newStore(t)
 	// readable at push (the first header), refused by the scan
 	bad := packCtx(t, ctxFile{name: "Dockerfile", body: "FROM x\n"}, ctxFile{name: "../evil", body: "x"})
-	if _, _, err := jam.PushStudioKit(store, "u", "kind: studio\nbase:\n  context: "+bad+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, store, "u", "kind: studio\nbase:\n  context: "+bad+"\n")
 	if _, err := store.PushKit("u", "kind: studio\nbase:\n  context: '!!not-base64'\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -287,5 +280,23 @@ func TestKitContextUnreadable(t *testing.T) {
 		if rec.Code != http.StatusOK || !strings.Contains(f, "context unreadable") || strings.Contains(f, "No such file") {
 			t.Errorf("%s = %d:\n%s", path, rec.Code, f)
 		}
+	}
+}
+
+// seedKit stores config under name the way a pre-tree Jam would have:
+// parsed, as canonical JSON, unchecked (Store.PushKit). For fixtures of
+// packed-context kits, which a push now refuses.
+func seedKit(t *testing.T, st jam.Store, name, config string) {
+	t.Helper()
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := sk.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PushKit(name, string(text)); err != nil {
+		t.Fatal(err)
 	}
 }

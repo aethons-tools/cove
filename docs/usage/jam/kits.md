@@ -1,6 +1,6 @@
 ---
 summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm|import|track|untrack|sync`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
-read_when: You are registering a kit in Jam, pushing a new version, rolling a kit's current version back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
+read_when: You are registering a kit in Jam, pushing a kit directory or a new version, rolling a kit's current version back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
@@ -17,15 +17,15 @@ full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
 
 ## The StudioKit
 
-A StudioKit is YAML with a `kind: studio` discriminator (stored in the registry
-as JSON with the same discriminator) and its content fields. Unknown fields are
+A StudioKit is YAML, the `kit.yml` of a kit directory, with a `kind: studio`
+discriminator and its content fields. Unknown fields are
 rejected, so a full-kit field on a studio kit fails at `push`. A kit **does not
 name itself**: its name is the registry key it is pushed under (`kit push
---name`), and must be tag-safe (`[A-Za-z0-9_.-]`).
+--name`, else the directory's name), and must be tag-safe (`[A-Za-z0-9_.-]`).
 
 ```yaml
 kind: studio
-base:                      # OPTIONAL — one of: image | context-files | context | context-dir | kit | omitted
+base:                      # OPTIONAL — one of: image | kit | omitted; a Dockerfile next to kit.yml is the build context
   image: ghcr.io/acme/base@sha256:…
 egress: [github.com, pkg.go.dev]   # allow-list (capped by the ceiling, below)
 build-args: {GO_VERSION: "1.23"}   # never secrets
@@ -35,7 +35,7 @@ prompt: "You work on the web service …"   # orients the session
 notes:                     # leaves shipped into sessions' context (kit/<name>)
   - name: release.md
     read-when: you are cutting a release
-    file: docs/release.md  # relative to this file, read at `kit push`; or `body: |`
+    file: docs/release.md  # relative to the kit directory, read from it at push; or body: |
 mcp-servers:               # extra MCP servers for the session's agent (env refs, never secrets)
   linear:
     type: http
@@ -45,12 +45,14 @@ mcp-servers:               # extra MCP servers for the session's agent (env refs
 
 | Field | Meaning |
 |---|---|
-| `base` | The image to build FROM — **one of** (or omitted for the blessed default): `kit:` a parent kit to build on ([below](#building-on-another-kit-basekit); it may combine with one context form, and then `COVE_BASE_IMAGE` is the parent's stage); `image:` a gated prebuilt ref; `context-files:` an inline build context; `context:` a base64-encoded tar.gz build context (for real/binary contexts). A context is **streamed to `docker build -`** (never extracted to a host dir), so docker applies its unix file modes — an executable script keeps its `+x` bit. Every form is provenance-gated — a context's Dockerfile must start `ARG COVE_BASE_IMAGE` then `FROM ${COVE_BASE_IMAGE}` (docker only substitutes a build arg in `FROM` when it is declared first) so the built base descends from the blessed base. The build injects standard args: `COVE_BASE_IMAGE` (and its alias `AT_JAM_STUDIO_BASE_IMAGE`) = the blessed base ref to build FROM (the parent's stage for a `kit:` child), and `AT_JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. **`context-files`** is a tree: the reserved, required key `dockerfile` is the Dockerfile content; every other key is a single path segment whose value is a file (string) or a subdirectory (nested map). Inline files carry no mode, so they are packed `0644` — an inline script must be run `sh script.sh` or `chmod +x`'d in the Dockerfile. **`context`** is pre-flighted host-side under hard caps (fail-closed) before streaming: a root `Dockerfile` is required; entries that are absolute, contain `..`, or are symlinks/hardlinks/irregular are rejected; encoded ≤ 1 MiB, decompressed ≤ 64 MiB, ≤ 2000 entries. **`context-dir:`** is a client-only authoring convenience: `at-jam kit push` packs that host directory into `context` as a deterministic, **mode-preserving** tar.gz (same caps + symlink/`..` rejection, root `Dockerfile` required), resolving a relative path against the kit file's directory. A root `.dockerignore` is honored (exact `docker build` parity; the root `Dockerfile` and `.dockerignore` are always kept). It is never stored or sent to the server — the stored kit carries only the resulting `context`. |
+| `base` | The image to build FROM — **one of** (or omitted for the blessed default): `kit:` a parent kit to build on ([below](#building-on-another-kit-basekit); then `COVE_BASE_IMAGE` is the parent's stage); `image:` a gated prebuilt ref (not with a `Dockerfile`). The build context is the **kit directory** ([kits-directory.md](kits-directory.md)). Every form is provenance-gated — a context's Dockerfile must start `ARG COVE_BASE_IMAGE` then `FROM ${COVE_BASE_IMAGE}` (docker only substitutes a build arg in `FROM` when it is declared first) so the built base descends from the blessed base. The build injects standard args: `COVE_BASE_IMAGE` (and its alias `AT_JAM_STUDIO_BASE_IMAGE`) = the blessed base ref to build FROM (the parent's stage for a `kit:` child), and `AT_JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. `base.context`, `base.context-files` and `base.context-dir` are refused at push: `base.context is no longer supported; put a Dockerfile next to kit.yml`. |
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
 | `prompt` | The kit layer's always-on core (≤ 800 bytes; `kit push` rejects more) of the [session context](session-context.md). |
-| `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` relative to the kit file, read by `kit push`); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image. In stored kit JSON the key is `read-when` (kit fields are kebab-case); the context admin API spells it `read_when`. |
+| `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` in the kit directory, read at push); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image (a note *file* of a `Dockerfile` kit is part of its build context). In `kit.yml` the key is `read-when` (kit fields are kebab-case); the context admin API spells it `read_when`. |
+
+A kit version is a **directory**: `kit.yml` plus its files; a `Dockerfile` beside `kit.yml` is the build context — the files, limits and `.dockerignore` are in [kits-directory.md](kits-directory.md).
 
 ### `mcp-servers` (COV-240)
 
@@ -106,10 +108,7 @@ Anthropic only through the Jam broker (see [pool.md](pool.md)). An authored
 prints the effective `egress ceiling:` and an `excluded (COV-208):` line, and
 prepare logs the excluded roots.
 
-**Legacy `name:`.** Kit files and registry rows from before names left the
-schema may still carry `name:`. It is accepted on input, never stored, and must
-equal the name the kit is pushed under — a file that names itself `web` can't be
-pushed as `api` (drop the field). Existing rows keep working as-is.
+**Legacy `name:`.** Kit files and registry rows from before names left the schema may still carry `name:`. It is accepted on input (and kept in the stored `kit.yml`, byte for byte), names the kit when `kit push` has no `--name`, and must equal the name the kit is pushed under — a file that names itself `web` can't be pushed as `api` (drop the field). Existing rows keep working as-is.
 
 ## The model
 
@@ -126,18 +125,17 @@ versions**, behind a mutable **current** pointer:
 - Each version records its **provenance** — when it was pushed and, for one
   imported from git, the repo, dir, ref and commit (`kit versions`, `kit show`).
 
-On `push` the YAML is **parsed and validated as a studio kit, then stored as
-canonical JSON**; `kit show` renders it **back as YAML** (the config rule of
-engagement). A malformed or non-studio kit is rejected at `push`, not at a later
-raise.
+On `push` the directory is read, filtered by its `.dockerignore`, checked, and its `kit.yml` parsed and validated as a studio kit. The version stores the files, `kit.yml` byte for byte. A push whose files equal *current*'s makes no version. A malformed or non-studio kit is rejected at `push`, not at a later raise.
 
 ## The `kit` verbs
 
 ```
-at-jam kit push --name web --config ./web.studio.yml        # → "pushed web v3"
-at-jam kit push --name web --config -                       # read config from stdin
+at-jam kit push ./web                                       # → "pushed web v3" (name: --name, else kit.yml's name:, else the dir's)
+at-jam kit push ./web --name web-dev                        # push the directory under another name
+at-jam kit push --config ./kit.yml --name web               # push kit.yml alone (a one-file version)
+at-jam kit push --config - --name web                       # read kit.yml from stdin
 at-jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
-at-jam kit show web                                         # current version's kit + ceiling/excluded
+at-jam kit show web                                         # current version's kit, its files (# files (tree <12 hex>):), ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
 at-jam kit show web --own                                   # the kit's own YAML, not the merged (effective) one
 at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
@@ -149,8 +147,8 @@ at-jam kit sync web                                         # re-import from the
 at-jam kit untrack web                                      # stop tracking (versions are kept)
 ```
 
-- `kit push` **validates** the file as a StudioKit before sending it — a
-  malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
+- `kit push` **validates** the directory before sending it — a refused file or
+  a malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
   full-kit row now fails `kit show`/resolution (see the [migration
   note](studio-kit-migration.md)).
 - `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
@@ -160,11 +158,7 @@ at-jam kit untrack web                                      # stop tracking (ver
   [builds on](kits-inheritance.md#guards)) can't be removed; the command reports
   the referencing role or kits. Rebind the role first.
 
-The admin UI does the same from each kit's page — versions, diffs, pin, push
-([ui-pages.md](ui-pages.md#kit-pages)). Its YAML and diffs show a packed `context`
-as `«tar.gz, N files, SIZE, sha256:<8 hex>»`, never base64; a **Context files** table lists its files
-(a diff: added, removed, modified with sizes, mode-changed; unchanged counted), and
-`&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
+The admin UI does the same from each kit's page — versions, diffs, pin, push ([ui-pages.md](ui-pages.md#kit-pages)); its "push a new version" box edits `kit.yml` and keeps the version's other files. Its YAML and diffs show a pre-tree version's packed `context` as `«tar.gz, N files, SIZE, sha256:<8 hex>»`, never base64; a **Context files** table lists its files (a diff: added, removed, modified with sizes, mode-changed; unchanged counted), and `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
 
 All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md).

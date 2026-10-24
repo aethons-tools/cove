@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 const kitV1 = `kind: studio
@@ -129,9 +130,7 @@ func TestKitPagePackedContextSummarized(t *testing.T) {
 	_ = gz.Close()
 	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
 	store := newStore(t)
-	if _, _, err := jam.PushStudioKit(store, "ctx", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, store, "ctx", "kind: studio\nbase:\n  context: "+b64+"\n")
 	body := get(t, kitsHandler(store), "/app/admin/kits/ctx").Body.String()
 	for _, want := range []string{"Dockerfile", "install.sh", "0755", "«tar.gz, 2 files"} {
 		if !strings.Contains(body, want) {
@@ -214,6 +213,23 @@ func TestPushVersionOnKitPage(t *testing.T) {
 	}
 	if rec := post(t, h, "/app/admin/kits/ghost/versions", url.Values{"config": {kitV1}}); rec.Code != http.StatusNotFound {
 		t.Errorf("push to missing kit = %d, want 404", rec.Code)
+	}
+}
+
+// The kit page's "push a new version" box edits kit.yml only: the version
+// keeps the current one's other files, modes included.
+func TestPushVersionOnKitPageKeepsFiles(t *testing.T) {
+	store := newStore(t)
+	if _, _, err := jam.PushKitFiles(store, "dir", kittreetest.Files("kit.yml", "kind: studio\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	rec := post(t, kitsHandler(store), "/app/admin/kits/dir/versions", url.Values{"config": {"kind: studio\nprompt: hi\n"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pushed dir v2") {
+		t.Fatalf("push v2 = %d: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := jam.LoadKitVersion(store, "dir", 0)
+	if e, ok := v.Tree.Lookup("run.sh"); !ok || e.Mode != 0o755 || string(v.KitYML) != "kind: studio\nprompt: hi\n" {
+		t.Fatalf("v2 tree %+v kit.yml %q", v.Tree, v.KitYML)
 	}
 }
 

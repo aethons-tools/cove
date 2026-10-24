@@ -1294,7 +1294,9 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestKitPushPacksContextDir(t *testing.T) {
+// A kit.yml with the old client-side base.context-dir is refused before
+// anything is sent: the directory itself is now the build context.
+func TestKitPushRefusesContextDir(t *testing.T) {
 	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
@@ -1309,30 +1311,20 @@ func TestKitPushPacksContextDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ctx, "Dockerfile"), []byte("FROM ${COVE_BASE_IMAGE}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(ctx, "hello.txt"), []byte("hi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// base.context-dir is relative → resolved against the kit file's directory.
 	kitFile := filepath.Join(dir, "kit.yml")
 	if err := os.WriteFile(kitFile, []byte("kind: studio\nname: ctxkit\nbase:\n  context-dir: ctx\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	var out, errb bytes.Buffer
-	if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "ctxkit", "--config", kitFile}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit push: exit=%d stderr=%s", code, errb.String())
+	for _, args := range [][]string{{"--name", "ctxkit", "--config", kitFile}, {dir}} {
+		var out, errb bytes.Buffer
+		code := run(append([]string{"kit", "push", "--admin-url", ts.URL}, args...), getenv, &out, &errb)
+		if code == 0 || !strings.Contains(errb.String(), "base.context-dir is no longer supported; put a Dockerfile next to kit.yml") {
+			t.Fatalf("%v: exit=%d stderr=%s", args, code, errb.String())
+		}
 	}
-	// The stored kit must be a packed context (zip), with context-dir stripped.
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "ctxkit"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit show: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "context:") || strings.Contains(out.String(), "context-files") {
-		t.Fatalf("stored kit should carry a packed `context:` zip (not context-files); show:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "context-dir") {
-		t.Fatalf("context-dir is client-only and must not be stored; show:\n%s", out.String())
+	if _, ok := store.GetKit("ctxkit"); ok {
+		t.Fatal("a refused push stored a kit")
 	}
 }
 
@@ -1489,37 +1481,47 @@ func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {
 	}
 }
 
-// kit push reads note files relative to the kit file and refuses bad notes.
+// kit push <dir> reads note files from the kit directory and refuses bad notes.
 func TestKitPushNotes(t *testing.T) {
 	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "docs"), 0o755)
-	os.WriteFile(filepath.Join(dir, "docs", "release.md"), []byte("RELEASE STEPS"), 0o600)
-	write := func(name, body string) string {
-		p := filepath.Join(dir, name)
-		os.WriteFile(p, []byte(body), 0o600)
-		return p
+	dir := filepath.Join(t.TempDir(), "web")
+	write := func(name, body string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
+	write("docs/release.md", "RELEASE STEPS")
+	write("kit.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: docs/release.md\n")
 	var out, errb bytes.Buffer
-	good := write("good.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: docs/release.md\n")
-	if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", good}, getenv, &out, &errb); code != 0 {
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("push: exit=%d stderr=%s", code, errb.String())
 	}
-	if cfg, _ := store.KitConfig("web", 0); !strings.Contains(cfg, "RELEASE STEPS") || strings.Contains(cfg, "docs/release.md") {
-		t.Fatalf("stored kit must carry the note body, not the path: %s", cfg)
+	v, ok := jam.LoadKitVersion(store, "web", 0)
+	if !ok || v.Err != nil || len(v.Kit.Notes) != 1 || v.Kit.Notes[0].Body != "RELEASE STEPS" {
+		t.Fatalf("stored kit must read the note body from its directory: %+v %v", v.Kit.Notes, v.Err)
 	}
 	for name, body := range map[string]string{
-		"reserved.yml": "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n",
-		"escape.yml":   "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n",
+		"reserved": "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n",
+		"escape":   "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n",
+		"missing":  "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: docs/nope.md}\n",
 	} {
+		write("kit.yml", body)
 		errb.Reset()
-		if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", write(name, body)}, getenv, &out, &errb); code == 0 {
+		if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code == 0 {
 			t.Errorf("%s: push must fail", name)
 		}
+	}
+	if k, _ := store.GetKit("web"); k.Current != 1 {
+		t.Fatalf("a refused push made a version: current v%d", k.Current)
 	}
 }
 

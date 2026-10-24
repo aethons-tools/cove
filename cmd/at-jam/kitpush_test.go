@@ -1,0 +1,107 @@
+package main
+
+import (
+	"bytes"
+	"io"
+	"log/slog"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/jam"
+)
+
+func TestKitPushDirectory(t *testing.T) {
+	store := jam.NewMemStore()
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	dir := filepath.Join(t.TempDir(), "web")
+	for p, body := range map[string]string{"kit.yml": "kind: studio\n", "Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", "run.sh": "echo\n"} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, "run.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	getenv := func(string) string { return "" }
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code != 0 || out.String() != "pushed web v1\n" {
+		t.Fatalf("push: exit=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+	out.Reset()
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code != 0 || out.String() != "web unchanged (current v1)\n" {
+		t.Fatalf("repush: %q %q", out.String(), errb.String())
+	}
+	out.Reset()
+	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "--own", "web"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "#   0755") || !strings.Contains(out.String(), "run.sh") {
+		t.Fatalf("show:\n%s", out.String())
+	}
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	errb.Reset()
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code == 0 || !strings.Contains(errb.String(), "leak: symlinks are not allowed") {
+		t.Fatalf("symlink: exit=%d err=%q", code, errb.String())
+	}
+}
+
+func TestKitPushArgs(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := cmdKit([]string{"push"}, cli.Globals{}, &out, &errb); code != 2 || !strings.Contains(errb.String(), "expected <dir> or --config <file>") {
+		t.Fatalf("no args: %d %q", code, errb.String())
+	}
+	if code := cmdKit([]string{"push", "--config", "-"}, cli.Globals{}, &out, &errb); code != 2 || !strings.Contains(errb.String(), "--name is required with --config") {
+		t.Fatalf("stdin without name: %d %q", code, errb.String())
+	}
+}
+
+// Without --name a directory push goes under kit.yml's legacy name:, else
+// the directory's name; --config needs --name or a legacy name:.
+func TestKitPushNames(t *testing.T) {
+	store := jam.NewMemStore()
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	getenv := func(string) string { return "" }
+	dir := filepath.Join(t.TempDir(), "web")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kitFile := filepath.Join(dir, "kit.yml")
+	if err := os.WriteFile(kitFile, []byte("kind: studio\nname: api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+		code int
+	}{
+		{[]string{dir}, "pushed api v1\n", 0},
+		{[]string{"--config", kitFile}, "api unchanged (current v1)\n", 0},
+		{[]string{"--name", "api", "--config", kitFile, dir}, "", 2},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(append([]string{"kit", "push", "--admin-url", ts.URL}, tc.args...), getenv, &out, &errb); code != tc.code || out.String() != tc.want {
+			t.Fatalf("%v: exit=%d out=%q err=%q", tc.args, code, out.String(), errb.String())
+		}
+	}
+	if err := os.WriteFile(kitFile, []byte("kind: studio\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code != 0 || out.String() != "pushed web v1\n" {
+		t.Fatalf("dir name: exit=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+	errb.Reset()
+	if code := run([]string{"kit", "push", "--admin-url", ts.URL, "--config", kitFile}, getenv, &out, &errb); code == 0 || !strings.Contains(errb.String(), "--name is required with --config") {
+		t.Fatalf("no name: exit=%d err=%q", code, errb.String())
+	}
+}

@@ -4,66 +4,64 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
-// EnsureStudioKit records sk in the kit registry under name and returns the
-// reference a raise carries: {ID: name, Version: registry version, Digest:
+// EnsureStudioKit records sk in the kit registry under name as a one-file
+// tree (kit.yml = studio.RenderKitYAML(sk)) and returns the reference a raise
+// carries: {ID: name, Version: registry version, Digest:
 // studio.BuildDigest(sk, harnessinstall.Default())} — the image under
 // claude-default's harness; a raise re-keys it to its role's model-spec
-// (ResolveKitDefinition). Idempotent — an unchanged definition reuses the
-// current version; any change bumps a new monotonic one. The registry stores the
-// WHOLE definition (canonical JSON, prompt included); the ref's Digest is the
-// BUILD-digest (build-affecting fields only), so a prompt-only edit bumps the
-// version yet keeps the image key stable.
+// (ResolveKitDefinition). Idempotent: an unchanged definition renders the
+// same kit.yml, so the same tree, and reuses the current version; any change
+// bumps a new monotonic one. The registry stores the WHOLE definition (prompt
+// included); the ref's Digest is the BUILD-digest (build-affecting fields
+// only), so a prompt-only edit bumps the version yet keeps the image key
+// stable.
 func EnsureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, error) {
-	ref, _, err := ensureStudioKit(store, name, sk)
+	yml, err := studio.RenderKitYAML(sk)
+	if err != nil {
+		return KitRef{}, fmt.Errorf("studio kit %q: %w", name, err)
+	}
+	ref, _, err := PushKitFiles(store, name, []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: yml}})
 	return ref, err
 }
 
-// kitMu makes a kit write's compare-with-current and push one step: an
-// ensureStudioKit push, a kit-set import, and the rm/pin guards.
+// kitMu makes a kit write's compare-with-current and push one step: a
+// PushKitFiles push, a kit-set import, and the rm/pin guards.
 var kitMu sync.Mutex
-
-func ensureStudioKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
-	return ensureKit(store, name, sk)
-}
 
 // validateKit is the push-time check of sk as kit name, shared by a push and
 // a kit-set import: the name, the kit's own validity, no path parent (an
-// import rewrites those first), the canonical JSON, the parent chain resolved
-// from store, and the merged kit's prompt and notes budgets. It returns the
-// canonical JSON and the chain. Every failure is a 400 WriteError. The caller
-// holds kitMu, so a parent cannot move between the checks and the write.
-func validateKit(store Store, name string, sk studio.StudioKit) (string, []KitLink, error) {
+// import rewrites those first), the parent chain resolved from store, and
+// the merged kit's prompt and notes budgets. It returns the chain. Every
+// failure is a 400 WriteError. The caller holds kitMu, so a parent cannot
+// move between the checks and the write.
+func validateKit(store KitReader, name string, sk studio.StudioKit) ([]KitLink, error) {
 	if err := sk.CheckName(name); err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := sk.Validate(); err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if _, isPath := sk.Base.ParentPath(); isPath {
-		return "", nil, writeErr(http.StatusBadRequest, "path parents resolve only in a git import (kit import/track --git)")
-	}
-	text, err := sk.ToJSON()
-	if err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "studio kit %q: %s", name, err.Error())
+		return nil, writeErr(http.StatusBadRequest, "path parents resolve only in a git import (kit import/track --git)")
 	}
 	chain, err := ResolveKitChain(store, name, sk)
 	if err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	merged := studio.Merge(chainKits(chain))
 	if err := merged.CheckPrompt(); err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	if err := merged.CheckNotes(); err != nil {
-		return "", nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
-	return string(text), chain, nil
+	return chain, nil
 }
 
 // chainParent is the parent a kit version is resolved against: the
@@ -76,42 +74,12 @@ func chainParent(chain []KitLink) *KitParentRef {
 	return &KitParentRef{Name: p.ID, Version: p.Version}
 }
 
-// ensureKit, under kitMu, validates sk (validateKit), then reuses the current
-// version when its canonical JSON is identical, else pushes a new one
-// (recording the parent it was resolved against).
-func ensureKit(store Store, name string, sk studio.StudioKit) (KitRef, bool, error) {
-	kitMu.Lock()
-	defer kitMu.Unlock()
-	text, chain, err := validateKit(store, name, sk)
-	if err != nil {
-		return KitRef{}, false, err
-	}
-	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
-	if cur, ok := LoadKitVersion(store, name, 0); ok && cur.Version != 0 && string(cur.KitYML) == text {
-		return KitRef{ID: name, Version: cur.Version, Digest: digest}, true, nil
-	}
-	var version int
-	if parent := chainParent(chain); parent != nil {
-		version, err = store.PushKitMeta(name, text, KitVersionMeta{PushedAt: time.Now().UTC(), Parent: parent})
-	} else {
-		version, err = store.PushKit(name, text)
-	}
-	if err != nil {
-		return KitRef{}, false, fmt.Errorf("studio kit %q: push: %w", name, err)
-	}
-	return KitRef{ID: name, Version: version, Digest: digest}, false, nil
-}
-
-// PushStudioKit parses studio-kit YAML (or stored JSON) and records it under
-// name — the one push path for the JSON admin API and the UI. It returns the
-// resulting current version and whether the definition was unchanged (no new
+// PushStudioKit records config as kit name's next version, a one-file tree:
+// the JSON admin API's push and the UI's new kit. It returns the resulting
+// current version and whether the definition was unchanged (no new
 // version). An invalid kit or name is a 400 WriteError.
 func PushStudioKit(store Store, name, config string) (version int, unchanged bool, err error) {
-	sk, err := studio.ParseStudioKit([]byte(config))
-	if err != nil {
-		return 0, false, writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	ref, unchanged, err := ensureStudioKit(store, name, sk)
+	ref, unchanged, err := PushKitFiles(store, name, []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: []byte(config)}})
 	return ref.Version, unchanged, err
 }
 

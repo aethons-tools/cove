@@ -4,7 +4,7 @@ read_when: You want a kit's definition to live in a git repo instead of a file y
 owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, the fetch limits, the kit-source admin API status codes, and kit-source troubleshooting
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs; serve.md for where the `kits` block sits in the serve config
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # Kits from git
@@ -65,7 +65,7 @@ quoted in its fetch error, so paste clone URLs only without credentials.
 it — `base.context-dir` and each note's `file` — are relative to `<dir>` and
 must **stay inside the checkout**: an absolute path, a `..` escape, or a
 symlink out of the checkout is refused. `context-dir` is packed into `context`
-exactly as `kit push` packs it (same caps, `.dockerignore` honored), so the
+(a mode-preserving tar.gz; same caps, `.dockerignore` honored), so the
 stored kit is self-contained; the checkout is deleted after each fetch.
 
 A `kit.yml` may build on a registry kit (`base: { kit: web-dev }`,

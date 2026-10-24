@@ -12,6 +12,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -170,11 +172,22 @@ type KitSummary struct {
 	Parent string `json:"parent,omitempty"`
 }
 
+// KitFileInfo is one file of a kit version, as GET /admin/kits/{name} lists it.
+type KitFileInfo struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"` // "0644" | "0755"
+	Size int64  `json:"size"`
+}
+
 // KitConfigResult is a GET /admin/kits/{name} item.
 type KitConfigResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Config  string `json:"config"`
+	// Tree is the version's tree hash; "" for a pre-tree version.
+	Tree string `json:"tree,omitempty"`
+	// Files lists the version's files, kit.yml included, by path.
+	Files []KitFileInfo `json:"files,omitempty"`
 	// Source is where this version came from; nil = pushed from a local file.
 	Source *KitSource `json:"source,omitempty"`
 	// Tracking is the kit's tracked source (Commit = last synced); nil = untracked.
@@ -783,6 +796,31 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
 		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
 	})
+	// A kit directory: an uncompressed tar of its files, read within the tree
+	// limits as it streams, the body capped at kittree.MaxUpload (413 past it).
+	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !studio.TagSafeName(name) {
+			http.Error(w, "kit name is not tag-safe (allowed: [A-Za-z0-9_.-])", http.StatusBadRequest)
+			return
+		}
+		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
+		if err != nil {
+			if _, big := errors.AsType[*http.MaxBytesError](err); big {
+				http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, fmt.Sprintf("kit %s: %s", name, err), http.StatusBadRequest)
+			return
+		}
+		ref, unchanged, err := PushKitFiles(store, name, files)
+		if err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+			return
+		}
+		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", name, "version", ref.Version, "unchanged", unchanged, "files", len(files))
+		writeJSON(w, http.StatusCreated, KitResult{Name: name, Version: ref.Version, Unchanged: unchanged})
+	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
@@ -805,19 +843,19 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 			version = n
 		}
-		cfg, ok := store.KitConfig(name, version)
+		v, ok := LoadKitVersion(store, name, version)
 		if !ok {
 			http.Error(w, "no such kit or version", http.StatusNotFound)
 			return
 		}
 		k, _ := store.GetKit(name)
-		if version == 0 {
-			version = k.Current
+		res := KitConfigResult{Name: name, Version: v.Version, Config: string(v.KitYML), Tree: v.TreeHash,
+			Source: k.Meta[v.Version].Source, Tracking: k.Source, Parent: k.Meta[v.Version].Parent}
+		for _, e := range v.Tree.Entries {
+			res.Files = append(res.Files, KitFileInfo{Path: e.Path, Mode: fmt.Sprintf("%04o", e.Mode), Size: e.Size})
 		}
-		res := KitConfigResult{Name: name, Version: version, Config: cfg,
-			Source: k.Meta[version].Source, Tracking: k.Source, Parent: k.Meta[version].Parent}
 		var cerr error
-		if res.Chain, res.Effective, cerr = KitChainView(store, name, cfg); cerr != nil {
+		if res.Chain, res.Effective, cerr = KitChainView(store, name, res.Config); cerr != nil {
 			res.ChainError = cerr.Error()
 		}
 		follow, pinned := KitsReferencing(store, name)

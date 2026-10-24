@@ -122,9 +122,7 @@ func TestConfigExportTreeBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := jam.PushStudioKit(store, "k", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, store, "k", "kind: studio\nbase:\n  context: "+b64+"\n")
 	exp, err := New(ts.URL, "").ConfigExportTree(true)
 	if err != nil {
 		t.Fatal(err)
@@ -134,5 +132,23 @@ func TestConfigExportTreeBinary(t *testing.T) {
 	}
 	if len(exp.Prune) != 1 || exp.Prune[0] != "kits/k/context" {
 		t.Fatalf("prune %v", exp.Prune)
+	}
+}
+
+// seedKit stores config under name the way a pre-tree Jam would have:
+// parsed, as canonical JSON, unchecked (Store.PushKit). For fixtures of
+// packed-context kits, which a push now refuses.
+func seedKit(t *testing.T, st jam.Store, name, config string) {
+	t.Helper()
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := sk.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PushKit(name, string(text)); err != nil {
+		t.Fatal(err)
 	}
 }

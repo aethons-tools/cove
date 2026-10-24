@@ -20,11 +20,13 @@ import (
 // refuses the packed-context fields (RefuseContextFields) and parses the tree
 // (ParseTree). It does not apply .dockerignore: callers that take files from
 // outside (a push) run kittree.Ignore first. Errors are unprefixed; the caller
-// locates them (a kit name, a directory).
+// locates them (a kit name, a directory). A refusal of the tree itself (a
+// path, a limit, no kit.yml) is a *TreeError, so a caller can locate those
+// at the kit and leave the kit.yml errors as they are.
 func ParseFiles(files []kittree.File) (kittree.Tree, map[string][]byte, StudioKit, error) {
 	tree, blobs, err := kittree.Build(files)
 	if err != nil {
-		return kittree.Tree{}, nil, StudioKit{}, err
+		return kittree.Tree{}, nil, StudioKit{}, &TreeError{err}
 	}
 	if e, ok := tree.Lookup(kittree.KitFile); ok {
 		if err := RefuseContextFields(blobs[e.SHA256]); err != nil {
@@ -42,6 +44,13 @@ func ParseFiles(files []kittree.File) (kittree.Tree, map[string][]byte, StudioKi
 	}
 	return tree, blobs, sk, nil
 }
+
+// TreeError is ParseFiles refusing the files as a tree (kittree.Build): its
+// text is the cause's.
+type TreeError struct{ Err error }
+
+func (e *TreeError) Error() string { return e.Err.Error() }
+func (e *TreeError) Unwrap() error { return e.Err }
 
 // ParseTree parses kit version tree t, its bytes from blobs: ParseKitFS over
 // its billy view, with BuildContext set to t's context hash.

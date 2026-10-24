@@ -160,13 +160,17 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 				return nil, err
 			}
 		}
-		text, chain, err := validateKit(ov, e.Name, e.Kit)
+		chain, err := validateKit(ov, e.Name, e.Kit)
 		if err != nil {
 			return nil, err
 		}
-		e.text, e.parent = text, chainParent(chain)
+		text, err := e.Kit.ToJSON()
+		if err != nil {
+			return nil, writeErr(http.StatusBadRequest, "studio kit %q: %s", e.Name, err.Error())
+		}
+		e.text, e.parent = string(text), chainParent(chain)
 		k, _ := store.GetKit(e.Name)
-		if cur, ok := store.KitConfig(e.Name, k.Current); ok && k.Current != 0 && cur == text {
+		if cur, ok := store.KitConfig(e.Name, k.Current); ok && k.Current != 0 && cur == string(text) {
 			e.Version, e.Unchanged = k.Current, true
 		} else {
 			e.Version, e.Unchanged = nextKitVersion(k), false

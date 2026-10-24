@@ -69,9 +69,7 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 
 	// A kit with a packed context (rendered as a context-dir).
 	b64 := ctxKitContext(t)
-	if _, _, err := PushStudioKit(st, "builder", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, st, "builder", mustParse(t, "kind: studio\nbase:\n  context: "+b64+"\n"))
 	// A kit pushed first (an earlier config write --all wrote it as
 	// kits/ic/kit.yml), then tracked from its own git source.
 	kits := newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": {
@@ -206,9 +204,7 @@ func TestConfigWriteAllAdopts(t *testing.T) {
 // tree loads and the kit adopts.
 func TestConfigWriteAllRemovesStaleKitForm(t *testing.T) {
 	st := NewMemStore()
-	if _, _, err := PushStudioKit(st, "ic", "kind: studio\nbase:\n  context: "+ctxKitContext(t)+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, st, "ic", mustParse(t, "kind: studio\nbase:\n  context: "+ctxKitContext(t)+"\n"))
 	opt := ConfigExportOptions{All: true, ContextFiles: true}
 	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, opt)
 	if err != nil {

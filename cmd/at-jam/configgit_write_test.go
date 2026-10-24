@@ -179,9 +179,7 @@ func ctxContext(t *testing.T) string {
 func TestConfigWriteContextDirRoundTrip(t *testing.T) {
 	srcURL, src := configServer(t)
 	b64 := ctxContext(t)
-	if _, _, err := jam.PushStudioKit(src, "builder", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, src, "builder", "kind: studio\nbase:\n  context: "+b64+"\n")
 	repo := gitDir(t)
 	if code, out, errs := runJam("config", "write", repo, "--all", "--admin-url", srcURL); code != 0 {
 		t.Fatalf("write: %d %s %s", code, out, errs)
@@ -230,9 +228,7 @@ func TestConfigWriteNotesInlineContexts(t *testing.T) {
 	cfgMust(t, tw.WriteHeader(&tar.Header{Name: "d/", Mode: 0o755, Typeflag: tar.TypeDir}))
 	cfgMust(t, tw.Close())
 	cfgMust(t, gw.Close())
-	if _, _, err := jam.PushStudioKit(st, "hand", "kind: studio\nbase:\n  context: "+base64.StdEncoding.EncodeToString(buf.Bytes())+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, st, "hand", "kind: studio\nbase:\n  context: "+base64.StdEncoding.EncodeToString(buf.Bytes())+"\n")
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "kits/hand/context/mine.txt"), "checked in", 0o644)
 	code, _, errs := runJam("config", "write", repo, "--all", "--admin-url", url)
@@ -324,5 +320,23 @@ func TestConfigWriteSwitchToSourceKeepsIgnoredFiles(t *testing.T) {
 	want := "kits/ic/ is left over beside kits/ic.source.yml (only files its .dockerignore excludes); remove it"
 	if len(tr.Refusals) != 1 || tr.Refusals[0] != want {
 		t.Fatalf("refusals %q", tr.Refusals)
+	}
+}
+
+// seedKit stores config under name the way a pre-tree Jam would have:
+// parsed, as canonical JSON, unchecked (Store.PushKit). For fixtures of
+// packed-context kits, which a push now refuses.
+func seedKit(t *testing.T, st jam.Store, name, config string) {
+	t.Helper()
+	sk, err := studio.ParseStudioKit([]byte(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := sk.ToJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PushKit(name, string(text)); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -341,6 +341,14 @@ func (c *Client) PushKit(name, config string) (jam.KitResult, error) {
 	return res, err
 }
 
+// PushKitTree pushes a kit directory, an uncompressed tar of its files
+// (kittree.WriteTar), as kit name's next version.
+func (c *Client) PushKitTree(name string, tarBody []byte) (jam.KitResult, error) {
+	var res jam.KitResult
+	err := c.doRaw("POST", "/admin/kits/"+url.PathEscape(name)+"/versions", "application/x-tar", tarBody, &res)
+	return res, err
+}
+
 // ListKits lists every kit in the registry.
 func (c *Client) ListKits() ([]jam.KitSummary, error) {
 	var out []jam.KitSummary

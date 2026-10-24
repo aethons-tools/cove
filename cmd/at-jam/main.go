@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -66,6 +67,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -100,7 +102,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes] [--force]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -876,7 +878,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
-	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
+	config := fs.String("config", "", "push: a kit.yml to push alone (or - for stdin); otherwise push <dir>")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
 	own := fs.Bool("own", false, "show: print the kit's own stored YAML instead of the merged (effective) kit")
@@ -892,62 +894,37 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
 	case "push":
-		if *name == "" || *config == "" {
-			fmt.Fprintln(stderr, "at-jam kit push: --name and --config are required")
+		if *config == "-" && *name == "" {
+			fmt.Fprintln(stderr, "at-jam kit push: --name is required with --config")
 			return 2
 		}
-		data, err := readConfig(*config) // file path or "-" for stdin
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		sk, err := studio.ParseStudioKit(data)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
-			return 1
-		}
-		if err := sk.CheckName(*name); err != nil {
+		files, kitName, err := kitPushFiles(pos, *config, *name)
+		if errors.Is(err, errKitPushUsage) {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
+			return 2
 		}
-		if err := sk.CheckPrompt(); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
-		}
-		// Resolve a client-only base.context-dir by packing that host directory
-		// into base.context (a zip) before sending — the server can't read the
-		// operator's filesystem. A relative context-dir is resolved against the
-		// kit file's directory (CWD for stdin). A no-op when unset.
-		baseDir := "."
-		if *config != "-" {
-			baseDir = filepath.Dir(*config)
-		}
-		if err := sk.ResolveContextDir(baseDir); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: base.context-dir:", err)
-			return 1
-		}
-		if err := sk.ResolveNoteFiles(baseDir); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: notes:", err)
-			return 1
-		}
-		if err := sk.CheckNotes(); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
-		}
-		resolved, err := sk.ToJSON()
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
 			return 1
 		}
-		res, err := c.PushKit(*name, string(resolved))
+		if kitName, err = checkKitPush(files, kitName, *name != ""); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
+		var body bytes.Buffer
+		if err := kittree.WriteTar(&body, files); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
+		res, err := c.PushKitTree(kitName, body.Bytes())
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		if res.Unchanged {
-			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", *name, res.Version)
+			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", kitName, res.Version)
 		} else {
-			fmt.Fprintf(stdout, "pushed %s v%d\n", *name, res.Version)
+			fmt.Fprintf(stdout, "pushed %s v%d\n", kitName, res.Version)
 		}
 	case "list":
 		kits, err := c.ListKits()
@@ -1000,6 +977,12 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own to edit and re-push")
 		}
 		fmt.Fprint(stdout, string(y))
+		if len(res.Files) > 0 {
+			fmt.Fprintf(stdout, "# files (tree %s):\n", shortCommit(res.Tree))
+			for _, f := range res.Files {
+				fmt.Fprintf(stdout, "#   %s  %8d  %s\n", f.Mode, f.Size, f.Path)
+			}
+		}
 		ceiling, excluded := studioShowEgress(sk.Egress)
 		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
 		fmt.Fprintf(stdout, "excluded (COV-208): %s\n", joinOrNone(excluded))

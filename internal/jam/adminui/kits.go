@@ -107,13 +107,14 @@ func registerKits(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, log *sl
 			renderError(w, http.StatusNotFound, fmt.Sprintf("kit %q does not exist", name))
 			return
 		}
-		v, unchanged, err := jam.PushStudioKit(store, name, r.FormValue("config"))
+		// The box edits kit.yml only: the version keeps the current files.
+		ref, unchanged, err := jam.ReplaceKitYML(store, name, r.FormValue("config"))
 		if err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 			return
 		}
-		log.Info("ui kit pushed", "operator", jam.OperatorID(r), "kit", name, "version", v, "unchanged", unchanged)
-		renderKitBody(w, r, store, f != nil, name, pushedMsg(name, v, unchanged))
+		log.Info("ui kit pushed", "operator", jam.OperatorID(r), "kit", name, "version", ref.Version, "unchanged", unchanged)
+		renderKitBody(w, r, store, f != nil, name, pushedMsg(name, ref.Version, unchanged))
 	})
 
 	mux.HandleFunc("POST /app/admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {

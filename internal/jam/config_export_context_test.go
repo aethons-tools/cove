@@ -47,9 +47,7 @@ func ctxKitStore(t *testing.T) (*MemStore, string) {
 	t.Helper()
 	st := NewMemStore()
 	b64 := ctxKitContext(t)
-	if _, _, err := PushStudioKit(st, "builder", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, st, "builder", mustParse(t, "kind: studio\nbase:\n  context: "+b64+"\n"))
 	if _, _, err := PushStudioKit(st, "plain", "kind: studio\nprompt: hi\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -128,9 +126,7 @@ func TestExportConfigTreeKeepsIrreproducibleContextInline(t *testing.T) {
 	// Directory entries: PackContextDir never writes them.
 	raw := tarGzWithDir(t)
 	b64 := base64.StdEncoding.EncodeToString(raw)
-	if _, _, err := PushStudioKit(st, "hand", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKit(t, st, "hand", mustParse(t, "kind: studio\nbase:\n  context: "+b64+"\n"))
 	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, filesAll)
 	if err != nil {
 		t.Fatal(err)
@@ -254,9 +250,7 @@ func TestExportConfigTreeContextBudget(t *testing.T) {
 	for name, dir := range map[string]string{"big": big, "many": many} {
 		b64, err := studio.PackContextDir(dir)
 		must(t, err)
-		if _, _, err := PushStudioKit(st, name, "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-			t.Fatal(err)
-		}
+		seedKit(t, st, name, mustParse(t, "kind: studio\nbase:\n  context: "+b64+"\n"))
 	}
 	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, filesAll)
 	if err != nil {
