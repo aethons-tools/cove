@@ -52,7 +52,9 @@ type Event struct {
 type Filter struct {
 	ActorID, StreamID string // both required
 	AfterSeq          uint64
-	Limit             int // <= 0 → unbounded
+	BeforeSeq         uint64 // 0 = no upper bound; else seq < BeforeSeq
+	Limit             int    // <= 0 → unbounded
+	Newest            bool   // with Limit: the last Limit matches (still ascending)
 }
 
 // StreamInfo summarizes one stream of an actor.

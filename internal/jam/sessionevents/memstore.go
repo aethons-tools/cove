@@ -49,11 +49,15 @@ func (s *MemStore) List(f Filter) ([]Event, error) {
 	defer s.mu.Unlock()
 	var out []Event
 	for _, e := range s.streams[streamKey{f.ActorID, f.StreamID}] {
-		if e.Seq > f.AfterSeq {
+		if e.Seq > f.AfterSeq && (f.BeforeSeq == 0 || e.Seq < f.BeforeSeq) {
 			out = append(out, clone(e))
-			if f.Limit > 0 && len(out) == f.Limit {
-				break
-			}
+		}
+	}
+	if f.Limit > 0 && len(out) > f.Limit {
+		if f.Newest {
+			out = out[len(out)-f.Limit:]
+		} else {
+			out = out[:f.Limit]
 		}
 	}
 	return out, nil

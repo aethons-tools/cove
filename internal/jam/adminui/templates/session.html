@@ -69,6 +69,6 @@
   <div class="head"><span class="label mono">{{.Label}}</span>{{if .IsError}}<span class="pill phase-lost">error</span>{{end}}
   <span class="summary">{{.Summary}}</span>
   {{if .TruncatedBytes}}<span class="trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}</div>
-  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre></details>{{end}}
+  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="trunc">… {{.DetailTruncated}} more bytes (see raw JSON)</div>{{end}}</details>{{end}}
   {{if .Raw}}<details><summary>raw JSON</summary><pre>{{.Raw}}</pre></details>{{end}}
 </div>{{end}}
