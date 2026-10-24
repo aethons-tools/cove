@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -62,6 +63,9 @@ type StudioSetup struct {
 	Sections []SetupSection `json:"sections"`
 }
 
+// ErrUnknownSection is a section name outside the render order.
+var ErrUnknownSection = errors.New("unknown section")
+
 // SetupSectionNames lists every section, in render order.
 func SetupSectionNames() []string { return slices.Clone(setupSectionOrder) }
 
@@ -69,14 +73,22 @@ func SetupSectionNames() []string { return slices.Clone(setupSectionOrder) }
 // deduped, returned in render order; empty = all. An unknown name is an error
 // naming it.
 func ParseSetupSections(csv string) ([]string, error) {
-	want := map[string]bool{}
+	var names []string
 	for n := range strings.SplitSeq(csv, ",") {
-		n = strings.TrimSpace(n)
-		if n == "" {
-			continue
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, n)
 		}
+	}
+	return setupSections(names)
+}
+
+// setupSections validates a section list: deduped, returned in render order;
+// empty = all; an unknown name is ErrUnknownSection naming it.
+func setupSections(names []string) ([]string, error) {
+	want := map[string]bool{}
+	for _, n := range names {
 		if !slices.Contains(setupSectionOrder, n) {
-			return nil, fmt.Errorf("unknown section %q (want %s)", n, strings.Join(setupSectionOrder, ", "))
+			return nil, fmt.Errorf("%w %q (want %s)", ErrUnknownSection, n, strings.Join(setupSectionOrder, ", "))
 		}
 		want[n] = true
 	}

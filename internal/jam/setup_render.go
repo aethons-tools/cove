@@ -26,6 +26,7 @@ const (
 	reasonNoSupervisor      = "no supervisor on this Jam"
 	reasonNoLauncher        = "no image reader (placeholder launcher)"
 	reasonImageUnknown      = "image tag unknown (raised before it was recorded, or the launcher cannot name images)"
+	reasonLauncherUntagged  = "the launcher cannot name images"
 	reasonNoKit             = "the role raises no kit (the launcher's static image)"
 	reasonKitUnresolvable   = "the role's kit does not resolve; a raise would fail (see at-jam kit show)"
 	reasonModelSpec         = "the role's model-spec does not resolve; a raise would fail"
@@ -153,8 +154,13 @@ func (d SetupDeps) seedSection(ctx context.Context, m *imageMemo, tag, noKit str
 }
 
 // RoleSetup renders what a studio of project/role raised now would get.
+// sections is validated (empty = all; an unknown name is ErrUnknownSection).
 // ErrNotFound for an unknown role; every other failure is a section's.
 func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, sections []string) (StudioSetup, error) {
+	sections, err := setupSections(sections)
+	if err != nil {
+		return StudioSetup{}, err
+	}
 	r, ok := d.Store.GetRole(project, roleName)
 	if !ok {
 		return StudioSetup{}, fmt.Errorf("role %s/%s: %w", orDefaultProject(project), roleName, ErrNotFound)
@@ -177,6 +183,8 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 		noKit = reasonKitUnresolvable
 	case !wb.haveKit:
 		noKit = reasonNoKit
+	case wb.imageTag == "":
+		noKit = reasonLauncherUntagged // a role render has no recorded tag to be missing
 	}
 	var img imageMemo
 	for _, name := range sections {
@@ -218,11 +226,11 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 			case wb.kitErr != nil:
 				sec = unavailable(name, reasonKitUnresolvable)
 			case !wb.haveKit:
-				sec.Body = kitRefsBody(KitRef{}, nil, "")
+				sec.Body = kitRefsBody(KitRef{}, nil, "") + d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			default:
 				chain := chainOrSelf(chainRefs(wb.def.Chain), wb.def.Ref)
 				sec.Body = kitRefsBody(wb.def.Ref, chainRefs(wb.def.Chain), wb.imageTag) + kitDetailBody(d.Store, chain, wb.def.Kit.BuildArgs) +
-					d.imageLabelsPart(ctx, &img, wb.imageTag, "")
+					d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			}
 		case SectionSeed:
 			sec = d.seedSection(ctx, &img, wb.imageTag, noKit)
@@ -239,9 +247,13 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 // InstanceSetup renders what studio ref (a session id or a live manual
 // label) got: its snapshots, else a labelled recompute; config sections as
 // of now; image facts for the image it runs. diffRole adds, per section, a
-// line diff against RoleSetup of its role. ErrNotFound for an unknown or
-// gone studio.
+// line diff against RoleSetup of its role. sections is validated as
+// RoleSetup's. ErrNotFound for an unknown or gone studio.
 func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []string, diffRole bool) (StudioSetup, error) {
+	sections, err := setupSections(sections)
+	if err != nil {
+		return StudioSetup{}, err
+	}
 	id := ResolveSession(d.Store, ref)
 	inst, ok := d.Store.GetInstance(id)
 	if !ok || inst.Phase == PhaseGone {
@@ -309,6 +321,13 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 	if err != nil {
 		out.Note = "the role could not be rendered: no diff"
 		return out, nil
+	}
+	// The role side is the true raise-now baseline: a fresh studio has no
+	// idle override and no alarms.
+	for i := range rs.Sections {
+		if sec := &rs.Sections[i]; sec.Name == SectionPolicy && sec.Source != SourceUnavailable {
+			sec.Body += instancePolicyBody(Instance{})
+		}
 	}
 	applyDiff(&out, rs)
 	return out, nil

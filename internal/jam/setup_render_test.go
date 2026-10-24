@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -50,6 +54,9 @@ const (
 	secretSettingsEnv  = "settingsENVsecret"
 	secretProviderEnv  = "providerENVsecret"
 	secretClaudeMD     = "ghp_CLAUDEMDtoken0123456789"
+	secretRepoPass     = "Rep0Passw0rd"
+	secretImportedMD   = "ghp_IMPORTEDmdToken0123456"
+	secretSkillDesc    = "ghp_SKILLdescToken01234567"
 )
 
 // setupFixture raises studio w1 of role dev (the my-app → web-dev → default
@@ -72,6 +79,17 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 			"remote": {Type: "http", URL: "https://mcp.example.com/mcp", Headers: map[string]string{"Authorization": "Bearer ${" + secretMCPHeader + "}"}}}}
 	app.Base.Kit = "web-dev"
 	mustEnsure(t, store, "my-app", app)
+	// web-dev came from git, through a repo URL carrying a password.
+	src := &KitSource{Repo: "https://kits:" + secretRepoPass + "@github.com/o/kits", Dir: "web-dev", Ref: "main", Commit: "abcdef0123456789"}
+	wk, _ := store.GetKit("web-dev")
+	for v, m := range wk.Meta {
+		m.Source = src
+		wk.Meta[v] = m
+	}
+	wk.Source = src
+	if err := store.PutKitDocs([]Kit{wk}); err != nil {
+		t.Fatal(err)
+	}
 	ms := ModelSpec{Name: "spec1", Type: "claude", Version: "2.1.0"}
 	ms.Principal.Credential = "anthropic-key"
 	ms.Principal.Headers = []modelspec.HeaderRule{{Name: "X-Extra", Set: secretPrincipalHdr}}
@@ -90,11 +108,18 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 	facts := seedFacts() // Task 7's fixture: DB_PASSWORD, u:p@ label, ghp_SETTINGS
 	facts.Env = append(facts.Env, "API_KEY="+secretImageEnv)
 	for i, s := range facts.Seed {
-		if s.Path == "CLAUDE.md" {
+		switch s.Path {
+		default:
+			continue
+		case "CLAUDE.md":
 			s.Text += "deploy with " + secretClaudeMD + "\n"
-			s.Size = int64(len(s.Text))
-			facts.Seed[i] = s
+		case "SANDBOX.md":
+			s.Text += "push with " + secretImportedMD + "\n"
+		case "skills/docs-audit/SKILL.md":
+			s.Text = "---\nname: docs-audit\ndescription: Check the docs with " + secretSkillDesc + "\n---\nbody"
 		}
+		s.Size = int64(len(s.Text))
+		facts.Seed[i] = s
 	}
 	img := &fakeImages{facts: map[string]ImageFacts{inst.ImageTag: facts}}
 	return SetupDeps{Store: store, Sup: sup, Images: img, SealedEgress: []string{".anthropic.com", ".github.com"}}, inst, []string{tok, launch}, img
@@ -177,7 +202,8 @@ func TestSetupNeverShowsSecrets(t *testing.T) {
 		t.Fatalf("the raise must record four parts: %s", stored)
 	}
 	secrets := append([]string{secretDestEnv, secretImageEnv, "hunter2", "ghp_SETTINGS", "u:p@", "oauthAccount", secretUpstreamPass,
-		"bot:", secretBuildArg, secretMCPHeader, secretMCPArg, secretPrincipalHdr, secretSettingsEnv, secretProviderEnv, secretClaudeMD}, toks...)
+		"bot:", secretBuildArg, secretMCPHeader, secretMCPArg, secretPrincipalHdr, secretSettingsEnv, secretProviderEnv, secretClaudeMD,
+		secretRepoPass, "kits:", secretImportedMD, secretSkillDesc}, toks...)
 	for _, secret := range secrets {
 		if secret == "" {
 			continue
@@ -188,7 +214,8 @@ func TestSetupNeverShowsSecrets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"GH_TOKEN=«masked»", "credential:  gh-bot", "NPM_TOKEN=«masked»", "ANTHROPIC_API_KEY=«identity token»"} {
+	for _, want := range []string{"GH_TOKEN=«masked»", "credential:  gh-bot", "NPM_TOKEN=«masked»", "ANTHROPIC_API_KEY=«identity token»",
+		"https://github.com/o/kits//web-dev@main", "push with «masked»", "docs-audit  Check the docs with «masked»"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("credentials must appear by name and secrets as marks: %q missing", want)
 		}
@@ -365,5 +392,199 @@ func TestSetupSectionsFilterAndNotFound(t *testing.T) {
 	s, err = RoleSetup(context.Background(), d, "default", "dev", []string{SectionContext, SectionKit})
 	if err != nil || s.Sections[0].Reason != reasonNoSupervisor || s.Sections[1].Reason != reasonNoSupervisor {
 		t.Fatalf("no supervisor = %+v, %v", s, err)
+	}
+}
+
+func sectionsByName(s StudioSetup) map[string]SetupSection {
+	out := map[string]SetupSection{}
+	for _, sec := range s.Sections {
+		out[sec.Name] = sec
+	}
+	return out
+}
+
+func diffHas(sec SetupSection, op, text string) bool {
+	for _, l := range sec.Diff {
+		if l.Op == op && strings.Contains(l.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestInstanceSetupPolicyDiff(t *testing.T) {
+	d, inst, _, _ := setupFixture(t)
+	inst.IdleOverride = &IdleOverride{Duration: 45 * time.Minute, Scope: IdleScopeAlways}
+	if err := d.Store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	s, err := InstanceSetup(context.Background(), d, "w1", []string{SectionPolicy}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol := s.Sections[0]
+	if !diffHas(pol, "-", "idle override: 45m0s") || !diffHas(pol, "+", "idle override: none") || diffHas(pol, "-", "alarms: none") {
+		t.Fatalf("policy diff = %+v", pol.Diff)
+	}
+}
+
+// kitlessFixture adds role plain (no kit; the supervisor has no default kit)
+// and raises p1 from it.
+func kitlessFixture(t *testing.T) (SetupDeps, Instance) {
+	t.Helper()
+	d, _, _, _ := setupFixture(t)
+	if err := d.Store.PutRole("default", Role{Name: "plain", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	inst, _, _, err := d.Sup.Raise(context.Background(), RaiseSpec{ActorID: "p1", Project: "default", Role: "plain", Prompt: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Kit.ID != "" || inst.ImageTag != "" {
+		t.Fatalf("p1 raised a kit: %+v", inst.Kit)
+	}
+	return d, inst
+}
+
+func TestKitlessSetup(t *testing.T) {
+	d, inst := kitlessFixture(t)
+	s, err := InstanceSetup(context.Background(), d, "p1", SetupSectionNames(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sectionsByName(s)
+	if k := got[SectionKit]; !k.Diffed || diffChanged(k.Diff) {
+		t.Errorf("kitless kit must be the same as a raise now: %+v", k)
+	}
+	if seed := got[SectionSeed]; seed.Source != SourceUnavailable || seed.Reason != reasonNoKit {
+		t.Errorf("seed with snapshots = %+v, want %s", seed, reasonNoKit)
+	}
+	old := inst
+	old.ActorID = "p0" // the same kitless studio, raised before setup recording
+	if err := d.Store.PutInstance(old); err != nil {
+		t.Fatal(err)
+	}
+	s, err = InstanceSetup(context.Background(), d, "p0", []string{SectionSeed}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed := s.Sections[0]; seed.Source != SourceUnavailable || seed.Reason != reasonImageUnknown {
+		t.Errorf("seed without snapshots = %+v, want %s", seed, reasonImageUnknown)
+	}
+}
+
+func TestSetupHasNoSideEffects(t *testing.T) {
+	d, _, _, _ := setupFixture(t)
+	actors, _ := json.Marshal(d.Store.ListActors())
+	insts, _ := json.Marshal(d.Store.ListInstances())
+	snaps, _ := json.Marshal(d.Store.SetupSnapshots("w1"))
+	if _, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstanceSetup(context.Background(), d, "w1", SetupSectionNames(), true); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := json.Marshal(d.Store.ListActors()); string(a) != string(actors) {
+		t.Errorf("actors changed:\n%s\n%s", actors, a)
+	}
+	if i, _ := json.Marshal(d.Store.ListInstances()); string(i) != string(insts) {
+		t.Errorf("instances changed:\n%s\n%s", insts, i)
+	}
+	if n := d.Store.SetupSnapshots(wouldBeActorID); len(n) != 0 {
+		t.Errorf("the would-be actor has snapshots: %+v", n)
+	}
+	if after, _ := json.Marshal(d.Store.SetupSnapshots("w1")); string(after) != string(snaps) {
+		t.Errorf("w1 snapshots changed:\n%s\n%s", snaps, after)
+	}
+}
+
+func TestInstanceSetupStaleness(t *testing.T) {
+	stale := func(t *testing.T, d SetupDeps, name string) SetupSection {
+		t.Helper()
+		s, err := InstanceSetup(context.Background(), d, "w1", []string{name}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Sections[0]
+	}
+	t.Run("fresh", func(t *testing.T) {
+		d, inst, _, _ := setupFixture(t)
+		conn, _ := ConnectorFor(d.Store, actorOf(d.Store, inst))
+		inst.Connector = snippet.Fingerprint(conn)
+		_ = d.Store.PutInstance(inst)
+		for _, n := range []string{SectionContext, SectionEgress, SectionDestinations, SectionEnv, SectionKit} {
+			if sec := stale(t, d, n); sec.Stale {
+				t.Errorf("%s stale with nothing edited", n)
+			}
+		}
+	})
+	t.Run("context", func(t *testing.T) {
+		d, _, _, _ := setupFixture(t)
+		r, _ := d.Store.GetRole("default", "dev")
+		r.Context = sessionctx.Layer{Core: "a new role rule"}
+		_ = d.Store.PutRole("default", r)
+		if sec := stale(t, d, SectionContext); !sec.Stale {
+			t.Errorf("context = %+v, want stale", sec)
+		}
+	})
+	t.Run("env and destinations", func(t *testing.T) {
+		d, inst, _, _ := setupFixture(t)
+		conn, _ := ConnectorFor(d.Store, actorOf(d.Store, inst))
+		inst.Connector = snippet.Fingerprint(conn) // the cove reported applying it
+		_ = d.Store.PutInstance(inst)
+		_ = d.Store.AddDestination(Destination{Name: "npm", Route: "/npm/", Upstream: "https://registry.npmjs.org", IdentityIn: ApplyBearer, Apply: ApplyBearer, CredName: "npm-tok",
+			Env: map[string]string{"NPM_REGISTRY": "{base}/npm/"}})
+		r, _ := d.Store.GetRole("default", "dev")
+		r.Scope.Destinations = append(r.Scope.Destinations, "npm")
+		_ = d.Store.PutRole("default", r)
+		for _, n := range []string{SectionEnv, SectionDestinations} {
+			if sec := stale(t, d, n); !sec.Stale {
+				t.Errorf("%s = %+v, want stale", n, sec)
+			}
+		}
+	})
+	t.Run("kit", func(t *testing.T) {
+		d, _, _, _ := setupFixture(t)
+		app := studio.StudioKit{Kind: studio.Kind, Prompt: "a newer leaf prompt", Egress: []string{"npmjs.org"}}
+		app.Base.Kit = "web-dev"
+		mustEnsure(t, d.Store, "my-app", app)
+		if sec := stale(t, d, SectionKit); !sec.Stale {
+			t.Errorf("kit = %+v, want stale", sec)
+		}
+	})
+}
+
+// untaggedLauncher hides the fake's ImageTagger: a launcher that cannot name images.
+type untaggedLauncher struct{ Launcher }
+
+func TestRoleSetupUntaggedImage(t *testing.T) {
+	d, _, _, _ := setupFixture(t)
+	d.Sup = NewSupervisor(d.Store, untaggedLauncher{&fakeLauncher{liveness: LivenessAlive}}, "holder-A", 60*time.Second, 30*time.Second,
+		func() time.Time { return time.Unix(1000, 0).UTC() }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionSeed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed := s.Sections[0]; seed.Reason != reasonLauncherUntagged {
+		t.Errorf("seed = %+v, want %s", seed, reasonLauncherUntagged)
+	}
+}
+
+func TestSetupRejectsUnknownSections(t *testing.T) {
+	d, _, _, _ := setupFixture(t)
+	if _, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionEgress, "bogus"}); !errors.Is(err, ErrUnknownSection) {
+		t.Errorf("role err = %v", err)
+	}
+	if _, err := InstanceSetup(context.Background(), d, "w1", []string{"bogus"}, false); !errors.Is(err, ErrUnknownSection) {
+		t.Errorf("studio err = %v", err)
+	}
+	s, err := InstanceSetup(context.Background(), d, "w1", []string{SectionKit, SectionEgress, SectionKit}, false)
+	if err != nil || len(s.Sections) != 2 || s.Sections[0].Name != SectionEgress {
+		t.Errorf("sections must be deduped and in render order: %+v, %v", s.Sections, err)
+	}
+	for _, empty := range [][]string{nil, {}} {
+		if s, err := RoleSetup(context.Background(), d, "default", "dev", empty); err != nil || len(s.Sections) != len(SetupSectionNames()) {
+			t.Errorf("empty sections must mean all: %d, %v", len(s.Sections), err)
+		}
 	}
 }

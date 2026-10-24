@@ -229,7 +229,7 @@ image tag: cove-kit:<hex>-asm1
 provenance (root first):
   KIT         SOURCE
   default@v1  local file, pushed <time>
-  web-dev@v1  local file, pushed <time>
+  web-dev@v1  https://github.com/o/kits//web-dev@main (commit <hex>), pushed <time>
   my-app@v2   local file, pushed <time>
 build args:
   GO_VERSION=1.27.1
@@ -251,10 +251,11 @@ deploy with «masked»
 
 --- /agent-data/SANDBOX.md (imported)
 sandbox rules
+push with «masked»
 
 skills:
   NAME        DESCRIPTION
-  docs-audit  Check the docs
+  docs-audit  Check the docs with «masked»
 
 --- /agent-data/settings.json (secret-named values masked)
 {
