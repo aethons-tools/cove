@@ -238,3 +238,29 @@ func TestBoardOpsGeometryAndDeletes(t *testing.T) {
 }
 
 func mustLast(m map[string]any) [2]float64 { x, y := lastPoint(m); return [2]float64{x, y} }
+
+// Resizing a left-pointing connector keeps its direction, and its label
+// follows the new midpoint.
+func TestBoardOpsResizeConnector(t *testing.T) {
+	docs, _, _ := ApplyBoardOps(nil, []BoardOp{{Op: "add", Type: "arrow", ID: "a", X: fptr(400), Y: fptr(0), W: fptr(-100), H: fptr(0), Text: "back"}})
+	up, _, err := ApplyBoardOps(docs, []BoardOp{{Op: "update", ID: "a", W: fptr(300)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := merge(docs, up)
+	if x, _ := lastPoint(elDoc(all, "a")); x != -300 {
+		t.Fatalf("end x = %v, want -300 (still pointing left)", x)
+	}
+	label := find(CompactBoard(all), "a")
+	var lb map[string]any
+	for _, d := range all {
+		var m map[string]any
+		_ = json.Unmarshal(d, &m)
+		if m["containerId"] == "a" {
+			lb = m
+		}
+	}
+	if cx := num(lb, "x") + num(lb, "width")/2; math.Abs(cx-250) > 0.5 || label.Text != "back" {
+		t.Fatalf("label centre x = %v, want 250", cx)
+	}
+}

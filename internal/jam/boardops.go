@@ -511,7 +511,19 @@ func (a *applier) update(op BoardOp) error {
 	}
 	a.touch(m)
 	if moved {
-		for _, lb := range boundOf(m, "text") {
+		if t == "arrow" || t == "line" { // the connector itself moved or resized
+			// w/h are sizes (as board_read shows them): keep the direction
+			// the points already have.
+			dx, dy := endVector(m)
+			if op.W != nil {
+				dx = math.Copysign(*op.W, dx)
+			}
+			if op.H != nil {
+				dy = math.Copysign(*op.H, dy)
+			}
+			a.route(m, dx, dy)
+		}
+		for _, lb := range boundOf(m, "text") { // labels after routing
 			if l, ok := a.live(lb); ok {
 				a.placeLabel(m, l)
 				a.touch(l)
@@ -521,16 +533,6 @@ func (a *applier) update(op BoardOp) error {
 			if ar, ok := a.live(arID); ok {
 				a.reroute(ar)
 			}
-		}
-		if t == "arrow" || t == "line" { // the connector itself moved or resized
-			dx, dy := endVector(m)
-			if op.W != nil {
-				dx = *op.W
-			}
-			if op.H != nil {
-				dy = *op.H
-			}
-			a.route(m, dx, dy)
 		}
 	}
 	return nil
