@@ -311,3 +311,15 @@ func TestImportRefusesKitWithoutTree(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidConfig", err)
 	}
 }
+
+func TestImportVersion4KitTextKept(t *testing.T) {
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "a", Current: 1, Versions: map[int]string{1: "kind: studio\n"}}}}
+	st := NewMemStore()
+	if err := st.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	k, ok := st.GetKit("a")
+	if !ok || k.Versions[1] != "kind: studio\n" || len(k.Trees) != 0 {
+		t.Fatalf("kit = %+v %v", k, ok)
+	}
+}
