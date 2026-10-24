@@ -120,6 +120,21 @@
 {{end}}
 {{end}}{{end}}
 
+{{/* thinking-event is one event of the session pane's Thinking tab (an `ev`
+     fragment of /app/user/session/{id}/thinking/events, and a row of
+     thinkingpage). Agent text is inert: html/template escapes it. The data-*
+     attributes are the contract the pane's script reads. */}}
+{{define "thinking-event"}}{{with .PaneEvent}}<div class="te k-{{.Kind}}{{if .IsError}} err{{end}}" data-kind="{{.Kind}}" data-tool="{{.Tool}}" data-tid="{{.ToolUseID}}" data-seq="{{.Seq}}" data-stream="{{.StreamID}}" data-at="{{.At.UnixMilli}}" data-error="{{.IsError}}">
+  <div class="te-line"><span class="te-icon"></span><b class="te-tool">{{.Tool}}</b> <span class="te-text">{{if .Gap}}{{.Summary}}{{else}}{{.Narrative}}{{end}}</span><span class="te-status"></span>{{if .TruncatedBytes}}<span class="te-trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}</div>
+  {{if .Detail}}<pre class="te-detail" hidden>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="te-note" hidden>… {{.DetailTruncated}} more bytes</div>{{end}}{{end}}
+  {{if eq .Kind "result"}}<span class="te-cost" data-cost="{{.CostUSD}}" data-ms="{{.DurationMS}}" hidden></span>{{end}}
+</div>{{end}}{{end}}
+
+{{/* thinkingpage is a page of older Thinking events (the
+     /app/user/session/{id}/thinking/page target): "Load earlier" on top when
+     more exist, then the events in seq order. Empty when none remain. */}}
+{{define "thinkingpage"}}{{if .PaneBefore}}<button class="te-more" data-before="{{.PaneBefore}}">Load earlier</button>{{end}}{{range .PaneEvents}}{{template "thinking-event" (thinkingRow .)}}{{end}}{{end}}
+
 {{/* sessions renders the presence strip: one line per session taking part,
      like a typing indicator. It is the /app/user/presence refresh target, pushed by
      the `presence` event (a session's status changed). Kept on one line so an

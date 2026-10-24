@@ -34,6 +34,9 @@ type Deps struct {
 	// PreviewURL maps a session's exposed port name to the URL a
 	// collaborator opens (nil: previews off).
 	PreviewURL func(actorID, name string) (string, error)
+	// Events and Hub serve the Thinking tab (nil Events: not recorded).
+	Events sessionevents.Store
+	Hub    *sessionevents.Hub
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).
