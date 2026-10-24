@@ -11,7 +11,7 @@ services:
     extra_hosts: ["${JAM_HOST}:host-gateway"]
     ports: ["127.0.0.1:9090:9090"]
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.34.1
     command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
