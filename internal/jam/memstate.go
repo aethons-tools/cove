@@ -54,6 +54,9 @@ type memState struct {
 	grants map[string]map[ident.ID]ShareGrant
 	// pushSubs is the Web Push subscriptions by endpoint (push_subscriptions.go).
 	pushSubs map[string]PushSubscription
+	// setup is the per-instance setup snapshots: actor id → part → snapshot
+	// (setup_snapshot.go). Dropped with the instance.
+	setup map[string]map[string]SetupSnapshot
 	// channels is the channel registry, keyed by id (archived ones stay), and
 	// chanMembers each channel's membership rows (channel_registry.go).
 	channels    map[ident.ID]Channel
@@ -90,6 +93,7 @@ func newMemState() *memState {
 		standing:        map[standingKey]string{},
 		grants:          map[string]map[ident.ID]ShareGrant{},
 		pushSubs:        map[string]PushSubscription{},
+		setup:           map[string]map[string]SetupSnapshot{},
 		channels:        map[ident.ID]Channel{},
 		chanMembers:     map[ident.ID][]ChannelMember{},
 		reads:           map[ident.ID]map[ident.ID]int64{},
@@ -597,6 +601,7 @@ func (m *memState) applyRemoveInstance(actorID string) bool {
 		return false
 	}
 	delete(m.instances, actorID)
+	delete(m.setup, actorID)
 	return true
 }
 

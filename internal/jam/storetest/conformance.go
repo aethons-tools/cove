@@ -23,6 +23,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runChannelConformance(t, newStore)
 	runShareGrantConformance(t, newStore)
 	runPushConformance(t, newStore)
+	runSetupConformance(t, newStore)
 	runKitSourceConformance(t, newStore)
 	runKitSetConformance(t, newStore)
 	runConfigConformance(t, newStore)
