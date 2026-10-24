@@ -202,7 +202,7 @@ func build(ev sessionevents.Event) EventView {
 		}
 	case "user":
 		v.Label = "user"
-		if text := promptText(env.Message.Content, blocks); text != "" {
+		if text := promptText(env.Message.Content, blocks); strings.TrimSpace(text) != "" {
 			v.Kind, v.Label = KindPrompt, "prompt"
 			v.Summary, v.Detail, v.Narrative = Clip(text, 300), text, Clip(firstLine(text), 160)
 		}

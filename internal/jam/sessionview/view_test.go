@@ -92,6 +92,9 @@ func TestViewPromptAndOther(t *testing.T) {
 	if p.Kind != KindPrompt || p.Narrative != "Fix the bug" {
 		t.Fatalf("block prompt = %+v", p)
 	}
+	if w := mk(`{"type":"user","message":{"content":"  \n "}}`); w.Kind != KindOther {
+		t.Fatalf("whitespace prompt = %+v", w)
+	}
 	o := mk(`{"type":"system","subtype":"hook_response","output":"secret-ish"}`)
 	if o.Kind != KindOther || o.Narrative != "system/hook_response" {
 		t.Fatalf("other = %+v", o)

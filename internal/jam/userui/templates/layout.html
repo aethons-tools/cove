@@ -184,6 +184,7 @@ body{display:flex;flex-direction:column}
 .te-status{margin-left:8px;color:var(--muted)}.te-status:empty{display:none}
 .k-other .te-line,.k-other .te-icon,.k-thinking.te-empty .te-text{color:var(--faint);cursor:default}
 .k-prompt .te-text{font-weight:600}
+.te.te-absorbed{display:none}
 .te.err .te-status{color:var(--wait)}
 .te-trunc,.te-note{margin-left:8px;color:var(--faint);font-size:11px}
 .te-detail,.te-out,.te-raw{white-space:pre-wrap;word-break:break-word;margin:2px 0 6px 18px;max-height:none;font:inherit;padding:4px 6px;background:var(--surface-2);border-radius:4px}
@@ -657,17 +658,8 @@ function meThinkingAdd(node, at){
   node.querySelector('.te-icon').textContent=meThIcons[kind]||'·';
   node.querySelector('.te-time').textContent=meThTime(+node.dataset.at);
   if(kind==='thinking' && !node.querySelector('.te-text').textContent.trim()){
-    // Thinking with no visible text (only its signature came back): a muted
-    // "thinking" line; a run of them collapses into one ("thinking ×3").
-    node.classList.add('te-empty');
+    node.classList.add('te-empty'); // only its signature came back: a muted "thinking" line (meThRuns)
     node.querySelector('.te-text').textContent='thinking';
-    var tail=meThTail(), prev=!at && (tail ? tail.previousElementSibling : L.lastElementChild);
-    if(prev && prev.classList.contains('te-empty') && prev.dataset.stream===s){
-      var n=(+prev.dataset.runs||1)+1;
-      prev.dataset.runs=n;
-      prev.querySelector('.te-text').textContent='thinking ×'+n;
-      return;
-    }
   }
   node.querySelectorAll('.te-detail,.te-note').forEach(function(d){ d.hidden=false; }); // the format's CSS shows them
   if(node.dataset.tool) meThTool(node.dataset.tool);
@@ -689,7 +681,9 @@ function meThinkingAdd(node, at){
   meThFilter(node);
   if(t.io) t.io.observe(node);
   if(at) return; // meThPage relabels the costs once per page
-  if(meThCap() || kind==='result') meThCosts();
+  var capped=meThCap();
+  if(capped || kind==='result') meThCosts();
+  if(capped || kind==='thinking') meThRuns();
   if(atBottom){ meThEnd(); }
   else{ meThUnseen(1); }
 }
@@ -773,7 +767,7 @@ function meThPage(stream, before, from, node, done){
      done(frag.querySelector('.te-more'));
      t.list.scrollTop+=t.list.scrollHeight-h;
      meThTrimNewest();
-     meThCosts();
+     meThCosts(); meThRuns();
    }, function(){ done(undefined); });
 }
 function meThEarlier(m){
@@ -848,7 +842,24 @@ function meThFilter(n){
   n.classList.toggle('tool-miss', !!t.prefs.tool && n.dataset.tool!==t.prefs.tool);
   n.classList.toggle('search-miss', !!t.q && n.textContent.toLowerCase().indexOf(t.q)<0);
 }
-function meThFilterAll(){ meThClasses(); meTh.list.querySelectorAll('.te').forEach(meThFilter); }
+function meThFilterAll(){ meThClasses(); meTh.list.querySelectorAll('.te').forEach(meThFilter); meThRuns(); }
+// meThRuns collapses each run of textless thinking lines into its first
+// ("thinking ×3"), the rest kept but hidden (te-absorbed), so seq dedup,
+// raw and Load earlier see every event. Hidden progress lines don't break
+// a run; any other line does. Recomputed in DOM order after each change.
+function meThRuns(){
+  var L=meTh.list, skipProgress=!L.classList.contains('show-progress'), head=null, n=0;
+  L.querySelectorAll('.te').forEach(function(x){
+    if(skipProgress && x.classList.contains('k-progress')) return;
+    if(!x.classList.contains('te-empty')){ head=null; return; }
+    if(head && head.dataset.stream===x.dataset.stream){
+      n++; x.classList.add('te-absorbed');
+      head.querySelector('.te-text').textContent='thinking ×'+n;
+      return;
+    }
+    head=x; n=1; x.classList.remove('te-absorbed'); x.querySelector('.te-text').textContent='thinking';
+  });
+}
 // meThWorking keeps a "working…" line last while the session is busy.
 function meThWorking(){
   if(!meTh) return;

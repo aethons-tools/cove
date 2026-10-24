@@ -484,6 +484,7 @@ func TestBrowserThinkingKinds(t *testing.T) {
 		thinkRaw(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": "You were woken:\nnew squawk"}}),
 		thinkRaw(map[string]any{"type": "system", "subtype": "hook_response", "output": "hook output"}),
 		assistantBlock(map[string]any{"type": "thinking", "thinking": "", "signature": "a"}),
+		thinkRaw(map[string]any{"type": "system", "subtype": "thinking_tokens"}), // hidden progress: doesn't break the run
 		assistantBlock(map[string]any{"type": "thinking", "thinking": "", "signature": "b"}),
 		assistantBlock(map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "ls"}}),
 		toolResultBlock("tu1", "a\nb", false),
@@ -510,7 +511,7 @@ func TestBrowserThinkingKinds(t *testing.T) {
 			var call=q('.te[data-kind="tool_call"]');
 			return {Prompt:q('.k-prompt .te-text').textContent, Other:q('.k-other .te-text').textContent,
 				OtherDetail:L.querySelectorAll('.k-other .te-detail').length,
-				Think:q('.k-thinking .te-text').textContent, Thinks:L.querySelectorAll('.k-thinking').length,
+				Think:q('.k-thinking .te-text').textContent, Thinks:L.querySelectorAll('.k-thinking:not(.te-absorbed)').length,
 				Status:call.querySelector('.te-meta .te-status').textContent, StatusInLine:!!call.querySelector('.te-line .te-status'),
 				Time:q('.k-prompt .te-time').textContent};})()`, &got),
 	); err != nil {
