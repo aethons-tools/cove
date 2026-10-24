@@ -39,10 +39,13 @@ var authValueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)(
 var authGlueRE = regexp.MustCompile(`(?i)(?:^|[:="'])\s*(?:bearer|basic|token)\s+(?:[^\s{]+\{(?:token|base|host|url)\}|\{(?:token|base|host|url)\}\S+)`)
 
 // assignRE finds a secret assignment inside free text ("export GH_TOKEN=...").
-var assignRE = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|credential)\s*[=:]\s*['"]?[A-Za-z0-9._~+/=-]{8,}`)
+// A quoted value's matching closing quote is consumed with it.
+var assignRE = regexp.MustCompile(`(?i)\b[A-Za-z0-9_]*(?:token|secret|password|passwd|api[_-]?key|credential)\s*[=:]\s*(?:'[A-Za-z0-9._~+/=-]{8,}'?|"[A-Za-z0-9._~+/=-]{8,}"?|[A-Za-z0-9._~+/=-]{8,})`)
 
-// queryResumeRE is a list delimiter immediately followed by a new URL.
-var queryResumeRE = regexp.MustCompile(`[,;|][A-Za-z][A-Za-z0-9+.-]*://`)
+// queryResumeRE is a list delimiter immediately followed by a new URL whose
+// scheme is letters and digits only (so a glued "sk.live+x://" does not
+// resume).
+var queryResumeRE = regexp.MustCompile(`[,;|][A-Za-z][A-Za-z0-9]*://`)
 
 // authHeaderRE finds an Authorization header line in a value.
 var authHeaderRE = regexp.MustCompile(`(?i)authorization\s*:`)
@@ -73,11 +76,17 @@ func queryEnd(v string, from int) int {
 	return runEnd
 }
 
-// stripURLSecrets, for EVERY scheme:// occurrence in v, removes the userinfo
-// (up to the last '@' before the first '/' or whitespace) and replaces a
-// query or fragment (also on a path-less URL) with markQuery, continuing
-// after the next list delimiter. It does not depend on url.Parse succeeding,
-// and handles lists (",", ";", "|") and free text.
+// stripURLSecrets, for EVERY scheme:// occurrence in v (lists joined by
+// ",", ";" or "|", and free text), without depending on url.Parse:
+//   - ambiguous authority: when, in the run after "scheme://" up to the next
+//     '/' or whitespace, an '@' follows the first '?' or '#', a password may
+//     contain '?'/'#', so everything after "scheme://" up to queryEnd becomes
+//     MarkMasked (neither username nor password can show);
+//   - otherwise the authority ends at the first '/', '?', '#', whitespace or
+//     next scheme://, and its userinfo (up to its last '@') is dropped;
+//   - a query or fragment (also on a path-less URL) becomes markQuery up to
+//     queryEnd, i.e. the end of the whitespace-free run or a list delimiter
+//     immediately followed by a new scheme://.
 func stripURLSecrets(v string) string {
 	if !strings.Contains(v, "://") {
 		return v
@@ -91,6 +100,11 @@ func stripURLSecrets(v string) string {
 		}
 		out.WriteString(v[pos : pos+loc[1]])
 		start := pos + loc[1]
+		if ambiguousAuthority(v[start:]) {
+			out.WriteString(MarkMasked)
+			pos = queryEnd(v, start)
+			continue
+		}
 		// authority: up to '/', '?', '#', whitespace or end ('@' may appear in
 		// a query or fragment, but '?'/'#' may not appear in userinfo)
 		authEnd := len(v)
@@ -131,6 +145,16 @@ func stripURLSecrets(v string) string {
 	}
 	out.WriteString(v[pos:])
 	return out.String()
+}
+
+// ambiguousAuthority reports an '@' after the first '?' or '#' in rest's run
+// up to the next '/' or whitespace.
+func ambiguousAuthority(rest string) bool {
+	if i := strings.IndexFunc(rest, func(r rune) bool { return r == '/' || unicode.IsSpace(r) }); i >= 0 {
+		rest = rest[:i]
+	}
+	q := strings.IndexAny(rest, "?#")
+	return q >= 0 && strings.IndexByte(rest[q:], '@') >= 0
 }
 
 // stripUserinfo re-parses a single URL and returns it without userinfo, with

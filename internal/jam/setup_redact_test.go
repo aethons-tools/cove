@@ -37,9 +37,9 @@ func TestRedactEnv(t *testing.T) {
 		{"REPO", "https://u:p@ss@h/x", "https://h/x"},
 		{"REPO", "https://u:p@ss", "https://ss"},
 		{"U", "https://h?token=abc", "https://h?«masked»"},
-		{"U", "https://h?password=p@ssword123", "https://h?«masked»"},
-		{"U", "https://h#frag@evil", "https://h?«masked»"},
-		{"U", "https://u:p@h?password=p@ssword123", "https://h?«masked»"},
+		{"U", "https://h?password=p@ssword123", "https://«masked»"}, // fix 4: ambiguous authority
+		{"U", "https://h#frag@evil", "https://«masked»"},
+		{"U", "https://u:p@h?password=p@ssword123", "https://«masked»"},
 		{"U", "https://h/x?a=1;b=secret", "https://h/x?«masked»"},
 		{"U", "https://h?a=1,b=2", "https://h?«masked»"},
 		{"U", "https://h?a=1|secretpart", "https://h?«masked»"},
@@ -49,7 +49,7 @@ func TestRedactEnv(t *testing.T) {
 		{"HDR", "-H 'Bearer abcdefghijkl'", MarkMasked},
 		{"DESC", "export GH_TOKEN=ghp_abcdefghijk", "export " + MarkMasked},
 		{"DESC", "token: ghp_abcdefghijk", MarkMasked},
-		{"DESC", "set password = 'hunter2hunter2' ok", "set " + MarkMasked + "' ok"},
+		{"DESC", "set password = 'hunter2hunter2' ok", "set " + MarkMasked + " ok"},
 		{"DESC", "run with api_key=abcdefgh12 now", "run with " + MarkMasked + " now"},
 		{"U", "https://u:p@h?token=abc", "https://h?«masked»"},
 		{"U", "https://h#f", "https://h?«masked»"},
@@ -71,6 +71,17 @@ func TestRedactEnv(t *testing.T) {
 		{"_auth", "dXNlcjpwdw==", MarkMasked},
 		{"auth", "x", MarkMasked},
 		{"Authorization", "x", MarkMasked},
+		// fix round 4
+		{"U", "https://u:p?w@h/x", "https://«masked»"},
+		{"U", "https://u:p#w@h/x", "https://«masked»"},
+		{"U", "https://u:p?w@h/x and https://v:q@b/y", "https://«masked» and https://b/y"},
+		{"U", "https://u:p?w@h/x,https://v:q@b/y", "https://«masked»,https://b/y"},
+		{"U", "https://h?a=1", "https://h?«masked»"},
+		{"U", "https://h/x?a=b@c", "https://h/x?«masked»"},
+		{"DESC", `MY_API_KEY: "sk-ant-0123456789"`, MarkMasked},
+		{"DESC", `x MY_API_KEY: "sk-ant-0123456789" y`, "x " + MarkMasked + " y"},
+		{"U", "https://h?a=1,sk.live+x://secretpart", "https://h?«masked»"},
+		{"U", "https://h?a=1;s0.x://secretpart", "https://h?«masked»"},
 	} {
 		if got := RedactEnv(c.k, c.v); got != c.want {
 			t.Errorf("RedactEnv(%q, %q) = %q, want %q", c.k, c.v, got, c.want)
@@ -136,7 +147,7 @@ func TestRedactLabel(t *testing.T) {
 		{"desc", "clone https://u:p@h/x?t=1 please", "desc", "clone https://h/x?«masked» please"},
 		{"u", "https://u:p@h/x?t=1", "u", "https://h/x?«masked»"},
 		{"u", "https://u:p@h?t=1", "u", "https://h?«masked»"},
-		{"u", "https://h?p=a@secret", "u", "https://h?«masked»"},
+		{"u", "https://h?p=a@secret", "u", "https://«masked»"},
 	} {
 		k, v := RedactLabel(c.k, c.v)
 		if k != c.wantK || v != c.wantV {
