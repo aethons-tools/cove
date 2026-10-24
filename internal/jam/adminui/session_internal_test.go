@@ -2,6 +2,7 @@ package adminui
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
@@ -54,4 +55,14 @@ func TestSessionEventFragmentGolden(t *testing.T) {
 			}
 		})
 	}
+	// A detail over DetailMax is clipped; the fragment says so (the full text
+	// is in the raw JSON). Too big for a literal golden: assert the marker.
+	t.Run("tool_result_truncated", func(t *testing.T) {
+		big := strings.Repeat("x", sessionview.DetailMax+100)
+		got := fragment("session-event", sessionview.View(mk(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu1","content":"`+big+`"}]}}`, sessionevents.Index{})))
+		want := "<pre>" + strings.Repeat("x", sessionview.DetailMax) + "</pre><div class=\"trunc\">… 100 more bytes (see raw JSON)</div></details>"
+		if !strings.Contains(got, want) {
+			t.Fatalf("no truncation marker after the clipped detail: ...%q", got[max(0, len(got)-300):])
+		}
+	})
 }
