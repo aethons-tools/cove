@@ -63,3 +63,61 @@ func DeriveIndex(raw []byte) Index {
 	}
 	return ix
 }
+
+// contextLine is what a raw line says about the agent's context window: the
+// size of the main thread's context after an assistant message, the window of
+// each model in a result, or that the context was reset (a compaction, or a
+// Clear/Compact press cove-master acted on).
+type contextLine struct {
+	Tokens  int64            // > 0: a main-thread assistant message's context size
+	Model   string           // with Tokens: the model that answered
+	Windows map[string]int64 // a result's context window per model
+	Reset   bool
+}
+
+type rawContextEnvelope struct {
+	Type            string  `json:"type"`
+	Subtype         string  `json:"subtype"`
+	ParentToolUseID *string `json:"parent_tool_use_id"`
+	Command         string  `json:"command"`
+	Ignored         string  `json:"ignored"`
+	Message         *struct {
+		Model string    `json:"model"`
+		Usage *rawUsage `json:"usage"`
+	} `json:"message"`
+	ModelUsage map[string]struct {
+		ContextWindow int64 `json:"contextWindow"`
+	} `json:"modelUsage"`
+}
+
+// deriveContext reads a context update from an event, if it carries one.
+func deriveContext(ev Event) (contextLine, bool) {
+	switch ev.Index.Type {
+	case "assistant", "result", "system", "cove":
+	default:
+		return contextLine{}, false
+	}
+	var env rawContextEnvelope
+	if json.Unmarshal(ev.Raw, &env) != nil {
+		return contextLine{}, false
+	}
+	switch {
+	case env.Type == "assistant" && env.ParentToolUseID == nil && env.Message != nil && env.Message.Usage != nil:
+		u := env.Message.Usage
+		if n := u.InputTokens + u.CacheCreation + u.CacheRead + u.OutputTokens; n > 0 {
+			return contextLine{Tokens: n, Model: env.Message.Model}, true
+		}
+	case env.Type == "result" && len(env.ModelUsage) > 0:
+		w := map[string]int64{}
+		for m, u := range env.ModelUsage {
+			if u.ContextWindow > 0 {
+				w[m] = u.ContextWindow
+			}
+		}
+		return contextLine{Windows: w}, len(w) > 0
+	case env.Type == "system" && env.Subtype == "compact_boundary",
+		env.Type == "cove" && env.Subtype == "command" && env.Ignored == "" && (env.Command == "clear" || env.Command == "compact"):
+		return contextLine{Reset: true}, true
+	}
+	return contextLine{}, false
+}

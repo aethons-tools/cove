@@ -232,6 +232,7 @@
     <span class="sh-sub">{{.Role}} · {{.Project}}{{if .Owner}} · for {{.Owner}}{{end}}</span></div>
   <div class="sh-state sess {{.State.Class}}">{{.State.Text}}{{if .State.Tool}} <b>{{.State.Tool}}</b>{{end}}{{if .Since}} <span class="t">· {{.Since}}</span>{{end}}{{if .OpenAsks}} <span class="badge asks">?{{.OpenAsks}}</span>{{end}}</div>
   {{if .Cost}}<div class="sh-cost" title="{{.Tokens}}">{{.Cost}} <span class="t">· this turn {{.TurnCost}}</span></div>{{end}}
+  {{if .Context}}<div class="sh-ctx t" title="{{.ContextTip}}">{{.Context}}</div>{{end}}
   {{if .Uptime}}<div class="sh-up t" title="since it started">up {{.Uptime}}</div>{{end}}
   <span class="spacer"></span>
   <div class="sh-tabs" role="tablist">

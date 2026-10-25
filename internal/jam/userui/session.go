@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // The session view (docs/usage/jam/intercom-ui.md#the-session-view): a
@@ -65,6 +67,7 @@ type SessionHead struct {
 	Since                                         string // time in the current state
 	OpenAsks                                      int
 	Cost, TurnCost, Tokens                        string
+	Context, ContextTip                           string // the context window's use; "" = no model call yet
 	Uptime                                        string
 	SSH                                           string // the copyable command; "" = not allowed
 	Studio                                        bool   // the Studio tab: ssh allowed and framing on
@@ -104,9 +107,12 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	}
 	hd.Since = since(now, stateSince(inst))
 	if h.d.Totals != nil {
-		if t, err := h.d.Totals.Of(inst.ActorID); err == nil && t.Turns > 0 {
-			hd.Cost, hd.TurnCost = usd(t.CostUSD), usd(t.TurnCostUSD)
-			hd.Tokens = fmt.Sprintf("%d in / %d out tokens", t.InputTokens, t.OutputTokens)
+		if t, err := h.d.Totals.Of(inst.ActorID); err == nil {
+			if t.Turns > 0 {
+				hd.Cost, hd.TurnCost = usd(t.CostUSD), usd(t.TurnCostUSD)
+				hd.Tokens = fmt.Sprintf("%d in / %d out tokens", t.InputTokens, t.OutputTokens)
+			}
+			hd.Context, hd.ContextTip = contextUse(t)
 		}
 	}
 	if _, ok := collab.Decide(h.d.Store, now, collabPrincipal(r, p), inst, collab.SSH); ok {
@@ -184,6 +190,34 @@ func usd(v float64) string {
 		return fmt.Sprintf("$%.4f", v)
 	}
 	return fmt.Sprintf("$%.2f", v)
+}
+
+// contextUse is how full the main thread's context is, short ("ctx 84k /
+// 200k · 42%") and exact (for a tooltip); "" before the first model call.
+func contextUse(t sessionevents.Totals) (short, exact string) {
+	switch {
+	case t.Context > 0 && t.ContextWindow > 0:
+		pct := t.Context * 100 / t.ContextWindow
+		return fmt.Sprintf("ctx %s / %s · %d%%", kTokens(t.Context), kTokens(t.ContextWindow), pct),
+			fmt.Sprintf("context: %d of %d tokens (%s)", t.Context, t.ContextWindow, t.ContextModel)
+	case t.Context > 0:
+		return "ctx " + kTokens(t.Context), fmt.Sprintf("context: %d tokens (%s; window not reported yet)", t.Context, t.ContextModel)
+	case !t.LastAt.IsZero() && t.ContextModel != "":
+		return "ctx —", "context reset (compacted or cleared); its size shows after the next model call"
+	}
+	return "", ""
+}
+
+// kTokens is n tokens, rounded: 950, 84k, 1.2M.
+func kTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		s := strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64)
+		return strings.TrimSuffix(s, ".0") + "M"
+	case n >= 1000:
+		return fmt.Sprintf("%dk", (n+500)/1000)
+	}
+	return strconv.FormatInt(n, 10)
 }
 
 // sessionHeadRoute renders a session's header (its refresh target).

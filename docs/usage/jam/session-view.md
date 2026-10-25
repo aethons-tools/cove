@@ -1,5 +1,5 @@
 ---
-summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
+summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
 read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
 owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
@@ -24,6 +24,11 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 - **State:** the same status as the [status strip](intercom-ui.md#session-status), how
   long it has been in that state, and open asks.
 - **Cost:** the total and the latest turn's cost. The tooltip shows input and output tokens.
+- **Context:** how full the agent's context is, e.g. `ctx 84k / 200k · 42%`; the tooltip
+  gives exact tokens and the model. The size comes from the main thread's latest model call
+  (its input, cache and output tokens; subagents' calls don't count). The window comes from the
+  latest result's `modelUsage`. After a compaction, or a Clear or Compact press cove-master
+  carried out, it shows `ctx —` until the next model call.
 - **Uptime:** time since the session was raised.
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
@@ -79,8 +84,8 @@ Studio. The tab says
   - links from message bodies, deduplicated, up to 50. GitHub PRs and issues are labelled
     `<repo> PR #n` or `<repo> issue #n`.
 - **Status:** state and time in it, uptime, model spec, kit and image, alarms, then from events:
-  turns and episodes, tool calls and errors, tokens, cost (total and this turn), and the last
-  event.
+  turns and episodes, tool calls and errors, tokens, context use, cost (total and this turn),
+  and the last event.
 - **Thinking:** the agent's events, live. See [Thinking](#thinking).
 
 **Layout memory:** the open tab, placement and size are saved in `localStorage` under
