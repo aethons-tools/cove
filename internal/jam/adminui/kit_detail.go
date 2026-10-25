@@ -128,6 +128,8 @@ type kitDiff struct {
 	Lines         []diffLine
 	DigestChanged bool
 	TooLarge      bool
+	Hidden        bool   // a side is not shown at all (the Draft tab's masked kit.yml)
+	Note          string // shown instead of the lines (the Draft tab: the draft changed while loading)
 }
 
 // kitUse is one role bound to the kit. Implicit marks a role with no kit set,

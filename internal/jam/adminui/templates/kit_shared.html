@@ -56,7 +56,7 @@
   {{else}}
   <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → {{if .To}}v{{.To}}{{else}}draft{{end}}{{else}}content{{end}}</span></header>
   {{if .Note}}<div class="body unset">{{.Note}}</div>
-  {{else if .Diff}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
+  {{else if .Diff}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" "<kit>"}}</p></div>{{end}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
   {{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" "<kit>"}}</p></div>{{else if .Masked}}<div class="body"><p class="hint">{{template "kit-masked-note"}}</p></div>{{end}}<pre class="yaml">{{.Content}}</pre>{{end}}
   {{end}}
 </section>

@@ -113,7 +113,7 @@
 {{with .YAMLDiff}}
 <section class="card" id="draft-yaml-diff">
   <header><h2>kit.yml vs v{{.From}}</h2></header>
-  {{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
+  {{if .Note}}<div class="body unset">{{.Note}}</div>{{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" $name}}</p></div>{{end}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}{{end}}
 </section>
 {{end}}
 {{else}}

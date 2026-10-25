@@ -150,7 +150,9 @@ func buildDraftPage(store jam.Store, name string, q draftQuery) (draftPage, bool
 			return p, true, err
 		}
 	}
-	draftDiff(store, name, st, base, q, p.Draft)
+	if err := draftDiff(store, name, st, base, q, p.Draft); err != nil {
+		return p, true, err
+	}
 	return p, true, nil
 }
 

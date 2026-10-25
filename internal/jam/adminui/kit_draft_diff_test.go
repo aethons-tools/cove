@@ -1,6 +1,10 @@
 package adminui_test
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -8,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/adminui"
 	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
@@ -89,6 +94,10 @@ func TestDraftDiffMasksPackedContext(t *testing.T) {
 		t.Errorf("kit.yml file diff:\n%s", cf)
 	}
 
+	if strings.Contains(y+cf, "This kit.yml is not shown") {
+		t.Errorf("a partly masked kit.yml has the hidden note")
+	}
+
 	e := get(t, h, "/app/admin/kits/bad/draft?file=kit.yml").Body.String()
 	if ed := section(e, "draft-editor"); !strings.Contains(ed, b64) || strings.Contains(section(e, "draft-yaml-diff"), "H4sI") {
 		t.Errorf("editor should show the raw text, the diff never:\n%s", ed)
@@ -118,8 +127,123 @@ func TestDraftDiffMasksParsedBaseLikeDraft(t *testing.T) {
 	y := section(get(t, h, "/app/admin/kits/anc/draft").Body.String(), "draft-yaml-diff")
 	cf := section(get(t, h, "/app/admin/kits/anc/draft?file=kit.yml&diff=1").Body.String(), "ctx-file")
 	for name, s := range map[string]string{"kit.yml diff": y, "file diff": cf} {
-		if !strings.Contains(s, "1 unchanged line") || strings.Contains(s, `class="d-del"`) || strings.Contains(s, `class="d-add"`) || strings.Contains(s, "my context") {
+		if !strings.Contains(s, "1 unchanged line") || !strings.Contains(s, "This kit.yml is not shown") || strings.Contains(s, `class="d-del"`) || strings.Contains(s, `class="d-add"`) || strings.Contains(s, "my context") {
 			t.Errorf("%s:\n%s", name, s)
 		}
+	}
+}
+
+// missBlob is a store whose blob sha is lost.
+type missBlob struct {
+	jam.Store
+	sha string
+}
+
+func (m missBlob) KitBlob(sha string) ([]byte, bool) {
+	if sha == m.sha {
+		return nil, false
+	}
+	return m.Store.KitBlob(sha)
+}
+
+func sum(s string) string {
+	b := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(b[:])
+}
+
+// A store fault reading a file for its diff answers the fixed 500, logged;
+// never a diff of a file read as empty.
+func TestDraftDiffStoreFault(t *testing.T) {
+	store, _ := draftFixture(t)
+	putDraft(t, store, "run.sh", 0, "echo two\n")
+	var logs bytes.Buffer
+	h := adminui.Handler(missBlob{store, sum("echo two\n")}, slog.New(slog.NewTextHandler(&logs, nil)), nil, nil, anyCred, nil)
+	rec := get(t, h, "/app/admin/kits/app/draft?file=run.sh&diff=1")
+	if rec.Code != http.StatusInternalServerError || strings.TrimSpace(rec.Body.String()) != `<p class="error">internal error</p>` {
+		t.Fatalf("store fault = %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(logs.String(), `msg="ui kit draft: store error"`) {
+		t.Errorf("store fault not logged:\n%s", logs.String())
+	}
+}
+
+// movedDraft is a store whose draft reads after the first answer the draft
+// at another stored tree: the draft changes between the page's status read
+// and its file read.
+type movedDraft struct {
+	jam.Store
+	tree  string
+	reads *int
+}
+
+func (m movedDraft) GetKitDraft(kit string) (jam.KitDraft, bool) {
+	d, ok := m.Store.GetKitDraft(kit)
+	if *m.reads++; *m.reads > 1 {
+		d.Tree = m.tree
+	}
+	return d, ok
+}
+
+// A file the draft changed or removed while the page loaded shows the fixed
+// note, never a diff of what was not read.
+func TestDraftDiffChangedWhileLoading(t *testing.T) {
+	for name, files := range map[string][]string{
+		// v1's own tree: run.sh back to "echo\n".
+		"modified": {"kit.yml", "kind: studio\n", "run.sh*", "echo\n", "docs/a.md", "# a\n", "gone.txt", "bye\n"},
+		"removed":  {"kit.yml", "kind: studio\n", "docs/a.md", "# a\n", "gone.txt", "bye\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, _ := draftFixture(t)
+			putDraft(t, store, "run.sh", 0, "echo two\n")
+			reads := 0
+			h := uiHandler(t, movedDraft{store, spareTree(t, store, files), &reads})
+			rec := get(t, h, "/app/admin/kits/app/draft?file=run.sh&diff=1")
+			cf := section(rec.Body.String(), "ctx-file")
+			if rec.Code != http.StatusOK || !strings.Contains(cf, "the draft changed while loading (reload)") || strings.Contains(cf, `class="d-`) {
+				t.Errorf("= %d:\n%s", rec.Code, cf)
+			}
+		})
+	}
+	store, _ := draftFixture(t)
+	putDraft(t, store, "kit.yml", 0, "kind: studio\nprompt: a\n")
+	reads := 0
+	tree := spareTree(t, store, []string{"kit.yml", "kind: studio\n", "run.sh*", "echo\n", "docs/a.md", "# a\n", "gone.txt", "bye\n"})
+	y := section(get(t, uiHandler(t, movedDraft{store, tree, &reads}), "/app/admin/kits/app/draft").Body.String(), "draft-yaml-diff")
+	if !strings.Contains(y, "the draft changed while loading (reload)") || strings.Contains(y, `class="d-`) {
+		t.Errorf("kit.yml diff:\n%s", y)
+	}
+}
+
+// spareTree pushes files as kit spare and returns its tree hash: a stored
+// tree the store keeps.
+func spareTree(t *testing.T, store jam.Store, files []string) string {
+	t.Helper()
+	if _, _, err := jam.PushKitFiles(store, "spare", kittreetest.Files(files...)); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := store.GetKit("spare")
+	return k.Trees[k.Current]
+}
+
+// countDraft counts the draft reads.
+type countDraft struct {
+	jam.Store
+	reads *int
+}
+
+func (c countDraft) GetKitDraft(kit string) (jam.KitDraft, bool) {
+	*c.reads++
+	return c.Store.GetKitDraft(kit)
+}
+
+// ?file=kit.yml&diff=1 reads kit.yml once for both its diffs: the status
+// read and one file read.
+func TestDraftDiffReadsKitYMLOnce(t *testing.T) {
+	store, _ := draftFixture(t)
+	putDraft(t, store, "kit.yml", 0, "kind: studio\nprompt: a\n")
+	reads := 0
+	body := get(t, uiHandler(t, countDraft{store, &reads}), "/app/admin/kits/app/draft?file=kit.yml&diff=1").Body.String()
+	if reads != 2 || !strings.Contains(section(body, "draft-yaml-diff"), "+ prompt: a") || !strings.Contains(section(body, "ctx-file"), "+ prompt: a") {
+		t.Errorf("draft reads = %d, want 2", reads)
 	}
 }
