@@ -68,7 +68,15 @@
       <div class="form-actions"><button type="submit" class="primary">Replace</button></div>
     </form>
   </details>
-  {{/* draft-file-paths */}}
+  <form class="body" id="draft-rename" hx-post="/app/admin/kits/{{$name}}/draft/rename" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="from" value="{{.RawPath}}">
+    <label>Rename to <input name="to" required value="{{.RawPath}}" autocomplete="off" spellcheck="false"></label>
+    <div class="form-actions"><button type="submit" class="small">Rename</button></div>
+  </form>
+  <form class="body" id="draft-delete" hx-post="/app/admin/kits/{{$name}}/draft/delete" hx-target="#draft" hx-swap="outerHTML" hx-confirm="Remove {{.Path}} from the draft?">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+    <div class="form-actions"><button type="submit" class="small danger">Delete</button></div>
+  </form>
 </section>
 {{end}}
 {{/* draft-file-diff */}}
@@ -85,7 +93,17 @@
     </tbody>
   </table>
 </section>
-{{/* draft-add */}}
+<section class="card" id="draft-add">
+  <details class="edit"><summary>Add file…</summary>
+  <form hx-post="/app/admin/kits/{{$name}}/draft/add" hx-encoding="multipart/form-data" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{$etag}}">
+    <label>Path <span class="hint">slash-separated, inside the kit directory, e.g. <code>scripts/setup.sh</code></span><input name="path" required autocomplete="off" spellcheck="false"></label>
+    <label>Content <span class="hint">optional: upload a file (up to 4 MiB; its own name is ignored), or leave empty for an empty text file to edit</span><input type="file" name="file"></label>
+    <label class="check"><input type="checkbox" name="executable" value="1"> Executable (0755)</label>
+    <div class="form-actions"><button type="submit" class="primary">Add</button></div>
+  </form>
+  </details>
+</section>
 {{/* draft-diff */}}
 {{else}}
 <section class="card" id="draft-none">
