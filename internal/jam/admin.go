@@ -232,6 +232,9 @@ type CoveRaiseBody struct {
 	Role    string `json:"role"`
 	Unit    string `json:"unit,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
+	// KitDraft runs this kit's draft instead of the role's kit (a draft
+	// studio, docs/usage/jam/kits-drafts.md#draft-studio).
+	KitDraft string `json:"kit_draft,omitempty"`
 }
 
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
@@ -243,6 +246,7 @@ type CoveRaiseResult struct {
 	LaunchSecret string `json:"launch_secret"`
 	Phase        string `json:"phase"`
 	Location     string `json:"location,omitempty"`
+	KitDraftTree string `json:"kit_draft_tree,omitempty"` // a draft studio: the draft tree it runs
 }
 
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
@@ -995,13 +999,18 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft})
 		if err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
-		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role)
-		writeJSON(w, http.StatusCreated, CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location})
+		// The kit name is only logged after a successful raise: tag-safe by then.
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role, "kit_draft", b.KitDraft)
+		res := CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location}
+		if inst.KitDraft != nil {
+			res.KitDraftTree = inst.KitDraft.Tree
+		}
+		writeJSON(w, http.StatusCreated, res)
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -180,4 +181,38 @@ func mustETag(t *testing.T, c *adminclient.Client) string {
 		t.Fatal(err)
 	}
 	return st.ETag
+}
+
+func TestStudioRaiseKitDraft(t *testing.T) {
+	store := jam.NewMemStore()
+	if err := store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	d, err := jam.OpenKitDraft(store, "app", 0, "op", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.DiscardHandler)
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	sup.SetKitDraftBuilds(jam.NewKitDraftBuilds(ctx, store, &cliDraftBuilder{}, log))
+	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
+	t.Cleanup(ts.Close)
+	getenv := func(string) string { return "" }
+	var out, errb bytes.Buffer
+	if code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "try", "--role", "guest", "--kit-draft", "app"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("raise: %d %s", code, errb.String())
+	}
+	want := regexp.MustCompile(`^raised try as session ses_[0-9a-z]{26} \(phase=live\) from the draft of app @` + d.Tree[:12] + `\n$`)
+	if !want.MatchString(out.String()) {
+		t.Fatalf("raise output = %q", out.String())
+	}
+	out.Reset()
+	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "\timage=draft\n") {
+		t.Fatalf("list: %d %q", code, out.String())
+	}
 }

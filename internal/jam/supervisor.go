@@ -587,6 +587,10 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 
 // draftRaise is what a draft studio's raise resolved: its definition, the
 // draft tree it runs, that tree's objects, and its built image.
+// draftRaiseGone answers a draft studio raise whose request went away while
+// it waited for the draft's test build.
+const draftRaiseGone = "the raise stopped waiting for the draft's test build (it runs on: raise again to use it)"
+
 type draftRaise struct {
 	def   KitDefinition
 	ref   KitDraftRef
@@ -610,6 +614,11 @@ func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) 
 		return draftRaise{}, err
 	}
 	img, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// The raise's request went away while it waited for the build;
+		// the build runs on, for a later raise to reuse.
+		return draftRaise{}, writeErr(http.StatusServiceUnavailable, "%s", draftRaiseGone)
+	}
 	if err != nil {
 		return draftRaise{}, err
 	}

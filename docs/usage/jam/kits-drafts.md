@@ -1,7 +1,7 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs and the open, status, discard, file read/write/remove, publish and build API.
-read_when: You want to open, inspect, edit, discard, test-build or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415, 428 or 503.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, draft studios (`studio raise --kit-draft`), the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs and the open, status, discard, file read/write/remove, publish and build API.
+read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `at-jam kit draft`, `studio raise --kit-draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415, 428 or 503.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines, draft studios (the raise, its image, the `draft` image status, its tree kept stored)
 prereqs: kits.md, kits-directory.md
 tier: leaf
 updated: 2026-10-25
@@ -98,6 +98,27 @@ the build routes answer 503
   `cancelled: Jam is shutting down`. Jam waits up to 15 s for them to stop
   (a second signal stops it at once), then exits by the signal. Draft images
   are not collected: remove old `cove-kit-draft` images with `docker image rm`.
+
+## Draft studio
+
+`at-jam studio raise --id try --role dev --kit-draft app` raises a manual
+studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
+tree as of the raise, unpublished. Admin only, like every raise; the role
+supplies all but the kit, shown as `<kit> (draft @<tree[:7]>)`.
+
+- The raise reads the draft (problems refuse it), resolves its parents as a
+  push would, and test-builds it under the role's model-spec harness. The
+  last build of the same tree **and** harness is reused while it succeeded
+  and its image exists; otherwise (none, failed, image gone) a build starts
+  and the raise waits (`studio raise` allows 30 minutes). A request gone
+  first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
+- 409 while a build of another tree or harness runs, or `draft <kit> changed during the raise (retry)`.
+  A failed build is 400 `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
+- The studio runs that image by id, records `kit_draft` (`kit`, `tree`) and
+  is answered `kit_draft_tree`. Its image status is `draft`: pushing or
+  publishing never makes it stale or restarts it onto current. Its tree stays
+  stored while it exists, even once the draft is discarded or published, for
+  its session context and setup inspect ([inspect.md](inspect.md#sections)).
 
 ## The `kit draft` verbs
 

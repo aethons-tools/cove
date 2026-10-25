@@ -458,18 +458,31 @@ func (c *Client) GetChatService(project string) (string, error) {
 // CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from
 // the named role.
 type CoveRaiseParams struct {
-	ID      string
-	Project string
-	Role    string
-	Unit    string
-	Prompt  string // workload prompt for the raised cove's agent; read from a file host-side, never argv
+	ID       string
+	Project  string
+	Role     string
+	Unit     string
+	Prompt   string // workload prompt for the raised cove's agent; read from a file host-side, never argv
+	KitDraft string // run this kit's draft (a draft studio); the raise may build it first
 }
 
+// draftRaiseTimeout bounds a draft studio's raise, which may run the
+// draft's test build first.
+const draftRaiseTimeout = 30 * time.Minute
+
 // RaiseCove raises a managed cove for a role and returns its runtime result
-// (including the identity token, once).
+// (including the identity token, once). A draft studio's raise (KitDraft)
+// may build its image first, so it waits up to draftRaiseTimeout.
 func (c *Client) RaiseCove(p CoveRaiseParams) (jam.CoveRaiseResult, error) {
 	var res jam.CoveRaiseResult
-	err := c.do("POST", "/admin/coves", jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt}, &res)
+	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, KitDraft: p.KitDraft}
+	httpc := c.httpc
+	if p.KitDraft != "" {
+		hc := *c.httpc // keeps the Transport
+		hc.Timeout = draftRaiseTimeout
+		httpc = &hc
+	}
+	err := c.doWith(httpc, "POST", "/admin/coves", body, &res)
 	return res, err
 }
 

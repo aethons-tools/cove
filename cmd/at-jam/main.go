@@ -1258,6 +1258,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role to raise the studio for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
+	kitDraft := fs.String("kit-draft", "", "raise only: run this kit's draft instead of the role's kit (its test build is built first when needed)")
 	activity := fs.String("activity", "", "reported activity: running|holding|waiting|blocked|done (status only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -1284,12 +1285,16 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			prompt = string(b)
 		}
-		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt})
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
+		if res.KitDraftTree != "" {
+			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s) from the draft of %s @%s\n", res.Label, res.ID, res.Phase, textesc.Escape(*kitDraft, false), textesc.Escape(treePrefix(res.KitDraftTree), false))
+		} else {
+			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
+		}
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
