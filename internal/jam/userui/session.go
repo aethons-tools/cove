@@ -25,6 +25,9 @@ type SessionOps interface {
 	Upgrade(inst jam.Instance) (string, error)
 	// UpgradeState is a standing session's pending upgrade ("" none).
 	UpgradeState(inst jam.Instance) string
+	// Command sends a session-control press (interrupt, compact, clear),
+	// resuming a paused session first; by is who pressed it.
+	Command(ctx context.Context, inst jam.Instance, c jam.SessionCommand, by string) error
 }
 
 // homeSession is the live session whose home channel chID is: a session
@@ -66,6 +69,8 @@ type SessionHead struct {
 	SSH                                           string // the copyable command; "" = not allowed
 	Studio                                        bool   // the Studio tab: ssh allowed and framing on
 	CanRelease, CanRestart, CanUpgrade            bool
+	Ops                                           bool // the session actions are wired
+	CanInterrupt, CanCompact, CanClear            bool // shown whenever Ops is set; disabled when false
 	RestartLabel, UpgradeState                    string
 }
 
@@ -109,6 +114,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 		hd.Studio = h.d.Frames != nil
 	}
 	if h.d.Ops != nil {
+		hd.Ops = true
 		hd.CanRelease = mayRelease(inst, p, op)
 		hd.CanRestart = op
 		hd.RestartLabel = "End"
@@ -120,6 +126,10 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 		if inst.SessionKind == jam.SessionKindPersonal {
 			hd.CanRestart = false // Release is how a personal session ends
 		}
+		a := jam.CommandActivity(inst)
+		hd.CanInterrupt = jam.CommandAllowed(jam.CmdInterrupt, a)
+		hd.CanCompact = jam.CommandAllowed(jam.CmdCompact, a)
+		hd.CanClear = jam.CommandAllowed(jam.CmdClear, a)
 	}
 	return hd
 }
@@ -194,7 +204,8 @@ func (h *handler) sessionHeadRoute(w http.ResponseWriter, r *http.Request) {
 
 // sessionAction runs release, restart or upgrade on a session, re-checking
 // who may: 204 (a page reload once it ends, a refresh after an upgrade);
-// 403; 404 alike for missing and unseen.
+// 403; 404 alike for missing and unseen. Interrupt, compact and clear are
+// anyone's who can see the session, while its activity allows (else 409).
 func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
@@ -228,6 +239,17 @@ func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, err = h.d.Ops.Upgrade(inst)
+	case string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
+		c := jam.SessionCommand(r.PathValue("action"))
+		if a := jam.CommandActivity(inst); !jam.CommandAllowed(c, a) {
+			http.Error(w, string(c)+" is not available while the session is "+string(a), http.StatusConflict)
+			return
+		}
+		by := h.d.Intercom.PartyOf(p.UserID).Label
+		if by == "" {
+			by = string(p.UserID)
+		}
+		err = h.d.Ops.Command(r.Context(), inst, c, by)
 	default:
 		http.NotFound(w, r)
 		return
@@ -238,9 +260,10 @@ func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.lg.Info("session action", "session", inst.ActorID, "action", r.PathValue("action"), "by", string(p.UserID))
-	if r.PathValue("action") == "upgrade" {
+	switch r.PathValue("action") {
+	case "upgrade", string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
 		w.Header().Set("HX-Trigger", "meChanged")
-	} else {
+	default:
 		w.Header().Set("HX-Refresh", "true") // the session is going: reload rather than refresh a head that 404s
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -2,6 +2,7 @@ package userui
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,22 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
-type fakeOps struct{ torn, upgraded []string }
+type cmdCall struct {
+	id  string
+	cmd jam.SessionCommand
+	by  string
+}
+
+type fakeOps struct {
+	torn, upgraded []string
+	cmds           []cmdCall
+	cmdErr         error
+}
+
+func (f *fakeOps) Command(_ context.Context, inst jam.Instance, c jam.SessionCommand, by string) error {
+	f.cmds = append(f.cmds, cmdCall{inst.ActorID, c, by})
+	return f.cmdErr
+}
 
 func (f *fakeOps) Teardown(_ context.Context, id string) error {
 	f.torn = append(f.torn, id)
@@ -194,5 +210,130 @@ func TestSessionHeadOnlyInHome(t *testing.T) {
 	}
 	if strings.Contains(get(own.ID), `id="session-head"`) {
 		t.Error("a head in the session's own channel, which isn't its home")
+	}
+}
+
+func TestSessionCommandsMatrix(t *testing.T) {
+	e, p, personal, _, ops := sessionEnv(t)
+	h := Handler(e.Deps, nil)
+	tests := []struct {
+		name     string
+		phase    jam.Phase
+		activity jam.Activity
+		cmd      jam.SessionCommand
+		want     int
+	}{
+		{"interrupt running", jam.PhaseLive, jam.ActivityRunning, jam.CmdInterrupt, http.StatusNoContent},
+		{"interrupt holding", jam.PhaseLive, jam.ActivityHolding, jam.CmdInterrupt, http.StatusConflict},
+		{"interrupt waiting", jam.PhaseLive, jam.ActivityWaiting, jam.CmdInterrupt, http.StatusConflict},
+		{"compact running", jam.PhaseLive, jam.ActivityRunning, jam.CmdCompact, http.StatusNoContent},
+		{"compact holding", jam.PhaseLive, jam.ActivityHolding, jam.CmdCompact, http.StatusNoContent},
+		{"compact waiting", jam.PhaseLive, jam.ActivityWaiting, jam.CmdCompact, http.StatusNoContent},
+		{"clear running", jam.PhaseLive, jam.ActivityRunning, jam.CmdClear, http.StatusConflict},
+		{"clear holding", jam.PhaseLive, jam.ActivityHolding, jam.CmdClear, http.StatusConflict},
+		{"clear waiting", jam.PhaseLive, jam.ActivityWaiting, jam.CmdClear, http.StatusNoContent},
+		{"clear blocked", jam.PhaseLive, jam.ActivityBlocked, jam.CmdClear, http.StatusConflict},
+		{"clear paused", jam.PhaseIdled, jam.ActivityRunning, jam.CmdClear, http.StatusNoContent},
+		{"interrupt paused", jam.PhaseIdled, jam.ActivityRunning, jam.CmdInterrupt, http.StatusConflict},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inst := personal
+			inst.Phase, inst.Activity = tt.phase, tt.activity
+			if err := e.st.PutInstance(inst); err != nil {
+				t.Fatal(err)
+			}
+			ops.cmds = nil
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("POST", "/app/user/session/"+inst.ActorID+"/"+string(tt.cmd), nil), p, false))
+			if rec.Code != tt.want {
+				t.Fatalf("POST %s = %d %q, want %d", tt.cmd, rec.Code, rec.Body.String(), tt.want)
+			}
+			if tt.want == http.StatusConflict {
+				if len(ops.cmds) != 0 {
+					t.Errorf("a refused %s was sent: %v", tt.cmd, ops.cmds)
+				}
+				if want := string(tt.cmd) + " is not available while the session is"; !strings.Contains(rec.Body.String(), want) {
+					t.Errorf("409 body = %q, want it to contain %q", rec.Body.String(), want)
+				}
+				return
+			}
+			if want := (cmdCall{inst.ActorID, tt.cmd, "alice"}); len(ops.cmds) != 1 || ops.cmds[0] != want {
+				t.Errorf("sent %v, want [%v]", ops.cmds, want)
+			}
+			if rec.Header().Get("HX-Trigger") != "meChanged" {
+				t.Errorf("HX-Trigger = %q, want meChanged", rec.Header().Get("HX-Trigger"))
+			}
+		})
+	}
+}
+
+// A failed send is a 502 in the other actions' wording.
+func TestSessionCommandFailure(t *testing.T) {
+	e, p, personal, _, ops := sessionEnv(t)
+	ops.cmdErr = errors.New("no live stream")
+	h := Handler(e.Deps, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("POST", "/app/user/session/"+personal.ActorID+"/clear", nil), p, false))
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "the clear failed; see the jam log") {
+		t.Fatalf("failed clear = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// Anyone who can see the session's channel may press; an outsider gets 404.
+func TestSessionCommandsAnyViewer(t *testing.T) {
+	e, _, personal, _, ops := sessionEnv(t)
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-bob"}}}); err != nil {
+		t.Fatal(err)
+	}
+	bobID, _ := e.st.LookupName(ident.User, "bob")
+	bob := jam.Participant{Issuer: "https://idp", Subject: "sub-bob", UserID: bobID, Projects: []string{"proj"}, Name: "bob"}
+	carol := jam.Participant{UserID: ident.New(ident.User), Name: "carol", Projects: []string{"proj"}}
+	h := Handler(e.Deps, nil)
+	post := func(who jam.Participant) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("POST", "/app/user/session/"+personal.ActorID+"/compact", nil), who, false))
+		return rec.Code
+	}
+	if c := post(carol); c != http.StatusNotFound {
+		t.Errorf("outsider compact = %d, want 404", c)
+	}
+	if err := e.st.JoinChannel(ident.ID(e.homeOf(t, personal)), bobID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if c := post(bob); c != http.StatusNoContent {
+		t.Fatalf("viewer compact = %d, want 204", c)
+	}
+	if want := (cmdCall{personal.ActorID, jam.CmdCompact, "bob"}); len(ops.cmds) != 1 || ops.cmds[0] != want {
+		t.Errorf("sent %v, want [%v]", ops.cmds, want)
+	}
+}
+
+func TestSessionHeaderCommandButtons(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t) // personal is waiting
+	h := Handler(e.Deps, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/session/"+personal.ActorID+"/head", nil), p, false))
+	body := rec.Body.String()
+	button := func(label string) string {
+		end := strings.Index(body, ">"+label+"<")
+		if end < 0 {
+			t.Fatalf("head has no %s button:\n%s", label, body)
+		}
+		start := strings.LastIndex(body[:end], "<button")
+		return body[start:end]
+	}
+	if b := button("Interrupt"); !strings.Contains(b, "disabled") || !strings.Contains(b, `/interrupt"`) || !strings.Contains(b, `title="Stop the agent's current turn"`) {
+		t.Errorf("Interrupt while waiting = %s, want disabled, posting /interrupt, with its tooltip", b)
+	}
+	if b := button("Compact"); strings.Contains(b, "disabled") || !strings.Contains(b, `/compact"`) {
+		t.Errorf("Compact while waiting = %s, want enabled", b)
+	}
+	b := button("Clear")
+	if strings.Contains(b, "disabled") || !strings.Contains(b, `/clear"`) {
+		t.Errorf("Clear while waiting = %s, want enabled", b)
+	}
+	if want := `hx-confirm="Clear this session's conversation? The agent keeps its files and memory but forgets the conversation."`; !strings.Contains(b, want) {
+		t.Errorf("Clear = %s, want %s", b, want)
 	}
 }
