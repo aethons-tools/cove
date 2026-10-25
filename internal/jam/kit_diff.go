@@ -17,9 +17,9 @@ type KitDiffResult struct {
 
 // KitVersionDiff diffs kit name's version from → to (to 0 = current; from 0
 // = the version before to). An unknown kit or version is 404; a kit with
-// only one version, from == to, no earlier version, a broken version (its own fixed error) or a version not
-// stored as a tree is 400. Only stored trees (validated on write) are
-// diffed.
+// only one version, from == to, no earlier version, a broken version (its
+// own fixed error) or a version not stored as a tree is 400. Only stored
+// trees (validated on write) are diffed.
 func KitVersionDiff(store Store, name string, from, to int) (KitDiffResult, error) {
 	k, ok := store.GetKit(name)
 	if !ok {

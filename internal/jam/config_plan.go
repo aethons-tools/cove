@@ -490,8 +490,8 @@ func (p *planner) planKits() {
 }
 
 // kitDiff is the version diff from Jam's current tree of e's kit to e's tree
-// ("" when Jam has no stored tree of it, or the trees are the same). Both trees are validated: Jam's on
-// write, e's by kittree.Build.
+// ("" when Jam has no stored tree of it, or the trees are the same). Both
+// trees are validated: Jam's on write, e's by kittree.Build.
 func (p *planner) kitDiff(e kitSetEntry) string {
 	k, ok := p.m.kits[e.Name]
 	if !ok {
