@@ -210,8 +210,9 @@ func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, erro
 //  1. its __Host-jam_preview session when it carries one — except inside an
 //     iframe that also carries a frame cookie, or on a frame navigation
 //     (isFrameNavigation), where it is ignored — (unknown, expired or
-//     issued for another host ⇒ ErrNoCredentials; more than one such cookie
-//     is also ErrNoCredentials, never a pick; an unprefixed jam_preview is
+//     issued for another host ⇒ ErrNoCredentials, unless a frame cookie
+//     usable here follows in step 2; more than one such cookie is also
+//     ErrNoCredentials, never a pick; an unprefixed jam_preview is
 //     ignored); carrying it in a context another site's page may have caused
 //     is ErrCrossSite (cookieUseAllowed);
 //  2. else its __Host-jam_frame session, by the same rules but honoured only
@@ -239,7 +240,14 @@ func (a *PreviewAuth) PrincipalFrame(r *http.Request) (collab.Principal, string,
 			return collab.Principal{}, "", false, ErrCrossSite
 		}
 		p, name, err := a.lookupSession(a.sessions, previewVals, r.Host)
-		return p, name, false, err
+		// A stale preview cookie (its session pruned, or lost to a serve
+		// restart) must not hide the pane's frame cookie on what the framed
+		// page loads (Sec-Fetch-Dest script, style, …, not iframe; the pane
+		// gets the Lax preview cookie only when the UI shares the previews'
+		// registrable domain): fall through to it, under its own rule.
+		if err == nil || len(frameVals) == 0 || !frameCookieUseAllowed(r) {
+			return p, name, false, err
+		}
 	}
 	if len(frameVals) > 0 && !frameCookieIgnored(r) {
 		if !frameCookieUseAllowed(r) {

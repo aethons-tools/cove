@@ -1190,6 +1190,69 @@ func TestFrameCookieBeatsPreviewCookieInIframe(t *testing.T) {
 	}
 }
 
+// A stale preview cookie (its session gone, e.g. after a serve restart) must
+// not hide a good frame cookie on the pane's subresources: a script or style
+// the framed page loads says Sec-Fetch-Dest script/style, not iframe, so the
+// preview cookie is tried first and, failing, the frame cookie decides under
+// its own rule (frameCookieUseAllowed).
+func TestStalePreviewCookieFallsBackToFrameCookie(t *testing.T) {
+	a, ft := framed(t)
+	fc := a.frameSession(t, ft)
+	stale := &http.Cookie{Name: PreviewCookie, Value: "c3RhbGUtc2Vzc2lvbi12YWx1ZS1ub3Qta25vd24tdG8tamFt"}
+	get := func(site, mode, dest string, cs ...*http.Cookie) (collab.Principal, bool, error) {
+		r := httptest.NewRequest("GET", "https://"+hostA+"/static/app.js", nil)
+		r.Header.Set("Sec-Fetch-Site", site)
+		r.Header.Set("Sec-Fetch-Mode", mode)
+		r.Header.Set("Sec-Fetch-Dest", dest)
+		for _, c := range cs {
+			r.AddCookie(c)
+		}
+		p, _, isFramed, err := a.PrincipalFrame(r)
+		return p, isFramed, err
+	}
+	for _, dest := range []string{"script", "style", "manifest", "empty"} {
+		if p, isFramed, err := get("same-origin", "cors", dest, stale, fc); err != nil || p.UserID != aliceID || !isFramed {
+			t.Errorf("same-origin %s, stale preview + frame: %+v %v %v", dest, p, isFramed, err)
+		}
+	}
+	// The fallback never widens the frame cookie's rule: a cross-site
+	// request with a stale preview cookie is still refused.
+	if _, _, err := get("cross-site", "no-cors", "script", stale, fc); err == nil {
+		t.Errorf("cross-site script, stale preview + frame: accepted")
+	}
+	// Without a frame cookie the stale preview cookie is still no credentials.
+	if _, _, err := get("same-origin", "cors", "script", stale); !errors.Is(err, ErrNoCredentials) {
+		t.Errorf("same-origin script, stale preview only: %v", err)
+	}
+	// Where the preview cookie's rule allows a request the frame cookie's
+	// does not, the fallback is not taken: still no credentials (log in).
+	ws := func(origin string) *http.Request {
+		r := httptest.NewRequest("GET", "https://"+hostA+"/ws", nil)
+		r.Header.Set("Upgrade", "websocket")
+		r.Header.Set("Origin", origin)
+		r.AddCookie(stale)
+		r.AddCookie(fc)
+		return r
+	}
+	bare := httptest.NewRequest("GET", "https://"+hostA+"/", nil)
+	bare.AddCookie(stale)
+	bare.AddCookie(fc)
+	typed := httptest.NewRequest("GET", "https://"+hostA+"/", nil)
+	typed.Header.Set("Sec-Fetch-Site", "none")
+	typed.Header.Set("Sec-Fetch-Mode", "navigate")
+	typed.Header.Set("Sec-Fetch-Dest", "document")
+	typed.AddCookie(stale)
+	typed.AddCookie(fc)
+	for name, r := range map[string]*http.Request{"websocket from a sibling host": ws("https://" + hostB), "no fetch metadata": bare, "typed URL": typed} {
+		if _, _, isFramed, err := a.PrincipalFrame(r); !errors.Is(err, ErrNoCredentials) || isFramed {
+			t.Errorf("%s, stale preview + frame: %v %v", name, isFramed, err)
+		}
+	}
+	if p, _, isFramed, err := a.PrincipalFrame(ws("https://" + hostA)); err != nil || p.UserID != aliceID || !isFramed {
+		t.Errorf("same-host websocket, stale preview + frame: %+v %v %v", p, isFramed, err)
+	}
+}
+
 // Logging out of a preview also ends the viewer's pane (frame) sessions on
 // that host, and only theirs.
 func TestLogoutEndsFrameSessions(t *testing.T) {
