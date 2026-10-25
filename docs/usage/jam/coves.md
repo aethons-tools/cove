@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-25
 ---
 
 # Managed studios (the supervisor)
@@ -170,7 +170,9 @@ For [studio collaboration](collaboration.md#how-it-works) Jam also pushes
 `OpenTunnel{id, port}` down the stream; cove-master answers by dialing a separate
 **`Tunnel`** RPC on the same `Runtime` service and connection (authenticated the
 same way), claiming the id, and piping it to `127.0.0.1:<port>` — only ports on
-its allow-list (`2222`, the studio's sshd, plus the studio's exposed
+its allow-list (`2222`, the studio's sshd; `13337`, the
+[built-in IDE](previews.md#a-web-ide), which the first tunnel to it starts;
+plus the studio's exposed
 [previews](previews.md), which Jam pushes as `SetTunnelPorts{ports}`
 first on every Attach stream and after each change; each push replaces the last).
 An older cove-master ignores the push, so Jam's open times out (504).

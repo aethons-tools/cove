@@ -1,7 +1,7 @@
 ---
 summary: Studio previews — an agent exposes a port it serves (`expose(port, name)`) and authorized people open it at `https://<name>--<label>.<domain>/` through Jam: preview hosts and labels, who may open one, the browser login via `jam.<domain>` and its host-only cookie, bearer access for scripts, what the app sees, operator setup, the web-IDE pattern, limits and troubleshooting.
 read_when: You want to open or script against a studio preview, set up previews on a Jam (DNS, wildcard cert, IdP redirect URI, `previews:`), run a web IDE in a studio, write an app that runs behind a preview, or a preview link 404s, 403s, 502s or 504s.
-owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the code-server pattern, preview limits and troubleshooting
+owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the built-in code-server IDE and a kit's own, preview limits and troubleshooting
 prereqs: collaboration.md (who may connect, sharing, the tunnel), serve.md (the previews: block)
 tier: leaf
 updated: 2026-10-25
@@ -115,8 +115,10 @@ HTTP/2). `CONNECT` is refused (405).
 
 ## A web IDE
 
-A web IDE needs no Jam support. Have a kit install code-server and run it
-on a port (e.g. 8443), then the agent calls `expose(8443, "ide")`.
+Every studio has a built-in code-server, started on first use and stopped
+after 30 idle minutes. It opens from the Studio tab
+([session-view.md](session-view.md)). A kit can still provide its own by
+exposing it as `ide`, which takes precedence.
 
 ## Limits
 

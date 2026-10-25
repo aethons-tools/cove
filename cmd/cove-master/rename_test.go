@@ -10,7 +10,7 @@ func TestBuildConfigNewNamesWin(t *testing.T) {
 		"AT_JAM_RUNTIME_ADDR": "new:443", "AT_JAM_IDENTITY_TOKEN": "tok-new", "AT_JAM_LAUNCH_SECRET": "sec-new",
 		"AT_HARBOR_RUNTIME_ADDR": "old:443", "AT_HARBOR_IDENTITY_TOKEN": "tok-old", "AT_HARBOR_LAUNCH_SECRET": "sec-old",
 	}
-	cfg, err := buildConfig(func(k string) string { return env[k] })
+	cfg, err := buildConfig(func(k string) string { return env[k] }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestBuildConfigOldNamesAloneWork(t *testing.T) {
 	env := map[string]string{
 		"AT_HARBOR_RUNTIME_ADDR": "old:443", "AT_HARBOR_IDENTITY_TOKEN": "tok-old", "AT_HARBOR_LAUNCH_SECRET": "sec-old",
 	}
-	cfg, err := buildConfig(func(k string) string { return env[k] })
+	cfg, err := buildConfig(func(k string) string { return env[k] }, nil)
 	if err != nil {
 		t.Fatalf("the deprecated names alone must still work: %v", err)
 	}
