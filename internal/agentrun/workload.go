@@ -294,6 +294,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		if err != nil {
 			return err
 		}
+		w.dropStaleInterrupt(h, t) // before Running: a press after it is this episode's
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 		started := time.Now()
@@ -380,6 +381,7 @@ func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn ui
 	}
 	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
 	w.emitCommand(h, turn, "compact", c.by, "")
+	w.dropStaleInterrupt(h, turn)
 	waitErr := w.episode(mctx, h, turn, proc, tr, compactText(c.instructions), true)
 	split.Flush()
 	// The episode consumed any command signal without taking a Clear (or a
@@ -609,11 +611,6 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 		}
 	}
 
-	// An interrupt posted before this episode existed (pressed while the last
-	// one's stdin was closed) targets a turn that is gone, never this one's.
-	if by, ok := w.cmds.takeInterrupt(); ok {
-		w.ignoreCommand(h, turn, "interrupt", by, "before this episode")
-	}
 	write(prompt) // the tracker starts busy
 	// resume is what a Wake writes into this live episode: the resume prompt,
 	// plus a notice when the refreshed context changed (once per write, so a

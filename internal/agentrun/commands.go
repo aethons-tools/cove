@@ -170,5 +170,14 @@ func (w *Workload) ignoreCommand(h covemaster.Handle, turn uint32, command, by, 
 	w.emitCommand(h, turn, command, by, why)
 }
 
+// dropStaleInterrupt drops an interrupt posted before the episode starting on
+// turn existed (pressed while the last one's stdin was closed): it targets a
+// turn that is gone, never this one's. Run calls it before reporting Running.
+func (w *Workload) dropStaleInterrupt(h covemaster.Handle, turn uint32) {
+	if by, ok := w.cmds.takeInterrupt(); ok {
+		w.ignoreCommand(h, turn, "interrupt", by, "before this episode")
+	}
+}
+
 // clearedNotice tells the agent its conversation was cleared at by's request.
 func clearedNotice(by string) string { return fmt.Sprintf(clearedText, by) }

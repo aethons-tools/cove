@@ -253,6 +253,39 @@ func TestInterruptPendingAtStartRecorded(t *testing.T) {
 	}
 }
 
+// pressOnRunning presses Interrupt the moment Running is reported, as a member
+// who just saw the session go running.
+type pressOnRunning struct {
+	*recordHandle
+	w *Workload
+}
+
+func (h pressOnRunning) Report(a covemaster.Activity) {
+	h.recordHandle.Report(a)
+	if a == covemaster.Running {
+		interrupt(h.w, "Ann")
+	}
+}
+
+// An Interrupt pressed once Running is reported reaches the episode's turn.
+func TestInterruptAfterRunningReported(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, pressOnRunning{h, w})
+	t.Cleanup(func() { cancel(); <-done })
+	p := s.next(t)
+	p.in.next(t)
+	if got := p.in.nextCtrl(t); got != "interrupt" {
+		t.Fatalf("control request = %q", got)
+	}
+	if !eventually(func() bool { return hasCommand(h, "interrupt", "Ann") }) {
+		t.Fatalf("no interrupt record in %+v", h.eventList())
+	}
+}
+
 func TestCompactText(t *testing.T) {
 	if got := compactText("keep X"); got != "/compact keep X" {
 		t.Fatalf("compactText = %q", got)
