@@ -115,6 +115,34 @@ func (t *idleTracker) Wrote() {
 	t.mu.Unlock()
 }
 
+// MarkBusy records that the agent is busy (a turn is in flight) without owing
+// a resume: the caller wrote a prompt that is not a wake's resume.
+func (t *idleTracker) MarkBusy() {
+	t.mu.Lock()
+	t.busy = true
+	t.mu.Unlock()
+}
+
+// Busy reports whether a turn is in flight.
+func (t *idleTracker) Busy() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.busy
+}
+
+// Deliver does what Next's actDeliverWake does, for a caller that writes a
+// resume-bearing prompt itself: consume the pending wake, mark the tracker
+// busy and the resume owed.
+func (t *idleTracker) Deliver() {
+	t.mu.Lock()
+	t.deliverLocked()
+	t.mu.Unlock()
+}
+
+func (t *idleTracker) deliverLocked() {
+	t.pendingWake, t.busy, t.resumeOwed = false, true, true
+}
+
 // Wake reports whether a Wake can be delivered now (the agent is between turns);
 // otherwise it is coalesced into the pending wake. Delivering now also serves
 // any wake coalesced earlier (one resume prompt answers every Wake so far), so
@@ -140,7 +168,7 @@ func (t *idleTracker) Next() (idleAction, []string) {
 	case t.busy:
 		return actWait, nil
 	case t.pendingWake:
-		t.pendingWake, t.busy, t.resumeOwed = false, true, true
+		t.deliverLocked()
 		return actDeliverWake, nil
 	case len(t.tasks)+len(t.awaiting) > 0:
 		var descs []string
