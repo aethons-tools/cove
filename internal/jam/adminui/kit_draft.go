@@ -28,7 +28,7 @@ func draftTooLarge(name string) string {
 }
 
 // registerKitDraft mounts the kit page's Draft tab
-// (docs/usage/jam/ui-pages.md#the-draft-tab) and its open and discard
+// (docs/usage/jam/kits-drafts.md#in-the-admin-ui) and its open and discard
 // writes. Every write is a form POST through guardWrite that calls the jam
 // draft functions directly, sending its form's etag as If-Match.
 func registerKitDraft(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {

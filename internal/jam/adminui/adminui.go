@@ -275,6 +275,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerDraftEditor(mux, store, log, guardWrite)
 	registerDraftUploads(mux, store, log, guardWrite)
 	registerDraftPaths(mux, store, log, guardWrite)
+	registerDraftPublish(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)

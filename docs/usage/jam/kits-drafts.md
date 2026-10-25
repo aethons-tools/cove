@@ -1,8 +1,8 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs and the open, status, discard, file read/write/remove and publish API.
-read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines
-prereqs: kits.md, kits-directory.md
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs, the open, status, discard, file read/write/remove and publish API, and the kit page's Draft tab in the admin UI.
+read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415 or 428.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines, the admin UI Draft tab (/app/admin/kits/<name>/draft) and its config-repo panel
+prereqs: kits.md, kits-directory.md; ui-editing.md for the admin UI's write rules
 tier: leaf
 updated: 2026-10-25
 ---
@@ -104,6 +104,51 @@ its `warning` on stderr. The admin-client flags apply as for every
 - `publish --pin` prints a `pinned …` line per follower pinned.
 - A usage error (a flag of another verb included) exits 2; a refused call
   exits 1 with the server's text.
+
+## In the admin UI
+
+A kit's page (`/app/admin/kits/<name>`) has, while no draft is open, an
+**Open draft from v<N>** button for the version on view, and a **Draft** tab
+(`/app/admin/kits/<name>/draft`) whose form opens one from any version
+(current preselected). The Kits table and the page head flag a kit whose
+draft is open. Every write is a form under the admin UI's
+[write rules](ui-editing.md) and sends the draft's ETag back from a hidden
+field, so the [concurrency](#concurrency) rule holds in the browser too.
+
+- **Draft** card: base and current versions, the last save's operator and
+  time, **Discard** (it asks first), and a notice when a newer version has
+  landed since the draft was opened.
+- **Publish** card: the problems, if any (the button stays disabled, and a
+  forged POST is still refused 400), the **Pin followers** box and, for a
+  config-managed kit, the drift warning.
+- **Files**: the draft's tree by directory, with each file's mode, size and
+  its change against the base; files dropped since the base are listed last,
+  struck through. **Add file** takes a path and either an upload or nothing
+  (an empty text file).
+- **Changes** diffs each file against the base, and `kit.yml` gets its own
+  line diff, with a packed context masked on both sides.
+- A file opens in a plain text editor when it is UTF-8 text of 1 MiB or
+  less with no carriage returns; otherwise it shows a note, **Download** and
+  a mode toggle. Any file can be replaced by an upload (the upload's own
+  file name is never used), renamed or deleted.
+- A save that lost a race answers with the editor still holding your text,
+  unsaved, Save disabled, and a reload link.
+
+Publishing a config-managed kit from the UI is allowed, with a step the
+API does not have: the form shows the drift warning and needs the box
+**I understand this drifts from the config repo** ticked (the server
+refuses 400 without it). The spec's "write to config repo instead" is read
+as *publish, then write to the config repo*: after any publish that drifts
+(the kit, or a managed follower it pinned), the result card lists the
+config-repo files to expect — `kits/<name>/<path>` for each file that
+changed, `kits/<follower>/kit.yml` per managed follower pinned, paths and
+change kinds only — and says to run `at-jam config write <repo>` in the
+checkout, check `git diff`, and commit. Every publish's result card shows
+the new version, each follower pinned and any warning.
+
+UI writes log `ui kit draft opened|saved|discarded|published`, shaped
+like the API's audit lines below and likewise never naming content or a
+path.
 
 ## API
 

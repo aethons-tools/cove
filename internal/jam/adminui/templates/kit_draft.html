@@ -20,7 +20,22 @@
 </div>
 <nav class="subtabs" aria-label="Kit views"><a href="{{kitURL .Name}}">Overview</a><a href="{{draftURL .Name}}" aria-current="page">Draft</a></nav>
 <div class="stack">
-{{/* draft-published */}}
+{{with .Published}}
+<section class="card" id="draft-published">
+  <header><h2>Published v{{.Version}}</h2><span class="sub">from the draft (base v{{.Base}})</span><span class="spacer"></span><a class="sub" href="{{kitURL $name}}?v={{.Version}}">view v{{.Version}}</a></header>
+  <div class="body">
+    {{range .Pinned}}<p>pinned {{.}}</p>{{end}}
+    {{with .Warning}}<div class="banner" id="draft-published-warning">{{.}}</div>{{end}}
+  </div>
+  {{if .Drift}}
+  <div class="body" id="config-write">
+    <h3>Write to config repo</h3>
+    <p>In your config repo checkout run <code>at-jam config write &lt;repo&gt;</code>, check <code>git diff</code>, and commit. Expect these files:</p>
+    <ul class="mono">{{range .ConfigFiles}}<li data-change="{{.Change}}">{{.Path}} <span class="unset">{{.Change}}</span></li>{{end}}</ul>
+  </div>
+  {{end}}
+</section>
+{{end}}
 {{with .Draft}}{{$etag := .ETag}}
 <section class="card" id="draft-status">
   <header><h2>Draft</h2><span class="sub">base v{{.Base}}, current v{{.Current}} · last saved by {{.Actor}} at {{.Updated}}</span><span class="spacer"></span>
@@ -33,7 +48,12 @@
   <div class="body">
     {{if .Problems}}<div class="banner error" id="draft-problems"><div>Publishing is blocked until these are fixed:<ul>{{range .Problems}}<li>{{displayText .}}</li>{{end}}</ul></div></div>{{else}}<p class="unset" id="draft-no-problems">No problems: the draft can be published.</p>{{end}}
     {{if .Managed}}<div class="banner" id="draft-drift">{{.DriftWarning}}</div>{{end}}
-    {{/* draft-publish-form */}}
+    <form hx-post="/app/admin/kits/{{$name}}/draft/publish" hx-target="#draft" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" hx-confirm="Publish the draft as the next version of {{$name}}?{{if .Managed}} {{.DriftWarning}}{{end}}">
+      <input type="hidden" name="etag" value="{{$etag}}">
+      <label class="check"><input type="checkbox" name="pin" value="1"> Pin followers <span class="hint">kits that follow {{$name}} stay on the version they follow now (v{{.Current}})</span></label>
+      {{if .Managed}}<label class="check"><input type="checkbox" name="drift" value="1" required> {{.DriftConfirm}}</label>{{end}}
+      <div class="form-actions"><button type="submit" class="primary" id="draft-publish-button"{{if .Problems}} disabled title="Fix the problems first"{{end}}>Publish</button></div>
+    </form>
   </div>
 </section>
 {{if .FileMissing}}<section class="card" id="draft-missing"><div class="body"><div class="banner error">No such file in the draft.</div></div></section>{{end}}

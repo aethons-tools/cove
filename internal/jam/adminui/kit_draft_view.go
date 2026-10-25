@@ -34,8 +34,9 @@ type draftPage struct {
 	Title       string
 	Name        string
 	Current     int
-	Versions    []int      // the open form's choices
-	Draft       *draftView // nil: the kit has no draft
+	Versions    []int        // the open form's choices
+	Draft       *draftView   // nil: the kit has no draft
+	Published   *publishView // set right after a publish
 	NotFound    bool
 	NotFoundFor string
 }
@@ -49,6 +50,7 @@ type draftView struct {
 	Updated       string
 	Managed       bool   // config-managed: publishing drifts
 	DriftWarning  string // jam.DraftDriftWarning, shown when Managed
+	DriftConfirm  string // the box a managed publish ticks (draftDriftConfirm)
 	Problems      []string
 	Size          string       // the draft's total size
 	Tree          []draftRow   // its files, nested by directory
@@ -103,7 +105,7 @@ func newDraftView(kit string, st jam.KitDraftStatus, base kittree.Tree) *draftVi
 	v := &draftView{
 		Base: st.Base, Current: st.Current, Superseded: st.Base != st.Current,
 		ETag: st.ETag, Actor: st.Actor, Updated: st.UpdatedAt.UTC().Format("2006-01-02 15:04"),
-		Managed: st.Managed, DriftWarning: jam.DraftDriftWarning, Problems: st.Problems,
+		Managed: st.Managed, DriftWarning: jam.DraftDriftWarning, DriftConfirm: draftDriftConfirm, Problems: st.Problems,
 	}
 	var total int64
 	for _, e := range st.Entries {
