@@ -248,7 +248,8 @@ kept, so the next wait resumes at once.
 ### Session controls (Interrupt, Compact, Clear)
 
 The header buttons ([session-view.md](session-view.md#session-controls)) reach cove-master as
-Attach-stream commands (not `ControlSink`); each is recorded as a `cove`/`command` event line.
+Attach-stream commands (not `ControlSink`); every press is recorded once as a `cove`/`command`
+event line (`command`, `by`), plus `ignored: <reason>` when it was dropped.
 
 - **Interrupt.** Sends Claude a `control_request` interrupt: the foreground tool is killed;
   background tasks keep running. Then one acknowledge turn runs, which folds in any coalesced
@@ -258,7 +259,9 @@ Attach-stream commands (not `ControlSink`); each is recorded as a `cove`/`comman
 - **Compact.** Runs `/compact <instructions>`: at the turn boundary when running, at once when
   holding, and, when waiting, in a **maintenance episode** (`--continue`; no `running`/`waiting`
   report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
-- **Clear.** Applies only while waiting: dropped during a live agent episode; one pressed during an idle compaction applies once it finishes. It writes
+- **Clear.** Applies only while waiting: dropped during a live agent episode; one pressed during an idle compaction applies once it finishes.
+  A Clear that races a wake (e.g. pressed on a paused session whose resume delivers a wake first)
+  reaches a live episode and is dropped, shown as ignored. It writes
   `/agent-data/.cove-clear-pending` (contents: who pressed). The next episode starts without
   `--continue`, with the starting prompt, a notice that the conversation was cleared, and the wake
   text. The marker beats the standing conversation marker on restart and is consumed on the

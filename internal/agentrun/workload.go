@@ -350,8 +350,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			}
 			if _, ok := w.clearPending(); ok {
 				// The cleared conversation is not continued: nothing to compact.
-				w.log.Info("agentrun: compact skipped — no conversation", "by", c.by)
-				w.emitCommand(h, turn, "compact", c.by)
+				w.ignoreCommand(h, turn, "compact", c.by, "no conversation")
 				continue
 			}
 			turn++
@@ -380,7 +379,7 @@ func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn ui
 		return nil
 	}
 	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
-	w.emitCommand(h, turn, "compact", c.by)
+	w.emitCommand(h, turn, "compact", c.by, "")
 	waitErr := w.episode(mctx, h, turn, proc, tr, compactText(c.instructions), true)
 	split.Flush()
 	// The episode consumed any command signal without taking a Clear (or a
@@ -613,7 +612,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 	// An interrupt posted before this episode existed (pressed while the last
 	// one's stdin was closed) targets a turn that is gone, never this one's.
 	if by, ok := w.cmds.takeInterrupt(); ok {
-		w.log.Info("agentrun: interrupt ignored", "by", by, "why", "before this episode")
+		w.ignoreCommand(h, turn, "interrupt", by, "before this episode")
 	}
 	write(prompt) // the tracker starts busy
 	// resume is what a Wake writes into this live episode: the resume prompt,
@@ -667,25 +666,25 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 			}
 		case <-cmds:
 			if by, ok := w.cmds.takeInterrupt(); ok {
-				w.emitCommand(h, turn, "interrupt", by)
 				switch {
 				case !tr.Busy():
-					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "not in a turn")
+					w.ignoreCommand(h, turn, "interrupt", by, "not in a turn")
 				case ackBy != "":
-					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "already interrupting")
+					w.ignoreCommand(h, turn, "interrupt", by, "already interrupting")
 				case compacting:
 					// The compaction finishes and its turn ends anyway.
-					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "compacting")
+					w.ignoreCommand(h, turn, "interrupt", by, "compacting")
 				default:
 					w.interrupts++
 					w.log.Info("agentrun: interrupting the agent's turn", "by", by)
+					w.emitCommand(h, turn, "interrupt", by, "")
 					writeRaw(w.cfg.Harness.EncodeInterrupt(fmt.Sprintf("cove-int-%d", w.interrupts)))
 					ackBy = by
 				}
 			}
 			if by, instructions, ok := w.cmds.takeCompact(); ok {
 				if compacting {
-					w.log.Info("agentrun: compact ignored", "by", by, "why", "already compacting")
+					w.ignoreCommand(h, turn, "compact", by, "already compacting")
 				} else {
 					compact = &compactReq{by: by, instructions: instructions} // the last press wins
 				}
@@ -694,8 +693,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 				// Clear is for a waiting session only; a maintenance episode
 				// leaves it for the wait after it.
 				if by, ok := w.cmds.takeClear(); ok {
-					w.log.Info("agentrun: clear ignored", "by", by, "why", "live episode")
-					w.emitCommand(h, turn, "clear", by)
+					w.ignoreCommand(h, turn, "clear", by, "live episode")
 				}
 			}
 		case <-tr.changed:
@@ -746,7 +744,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 			write(compactText(compact.instructions))
 			tr.MarkBusy()
 			compacting = true
-			w.emitCommand(h, turn, "compact", compact.by)
+			w.emitCommand(h, turn, "compact", compact.by, "")
 			compact = nil
 			continue
 		}
@@ -791,7 +789,7 @@ func (w *Workload) awaitWake(ctx context.Context, h covemaster.Handle, turn uint
 			}
 		case <-w.cmds.signal():
 			if by, ok := w.cmds.takeInterrupt(); ok {
-				w.log.Info("agentrun: interrupt ignored", "by", by, "why", "no live episode")
+				w.ignoreCommand(h, turn, "interrupt", by, "no live episode")
 			}
 			w.takeClear(h, turn)
 			if by, instructions, ok := w.cmds.takeCompact(); ok {
@@ -859,7 +857,7 @@ func (w *Workload) takeClear(h covemaster.Handle, turn uint32) {
 	if !ok {
 		return
 	}
-	w.emitCommand(h, turn, "clear", by)
+	w.emitCommand(h, turn, "clear", by, "")
 	if err := os.WriteFile(w.cfg.ClearMarker, []byte(by), 0o600); err != nil {
 		w.log.Warn("agentrun: clear marker not written; the conversation continues", "by", by, "path", w.cfg.ClearMarker, "err", err.Error())
 		return

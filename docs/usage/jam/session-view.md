@@ -53,7 +53,8 @@ session may press them, on any session kind. Clear asks for confirmation.
 Each press is `POST /app/user/session/{id}/interrupt|compact|clear`. The server answers 409
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
 A paused studio is resumed first, so a press may take up to about 30s. The Thinking tab shows
-each press as "<Command> — pressed by <name>".
+each press as "<Command> — pressed by <name>", and a press cove-master dropped with its reason,
+e.g. "Clear — pressed by Bob (ignored: live episode)".
 
 ## Pane
 

@@ -114,16 +114,23 @@ func TestInterruptFoldsCoalescedWakes(t *testing.T) {
 }
 
 func TestInterruptTwiceOneAck(t *testing.T) {
-	w, p := interruptRun(t, &recordHandle{})
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
 	interrupt(w, "Ann")
 	p.in.nextCtrl(t)
-	interrupt(w, "Ann") // taken on its own: the turn is already being interrupted
+	interrupt(w, "Bob") // taken on its own: the turn is already being interrupted
 	p.in.noCtrl(t, 100*time.Millisecond)
+	if !hasIgnored(h, "interrupt", "Bob", "already interrupting") {
+		t.Fatalf("no ignored record in %+v", h.eventList())
+	}
 	p.emit(lnToolRes, lnResult)
-	if got := p.in.next(t); !strings.Contains(got, "pressed **Interrupt**") {
+	if got := p.in.next(t); !strings.Contains(got, "Ann pressed **Interrupt**") {
 		t.Fatalf("acknowledge prompt = %q", got)
 	}
 	p.in.noMessage(t, 100*time.Millisecond)
+	if !hasCommand(h, "interrupt", "Ann") || commandCount(h) != 2 {
+		t.Fatalf("want one record per press in %+v", h.eventList())
+	}
 }
 
 func TestInterruptBetweenTurnsDropped(t *testing.T) {
@@ -136,6 +143,9 @@ func TestInterruptBetweenTurnsDropped(t *testing.T) {
 	interrupt(w, "Ann")
 	p.in.noCtrl(t, 100*time.Millisecond)
 	p.in.noMessage(t, 100*time.Millisecond)
+	if !hasIgnored(h, "interrupt", "Ann", "not in a turn") || commandCount(h) != 1 {
+		t.Fatalf("want one ignored record in %+v", h.eventList())
+	}
 }
 
 func TestInterruptRecordsEvent(t *testing.T) {
@@ -180,6 +190,9 @@ func TestInterruptWhileWaitingDropped(t *testing.T) {
 		t.Fatalf("an interrupt started an episode: %+v", p2)
 	case <-time.After(100 * time.Millisecond):
 	}
+	if !hasIgnored(h, "interrupt", "Ann", "no live episode") {
+		t.Fatalf("no ignored record in %+v", h.eventList())
+	}
 	// The box is drained: a later Wake starts a normal episode, not an interrupted one.
 	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
 	p2 := s.next(t)
@@ -199,7 +212,8 @@ func TestInterruptBeforeEpisodeDropped(t *testing.T) {
 	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true; c.BackgroundWait = 30 * time.Millisecond })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	done := runAsync(ctx, w, &recordHandle{})
+	h := &recordHandle{}
+	done := runAsync(ctx, w, h)
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnResult)
@@ -212,8 +226,31 @@ func TestInterruptBeforeEpisodeDropped(t *testing.T) {
 		t.Fatalf("resume prompt = %q", got)
 	}
 	p2.in.noCtrl(t, 100*time.Millisecond)
+	// Taken while waiting or at the episode's start, whichever sees it first.
+	if !(hasIgnored(h, "interrupt", "Ann", "no live episode") || hasIgnored(h, "interrupt", "Ann", "before this episode")) ||
+		commandCount(h) != 1 {
+		t.Fatalf("want one ignored record in %+v", h.eventList())
+	}
 	cancel()
 	<-done
+}
+
+// An Interrupt already pending when an episode starts is recorded as ignored.
+func TestInterruptPendingAtStartRecorded(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	w.cmds.postInterrupt("Ann") // before Run: no episode has started
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, h)
+	t.Cleanup(func() { cancel(); <-done })
+	p := s.next(t)
+	p.in.next(t)
+	p.in.noCtrl(t, 50*time.Millisecond)
+	if !eventually(func() bool { return hasIgnored(h, "interrupt", "Ann", "before this episode") }) {
+		t.Fatalf("no ignored record in %+v", h.eventList())
+	}
 }
 
 func TestCompactText(t *testing.T) {
@@ -299,7 +336,8 @@ func TestCompactHoldingWritesNow(t *testing.T) {
 }
 
 func TestInterruptDuringCompactIgnored(t *testing.T) {
-	w, p := interruptRun(t, &recordHandle{})
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
 	compact(w, "Ann", "keep X")
 	p.in.noMessage(t, 30*time.Millisecond) // taken mid-turn
 	p.emit(lnResult)
@@ -307,8 +345,31 @@ func TestInterruptDuringCompactIgnored(t *testing.T) {
 	p.emit(lnInit)
 	interrupt(w, "Bob")
 	p.in.noCtrl(t, 100*time.Millisecond)
+	if !hasIgnored(h, "interrupt", "Bob", "compacting") {
+		t.Fatalf("no ignored record in %+v", h.eventList())
+	}
 	p.emit(lnResult)
 	p.in.waitClosed(t) // no acknowledge turn either
+}
+
+// A Compact pressed while a compaction's turn is in flight is dropped.
+func TestCompactDuringCompactIgnored(t *testing.T) {
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
+	compact(w, "Ann", "keep X")
+	p.in.noMessage(t, 30*time.Millisecond)
+	p.emit(lnResult)
+	p.in.next(t) // the boundary /compact
+	p.emit(lnInit)
+	compact(w, "Bob", "keep Y")
+	if !eventually(func() bool { return hasIgnored(h, "compact", "Bob", "already compacting") }) {
+		t.Fatalf("no ignored record in %+v", h.eventList())
+	}
+	p.emit(lnResult)
+	p.in.waitClosed(t) // no second /compact
+	if !hasCommand(h, "compact", "Ann") || commandCount(h) != 2 {
+		t.Fatalf("want one record per press in %+v", h.eventList())
+	}
 }
 
 // Both owed at one turn boundary: the interrupt's acknowledge turn first,
@@ -485,15 +546,34 @@ func exists(path string) bool {
 }
 
 // hasCommand reports whether h recorded the session-header command record for
-// command pressed by by.
-func hasCommand(h *recordHandle, command, by string) bool {
-	want := `{"type":"cove","subtype":"command","command":"` + command + `","by":"` + by + `"}`
+// command pressed by by and carried out.
+func hasCommand(h *recordHandle, command, by string) bool { return hasIgnored(h, command, by, "") }
+
+// hasIgnored reports whether h recorded the command record for command pressed
+// by by and dropped for why ("" = carried out).
+func hasIgnored(h *recordHandle, command, by, why string) bool {
+	want := `{"type":"cove","subtype":"command","command":"` + command + `","by":"` + by + `"`
+	if why != "" {
+		want += `,"ignored":"` + why + `"`
+	}
+	want += "}"
 	for _, ev := range h.eventList() {
 		if ev.raw == want {
 			return true
 		}
 	}
 	return false
+}
+
+// commandCount is how many command records h holds.
+func commandCount(h *recordHandle) int {
+	n := 0
+	for _, ev := range h.eventList() {
+		if strings.HasPrefix(ev.raw, `{"type":"cove","subtype":"command"`) {
+			n++
+		}
+	}
+	return n
 }
 
 func TestClearNextEpisodeFresh(t *testing.T) {
@@ -533,8 +613,8 @@ func TestClearWhileLiveDropped(t *testing.T) {
 	h := &recordHandle{}
 	w, p := interruptRun(t, h)
 	clear(w, "Bob")
-	if !eventually(func() bool { return hasCommand(h, "clear", "Bob") }) {
-		t.Fatalf("no clear command record in %+v", h.eventList())
+	if !eventually(func() bool { return hasIgnored(h, "clear", "Bob", "live episode") }) {
+		t.Fatalf("no ignored clear record in %+v", h.eventList())
 	}
 	p.emit(lnResult)
 	p.in.waitClosed(t)
@@ -656,8 +736,8 @@ func TestCompactSkippedWhenClearPending(t *testing.T) {
 		t.Fatalf("a compact with a clear pending spawned: %v", p.args)
 	case <-time.After(100 * time.Millisecond):
 	}
-	if !hasCommand(h, "compact", "Ann") {
-		t.Fatalf("no compact command record in %+v", h.eventList())
+	if !hasIgnored(h, "compact", "Ann", "no conversation") {
+		t.Fatalf("no ignored compact record in %+v", h.eventList())
 	}
 	// Still waiting for a Wake, which starts the fresh episode.
 	squawk(w)

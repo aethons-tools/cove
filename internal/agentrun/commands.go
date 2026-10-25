@@ -149,17 +149,25 @@ func interruptPrompt(by string, rs []covemaster.WakeReason) string {
 	return strings.Join(lines, "\n")
 }
 
-// emitCommand records a session-header command in the session event stream as
-// a synthetic stdout-style line, so the Thinking tab and the admin timeline
-// show who pressed it.
-func (w *Workload) emitCommand(h covemaster.Handle, turn uint32, command, by string) {
+// emitCommand records a session-header command press in the session event
+// stream as a synthetic stdout-style line, so the Thinking tab and the admin
+// timeline show who pressed it. ignored is why the press was dropped ("" =
+// carried out). Every press is recorded exactly once.
+func (w *Workload) emitCommand(h covemaster.Handle, turn uint32, command, by, ignored string) {
 	line, _ := json.Marshal(struct {
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
 		Command string `json:"command"`
 		By      string `json:"by"`
-	}{"cove", "command", command, by})
+		Ignored string `json:"ignored,omitempty"`
+	}{"cove", "command", command, by, ignored})
 	h.Event(turn, line, 0)
+}
+
+// ignoreCommand logs and records a press dropped for why.
+func (w *Workload) ignoreCommand(h covemaster.Handle, turn uint32, command, by, why string) {
+	w.log.Info("agentrun: "+command+" ignored", "by", by, "why", why)
+	w.emitCommand(h, turn, command, by, why)
 }
 
 // clearedNotice tells the agent its conversation was cleared at by's request.

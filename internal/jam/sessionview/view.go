@@ -172,6 +172,7 @@ func build(ev sessionevents.Event) EventView {
 		Result  string `json:"result"`
 		Command string `json:"command"`
 		By      string `json:"by"`
+		Ignored string `json:"ignored"`
 	}
 	if json.Unmarshal(ev.Raw, &env) != nil {
 		v.Label, v.Detail = "unparsed", string(ev.Raw)
@@ -232,6 +233,9 @@ func build(ev sessionevents.Event) EventView {
 			text := strings.ToUpper(env.Command[:1]) + env.Command[1:] + " — pressed"
 			if env.By != "" {
 				text += " by " + env.By
+			}
+			if env.Ignored != "" {
+				text += " (ignored: " + env.Ignored + ")"
 			}
 			v.Kind, v.Label = KindPrompt, "control"
 			v.Summary, v.Narrative = text, text
