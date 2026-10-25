@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"golang.org/x/net/http2"
 )
 
@@ -351,6 +353,33 @@ func TestPreviewURLNamesAdminPort(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("listen %q: %q, %v; want %q", listen, got, err, want)
 		}
+	}
+}
+
+// The pane's frame URL is the preview host's exchange, on the admin port as
+// previewURLFunc's, with a ticket minted for that host (and no port).
+func TestFrameURLs(t *testing.T) {
+	const id = "ses_01m4bc9fmg5v4bc7cq3at6jp6n"
+	tickets := collabhttp.NewFrameTickets(time.Now)
+	f := frameURLs{tickets: tickets, domain: "p.example", adminListen: ":8443"}
+	got, err := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "ide", collab.SSH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const host = "ide--01m4bc9fmg5v4bc7cq3at6jp6n.p.example"
+	prefix := "https://" + host + ":8443/__jam/frame?t="
+	if !strings.HasPrefix(got, prefix) {
+		t.Fatalf("%q, want prefix %q", got, prefix)
+	}
+	if _, ok := tickets.Redeem(strings.TrimPrefix(got, prefix), host); !ok {
+		t.Error("the ticket isn't redeemable for its host")
+	}
+	f.adminListen = "0.0.0.0:443"
+	if got, _ := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "app", collab.Preview); !strings.HasPrefix(got, "https://app--01m4bc9fmg5v4bc7cq3at6jp6n.p.example/__jam/frame?t=") {
+		t.Errorf("443: %q", got)
+	}
+	if _, err := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "Bad Name", collab.Preview); err == nil {
+		t.Error("an invalid name minted")
 	}
 }
 

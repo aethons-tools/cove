@@ -11,8 +11,8 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
-	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
@@ -34,12 +34,16 @@ type SessionPane struct {
 	// EventsOff: this jam records no session events.
 	Streams   []sessionevents.StreamInfo
 	EventsOff bool
+	// Studio: the Studio tab's IDE may be framed here (ssh and framing on).
+	Studio bool
 }
 
-// PreviewLink is one exposed port, opened in a new tab.
+// PreviewLink is one exposed port, opened in a new tab; Frame: View here
+// (framed in the pane) is offered too.
 type PreviewLink struct {
 	Name, URL string
 	Port      int
+	Frame     bool
 }
 
 // PaneBoard is a whiteboard started in the session's home channel.
@@ -55,7 +59,7 @@ type PaneLink struct{ URL, Label string }
 type StatusRow struct{ Name, Value string }
 
 // paneTabs are the tabs a session's pane has.
-var paneTabs = []string{"thinking", "previews", "artifacts", "status"}
+var paneTabs = []string{"studio", "thinking", "previews", "artifacts", "status"}
 
 // maxPaneLinks bounds the Links list (the newest win).
 const maxPaneLinks = 50
@@ -74,6 +78,9 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
+	case "studio":
+		_, ok := collab.Decide(h.d.Store, time.Now(), collabPrincipal(r, p), inst, collab.SSH)
+		pane.Studio = ok && h.d.Frames != nil
 	case "thinking":
 		if h.d.Events == nil {
 			pane.EventsOff = true
@@ -91,25 +98,23 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) panePreviews(r *http.Request, p jam.Participant, inst jam.Instance, pane *SessionPane) {
-	pr, _ := appui.PrincipalFrom(r)
-	cp := collab.Principal{UserID: p.UserID}
-	if pr.Admin {
-		cp.Operator = pr.Operator.ID
-	}
 	if h.d.PreviewURL == nil {
 		pane.PreviewsOff = true
 		return
 	}
-	if _, ok := collab.Decide(h.d.Store, time.Now(), cp, inst, collab.Preview); !ok {
+	if _, ok := collab.Decide(h.d.Store, time.Now(), collabPrincipal(r, p), inst, collab.Preview); !ok {
 		pane.PreviewsOff = true
 		return
 	}
 	for _, e := range inst.Exposures {
+		if e.Name == preview.IDEName {
+			continue // the Studio tab's
+		}
 		u, err := h.d.PreviewURL(inst.ActorID, e.Name)
 		if err != nil {
 			continue
 		}
-		pane.Previews = append(pane.Previews, PreviewLink{Name: e.Name, URL: u, Port: e.Port})
+		pane.Previews = append(pane.Previews, PreviewLink{Name: e.Name, URL: u, Port: e.Port, Frame: h.d.Frames != nil})
 	}
 }
 

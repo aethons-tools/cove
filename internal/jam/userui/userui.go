@@ -12,6 +12,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
@@ -34,6 +35,11 @@ type Deps struct {
 	// PreviewURL maps a session's exposed port name to the URL a
 	// collaborator opens (nil: previews off).
 	PreviewURL func(actorID, name string) (string, error)
+	// Frames mints frame URLs for the pane's framed views (nil: framing off;
+	// Studio and View here are hidden).
+	Frames interface {
+		FrameURL(p collab.Principal, display, actorID, name string, right collab.Right) (string, error)
+	}
 	// Events and Hub serve the Thinking tab (nil Events: not recorded).
 	Events sessionevents.Store
 	Hub    *sessionevents.Hub

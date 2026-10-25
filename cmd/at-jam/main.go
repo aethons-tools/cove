@@ -2725,7 +2725,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
+		userDeps := userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		if frames != nil { // never a typed nil: a nil Frames hides Studio and View here
+			userDeps.Frames = frameURLs{tickets: frames, domain: cfg.Previews.Domain, adminListen: cfg.AdminListen}
+		}
+		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
 		// tabs (WithSetupDeps) render with the same deps.
