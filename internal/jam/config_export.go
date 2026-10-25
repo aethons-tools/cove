@@ -111,7 +111,7 @@ func exportObjects(m *memState, inTree func(kit string) bool) (out map[ConfigKey
 		key := ConfigKey{ConfigKindKit, n}
 		at = key
 		if v.TreeHash == "" || v.Tree.Entries == nil {
-			out[key] = configObject{Key: key, Canon: []byte("# broken: " + brokenReason(k, v) + "\n")}
+			out[key] = configObject{Key: key, Canon: brokenKitCanon(brokenReason(k, v))}
 			continue
 		}
 		blobs := kittree.MapBlobs(m.kitBlobs)
@@ -156,6 +156,10 @@ func brokenReason(k Kit, v KitVersion) string {
 	}
 	return "it is not stored as a tree yet"
 }
+
+// brokenKitCanon is the canonical form of a kit whose current version has no
+// tree (brokenReason): fixed text, no files.
+func brokenKitCanon(reason string) []byte { return []byte("# broken: " + reason + "\n") }
 
 // kitCanon is a kit's canonical form for plans and marks: its kit.yml, then
 // "# files:" and one line per entry of its tree (mode, size, sha256, path),

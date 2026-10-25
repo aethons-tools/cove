@@ -149,3 +149,16 @@ func TestAttentionEscalationDedupe(t *testing.T) {
 		t.Errorf("items = %+v, want one escalation::user:ghost", items)
 	}
 }
+
+// A kit whose current version the tree migration kept broken says so, not
+// "does not parse"; its reason is the kit page's, not the card's.
+func TestAttentionBrokenKit(t *testing.T) {
+	st := jam.NewMemStore()
+	if err := st.PutKitDocs([]jam.Kit{{Name: "old", Current: 1, Broken: map[int]string{1: "its base.context is not valid base64"}}}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	items := attention(st, newImage{})
+	if len(items) != 1 || items[0].Subject != "kit:old" || items[0].Kind != attnConfig || items[0].Why != "kit old v1 could not be migrated to a tree" {
+		t.Fatalf("items = %+v", items)
+	}
+}

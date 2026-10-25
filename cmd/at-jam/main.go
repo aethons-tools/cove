@@ -2006,6 +2006,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
+	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
+	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
+	// A failed migration fails closed: a half-read registry would raise kits
+	// from text the build no longer reads.
+	if mig, err := jam.MigrateKitTrees(st, conds, log); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	} else if len(mig.Broken) > 0 {
+		log.Warn("kit versions kept broken (their packed context could not be read)", "versions", mig.Broken)
+	}
+	if gc, err := st.GCKitObjects(); err != nil {
+		log.Warn("kit object collection failed (retried next start)", "reason", err.Error())
+	} else if gc.Trees+gc.Blobs > 0 {
+		log.Info("kit objects collected", "trees", gc.Trees, "blobs", gc.Blobs)
+	}
 	go conds.Run(context.Background(), 5*time.Second)
 	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
 	// now, every minute, and after each config apply or release.

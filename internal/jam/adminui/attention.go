@@ -43,12 +43,15 @@ type attnItem struct {
 func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 	var out []attnItem
 
-	// Jam: kits whose current version doesn't parse; destinations in a
-	// connector conflict.
+	// Jam: kits whose current version doesn't parse or was kept broken by
+	// the tree migration; destinations in a connector conflict.
 	for _, k := range store.ListKits() {
 		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err != nil {
-			out = append(out, attnItem{Kind: attnConfig, Tab: "specs", Subject: "kit:" + k.Name, Href: kitURL(k.Name),
-				Why: fmt.Sprintf("kit %s v%d does not parse", k.Name, k.Current)})
+			why := fmt.Sprintf("kit %s v%d does not parse", k.Name, k.Current)
+			if _, broken := k.Broken[k.Current]; broken {
+				why = fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current)
+			}
+			out = append(out, attnItem{Kind: attnConfig, Tab: "specs", Subject: "kit:" + k.Name, Href: kitURL(k.Name), Why: why})
 		}
 	}
 	for _, d := range store.ListDestinations() {

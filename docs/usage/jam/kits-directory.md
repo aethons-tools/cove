@@ -1,10 +1,10 @@
 ---
 summary: A kit version is a directory — kit.yml plus its files; a Dockerfile beside kit.yml makes it the build context; the limits, .dockerignore, how Jam stores versions as content-addressed trees.
 read_when: You are laying out a kit directory (Dockerfile, scripts, note files), a push or import refused a file (symlink, limit, unsafe name, packed-context field), or you want to know what a version stores.
-owns: the kit directory — files, modes, limits, .dockerignore, build context, tree storage, the push upload and its refusals
+owns: the kit directory — files, modes, limits, .dockerignore, build context, tree storage, the one-time migration from packed contexts, the push upload and its refusals
 prereqs: kits.md
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # The kit directory
@@ -53,6 +53,36 @@ file content, and a tree listing each file's path, mode and blob hash. The
 tree's hash identifies the version's files; identical directories share one
 tree and their blobs. A push whose tree equals *current*'s makes no version
 (`unchanged`). `kit show` lists the files under `# files (tree <12 hex>):`.
+
+## Stored as trees
+
+Jam keeps the trees and blobs in its own database (`kit_trees`, `kit_blobs`),
+shared by every kit and version. Unreferenced ones are dropped when a kit is
+removed and at serve start.
+
+**Upgrading.** The first serve start after the upgrade migrates every kit
+once, in one transaction, and logs `kits migrated to trees`:
+
+- A packed `base.context` becomes files at the root, modes kept.
+- `context-files` become files, the `dockerfile` key becoming `Dockerfile`,
+  each `0644`.
+- `kit.yml` becomes the stored definition re-rendered without the context
+  fields. The context's own `.dockerignore` applies, as it did to the build.
+
+Build digests of kits with a context change once, so running studios show
+`image=stale` once and rebuild on their next raise. Kits without one, the
+default kit included, keep their version and image. A config-managed kit's
+mark moves with it, so it shows no drift.
+
+A version whose context cannot be read (not base64, not a tar.gz, a link or
+unsafe path, over the limits) is kept **broken**: raising it fails with the
+reason, and the attention condition `kit.migrate:<name>` is open while it is
+current. Push the kit as a directory, or pin a version that migrated. A stored
+definition that no longer parses keeps its text, minus the context fields, as
+`kit.yml`.
+
+The pre-migration text is kept in the kit's `legacy` field for one release.
+**Rolling back to an older Jam after the migration is not supported.**
 
 ## Refusals
 

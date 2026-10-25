@@ -1,0 +1,9 @@
+== Dockerfile 0644
+FROM x
+
+== kit.yml 0644
+kind: studio
+
+== sub/a.txt 0644
+hi
+

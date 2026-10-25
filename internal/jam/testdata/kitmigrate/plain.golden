@@ -1,0 +1,8 @@
+== kit.yml 0644
+kind: studio
+notes:
+    - name: r.md
+      read-when: releasing
+      body: |
+        # R
+

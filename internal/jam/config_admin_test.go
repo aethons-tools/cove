@@ -379,3 +379,20 @@ func TestConfigExportTreeKitDirs(t *testing.T) {
 		t.Fatal("kit.yml is in files")
 	}
 }
+
+func TestConfigImportMigratesAPreTreeBackup(t *testing.T) {
+	st := NewMemStore()
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "app", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}}}
+	body, _ := json.Marshal(snap)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/admin/config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:1234" // LoopbackAuthenticator
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("import = %d %s", w.Code, w.Body)
+	}
+	if k, _ := st.GetKit("app"); k.Trees[1] == "" || len(k.Versions) != 0 {
+		t.Fatalf("the imported kit was not migrated: %+v", k)
+	}
+}

@@ -524,6 +524,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 			return
 		}
+		// A pre-tree backup's kits are config text: migrate them now
+		// (kits-directory.md#stored-as-trees). A snapshot of trees is a no-op.
+		if _, err := MigrateKitTrees(store, nil, log); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		log.Info("admin config imported", "operator", OperatorID(r),
 			"actors", len(snap.Actors), "kits", len(snap.Kits),
 			"destinations", len(snap.Destinations), "model_specs", len(snap.ModelSpecs), "projects", len(snap.Projects))
