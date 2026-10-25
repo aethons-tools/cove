@@ -20,14 +20,9 @@ var errKitPushUsage = errors.New("expected <dir> or --config <file> (- for stdin
 func kitPushFiles(pos []string, config, name string) ([]kittree.File, string, error) {
 	switch {
 	case len(pos) == 1 && config == "":
-		root, err := os.OpenRoot(pos[0])
+		files, err := readKitDir(pos[0])
 		if err != nil {
-			return nil, "", fmt.Errorf("%s: %s", pos[0], openDirError(pos[0], err))
-		}
-		defer root.Close()
-		files, err := kittree.ReadDir(root, ".")
-		if err != nil {
-			return nil, "", fmt.Errorf("%s: %w", pos[0], err)
+			return nil, "", err
 		}
 		if name == "" {
 			abs, _ := filepath.Abs(pos[0])
@@ -42,6 +37,22 @@ func kitPushFiles(pos []string, config, name string) ([]kittree.File, string, er
 		return []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: data}}, name, nil
 	}
 	return nil, "", errKitPushUsage
+}
+
+// readKitDir reads a kit directory as `kit push` and `kit draft sync` send it
+// (.dockerignore applied, symlinks and irregular files refused); errors are
+// prefixed with dir.
+func readKitDir(dir string) ([]kittree.File, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", dir, openDirError(dir, err))
+	}
+	defer root.Close()
+	files, err := kittree.ReadDir(root, ".")
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", dir, err)
+	}
+	return files, nil
 }
 
 // openDirError says, in fixed text, why <dir> could not be opened; the OS

@@ -156,7 +156,7 @@ func TestKitDraftArgs(t *testing.T) {
 		}
 	}
 	var out, errb bytes.Buffer
-	if code := run([]string{"kit", "draft"}, func(string) string { return "" }, &out, &errb); code != 2 || !strings.Contains(errb.String(), "expected open|status|get|put|rm|discard|publish") {
+	if code := run([]string{"kit", "draft"}, func(string) string { return "" }, &out, &errb); code != 2 || !strings.Contains(errb.String(), "expected open|status|get|put|rm|discard|publish|sync") {
 		t.Fatalf("no verb: %d %q", code, errb.String())
 	}
 }
@@ -281,5 +281,60 @@ func TestKitDraftFlagsPerVerb(t *testing.T) {
 		if code := run(argv, func(string) string { return "" }, &out, &errb); code != 0 || !strings.Contains(out.String(), "draft") {
 			t.Fatalf("%q: %d %q %q", argv, code, out.String(), errb.String())
 		}
+	}
+}
+
+func TestKitDraftSync(t *testing.T) {
+	kit, store, _ := draftCLI(t)
+	dir := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for p, body := range map[string]string{"kit.yml": "kind: studio\nprompt: synced\n", "bin/run": "echo\n", ".dockerignore": "*.log\n", "debug.log": "x"} {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(dir, "bin/run"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := kit("sync", "app", dir); code != 1 || !strings.Contains(errs, "kit app has no draft") {
+		t.Fatalf("sync without a draft: %d %q", code, errs)
+	}
+	if code, _, errs := kit("open", "app"); code != 0 {
+		t.Fatal(errs)
+	}
+	code, out, errs := kit("sync", "app", dir)
+	want := "  added    .dockerignore\n  added    bin/run\n  modified kit.yml\n"
+	if code != 0 || !strings.HasPrefix(out, "synced "+dir+" to draft app (etag \"") || !strings.HasSuffix(out, want) {
+		t.Fatalf("sync: %d %q %q", code, out, errs)
+	}
+	d, _ := store.GetKitDraft("app")
+	tree, _ := store.KitTree(d.Tree)
+	if _, ok := tree.Lookup("debug.log"); ok {
+		t.Fatal(".dockerignore must filter the sync")
+	}
+	if e, _ := tree.Lookup("bin/run"); e.Mode != 0o755 {
+		t.Fatal("the exec bit was lost")
+	}
+	if code, out, _ = kit("sync", "app", dir); code != 0 || !strings.HasPrefix(out, "draft app unchanged (etag ") {
+		t.Fatalf("second sync: %d %q", code, out)
+	}
+	// A symlink in the directory is refused client-side; nothing is sent.
+	if err := os.Symlink("/etc/passwd", filepath.Join(dir, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs = kit("sync", "app", dir); code != 1 || !strings.Contains(errs, "leak: symlinks are not allowed") {
+		t.Fatalf("symlink: %d %q", code, errs)
+	}
+	if again, _ := store.GetKitDraft("app"); again.Tree != d.Tree {
+		t.Fatal("a refused sync changed the draft")
+	}
+	if code, _, errs = kit("sync", "app", filepath.Join(dir, "nope")); code != 1 || !strings.Contains(errs, "no such directory") {
+		t.Fatalf("missing dir: %d %q", code, errs)
+	}
+	// A stale --etag is refused (Review Focus 1).
+	if code, _, errs = kit("sync", "app", t.TempDir(), "--etag", strings.Repeat("0", 64)); code != 1 || !strings.Contains(errs, "draft app changed since you loaded it (reload)") {
+		t.Fatalf("stale sync: %d %q", code, errs)
 	}
 }

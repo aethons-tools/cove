@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -31,9 +32,10 @@ var kitDraftVerbs = map[string]struct {
 	"rm":      {"<kit> <path>", 2},
 	"discard": {"<kit>", 1},
 	"publish": {"<kit> [--pin]", 1},
+	"sync":    {"<kit> <dir>", 2},
 }
 
-const kitDraftUsage = "at-jam kit draft: expected open|status|get|put|rm|discard|publish"
+const kitDraftUsage = "at-jam kit draft: expected open|status|get|put|rm|discard|publish|sync"
 
 // cmdKitDraft is `at-jam kit draft <verb>` (docs/usage/jam/kits-drafts.md).
 // A write sends the draft's etag as If-Match: --etag, else the one a status
@@ -74,7 +76,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 	case "publish":
 		pin = fs.Bool("pin", false, "pin the kits that follow this one to the version they follow now")
 	}
-	if verb == "put" || verb == "rm" || verb == "discard" || verb == "publish" {
+	if verb == "put" || verb == "rm" || verb == "discard" || verb == "publish" || verb == "sync" {
 		etag = fs.String("etag", "", "write against this draft etag (default: fetch the draft's status first)")
 	}
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -194,6 +196,33 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		fmt.Fprintf(stdout, "discarded draft %s\n", name)
+	case "sync":
+		// The directory as `kit push` reads it, sent whole; the draft must
+		// already be open.
+		dir := pos[1]
+		files, err := readKitDir(dir)
+		if err != nil {
+			return fail(err)
+		}
+		var body bytes.Buffer
+		if err := kittree.WriteTar(&body, files); err != nil {
+			return fail(err)
+		}
+		tag, err := etagFor()
+		if err != nil {
+			return fail(err)
+		}
+		s, err := c.ReplaceKitDraft(kit, body.Bytes(), tag)
+		if err != nil {
+			return fail(err)
+		}
+		if len(s.Changed) == 0 {
+			fmt.Fprintf(stdout, "draft %s unchanged (etag %s)\n", name, textesc.Escape(s.ETag, false))
+		} else {
+			fmt.Fprintf(stdout, "synced %s to draft %s (etag %s)\n", textesc.Escape(dir, false), name, textesc.Escape(s.ETag, false))
+			printDraftChanges(stdout, s.Changed)
+		}
+		printProblems(stdout, s.Problems)
 	case "publish":
 		tag, err := etagFor()
 		if err != nil {

@@ -1,5 +1,5 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|publish|discard` verbs and the open, status, discard, file read/write/remove and publish API.
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs and the open, status, discard, file read/write/remove and publish API.
 read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
 owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines
 prereqs: kits.md, kits-directory.md
@@ -67,6 +67,7 @@ at-jam kit draft status app [--json]                   # base and current, files
 at-jam kit draft get app run.sh [-o run.sh]            # one file's bytes (stdout by default)
 at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads stdin)
 at-jam kit draft rm app old.sh                         # remove a file
+at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
 at-jam kit draft publish app [--pin]                   # → published draft app as v4
 at-jam kit draft discard app                           # drop the draft
 ```
@@ -80,6 +81,10 @@ config-managed kit. The admin-client flags apply as for every
 - `status` prints `draft <kit>: base vN, current vM`, and when another
   version landed since the draft was opened, that publishing replaces it with
   the draft (nothing is merged). Names, paths and problems are printed escaped.
+- `sync` reads the directory as `kit push` does (`.dockerignore` applied,
+  symlinks refused) and replaces the draft's tree with it. It prints the files
+  added, removed, modified or mode-changed, or `unchanged`. It needs an open
+  draft: run `kit draft open` first.
 - `get -o <file>` writes the file with its mode in the draft; an existing
   symlink there is replaced, never written through.
 - `publish --pin` prints a `pinned …` line per follower pinned.
