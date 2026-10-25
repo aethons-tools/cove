@@ -113,8 +113,8 @@ func (m *memState) applyKitObjects(objs KitObjects) {
 	}
 }
 
-// deadKitObjects lists, sorted, the trees no kit version or draft references and
-// the blobs no remaining tree names. Caller holds mu.
+// deadKitObjects lists, sorted, the trees no kit version, draft or draft
+// studio references and the blobs no remaining tree names. Caller holds mu.
 func (m *memState) deadKitObjects() (trees, blobs []string) {
 	live := map[string]bool{}
 	for _, k := range m.kits {
@@ -124,6 +124,11 @@ func (m *memState) deadKitObjects() (trees, blobs []string) {
 	}
 	for _, d := range m.kitDrafts {
 		live[d.Tree] = true // an open draft references its tree too
+	}
+	for _, i := range m.instances {
+		if i.KitDraft != nil && i.Phase != PhaseGone {
+			live[i.KitDraft.Tree] = true // a draft studio runs its tree as of its raise
+		}
 	}
 	liveBlobs := map[string]bool{}
 	for sha, t := range m.kitTrees {

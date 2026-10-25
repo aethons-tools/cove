@@ -68,7 +68,7 @@ func (f *fakeLauncher) Raise(_ context.Context, spec RaiseSpec, creds LaunchCred
 	if f.raiseErr != nil {
 		return "", f.raiseErr
 	}
-	if f.notReadyOnce && f.prepareCalls == 0 {
+	if f.notReadyOnce && f.prepareCalls == 0 && spec.DraftImage == nil {
 		return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 	}
 	f.raised = append(f.raised, spec.ActorID)

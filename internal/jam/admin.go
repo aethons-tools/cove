@@ -332,6 +332,9 @@ func imageStatus(img ImageResolver, current map[[2]string]currentImage, i Instan
 	default:
 		return "-"
 	}
+	if i.KitDraft != nil {
+		return "draft" // a draft studio runs its draft's build: never stale on the kit's versions
+	}
 	if img == nil || (i.ImageTag == "" && i.Kit.ID == "") {
 		return "unknown"
 	}

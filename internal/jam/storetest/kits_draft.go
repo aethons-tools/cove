@@ -204,6 +204,33 @@ func runKitDraftConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatal("an import made a draft")
 		}
 	})
+	t.Run("GC keeps a draft studio's tree until the studio is gone", func(t *testing.T) {
+		st := withKit(t)
+		tr, objs := draftObjs(t, "kit.yml", "kind: studio\nprompt: a studio\n")
+		if err := st.PutKitDraft(draftOn(tr.Hash()), objs); err != nil {
+			t.Fatal(err)
+		}
+		inst := jam.Instance{ActorID: "cove-d1", Phase: jam.PhaseLive, KitDraft: &jam.KitDraftRef{Kit: "app", Tree: tr.Hash()}}
+		if err := st.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.RemoveKitDraft("app"); err != nil {
+			t.Fatal(err)
+		}
+		if gc, err := st.GCKitObjects(); err != nil || gc != (jam.KitGC{}) {
+			t.Fatalf("gc = %+v %v (a live draft studio references its tree)", gc, err)
+		}
+		if got, ok := st.GetInstance("cove-d1"); !ok || got.KitDraft == nil || *got.KitDraft != *inst.KitDraft {
+			t.Fatalf("instance = %+v %v (kit_draft must round-trip)", got, ok)
+		}
+		inst.Phase = jam.PhaseGone
+		if err := st.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		if gc, err := st.GCKitObjects(); err != nil || gc != (jam.KitGC{Trees: 1, Blobs: 1}) {
+			t.Fatalf("gc once the studio is gone = %+v %v", gc, err)
+		}
+	})
 }
 
 // assertDraftCollected runs GC after kit app (v1: kit.yml) and its draft

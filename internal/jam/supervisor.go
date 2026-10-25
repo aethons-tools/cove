@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -70,6 +71,13 @@ type RaiseSpec struct {
 	// the launcher runs (by id) instead of the kit inventory's. nil for every
 	// other raise.
 	DraftImage *KitDraftImage
+	// KitDraft names a kit whose draft the studio runs instead of the role's
+	// kit: an admin manual raise only (docs/usage/jam/kits-drafts.md#draft-studio).
+	// No other caller sets it.
+	KitDraft string
+	// draft is the draft tree a draft studio runs (Raise and a context
+	// refresh set it), for the kit fact; nil for every other raise.
+	draft *KitDraftRef
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
@@ -401,8 +409,24 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// resolved — parsed and hashed once — for that harness; the one definition
 	// serves the image key, the session context and a PrepareKit. raiseKit is
 	// shared with CurrentImage, so a recorded tag and a current one can't drift.
+	//
+	// A draft studio (spec.KitDraft) runs that kit's draft instead: its
+	// image is the test build of the draft tree under the role's harness,
+	// built (or reused) here, synchronously.
 	var def *KitDefinition
-	if roleOK {
+	var draft *draftRaise
+	switch {
+	case spec.KitDraft != "":
+		dr, derr := s.raiseDraft(ctx, spec, role)
+		if derr != nil {
+			if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
+				s.log.Warn("raise rollback: failed to revoke identity after draft resolve failure", "id", spec.ActorID, "error", rmErr)
+			}
+			return Instance{}, "", "", fmt.Errorf("raise: draft studio: %w", derr)
+		}
+		draft = &dr
+		spec.Kit, spec.DraftImage, spec.draft, def = dr.def.Ref, &dr.image, &dr.ref, &dr.def
+	case roleOK:
 		d, have, kerr := s.raiseKit(spec.Project, role)
 		if kerr != nil {
 			if rmErr := s.store.RemoveActor(spec.ActorID); rmErr != nil && s.log != nil {
@@ -419,7 +443,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
-	if errors.Is(err, ErrKitNotReady) {
+	if errors.Is(err, ErrKitNotReady) && draft == nil {
 		// The launcher lacks this kit: send it the full definition (from the
 		// registry, unless Raise resolved it) and retry once. A still-preparing
 		// build does not block — the raise fails and the caller's reconcile
@@ -452,6 +476,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if def != nil && def.Ref == spec.Kit {
 		inst.KitChain = chainRefs(def.Chain)
 	}
+	if draft != nil {
+		inst.KitDraft, inst.ImageTag = &draft.ref, draft.image.Tag
+	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
 			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
@@ -460,6 +487,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
 		return Instance{}, "", "", err
+	}
+	if draft != nil {
+		s.keepDraftTree(draft.objs)
 	}
 	s.recordRaiseSetup(inst, spec, def)
 	if s.tunnels != nil {
@@ -553,6 +583,51 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 		return KitDefinition{}, false, err
 	}
 	return s.kitFor(role, h)
+}
+
+// draftRaise is what a draft studio's raise resolved: its definition, the
+// draft tree it runs, that tree's objects, and its built image.
+type draftRaise struct {
+	def   KitDefinition
+	ref   KitDraftRef
+	objs  KitObjects
+	image KitDraftImage
+}
+
+// raiseDraft resolves a draft studio of kit spec.KitDraft for role: the
+// draft tree as of now under the role's harness (DraftKitDefinition), and
+// its image through the test-build jobs (Ensure), waited for.
+func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) (draftRaise, error) {
+	if s.draftBuilds == nil {
+		return draftRaise{}, writeErr(http.StatusServiceUnavailable, kitDraftBuildsOff)
+	}
+	h, err := s.raiseHarness(spec.Project, role)
+	if err != nil {
+		return draftRaise{}, err
+	}
+	def, ref, err := DraftKitDefinition(s.store, spec.KitDraft, h)
+	if err != nil {
+		return draftRaise{}, err
+	}
+	img, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name)
+	if err != nil {
+		return draftRaise{}, err
+	}
+	return draftRaise{def: def, ref: ref, objs: objs, image: img}, nil
+}
+
+// keepDraftTree re-stores a draft studio's tree should GC have collected
+// it between the raise reading the draft and recording the instance (a
+// discard or an edit meanwhile). From the recorded instance on, it is a GC
+// root, so this check cannot race a later collection.
+func (s *Supervisor) keepDraftTree(objs KitObjects) {
+	tree := objs.Trees[0].Hash()
+	if _, ok := s.store.KitTree(tree); ok {
+		return
+	}
+	if err := s.store.PutKitDocs(nil, objs); err != nil && s.log != nil {
+		s.log.Warn("draft studio: could not re-store its tree", "tree", shortTree(tree), "err", err.Error())
+	}
 }
 
 // currentKitRef is raiseKit's Ref, cached on (kit ref, version content, parent chain, harness):
@@ -1627,6 +1702,9 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	haveKit := false
 	if spec.Kit.ID != "" {
 		in.Session.Kit = spec.Kit.String()
+		if spec.draft != nil {
+			in.Session.Kit = spec.draft.String()
+		}
 		def, ok := KitDefinition{}, false
 		if raised != nil && raised.Ref == spec.Kit {
 			def, ok = *raised, true
@@ -1694,18 +1772,37 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 	// current version's prompt and notes are picked up.
 	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
 	promptKit := inst.Kit
+	if inst.KitDraft != nil {
+		spec.KitDraft, spec.draft = inst.KitDraft.Kit, inst.KitDraft
+	}
 	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
 		if role.Scope.Egress != nil {
 			spec.Egress = &EgressPolicy{Domains: slices.Clone(role.Scope.Egress.Domains)}
 		}
-		// Only the current version's id/version matter here, not its image key.
-		if d, have, err := s.kitFor(role, harnessinstall.Default()); err == nil && have {
-			ref := d.Ref
-			promptKit = ref
-			if spec.Kit.ID == "" { // raised before instances recorded their kit
-				spec.Kit = ref
+		// Only the current version's id/version matter here, not its image
+		// key. A draft studio keeps its draft's prompt: never the role's kit.
+		if inst.KitDraft == nil {
+			if d, have, err := s.kitFor(role, harnessinstall.Default()); err == nil && have {
+				ref := d.Ref
+				promptKit = ref
+				if spec.Kit.ID == "" { // raised before instances recorded their kit
+					spec.Kit = ref
+				}
 			}
 		}
+	}
+	if inst.KitDraft != nil {
+		// Recompiled from the draft tree as of the raise and the recorded
+		// parents (draftStudioKit), as the raise compiled it.
+		sk, err := draftStudioKit(s.store, inst)
+		if err != nil {
+			spec.Kit = KitRef{}
+			b := s.compileContext(spec, actor, KitRef{}, nil, nil)
+			b.Warnings = append(b.Warnings, fmt.Sprintf("kit layer omitted: %v", err))
+			return b, nil
+		}
+		def := KitDefinition{Ref: inst.Kit, Kit: sk}
+		return s.compileContext(spec, actor, inst.Kit, &def, nil), nil
 	}
 	return s.compileContext(spec, actor, promptKit, nil, inst.KitChain), nil
 }

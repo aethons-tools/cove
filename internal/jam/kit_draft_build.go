@@ -16,6 +16,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // Draft build states (KitDraftBuild.State).
@@ -464,4 +465,148 @@ func newDraftBuildID() string {
 	var r [8]byte
 	_, _ = rand.Read(r[:])
 	return "kdb_" + hex.EncodeToString(r[:])
+}
+
+// String names a draft studio's kit where a kit version would read
+// kit@vN: "<kit> (draft @<tree[:7]>)", never @v0.
+func (r KitDraftRef) String() string { return fmt.Sprintf("%s (draft @%.7s)", r.Kit, r.Tree) }
+
+// DraftKitDefinition is what a draft studio of kit name runs: the draft's
+// tree as of now, read under kitMu and checked as a test build checks it
+// (problems refuse, 400), under the raising role's harness h. Its files are
+// not copied yet: Ensure copies them only once it knows it must build.
+func DraftKitDefinition(store Store, name string, h harnessinstall.Install) (KitDefinition, KitDraftRef, error) {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	d, err := draftOf(store, name)
+	if err != nil {
+		return KitDefinition{}, KitDraftRef{}, err
+	}
+	tree, err := storedDraftTree(store, d)
+	if err != nil {
+		return KitDefinition{}, KitDraftRef{}, err
+	}
+	def, err := draftDefinitionLocked(store, name, tree, h)
+	return def, KitDraftRef{Kit: name, Tree: d.Tree}, err
+}
+
+// Ensure is a draft studio's image: def (DraftKitDefinition: kit ref.Kit's
+// draft tree ref.Tree under the raising role's harness), built through the
+// same jobs as a test build, for by
+// (docs/usage/jam/kits-drafts.md#draft-studio). It also returns the tree and
+// its blobs, which the raise re-stores should GC take them before its
+// instance is recorded.
+//   - The latest build of exactly that definition (tree and digest, so the
+//     harness too) is reused while it succeeded and its image is present.
+//   - A build of it already running is waited for.
+//   - Otherwise (none, a failed one, a removed image) a new build starts
+//     and is waited for, until ctx is done. The build runs on regardless,
+//     for a later raise to reuse.
+//
+// A running build of another tree or harness is 409 and shutdown is 503,
+// both before any file is copied. A failed build is 400, with the build's
+// failure line.
+func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitDraftRef, by string) (KitDraftImage, KitObjects, error) {
+	tag, err := KitDraftTag(ref.Kit, ref.Tree)
+	if err != nil {
+		return KitDraftImage{}, KitObjects{}, err
+	}
+	same := func(j *draftBuildJob) bool { return j != nil && j.tree == ref.Tree && j.buildDigest == def.Ref.Digest }
+	b.mu.Lock()
+	j := b.jobs[ref.Kit]
+	id := ""
+	if same(j) && j.state == DraftBuildSucceeded {
+		id = j.imageID
+	}
+	b.mu.Unlock()
+	if id != "" {
+		if ok, herr := b.builder.HasKitDraftImage(id); herr == nil && ok {
+			objs, err := b.draftObjects(ref)
+			return KitDraftImage{Tag: tag, ID: id}, objs, err
+		}
+	}
+	if err := b.canEnsure(ref.Kit, same); err != nil {
+		return KitDraftImage{}, KitObjects{}, err
+	}
+	j, objs, err := b.waitOrStart(def, ref, tag, by, same)
+	if err != nil {
+		return KitDraftImage{}, KitObjects{}, err
+	}
+	select {
+	case <-j.done:
+	case <-ctx.Done():
+		return KitDraftImage{}, KitObjects{}, ctx.Err()
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if j.state != DraftBuildSucceeded {
+		line, _, _ := strings.Cut(j.errText, "\n")
+		return KitDraftImage{}, KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show): %s", ref.Kit, ref.Kit, textesc.Escape(line, false))
+	}
+	return KitDraftImage{Tag: j.tag, ID: j.imageID}, objs, nil
+}
+
+// canEnsure is Ensure's refusal before it copies any file: a running build
+// of kit other than same (409), or shutdown (503) when none runs.
+func (b *KitDraftBuilds) canEnsure(kit string, same func(*draftBuildJob) bool) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if j := b.jobs[kit]; j != nil && j.state == DraftBuildRunning {
+		if !same(j) {
+			return errDraftBuildRunning(kit)
+		}
+		return nil
+	}
+	return b.canStartLocked(kit)
+}
+
+// waitOrStart copies def's files under kitMu, then (under b.mu, rechecked)
+// returns the running build of the same definition, or starts one. It
+// returns the draft tree's objects too.
+func (b *KitDraftBuilds) waitOrStart(def KitDefinition, ref KitDraftRef, tag, by string, same func(*draftBuildJob) bool) (*draftBuildJob, KitObjects, error) {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	tree, err := b.draftTreeLocked(ref)
+	if err != nil {
+		return nil, KitObjects{}, err
+	}
+	objs, err := loadDraftFilesLocked(b.store, &def, tree)
+	if err != nil {
+		return nil, KitObjects{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if j := b.jobs[ref.Kit]; j != nil && j.state == DraftBuildRunning && same(j) {
+		return j, objs, nil
+	}
+	if err := b.canStartLocked(ref.Kit); err != nil {
+		return nil, KitObjects{}, err
+	}
+	return b.startLocked(def, ref.Tree, tag, by), objs, nil
+}
+
+// draftObjects is draft tree ref.Tree and its blobs, read under kitMu.
+func (b *KitDraftBuilds) draftObjects(ref KitDraftRef) (KitObjects, error) {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	tree, err := b.draftTreeLocked(ref)
+	if err != nil {
+		return KitObjects{}, err
+	}
+	blobs, err := copyBlobs(b.store, tree)
+	if err != nil {
+		return KitObjects{}, err
+	}
+	return KitObjects{Trees: []kittree.Tree{tree}, Blobs: blobs}, nil
+}
+
+// draftTreeLocked is draft tree ref.Tree; 409 when it is gone (the draft
+// was edited or discarded, and collected, since DraftKitDefinition read
+// it). Caller holds kitMu.
+func (b *KitDraftBuilds) draftTreeLocked(ref KitDraftRef) (kittree.Tree, error) {
+	t, ok := b.store.KitTree(ref.Tree)
+	if !ok {
+		return kittree.Tree{}, writeErr(http.StatusConflict, "draft %s changed during the raise (retry)", ref.Kit)
+	}
+	return t, nil
 }
