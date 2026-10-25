@@ -27,6 +27,7 @@ import (
 //	PUT    /admin/kits/{name}/draft   replace the tree (x-tar, If-Match): kit draft sync
 //	PUT    /admin/kits/{name}/draft/files/{path...}[?mode=]  write one file (octet-stream, If-Match)
 //	DELETE /admin/kits/{name}/draft/files/{path...}          remove one file (If-Match)
+//	POST   /admin/kits/{name}/draft/publish  {pin?}  publish (If-Match)
 //
 // Every write but open needs If-Match (the draft's ETag: 428 without, 412
 // stale). Open and publish take JSON only, a file write octet-stream only,
@@ -63,6 +64,25 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		log.Info("kit draft discarded", "operator", OperatorID(r), "kit", name, "tree", shortTree(d.Tree))
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /admin/kits/{name}/draft/publish", func(w http.ResponseWriter, r *http.Request) {
+		if !requireContentType(w, r, "application/json") {
+			return
+		}
+		var b KitDraftPublishBody
+		if !decodeOptional(w, r, &b) {
+			return
+		}
+		name := r.PathValue("name")
+		res, err := PublishKitDraft(store, log, name, b.Pin, r.Header.Get("If-Match"))
+		if res.Version != 0 { // published, even when closing the draft then failed
+			log.Info("kit draft published", "operator", OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "pinned", len(res.Pinned), "drift", res.Drift)
+		}
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 	// The whole tree, replaced by an uncompressed tar of files (kit draft
 	// sync): read within the tree limits as it streams, the body capped at

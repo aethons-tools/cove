@@ -186,6 +186,7 @@ type KitVersionMeta struct {
 	PushedAt time.Time     `json:"pushed_at"`
 	Source   *KitSource    `json:"source,omitempty"`
 	Parent   *KitParentRef `json:"parent,omitempty"` // parent version this version was resolved against; nil = no parent kit
+	Origin   string        `json:"origin,omitempty"` // "" = pushed or imported (Source says which); "draft" = published from a draft (KitOriginDraft)
 }
 
 // KitParentRef is the parent kit (and the version of it) a pushed kit version

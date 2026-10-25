@@ -922,7 +922,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		out := make([]KitVersionInfo, 0, len(vers))
 		for _, v := range vers {
 			m := k.Meta[v]
-			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
+			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Origin: m.Origin, Current: v == k.Current})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})

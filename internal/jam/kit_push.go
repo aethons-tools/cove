@@ -50,20 +50,36 @@ func PushKitFiles(store Store, name string, files []kittree.File) (KitRef, bool,
 
 // pushKitTreeLocked is PushKitFiles past kitTreeOf; the caller holds kitMu.
 func pushKitTreeLocked(store Store, name string, tree kittree.Tree, objs KitObjects, sk studio.StudioKit) (KitRef, bool, error) {
-	chain, err := validateKit(store, name, sk)
-	if err != nil {
-		return KitRef{}, false, err
+	ref, meta, unchanged, err := planKitTreeLocked(store, name, tree, sk, "")
+	if err != nil || unchanged {
+		return ref, unchanged, err
 	}
-	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
-	hash := tree.Hash()
-	if k, ok := store.GetKit(name); ok && k.Current != 0 && k.Trees[k.Current] == hash {
-		return KitRef{ID: name, Version: k.Current, Digest: digest}, true, nil
-	}
-	v, err := store.PushKitVersion(name, hash, objs, KitVersionMeta{PushedAt: time.Now().UTC(), Parent: chainParent(chain)}, nil)
+	v, err := store.PushKitVersion(name, tree.Hash(), objs, meta, nil)
 	if err != nil {
 		return KitRef{}, false, fmt.Errorf("studio kit %q: push: %w", name, err)
 	}
-	return KitRef{ID: name, Version: v, Digest: digest}, false, nil
+	ref.Version = v
+	return ref, false, nil
+}
+
+// planKitTreeLocked is pushKitTreeLocked short of the write, for a caller
+// that writes several kits' versions at once (PutKitDocs): sk is validated
+// as kit name's against its parent chain (validateKit), and the answer is
+// the ref of the version tree becomes (the next number; current's when the
+// tree is current's, unchanged=true) and its meta, origin being its
+// KitVersionMeta.Origin ("" for a push). The caller holds kitMu.
+func planKitTreeLocked(store Store, name string, tree kittree.Tree, sk studio.StudioKit, origin string) (KitRef, KitVersionMeta, bool, error) {
+	chain, err := validateKit(store, name, sk)
+	if err != nil {
+		return KitRef{}, KitVersionMeta{}, false, err
+	}
+	digest := studio.ChainDigest(chainKits(chain), harnessinstall.Default())
+	k, ok := store.GetKit(name)
+	if ok && k.Current != 0 && k.Trees[k.Current] == tree.Hash() {
+		return KitRef{ID: name, Version: k.Current, Digest: digest}, KitVersionMeta{}, true, nil
+	}
+	meta := KitVersionMeta{PushedAt: time.Now().UTC(), Parent: chainParent(chain), Origin: origin}
+	return KitRef{ID: name, Version: nextKitVersion(k), Digest: digest}, meta, false, nil
 }
 
 // ReplaceKitYML pushes kit name's current files with kit.yml replaced by
@@ -74,7 +90,22 @@ func pushKitTreeLocked(store Store, name string, tree kittree.Tree, objs KitObje
 func ReplaceKitYML(store Store, name, config string) (KitRef, bool, error) {
 	kitMu.Lock()
 	defer kitMu.Unlock()
-	out := []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: []byte(config)}}
+	files, err := currentFilesWithKitYML(store, name, []byte(config))
+	if err != nil {
+		return KitRef{}, false, err
+	}
+	tree, objs, sk, err := kitTreeOf(name, files)
+	if err != nil {
+		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
+	}
+	return pushKitTreeLocked(store, name, tree, objs, sk)
+}
+
+// currentFilesWithKitYML is kit name's current files, read from the store,
+// with kit.yml's content replaced by yml (its mode kept); a kit with no tree
+// yet is kit.yml alone. The caller holds kitMu.
+func currentFilesWithKitYML(store Store, name string, yml []byte) ([]kittree.File, error) {
+	out := []kittree.File{{Path: kittree.KitFile, Mode: 0o644, Data: yml}}
 	if cur, ok := LoadKitVersion(store, name, 0); ok && cur.TreeHash != "" {
 		for _, e := range cur.Tree.Entries {
 			if e.Path == kittree.KitFile {
@@ -83,14 +114,10 @@ func ReplaceKitYML(store Store, name, config string) (KitRef, bool, error) {
 			}
 			b, ok := store.KitBlob(e.SHA256)
 			if !ok {
-				return KitRef{}, false, fmt.Errorf("kit %s: %s has no stored content", name, e.Path)
+				return nil, fmt.Errorf("kit %s: %s has no stored content", name, e.Path)
 			}
 			out = append(out, kittree.File{Path: e.Path, Mode: e.Mode, Data: b})
 		}
 	}
-	tree, objs, sk, err := kitTreeOf(name, out)
-	if err != nil {
-		return KitRef{}, false, writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	return pushKitTreeLocked(store, name, tree, objs, sk)
+	return out, nil
 }
