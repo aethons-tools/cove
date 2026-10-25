@@ -3,11 +3,14 @@
 package runner
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
 // Runner executes external commands.
@@ -159,7 +162,10 @@ type Fake struct {
 	Calls   []Call
 	Err     error
 	Outputs []FakeResult // consumed in order by Output
-	out     int
+	// OnRun, when set, runs inside every RunIOContext call once it is
+	// recorded: a test holds a command on its ctx, or fails one.
+	OnRun func(ctx context.Context, c Call) error
+	out   int
 }
 
 func (f *Fake) Run(name string, args ...string) error {
@@ -177,12 +183,25 @@ func (f *Fake) RunStdin(stdin io.Reader, name string, args ...string) error {
 }
 
 func (f *Fake) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	f.recordIO(stdin, stdout, stderr, name, args)
+	return f.streamIO(stdout, stderr)
+}
+
+// recordIO records a RunIO-shaped call, reading stdin to its end.
+func (f *Fake) recordIO(stdin io.Reader, stdout, stderr io.Writer, name string, args []string) Call {
 	var in string
 	if stdin != nil {
 		b, _ := io.ReadAll(stdin)
 		in = string(b)
 	}
-	f.Calls = append(f.Calls, Call{Name: name, Args: append([]string(nil), args...), Stdin: in, Stdout: stdout, Stderr: stderr})
+	c := Call{Name: name, Args: append([]string(nil), args...), Stdin: in, Stdout: stdout, Stderr: stderr}
+	f.Calls = append(f.Calls, c)
+	return c
+}
+
+// streamIO is RunIO's result: the next queued result streamed to the
+// injected writers, when there is a stdout writer, else just Err.
+func (f *Fake) streamIO(stdout, stderr io.Writer) error {
 	// Mirror OS: when a caller injects a stdout writer, stream the next queued
 	// output to it so a host test can read the redirected child output back.
 	if stdout != nil && f.out < len(f.Outputs) {
@@ -222,4 +241,129 @@ func (f *Fake) OutputEnv(extraEnv []string, name string, args ...string) (string
 		return r.Stdout, r.Err
 	}
 	return "", f.Err
+}
+
+// ContextRunner is a Runner that can run a command under a context: a done
+// ctx stops the child, and the call returns ctx.Err(). Scoped uses it.
+type ContextRunner interface {
+	RunIOContext(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error
+}
+
+// osWaitDelay is how long a cancelled child has to exit after its
+// interrupt before it is killed.
+const osWaitDelay = 10 * time.Second
+
+// RunIOContext is RunIO under ctx: when ctx is done the child gets an
+// interrupt, and a kill osWaitDelay later; the call then returns ctx.Err().
+// A command that succeeded returns nil even when ctx is done by then.
+func (OS) RunIOContext(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = orReader(stdin, os.Stdin)
+	cmd.Stdout = orWriter(stdout, os.Stdout)
+	cmd.Stderr = orWriter(stderr, os.Stderr)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = osWaitDelay
+	err := cmd.Run()
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err() // a command that finished as the cancel landed keeps its success
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return &ExitError{Code: ee.ExitCode(), Err: ee}
+	}
+	return err
+}
+
+// RunIOContext is RunIO under ctx: it records the call, fails with
+// ctx.Err() when ctx is done, runs OnRun, then answers exactly as RunIO
+// does (the next queued result streamed to the writers when stdout is
+// given). Scoped always gives a stdout, so through Scoped every command —
+// Run and Probe included, which consume nothing on a bare Fake — takes one
+// queued result: a scripted docker sequence is one result per command.
+func (f *Fake) RunIOContext(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	c := f.recordIO(stdin, stdout, stderr, name, args)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if f.OnRun != nil {
+		if err := f.OnRun(ctx, c); err != nil {
+			return err
+		}
+	}
+	return f.streamIO(stdout, stderr)
+}
+
+// Scoped is r with every command run under ctx and its output copied to
+// log. That is Run's stdout and stderr, and Output's and RunIO's stderr;
+// their stdout stays the caller's. Probe's output is dropped. A done ctx
+// stops a running command (when r is a ContextRunner) or refuses the next
+// one. RunEnv and OutputEnv only check ctx (no build uses them). It is how
+// a kit draft test build streams and cancels its docker commands without
+// changing the build code. log must be safe for concurrent writes (a
+// command's stdout and stderr); nil drops the output.
+func Scoped(ctx context.Context, r Runner, log io.Writer) Runner {
+	if log == nil {
+		log = io.Discard
+	}
+	return scoped{ctx: ctx, r: r, log: log}
+}
+
+type scoped struct {
+	ctx context.Context
+	r   Runner
+	log io.Writer
+}
+
+func (s scoped) runIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	if cr, ok := s.r.(ContextRunner); ok {
+		return cr.RunIOContext(s.ctx, stdin, stdout, stderr, name, args...)
+	}
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	return s.r.RunIO(stdin, stdout, stderr, name, args...)
+}
+
+func (s scoped) Run(name string, args ...string) error {
+	return s.runIO(nil, s.log, s.log, name, args...)
+}
+
+func (s scoped) RunStdin(stdin io.Reader, name string, args ...string) error {
+	return s.runIO(stdin, s.log, s.log, name, args...)
+}
+
+func (s scoped) RunIO(stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
+	return s.runIO(stdin, orWriter(stdout, s.log), tee(stderr, s.log), name, args...)
+}
+
+func (s scoped) Output(name string, args ...string) (string, error) {
+	var out bytes.Buffer
+	err := s.runIO(nil, &out, s.log, name, args...)
+	return out.String(), err
+}
+
+func (s scoped) Probe(name string, args ...string) error {
+	return s.runIO(nil, io.Discard, io.Discard, name, args...)
+}
+
+func (s scoped) RunEnv(extraEnv []string, name string, args ...string) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	return s.r.RunEnv(extraEnv, name, args...)
+}
+
+func (s scoped) OutputEnv(extraEnv []string, name string, args ...string) (string, error) {
+	if err := s.ctx.Err(); err != nil {
+		return "", err
+	}
+	return s.r.OutputEnv(extraEnv, name, args...)
+}
+
+// tee is w and log both, or log alone when w is nil.
+func tee(w, log io.Writer) io.Writer {
+	if w == nil {
+		return log
+	}
+	return io.MultiWriter(w, log)
 }

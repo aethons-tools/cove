@@ -62,7 +62,7 @@ func TestKitDetailBody(t *testing.T) {
 	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
-	got := kitDetailBody(st, []KitRef{ref, {ID: "ghost", Version: 3}}, map[string]string{"GO_VERSION": "1.27", "NPM_TOKEN": "npm_live"})
+	got := kitDetailBody(st, []KitRef{ref, {ID: "ghost", Version: 3}}, map[string]string{"GO_VERSION": "1.27", "NPM_TOKEN": "npm_live"}, nil)
 	for _, want := range []string{"base@v1", "https://github.com/o/kits//base@main (commit abcdef012345), pushed 1970-01-01T00:00:00Z",
 		"ghost@v3", "unknown (not in the registry)", "  GO_VERSION=1.27\n", "  NPM_TOKEN=«masked»\n"} {
 		if !strings.Contains(got, want) {
@@ -77,12 +77,12 @@ func TestKitDetailBody(t *testing.T) {
 func TestKitDetailBodyShowsTrees(t *testing.T) {
 	st := NewMemStore()
 	tr := pushTree(t, st, "app", "kit.yml", "kind: studio\n", "Dockerfile", dockerfile)
-	body := kitDetailBody(st, []KitRef{{ID: "app", Version: 1}}, nil)
+	body := kitDetailBody(st, []KitRef{{ID: "app", Version: 1}}, nil, nil)
 	if !strings.Contains(body, "FILES") || !strings.Contains(body, "tree "+tr.Hash()[:12]+", 2 files") {
 		t.Fatalf("body:\n%s", body)
 	}
 	one := pushTree(t, st, "solo", "kit.yml", "kind: studio\n")
-	if body := kitDetailBody(st, []KitRef{{ID: "solo", Version: 1}}, nil); !strings.Contains(body, "tree "+one.Hash()[:12]+", 1 file\n") {
+	if body := kitDetailBody(st, []KitRef{{ID: "solo", Version: 1}}, nil, nil); !strings.Contains(body, "tree "+one.Hash()[:12]+", 1 file\n") {
 		t.Fatalf("body:\n%s", body)
 	}
 }
@@ -97,7 +97,7 @@ func (noTrees) KitTree(string) (kittree.Tree, bool) { return kittree.Tree{}, fal
 func TestKitDetailBodyUnstoredTreeNotLoadable(t *testing.T) {
 	st := NewMemStore()
 	pushTree(t, st, "app", "kit.yml", "kind: studio\n")
-	body := kitDetailBody(noTrees{st}, []KitRef{{ID: "app", Version: 1}}, nil)
+	body := kitDetailBody(noTrees{st}, []KitRef{{ID: "app", Version: 1}}, nil, nil)
 	if !strings.Contains(body, "not loadable") || strings.Contains(body, "0 files") {
 		t.Fatalf("body:\n%s", body)
 	}
@@ -112,7 +112,7 @@ func TestImageBodiesInertAndNoMutation(t *testing.T) {
 			{Path: "settings.json", Text: `{"a\u001b":"b\u001b","env":{"TOKEN":"zzz"}}`, HasText: true}}}
 	env := append([]string(nil), f.Env...)
 	for _, s := range []string{seedBody(f), imageEnvBody(f), imageLabelsBody(f),
-		kitDetailBody(NewMemStore(), []KitRef{{ID: "a\x1b", Version: 1}}, map[string]string{"A\x1b": "b\x1b", "NPM_TOKEN": "zzz"})} {
+		kitDetailBody(NewMemStore(), []KitRef{{ID: "a\x1b", Version: 1}}, map[string]string{"A\x1b": "b\x1b", "NPM_TOKEN": "zzz"}, nil)} {
 		if strings.ContainsRune(s, 0x1b) || strings.Contains(s, "zzz") {
 			t.Errorf("unsafe:\n%q", s)
 		}
@@ -150,7 +150,7 @@ func TestKitDetailScpRepo(t *testing.T) {
 	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
-	got := kitDetailBody(st, []KitRef{ref}, nil)
+	got := kitDetailBody(st, []KitRef{ref}, nil, nil)
 	if !strings.Contains(got, "git@github.com:o/r@main") || strings.Contains(got, "invalid") {
 		t.Errorf("scp:\n%s", got)
 	}

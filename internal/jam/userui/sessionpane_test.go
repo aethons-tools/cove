@@ -93,6 +93,29 @@ func TestSessionPanePreviewsAndStatus(t *testing.T) {
 	}
 }
 
+// A draft studio's kit reads "<kit> (draft @<tree7>)", never kit@v0; a
+// published kit keeps kit@vN.
+func TestSessionPaneStatusKit(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	personal.Kit = jam.KitRef{ID: "my-app", Version: 3}
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := e.paneTab(t, p, personal.ActorID, "status", false); !strings.Contains(body, "my-app@v3") {
+		t.Errorf("published kit:\n%s", body)
+	}
+	tree := strings.Repeat("ab", 32)
+	personal.Kit = jam.KitRef{ID: "my-app"}
+	personal.KitDraft = &jam.KitDraftRef{Kit: "my-app", Tree: tree}
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	_, body := e.paneTab(t, p, personal.ActorID, "status", false)
+	if !strings.Contains(body, "my-app (draft @abababa)") || strings.Contains(body, "@v0") {
+		t.Errorf("draft studio kit:\n%s", body)
+	}
+}
+
 func TestSessionPaneHiddenFromOutsiders(t *testing.T) {
 	e, _, personal, _, _ := sessionEnv(t)
 	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}

@@ -857,3 +857,25 @@ func TestClientConnections(t *testing.T) {
 		t.Fatalf("RemoveConnection: %v", err)
 	}
 }
+
+// TestRaiseCoveDraftTimeout: a draft studio's raise outwaits the client's
+// default timeout (its build may run first); a plain raise keeps it.
+func TestRaiseCoveDraftTimeout(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b jam.CoveRaiseBody
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		time.Sleep(300 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(jam.CoveRaiseResult{ID: "ses_1", Label: b.ID, KitDraftTree: b.KitDraft + "-tree"})
+	}))
+	t.Cleanup(ts.Close)
+	c := New(ts.URL, "")
+	c.httpc.Timeout = 50 * time.Millisecond
+	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest"}); err == nil {
+		t.Fatal("a plain raise outwaited the client's timeout")
+	}
+	res, err := c.RaiseCove(CoveRaiseParams{ID: "w2", Role: "guest", KitDraft: "app"})
+	if err != nil || res.KitDraftTree != "app-tree" || c.httpc.Timeout != 50*time.Millisecond {
+		t.Fatalf("draft raise = %+v %v (client timeout now %v)", res, err, c.httpc.Timeout)
+	}
+}

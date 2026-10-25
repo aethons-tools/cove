@@ -132,18 +132,51 @@ func KitsReferencing(store Store, parent string) (follow, pinned []string) {
 // recordedChainKit is the merged kit of a recorded image chain, each link read
 // at its exact (immutable) version. A link no longer in the registry fails.
 func recordedChainKit(store KitReader, chain []KitRef) (studio.StudioKit, error) {
+	kits, err := recordedChainKits(store, chain)
+	if err != nil {
+		return studio.StudioKit{}, err
+	}
+	return studio.Merge(kits), nil
+}
+
+// recordedChainKits is each link of a recorded image chain, read at its
+// exact version, root first.
+func recordedChainKits(store KitReader, chain []KitRef) ([]studio.StudioKit, error) {
 	kits := make([]studio.StudioKit, 0, len(chain))
 	for _, r := range chain {
 		v, ok := LoadKitVersion(store, r.ID, r.Version)
 		if !ok {
-			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is missing", r)
+			return nil, fmt.Errorf("kit %s (in the image's chain) is missing", r)
 		}
 		if v.Err != nil {
-			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is invalid: %w", r, v.Err)
+			return nil, fmt.Errorf("kit %s (in the image's chain) is invalid: %w", r, v.Err)
 		}
 		kits = append(kits, v.Kit)
 	}
-	return studio.Merge(kits), nil
+	return kits, nil
+}
+
+// draftStudioKit is the merged kit a draft studio was raised from: its
+// draft tree as of the raise (stored while the studio exists), on top of
+// its recorded parents at their exact versions.
+func draftStudioKit(store KitReader, inst Instance) (studio.StudioKit, error) {
+	d := inst.KitDraft
+	t, ok := store.KitTree(d.Tree)
+	if !ok {
+		return studio.StudioKit{}, fmt.Errorf("kit %s draft tree %.12s is not stored", d.Kit, d.Tree)
+	}
+	self, err := studio.ParseTree(t, store.KitBlob)
+	if err != nil {
+		return studio.StudioKit{}, fmt.Errorf("kit %s draft @%.12s: %w", d.Kit, d.Tree, err)
+	}
+	if len(inst.KitChain) < 2 {
+		return self, nil
+	}
+	parents, err := recordedChainKits(store, inst.KitChain[:len(inst.KitChain)-1])
+	if err != nil {
+		return studio.StudioKit{}, err
+	}
+	return studio.Merge(append(parents, self)), nil
 }
 
 // chainRefs is what an Instance records of the chain its image was built

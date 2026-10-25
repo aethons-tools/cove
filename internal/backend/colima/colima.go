@@ -2,6 +2,7 @@
 package colima
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,19 @@ const dockerContext = "colima"
 type Colima struct {
 	r       runner.Runner
 	context string // the pinned docker context ("" = dockerContext); see NewWithContext
+	// quiet, when set, runs the cache-miss checks (HasKitImage, HasKitBase,
+	// the base's local inspect before a pull) in place of r: WithBuildLog's
+	// r copies output to the build log, and a miss's "No such image" does
+	// not belong there. See quietRunner.
+	quiet runner.Runner
+}
+
+// quietRunner is the runner for a cache-miss check: quiet when set, else r.
+func (c *Colima) quietRunner() runner.Runner {
+	if c.quiet != nil {
+		return c.quiet
+	}
+	return c.r
 }
 
 func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
@@ -290,11 +304,21 @@ func (c *Colima) HasKitBase(tag string) (bool, error) { return c.HasKitImage(tag
 // miss that drives PrepareKit, never surfaced as an error. Context-pinned so it
 // queries the same daemon BuildKitImage/RunEphemeral use.
 func (c *Colima) HasKitImage(tag string) (bool, error) {
-	if _, err := c.r.Output("docker", c.dargs("image", "inspect", tag)...); err != nil {
+	if _, err := c.quietRunner().Output("docker", c.dargs("image", "inspect", tag)...); err != nil {
 		return false, nil
 	}
 	return true, nil
 }
+
+// WithBuildLog is c with every docker command run under ctx (a done ctx
+// stops the build) and its output copied to log (runner.Scoped), per
+// backend.LoggedKitBuilder. The build steps, argv and gate are c's own.
+// Image-presence checks run under ctx too, their output dropped.
+func (c *Colima) WithBuildLog(ctx context.Context, log io.Writer) backend.KitImageBuilder {
+	return &Colima{r: runner.Scoped(ctx, c.r, log), context: c.context, quiet: runner.Scoped(ctx, c.r, io.Discard)}
+}
+
+var _ backend.LoggedKitBuilder = (*Colima)(nil)
 
 // runImage picks the image reference to `docker run`: the built-image digest when
 // install captured one (an immutable pin), else the mutable tag for a legacy

@@ -215,4 +215,4 @@ current version builds on it (follows or pinned). **Delete** is disabled while
 any role or kit uses the kit, and always for the built-in `default` kit (Jam
 re-seeds it at serve start).
 
-The kit's **Draft** tab edits and publishes a draft: see [kits-drafts.md](kits-drafts.md#in-the-admin-ui).
+The kit's **Draft** tab edits and publishes a draft: see [kits-drafts-ui.md](kits-drafts-ui.md).

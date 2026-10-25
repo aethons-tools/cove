@@ -111,9 +111,10 @@ func RaiseManual(ctx context.Context, store Store, sup *Supervisor, label string
 	if label == "" {
 		return Instance{}, "", "", "", writeErr(http.StatusBadRequest, "id (the session's label) is required")
 	}
-	if sessionLabelTaken(store, label) {
+	if !sup.reserveLabel(store, label) {
 		return Instance{}, "", "", "", writeErr(http.StatusConflict, "a live session is already labelled %q", label)
 	}
+	defer sup.releaseLabel(label)
 	spec.ActorID, spec.Name = string(ident.New(ident.Session)), label
 	inst, tok, secret, err := sup.Raise(ctx, spec)
 	return inst, spec.ActorID, tok, secret, err
@@ -145,4 +146,36 @@ func ResolveSession(store Store, ref string) string {
 		}
 	}
 	return ref
+}
+
+// reserveLabel claims label for a manual raise in flight, unless a live
+// session or another raise in flight already has it. A draft studio's raise
+// waits for its test build before its instance is recorded, so the store
+// alone cannot keep two raises of one label apart. The caller releases the
+// claim (releaseLabel) once its raise has ended either way: on success the
+// recorded instance holds the label from then on.
+func (s *Supervisor) reserveLabel(store Store, label string) bool {
+	s.labelsMu.Lock()
+	defer s.labelsMu.Unlock()
+	if s.pendingLabels[label] || sessionLabelTaken(store, label) {
+		return false
+	}
+	if s.pendingLabels == nil {
+		s.pendingLabels = map[string]bool{}
+	}
+	s.pendingLabels[label] = true
+	return true
+}
+
+func (s *Supervisor) releaseLabel(label string) {
+	s.labelsMu.Lock()
+	defer s.labelsMu.Unlock()
+	delete(s.pendingLabels, label)
+}
+
+// labelPending reports whether a manual raise in flight holds label.
+func (s *Supervisor) labelPending(label string) bool {
+	s.labelsMu.Lock()
+	defer s.labelsMu.Unlock()
+	return s.pendingLabels[label]
 }

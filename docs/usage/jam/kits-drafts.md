@@ -1,8 +1,8 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs, the open, status, discard, file read/write/remove and publish API, and the kit page's Draft tab in the admin UI.
-read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415 or 428.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines, the admin UI Draft tab (/app/admin/kits/<name>/draft) and its config-repo panel
-prereqs: kits.md, kits-directory.md; ui-editing.md for the admin UI's write rules
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, draft studios (`studio raise --kit-draft`), the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs, the open, status, discard, file read/write/remove, publish and build API. The admin UI's Draft tab is in kits-drafts-ui.md.
+read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `at-jam kit draft`, `studio raise --kit-draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415, 428 or 503.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines, draft studios (the raise, its image, the `draft` image status, its tree kept stored)
+prereqs: kits.md, kits-directory.md
 tier: leaf
 updated: 2026-10-25
 ---
@@ -71,6 +71,56 @@ and closes the draft.
   the publish still answers 200, its `warning` (after any drift warning, `; `
   between) `published v<N>; the draft could not be closed — discard it`.
 
+## Test build
+
+A **test build** builds the draft's image the way a raise does: the parent
+chain (its stages reused as usual), the harness, the sealed hardening layer
+and the build args, with the draft's files as the kit's own stage. Nothing
+is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
+stage `…-stage`), never a version's image or stage tag. It needs a launcher
+that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one
+the build routes answer 503
+`test builds need a launcher that builds images (runtime.launcher)`.
+
+- It builds the draft at the ETag you send (`If-Match`), under the default
+  harness. A draft with problems is refused (400
+  `draft <kit> has problems: …`) before anything builds.
+- One build per kit at a time. Another start answers 409
+  `kit <kit> already has a draft build running`.
+- The log is docker's output plus `== …` lines. Jam keeps its last 1 MiB in
+  memory only; a restart loses it, and the state is then `unknown`. It holds
+  whatever a Dockerfile prints, so clients show it escaped.
+- Editing the draft does not stop a build: it finishes on the tree it
+  started from. `current` says whether that tree is still the draft's, and
+  `draft_etag` is the draft's ETag now.
+- Stopping Jam (SIGINT or SIGTERM) cancels running builds: `failed`,
+  `cancelled: Jam is shutting down`. Jam waits up to 15 s for them to stop
+  (a second signal stops it at once), then exits by the signal. Draft images
+  are not collected: remove old `cove-kit-draft` images with `docker image rm`.
+
+## Draft studio
+
+`at-jam studio raise --id try --role dev --kit-draft app` raises a manual
+studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
+tree as of the raise, unpublished. Admin only, like every raise; the role
+supplies all but the kit. Its session context's kit fact and its setup
+inspect name the kit `<kit> (draft @<tree[:7]>)`.
+
+- The raise reads the draft (problems refuse it), resolves its parents as a
+  push would, and test-builds it under the role's model-spec harness. The
+  last build of the same tree **and** harness is reused while it succeeded
+  and its image exists; otherwise (none, failed, image gone) a build starts
+  and the raise waits (`studio raise` allows 30 minutes). A request gone
+  first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
+- 409 while a build of another tree or harness runs, or
+  `draft <kit> changed during the raise (retry)`. A failed build is 400
+  `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
+- The studio runs that image by id (its setup inspect reads it by id too),
+  records `kit_draft` (`kit`, `tree`), and the raise answers `kit_draft_tree`. Its image status is `draft`: pushing or publishing never
+  makes it stale or restarts it onto current. Its tree stays stored while it
+  exists, even once the draft is discarded or published, for its session
+  context and setup inspect ([inspect.md](inspect.md#sections)).
+
 ## The `kit draft` verbs
 
 ```
@@ -81,85 +131,34 @@ at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads s
 at-jam kit draft rm app old.sh                         # remove a file
 at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
 at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
+at-jam kit draft build app [--no-follow]               # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
 at-jam kit draft discard app                           # drop the draft
 ```
 
-Each write first fetches the status and sends its etag, so it overwrites an
-edit made since you last looked (`sync` replaces the whole tree). With
-`--etag <hash>`, a write is checked against the etag you already hold and
-fails with 412 instead. `publish` prints the new version's tree prefix, and
-its `warning` on stderr. The admin-client flags apply as for every
-[`kit` verb](kits.md#the-kit-verbs).
+Each write, and `build` when it starts one, first fetches the status and
+sends its etag, so it overwrites an edit made since you last looked (`sync`
+replaces the whole tree). With `--etag <hash>`, a write is checked against
+the etag you already hold and fails with 412 instead. `publish` prints the
+new version's tree prefix, its `warning` on stderr, and with `--pin` a
+`pinned …` line per follower pinned. The admin-client flags apply as for
+every [`kit` verb](kits.md#the-kit-verbs).
 
 - `status` prints `draft <kit>: base vN, current vM`, and when another
   version landed since the draft was opened, that publishing replaces it with
   the draft (nothing is merged). Names, paths and problems are printed escaped.
 - `sync` reads the directory as `kit push` does
-  ([kits-directory.md](kits-directory.md)) and replaces the
-  draft's tree with it. It prints the files
-  added, removed, modified or mode-changed, or `unchanged`. It needs an open
-  draft: run `kit draft open` first.
+  ([kits-directory.md](kits-directory.md)) and replaces the draft's tree with
+  it. It prints the files added, removed, modified or mode-changed, or
+  `unchanged`. It needs an open draft: run `kit draft open` first.
 - `get -o <file>` writes the file with its mode in the draft; an existing
   symlink there is replaced, never written through.
-- `publish --pin` prints a `pinned …` line per follower pinned.
+- `build` prints the build's log as it comes, escaped, and exits 0 on
+  success (with the tag and the digest) or 1 on failure. `--no-follow`
+  returns once the build started; `--show` prints the latest build and its
+  log without starting one; `--cancel` stops it. Ctrl-C stops the following
+  (exit 130), not the build. See [Test build](#test-build).
 - A usage error (a flag of another verb included) exits 2; a refused call
   exits 1 with the server's text.
-
-## In the admin UI
-
-A kit's page (`/app/admin/kits/<name>`) has, while no draft is open, an
-**Open draft from v<N>** button for the version on view, and a **Draft** tab
-(`/app/admin/kits/<name>/draft`) whose form opens one from any version
-(current preselected). The Kits table and the page head flag a kit whose
-draft is open. Every write is a form under the admin UI's
-[write rules](ui-editing.md) and sends the draft's ETag back from a hidden
-field, so the [concurrency](#concurrency) rule holds in the browser too.
-
-- **Draft** card: base and current versions, the last save's operator and
-  time, **Discard** (it asks first), and a notice when a newer version has
-  landed since the draft was opened.
-- **Publish** card: the problems, if any (the button stays disabled, and a
-  forged POST is still refused 400), the **Pin followers** box and, for a
-  config-managed kit, the drift warning.
-- **Files**: the draft's tree by directory, with each file's mode, size and
-  its change against the base; files dropped since the base are listed last,
-  struck through. **Add file** takes a path and either an upload or nothing
-  (an empty text file).
-- **Changes** diffs each file against the base, and `kit.yml` gets its own
-  line diff, with a packed context masked on both sides.
-- A file opens in a plain text editor when it is UTF-8 text of 1 MiB or
-  less with no carriage returns; otherwise it shows a note, **Download** and
-  a mode toggle. A `kit.yml` holding a packed context is never shown: the
-  note says to download it, remove the context, and replace it. Any file can
-  be replaced by an upload (the upload's own file name is never used),
-  renamed or deleted.
-- A save that lost a race answers with the editor still holding your text,
-  unsaved, Save disabled, and a reload link.
-- While the editor holds unsaved text, any other Draft-tab action, a link
-  or leaving the page asks first (`You have unsaved changes in the editor.
-  Discard them?`): each would re-render the tab without it.
-
-Publishing a config-managed kit from the UI is allowed, with a step the
-API does not have: the form shows the drift warning and needs the box
-**I understand this drifts from the config repo** ticked (the server
-refuses 400 `kit <name> is managed by the config repo: tick “…” to
-publish` without it). When **Pin followers** would rewrite config-managed
-followers, the form names them next to the box, and with Pin ticked the
-same confirmation is needed (400 `pinning followers drifts config-managed
-<kits> from the config repo: tick “…” to publish`). The box is checked
-before the draft's existence and ETag, so an unticked publish of a gone or
-stale draft answers this 400, not 404 or 412. The spec's "write to config repo instead" is read
-as *publish, then write to the config repo*: after any publish that drifts
-(the kit, or a managed follower it pinned), the result card lists the
-config-repo files to expect — `kits/<name>/<path>` for each file that
-changed, `kits/<follower>/kit.yml` per managed follower pinned, paths and
-change kinds only — and says to run `at-jam config write <repo>` in the
-checkout, check `git diff`, and commit. Every publish's result card shows
-the new version, each follower pinned and any warning.
-
-UI writes log `ui kit draft opened|saved|discarded|published`, shaped
-like the API's audit lines below and likewise never naming content or a
-path.
 
 ## API
 
@@ -175,6 +174,9 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
 | `PUT /admin/kits/{name}/draft` | Replace the whole tree with an uncompressed tar (`If-Match`; `application/x-tar`, else 415), read and filtered by its `.dockerignore` as a push upload is: see [kits-directory.md](kits-directory.md). 400 for a refused tar, 413 past the upload cap; `kit.yml` may be absent (a problem, not a refusal). |
 | `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `tree`, `base`, `pinned`, `drift`, `warning`. |
+| `POST /admin/kits/{name}/draft/build` | Start a test build (`If-Match`; `application/json`, else 415). 202 with the build: `id`, `tree`, `state`, `tag`. 409 when one is running; 400 for problems. |
+| `GET /admin/kits/{name}/draft/build[?since=N]` | The latest build (`no-store`): `state` (`running`, `succeeded`, `failed`, `unknown`), `tree`, `tag`, `digest` (the image id), `error`, `started_at`, `finished_at`, `current`, `draft_etag`, and the `log` from offset N (`log_from`, `log_end` for the next `since`, `log_skipped` when bytes were dropped); 400 `since must be a log offset (0 or more)`. |
+| `DELETE /admin/kits/{name}/draft/build` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`; `succeeded` when it completed before the cancel landed), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one
@@ -187,7 +189,11 @@ Each write that changes the draft logs `kit draft opened|saved|discarded`
 with the kit, the operator and the tree's first 12 hex digits (a save also
 the count of files `changed`), never content or a path. A publish logs
 `kit draft published` with the kit, the operator, the new `version`, the
-`base`, the `tree` prefix, the count `pinned` and `drift`. A store failure
-answers a fixed 500 `internal error` and logs `kit draft: store error` (at
-error, with the method and route); a draft not closed after a publish logs
+`base`, the `tree` prefix, the count `pinned` and `drift`. A build logs
+`kit draft build requested` and `kit draft build cancelled` (the kit, the
+operator, the build id), and `kit draft build started` and
+`kit draft build finished` (the kit, the tree prefix, the build id, its
+state), never log content. A store failure answers a fixed 500
+`internal error` and logs `kit draft: store error` (at error, with the method
+and route); a draft not closed after a publish logs
 `kit draft: published but not closed` at warn.

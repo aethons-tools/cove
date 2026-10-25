@@ -209,6 +209,27 @@ func kitRefsBody(kit KitRef, chain []KitRef, imageTag string) string {
 	return fmt.Sprintf("kit: %s digest %s\nchain (root first): %s\nimage tag: %s\n", flat(kit.String()), flat(shortDigest(kit.Digest)), strings.Join(names, " → "), flat(imageTag))
 }
 
+// instanceKitRefsBody is an instance's kit refs: kitRefsBody, or for a
+// draft studio its kit as KitDraftRef.String() ("<kit> (draft @<tree[:7]>)")
+// and its own chain link as "<kit> (draft)", never "<kit>@v0".
+func instanceKitRefsBody(inst Instance) string {
+	if inst.KitDraft == nil {
+		return kitRefsBody(inst.Kit, inst.KitChain, inst.ImageTag)
+	}
+	refs := chainOrSelf(inst.KitChain, inst.Kit)
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = flat(r.String())
+	}
+	names[len(names)-1] = flat(inst.KitDraft.Kit) + " (draft)"
+	tag := inst.ImageTag
+	if tag == "" {
+		tag = "unknown"
+	}
+	return fmt.Sprintf("kit: %s digest %s\nchain (root first): %s\nimage tag: %s\n",
+		flat(inst.KitDraft.String()), flat(shortDigest(inst.Kit.Digest)), strings.Join(names, " → "), flat(tag))
+}
+
 // kitFingerprint keys the kit snapshot part.
 func kitFingerprint(kit KitRef, imageTag string) string {
 	return kit.String() + "|" + kit.Digest + "|" + imageTag

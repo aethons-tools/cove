@@ -88,7 +88,7 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 - **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
   and delete an unused one; each kit's page shows its versions, diffs them,
   pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages); its
-  Draft tab edits a draft ([kits-drafts.md](kits-drafts.md#in-the-admin-ui)).
+  Draft tab edits a draft ([kits-drafts-ui.md](kits-drafts-ui.md)).
 - **Destinations** — create one (every field, including client env, git
   routing and the session note) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).

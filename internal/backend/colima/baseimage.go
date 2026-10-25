@@ -59,7 +59,7 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 }
 
 func (d dockerImg) Layers(ref string) ([]string, error) {
-	out, err := d.c.r.Output("docker", d.c.dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
+	out, err := d.c.quietRunner().Output("docker", d.c.dargs("inspect", "--format", "{{json .RootFS.Layers}}", ref)...)
 	if err != nil {
 		// Not present locally: pull once, then retry. (A locally-built image ID is
 		// already present, so it never reaches the pull.)

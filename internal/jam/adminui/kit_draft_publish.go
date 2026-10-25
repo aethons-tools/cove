@@ -11,7 +11,7 @@ import (
 )
 
 // draftDriftConfirm is the publish form's box a config-managed kit's
-// publish must tick (docs/usage/jam/kits-drafts.md#in-the-admin-ui).
+// publish must tick (docs/usage/jam/kits-drafts-ui.md).
 const draftDriftConfirm = "I understand this drifts from the config repo"
 
 // publishView is a publish's result banner: the new version, the followers
@@ -75,7 +75,7 @@ func configFiles(store jam.Store, kit string, prev int, res jam.KitDraftPublish)
 // though the page disables the button, and without the drift box ticked
 // (400) a config-managed kit's publish or one whose Pin followers would
 // rewrite a config-managed follower. The box is checked before the draft's
-// existence and ETag (docs/usage/jam/kits-drafts.md#in-the-admin-ui).
+// existence and ETag (docs/usage/jam/kits-drafts-ui.md).
 func registerDraftPublish(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /app/admin/kits/{name}/draft/publish", func(w http.ResponseWriter, r *http.Request) {
 		name, ok := draftForm(w, r, store, guardWrite, false)

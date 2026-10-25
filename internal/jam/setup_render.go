@@ -229,7 +229,7 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 				sec.Body = kitRefsBody(KitRef{}, nil, "") + d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			default:
 				chain := chainOrSelf(chainRefs(wb.def.Chain), wb.def.Ref)
-				sec.Body = kitRefsBody(wb.def.Ref, chainRefs(wb.def.Chain), wb.imageTag) + kitDetailBody(d.Store, chain, wb.def.Kit.BuildArgs) +
+				sec.Body = kitRefsBody(wb.def.Ref, chainRefs(wb.def.Chain), wb.imageTag) + kitDetailBody(d.Store, chain, wb.def.Kit.BuildArgs, nil) +
 					d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			}
 		case SectionSeed:
@@ -287,7 +287,7 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 			sec = SetupSection{Name: name, Source: SourceConfig, Body: destinationsBody(d.Store, actor), Stale: connectorStale(d.Store, actor, inst.Connector)}
 		case SectionEnv:
 			sec = d.instanceEnv(inst, actor, snaps)
-			sec.Body += d.imageEnvPart(ctx, &img, inst.ImageTag, noKit)
+			sec.Body += d.imageEnvPart(ctx, &img, instanceImage(inst), noKit)
 		case SectionModel:
 			if ms, err := ModelSpecFor(d.Store, actor); err != nil {
 				sec = unavailable(name, reasonModelSpec)
@@ -297,7 +297,7 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 		case SectionKit:
 			sec = d.instanceKitSection(ctx, &img, inst, snaps, noKit)
 		case SectionSeed:
-			sec = d.seedSection(ctx, &img, inst.ImageTag, noKit)
+			sec = d.seedSection(ctx, &img, instanceImage(inst), noKit)
 		case SectionMCP:
 			sk, known := instanceKit(d.Store, inst)
 			sec = SetupSection{Name: name, Source: SourceConfig, Body: mcpBody(sk.MCPServers, known)}
@@ -396,17 +396,30 @@ func (d SetupDeps) instanceEnv(inst Instance, actor Actor, snaps map[string]Setu
 }
 
 func (d SetupDeps) instanceKitSection(ctx context.Context, m *imageMemo, inst Instance, snaps map[string]SetupSnapshot, noKit string) SetupSection {
-	sec := SetupSection{Name: SectionKit, Source: SourceRecomputed, Reason: reasonNoSnapshot, Body: kitRefsBody(inst.Kit, inst.KitChain, inst.ImageTag)}
+	sec := SetupSection{Name: SectionKit, Source: SourceRecomputed, Reason: reasonNoSnapshot, Body: instanceKitRefsBody(inst)}
+	if inst.KitDraft != nil {
+		sec.Title = SectionKit + " (draft @" + inst.KitDraft.Tree[:min(7, len(inst.KitDraft.Tree))] + ")"
+	}
 	if s, ok := snaps[SetupPartKit]; ok {
 		sec.Source, sec.Reason, sec.At, sec.Body = SourceSnapshot, "", s.At, s.Body
 	}
 	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[2]string]currentImage{}, inst) == "stale"
 	if inst.Kit.ID != "" {
 		sk, _ := instanceKit(d.Store, inst)
-		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs)
+		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs, inst.KitDraft)
 	}
-	sec.Body += d.imageLabelsPart(ctx, m, inst.ImageTag, noKit)
+	sec.Body += d.imageLabelsPart(ctx, m, instanceImage(inst), noKit)
 	return sec
+}
+
+// instanceImage is the image an instance's image facts are read from: a
+// draft studio's raised image id (its tag moves with later builds), else
+// its tag. The tag stays what the kit section shows.
+func instanceImage(inst Instance) string {
+	if inst.KitDraft != nil && inst.KitDraftImage != "" {
+		return inst.KitDraftImage
+	}
+	return inst.ImageTag
 }
 
 // actorOf is the instance's identity, or (revoked) the one grant it was raised with.

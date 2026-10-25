@@ -206,7 +206,10 @@ func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 	if role, ok := h.d.Store.GetRole(inst.Project, inst.Role); ok {
 		add("Model spec", role.ModelSpecName())
 	}
-	if inst.Kit.ID != "" {
+	switch {
+	case inst.KitDraft != nil:
+		add("Kit", inst.KitDraft.String()) // a draft studio: never kit@v0
+	case inst.Kit.ID != "":
 		add("Kit", fmt.Sprintf("%s@v%d", inst.Kit.ID, inst.Kit.Version))
 	}
 	add("Image", inst.ImageTag)

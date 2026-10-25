@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
@@ -33,9 +36,10 @@ var kitDraftVerbs = map[string]struct {
 	"discard": {"<kit>", 1},
 	"publish": {"<kit> [--pin]", 1},
 	"sync":    {"<kit> <dir>", 2},
+	"build":   {"<kit> [--etag e] [--no-follow] [--show] [--cancel]", 1},
 }
 
-const kitDraftUsage = "at-jam kit draft: expected open|status|get|put|rm|discard|publish|sync"
+const kitDraftUsage = "at-jam kit draft: expected open|status|get|put|rm|discard|publish|sync|build"
 
 // cmdKitDraft is `at-jam kit draft <verb>` (docs/usage/jam/kits-drafts.md).
 // A write sends the draft's etag as If-Match: --etag, else the one a status
@@ -64,6 +68,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	// Each verb defines only its own flags, so another verb's is a usage error.
 	from, asJSON, outFile, mode, pin, etag := new(string), new(bool), new(string), new(string), new(bool), new(string)
+	noFollow, show, cancelBuild := new(bool), new(bool), new(bool)
 	switch verb {
 	case "open":
 		from = fs.String("from", "", "the version to open the draft from (vN; default: current)")
@@ -75,8 +80,12 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 		mode = fs.String("mode", "", "the file's mode, 755 or 644 (default: the file's, else 644)")
 	case "publish":
 		pin = fs.Bool("pin", false, "pin the kits that follow this one to the version they follow now")
+	case "build":
+		noFollow = fs.Bool("no-follow", false, "start the build and return without following its log")
+		show = fs.Bool("show", false, "print the latest build and its log; start nothing")
+		cancelBuild = fs.Bool("cancel", false, "stop the running build")
 	}
-	if verb == "put" || verb == "rm" || verb == "discard" || verb == "publish" || verb == "sync" {
+	if verb == "put" || verb == "rm" || verb == "discard" || verb == "publish" || verb == "sync" || verb == "build" {
 		etag = fs.String("etag", "", "write against this draft etag (default: fetch the draft's status first)")
 	}
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
@@ -114,6 +123,8 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 		return st.ETag, err
 	}
 	switch verb {
+	case "build":
+		return kitDraftBuild(c, kit, name, etagFor, *noFollow, *show, *cancelBuild, stdout, stderr)
 	case "open":
 		v, err := parseDraftVersion(*from)
 		if err != nil {
@@ -322,4 +333,124 @@ func printProblems(w io.Writer, ps []string) {
 	for _, p := range ps {
 		fmt.Fprintf(w, "  - %s\n", textesc.Escape(p, false))
 	}
+}
+
+// draftBuildPoll is how often `kit draft build` polls its build's log.
+var draftBuildPoll = time.Second
+
+// kitDraftBuild is `kit draft build`. It starts a test build of the draft
+// (at its etag) and follows its log until the build ends: exit 0 on
+// success (with the tag and digest), 1 on failure. --no-follow returns
+// once the build started; --show prints the latest build without starting
+// one; --cancel stops it. The log and every server string are printed
+// escaped. Ctrl-C stops the following, never the build.
+func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (string, error), noFollow, show, cancel bool, stdout, stderr io.Writer) int {
+	fail := func(err error) int {
+		fmt.Fprintln(stderr, "at-jam:", textesc.Escape(err.Error(), false))
+		return 1
+	}
+	switch {
+	case show && cancel:
+		fmt.Fprintln(stderr, "at-jam kit draft build: --show and --cancel cannot be combined")
+		return 2
+	case cancel:
+		b, err := c.CancelKitDraftBuild(kit)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "cancelled draft build %s of %s @%s\n", textesc.Escape(b.ID, false), name, textesc.Escape(treePrefix(b.Tree), false))
+		return 0
+	case show:
+		b, err := c.KitDraftBuildStatus(kit, 0)
+		if err != nil {
+			return fail(err)
+		}
+		printBuildLog(stdout, b, 0)
+		return buildResult(stdout, stderr, name, b)
+	}
+	tag, err := etagFor()
+	if err != nil {
+		return fail(err)
+	}
+	b, err := c.StartKitDraftBuild(kit, tag)
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Fprintf(stdout, "building draft %s @%s (build %s)\n", name, textesc.Escape(treePrefix(b.Tree), false), textesc.Escape(b.ID, false))
+	if noFollow {
+		return 0
+	}
+	ctx, stop := followContext()
+	defer stop()
+	return followDraftBuild(ctx, c, kit, name, b.ID, stdout, stderr, time.After)
+}
+
+// followContext is done on the first SIGINT or SIGTERM, which then stops
+// being caught: a second one terminates at-jam, even while a request is in
+// flight.
+func followContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
+}
+
+// followDraftBuild polls build id's log (every draftBuildPoll, waited with
+// after) and prints it until the build ends. When ctx is done it stops
+// following, leaves the build running and exits 130.
+func followDraftBuild(ctx context.Context, c *adminclient.Client, kit, name, id string, stdout, stderr io.Writer, after func(time.Duration) <-chan time.Time) int {
+	since := int64(0)
+	for {
+		if ctx.Err() != nil {
+			fmt.Fprintf(stderr, "at-jam: stopped following build %s of draft %s; it is still running (at-jam kit draft build %s --show | --cancel)\n", textesc.Escape(id, false), name, name)
+			return 130
+		}
+		b, err := c.KitDraftBuildStatus(kit, since)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", textesc.Escape(err.Error(), false))
+			return 1
+		}
+		if b.ID != id {
+			fmt.Fprintf(stderr, "at-jam: build %s of draft %s was replaced by build %s\n", textesc.Escape(id, false), name, textesc.Escape(b.ID, false))
+			return 1
+		}
+		printBuildLog(stdout, b, since)
+		since = b.LogEnd
+		if b.State != jam.DraftBuildRunning {
+			return buildResult(stdout, stderr, name, b)
+		}
+		select {
+		case <-ctx.Done():
+		case <-after(draftBuildPoll):
+		}
+	}
+}
+
+// printBuildLog prints a build's log chunk escaped (newlines and tabs
+// kept), noting the bytes before it that the capped log dropped.
+func printBuildLog(w io.Writer, b jam.KitDraftBuild, since int64) {
+	if b.LogSkipped {
+		fmt.Fprintf(w, "[... %d bytes of log dropped: Jam keeps the last 1 MiB]\n", b.LogFrom-since)
+	}
+	_, _ = io.WriteString(w, textesc.Escape(b.Log, true))
+}
+
+// buildResult prints a build's outcome: 0 unless it failed.
+func buildResult(stdout, stderr io.Writer, name string, b jam.KitDraftBuild) int {
+	tree := textesc.Escape(treePrefix(b.Tree), false)
+	switch b.State {
+	case jam.DraftBuildSucceeded:
+		fmt.Fprintf(stdout, "built draft %s @%s: %s (digest %s)\n", name, tree, textesc.Escape(b.Tag, false), textesc.Escape(b.Digest, false))
+		if !b.Current {
+			fmt.Fprintf(stdout, "note: the draft changed since this build (etag now %s)\n", textesc.Escape(b.DraftETag, false))
+		}
+		return 0
+	case jam.DraftBuildFailed:
+		fmt.Fprintf(stderr, "at-jam: draft build of %s @%s failed: %s\n", name, tree, textesc.Escape(b.Error, false))
+		return 1
+	case jam.DraftBuildRunning:
+		fmt.Fprintf(stdout, "draft %s @%s: build %s running\n", name, tree, textesc.Escape(b.ID, false))
+		return 0
+	}
+	fmt.Fprintf(stdout, "no draft build of %s since Jam started\n", name)
+	return 0
 }

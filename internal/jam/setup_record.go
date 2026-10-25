@@ -101,6 +101,10 @@ func redactToolsRows(body string) string {
 // recorded chain at those exact versions, else its kit ref. ok=false without
 // a kit or when the registry no longer has it.
 func instanceKit(store Store, inst Instance) (studio.StudioKit, bool) {
+	if inst.KitDraft != nil {
+		sk, err := draftStudioKit(store, inst)
+		return sk, err == nil
+	}
 	if len(inst.KitChain) > 0 {
 		sk, err := recordedChainKit(store, inst.KitChain)
 		return sk, err == nil
@@ -132,7 +136,7 @@ func (s *Supervisor) recordRaiseSetup(inst Instance, spec RaiseSpec, def *KitDef
 		RecordSetupPart(s.store, s.log, inst.ActorID, SetupPartConnector, snippet.Fingerprint(c), func() string { return connectorBody(c) }, now)
 	}
 	RecordSetupPart(s.store, s.log, inst.ActorID, SetupPartKit, kitFingerprint(inst.Kit, inst.ImageTag), func() string {
-		return kitRefsBody(inst.Kit, inst.KitChain, inst.ImageTag)
+		return instanceKitRefsBody(inst)
 	}, now)
 }
 
