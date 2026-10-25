@@ -205,6 +205,20 @@ body{display:flex;flex-direction:column}
 .th-list .te.tool-miss:not(.k-gap),.th-list .te.search-miss:not(.k-gap){display:none}
 .th-new{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font:inherit;font-size:12px;cursor:pointer;background:var(--accent);color:#fff;border:0;border-radius:999px;padding:3px 12px;box-shadow:0 4px 12px rgba(0,0,0,.18)}
 .th-new[hidden]{display:none}
+/* Framed views: the Studio tab's IDE (kept in #studio-keep, outside the
+   swapped pane body) and a preview's View here. */
+.sp-body[hidden],.studio-keep[hidden]{display:none}
+.studio-keep{flex:1;min-height:0;display:flex;flex-direction:column}
+.sp-body:has(> .pv-framed){display:flex;flex-direction:column;overflow:hidden;padding:0}
+.studio,.pv-framed{flex:1;min-height:0;display:flex;flex-direction:column}
+.st-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:12.5px}
+.st-bar .spacer{flex:1}
+.st-status{color:var(--muted)}
+.st-bar button{font:inherit;font-size:12px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;color:inherit}
+.st-frame{flex:1;min-height:0;display:flex}
+.st-iframe{flex:1;width:100%;height:100%;border:0;background:#fff}
+.sp-row:has(+ .pv-here){display:inline-block;width:calc(100% - 90px);vertical-align:middle}
+.pv-here{width:84px;margin-left:6px;font:inherit;font-size:12px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 6px;color:var(--accent)}
 </style>
 </head>
 <body{{if .PushFocus}} data-push-focus{{end}}>
@@ -413,7 +427,7 @@ function meNewBoard(channel){
 // size) is remembered per session (localStorage jam-pane:<id>); a session
 // never opened starts from the last layout used (jam-pane:last). ?tab= opens
 // a tab. Below 900px the pane always sits below the messages.
-var mePaneTabs={thinking:'Thinking',previews:'Previews',artifacts:'Artifacts',status:'Status'};
+var mePaneTabs={studio:'Studio',thinking:'Thinking',previews:'Previews',artifacts:'Artifacts',status:'Status'};
 var meNarrow=window.matchMedia('(max-width:900px)');
 function meSplit(){ return document.getElementById('cv-split'); }
 function mePaneLoad(id){
@@ -436,11 +450,17 @@ function mePaneApply(s, fetch){
   s.dataset.place=place;
   div.setAttribute('aria-orientation', place==='right' ? 'vertical' : 'horizontal');
   aside.querySelector('.sp-place').hidden=meNarrow.matches;
+  if(open && st.tab==='studio') meStudioWiden(s, place);
   var size=place==='right' ? st.w : st.h;
   aside.style.flexBasis=size ? Math.round(mePaneClamp(s, size))+'px' : '';
   meTabsMark();
   if(!open || st.tab!=='thinking') meThinkingClose();
-  if(open){ aside.querySelector('.sp-title').textContent=mePaneTabs[st.tab]; if(fetch) mePaneFetch(s); }
+  if(!open) meStudioClose();
+  if(!open || st.tab!=='previews') mePvClose();
+  // A live Studio shows from its keep; the pane body is hidden, not refetched.
+  var live=open && st.tab==='studio' && !!meStudio, keep=meStudioKeep(s);
+  keep.hidden=!live; aside.querySelector('#side-pane-body').hidden=live;
+  if(open){ aside.querySelector('.sp-title').textContent=mePaneTabs[st.tab]; if(fetch && !live) mePaneFetch(s); }
 }
 // meMenuOpen holds the header's refresh while its ⋯ menu is open.
 function meMenuOpen(){ return !!document.querySelector('#session-head details[open]'); }
@@ -473,7 +493,11 @@ function mePanePlace(){
   var s=meSplit(); if(!s) return;
   s._pane=mePaneLoad(s.dataset.session);
   var q=new URLSearchParams(location.search).get('tab');
-  if(mePaneTabs[q]){ s._pane.tab=q; mePaneSave(s); }
+  if(mePaneTabs[q]) s._pane.tab=q;
+  // A remembered (or linked) Studio stays closed without the header's Studio
+  // (no ssh, or framing off); the saved layout is left as it was.
+  if(s._pane.tab==='studio' && !document.querySelector('.sh-tabs [data-tab="studio"]')) s._pane.tab=null;
+  else if(mePaneTabs[q]) mePaneSave(s);
   mePaneApply(s, true);
   meNarrow.addEventListener('change', function(){ mePaneApply(s, false); });
   // Drag (or arrow keys on) the divider to resize; the size is kept per placement.
@@ -502,10 +526,11 @@ function mePanePlace(){
   });
   // Keep the open tab fresh: on pushes, and every 30s. A presence push (a
   // status change) can't change Artifacts, which reads the whole channel.
-  // Thinking keeps itself live over its own event stream.
+  // Thinking keeps itself live over its own event stream; Studio and a framed
+  // preview would lose their frame.
   function refresh(e){
-    var sel=window.getSelection();
-    if(!s._pane.tab || e && e.type==='mePresence' && s._pane.tab==='artifacts' || s._pane.tab==='thinking') return;
+    var sel=window.getSelection(), tab=s._pane.tab;
+    if(!tab || e && e.type==='mePresence' && tab==='artifacts' || tab==='thinking' || tab==='studio' || tab==='previews' && mePv) return;
     if(!(sel && !sel.isCollapsed && s.querySelector('.side-pane').contains(sel.anchorNode))) mePaneFetch(s);
   }
   document.body.addEventListener('meChanged', refresh);
@@ -883,6 +908,168 @@ document.addEventListener('htmx:afterSettle', function(e){
   if(tg && tg.id==='session-head') meThWorking();
 });
 window.addEventListener('beforeunload', meThinkingClose);
+// Framed views: the Studio tab's IDE and a preview's View here, each a record
+// {kind, name, sid, box, frame, status, open, iframe}. A frame URL comes only
+// from the frame route (…/frame, form name), for the name the user chose.
+// A framed page reports a refusal with postMessage {jam:'frame-error',
+// status}; anything can post one, so it is heeded only from the current
+// iframe's own window, and only ever re-mints that view's own name: once on
+// "signin" or "cookies" per user action (open, Reload, View here, Reopen).
+// Text goes in via textContent only.
+var meStudio=null, mePv=null;
+function meFrameLive(rec){ return !!rec && (rec===meStudio || rec===mePv); }
+function meFrameRefused(s){
+  return {403:'No longer shared with you.', 404:'Nothing to show.', 429:'Too many views opened; wait a minute.'}[s] || "Couldn't open this view.";
+}
+// meFrameStart is a user action: it mints afresh, with the retries rearmed.
+function meFrameStart(rec){ rec.signin=false; rec.cookies=false; meFrameMint(rec); }
+function meFrameMint(rec){
+  var n=rec.seq=(rec.seq||0)+1;
+  // Detach the old frame: a late message from it can't fail the new one.
+  rec.frame.textContent=''; rec.iframe=null; rec.err=false;
+  rec.status.textContent=rec.kind==='ide' ? 'Starting the IDE…' : 'Loading…';
+  fetch('/app/user/session/'+encodeURIComponent(rec.sid)+'/frame', {method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'name='+encodeURIComponent(rec.name)})
+   .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+   .then(function(j){
+     if(!meFrameLive(rec) || rec.seq!==n) return;
+     if(j.open && /^https?:\/\//i.test(j.open)) rec.open.href=j.open;
+     if(!/^https?:\/\//i.test(String(j.url))){ meFrameSay(rec, meFrameRefused()); return; }
+     meFrameLoad(rec, j.url);
+   })
+   .catch(function(s){
+     if(!meFrameLive(rec) || rec.seq!==n) return;
+     meFrameSay(rec, meFrameRefused(s));
+   });
+}
+function meFrameLoad(rec, url){
+  var f=document.createElement('iframe');
+  f.className='st-iframe';
+  f.title=rec.kind==='ide' ? 'IDE' : rec.name;
+  f.setAttribute('allow', 'clipboard-read; clipboard-write');
+  f.setAttribute('referrerpolicy', 'no-referrer');
+  f.addEventListener('load', function(){ if(rec.iframe===f && !rec.err) rec.status.textContent=''; });
+  f.src=url;
+  rec.iframe=f;
+  rec.frame.replaceChildren(f);
+}
+function meFrameSay(rec, text){ rec.err=true; rec.status.textContent=text; }
+function meFrameError(rec, status){
+  status=String(status);
+  if(status==='signin'){
+    if(!rec.signin){ rec.signin=true; meFrameMint(rec); return; }
+    rec.err=true; rec.status.textContent='';
+    var b=document.createElement('button');
+    b.type='button'; b.className='st-reopen'; b.textContent='Reopen this view';
+    b.onclick=function(){ meFrameStart(rec); };
+    rec.status.appendChild(b);
+    return;
+  }
+  if(status==='cookies'){
+    // An expired sign-in says "cookies" too: try once more first.
+    if(!rec.cookies){ rec.cookies=true; meFrameMint(rec); return; }
+    meFrameSay(rec, "This browser can't sign in inside the pane — use Open in new tab.");
+    return;
+  }
+  var t={'403':'No longer shared with you.', '404':"Nothing to show: the studio isn't running."}[status];
+  if(!t && (status==='502' || status==='503' || status==='504')){
+    t=rec.kind==='ide' ? "The IDE didn't start. This studio's image may predate it: upgrade the studio, or expose an IDE as ide." : "The preview isn't answering.";
+  }
+  meFrameSay(rec, t || "Couldn't show this view.");
+}
+window.addEventListener('message', function(e){
+  var d=e.data;
+  if(!d || typeof d!=='object' || d.jam!=='frame-error') return;
+  [meStudio, mePv].forEach(function(rec){
+    var w=rec && rec.iframe && rec.iframe.contentWindow;
+    if(w && e.source===w) meFrameError(rec, d.status);
+  });
+});
+// meStudioKeep is the Studio's persistent home beside the pane body, which
+// every tab fetch replaces.
+function meStudioKeep(s){
+  var aside=s.querySelector('.side-pane'), k=aside.querySelector('#studio-keep');
+  if(!k){
+    k=document.createElement('div');
+    k.id='studio-keep'; k.className='studio-keep'; k.hidden=true;
+    k.setAttribute('role', 'tabpanel'); k.setAttribute('aria-label', 'Studio');
+    aside.appendChild(k);
+  }
+  return k;
+}
+// meStudioWiden: the Studio's first open, with no size saved for this
+// placement, takes 60% of the split.
+function meStudioWiden(s, place){
+  var st=s._pane, k=place==='right' ? 'w' : 'h';
+  if(st[k]) return;
+  var r=s.getBoundingClientRect();
+  st[k]=Math.round((place==='right' ? r.width : r.height)*0.6);
+  mePaneSave(s);
+}
+// meStudioAdopt moves a freshly fetched #studio into the keep and opens it.
+function meStudioAdopt(el){
+  var s=meSplit();
+  if(!s || s._pane.tab!=='studio' || meStudio){ el.remove(); return; }
+  var keep=meStudioKeep(s);
+  keep.appendChild(el);
+  keep.hidden=false; document.getElementById('side-pane-body').hidden=true;
+  meStudioOpen(el);
+}
+function meStudioOpen(el){
+  meStudioClose();
+  var rec={kind:'ide', name:'ide', sid:el.dataset.session, box:el, frame:el.querySelector('.st-frame'),
+    status:el.querySelector('.st-status'), open:el.querySelector('.st-open'), iframe:null};
+  meStudio=rec;
+  el.querySelector('.st-reload').onclick=function(){ meFrameStart(rec); };
+  meFrameStart(rec);
+}
+function meStudioClose(){
+  if(!meStudio) return;
+  meStudio.box.remove();
+  meStudio=null;
+}
+// mePvOpen (View here) frames one preview in place of the Previews list.
+function mePvOpen(name){
+  var s=meSplit(), body=document.getElementById('side-pane-body');
+  if(!s || !body) return;
+  function el(tag, cls, text){ var x=document.createElement(tag); x.className=cls; if(text) x.textContent=text; return x; }
+  var box=el('div', 'pv-framed'), bar=el('div', 'st-bar'), back=el('button', 'pv-back', '← All previews');
+  var open=el('a', 'st-open', 'Open in new tab'), frame=el('div', 'st-frame'), status=el('span', 'st-status pv-status');
+  back.type='button';
+  open.target='_blank'; open.rel='noopener';
+  var sp=el('span', 'spacer');
+  bar.append(back, el('b', 'pv-name', name), status, sp, open);
+  box.append(bar, frame);
+  mePvClose();
+  body.replaceChildren(box);
+  var rec={kind:'preview', name:name, sid:s.dataset.session, box:box, frame:frame, status:status, open:open, iframe:null};
+  mePv=rec;
+  back.onclick=function(){ mePvClose(); mePaneFetch(s); };
+  meFrameStart(rec);
+}
+function mePvClose(){
+  if(!mePv) return;
+  mePv.box.remove();
+  mePv=null;
+}
+document.addEventListener('click', function(e){
+  var b=e.target.closest && e.target.closest('#side-pane-body .pv-here');
+  if(b) mePvOpen(b.dataset.name);
+});
+document.addEventListener('htmx:afterSettle', function(e){
+  var tg=(e.detail && e.detail.target) || e.target;
+  if(!tg || tg.id!=='side-pane-body') return;
+  if(mePv && !tg.contains(mePv.box)) mePv=null;
+  var el=tg.querySelector('.studio');
+  if(el) meStudioAdopt(el);
+});
+window.addEventListener('pagehide', function(){ meStudioClose(); mePvClose(); });
+// Restored from the back/forward cache: pagehide emptied the framed views,
+// so lay the pane out (and fetch its tab) again.
+window.addEventListener('pageshow', function(e){
+  var s=meSplit();
+  if(e.persisted && s && s._pane) mePaneApply(s, true);
+});
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();

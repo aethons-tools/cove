@@ -105,7 +105,10 @@
 {{/* sessionpane renders one tab of the session pane (the
      /app/user/session/{id}/pane?tab= target; layout.html's mePane loads it). */}}
 {{define "sessionpane"}}{{with .Pane}}
-{{if eq .Tab "thinking"}}
+{{if eq .Tab "studio"}}
+  {{if .Studio}}<div class="studio" id="studio" data-session="{{.ID}}"><div class="st-bar"><span class="st-status">Starting the IDE…</span><span class="spacer"></span><button type="button" class="st-reload">Reload</button><a class="st-open"{{with .IDEOpen}} href="{{.}}"{{end}} target="_blank" rel="noopener">Open in new tab</a></div><div class="st-frame"></div></div>
+  {{else}}<p class="empty">The studio isn't available to you here.</p>{{end}}
+{{else if eq .Tab "thinking"}}
   {{if .EventsOff}}<p class="empty">Session events aren't recorded on this jam.</p>
   {{else}}
   <div class="th" id="thinking" data-session="{{.ID}}">
@@ -128,7 +131,7 @@
   {{end}}
 {{else if eq .Tab "previews"}}
   {{if .PreviewsOff}}<p class="empty">Previews aren't available to you here.</p>
-  {{else}}{{range .Previews}}<a class="sp-row" href="{{.URL}}" target="_blank" rel="noopener">{{.Name}} <small>port {{.Port}} ↗</small></a>
+  {{else}}{{range .Previews}}<a class="sp-row" href="{{.URL}}" target="_blank" rel="noopener">{{.Name}} <small>port {{.Port}} ↗</small></a>{{if .Frame}}<button type="button" class="pv-here" data-name="{{.Name}}">View here</button>{{end}}
   {{else}}<p class="empty">No previews exposed. A session exposes one with its <code>expose</code> tool.</p>{{end}}{{end}}
 {{else if eq .Tab "artifacts"}}
   {{if .Boards}}<h4>Whiteboards</h4><div class="sp-boards">{{range .Boards}}<a class="sp-board" href="/app/user/?c={{.Channel}}&board={{.ID}}"><img loading="lazy" src="/app/user/boards/{{.ID}}/thumb.png" alt=""><span>{{.Title}}</span></a>{{end}}</div>{{end}}
@@ -232,6 +235,7 @@
   {{if .Uptime}}<div class="sh-up t" title="since it started">up {{.Uptime}}</div>{{end}}
   <span class="spacer"></span>
   <div class="sh-tabs" role="tablist">
+    {{if .Studio}}<button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="studio" onclick="mePaneToggle(this.dataset.tab)">Studio</button>{{end}}
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="thinking" onclick="mePaneToggle(this.dataset.tab)">Thinking</button>
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="previews" onclick="mePaneToggle(this.dataset.tab)">Previews</button>
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="artifacts" onclick="mePaneToggle(this.dataset.tab)">Artifacts</button>

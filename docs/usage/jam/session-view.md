@@ -1,10 +1,10 @@
 ---
-summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
-read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Release, Restart/End, Upgrade), the side pane and its tabs, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
-owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
-prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview
+summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
+read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
+owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
+prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # The session view
@@ -25,7 +25,7 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
   long it has been in that state, and open asks.
 - **Cost:** the total and the latest turn's cost. The tooltip shows input and output tokens.
 - **Uptime:** time since the session was raised.
-- **Tabs:** Thinking, Previews, Artifacts, Status. These open the pane.
+- **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **⋯ menu:** each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
   The server re-checks permission (403 otherwise). Ending a session reloads the page.
@@ -47,8 +47,12 @@ composer stays under the messages.
 Each tab is an htmx fragment (`GET /app/user/session/{id}/pane?tab=`). The open tab reloads
 on push and every 30s.
 
+- **Studio:** the session's IDE, in the pane. See [Studio](#studio).
 - **Previews:** the session's exposed ports ([previews.md](previews.md)). Each link opens in a
-  new tab. The tab says so when previews are off, or when collab doesn't allow you to open them.
+  new tab. With framing on, **View here** shows one preview in the pane (see
+  [View here](#view-here)). The `ide` exposure is left out of the list: SSH holders reach it through
+Studio. The tab says
+  so when previews are off, or when collab doesn't allow you to open them.
 - **Artifacts:** what the home channel holds, newest first:
   - whiteboards, with thumbnails;
   - attached files;
@@ -62,8 +66,51 @@ on push and every 30s.
 
 **Layout memory:** the open tab, placement and size are saved in `localStorage` under
 `jam-pane:<session id>`. A session you have never opened starts from the last layout you
-used (`jam-pane:last`). `&tab=previews|artifacts|status|thinking` on a conversation URL opens that
-tab. A tab clicked while a whiteboard is open goes back to the chat with that tab open.
+used (`jam-pane:last`). `&tab=studio|previews|artifacts|status|thinking` on a conversation URL opens that
+tab. A remembered or linked Studio tab stays closed when the header has no Studio (no SSH, or
+framing off). A tab clicked while a whiteboard is open goes back to the chat with that tab open.
+A page restored with the browser's Back or Forward lays the pane out again and reloads its tab.
+
+## Studio
+
+The **Studio** tab is a web IDE (code-server) on the session's workspace, framed in the pane.
+It is a shell, so it shows only if you may SSH ([collab](collaboration.md#who-may-connect)) and
+framing is on: previews are on and [`ui-origins`](serve.md) is set, since previews refuse every
+other framer ([previews.md](previews.md#framing-the-jam-pane)). There is no browse-only mode.
+A kit's own `ide` exposure replaces the built-in IDE ([previews.md](previews.md#a-web-ide)).
+
+- **First start:** opening the tab asks `POST /app/user/session/{id}/frame` (form field `name`;
+  `ide` is checked against the ssh right, any other name against the preview right) for a
+  one-time frame URL, and loads it. It reads "Starting the IDE…" until the frame loads; the
+  first start can take several seconds while code-server starts.
+- **Kept across tabs:** switching to another pane tab hides the IDE without unloading it. Going
+  back shows it as it was. Closing the pane (**×**, or clicking Studio again) unloads the IDE.
+- **Conversation switch:** a different conversation is a full page load, so the IDE reloads
+  (1–3 s). code-server and VS Code state (open files, terminals) live in the studio and survive.
+- **Width:** the first open takes 60% of the split, unless you have a saved size for that placement.
+- **Reload** mints a fresh URL and reloads; the old frame is removed while the new URL is minted.
+  **Open in new tab** opens the IDE on its own host, where you sign in normally. It works even
+  when a mint is refused.
+- **Rate limit:** 30 mints per user per minute, then 429 ("Too many views opened; wait a minute.").
+
+**Errors** show in place of "Starting the IDE…":
+
+| Cause | Shown |
+|-------|-------|
+| `signin` (the frame login lapsed) | re-mints once; if it recurs, a **Reopen this view** button |
+| `cookies` (an expired login, or the browser refused the frame cookie) | retries once, then "This browser can't sign in inside the pane — use Open in new tab." (Safari does this) |
+| 403 (refused mint, or from the frame) | No longer shared with you. |
+| 404, refused mint (not exposed, or framing off) | Nothing to show. |
+| 404, from the frame | Nothing to show: the studio isn't running. |
+| a frame URL that isn't `http(s)`, or another refused mint | Couldn't open this view. |
+| 502, 503, 504 | The IDE didn't start: the studio's image may predate it, so upgrade the studio or expose an IDE as `ide`. |
+
+### View here
+
+With framing on, each row in Previews has **View here**. It replaces the list with that one
+preview framed, under a bar with **← All previews**, the name, a status and **Open in new tab**. One preview
+is framed at a time. It loads and fails like the Studio, but a 502, 503 or 504 reads "The preview isn't answering."
+Going back reloads the list.
 
 ## Cost and counts
 

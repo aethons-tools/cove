@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"golang.org/x/net/http2"
 )
 
@@ -354,6 +356,33 @@ func TestPreviewURLNamesAdminPort(t *testing.T) {
 	}
 }
 
+// The pane's frame URL is the preview host's exchange, on the admin port as
+// previewURLFunc's, with a ticket minted for that host (and no port).
+func TestFrameURLs(t *testing.T) {
+	const id = "ses_01m4bc9fmg5v4bc7cq3at6jp6n"
+	tickets := collabhttp.NewFrameTickets(time.Now)
+	f := frameURLs{tickets: tickets, domain: "p.example", adminListen: ":8443"}
+	got, err := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "ide", collab.SSH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const host = "ide--01m4bc9fmg5v4bc7cq3at6jp6n.p.example"
+	prefix := "https://" + host + ":8443/__jam/frame?t="
+	if !strings.HasPrefix(got, prefix) {
+		t.Fatalf("%q, want prefix %q", got, prefix)
+	}
+	if _, ok := tickets.Redeem(strings.TrimPrefix(got, prefix), host); !ok {
+		t.Error("the ticket isn't redeemable for its host")
+	}
+	f.adminListen = "0.0.0.0:443"
+	if got, _ := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "app", collab.Preview); !strings.HasPrefix(got, "https://app--01m4bc9fmg5v4bc7cq3at6jp6n.p.example/__jam/frame?t=") {
+		t.Errorf("443: %q", got)
+	}
+	if _, err := f.FrameURL(collab.Principal{UserID: "usr_x"}, "alice", id, "Bad Name", collab.Preview); err == nil {
+		t.Error("an invalid name minted")
+	}
+}
+
 // Previews without ui-origins: serve warns that the Jam pane can't frame them.
 func TestPreviewUIOriginsWarning(t *testing.T) {
 	const want = "previews: ui-origins is empty, so the Jam pane can't frame previews; add the UI's own origin"
@@ -365,5 +394,23 @@ func TestPreviewUIOriginsWarning(t *testing.T) {
 	}
 	if got := previewUIOriginsWarning(&serveConfig{}); got != "" {
 		t.Fatalf("previews off: %q", got)
+	}
+}
+
+// The Jam pane frames (Studio, View here) only when previews are on and
+// ui-origins names the UI: otherwise previews send frame-ancestors 'none'.
+func TestPaneFramingOn(t *testing.T) {
+	for _, tc := range []struct {
+		c    serveConfig
+		want bool
+	}{
+		{serveConfig{}, false},
+		{serveConfig{UIOrigins: []string{"https://jam.example"}}, false},
+		{serveConfig{Previews: &previewsConfig{Domain: "p.example"}}, false},
+		{serveConfig{Previews: &previewsConfig{Domain: "p.example"}, UIOrigins: []string{"https://jam.example"}}, true},
+	} {
+		if got := paneFramingOn(&tc.c); got != tc.want {
+			t.Errorf("paneFramingOn(previews %v, origins %v) = %v, want %v", tc.c.Previews != nil, tc.c.UIOrigins, got, tc.want)
+		}
 	}
 }

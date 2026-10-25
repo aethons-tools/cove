@@ -64,6 +64,7 @@ type SessionHead struct {
 	Cost, TurnCost, Tokens                        string
 	Uptime                                        string
 	SSH                                           string // the copyable command; "" = not allowed
+	Studio                                        bool   // the Studio tab: ssh allowed and framing on
 	CanRelease, CanRestart, CanUpgrade            bool
 	RestartLabel, UpgradeState                    string
 }
@@ -103,12 +104,9 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 			hd.Tokens = fmt.Sprintf("%d in / %d out tokens", t.InputTokens, t.OutputTokens)
 		}
 	}
-	cp := collab.Principal{UserID: p.UserID}
-	if op {
-		cp.Operator = pr.Operator.ID
-	}
-	if _, ok := collab.Decide(h.d.Store, now, cp, inst, collab.SSH); ok {
+	if _, ok := collab.Decide(h.d.Store, now, collabPrincipal(r, p), inst, collab.SSH); ok {
 		hd.SSH = "at-jam ssh " + inst.ActorID
+		hd.Studio = h.d.Frames != nil
 	}
 	if h.d.Ops != nil {
 		hd.CanRelease = mayRelease(inst, p, op)

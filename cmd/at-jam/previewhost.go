@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -48,17 +49,41 @@ func adminTLSConfig(adminCert, previewCert tls.Certificate, domain string) *tls.
 // are served on the admin listener, so the URL names its port unless that is
 // 443 — a bare https:// URL would reach the cove-facing listener instead.
 func previewURLFunc(domain, adminListen string) func(actorID, name string) (string, error) {
-	_, port, _ := net.SplitHostPort(adminListen)
 	return func(actorID, name string) (string, error) {
 		h, err := preview.Host(domain, name, actorID)
 		if err != nil {
 			return "", err
 		}
-		if port != "" && port != "443" {
-			h = net.JoinHostPort(h, port)
-		}
-		return "https://" + h + "/", nil
+		return previewOrigin(h, adminListen) + "/", nil
 	}
+}
+
+// previewOrigin is https://host, with the admin listener's port unless 443.
+func previewOrigin(host, adminListen string) string {
+	if _, port, _ := net.SplitHostPort(adminListen); port != "" && port != "443" {
+		host = net.JoinHostPort(host, port)
+	}
+	return "https://" + host
+}
+
+// frameURLs mints the Jam pane's frame URLs (userui.Deps.Frames): the
+// preview host's ticket exchange, /__jam/frame?t=, on the same origin as
+// previewURLFunc's URL, with a ticket minted for that host.
+type frameURLs struct {
+	tickets             *collabhttp.FrameTickets
+	domain, adminListen string
+}
+
+func (f frameURLs) FrameURL(p collab.Principal, display, actorID, name string, right collab.Right) (string, error) {
+	h, err := preview.Host(f.domain, name, actorID)
+	if err != nil {
+		return "", err
+	}
+	t, err := f.tickets.Mint(p, display, h, right)
+	if err != nil {
+		return "", err
+	}
+	return previewOrigin(h, f.adminListen) + "/__jam/frame?t=" + url.QueryEscape(t), nil
 }
 
 // hostRouter dispatches a request on its Host: domain itself or any name
@@ -281,6 +306,13 @@ func previewAdminHosts(c *serveConfig) []string {
 		out = append(out, h)
 	}
 	return append(out, c.UIHosts...)
+}
+
+// paneFramingOn: the Jam pane may frame previews (Studio, View here) only
+// when previews are on and ui-origins names the UI; otherwise previews send
+// frame-ancestors 'none' and the browser would block the frame unexplained.
+func paneFramingOn(c *serveConfig) bool {
+	return c.Previews != nil && len(c.UIOrigins) > 0
 }
 
 // previewUIOriginsWarning is serve's startup warning when previews are on but
