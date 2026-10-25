@@ -94,6 +94,22 @@ func LoadKitVersion(r KitReader, name string, version int) (KitVersion, bool) {
 	return KitVersion{}, false
 }
 
+// currentKitYML is kit k's current kit.yml text, read without parsing it:
+// a tree version's kit.yml blob, or a pre-tree version's stored text; ""
+// for a broken version or an unstored tree.
+func currentKitYML(r KitReader, k Kit) string {
+	if sha, ok := k.Trees[k.Current]; ok {
+		if t, ok := r.KitTree(sha); ok {
+			if e, ok := t.Lookup(kittree.KitFile); ok {
+				b, _ := r.KitBlob(e.SHA256)
+				return string(b)
+			}
+		}
+		return ""
+	}
+	return k.Versions[k.Current]
+}
+
 // kitParseCap bounds kitParses.
 const kitParseCap = 256
 

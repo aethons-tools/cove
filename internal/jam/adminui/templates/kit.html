@@ -102,6 +102,7 @@
       <header><h2>v{{.N}}</h2></header>
       <div class="body"><div class="banner error">{{if .RawShown}}Stored config is not a valid studio kit: {{end}}{{.ParseErr}}</div>
         <p class="sub">Raises from this version fail closed. Push a valid version to replace it.</p></div>
+      {{if .Hidden}}<div class="body"><p class="hint" id="kit-hidden">{{template "kit-hidden-note" $name}}</p></div>{{else if .Masked}}<div class="body"><p class="hint" id="kit-masked">{{template "kit-masked-note"}}</p></div>{{end}}
       {{with .RawShown}}<pre class="yaml">{{displayText .}}</pre>{{end}}
     </section>
     {{else}}
@@ -220,7 +221,8 @@
         <summary>Push new version</summary>
         <form hx-post="/app/admin/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML"{{with driftNote "kit" .Name}} hx-confirm="{{.}} Push anyway?"{{end}}>
           <label>Studio kit YAML <span class="hint">pre-filled with v{{.View.N}}; pushing makes a new current version (an unchanged kit makes none)</span>
-            <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.RawShown}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
+            {{if .View.Hidden}}<p class="hint">{{template "kit-hidden-note" .Name}}</p>{{else if .View.Masked}}<p class="hint banner error" id="push-masked">{{template "kit-masked-note"}}</p>{{end}}
+            <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.PushRaw}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
           <div class="form-actions"><button type="submit" class="primary">Push version</button></div>
         </form>
       </details>
@@ -229,6 +231,12 @@
 </div>
 </div>
 {{end}}
+
+{{/* kit-masked-note says a shown kit.yml differs from the stored one: base's packed context is masked. */}}
+{{define "kit-masked-note"}}A packed context in this text is shown masked («packed context, not shown»); remove it before pushing.{{end}}
+
+{{/* kit-hidden-note says how to get at a kit.yml not shown at all; the dot is the kit's name. */}}
+{{define "kit-hidden-note"}}This kit.yml is not shown: it may hold a packed context. Write it out with <code>at-jam config write &lt;dir&gt; --all</code> (it is <code>kits/{{.}}/kit.yml</code>), fix it, and push that directory with <code>at-jam kit push</code>.{{end}}
 
 {{/* ctx-file is one file of a version's tree (ctxFileView): its content, its line diff, or why neither. */}}
 {{define "ctx-file"}}
@@ -240,7 +248,7 @@
   <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
   {{if .Note}}<div class="body unset">{{.Note}}</div>
   {{else if .Diff}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
-  {{else}}<pre class="yaml">{{.Content}}</pre>{{end}}
+  {{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" "<kit>"}}</p></div>{{else if .Masked}}<div class="body"><p class="hint">{{template "kit-masked-note"}}</p></div>{{end}}<pre class="yaml">{{.Content}}</pre>{{end}}
   {{end}}
 </section>
 {{end}}

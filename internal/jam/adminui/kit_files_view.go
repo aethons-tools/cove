@@ -2,6 +2,7 @@ package adminui
 
 import (
 	"fmt"
+	"io"
 	"net/url"
 	"slices"
 	"strconv"
@@ -39,62 +40,139 @@ func (c *ctxRead) get(p string) (ctxEntry, bool) {
 // hiddenContext stands in for a packed context in a shown kit.yml.
 const hiddenContext = "«packed context, not shown»"
 
-// hiddenKitYML is a kit.yml text that does not parse (the migration keeps such
-// a text verbatim) as the page shows it: every value of a "context" key,
-// anywhere in the document (aliases and merge keys included), replaced by
-// hiddenContext, so no packed base64 is shown. Fail-safe: text that is not
-// YAML but mentions "context", a re-marshal that fails, or a result that
-// still carries a replaced value is hiddenContext alone, never the text.
-func hiddenKitYML(text string) string {
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+// maskKind is how maskKitYML changed a text.
+type maskKind int
+
+const (
+	maskNone    maskKind = iota // shown as stored
+	maskPartial                 // base's packed-context values replaced by hiddenContext
+	maskWhole                   // the whole text replaced by hiddenContext
+)
+
+// maxMaskDepth bounds the alias and merge-key chains maskKitYML follows.
+const maxMaskDepth = 16
+
+// maskKitYML is a kit.yml text that does not parse (the migration keeps such
+// a text verbatim) as the page shows it, so no packed base64 is shown. The
+// values of base.context, base.context-files (or contextFiles) and
+// base.context-dir are replaced by hiddenContext, wherever base gets them:
+// written in it, through an alias, a merge key, or a top-level merge key.
+// No other key is touched, and a text with nothing to mask is shown as
+// stored. Fail-safe: a text that is not one YAML document but mentions
+// "context", a chain too deep to follow, a re-marshal that fails, or a
+// result that still carries a masked value (an anchored scalar) is
+// hiddenContext alone.
+func maskKitYML(text string) (string, maskKind) {
+	whole := func() (string, maskKind) {
 		if strings.Contains(text, "context") {
-			return hiddenContext
+			return hiddenContext, maskWhole
 		}
-		return text
+		return text, maskNone
 	}
-	var values []string
-	var walk func(n *yaml.Node, depth int) bool
-	walk = func(n *yaml.Node, depth int) bool {
-		if n == nil || depth > 64 {
-			return n == nil
-		}
-		if n.Kind == yaml.MappingNode {
-			for i := 0; i+1 < len(n.Content); i += 2 {
-				if n.Content[i].Value != "context" {
-					continue
-				}
-				v := n.Content[i+1]
-				for v.Kind == yaml.AliasNode && v.Alias != nil {
-					v = v.Alias
-				}
-				values = append(values, v.Value)
-				n.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hiddenContext}
-			}
-		}
-		for _, c := range n.Content {
-			if !walk(c, depth+1) {
-				return false
-			}
-		}
-		return true
+	dec := yaml.NewDecoder(strings.NewReader(text))
+	var doc, next yaml.Node
+	if err := dec.Decode(&doc); err != nil {
+		return whole()
 	}
-	if !walk(&doc, 0) {
-		return hiddenContext
+	if err := dec.Decode(&next); err != io.EOF {
+		return whole() // a second document, or one that does not decode
 	}
-	if len(values) == 0 {
-		return text
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return text, maskNone // no mapping, no base
+	}
+	m := &masker{}
+	m.top(doc.Content[0], 0)
+	switch {
+	case m.deep:
+		return hiddenContext, maskWhole
+	case m.count == 0:
+		return text, maskNone
 	}
 	b, err := yaml.Marshal(&doc)
 	if err != nil {
-		return hiddenContext
+		return hiddenContext, maskWhole
 	}
-	for _, v := range values {
-		if v == "" || strings.Contains(string(b), v) {
-			return hiddenContext
+	for _, v := range m.values {
+		if v != "" && strings.Contains(string(b), v) {
+			return hiddenContext, maskWhole
 		}
 	}
-	return string(b)
+	return string(b), maskPartial
+}
+
+// masker replaces base's packed-context values, counting them and
+// recording the scalars among them; deep is set when a chain is longer than
+// maxMaskDepth.
+type masker struct {
+	count  int
+	values []string
+	deep   bool
+}
+
+// resolve follows aliases from n.
+func (m *masker) resolve(n *yaml.Node, depth int) *yaml.Node {
+	for ; n != nil && n.Kind == yaml.AliasNode; depth++ {
+		if depth > maxMaskDepth {
+			m.deep = true
+			return nil
+		}
+		n = n.Alias
+	}
+	return n
+}
+
+// merged calls fn on each mapping a merge key (<<) of mapping n merges in.
+func (m *masker) merged(n *yaml.Node, depth int, fn func(*yaml.Node, int)) {
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value != "<<" {
+			continue
+		}
+		v := m.resolve(n.Content[i+1], depth)
+		srcs := []*yaml.Node{v}
+		if v != nil && v.Kind == yaml.SequenceNode {
+			srcs = v.Content
+		}
+		for _, src := range srcs {
+			if src = m.resolve(src, depth); src != nil && src.Kind == yaml.MappingNode {
+				fn(src, depth+1)
+			}
+		}
+	}
+}
+
+// top masks every base of top-level mapping n, its own or merged in.
+func (m *masker) top(n *yaml.Node, depth int) {
+	if depth > maxMaskDepth {
+		m.deep = true
+		return
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == "base" {
+			if b := m.resolve(n.Content[i+1], depth); b != nil && b.Kind == yaml.MappingNode {
+				m.base(b, depth+1)
+			}
+		}
+	}
+	m.merged(n, depth, m.top)
+}
+
+// base masks the packed-context keys of base mapping n, its own or merged in.
+func (m *masker) base(n *yaml.Node, depth int) {
+	if depth > maxMaskDepth {
+		m.deep = true
+		return
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		switch n.Content[i].Value {
+		case "context", "context-files", "contextFiles", "context-dir":
+			if v := m.resolve(n.Content[i+1], depth); v != nil && v.Kind == yaml.ScalarNode {
+				m.values = append(m.values, v.Value)
+			}
+			n.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hiddenContext}
+			m.count++
+		}
+	}
+	m.merged(n, depth, m.base)
 }
 
 // pathText is a tree path as shown: SetupDisplayText's escaping, with \n and
@@ -220,6 +298,8 @@ type ctxFileView struct {
 	Content  string
 	Note     string // binary or oversize: why no content, with sizes
 	Missing  bool   // in neither version
+	Masked   bool   // a side's text has base's packed context masked
+	Hidden   bool   // a side's text is not shown at all (the placeholder alone)
 }
 
 // fileView shows file p of to (and, when diff, compares it with from's).
@@ -233,6 +313,10 @@ func fileView(p string, from, to *ctxRead, diff bool) *ctxFileView {
 		return &ctxFileView{Missing: true, Diff: diff}
 	}
 	f := &ctxFileView{Path: pathText(p), Diff: diff}
+	for _, e := range []ctxEntry{a, b} {
+		f.Masked = f.Masked || e.Mask == maskPartial
+		f.Hidden = f.Hidden || e.Mask == maskWhole
+	}
 	if !diff {
 		switch {
 		case b.Size > maxFileShow:

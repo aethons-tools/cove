@@ -13,13 +13,14 @@ type ctxEntry struct {
 	Path string
 	Mode fs.FileMode
 	Size int64
-	Sum  string // hex sha256 of the content
-	Data []byte // the first maxFileShow+1 bytes of the wanted file; nil for every other
+	Sum  string   // hex sha256 of the content
+	Data []byte   // the first maxFileShow+1 bytes of the wanted file; nil for every other
+	Mask maskKind // how Data (an unparsable kit.yml) was masked
 }
 
 // treeRead lists tree version v's files, kit.yml included. With unpack, the
 // file named want has its first maxFileShow+1 bytes read through v.Files; a
-// kit.yml that does not parse is read as shown (hiddenKitYML), so no packed
+// kit.yml that does not parse is read as shown (maskKitYML), so no packed
 // context is shown. v's tree is a stored one (the store validated it on
 // write).
 func treeRead(v jam.KitVersion, want string, unpack bool) *ctxRead {
@@ -29,8 +30,9 @@ func treeRead(v jam.KitVersion, want string, unpack bool) *ctxRead {
 		switch {
 		case !unpack || e.Path != want:
 		case e.Path == kittree.KitFile && v.Err != nil:
-			shown := []byte(hiddenKitYML(string(v.KitYML)))
-			ent.Data = shown[:min(len(shown), maxFileShow+1)]
+			text, how := maskKitYML(string(v.KitYML))
+			shown := []byte(text)
+			ent.Data, ent.Mask = shown[:min(len(shown), maxFileShow+1)], how
 		case v.Files != nil:
 			if f, err := v.Files.Open(e.Path); err == nil {
 				ent.Data, _ = io.ReadAll(io.LimitReader(f, maxFileShow+1))

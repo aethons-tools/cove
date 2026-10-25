@@ -862,9 +862,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		var out []KitSummary
 		for _, k := range store.ListKits() {
 			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
-			if v, ok := LoadKitVersion(store, k.Name, k.Current); ok {
-				sum.Parent = kitParentSpec(string(v.KitYML))
-			}
+			sum.Parent = kitParentSpec(currentKitYML(store, k))
 			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)

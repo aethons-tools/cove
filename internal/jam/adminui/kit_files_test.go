@@ -281,3 +281,55 @@ func TestKitPagePreTreeVersion(t *testing.T) {
 		t.Errorf("pre-tree version page:\n%s", body)
 	}
 }
+
+// textarea is the push form's text in body.
+func textarea(body string) string {
+	i := strings.Index(body, `name="config"`)
+	if i < 0 {
+		return ""
+	}
+	s := body[i:]
+	s = s[strings.Index(s, ">")+1:]
+	return s[:strings.Index(s, "</textarea>")]
+}
+
+// An unparsable kit.yml: only base's packed context is masked (another key
+// named context is kept, in the card and the push form), a masked text says
+// so above the push form, and a text the page cannot analyse is not shown
+// at all, with how to get it.
+func TestKitPageUnparsableKitYMLMasking(t *testing.T) {
+	store := newStore(t)
+	b64 := packCtx(t, "Dockerfile", "FROM x\n")
+	for name, text := range map[string]string{
+		"keep":   "kind: studio\nbogus: 1\nbuild-args: {context: x-kept}\n",
+		"masked": "kind: studio\nbogus: 1\nbuild-args: {context: x-kept}\nbase:\n  context: " + b64 + "\n",
+		"whole":  "kind: studio\nbogus: 1\n---\nbase: {context: " + b64 + "}\n",
+	} {
+		if _, err := store.PushKit(name, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := kitsHandler(store)
+
+	body := get(t, h, "/app/admin/kits/keep").Body.String()
+	if ta := textarea(body); ta != "kind: studio\nbogus: 1\nbuild-args: {context: x-kept}\n" || strings.Contains(body, `id="push-masked"`) {
+		t.Errorf("keep: push form %q", ta)
+	}
+
+	body = get(t, h, "/app/admin/kits/masked").Body.String()
+	ta := textarea(body)
+	if strings.Contains(body, "H4sI") || !strings.Contains(ta, "context: x-kept") || !strings.Contains(ta, "«packed context, not shown»") {
+		t.Errorf("masked: push form %q", ta)
+	}
+	if !strings.Contains(body, `id="push-masked"`) || !strings.Contains(body, `id="kit-masked"`) || !strings.Contains(body, "remove it before pushing") {
+		t.Errorf("masked: no note above the push form")
+	}
+
+	body = get(t, h, "/app/admin/kits/whole").Body.String()
+	if strings.Contains(body, "H4sI") || textarea(body) != "" || !strings.Contains(body, `id="kit-hidden"`) || !strings.Contains(body, "kits/whole/kit.yml") {
+		t.Errorf("whole: push form %q, recovery note missing", textarea(body))
+	}
+	if f := section(get(t, h, "/app/admin/kits/whole?file=kit.yml").Body.String(), "ctx-file"); strings.Contains(f, "H4sI") || !strings.Contains(f, "config write") {
+		t.Errorf("whole: file view:\n%s", f)
+	}
+}

@@ -165,3 +165,29 @@ func TestAdminKitEffectiveUnchainedIsOwn(t *testing.T) {
 		t.Errorf("effective = %q\nwant own %q", res.Effective, want)
 	}
 }
+
+// The list reads each current kit.yml for its parent without parsing it (no
+// parse-cache entry); a pre-tree version's text and a broken version read as
+// before.
+func TestAdminKitListReadsKitYMLOnly(t *testing.T) {
+	h, st := newTestAdmin(t)
+	tr := pushTree(t, st, "tree", "kit.yml", "kind: studio\nbase: {kit: web}\nprompt: list reads only kit.yml\n")
+	if err := st.PutKitDocs([]Kit{
+		{Name: "old", Current: 1, Versions: map[int]string{1: "kind: studio\nbase: {kit: web@v2}\n"}},
+		{Name: "gone", Current: 1, Broken: map[int]string{1: "its base.context is not valid base64"}},
+	}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	var out []KitSummary
+	getJSON(t, h, "/admin/kits", &out)
+	got := map[string]string{}
+	for _, k := range out {
+		got[k.Name] = k.Parent
+	}
+	if got["tree"] != "web" || got["old"] != "web@v2" || got["gone"] != "" {
+		t.Fatalf("parents = %v", got)
+	}
+	if _, ok := kitParses.get(tr.Hash()); ok {
+		t.Fatal("the list parsed the kit")
+	}
+}

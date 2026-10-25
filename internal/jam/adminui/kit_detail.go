@@ -96,7 +96,10 @@ type kv struct{ Key, Value string }
 type kitView struct {
 	N          int
 	ParseErr   string // the version is broken, or its kit.yml isn't a valid studio kit
-	RawShown   string // an unparsable kit.yml as shown (hiddenKitYML; escape with SetupDisplayText), also the push form's text
+	RawShown   string // an unparsable kit.yml as shown (maskKitYML; escape with SetupDisplayText)
+	Masked     bool   // RawShown has base's packed context masked: differs from the stored text
+	Hidden     bool   // RawShown is the placeholder alone: the stored text is not shown
+	PushRaw    string // the push form's text when ParseErr is set: RawShown, or "" when Hidden
 	YAML       string // display YAML
 	PushYAML   string // full YAML, for pre-filling a new version
 	Base       string
@@ -253,7 +256,7 @@ func sizeLabel(n int) string {
 // its files. A version with no tree (broken, or pre-tree on a store that
 // failed to migrate) shows only its own fixed error; a kit.yml that does not
 // parse shows its error and the text with any packed context hidden
-// (hiddenKitYML).
+// (maskKitYML).
 func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
 	if v.TreeHash == "" {
 		msg := "version has no tree"
@@ -265,8 +268,12 @@ func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
 	kv := kitView{N: n, ctx: treeRead(v, want, unpack)}
 	text := string(v.KitYML)
 	if v.Err != nil {
-		shown := hiddenKitYML(text)
+		shown, how := maskKitYML(text)
 		kv.ParseErr, kv.RawShown, kv.diffText = v.Err.Error(), shown, shown
+		kv.Masked, kv.Hidden = how == maskPartial, how == maskWhole
+		if !kv.Hidden {
+			kv.PushRaw = shown
+		}
 		return kv
 	}
 	kv.YAML, kv.PushYAML, kv.diffText = jam.SetupDisplayText(text), text, text

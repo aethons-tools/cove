@@ -180,8 +180,11 @@ blessed default; `kit: <parent>` for a chained kit), the kit's files and its
 `&file=`), egress with the effective ceiling and anything excluded (COV-208),
 build args, secret demands (name + description; never values), the prompt, the
 build digest, and its `kit.yml` as stored, with **Copy**. A stored version that isn't a valid
-studio kit (a pre-studio row) shows its parse error and raw text instead (any
-packed context left in it hidden behind a fixed placeholder); a broken version,
+studio kit (a pre-studio row) shows its parse error and raw text instead. A
+packed context left in its `base` is masked as `«packed context, not shown»`,
+with a note above the push form to remove it before pushing; a text the page
+cannot analyse (not one YAML document) that mentions a context is not shown at
+all, and the page says to get it with `at-jam config write`. A broken version,
 one the migration to trees could not convert, shows its migration error.
 
 A kit built on a parent kit ([kits-inheritance.md](kits-inheritance.md)) also
