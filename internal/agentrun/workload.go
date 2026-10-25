@@ -660,8 +660,9 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 				// (so an exit before the ack keeps it owed), never deliver now.
 				tr.Wake()
 			case tr.Wake():
-				write(resume())
+				// Marked before the write: a fast turn end must not be seen first.
 				tr.Wrote()
+				write(resume())
 				unhold()
 			}
 		case <-cmds:
@@ -716,8 +717,8 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 			if w.ctxr != nil {
 				text += contextNotice(w.ctxr.live(ctx), true)
 			}
+			tr.Deliver() // before the write, as above
 			write(text)
-			tr.Deliver()
 			unhold()
 			ackBy = ""
 			continue
@@ -741,8 +742,8 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 			// A hold's timer restarts after the compaction; Holding stays reported.
 			stopHold()
 			w.log.Info("agentrun: compacting the conversation", "by", compact.by)
+			tr.MarkBusy() // before the write, as above
 			write(compactText(compact.instructions))
-			tr.MarkBusy()
 			compacting = true
 			w.emitCommand(h, turn, "compact", compact.by, "")
 			compact = nil

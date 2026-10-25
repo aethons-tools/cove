@@ -23,6 +23,9 @@ type pipeInput struct {
 	closed chan struct{}
 	once   sync.Once
 	broken atomic.Bool // set: writes fail as if the process had exited (EPIPE)
+	// onWrite, when set, runs inside Write after a message is queued: a fake
+	// agent answering before Write returns.
+	onWrite atomic.Pointer[func(string)]
 }
 
 func newPipeInput() *pipeInput {
@@ -56,6 +59,9 @@ func (p *pipeInput) Write(b []byte) (int, error) {
 		return 0, io.ErrShortWrite // malformed: surface as a test failure via next()
 	}
 	p.msgs <- m.Message.Content
+	if f := p.onWrite.Load(); f != nil {
+		(*f)(m.Message.Content)
+	}
 	return len(b), nil
 }
 

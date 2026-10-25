@@ -352,6 +352,68 @@ func TestInterruptDuringCompactIgnored(t *testing.T) {
 	p.in.waitClosed(t) // no acknowledge turn either
 }
 
+// answerOn makes p's agent finish its turn before the stdin write that starts
+// it returns, for messages with prefix.
+func answerOn(p *streamProc, prefix string) {
+	f := func(msg string) {
+		if strings.HasPrefix(msg, prefix) {
+			p.emit(lnInit, lnResult)
+		}
+	}
+	p.in.onWrite.Store(&f)
+}
+
+// A compaction whose result arrives before the /compact write returns still
+// ends: the tracker is marked busy before the write, not after.
+func TestCompactFastResultNotWedged(t *testing.T) {
+	w, p := interruptRun(t, &recordHandle{})
+	answerOn(p, "/compact")
+	compact(w, "Ann", "keep X")
+	p.in.noMessage(t, 30*time.Millisecond)
+	p.emit(lnResult)
+	if got := p.in.next(t); got != "/compact keep X" {
+		t.Fatalf("message = %q", got)
+	}
+	p.in.waitClosed(t) // the compaction's turn ended: idle, close
+}
+
+// Likewise an acknowledge turn that ends before its write returns.
+func TestInterruptFastAckNotWedged(t *testing.T) {
+	w, p := interruptRun(t, &recordHandle{})
+	answerOn(p, "Ann pressed")
+	interrupt(w, "Ann")
+	p.in.nextCtrl(t)
+	p.emit(lnToolRes, lnResult)
+	if got := p.in.next(t); !strings.Contains(got, "Ann pressed **Interrupt**") {
+		t.Fatalf("acknowledge prompt = %q", got)
+	}
+	p.in.waitClosed(t)
+}
+
+// Likewise a resumed turn (a Wake delivered while holding) that ends before
+// its write returns: the hold carries on and its cap closes stdin.
+func TestWakeFastResultNotWedged(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true; c.BackgroundWait = 300 * time.Millisecond })
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, h)
+	t.Cleanup(func() { cancel(); <-done })
+	p := s.next(t)
+	p.in.next(t)
+	answerOn(p, residentResumePrompt)
+	p.emit(lnInit, lnTasks1, lnResult)
+	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+		t.Fatal("no Holding")
+	}
+	squawk(w)
+	if got := p.in.next(t); got != residentResumePrompt {
+		t.Fatalf("resume prompt = %q", got)
+	}
+	p.in.waitClosed(t)
+}
+
 // A Compact pressed while a compaction's turn is in flight is dropped.
 func TestCompactDuringCompactIgnored(t *testing.T) {
 	h := &recordHandle{}
