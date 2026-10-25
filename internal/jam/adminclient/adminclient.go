@@ -959,3 +959,22 @@ func (c *Client) ConfigRelease(kind, name string) error {
 	}
 	return c.do("DELETE", "/admin/config/managed/"+url.PathEscape(kind)+"/"+strings.Join(segs, "/"), nil, nil)
 }
+
+// KitDiff fetches kit name's version diff from → to (0 = the defaults: the
+// version before to, and current).
+func (c *Client) KitDiff(name string, from, to int) (jam.KitDiffResult, error) {
+	q := url.Values{}
+	if from > 0 {
+		q.Set("from", strconv.Itoa(from))
+	}
+	if to > 0 {
+		q.Set("to", strconv.Itoa(to))
+	}
+	path := "/admin/kits/" + url.PathEscape(name) + "/diff"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var d jam.KitDiffResult
+	err := c.do("GET", path, nil, &d)
+	return d, err
+}

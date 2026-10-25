@@ -454,3 +454,16 @@ func TestPrintConfigPlanRefusedUpdateDiff(t *testing.T) {
 		t.Errorf("kit diff %q", b.String())
 	}
 }
+
+// A kit update prints its version diff under its line, escaped for the
+// terminal, in place of the listing diff.
+func TestPrintConfigPlanKitVersionDiff(t *testing.T) {
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "app", Action: jam.ConfigUpdate,
+		Before: "kind: studio\nprompt: a\n", After: "kind: studio\nprompt: b\n",
+		Diff: "kit.yml:\n  -prompt: a\n  +prompt: b\nfiles: 1 changed, 0 unchanged\n  mode      run.sh  0644 → 0755\x1b[2J\n"}}})
+	want := "update  kit app\n    kit.yml:\n      -prompt: a\n      +prompt: b\n    files: 1 changed, 0 unchanged\n      mode      run.sh  0644 → 0755\\x1b[2J\n0 unchanged\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Errorf("got %q\nwant prefix %q", b.String(), want)
+	}
+}

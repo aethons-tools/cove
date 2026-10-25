@@ -76,6 +76,7 @@ import (
 	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/switchboard"
+	"github.com/aethons-tools/cove/internal/textesc"
 	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -102,7 +103,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes] [--force]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -869,7 +870,7 @@ func (t *tierFlags) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|pin|rm|import|track|untrack|sync")
+		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -881,6 +882,8 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	config := fs.String("config", "", "push: a kit.yml to push alone (or - for stdin); otherwise push <dir>")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
+	from := fs.Int("from", 0, "diff: the older version (default: the one before --to)")
+	to := fs.Int("to", 0, "diff: the newer version (default: current)")
 	own := fs.Bool("own", false, "show: print the kit's own stored YAML instead of the merged (effective) kit")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -926,6 +929,17 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			fmt.Fprintf(stdout, "pushed %s v%d\n", kitName, res.Version)
 		}
+	case "diff":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam kit diff: expected one kit name")
+			return 2
+		}
+		d, err := c.KitDiff(pos[0], *from, *to)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s v%d → v%d\n%s", textesc.Escape(d.Name, false), d.From, d.To, textesc.Escape(d.Text, true))
 	case "list":
 		kits, err := c.ListKits()
 		if err != nil {

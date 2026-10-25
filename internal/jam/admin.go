@@ -906,6 +906,28 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
+	mux.HandleFunc("GET /admin/kits/{name}/diff", func(w http.ResponseWriter, r *http.Request) {
+		var from, to int
+		for _, q := range []struct {
+			key string
+			dst *int
+		}{{"from", &from}, {"to", &to}} {
+			if s := r.URL.Query().Get(q.key); s != "" {
+				n, err := strconv.Atoi(s)
+				if err != nil || n < 1 {
+					http.Error(w, q.key+" must be a version number", http.StatusBadRequest)
+					return
+				}
+				*q.dst = n
+			}
+		}
+		d, err := KitVersionDiff(store, r.PathValue("name"), from, to)
+		if err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+			return
+		}
+		writeJSON(w, http.StatusOK, d)
+	})
 	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
 		var b PinBody
 		if !decode(w, r, &b) {

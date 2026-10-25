@@ -8,6 +8,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 var allCreds = ConfigEnv{CredExists: func(string) bool { return true }}
@@ -688,4 +689,30 @@ func TestPlanSourceKitDeleteIsAtItsSourceFile(t *testing.T) {
 	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigDelete || op.Path != "kits/app.source.yml" {
 		t.Fatalf("op %+v", op)
 	}
+}
+
+func TestPlanKitUpdateCarriesItsDiff(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\nprompt: a\n")); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	mustWrite(t, dir+"/kits/app/kit.yml", "kind: studio\nprompt: b\n", 0o644)
+	tr, err := LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks := []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: configObject{Canon: liveCanon(t, st, "app")}.Digest()}}
+	plan := PlanConfig(ConfigPlanInput{Tree: tr, Snapshot: st.ExportConfig(), Marks: marks, Env: allCreds, Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: time.Unix(1, 0)})
+	op := opOf(plan, ConfigKindKit, "app")
+	if op.Action != ConfigUpdate || !strings.Contains(op.Diff, "  -prompt: a\n  +prompt: b\n") {
+		t.Fatalf("op = %+v", op)
+	}
+}
+
+// liveCanon is kit name's canonical form in st (its current tree's listing).
+func liveCanon(t *testing.T, st Store, name string) []byte {
+	t.Helper()
+	v, _ := LoadKitVersion(st, name, 0)
+	return kitCanon(v.Tree, st.KitBlob, nil)
 }

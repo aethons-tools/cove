@@ -112,6 +112,7 @@ no create/update/delete/adopt and no `forget` prints `nothing to apply` and does
 A kit's plan entry compares its `kit.yml` and its file list (mode, size, sha256, path).
 Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N unchanged`, `unmanaged: …`,
 `serve-config: …`, and a `refused:` block (each refusal indented).
+A kit update prints its version diff (`kit.yml` lines, then the files) under its line; the Config page shows the same.
 
 | Action | Meaning |
 |---|---|

@@ -19,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // trackManaged records the source managedUI's objects came from.
@@ -358,5 +359,29 @@ func TestConfigPlanShowsUnmanagedRefusalDiff(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("plan lacks %q:\n%s", want, body)
 		}
+	}
+}
+
+// A kit update shows its version diff (kit.yml's lines, then the files),
+// escaped; a binary file is a one-line marker, never its bytes.
+func TestConfigPlanShowsKitVersionDiff(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{
+		"kits/app/kit.yml": "kind: studio\nprompt: b\n",
+		"kits/app/run.sh":  "echo '<script>alert(1)</script>'\n",
+		"kits/app/blob":    "\x00\x01SECRETBYTES-new",
+	}}
+	h, store := configUI(t, f, nil)
+	if _, _, err := jam.PushKitFiles(store, "app", kittreetest.Files("kit.yml", "kind: studio\nprompt: a\n", "run.sh", "echo hi\n", "blob", "\x00\x01SECRETBYTES-old")); err != nil {
+		t.Fatal(err)
+	}
+	trackManaged(t, store)
+	body := post(t, h, "/app/admin/config/diff", url.Values{}).Body.String()
+	for _, want := range []string{`<pre class="diff">kit.yml:`, "  -prompt: a\n  &#43;prompt: b\n", "modified  run.sh", "&lt;script&gt;alert(1)&lt;/script&gt;", "modified  blob", "(binary)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("plan lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<script>alert") || strings.Contains(body, "SECRETBYTES") {
+		t.Fatalf("kit diff leaks markup or binary bytes:\n%s", body)
 	}
 }

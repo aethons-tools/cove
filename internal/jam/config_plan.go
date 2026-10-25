@@ -44,6 +44,7 @@ type ConfigOp struct {
 	Path      string `json:"path,omitempty"`
 	Before    string `json:"before,omitempty"` // Jam's canonical form (update, delete)
 	After     string `json:"after,omitempty"`  // the repo's (create, update)
+	Diff      string `json:"diff,omitempty"`   // a kit update's version diff, Jam → repo (kittree.DiffText)
 }
 
 // ConfigPlan is a config tree planned against a Jam: every object's action,
@@ -464,8 +465,10 @@ func (p *planner) planKits() {
 		if track && p.tracksSource(e.Name, at) {
 			p.adoptable[key] = true // only its ref moved since Jam last synced it
 		}
+		n := len(p.plan.Ops)
 		action, drift, ok := p.classify(key, repo)
 		if !ok {
+			p.setKitDiff(n, e)
 			continue
 		}
 		if doc, write := configKitDoc(p.store, e, at, track, p.in.Now); write {
@@ -475,6 +478,7 @@ func (p *planner) planKits() {
 			}
 		}
 		p.record(key, action, drift, repo)
+		p.setKitDiff(n, e)
 	}
 	objs := kitSetObjects(versioned)
 	p.m.applyKitObjects(objs)
@@ -483,6 +487,38 @@ func (p *planner) planKits() {
 		p.m.kits[d.Name] = copyKit(d)
 	}
 	p.w.Kits = docs
+}
+
+// kitDiff is the version diff from Jam's current tree of e's kit to e's tree
+// ("" when Jam has no stored tree of it). Both trees are validated: Jam's on
+// write, e's by kittree.Build.
+func (p *planner) kitDiff(e kitSetEntry) string {
+	k, ok := p.m.kits[e.Name]
+	if !ok {
+		return ""
+	}
+	jamTree, ok := p.m.kitTrees[k.Trees[k.Current]]
+	if !ok || len(jamTree.Entries) == 0 {
+		return ""
+	}
+	blobs := func(sha string) ([]byte, bool) {
+		if b, ok := e.blobs[sha]; ok {
+			return b, true
+		}
+		b, ok := p.m.kitBlobs[sha]
+		return b, ok
+	}
+	return kittree.DiffText(jamTree, e.tree, blobs)
+}
+
+// setKitDiff sets e's version diff on the kit update op appended at or after
+// index n (computed only when there is one).
+func (p *planner) setKitDiff(n int, e kitSetEntry) {
+	for i := n; i < len(p.plan.Ops); i++ {
+		if p.plan.Ops[i].Action == ConfigUpdate {
+			p.plan.Ops[i].Diff = p.kitDiff(e)
+		}
+	}
 }
 
 // tracksSource reports whether live kit name already tracks at's repo, dir

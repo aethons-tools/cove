@@ -22,6 +22,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // configStdin is the apply prompt's input (tests swap it).
@@ -557,6 +558,10 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			mark = "  (not managed)"
 		}
 		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
+		if op.Kind == jam.ConfigKindKit && op.Diff != "" {
+			fmt.Fprintln(w, indent(textesc.Escape(op.Diff, true))) // kit.yml's line diff, then the files
+			continue
+		}
 		if !op.Drift && !op.Unmanaged {
 			continue
 		}

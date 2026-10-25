@@ -139,6 +139,7 @@ at-jam kit show web                                         # current version's 
 at-jam kit show web --version 1                             # a specific version's config
 at-jam kit show web --own                                   # the kit's own YAML, not the merged one; `file:` notes shown with their contents
 at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
+at-jam kit diff web [--from 2] [--to 3]                     # kit.yml's line diff, then the files added/removed/modified/mode (default: current vs the one before)
 at-jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
 at-jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
 at-jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
@@ -154,6 +155,9 @@ at-jam kit untrack web                                      # stop tracking (ver
 - `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
   `<dir>/kit.yml` from the repo itself; the source syntax, sync rules,
   credentials and errors are in [kits-git.md](kits-git.md).
+- `kit diff` reads `GET /admin/kits/{name}/diff?from=N&to=M` (admin only). A
+  binary file, or one over 64 KiB, gets a one-line marker, never its bytes. A
+  broken version answers 400 with its own error.
 - `kit rm` is **fail-closed**: a kit that any role references (or another kit
   [builds on](kits-inheritance.md#guards)) can't be removed; the command reports
   the referencing role or kits. Rebind the role first.

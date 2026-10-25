@@ -133,3 +133,27 @@ func TestKitPushDirErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestKitDiffCLI(t *testing.T) {
+	store := jam.NewMemStore()
+	for _, p := range []string{"prompt: a\n", "prompt: b\n"} {
+		if _, err := store.PushKit("app", "kind: studio\n"+p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	if code := run([]string{"kit", "diff", "--admin-url", ts.URL, "app"}, func(string) string { return "" }, &out, &errb); code != 0 || !strings.Contains(out.String(), "+prompt: b") || !strings.HasPrefix(out.String(), "app v1 → v2\n") {
+		t.Fatalf("exit=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "diff", "--admin-url", ts.URL, "--from", "2", "--to", "2", "app"}, func(string) string { return "" }, &out, &errb); code != 1 || !strings.Contains(errb.String(), "pick two different versions") {
+		t.Fatalf("same version: exit=%d out=%q err=%q", code, out.String(), errb.String())
+	}
+	if code := run([]string{"kit", "diff", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 2 {
+		t.Fatalf("no name: exit=%d", code)
+	}
+}
