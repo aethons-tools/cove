@@ -631,11 +631,11 @@ func TestClearedNotice(t *testing.T) {
 	}
 }
 
-func clear(w *Workload, by string) {
+func pressClear(w *Workload, by string) {
 	w.Control(covemaster.Control{Kind: covemaster.Clear, By: by})
 }
 
-func exists(path string) bool {
+func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
@@ -674,8 +674,8 @@ func commandCount(h *recordHandle) int {
 func TestClearNextEpisodeFresh(t *testing.T) {
 	h := &recordHandle{}
 	w, s, _, _ := idleRun(t, h)
-	clear(w, "Bob")
-	if !eventually(func() bool { return exists(w.cfg.ClearMarker) }) {
+	pressClear(w, "Bob")
+	if !eventually(func() bool { return fileExists(w.cfg.ClearMarker) }) {
 		t.Fatal("clear marker not written")
 	}
 	if b, err := os.ReadFile(w.cfg.ClearMarker); err != nil || string(b) != "Bob" {
@@ -707,7 +707,7 @@ func TestClearNextEpisodeFresh(t *testing.T) {
 func TestClearWhileLiveDropped(t *testing.T) {
 	h := &recordHandle{}
 	w, p := interruptRun(t, h)
-	clear(w, "Bob")
+	pressClear(w, "Bob")
 	if !eventually(func() bool { return hasIgnored(h, "clear", "Bob", "live episode") }) {
 		t.Fatalf("no ignored clear record in %+v", h.eventList())
 	}
@@ -717,7 +717,7 @@ func TestClearWhileLiveDropped(t *testing.T) {
 	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
-	if exists(w.cfg.ClearMarker) {
+	if fileExists(w.cfg.ClearMarker) {
 		t.Fatal("a clear pressed mid-turn wrote the marker")
 	}
 	squawk(w)
@@ -758,14 +758,14 @@ func TestClearSurvivesRestart(t *testing.T) {
 	}
 	p.emit(lnInit)
 	time.Sleep(20 * time.Millisecond)
-	if !exists(w.cfg.ClearMarker) {
+	if !fileExists(w.cfg.ClearMarker) {
 		t.Fatal("clear marker consumed before the agent replied")
 	}
 	p.emit(lnAssistant)
-	if !eventually(func() bool { return !exists(w.cfg.ClearMarker) }) {
+	if !eventually(func() bool { return !fileExists(w.cfg.ClearMarker) }) {
 		t.Fatal("clear marker not consumed on the first reply")
 	}
-	if !exists(conv) {
+	if !fileExists(conv) {
 		t.Fatal("conversation marker gone after the reply")
 	}
 }
@@ -788,7 +788,7 @@ func TestClearMarkerKeptIfNoReply(t *testing.T) {
 	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
-	if !exists(w.cfg.ClearMarker) {
+	if !fileExists(w.cfg.ClearMarker) {
 		t.Fatal("clear marker consumed without a reply")
 	}
 	// Still pending: the next episode starts fresh again.
@@ -821,8 +821,8 @@ func TestClearNoticeSomeone(t *testing.T) {
 func TestCompactSkippedWhenClearPending(t *testing.T) {
 	h := &recordHandle{}
 	w, s, _, _ := idleRun(t, h)
-	clear(w, "Bob")
-	if !eventually(func() bool { return exists(w.cfg.ClearMarker) }) {
+	pressClear(w, "Bob")
+	if !eventually(func() bool { return fileExists(w.cfg.ClearMarker) }) {
 		t.Fatal("clear marker not written")
 	}
 	compact(w, "Ann", "keep X")
