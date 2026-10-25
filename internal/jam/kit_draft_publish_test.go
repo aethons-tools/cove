@@ -23,7 +23,7 @@ func TestPublishKitDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := PublishKitDraft(st, nil, "app", false, s.ETag)
-	if err != nil || res.Kit != "app" || res.Version != 2 || res.Base != 1 || res.Drift || res.Warning != "" || len(res.Pinned) != 0 {
+	if err != nil || res.Kit != "app" || res.Version != 2 || res.Tree != s.Tree || res.Base != 1 || res.Drift || res.Warning != "" || len(res.Pinned) != 0 {
 		t.Fatalf("publish = %+v %v", res, err)
 	}
 	k, _ := st.GetKit("app")
@@ -278,5 +278,83 @@ func TestPublishPinManagedFollowerDrifts(t *testing.T) {
 	}
 	if web, _ := st.GetKit("web"); web.Meta[2].Origin != "" {
 		t.Fatalf("a pinned follower's version has origin %q", web.Meta[2].Origin)
+	}
+}
+
+// failDraftClose is a store whose RemoveKitDraft fails and that counts GC runs.
+type failDraftClose struct {
+	Store
+	gcs *int
+}
+
+func (f failDraftClose) RemoveKitDraft(string) error { return errors.New("store down at /secret/dsn") }
+
+func (f failDraftClose) GCKitObjects() (KitGC, error) {
+	*f.gcs++
+	return f.Store.GCKitObjects()
+}
+
+// TestPublishCloseFails: the version is written, so a draft that then
+// cannot be closed answers the publish with a fixed warning, not an error;
+// the store error goes to the log at warn, and GC still runs.
+func TestPublishCloseFails(t *testing.T) {
+	var logs bytes.Buffer
+	mem := NewMemStore()
+	gcs := 0
+	st := failDraftClose{Store: mem, gcs: &gcs}
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	pushApp(t, mem, "kit.yml", "kind: studio\n")
+	open := draftDo(t, h, "POST", "/admin/kits/app/draft", "application/json", "", nil)
+	put := draftDo(t, h, "PUT", "/admin/kits/app/draft/files/run.sh", "application/octet-stream", open.Header().Get("ETag"), []byte("echo SECRET\n"))
+	gcs = 0
+	w := draftDo(t, h, "POST", "/admin/kits/app/draft/publish", "application/json", put.Header().Get("ETag"), []byte(`{}`))
+	var res KitDraftPublish
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &res) != nil || res.Version != 2 || res.Warning != "published v2; the draft could not be closed — discard it" {
+		t.Fatalf("publish = %d %s", w.Code, w.Body)
+	}
+	if gcs != 1 {
+		t.Fatalf("GC ran %d times, want 1", gcs)
+	}
+	if k, _ := mem.GetKit("app"); k.Current != 2 {
+		t.Fatalf("current = %d", k.Current)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "kit draft: published but not closed") || !strings.Contains(out, "store down") || strings.Contains(out, "SECRET") || strings.Contains(out, "level=ERROR") {
+		t.Fatalf("log:\n%s", out)
+	}
+	// The draft is still open; discarding it fails the same way, a 500
+	// whose log line names the method and the route.
+	logs.Reset()
+	if w := draftDo(t, h, "DELETE", "/admin/kits/app/draft", "", put.Header().Get("ETag"), nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("discard = %d %s", w.Code, w.Body)
+	}
+	if out := logs.String(); !strings.Contains(out, "method=DELETE") || !strings.Contains(out, `route="DELETE /admin/kits/{name}/draft"`) {
+		t.Fatalf("500 log:\n%s", out)
+	}
+}
+
+// TestPublishPinRefusesPreTreeFollower: a follower whose current version is
+// not stored as a tree yet cannot be rewritten, so publish --pin refuses
+// before anything is written; a broken follower (no kit.yml to read) is
+// not seen as a follower: neither pinned nor refused.
+func TestPublishPinRefusesPreTreeFollower(t *testing.T) {
+	st := NewMemStore()
+	tag := pinnedFixture(t, st, map[string]string{"web": "kind: studio\nbase:\n  kit: app\n"})
+	docs := []Kit{
+		{Name: "old", Current: 1, Versions: map[int]string{1: "kind: studio\nbase:\n  kit: app\n"}},
+		{Name: "gone", Current: 1, Broken: map[int]string{1: "unreadable"}},
+	}
+	if err := st.PutKitDocs(docs, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := PublishKitDraft(st, nil, "app", true, tag)
+	wantErr(t, err, "kit old follows app but is not stored as a tree; pin it by hand", 409)
+	wantNothingPublished(t, st, "web", "old", "gone")
+	if err := st.PutKitDocs([]Kit{{Name: "old", Current: 1, Versions: map[int]string{1: "kind: studio\nbase:\n  kit: app@v1\n"}}}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := PublishKitDraft(st, nil, "app", true, tag)
+	if err != nil || !slices.Equal(res.Pinned, []string{"web v2 (app@v1)"}) {
+		t.Fatalf("publish --pin = %+v %v (a pinned pre-tree kit and a broken kit are left alone)", res, err)
 	}
 }

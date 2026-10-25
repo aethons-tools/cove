@@ -232,11 +232,11 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(err)
 		}
-		fmt.Fprintf(stdout, "published draft %s as v%d\n", name, res.Version)
+		fmt.Fprintf(stdout, "published draft %s as v%d (tree %s)\n", name, res.Version, textesc.Escape(treePrefix(res.Tree), false))
 		for _, p := range res.Pinned {
 			fmt.Fprintf(stdout, "pinned %s\n", textesc.Escape(p, false))
 		}
-		if res.Drift {
+		if res.Warning != "" {
 			fmt.Fprintln(stderr, "warning:", textesc.Escape(res.Warning, false))
 		}
 	}
@@ -266,6 +266,14 @@ func draftModeFlag(s string) (string, error) {
 		return "0755", nil
 	}
 	return "", errors.New("--mode must be 755 or 644")
+}
+
+// treePrefix is a tree hash's first 12 characters.
+func treePrefix(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
 }
 
 func draftTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }

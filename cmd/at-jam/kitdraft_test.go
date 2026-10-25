@@ -34,7 +34,7 @@ func draftCLI(t *testing.T) (func(args ...string) (int, string, string), *jam.Me
 }
 
 func TestKitDraftVerbs(t *testing.T) {
-	kit, _, _ := draftCLI(t)
+	kit, store, _ := draftCLI(t)
 	code, out, errs := kit("open", "app")
 	if code != 0 || !strings.HasPrefix(out, `opened draft app from v1 (etag "`) {
 		t.Fatalf("open: %d %q %q", code, out, errs)
@@ -80,7 +80,8 @@ func TestKitDraftVerbs(t *testing.T) {
 	if code, out, _ = kit("rm", "app", "y.txt"); code != 0 || !strings.HasPrefix(out, "removed y.txt from draft app (etag ") {
 		t.Fatalf("rm: %d %q", code, out)
 	}
-	if code, out, _ = kit("publish", "app"); code != 0 || out != "published draft app as v2\n" {
+	pre, _ := store.GetKitDraft("app")
+	if code, out, _ = kit("publish", "app"); code != 0 || out != "published draft app as v2 (tree "+pre.Tree[:12]+")\n" {
 		t.Fatalf("publish: %d %q", code, out)
 	}
 	if code, _, errs = kit("status", "app"); code != 1 || !strings.Contains(errs, "kit app has no draft") {
@@ -333,8 +334,44 @@ func TestKitDraftSync(t *testing.T) {
 	if code, _, errs = kit("sync", "app", filepath.Join(dir, "nope")); code != 1 || !strings.Contains(errs, "no such directory") {
 		t.Fatalf("missing dir: %d %q", code, errs)
 	}
+	// --etag with the current etag writes; a sync that drops files lists
+	// them removed, and the problems it leaves are printed.
+	if err := os.Remove(filepath.Join(dir, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "bin/run")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kit.yml"), []byte("kind: nope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = kit("sync", "app", dir, "--etag", strings.Trim(draftETagOf(store), `"`))
+	if code != 0 || !strings.Contains(out, "  removed  bin/run\n") || !strings.Contains(out, "  modified kit.yml\n") || !strings.Contains(out, "problems:\n  - studio kit: kind must be \"studio\", got \"nope\"\n") {
+		t.Fatalf("sync --etag: %d %q %q", code, out, errs)
+	}
 	// A stale --etag is refused (Review Focus 1).
 	if code, _, errs = kit("sync", "app", t.TempDir(), "--etag", strings.Repeat("0", 64)); code != 1 || !strings.Contains(errs, "draft app changed since you loaded it (reload)") {
 		t.Fatalf("stale sync: %d %q", code, errs)
+	}
+}
+
+// draftETagOf is kit app's open draft's ETag.
+func draftETagOf(store *jam.MemStore) string {
+	d, _ := store.GetKitDraft("app")
+	return jam.DraftETag(d.Tree)
+}
+
+// A warning without drift (the draft could not be closed) is printed too.
+func TestKitDraftPublishWarns(t *testing.T) {
+	const warn = "published v2; the draft could not be closed \u2014 discard it"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(jam.KitDraftPublish{Kit: "app", Version: 2, Tree: strings.Repeat("ab", 32), Warning: warn})
+	}))
+	t.Cleanup(ts.Close)
+	var out, errb bytes.Buffer
+	code := run([]string{"kit", "draft", "publish", "app", "--etag", "e", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb)
+	if code != 0 || out.String() != "published draft app as v2 (tree abababababab)\n" || errb.String() != "warning: "+warn+"\n" {
+		t.Fatalf("publish: %d %q %q", code, out.String(), errb.String())
 	}
 }

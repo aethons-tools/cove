@@ -113,6 +113,13 @@ func TestKitDraftClientWire(t *testing.T) {
 	check("open", err, seen{"POST", "/admin/kits/app/draft", "application/json", "", "Bearer tok"})
 	err = c.DiscardKitDraft("app", `"E"`)
 	check("discard", err, seen{"DELETE", "/admin/kits/app/draft", "", `"E"`, "Bearer tok"})
+	// '#' and '?' in a path are escaped, never read as a fragment or a query.
+	_, err = c.RemoveKitDraftFile("app", "a#b/c?d.sh", `"E"`)
+	check("rm", err, seen{"DELETE", "/admin/kits/app/draft/files/a%23b/c%3Fd.sh", "", `"E"`, "Bearer tok"})
+	_, _, err = c.KitDraftFile("app", "a#b/c?d.sh")
+	check("get", err, seen{"GET", "/admin/kits/app/draft/files/a%23b/c%3Fd.sh", "", "", "Bearer tok"})
+	_, err = c.KitDraftStatus("app")
+	check("status", err, seen{"GET", "/admin/kits/app/draft", "", "", "Bearer tok"})
 	if hits != 0 {
 		t.Fatalf("redirect was followed %d times", hits)
 	}

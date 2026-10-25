@@ -275,6 +275,9 @@ func TestReplaceDraftRoute(t *testing.T) {
 	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, "", hand.Bytes()); w.Code != http.StatusPreconditionRequired {
 		t.Fatalf("no If-Match = %d", w.Code)
 	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, DraftETag(strings.Repeat("0", 64)), hand.Bytes()); w.Code != http.StatusPreconditionFailed || body(w) != "draft app changed since you loaded it (reload)" {
+		t.Fatalf("stale If-Match = %d %s", w.Code, w.Body)
+	}
 	w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, tag, hand.Bytes())
 	var s KitDraftSave
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &s) != nil || w.Header().Get("ETag") != s.ETag || !slices.Equal(s.Changed, []DraftChange{{"bin/run", "added"}}) {
@@ -309,7 +312,7 @@ func TestReplaceDraftRoute(t *testing.T) {
 		}
 		dw.Write([]byte("x"))
 		dw.Close()
-		if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, dot.Bytes()); w.Code != http.StatusBadRequest || strings.Contains(w.Body.String(), name) {
+		if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, dot.Bytes()); w.Code != http.StatusBadRequest || body(w) != unsafeDraftPath {
 			t.Fatalf("tar %q = %d %q", name, w.Code, w.Body)
 		}
 	}

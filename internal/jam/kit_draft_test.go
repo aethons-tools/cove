@@ -55,7 +55,28 @@ func TestOpenKitDraft(t *testing.T) {
 	}
 	_, err = OpenKitDraft(st, "old", 0, "local", draftNow)
 	wantErr(t, err, "kit old v1 is not stored as a tree", 400)
+	// Nor does a version not migrated to a tree yet, or one whose tree
+	// object is missing from the store.
+	legacy := Kit{Name: "legacy", Current: 1, Versions: map[int]string{1: "kind: studio\n"}}
+	if err := st.PutKitDocs([]Kit{legacy}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenKitDraft(st, "legacy", 0, "local", draftNow)
+	wantErr(t, err, "kit legacy v1 is not stored as a tree", 400)
+	if _, _, err := PushKitFiles(st, "lost", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenKitDraft(missingTrees{st}, "lost", 1, "local", draftNow)
+	wantErr(t, err, "kit lost v1 is not stored as a tree", 400)
+	if _, ok := st.GetKitDraft("lost"); ok {
+		t.Fatal("a refused open made a draft")
+	}
 }
+
+// missingTrees is a store whose tree objects are all missing.
+type missingTrees struct{ Store }
+
+func (missingTrees) KitTree(string) (kittree.Tree, bool) { return kittree.Tree{}, false }
 
 func TestKitDraftStatus(t *testing.T) {
 	st := NewMemStore()

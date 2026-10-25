@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/kittree"
@@ -20,12 +21,14 @@ type KitDraftPublishBody struct {
 	Pin bool `json:"pin,omitempty"`
 }
 
-// KitDraftPublish answers a publish: the new version, the draft's base, the
-// followers pinned ("web v5 (app@v3)"), and, for a config-managed kit (or a
-// managed follower pinned), Drift with DraftDriftWarning.
+// KitDraftPublish answers a publish: the new version and its tree, the
+// draft's base, the followers pinned ("web v5 (app@v3)"), and, for a
+// config-managed kit (or a managed follower pinned), Drift with
+// DraftDriftWarning. Warning also says when the draft could not be closed.
 type KitDraftPublish struct {
 	Kit     string   `json:"kit"`
 	Version int      `json:"version"`
+	Tree    string   `json:"tree"`
 	Base    int      `json:"base"`
 	Pinned  []string `json:"pinned,omitempty"`
 	Drift   bool     `json:"drift,omitempty"`
@@ -88,15 +91,28 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 	if err := writeKitVersionsLocked(store, pending); err != nil {
 		return KitDraftPublish{}, fmt.Errorf("kit %s: publish: %w", name, err)
 	}
-	res.Version = ref.Version
+	res.Version, res.Tree = ref.Version, d.Tree
 	if res.Drift {
 		res.Warning = DraftDriftWarning
 	}
 	if err := store.RemoveKitDraft(name); err != nil {
-		return res, fmt.Errorf("kit %s: published v%d, but the draft could not be closed: %w", name, ref.Version, err)
+		// The version is written: the publish succeeded, so it answers
+		// 200 with a fixed warning; the store error goes to the log only.
+		if log != nil {
+			log.Warn("kit draft: published but not closed", "kit", name, "version", ref.Version, "err", err.Error())
+		}
+		res.Warning = joinWarnings(res.Warning, fmt.Sprintf("published v%d; the draft could not be closed — discard it", ref.Version))
 	}
 	gcKitObjects(store, log)
 	return res, nil
+}
+
+// joinWarnings joins two warnings with "; ", either possibly empty.
+func joinWarnings(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a + "; " + b
 }
 
 // pinFollowersLocked plans, for each kit that follows name (an unpinned
@@ -104,16 +120,19 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 // name@v<version>, the version it follows now (studio.SetBaseKit keeps every
 // other byte), validated as a push would. Nothing is written: the caller
 // writes the plans with its own version (writeKitVersionsLocked). A follower
-// that cannot be pinned refuses (409). Caller holds kitMu.
+// that cannot be pinned refuses (409), as does one whose current version
+// is not stored as a tree yet (KitsReferencing does not see it). A kit
+// whose current version is broken has no kit.yml to read: it is not seen
+// as a follower. Caller holds kitMu.
 func pinFollowersLocked(store Store, name string, version int) ([]pendingKitVersion, error) {
+	if f, ok := preTreeFollower(store, name); ok {
+		return nil, writeErr(http.StatusConflict, "kit %s follows %s but is not stored as a tree; pin it by hand", f, name)
+	}
 	follow, _ := KitsReferencing(store, name)
 	ref := fmt.Sprintf("%s@v%d", name, version)
 	out := make([]pendingKitVersion, 0, len(follow))
 	for _, f := range follow {
-		cur, ok := LoadKitVersion(store, f, 0)
-		if !ok || cur.TreeHash == "" {
-			return nil, writeErr(http.StatusConflict, "kit %s follows %s but is not stored as a tree; pin it by hand", f, name)
-		}
+		cur, _ := LoadKitVersion(store, f, 0)
 		yml, err := studio.SetBaseKit(cur.KitYML, ref)
 		if err != nil {
 			return nil, cannotPin(f, ref, err)
@@ -135,6 +154,31 @@ func pinFollowersLocked(store Store, name string, version int) ([]pendingKitVers
 		}
 	}
 	return out, nil
+}
+
+// preTreeFollower is the first kit (by name) whose current version is not
+// stored as a tree yet and whose stored kit.yml text follows name (an
+// unpinned base.kit).
+func preTreeFollower(store Store, name string) (string, bool) {
+	kits := store.ListKits()
+	slices.SortFunc(kits, func(a, b Kit) int { return strings.Compare(a.Name, b.Name) })
+	for _, k := range kits {
+		text, preTree := k.Versions[k.Current]
+		if _, tree := k.Trees[k.Current]; tree || !preTree {
+			continue
+		}
+		if _, broken := k.Broken[k.Current]; broken {
+			continue
+		}
+		sk, err := studio.ParseStudioKit([]byte(text))
+		if err != nil || !sk.Base.HasParent() {
+			continue
+		}
+		if parent, pin, err := sk.Base.ParentRef(); err == nil && parent == name && pin == 0 {
+			return k.Name, true
+		}
+	}
+	return "", false
 }
 
 // cannotPin is the 409 refusal of pinning follower f to ref, with why (a

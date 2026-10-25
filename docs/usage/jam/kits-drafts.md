@@ -16,7 +16,7 @@ A kit has at most one **draft**: a mutable copy of one version's files
 opened from *current* or a version you choose (its **base**). You change
 files in the draft, then publish it as the kit's next version, or discard it.
 
-- Every write is checked like a push: the paths, modes and sizes in
+- Every save is checked like a push: the paths, modes and sizes in
   [limits](kits-directory.md#limits). The draft's own
   [`.dockerignore`](kits-directory.md#dockerignore) applies too: a file it
   excludes is refused (`draft <kit>: <path>: excluded by .dockerignore`), and
@@ -54,10 +54,22 @@ and closes the draft.
   names the version it follows now (`app@v3`, rewritten in place), so it stays
   on it. The answer lists them in `pinned`. The pins and the published version
   are written together: if any follower cannot be pinned (409
-  `kit <follower>: cannot pin its base.kit to …`), nothing is written.
-- A config-managed kit publishes (as does a managed follower pinned), and the
-  answer carries `drift: true` and
+  `kit <follower>: cannot pin its base.kit to …`, or
+  `kit <follower> follows <kit> but is not stored as a tree; pin it by hand`),
+  nothing is written.
+- A kit whose current version is broken (it has no `kit.yml` to read) is not
+  seen as a follower: `pin` neither pins it nor reports it.
+- A pin is a local version, as a `kit push` is: a git-tracked follower's next
+  `kit sync` imports its source again, or refuses as `local push newer` when it
+  is a path ancestor ([kits-path-parents.md](kits-path-parents.md#refusals)).
+- A follower's own draft opened before the pin publishes its tree as it is,
+  unpinned `base.kit` included (nothing is merged).
+- Publishing a config-managed kit, or pinning a managed follower, drifts it
+  from the config repo: the answer carries `drift: true` and
   `warning`: `this will drift from the config repo; config write it to keep the repo in sync`.
+- The version is written before the draft is closed. Should closing it fail,
+  the publish still answers 200, its `warning` (after any drift warning, `; `
+  between) `published v<N>; the draft could not be closed — discard it`.
 
 ## The `kit draft` verbs
 
@@ -68,21 +80,23 @@ at-jam kit draft get app run.sh [-o run.sh]            # one file's bytes (stdou
 at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads stdin)
 at-jam kit draft rm app old.sh                         # remove a file
 at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
-at-jam kit draft publish app [--pin]                   # → published draft app as v4
+at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
 at-jam kit draft discard app                           # drop the draft
 ```
 
-Each write first fetches the status and sends its etag. With `--etag <hash>`,
-a script writes against the etag it already holds and fails with 412 instead
-of overwriting another edit. `publish` prints a warning on stderr for a
-config-managed kit. The admin-client flags apply as for every
+Each write first fetches the status and sends its etag, so it overwrites an
+edit made since you last looked (`sync` replaces the whole tree). With
+`--etag <hash>`, a write is checked against the etag you already hold and
+fails with 412 instead. `publish` prints the new version's tree prefix, and
+its `warning` on stderr. The admin-client flags apply as for every
 [`kit` verb](kits.md#the-kit-verbs).
 
 - `status` prints `draft <kit>: base vN, current vM`, and when another
   version landed since the draft was opened, that publishing replaces it with
   the draft (nothing is merged). Names, paths and problems are printed escaped.
-- `sync` reads the directory as `kit push` does (`.dockerignore` applied,
-  symlinks refused) and replaces the draft's tree with it. It prints the files
+- `sync` reads the directory as `kit push` does
+  ([kits-directory.md](kits-directory.md)) and replaces the
+  draft's tree with it. It prints the files
   added, removed, modified or mode-changed, or `unchanged`. It needs an open
   draft: run `kit draft open` first.
 - `get -o <file>` writes the file with its mode in the draft; an existing
@@ -104,7 +118,7 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `PUT /admin/kits/{name}/draft/files/{path}[?mode=755]` | Write one file (`If-Match`; `application/octet-stream`, else 415; over the per-file limit 413). Without `mode` the file keeps its mode, a new one gets `0644`. |
 | `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
 | `PUT /admin/kits/{name}/draft` | Replace the whole tree with an uncompressed tar (`If-Match`; `application/x-tar`, else 415), read and filtered by its `.dockerignore` as a push upload is: see [kits-directory.md](kits-directory.md). 400 for a refused tar, 413 past the upload cap; `kit.yml` may be absent (a problem, not a refusal). |
-| `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `base`, `pinned`, `drift`, `warning`. |
+| `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `tree`, `base`, `pinned`, `drift`, `warning`. |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one
@@ -117,4 +131,7 @@ Each write that changes the draft logs `kit draft opened|saved|discarded`
 with the kit, the operator and the tree's first 12 hex digits (a save also
 the count of files `changed`), never content or a path. A publish logs
 `kit draft published` with the kit, the operator, the new `version`, the
-`base`, the count `pinned` and `drift`.
+`base`, the `tree` prefix, the count `pinned` and `drift`. A store failure
+answers a fixed 500 `internal error` and logs `kit draft: store error` (at
+error, with the method and route); a draft not closed after a publish logs
+`kit draft: published but not closed` at warn.

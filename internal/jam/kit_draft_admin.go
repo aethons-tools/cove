@@ -75,13 +75,11 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		name := r.PathValue("name")
 		res, err := PublishKitDraft(store, log, name, b.Pin, r.Header.Get("If-Match"))
-		if res.Version != 0 { // published, even when closing the draft then failed
-			log.Info("kit draft published", "operator", OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "pinned", len(res.Pinned), "drift", res.Drift)
-		}
 		if err != nil {
 			draftFail(w, r, log, err)
 			return
 		}
+		log.Info("kit draft published", "operator", OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortTree(res.Tree), "pinned", len(res.Pinned), "drift", res.Drift)
 		writeJSON(w, http.StatusOK, res)
 	})
 	// The whole tree, replaced by an uncompressed tar of files (kit draft
@@ -229,13 +227,14 @@ func writeDraftStatus(w http.ResponseWriter, r *http.Request, store Store, log *
 const draftInternalError = "internal error"
 
 // draftFail answers err: a WriteError's own status and fixed text, else a
-// fixed 500, the error logged (it names a kit or a tree prefix, no content).
+// fixed 500, the error logged with the method and route pattern (it names
+// a kit or a tree prefix, no content).
 func draftFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
 	if we, ok := errors.AsType[*WriteError](err); ok {
 		http.Error(w, we.Msg, we.Status)
 		return
 	}
-	log.Error("kit draft: store error", "operator", OperatorID(r), "err", err.Error())
+	log.Error("kit draft: store error", "operator", OperatorID(r), "method", r.Method, "route", r.Pattern, "err", err.Error())
 	http.Error(w, draftInternalError, http.StatusInternalServerError)
 }
 
