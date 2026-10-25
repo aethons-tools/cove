@@ -143,7 +143,8 @@ body{display:flex;flex-direction:column}
 .session-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface)}
 .session-head .sh-kind,.session-head .sh-ticket{font-size:11.5px;border:1px solid var(--border-strong);border-radius:999px;padding:1px 7px;color:var(--muted)}
 .session-head .sh-sub,.session-head .t{color:var(--muted);font-size:12.5px}
-.session-head .sh-tabs button,.session-head .sh-ssh{background:none;border:1px solid var(--border-strong);border-radius:6px;padding:3px 9px;font:inherit;font-size:12.5px;cursor:pointer}
+.session-head .sh-tabs button,.session-head .sh-ssh,.session-head .sh-interrupt{background:none;border:1px solid var(--border-strong);border-radius:6px;padding:3px 9px;font:inherit;font-size:12.5px;cursor:pointer}
+.session-head button:disabled{opacity:.45;cursor:default}
 .session-head .sh-tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .session-head .sh-more{position:relative}.session-head .sh-more summary{list-style:none;cursor:pointer;padding:2px 8px}
 .session-head .sh-more .menu{position:absolute;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:20}

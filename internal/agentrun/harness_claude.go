@@ -338,6 +338,20 @@ func (Claude) EncodeInput(text string) []byte {
 	return append(b, '\n')
 }
 
+// EncodeInterrupt encodes a stream-json control_request that interrupts the
+// in-flight turn; claude answers it with a control_response line.
+func (Claude) EncodeInterrupt(requestID string) []byte {
+	type req struct {
+		Subtype string `json:"subtype"`
+	}
+	b, _ := json.Marshal(struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		Request   req    `json:"request"`
+	}{"control_request", requestID, req{"interrupt"}})
+	return append(b, '\n')
+}
+
 type claudeEvent struct {
 	Type            string `json:"type"`
 	Subtype         string `json:"subtype"`
