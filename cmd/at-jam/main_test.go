@@ -1509,6 +1509,14 @@ func TestKitPushNotes(t *testing.T) {
 	if !ok || v.Err != nil || len(v.Kit.Notes) != 1 || v.Kit.Notes[0].Body != "RELEASE STEPS" {
 		t.Fatalf("stored kit must read the note body from its directory: %+v %v", v.Kit.Notes, v.Err)
 	}
+	if err := store.PutKitDocs([]jam.Kit{{Name: "old", Current: 1, Broken: map[int]string{1: "its base.context is not a readable tar.gz"}}}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "old"}, getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "kit old@v1 could not be migrated to a tree: its base.context is not a readable tar.gz") {
+		t.Fatalf("show of a broken version: exit=%d stderr=%s", code, errb.String())
+	}
 	out.Reset()
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "--own", "web"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "RELEASE STEPS") {
 		t.Fatalf("show --own must carry the note file's contents: exit=%d\n%s", code, out.String())

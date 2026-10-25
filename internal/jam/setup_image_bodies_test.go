@@ -79,6 +79,10 @@ func TestKitDetailBodyShowsTrees(t *testing.T) {
 	if !strings.Contains(body, "FILES") || !strings.Contains(body, "tree "+tr.Hash()[:12]+", 2 files") {
 		t.Fatalf("body:\n%s", body)
 	}
+	one := pushTree(t, st, "solo", "kit.yml", "kind: studio\n")
+	if body := kitDetailBody(st, []KitRef{{ID: "solo", Version: 1}}, nil); !strings.Contains(body, "tree "+one.Hash()[:12]+", 1 file\n") {
+		t.Fatalf("body:\n%s", body)
+	}
 }
 
 func TestImageBodiesInertAndNoMutation(t *testing.T) {

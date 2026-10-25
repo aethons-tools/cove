@@ -217,7 +217,10 @@ func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) str
 		if v, ok := LoadKitVersion(store, r.ID, r.Version); ok {
 			switch {
 			case v.TreeHash != "":
-				files = fmt.Sprintf("tree %s, %d files", shortDigest(v.TreeHash), len(v.Tree.Entries))
+				files = fmt.Sprintf("tree %s, %d file", shortDigest(v.TreeHash), len(v.Tree.Entries))
+				if len(v.Tree.Entries) != 1 {
+					files += "s"
+				}
 			case v.Err != nil:
 				files = "not loadable"
 			default:

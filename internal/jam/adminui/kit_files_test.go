@@ -105,3 +105,63 @@ func TestKitPageKitYMLEscaped(t *testing.T) {
 		}
 	}
 }
+
+// A version the migration could not turn into a tree shows its own error.
+func TestKitPageBrokenVersion(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutKitDocs([]jam.Kit{{Name: "old", Current: 1, Broken: map[int]string{1: "its base.context is not a readable tar.gz"}}}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, kitsHandler(store), "/app/admin/kits/old").Body.String()
+	if !strings.Contains(body, "could not be migrated to a tree: its base.context is not a readable tar.gz") || strings.Contains(body, "EOF") {
+		t.Errorf("broken version page:\n%s", body)
+	}
+}
+
+// preTexts is the text of every <pre> in body.
+func preTexts(body string) string {
+	var out []string
+	for _, part := range strings.Split(body, "<pre")[1:] {
+		out = append(out, part[:strings.Index(part, "</pre>")])
+	}
+	return strings.Join(out, "\n")
+}
+
+// A stored kit.yml that does not parse (kept verbatim by the migration) may
+// still hold a packed base.context: the page shows its placeholder, not the
+// base64, in the raw card and the diff.
+func TestKitPageUnparsableTreeHidesContextBlob(t *testing.T) {
+	store := newStore(t)
+	b64 := packCtx(t, ctxFile{name: "Dockerfile", body: "FROM x\n"})
+	if _, err := store.PushKit("bad", "kind: studio\nbogus: 1\nbase:\n  context: "+b64+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := jam.PushKitFiles(store, "bad", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	h := kitsHandler(store)
+	for _, path := range []string{"/app/admin/kits/bad?v=1", "/app/admin/kits/bad?v=2&diff=1"} {
+		body := get(t, h, path).Body.String()
+		if pre := preTexts(body); strings.Contains(pre, "H4sI") {
+			t.Errorf("%s shows the base64:\n%s", path, pre)
+		}
+		if d := section(body, "kit-diff"); strings.Contains(d, "H4sI") {
+			t.Errorf("%s diff shows the base64:\n%s", path, d)
+		}
+		if !strings.Contains(body, "«tar.gz") {
+			t.Errorf("%s: no placeholder", path)
+		}
+	}
+}
+
+// The kits list marks a kit whose current version is missing invalid.
+func TestKitListMissingCurrentInvalid(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutKitDocs([]jam.Kit{{Name: "gap", Current: 3, Versions: map[int]string{1: `{"kind":"studio"}`}}}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, kitsHandler(store), "/app/admin/kits").Body.String()
+	if !strings.Contains(body, ">invalid</span>") {
+		t.Errorf("kits list:\n%s", body)
+	}
+}

@@ -97,7 +97,8 @@ type kv struct{ Key, Value string }
 type kitView struct {
 	N           int
 	ParseErr    string // the stored config isn't a valid studio kit (legacy row)
-	Raw         string // the stored text, shown when ParseErr is set (escape with SetupDisplayText to display)
+	Raw         string // the stored text, for the push form when ParseErr is set
+	RawShown    string // Raw as shown: a packed context as its placeholder (escape with SetupDisplayText)
 	YAML        string // display YAML (a packed context abbreviated)
 	PushYAML    string // full YAML, for pre-filling a new version
 	Base        string
@@ -234,7 +235,7 @@ func kitListRows(store jam.Store) []kitListRow {
 	var out []kitListRow
 	for _, k := range store.ListKits() {
 		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.VersionNumbers()), UsedBy: len(kitUses(store, k.Name))}
-		if cur, _ := jam.LoadKitVersion(store, k.Name, 0); cur.Err == nil {
+		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err == nil {
 			row.Base, row.Egress = baseLabel(cur.Kit), len(cur.Kit.Egress)
 		} else {
 			row.Invalid = true
@@ -294,18 +295,47 @@ func treePaths(t studio.ContextTree, prefix string) []string {
 // kit.yml as stored and lists its files; a pre-tree version keeps the
 // packed-context rendering (viewStored).
 func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
+	if v.TreeHash == "" && v.KitYML == nil && v.Err != nil {
+		// A broken version: no tree, no text; its own fixed error says why.
+		return kitView{N: n, ParseErr: v.Err.Error()}
+	}
 	if v.TreeHash == "" {
 		return viewStored(n, string(v.KitYML), unpack, want)
 	}
 	kv := kitView{N: n, ctx: treeRead(v, want, unpack)}
 	text := string(v.KitYML)
 	if v.Err != nil {
-		kv.ParseErr, kv.Raw, kv.diffText = v.Err.Error(), text, text
+		kv.ParseErr, kv.Raw, kv.RawShown, kv.diffText = v.Err.Error(), text, text, text
+		// A kit.yml kept verbatim (the migration's unparsable config) may
+		// still hold a packed base.context: shown and diffed as its
+		// placeholder, never the base64.
+		if a, _ := abbreviateStored(text, func(b64 string) *ctxRead { return readContext(b64, false, "") }); a != "" {
+			kv.RawShown, kv.diffText = a, a
+		}
 		return kv
 	}
 	kv.YAML, kv.PushYAML, kv.diffText = jam.SetupDisplayText(text), text, text
 	fillKitView(&kv, v.Kit)
 	return kv
+}
+
+// abbreviateStored finds a packed base.context in stored text that parses as
+// YAML but not as a studio kit, reads it with read, and returns the text
+// re-marshalled with the context's placeholder in place of the base64 ("" when
+// that fails) and the read; "", nil when there is no packed context.
+// Re-marshalling re-formats the YAML (shown and diffed; Raw keeps the text).
+func abbreviateStored(stored string, read func(b64 string) *ctxRead) (string, *ctxRead) {
+	doc, node := storedContextNode(stored)
+	if node == nil {
+		return "", nil
+	}
+	c := read(node.Value)
+	node.Value, node.Style, node.Tag = c.placeholder(), 0, "!!str"
+	b, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", c
+	}
+	return string(b), c
 }
 
 // viewStored parses one stored config text (a pre-tree version, or a chain's
@@ -315,13 +345,11 @@ func viewStored(n int, stored string, unpack bool, want string) kitView {
 	v := kitView{N: n}
 	sk, err := studio.ParseStudioKit([]byte(stored))
 	if err != nil {
-		v.ParseErr, v.Raw, v.diffText = err.Error(), stored, stored
-		if doc, node := storedContextNode(stored); node != nil {
-			v.ctx = readContext(node.Value, unpack, want)
-			// Re-marshalling re-formats the legacy row's YAML (the diff only, never Raw).
-			node.Value, node.Style, node.Tag = v.ctx.placeholder(), 0, "!!str"
-			if b, err := yaml.Marshal(doc); err == nil {
-				v.diffText = string(b)
+		v.ParseErr, v.Raw, v.RawShown, v.diffText = err.Error(), stored, stored, stored
+		if a, c := abbreviateStored(stored, func(b64 string) *ctxRead { return readContext(b64, unpack, want) }); c != nil {
+			v.ctx = c
+			if a != "" {
+				v.RawShown, v.diffText = a, a
 			}
 		}
 		return v

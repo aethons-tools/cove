@@ -102,9 +102,9 @@
     {{if .ParseErr}}
     <section class="card">
       <header><h2>v{{.N}}</h2></header>
-      <div class="body"><div class="banner error">Stored config is not a valid studio kit: {{.ParseErr}}</div>
+      <div class="body"><div class="banner error">{{if .RawShown}}Stored config is not a valid studio kit: {{end}}{{.ParseErr}}</div>
         <p class="sub">Raises from this version fail closed. Push a valid version to replace it.</p></div>
-      <pre class="yaml">{{displayText .Raw}}</pre>
+      {{with .RawShown}}<pre class="yaml">{{displayText .}}</pre>{{end}}
     </section>
     {{else}}
     {{if $.ChainErr}}<div class="banner error">Kit chain does not resolve: {{$.ChainErr}}</div>{{end}}

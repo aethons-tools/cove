@@ -233,9 +233,9 @@
   image tag: cove-kit:<hex>-asm1
   provenance (root first):
     KIT         SOURCE                                                                                      FILES
-    default@v1  local file, pushed <time>                                                     tree <hex>, 1 files
-    web-dev@v1  https://github.com/o/kits//web-dev@main (commit <hex>), pushed <time>  tree <hex>, 1 files
-    my-app@v2   local file, pushed <time>                                                     tree <hex>, 1 files
+    default@v1  local file, pushed <time>                                                     tree <hex>, 1 file
+    web-dev@v1  https://github.com/o/kits//web-dev@main (commit <hex>), pushed <time>  tree <hex>, 1 file
+    my-app@v2   local file, pushed <time>                                                     tree <hex>, 1 file
   build args:
     GO_VERSION=1.27.1
     NODE_VERSION=22
