@@ -121,7 +121,12 @@ jobs:
       - name: Prepare base image
         run: |
           if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
-            docker build --tag cove-base-image:ci images/cove-base-image
+            # On failure, surface the build's tail as annotations: they are
+            # readable through the checks API where the raw log may not be.
+            if ! docker build --progress=plain --tag cove-base-image:ci images/cove-base-image > /tmp/base-build.log 2>&1; then
+              tail -n 40 /tmp/base-build.log | sed 's/%/%25/g; s/^/::error title=base image build::/'
+              exit 1
+            fi
           else
             docker pull "${BASE_IMAGE}:latest"
             docker tag  "${BASE_IMAGE}:latest" cove-base-image:ci
