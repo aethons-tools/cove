@@ -1097,3 +1097,45 @@ func TestPreviewFramedProxyErrors(t *testing.T) {
 		wantFramedError(t, ph.getFramed("/", fc), tc.code, tc.msg)
 	}
 }
+
+// A frame cookie arriving on a cross-site iframe navigation — an app in the
+// pane redirecting or linking to another studio, rather than a pane load with
+// a fresh ticket — is not signed in: the framed login page, never the app.
+func TestPreviewFrameCookieNotHonouredCrossSiteIframe(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	fc := ph.frameLogin(t, "alice")
+	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	req.AddCookie(fc)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
+		!strings.Contains(body, "Open this preview from the Jam pane or in a new tab") {
+		t.Fatalf("cross-site iframe with frame cookie = %d %q", rec.Code, body)
+	}
+	if n := len(ph.tun.opened()); n != 0 {
+		t.Fatalf("opened %d tunnels", n)
+	}
+}
+
+// A frame cookie on a top-level navigation (a browser that does not
+// partition cookies) counts as no credentials: log in, not a 403.
+func TestPreviewFrameCookieTopLevelLogsIn(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	fc := ph.frameLogin(t, "alice")
+	req := httptest.NewRequest("GET", "https://"+appHost+"/x", nil)
+	req.AddCookie(fc)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "none")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || !strings.HasPrefix(loc, "https://jam."+testDomain+"/__jam/start?") {
+		t.Fatalf("top-level with frame cookie = %d %q %q", rec.Code, loc, rec.Body)
+	}
+}

@@ -213,7 +213,9 @@ func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, erro
 //     ignored); carrying it in a context another site's page may have caused
 //     is ErrCrossSite (cookieUseAllowed);
 //  2. else its __Host-jam_frame session, by the same rules but honoured only
-//     where frameCookieUseAllowed says (else ErrCrossSite);
+//     where frameCookieUseAllowed says; elsewhere it is ignored on a
+//     top-level navigation or a cross-site iframe navigation (frameCookieIgnored:
+//     no credentials, so the caller logs in) and is ErrCrossSite otherwise;
 //  3. else its Authorization bearer via Bearer, else ErrNoCredentials.
 func (a *PreviewAuth) PrincipalFrame(r *http.Request) (collab.Principal, string, bool, error) {
 	var previewVals, frameVals []string
@@ -232,7 +234,7 @@ func (a *PreviewAuth) PrincipalFrame(r *http.Request) (collab.Principal, string,
 		p, name, err := a.lookupSession(a.sessions, previewVals, r.Host)
 		return p, name, false, err
 	}
-	if len(frameVals) > 0 {
+	if len(frameVals) > 0 && !frameCookieIgnored(r) {
 		if !frameCookieUseAllowed(r) {
 			return collab.Principal{}, "", false, ErrCrossSite
 		}
@@ -276,21 +278,33 @@ func (a *PreviewAuth) lookupSession(m map[[sha256.Size]byte]previewEntry, vals [
 // session cookie. The cookie is SameSite=None (it must reach a cross-site
 // iframe), so it is honoured only where no other page can have caused the
 // request: a WebSocket upgrade only with an Origin of exactly https://<Host>;
-// else Sec-Fetch-Site same-origin, or the Jam pane's own load — a GET/HEAD
-// cross-site iframe navigation (isUIFrameNavigation). Nothing else: no
-// top-level navigation, no same-site iframe (a sibling preview framed in the
-// same pane shares the cookie partition), and no fallback for a request
-// without Fetch Metadata, which every frame-capable browser sends.
+// else Sec-Fetch-Site same-origin. Nothing else: not a cross-site iframe
+// navigation — every pane load trades a fresh ticket (/__jam/frame) and is
+// same-origin from its 303 on, while an app in the pane redirecting or
+// linking it to another studio arrives cross-site too (Fetch Metadata
+// follows the UI initiator across redirects) — no top-level navigation, no
+// same-site iframe (a sibling preview framed in the same pane shares the
+// cookie partition), and no fallback for a request without Fetch Metadata,
+// which every frame-capable browser sends.
 func frameCookieUseAllowed(r *http.Request) bool {
 	if isWebSocketUpgrade(r) {
 		o := r.Header.Get("Origin")
 		return o != "" && o == "https://"+r.Host
 	}
-	h := r.Header
-	if h.Get("Sec-Fetch-Site") == "same-origin" {
-		return true
+	return r.Header.Get("Sec-Fetch-Site") == "same-origin"
+}
+
+// frameCookieIgnored reports whether r's frame cookie, when not allowed
+// (frameCookieUseAllowed), counts as absent rather than refused: on a
+// top-level navigation (a browser that does not partition cookies sends it
+// there) or a cross-site iframe navigation (the pane without a ticket), so
+// the viewer is asked to log in (LoginRedirect) instead of seeing a 403.
+func frameCookieIgnored(r *http.Request) bool {
+	if frameCookieUseAllowed(r) {
+		return false
 	}
-	return isUIFrameNavigation(r) && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+	h := r.Header
+	return isUIFrameNavigation(r) || (h.Get("Sec-Fetch-Mode") == "navigate" && h.Get("Sec-Fetch-Dest") == "document")
 }
 
 // isUIFrameNavigation reports whether r is an iframe navigation started by a
@@ -698,7 +712,8 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 
 // LoginRedirect answers a request on a preview host that has no credentials:
 // inside an iframe (Sec-Fetch-Dest: iframe) — the Jam pane, whose frame
-// cookie the browser did not keep — it never redirects (an IdP inside a frame
+// cookie the browser did not keep or that arrived without a fresh ticket
+// (a redirect or link from another studio) — it never redirects (an IdP inside a frame
 // cannot work) but answers 401 with a small page offering the preview in a
 // new tab and telling the parent (framedLoginPage); a browser (Accept includes text/html) gets a __Host-jam_preview_login
 // cookie (kept when it already has one, so tabs share it) and is sent to log
@@ -752,7 +767,7 @@ func framedLoginPage(w http.ResponseWriter, u, uiOrigin string) {
 		script = `<script>parent.postMessage({jam:"frame-error",status:"cookies"}, ` + string(target) + `)</script>`
 	}
 	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
-		`<p>`+html.EscapeString("This browser can't sign in inside the pane.")+
+		`<p>`+html.EscapeString("Not signed in inside the pane. Open this preview from the Jam pane or in a new tab.")+
 		` <a href="`+html.EscapeString(u)+`" target="_top">Open in new tab</a></p>`+script+"\n")
 }
 

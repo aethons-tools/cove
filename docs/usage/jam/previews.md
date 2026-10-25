@@ -79,11 +79,14 @@ the right it was minted under. The iframe opens
 iframe load (`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`,
 `Sec-Fetch-Dest: iframe`), so the UI must be on a registrable domain apart
 from `<domain>` ([setup](#setting-up-previews-operator) step 1). The
-cookie lives only in the UI's partition and counts only on a same-origin
-request, the UI's own `GET`/`HEAD` iframe load, or a WebSocket whose
-`Origin` is the preview host itself. It never counts top-level, and never
-in a same-site frame, so a sibling studio framed in the same pane is
-refused. Your right is re-checked on every request.
+exchange then sends the frame to `/`. The cookie lives only in the UI's
+partition and counts only on a same-origin request (`Sec-Fetch-Site:
+same-origin`) or a WebSocket whose `Origin` is the preview host itself.
+So each pane load uses a fresh ticket. A redirect or link from one studio
+into another inside the pane is not signed in: it gets the 401 page below.
+The cookie never counts top-level (there it is ignored, so you log in),
+and never in a same-site frame, so a sibling studio framed in the same
+pane is refused. Your right is re-checked on every request.
 
 Every preview response carries `Content-Security-Policy: frame-ancestors`
 listing only the [`ui-origins`](serve.md) (`'none'` when unset; list the
@@ -94,12 +97,20 @@ own error pages tell the pane their status (`postMessage` to the **first**
 `ui-origins` entry, so put the production UI origin first): inside any
 iframe, the 404 and the 403s "cross-site request refused" and "this login is not linked to a Jam user";
 on a pane request, the 403 "you may not use …" and the proxy's errors
-(502, 503, 504, 429, 409). Other errors stay plain text. A browser that refuses the
-partitioned cookie (Safari) gets a 401 page with **Open in new tab**.
+(502, 503, 504, 429, 409). Other errors stay plain text. A pane load
+without a frame session — a browser that refuses the partitioned cookie
+(Safari), or a cross-site iframe navigation without a ticket — gets a 401
+page with **Open in new tab**.
 `/__jam/logout` ends your pane sessions on that host server-side (it
 honours the frame cookie only where it counts, so a sibling studio cannot
 use it). The browser's partitioned cookie lingers harmlessly: it then names
 no session.
+
+Threat note: an app shown in the pane can still navigate the pane to
+another studio's `/__jam/frame?t=<ticket>` with a ticket its author minted
+for themselves. That exchange succeeds (it is a cross-site iframe
+navigation), so you would see that studio signed in as the attacker. This
+needs a ticket the attacker legitimately holds, used within its 60 s.
 
 ## API clients and scripts
 

@@ -784,9 +784,12 @@ func TestFrameExchangeOff(t *testing.T) {
 	}
 }
 
-// The frame cookie is honoured only for an iframe navigation, a same-origin
-// request, or a WebSocket whose Origin is exactly this host — never with
-// missing Fetch Metadata.
+// The frame cookie is honoured only for a same-origin request or a WebSocket
+// whose Origin is exactly this host — never for a cross-site iframe
+// navigation (each pane load brings a fresh ticket; anything else arriving
+// that way, such as an app's redirect into another studio, is not signed in)
+// and never with missing Fetch Metadata. Ignored on a top-level or the UI's
+// iframe navigation (no credentials: log in), refused elsewhere.
 func TestFrameCookieUse(t *testing.T) {
 	a, ft := framed(t)
 	c := a.frameSession(t, ft)
@@ -808,32 +811,33 @@ func TestFrameCookieUse(t *testing.T) {
 		name   string
 		method string
 		h      hdrs
-		ok     bool
+		want   error // nil: honoured
 	}{
-		{"iframe navigation from the UI", "GET", fetch("cross-site", "navigate", "iframe"), true},
-		{"iframe navigation, same-origin", "GET", fetch("same-origin", "navigate", "iframe"), true},
-		{"same-origin fetch POST", "POST", fetch("same-origin", "cors", "empty"), true},
-		{"same-origin subresource", "GET", fetch("same-origin", "no-cors", "script"), true},
-		{"websocket, same host", "GET", ws("https://"+hostA, ""), true},
-		{"websocket, same host, same-origin", "GET", ws("https://"+hostA, "same-origin"), true},
-		{"cross-site fetch", "GET", fetch("cross-site", "cors", "empty"), false},
-		{"same-site fetch from a sibling", "POST", fetch("same-site", "cors", "empty"), false},
-		{"top-level navigation", "GET", fetch("cross-site", "navigate", "document"), false},
-		{"user-typed navigation", "GET", fetch("none", "navigate", "document"), false},
-		{"iframe POST navigation", "POST", fetch("cross-site", "navigate", "iframe"), false},
-		{"iframe no-cors", "GET", fetch("cross-site", "no-cors", "iframe"), false},
-		{"sibling iframe navigation", "GET", fetch("same-site", "navigate", "iframe"), false},
-		{"user-typed iframe navigation", "GET", fetch("none", "navigate", "iframe"), false},
-		{"iframe navigation, no Sec-Fetch-Site", "GET", hdrs{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, false},
-		{"websocket, same session's other host", "GET", ws("https://"+hostB, "same-site"), false},
-		{"websocket, other host claiming same-origin", "GET", ws("https://"+hostB, "same-origin"), false},
-		{"websocket, other label", "GET", ws("https://"+otherLabelHost, ""), false},
-		{"websocket, http Origin", "GET", ws("http://"+hostA, ""), false},
-		{"websocket, Origin with path", "GET", ws("https://"+hostA+"/", ""), false},
-		{"websocket, no Origin", "GET", ws("", "same-origin"), false},
-		{"websocket, null Origin", "GET", ws("null", ""), false},
-		{"no metadata GET", "GET", nil, false},
-		{"no metadata POST, same Origin", "POST", hdrs{"Origin": "https://" + hostA}, false},
+		{"iframe navigation, same-origin", "GET", fetch("same-origin", "navigate", "iframe"), nil},
+		{"same-origin fetch POST", "POST", fetch("same-origin", "cors", "empty"), nil},
+		{"same-origin subresource", "GET", fetch("same-origin", "no-cors", "script"), nil},
+		{"websocket, same host", "GET", ws("https://"+hostA, ""), nil},
+		{"websocket, same host, same-origin", "GET", ws("https://"+hostA, "same-origin"), nil},
+		{"iframe navigation from the UI (or a redirect through it)", "GET", fetch("cross-site", "navigate", "iframe"), ErrNoCredentials},
+		{"iframe POST navigation", "POST", fetch("cross-site", "navigate", "iframe"), ErrNoCredentials},
+		{"top-level navigation", "GET", fetch("cross-site", "navigate", "document"), ErrNoCredentials},
+		{"same-site top-level navigation", "GET", fetch("same-site", "navigate", "document"), ErrNoCredentials},
+		{"user-typed navigation", "GET", fetch("none", "navigate", "document"), ErrNoCredentials},
+		{"cross-site fetch", "GET", fetch("cross-site", "cors", "empty"), ErrCrossSite},
+		{"same-site fetch from a sibling", "POST", fetch("same-site", "cors", "empty"), ErrCrossSite},
+		{"iframe no-cors", "GET", fetch("cross-site", "no-cors", "iframe"), ErrCrossSite},
+		{"sibling iframe navigation", "GET", fetch("same-site", "navigate", "iframe"), ErrCrossSite},
+		{"user-typed iframe navigation", "GET", fetch("none", "navigate", "iframe"), ErrCrossSite},
+		{"iframe navigation, no Sec-Fetch-Site", "GET", hdrs{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, ErrCrossSite},
+		{"websocket, same session's other host", "GET", ws("https://"+hostB, "same-site"), ErrCrossSite},
+		{"websocket, other host claiming same-origin", "GET", ws("https://"+hostB, "same-origin"), ErrCrossSite},
+		{"websocket, other label", "GET", ws("https://"+otherLabelHost, ""), ErrCrossSite},
+		{"websocket, http Origin", "GET", ws("http://"+hostA, ""), ErrCrossSite},
+		{"websocket, Origin with path", "GET", ws("https://"+hostA+"/", ""), ErrCrossSite},
+		{"websocket, no Origin", "GET", ws("", "same-origin"), ErrCrossSite},
+		{"websocket, null Origin", "GET", ws("null", ""), ErrCrossSite},
+		{"no metadata GET", "GET", nil, ErrCrossSite},
+		{"no metadata POST, same Origin", "POST", hdrs{"Origin": "https://" + hostA}, ErrCrossSite},
 	} {
 		r := httptest.NewRequest(tc.method, "https://"+hostA+"/app", nil)
 		for k, v := range tc.h {
@@ -842,14 +846,24 @@ func TestFrameCookieUse(t *testing.T) {
 		r.AddCookie(c)
 		p, name, isFramed, err := a.PrincipalFrame(r)
 		switch {
-		case tc.ok && (err != nil || p != (collab.Principal{UserID: aliceID}) || name != "alice" || !isFramed):
+		case tc.want == nil && (err != nil || p != (collab.Principal{UserID: aliceID}) || name != "alice" || !isFramed):
 			t.Errorf("%s: %+v %q %v %v", tc.name, p, name, isFramed, err)
-		case !tc.ok && !errors.Is(err, ErrCrossSite):
-			t.Errorf("%s: err %v, want ErrCrossSite", tc.name, err)
+		case tc.want != nil && (!errors.Is(err, tc.want) || isFramed):
+			t.Errorf("%s: err %v framed %v, want %v", tc.name, err, isFramed, tc.want)
 		}
 		if _, _, err2 := a.Principal(r); !errors.Is(err2, err) && err2 != err {
 			t.Errorf("%s: Principal %v, PrincipalFrame %v", tc.name, err2, err)
 		}
+	}
+	// An ignored frame cookie does not hide a bearer.
+	r := httptest.NewRequest("GET", "https://"+hostA+"/app", nil)
+	for k, v := range fetch("cross-site", "navigate", "document") {
+		r.Header.Set(k, v)
+	}
+	r.Header.Set("Authorization", "Bearer good")
+	r.AddCookie(c)
+	if p, _, f, err := a.PrincipalFrame(r); err != nil || f || p.Operator != "bearer-op" {
+		t.Errorf("bearer beside an ignored frame cookie: %+v %v %v", p, f, err)
 	}
 }
 
@@ -904,8 +918,8 @@ func TestPreviewCookieBeatsFrameCookie(t *testing.T) {
 	if p, _, f, err := a.PrincipalFrame(r); err != nil || f || p.UserID != aliceID {
 		t.Fatalf("both, same-origin: %+v %v %v", p, f, err)
 	}
-	// The Jam UI's (cross-site) iframe navigation: allowed for the frame
-	// cookie but refused for the preview cookie, which wins.
+	// A cross-site iframe navigation: the preview cookie's rules refuse it,
+	// and the frame cookie is never consulted.
 	r = httptest.NewRequest("GET", "https://"+hostA+"/app", nil)
 	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	r.Header.Set("Sec-Fetch-Mode", "navigate")
@@ -940,7 +954,7 @@ func TestLoginRedirectInFrame(t *testing.T) {
 		t.Fatalf("Content-Type %q", w.Header().Get("Content-Type"))
 	}
 	for _, s := range []string{
-		"This browser can&#39;t sign in inside the pane.",
+		"Not signed in inside the pane. Open this preview from the Jam pane or in a new tab.",
 		`<a href="https://` + hostA + `/app?x=1&amp;y=&lt;b&gt;" target="_top">Open in new tab</a>`,
 		`parent.postMessage({jam:"frame-error",status:"cookies"}, "https://jam.example")`,
 	} {
