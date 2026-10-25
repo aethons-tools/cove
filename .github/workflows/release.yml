@@ -125,6 +125,14 @@ jobs:
             # readable through the checks API where the raw log may not be.
             if ! docker build --progress=plain --tag cove-base-image:ci images/cove-base-image > /tmp/base-build.log 2>&1; then
               tail -n 40 /tmp/base-build.log | sed 's/%/%25/g; s/^/::error title=base image build::/'
+              # A pinned apt version gone from the archive is the usual cause:
+              # list each missing package's current candidate.
+              pkgs=$(grep -o "for '[^']*' was not found" /tmp/base-build.log | cut -d"'" -f2 | sort -u | tr '\n' ' ')
+              if [ -n "$pkgs" ]; then
+                from=$(sed -n 's/^FROM //p' images/cove-base-image/Dockerfile | head -1)
+                docker run --rm "$from" sh -c "apt-get update -qq >/dev/null && apt-cache policy $pkgs" \
+                  | grep -E '^[a-z0-9.+-]+:|Candidate' | paste - - | sed 's/^/::error title=apt candidate::/'
+              fi
               exit 1
             fi
           else
