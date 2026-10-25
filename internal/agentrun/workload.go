@@ -504,6 +504,11 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 		}
 	}
 
+	// An interrupt posted before this episode existed (pressed while the last
+	// one's stdin was closed) targets a turn that is gone, never this one's.
+	if by, ok := w.cmds.takeInterrupt(); ok {
+		w.log.Info("agentrun: interrupt ignored", "by", by, "why", "before this episode")
+	}
 	write(prompt) // the tracker starts busy
 	// resume is what a Wake writes into this live episode: the resume prompt,
 	// plus a notice when the refreshed context changed (once per write, so a

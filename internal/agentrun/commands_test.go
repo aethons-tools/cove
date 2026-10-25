@@ -113,8 +113,8 @@ func TestInterruptFoldsCoalescedWakes(t *testing.T) {
 func TestInterruptTwiceOneAck(t *testing.T) {
 	w, p := interruptRun(t, &recordHandle{})
 	interrupt(w, "Ann")
-	interrupt(w, "Ann")
 	p.in.nextCtrl(t)
+	interrupt(w, "Ann") // taken on its own: the turn is already being interrupted
 	p.in.noCtrl(t, 100*time.Millisecond)
 	p.emit(lnToolRes, lnResult)
 	if got := p.in.next(t); !strings.Contains(got, "pressed **Interrupt**") {
@@ -184,6 +184,31 @@ func TestInterruptWhileWaitingDropped(t *testing.T) {
 		t.Fatalf("resume prompt = %q", got)
 	}
 	p2.in.noCtrl(t, 50*time.Millisecond)
+	cancel()
+	<-done
+}
+
+// An Interrupt pressed while stdin is closed (here after the background-wait
+// cap) never reaches the next episode, even when a Wake starts that episode.
+func TestInterruptBeforeEpisodeDropped(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true; c.BackgroundWait = 30 * time.Millisecond })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runAsync(ctx, w, &recordHandle{})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnTasks1, lnResult)
+	p.in.waitClosed(t) // the cap closed stdin; the agent stops its tasks
+	interrupt(w, "Ann")
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	p.exit <- nil
+	p2 := s.next(t)
+	if got := p2.in.next(t); got != residentResumePrompt {
+		t.Fatalf("resume prompt = %q", got)
+	}
+	p2.in.noCtrl(t, 100*time.Millisecond)
 	cancel()
 	<-done
 }
