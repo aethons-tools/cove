@@ -822,6 +822,9 @@ func TestFrameCookieUse(t *testing.T) {
 		{"user-typed navigation", "GET", fetch("none", "navigate", "document"), false},
 		{"iframe POST navigation", "POST", fetch("cross-site", "navigate", "iframe"), false},
 		{"iframe no-cors", "GET", fetch("cross-site", "no-cors", "iframe"), false},
+		{"sibling iframe navigation", "GET", fetch("same-site", "navigate", "iframe"), false},
+		{"user-typed iframe navigation", "GET", fetch("none", "navigate", "iframe"), false},
+		{"iframe navigation, no Sec-Fetch-Site", "GET", hdrs{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, false},
 		{"websocket, same session's other host", "GET", ws("https://"+hostB, "same-site"), false},
 		{"websocket, other host claiming same-origin", "GET", ws("https://"+hostB, "same-origin"), false},
 		{"websocket, other label", "GET", ws("https://"+otherLabelHost, ""), false},
@@ -901,16 +904,16 @@ func TestPreviewCookieBeatsFrameCookie(t *testing.T) {
 	if p, _, f, err := a.PrincipalFrame(r); err != nil || f || p.UserID != aliceID {
 		t.Fatalf("both, same-origin: %+v %v %v", p, f, err)
 	}
-	// An iframe navigation from a sibling: allowed for the frame cookie but
-	// refused for the preview cookie, which wins.
+	// The Jam UI's (cross-site) iframe navigation: allowed for the frame
+	// cookie but refused for the preview cookie, which wins.
 	r = httptest.NewRequest("GET", "https://"+hostA+"/app", nil)
-	r.Header.Set("Sec-Fetch-Site", "same-site")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	r.Header.Set("Sec-Fetch-Mode", "navigate")
 	r.Header.Set("Sec-Fetch-Dest", "iframe")
 	r.AddCookie(pc)
 	r.AddCookie(fc)
 	if _, _, _, err := a.PrincipalFrame(r); !errors.Is(err, ErrCrossSite) {
-		t.Fatalf("both, sibling iframe: %v", err)
+		t.Fatalf("both, UI iframe: %v", err)
 	}
 	// A bearer and the plain preview cookie are not framed.
 	br := httptest.NewRequest("GET", "https://"+hostA+"/app", nil)
@@ -985,5 +988,72 @@ func TestFrameCookieIsJams(t *testing.T) {
 	stripJamCookies(rh)
 	if got := rh.Get("Cookie"); got != "app=1" {
 		t.Fatalf("Cookie after strip %q", got)
+	}
+}
+
+// The exchange runs only for the Jam UI's own iframe navigation: cross-site
+// (a sibling preview or the login host is same-site) and in navigate mode.
+func TestFrameExchangeNeedsCrossSiteNavigation(t *testing.T) {
+	a, ft := framed(t)
+	for _, tc := range []struct{ name, site, mode string }{
+		{"sibling (same-site)", "same-site", "navigate"},
+		{"same-origin", "same-origin", "navigate"},
+		{"user-typed", "none", "navigate"},
+		{"no Sec-Fetch-Site", "", "navigate"},
+		{"no-cors", "cross-site", "no-cors"},
+		{"no Sec-Fetch-Mode", "cross-site", ""},
+	} {
+		tk, _ := ft.Mint(collab.Principal{UserID: aliceID}, "alice", hostA, collab.Preview)
+		r := httptest.NewRequest("GET", "https://"+hostA+"/__jam/frame?t="+url.QueryEscape(tk), nil)
+		r.Header.Set("Sec-Fetch-Dest", "iframe")
+		if tc.site != "" {
+			r.Header.Set("Sec-Fetch-Site", tc.site)
+		}
+		if tc.mode != "" {
+			r.Header.Set("Sec-Fetch-Mode", tc.mode)
+		}
+		w := httptest.NewRecorder()
+		a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || len(w.Header().Values("Set-Cookie")) != 0 {
+			t.Errorf("%s: %d %v", tc.name, w.Code, w.Header())
+		}
+	}
+}
+
+// Logging out of a preview also ends the viewer's pane (frame) sessions on
+// that host, and only theirs.
+func TestLogoutEndsFrameSessions(t *testing.T) {
+	a, ft := framed(t)
+	fc := a.frameSession(t, ft) // alice on hostA
+	// Bob's frame session on hostA and alice's on hostB survive.
+	bobTk, _ := ft.Mint(collab.Principal{UserID: "usr_bob"}, "bob", hostA, collab.Preview)
+	var bobCk *http.Cookie
+	for _, c := range a.exchange(hostA, bobTk, "iframe").Result().Cookies() {
+		bobCk = c
+	}
+	bTk, _ := ft.Mint(collab.Principal{UserID: aliceID}, "alice", hostB, collab.Preview)
+	var bCk *http.Cookie
+	for _, c := range a.exchange(hostB, bTk, "iframe").Result().Cookies() {
+		bCk = c
+	}
+	pc := a.session(t)
+	r := httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
+	r.AddCookie(pc)
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), r)
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, fc)); !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("frame session survives logout: %v", err)
+	}
+	if p, _, _, err := a.PrincipalFrame(frameReq(hostA, bobCk)); err != nil || p.UserID != "usr_bob" {
+		t.Fatalf("bob's frame session: %+v %v", p, err)
+	}
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostB, bCk)); err != nil {
+		t.Fatalf("alice's hostB frame session: %v", err)
+	}
+	// Logging out from inside the pane (frame cookie only) ends that session.
+	r = httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
+	r.AddCookie(bobCk)
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), r)
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, bobCk)); !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("frame session survives in-pane logout: %v", err)
 	}
 }

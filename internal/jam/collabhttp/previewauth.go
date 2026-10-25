@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -262,9 +263,10 @@ func (a *PreviewAuth) lookupSession(m map[[sha256.Size]byte]previewEntry, vals [
 // session cookie. The cookie is SameSite=None (it must reach a cross-site
 // iframe), so it is honoured only where no other page can have caused the
 // request: a WebSocket upgrade only with an Origin of exactly https://<Host>;
-// else Sec-Fetch-Site same-origin, or a GET/HEAD iframe navigation
-// (Sec-Fetch-Mode navigate, Sec-Fetch-Dest iframe) — how the Jam pane loads
-// it. Nothing else: no top-level navigation, and no fallback for a request
+// else Sec-Fetch-Site same-origin, or the Jam pane's own load — a GET/HEAD
+// cross-site iframe navigation (isUIFrameNavigation). Nothing else: no
+// top-level navigation, no same-site iframe (a sibling preview framed in the
+// same pane shares the cookie partition), and no fallback for a request
 // without Fetch Metadata, which every frame-capable browser sends.
 func frameCookieUseAllowed(r *http.Request) bool {
 	if isWebSocketUpgrade(r) {
@@ -275,8 +277,17 @@ func frameCookieUseAllowed(r *http.Request) bool {
 	if h.Get("Sec-Fetch-Site") == "same-origin" {
 		return true
 	}
-	return h.Get("Sec-Fetch-Mode") == "navigate" && h.Get("Sec-Fetch-Dest") == "iframe" &&
-		(r.Method == http.MethodGet || r.Method == http.MethodHead)
+	return isUIFrameNavigation(r) && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// isUIFrameNavigation reports whether r is an iframe navigation started by a
+// cross-site page — the Jam UI, which is on a registrable domain apart from
+// the previews' (docs/usage/jam/previews.md), so a sibling preview or the
+// login host can only ever be same-site.
+func isUIFrameNavigation(r *http.Request) bool {
+	h := r.Header
+	return h.Get("Sec-Fetch-Site") == "cross-site" && h.Get("Sec-Fetch-Mode") == "navigate" &&
+		h.Get("Sec-Fetch-Dest") == "iframe"
 }
 
 // cookieUseAllowed reports whether r may be answered with its preview session
@@ -478,7 +489,8 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 //   - GET /__jam/frame?t=… trades a frame ticket minted for this host (when
 //     Frames is set; else 404) for a partitioned __Host-jam_frame cookie
 //     (frame);
-//   - GET /__jam/logout drops the session and clears the cookie;
+//   - GET /__jam/logout drops the session (preview or frame cookie) and the
+//     viewer's frame sessions on this host, and clears the preview cookie;
 //   - any other /__jam path is 404.
 func (a *PreviewAuth) PreviewHostRoutes(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
@@ -568,15 +580,15 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusFound)
 }
 
-// frame trades a frame ticket (?t=) for a frame session: only inside an
-// iframe (Sec-Fetch-Dest), only for a ticket minted for this host — any
+// frame trades a frame ticket (?t=) for a frame session: only in the Jam
+// UI's own iframe navigation (isUIFrameNavigation), only for a ticket minted for this host — any
 // lookup spends it — and then sets the partitioned __Host-jam_frame cookie
 // and sends the frame to /.
 func (a *PreviewAuth) frame(w http.ResponseWriter, r *http.Request) {
 	// The URL carries a ticket: never cache it or leak it onward as a Referer.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	if r.Header.Get("Sec-Fetch-Dest") != "iframe" {
+	if !isUIFrameNavigation(r) {
 		http.Error(w, "frame links open only inside the Jam pane", http.StatusBadRequest)
 		return
 	}
@@ -632,17 +644,31 @@ func startedHere(r *http.Request, bind [sha256.Size]byte) bool {
 
 func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 	if host, ok := a.canonicalHost(r.Host); ok {
+		a.mu.Lock()
+		var gone []collab.Principal
 		for _, c := range r.Cookies() {
-			if c.Name != PreviewCookie {
+			var m map[[sha256.Size]byte]previewEntry
+			switch c.Name {
+			case PreviewCookie:
+				m = a.sessions
+			case FrameCookie:
+				m = a.frameSessions
+			default:
 				continue
 			}
 			key := sha256.Sum256([]byte(c.Value))
-			a.mu.Lock()
-			if e, found := a.sessions[key]; found && e.host == host {
-				delete(a.sessions, key)
+			if e, found := m[key]; found && e.host == host {
+				delete(m, key)
+				gone = append(gone, e.principal)
 			}
-			a.mu.Unlock()
 		}
+		// Logging out of a preview ends the viewer's pane sessions on it too.
+		for k, e := range a.frameSessions {
+			if e.host == host && slices.Contains(gone, e.principal) {
+				delete(a.frameSessions, k)
+			}
+		}
+		a.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: PreviewCookie, Value: "", Path: "/",
