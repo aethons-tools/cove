@@ -29,6 +29,9 @@ func TestView(t *testing.T) {
 		{"result", `{"type":"result","subtype":"success","result":"ok"}`, KindResult, "", "", "", "result", false},
 		{"progress", `{"type":"system","subtype":"thinking_tokens"}`, KindProgress, "", "", "", "system/thinking_tokens", false},
 		{"system", `{"type":"system","subtype":"init"}`, KindOther, "", "", "", "system/init", false},
+		{"command", `{"type":"cove","subtype":"command","command":"interrupt","by":"Ann"}`, KindPrompt, "", "", "Interrupt — pressed by Ann", "control", false},
+		{"command no by", `{"type":"cove","subtype":"command","command":"compact"}`, KindPrompt, "", "", "Compact — pressed", "control", false},
+		{"command ignored", `{"type":"cove","subtype":"command","command":"clear","by":"Bob","ignored":"live episode"}`, KindPrompt, "", "", "Clear — pressed by Bob (ignored: live episode)", "control", false},
 		{"unparsed", `not json`, KindOther, "", "", "", "unparsed", false},
 	}
 	for _, c := range cases {
@@ -39,6 +42,9 @@ func TestView(t *testing.T) {
 			}
 			if c.narrative != "" && v.Narrative != c.narrative {
 				t.Fatalf("narrative = %q, want %q", v.Narrative, c.narrative)
+			}
+			if c.kind == KindPrompt && c.labelPrefix == "control" && v.Summary != c.narrative {
+				t.Fatalf("summary = %q, want %q", v.Summary, c.narrative)
 			}
 			if v.Seq != 7 || v.Turn != 2 || v.StreamID != "s" || !v.At.Equal(at) {
 				t.Fatalf("identity = %+v", v)

@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -153,5 +154,25 @@ func TestClaudeParseEvent(t *testing.T) {
 	}
 	if _, err := (Claude{}).ParseEvent([]byte(`not json`)); err == nil {
 		t.Fatal("unparseable line: want error")
+	}
+}
+
+func TestClaudeEncodeInterrupt(t *testing.T) {
+	b := Claude{}.EncodeInterrupt("r1")
+	if len(b) == 0 || b[len(b)-1] != '\n' {
+		t.Fatalf("want a trailing newline, got %q", b)
+	}
+	var m struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		Request   struct {
+			Subtype string `json:"subtype"`
+		} `json:"request"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("not JSON: %v: %q", err, b)
+	}
+	if m.Type != "control_request" || m.RequestID != "r1" || m.Request.Subtype != "interrupt" {
+		t.Fatalf("got %+v", m)
 	}
 }

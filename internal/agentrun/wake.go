@@ -98,26 +98,11 @@ func renderWake(base string, rs []covemaster.WakeReason) string {
 	var lines []string
 	squawk := len(rs) == 0
 	for _, r := range rs {
-		switch r.Kind {
-		case "squawk", legacyWake.Kind:
+		if r.Kind == "squawk" || r.Kind == legacyWake.Kind {
 			squawk = true
-		case "context-changed":
-		case "alarm":
-			l := fmt.Sprintf("Alarm %q fired: %s", r.Alarm, r.Note)
-			if r.Detail != "" {
-				l += "\nGate output:\n" + r.Detail
-			}
+		}
+		if l, ok := wakeLine(r); ok {
 			lines = append(lines, l)
-		case "gate-failed":
-			l := fmt.Sprintf("Alarm %q gate could not run: %s", r.Alarm, r.Detail)
-			if r.Note != "" {
-				l += "\nNote: " + r.Note
-			}
-			lines = append(lines, l)
-		case "idle":
-			lines = append(lines, "Idle timeout: no other wake arrived.")
-		default:
-			lines = append(lines, fmt.Sprintf("Woken (%s): %s", r.Kind, r.Detail))
 		}
 	}
 	if squawk {
@@ -126,4 +111,30 @@ func renderWake(base string, rs []covemaster.WakeReason) string {
 		lines = append(lines, "Continue.")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// wakeLine is the line a reason gets in a prompt answering it; ok is false
+// for a squawk (the base prompt answers it), a bare Wake and context-changed
+// (the context notice is appended separately).
+func wakeLine(r covemaster.WakeReason) (line string, ok bool) {
+	switch r.Kind {
+	case "squawk", legacyWake.Kind, "context-changed":
+		return "", false
+	case "alarm":
+		l := fmt.Sprintf("Alarm %q fired: %s", r.Alarm, r.Note)
+		if r.Detail != "" {
+			l += "\nGate output:\n" + r.Detail
+		}
+		return l, true
+	case "gate-failed":
+		l := fmt.Sprintf("Alarm %q gate could not run: %s", r.Alarm, r.Detail)
+		if r.Note != "" {
+			l += "\nNote: " + r.Note
+		}
+		return l, true
+	case "idle":
+		return "Idle timeout: no other wake arrived.", true
+	default:
+		return fmt.Sprintf("Woken (%s): %s", r.Kind, r.Detail), true
+	}
 }

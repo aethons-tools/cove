@@ -268,6 +268,34 @@ func TestClientDecodesWakeReasons(t *testing.T) {
 	}
 }
 
+func TestClientDecodesSessionCommands(t *testing.T) {
+	_, srv, dial, tok, secret := serverHarness(t)
+	w := &blockWorkload{first: Running, controls: make(chan Control, 4)}
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, w)
+	time.Sleep(100 * time.Millisecond) // attached (as TestClientTeardownFromServer)
+	srv.Interrupt("w1", "Ann")
+	srv.Compact("w1", "Ann", "keep X")
+	srv.Clear("w1", "Bob")
+	for _, want := range []Control{
+		{Kind: Interrupt, By: "Ann"},
+		{Kind: Compact, By: "Ann", Instructions: "keep X"},
+		{Kind: Clear, By: "Bob"},
+	} {
+		select {
+		case got := <-w.controls:
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("control = %+v, want %+v", got, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no %+v control delivered", want)
+		}
+	}
+}
+
 // End to end: a Holding report lands on the instance as jam.ActivityHolding.
 func TestClientReportsHolding(t *testing.T) {
 	store, _, dial, tok, secret := serverHarness(t)

@@ -24,6 +24,9 @@ type Harness interface {
 	Command(ep Episode) (bin string, args []string, env map[string]string)
 	// EncodeInput encodes text as one message on the agent's stdin.
 	EncodeInput(text string) []byte
+	// EncodeInterrupt encodes a control request, tagged requestID, that
+	// interrupts the agent's in-flight turn without ending the process.
+	EncodeInterrupt(requestID string) []byte
 	// ParseEvent maps one non-empty stdout line to an Event; an error means the
 	// line was unparseable (the idle tracker warns and ignores it).
 	ParseEvent(line []byte) (Event, error)

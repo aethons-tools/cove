@@ -37,6 +37,9 @@ const (
 	Wake ControlKind = iota
 	Teardown
 	RunGate // run an alarm's gate and answer with Handle.GateResult
+	Interrupt
+	Compact
+	Clear
 )
 
 // gateBuffer bounds gate results queued for the stream.
@@ -66,6 +69,9 @@ type Control struct {
 	Kind    ControlKind
 	Reasons []WakeReason // Wake only; nil from an older Jam
 	Gate    *GateRequest // RunGate only
+
+	By           string // Interrupt/Compact/Clear: who pressed the button
+	Instructions string // Compact only: the /compact focus text
 }
 
 // controlFromPB decodes a control message the workload reacts to (false for
@@ -84,6 +90,12 @@ func controlFromPB(cd *attachpb.ControlDown) (Control, bool) {
 		g := m.Gate
 		return Control{Kind: RunGate, Gate: &GateRequest{RunID: g.GetRunId(), Alarm: g.GetAlarm(), Command: g.GetCommand(),
 			Timeout: time.Duration(g.GetTimeoutS()) * time.Second}}, true
+	case *attachpb.ControlDown_Interrupt:
+		return Control{Kind: Interrupt, By: m.Interrupt.GetBy()}, true
+	case *attachpb.ControlDown_Compact:
+		return Control{Kind: Compact, By: m.Compact.GetBy(), Instructions: m.Compact.GetInstructions()}, true
+	case *attachpb.ControlDown_Clear:
+		return Control{Kind: Clear, By: m.Clear.GetBy()}, true
 	}
 	return Control{}, false
 }

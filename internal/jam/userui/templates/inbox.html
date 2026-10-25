@@ -242,7 +242,10 @@
     <button type="button" role="tab" aria-selected="false" aria-controls="side-pane-body" data-tab="status" onclick="mePaneToggle(this.dataset.tab)">Status</button>
   </div>
   {{if .SSH}}<button type="button" class="sh-ssh" title="{{.SSH}}" onclick="meCopy(this.title, this)">Copy SSH</button>{{end}}
-  {{if or .CanRelease .CanRestart .CanUpgrade}}<details class="sh-more"><summary aria-label="More actions">⋯</summary><div class="menu">
+  {{if .Ops}}<button type="button" class="sh-interrupt" title="Stop the agent's current turn" hx-post="/app/user/session/{{.ID}}/interrupt" hx-swap="none"{{if not .CanInterrupt}} disabled{{end}}>Interrupt</button>{{end}}
+  {{if or .Ops .CanRelease .CanRestart .CanUpgrade}}<details class="sh-more"><summary aria-label="More actions">⋯</summary><div class="menu">
+    {{if .Ops}}<button type="button" hx-post="/app/user/session/{{.ID}}/compact" hx-swap="none"{{if not .CanCompact}} disabled{{end}}>Compact</button>
+    <button type="button" hx-post="/app/user/session/{{.ID}}/clear" hx-confirm="Clear this session's conversation? The agent keeps its files and memory but forgets the conversation." hx-swap="none"{{if not .CanClear}} disabled{{end}}>Clear</button>{{end}}
     {{if .CanRelease}}<button type="button" hx-post="/app/user/session/{{.ID}}/release" hx-confirm="Release this session? It ends now." hx-swap="none">Release</button>{{end}}
     {{if .CanRestart}}<button type="button" hx-post="/app/user/session/{{.ID}}/restart" hx-confirm="{{.RestartLabel}} {{.Label}}?" hx-swap="none">{{.RestartLabel}}</button>{{end}}
     {{if .CanUpgrade}}<button type="button" hx-post="/app/user/session/{{.ID}}/upgrade" hx-confirm="Upgrade {{.Label}} to the current image?" hx-swap="none">Upgrade</button>{{if .UpgradeState}} <span class="t">{{.UpgradeState}}</span>{{end}}{{end}}

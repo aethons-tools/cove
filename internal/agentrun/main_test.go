@@ -11,8 +11,8 @@ import (
 )
 
 // TestMain keeps every test off the real /agent-data: Run clears or writes
-// ContextDir and may write the conversation marker, which default there. It
-// also fails the run if any test touched the harness's real generated files —
+// ContextDir and may write the conversation and clear markers, which default
+// there. It also fails the run if any test touched the harness's real generated files —
 // in a cove those belong to the live agent, and deleting them breaks every
 // later episode (see guardRealPaths).
 func TestMain(m *testing.M) {
@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 	}
 	defaultContextDir = filepath.Join(tmp, "context")
 	defaultConversationMarker = filepath.Join(tmp, ".cove-conversation")
+	defaultClearMarker = filepath.Join(tmp, ".cove-clear-pending")
 	check := guardRealPaths(claudeSettingsPath, claudeMCPConfigPath)
 	code := m.Run()
 	if err := check(); err != nil {

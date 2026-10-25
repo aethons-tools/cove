@@ -57,6 +57,9 @@ message ControlDown {
     RunGate     gate     = 6;
     OpenTunnel  open_tunnel = 7;
     SetTunnelPorts tunnel_ports = 8;
+    Interrupt   interrupt = 9;
+    Compact     compact   = 10;
+    Clear       clear     = 11;
   }
 }
 
@@ -77,6 +80,12 @@ message WakeReason {
   string note   = 3; // the alarm's note
   string detail = 4; // free text: gate stdout, failure cause, …
 }
+// Interrupt, Compact and Clear are the session-header buttons; by is the
+// display name of who pressed it. instructions is the /compact focus text,
+// sent from Jam so it can change without rebuilding studio images.
+message Interrupt { string by = 1; }
+message Compact   { string by = 1; string instructions = 2; }
+message Clear     { string by = 1; }
 message Teardown    { string reason = 1; }
 message TierChanged { int32 tier = 1; }
 message RotateToken { string token = 1; }

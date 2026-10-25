@@ -292,6 +292,19 @@ func (s *Server) Wake(actorID string, reasons ...jam.WakeReason) {
 	s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Wake{Wake: &attachpb.Wake{Reasons: pb}}})
 }
 
+// Interrupt, Compact and Clear ask the cove to run the matching session
+// command on behalf of by. Best-effort and non-blocking like Wake; they report
+// whether the message was queued for a live stream.
+func (s *Server) Interrupt(actorID, by string) bool {
+	return s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Interrupt{Interrupt: &attachpb.Interrupt{By: by}}})
+}
+func (s *Server) Compact(actorID, by, instructions string) bool {
+	return s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Compact{Compact: &attachpb.Compact{By: by, Instructions: instructions}}})
+}
+func (s *Server) Clear(actorID, by string) bool {
+	return s.enqueue(actorID, &attachpb.ControlDown{Msg: &attachpb.ControlDown_Clear{Clear: &attachpb.Clear{By: by}}})
+}
+
 // RunGate asks the cove to run an alarm's gate (best-effort and non-blocking
 // like Wake: with no stream the request is dropped, and Jam resolves the gate
 // as failed after its grace period).
