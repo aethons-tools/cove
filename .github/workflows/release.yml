@@ -124,14 +124,15 @@ jobs:
             # On failure, surface the build's tail as annotations: they are
             # readable through the checks API where the raw log may not be.
             if ! docker build --progress=plain --tag cove-base-image:ci images/cove-base-image > /tmp/base-build.log 2>&1; then
-              tail -n 40 /tmp/base-build.log | sed 's/%/%25/g; s/^/::error title=base image build::/'
+              # (GitHub keeps 10 error annotations per step: one for the tail.)
+              echo "::error title=base image build::$(grep -E 'E: |ERROR' /tmp/base-build.log | tail -n 15 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
               # A pinned apt version gone from the archive is the usual cause:
               # list each missing package's current candidate.
               pkgs=$(grep -o "for '[^']*' was not found" /tmp/base-build.log | cut -d"'" -f2 | sort -u | tr '\n' ' ')
               if [ -n "$pkgs" ]; then
                 from=$(sed -n 's/^FROM //p' images/cove-base-image/Dockerfile | head -1)
-                docker run --rm "$from" sh -c "apt-get update -qq >/dev/null && apt-cache policy $pkgs" \
-                  | grep -E '^[a-z0-9.+-]+:|Candidate' | paste - - | sed 's/^/::error title=apt candidate::/'
+                out=$(docker run --rm "$from" sh -c "apt-get update -qq >/dev/null 2>&1; apt-cache policy $pkgs" 2>&1 || true)
+                echo "::error title=apt candidates::$(printf '%s\n' "$out" | grep -E '^[^ ].*:$|Candidate:' | sed 's/^ *//' | paste - - | sed ':a;N;$!ba;s/\n/%0A/g')"
               fi
               exit 1
             fi
