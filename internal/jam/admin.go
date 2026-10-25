@@ -844,7 +844,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
 		if err != nil {
-			if _, big := errors.AsType[*http.MaxBytesError](err); big {
+			if bodyTooLarge(err) {
 				http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
 				return
 			}

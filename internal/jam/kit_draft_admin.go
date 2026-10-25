@@ -3,11 +3,15 @@ package jam
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // registerKitDrafts mounts the kit draft API (docs/usage/jam/kits-drafts.md)
@@ -16,6 +20,9 @@ import (
 //	POST   /admin/kits/{name}/draft   {from?}  open (201, the status)
 //	GET    /admin/kits/{name}/draft            status (ETag header)
 //	DELETE /admin/kits/{name}/draft            discard (If-Match; 204)
+//	GET    /admin/kits/{name}/draft/files/{path...}          one file's bytes
+//	PUT    /admin/kits/{name}/draft/files/{path...}[?mode=]  write one file (octet-stream, If-Match)
+//	DELETE /admin/kits/{name}/draft/files/{path...}          remove one file (If-Match)
 //
 // Every write but open needs If-Match (the draft's ETag: 428 without, 412
 // stale). Open and publish take JSON only, a file write octet-stream only,
@@ -53,6 +60,107 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 		log.Info("kit draft discarded", "operator", OperatorID(r), "kit", name, "tree", shortTree(d.Tree))
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// One file of the draft. {path...} is the file's path, percent-decoded;
+	// it is CheckPath'd before any text names it.
+	mux.HandleFunc("GET /admin/kits/{name}/draft/files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		data, e, etag, err := KitDraftFile(store, r.PathValue("name"), r.PathValue("path"))
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", "application/octet-stream")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("ETag", etag)
+		h.Set("X-Kit-File-Mode", fmt.Sprintf("%04o", e.Mode))
+		w.Write(data)
+	})
+	mux.HandleFunc("PUT /admin/kits/{name}/draft/files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		name, p := r.PathValue("name"), r.PathValue("path")
+		if !requireContentType(w, r, "application/octet-stream") || !draftPrecheck(w, r, store, log, name) {
+			return
+		}
+		if err := kittree.CheckPath(p); err != nil {
+			draftFail(w, r, log, draftPathErr(name, err))
+			return
+		}
+		mode, err := draftMode(name, r.URL.Query().Get("mode"))
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, kittree.MaxFile))
+		if err != nil {
+			if bodyTooLarge(err) {
+				draftFail(w, r, log, draftFileTooLarge(name, p))
+				return
+			}
+			http.Error(w, "kit draft: the body could not be read", http.StatusBadRequest)
+			return
+		}
+		s, err := PutKitDraftFile(store, log, name, p, mode, data, r.Header.Get("If-Match"), OperatorID(r), time.Now().UTC())
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		logDraftSaved(log, r, name, s)
+		writeDraftSave(w, s)
+	})
+	mux.HandleFunc("DELETE /admin/kits/{name}/draft/files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		s, err := RemoveKitDraftFile(store, log, name, r.PathValue("path"), r.Header.Get("If-Match"), OperatorID(r), time.Now().UTC())
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		logDraftSaved(log, r, name, s)
+		writeDraftSave(w, s)
+	})
+}
+
+// draftPrecheck answers 400/404/428/412 before a write's body is read, so a
+// stale upload is refused without reading it; the write re-checks under kitMu.
+func draftPrecheck(w http.ResponseWriter, r *http.Request, store Store, log *slog.Logger, name string) bool {
+	d, err := draftOf(store, name)
+	if err == nil {
+		err = checkDraftETag(d, r.Header.Get("If-Match"))
+	}
+	if err != nil {
+		draftFail(w, r, log, err)
+		return false
+	}
+	return true
+}
+
+// draftMode reads ?mode=: "" (keep), 644/0644 or 755/0755.
+func draftMode(name, q string) (fs.FileMode, error) {
+	switch q {
+	case "":
+		return 0, nil
+	case "644", "0644":
+		return 0o644, nil
+	case "755", "0755":
+		return 0o755, nil
+	}
+	return 0, writeErr(http.StatusBadRequest, "draft %s: mode must be 0644 or 0755", name)
+}
+
+// writeDraftSave answers a draft write with its new ETag.
+func writeDraftSave(w http.ResponseWriter, s KitDraftSave) {
+	w.Header().Set("ETag", s.ETag)
+	writeJSON(w, http.StatusOK, s)
+}
+
+// logDraftSaved is a draft write's audit line: never content or a path.
+func logDraftSaved(log *slog.Logger, r *http.Request, name string, s KitDraftSave) {
+	log.Info("kit draft saved", "operator", OperatorID(r), "kit", name, "tree", shortTree(s.Tree), "changed", len(s.Changed))
+}
+
+// bodyTooLarge reports whether err is a capped body's overflow
+// (http.MaxBytesReader): the kit push and draft writes answer it 413.
+func bodyTooLarge(err error) bool {
+	_, big := errors.AsType[*http.MaxBytesError](err)
+	return big
 }
 
 // writeDraftStatus answers kit name's draft status with its ETag.

@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // draftDo issues one loopback admin request with an optional Content-Type
@@ -129,5 +131,74 @@ func TestDraftRouteRefusals(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "pq: secret detail") {
 		t.Fatalf("the store failure is not logged:\n%s", logs.String())
+	}
+}
+func TestDraftFileRoutes(t *testing.T) {
+	var logs bytes.Buffer
+	st := NewMemStore()
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	pushApp(t, st, "kit.yml", "kind: studio\n")
+	tag := draftDo(t, h, "POST", "/admin/kits/app/draft", "application/json", "", nil).Header().Get("ETag")
+	put := func(path, ctype, etag string, b []byte) *httptest.ResponseRecorder {
+		return draftDo(t, h, "PUT", "/admin/kits/app/draft/files/"+path, ctype, etag, b)
+	}
+	const octet = "application/octet-stream"
+	for _, ctype := range []string{"text/plain", "", "application/x-www-form-urlencoded"} {
+		if w := put("run.sh", ctype, tag, []byte("echo\n")); w.Code != http.StatusUnsupportedMediaType || body(w) != "kit draft: Content-Type must be application/octet-stream" {
+			t.Fatalf("Content-Type %q = %d %s", ctype, w.Code, w.Body)
+		}
+	}
+	if w := put("run.sh", octet, "", []byte("echo\n")); w.Code != http.StatusPreconditionRequired {
+		t.Fatalf("no If-Match = %d", w.Code)
+	}
+	if w := put("run.sh", octet, `"`+strings.Repeat("0", 64)+`"`, []byte("echo\n")); w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale = %d", w.Code)
+	}
+	if w := put("run.sh?mode=0700", octet, tag, []byte("echo\n")); w.Code != http.StatusBadRequest || body(w) != "draft app: mode must be 0644 or 0755" {
+		t.Fatalf("bad mode = %d %s", w.Code, w.Body)
+	}
+	w := put("run.sh?mode=755", octet, tag, []byte("echo SECRET-CONTENT\n"))
+	var s KitDraftSave
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &s) != nil || w.Header().Get("ETag") != s.ETag || len(s.Changed) != 1 || s.Changed[0] != (DraftChange{"run.sh", "added"}) {
+		t.Fatalf("put = %d %s", w.Code, w.Body)
+	}
+	g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/run.sh", "", "", nil)
+	if g.Code != http.StatusOK || g.Body.String() != "echo SECRET-CONTENT\n" || g.Header().Get("X-Kit-File-Mode") != "0755" ||
+		g.Header().Get("ETag") != s.ETag || g.Header().Get("Content-Type") != octet || g.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("get = %d %q %v", g.Code, g.Body, g.Header())
+	}
+	// A percent-encoded unicode path round-trips.
+	w = put("docs/%C3%BCn%C3%AF.md", octet, s.ETag, []byte("ok\n"))
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &s) != nil || s.Changed[0].Path != "docs/ünï.md" {
+		t.Fatalf("unicode put = %d %s", w.Code, w.Body)
+	}
+	if g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/docs/%C3%BCn%C3%AF.md", "", "", nil); g.Body.String() != "ok\n" {
+		t.Fatalf("unicode get = %d %q", g.Code, g.Body)
+	}
+	// A control or format character is refused, the name not echoed (Review Focus 4).
+	for _, bad := range []string{"a%0Ab", "a%1B%5B31mb", "%E2%80%AEtxt.exe", "a%FFb"} {
+		w := put(bad, octet, s.ETag, []byte("x"))
+		if w.Code != http.StatusBadRequest || body(w) != unsafeDraftPath {
+			t.Fatalf("PUT %s = %d %q", bad, w.Code, w.Body)
+		}
+		if g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/"+bad, "", "", nil); g.Code != http.StatusBadRequest || body(g) != unsafeDraftPath {
+			t.Fatalf("GET %s = %d %q", bad, g.Code, g.Body)
+		}
+	}
+	d := draftDo(t, h, "DELETE", "/admin/kits/app/draft/files/run.sh", "", s.ETag, nil)
+	if d.Code != http.StatusOK || json.Unmarshal(d.Body.Bytes(), &s) != nil || s.Changed[0] != (DraftChange{"run.sh", "removed"}) {
+		t.Fatalf("delete = %d %s", d.Code, d.Body)
+	}
+	if g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/run.sh", "", "", nil); g.Code != http.StatusNotFound || body(g) != "draft app has no file run.sh" {
+		t.Fatalf("get removed = %d %s", g.Code, g.Body)
+	}
+	// Over MaxFile: 413 from the body cap.
+	withDraftLimits(t, kittree.MaxEntries, kittree.MaxTotal, 8)
+	if w := put("big.bin", octet, s.ETag, make([]byte, 9)); w.Code != http.StatusRequestEntityTooLarge || body(w) != "draft app: big.bin: more than 8 bytes (limit 8 bytes per file)" {
+		t.Fatalf("oversize = %d %s", w.Code, w.Body)
+	}
+	out := logs.String()
+	if !strings.Contains(out, "kit draft saved") || !strings.Contains(out, "tree="+s.Tree[:12]) || strings.Contains(out, "SECRET-CONTENT") {
+		t.Fatalf("audit log:\n%s", out)
 	}
 }

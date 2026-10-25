@@ -1,7 +1,7 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule and the open, status and discard API.
-read_when: You want to open, inspect or discard a kit's draft over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 415 or 428.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, the /admin/kits/{name}/draft routes and their audit lines
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule and the open, status, discard and file read/write/remove API.
+read_when: You want to open, inspect, edit or discard a kit's draft over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, the /admin/kits/{name}/draft routes (files included) and their audit lines
 prereqs: kits.md, kits-directory.md
 tier: leaf
 updated: 2026-10-25
@@ -16,6 +16,11 @@ A kit has at most one **draft**: a mutable copy of one version's files
 opened from *current* or a version you choose (its **base**). You change
 files in the draft, then publish it as the kit's next version, or discard it.
 
+- Every write is checked like a push: the paths, modes and sizes in
+  [limits](kits-directory.md#limits). The draft's own
+  [`.dockerignore`](kits-directory.md#dockerignore) applies too: a file it
+  excludes is refused (`draft <kit>: <path>: excluded by .dockerignore`), and
+  saving a `.dockerignore` drops the files it now excludes.
 - `kit.yml` may be missing or invalid while you edit. The draft's status lists
   the **problems**: `kit <name>: kit.yml missing at the root`, a parse or
   validation error, a missing parent, a `base.context…` field. A draft with
@@ -41,8 +46,16 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `POST /admin/kits/{name}/draft` | Open, from `{"from": N}` (default current); `application/json`, else 415. 201 with the status; 409 `kit <name> already has a draft`; 400 for a version not stored as a tree. |
 | `GET /admin/kits/{name}/draft` | The status: `base`, `current`, `tree`, `etag` (also the `ETag` header), `entries` (`path`, `mode`, `size`, `sha256`), `changes` from the base, `problems`, `managed`. |
 | `DELETE /admin/kits/{name}/draft` | Discard (`If-Match`). 204. |
+| `GET /admin/kits/{name}/draft/files/{path}` | One file's bytes (`application/octet-stream`), with `ETag` (the draft's) and `X-Kit-File-Mode`. |
+| `PUT /admin/kits/{name}/draft/files/{path}[?mode=755]` | Write one file (`If-Match`; `application/octet-stream`, else 415; over the per-file limit 413). Without `mode` the file keeps its mode, a new one gets `0644`. |
+| `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
+
+A write answers the new `etag` (also the `ETag` header), the files it
+`changed` and the `problems`. A path is percent-encoded per segment; one
+with a control or format character is refused without being echoed.
 
 `GET /admin/kits` marks a kit with an open draft `"draft": true`.
 
-Each write logs `kit draft opened|discarded` with the kit, the operator and
-the tree's first 12 hex digits, never content.
+Each write logs `kit draft opened|saved|discarded` with the kit, the operator
+and the tree's first 12 hex digits (a save also the count of files
+`changed`), never content or a path.
