@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -69,23 +71,38 @@ var errPreviewAccessEnded = errors.New("preview access ended")
 // any Set-Cookie for a Jam cookie name from the response. Its pooled
 // connections are per (viewer, session, port) and registered in d.Live, so an
 // unshare, the revocation sweep or Live.CloseUnexposed closes them.
+//
+// Framing (the Jam pane): every response carries Content-Security-Policy
+// frame-ancestors naming only auth's FrameAncestors (the UI origins; 'none'
+// without them, and always on the login host); a frame-authenticated
+// response loses the app's X-Frame-Options; and Jam's error pages inside an
+// iframe tell the pane their status (errorPage).
 func Preview(d Deps, auth *PreviewAuth, domain string) *PreviewHandler {
 	if d.PreviewURL == nil || d.Exposures == nil || auth == nil {
-		return &PreviewHandler{Handler: http.HandlerFunc(notExposed)}
+		none := frameAncestors(nil)
+		return &PreviewHandler{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Content-Security-Policy", none)
+			notExposed(w, r)
+		})}
 	}
+	origins := auth.o.FrameAncestors
 	p := &previewProxy{
 		h:       &handler{d: withDefaults(d)},
 		auth:    auth,
 		domain:  strings.ToLower(domain),
+		csp:     frameAncestors(origins),
 		labels:  map[string]string{},
 		misses:  map[string]time.Time{},
 		targets: map[string]previewTarget{},
 		audited: map[previewAuditKey]time.Time{},
 	}
+	if len(origins) > 0 {
+		p.uiOrigin = origins[0]
+	}
 	p.rp = &httputil.ReverseProxy{
 		Rewrite:        p.rewrite,
 		Transport:      p.transport(),
-		ModifyResponse: func(resp *http.Response) error { sanitizeResponse(resp.Header); return nil },
+		ModifyResponse: p.modifyResponse,
 		ErrorHandler:   p.proxyError,
 		// The proxy's own log lines carry no request URI (a query may carry
 		// a secret the app put there).
@@ -93,7 +110,16 @@ func Preview(d Deps, auth *PreviewAuth, domain string) *PreviewHandler {
 	}
 	login := auth.LoginHostHandler()
 	routes := auth.PreviewHostRoutes(http.HandlerFunc(p.serve))
+	none := frameAncestors(nil)
 	return &PreviewHandler{p: p, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Every response may be framed only by the UI origins (the login
+		// host by nothing). Added before the proxy copies the app's headers,
+		// so an app's own CSP stays beside it: browsers enforce every policy.
+		if auth.isLoginHost(r.Host) {
+			w.Header().Add("Content-Security-Policy", none)
+		} else {
+			w.Header().Add("Content-Security-Policy", p.csp)
+		}
 		switch {
 		case auth.isLoginHost(r.Host):
 			login.ServeHTTP(w, r)
@@ -106,7 +132,7 @@ func Preview(d Deps, auth *PreviewAuth, domain string) *PreviewHandler {
 		case isPreviewHost(r.Host, p.domain):
 			routes.ServeHTTP(w, r)
 		default:
-			notExposed(w, r)
+			p.notExposed(w, r)
 		}
 	})}
 }
@@ -142,12 +168,53 @@ func notExposed(w http.ResponseWriter, _ *http.Request) {
 	http.Error(w, notExposedMsg, http.StatusNotFound)
 }
 
+// frameAncestors is the Content-Security-Policy that lets only origins (the
+// Jam UI's) frame a page, or nothing when there are none. It never lists a
+// preview host: a frame nested under another studio's preview is refused.
+func frameAncestors(origins []string) string {
+	if len(origins) == 0 {
+		return "frame-ancestors 'none'"
+	}
+	return "frame-ancestors " + strings.Join(origins, " ")
+}
+
+// errorPage answers code with msg: as plain text, or — when framed, with a UI
+// origin to tell — as a tiny HTML page carrying the same text whose script
+// tells the Jam pane the status (postMessage to that origin only; the origin
+// is JSON-encoded, so it cannot break out of the script).
+func errorPage(w http.ResponseWriter, uiOrigin string, framed bool, msg string, code int) {
+	if !framed || uiOrigin == "" {
+		http.Error(w, msg, code)
+		return
+	}
+	target, _ := json.Marshal(uiOrigin)
+	h := w.Header()
+	h.Del("Content-Length")
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
+		`<p>`+html.EscapeString(msg)+`</p>`+
+		`<script>parent.postMessage({jam:"frame-error",status:`+strconv.Itoa(code)+`}, `+string(target)+`)</script>`+"\n")
+}
+
+// notExposed is the package notExposed, as the framed error page when r is
+// an iframe load (Sec-Fetch-Dest: iframe) — only presentation: it is
+// answered before any credential is looked at.
+func (p *previewProxy) notExposed(w http.ResponseWriter, r *http.Request) {
+	errorPage(w, p.uiOrigin, r.Header.Get("Sec-Fetch-Dest") == "iframe", notExposedMsg, http.StatusNotFound)
+}
+
 // previewProxy forwards preview-host requests to studio ports.
 type previewProxy struct {
 	h      *handler
 	auth   *PreviewAuth
 	domain string
 	rp     *httputil.ReverseProxy
+	// csp is the frame-ancestors policy every response carries; uiOrigin
+	// (the first UI origin, "" when none) is where framed error pages post.
+	csp      string
+	uiOrigin string
 
 	mu      sync.Mutex
 	labels  map[string]string    // preview label → actor id, of live and idled studios
@@ -206,22 +273,22 @@ func (t previewTarget) poolHost() string {
 func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 	name, label, ok := preview.Parse(r.Host, p.domain)
 	if !ok {
-		notExposed(w, r)
+		p.notExposed(w, r)
 		return
 	}
 	actorID, ok := p.actor(label)
 	if !ok {
-		notExposed(w, r)
+		p.notExposed(w, r)
 		return
 	}
 	inst, ok := p.h.d.Store.GetInstance(actorID)
 	if !ok || (inst.Phase != jam.PhaseLive && inst.Phase != jam.PhaseIdled) {
-		notExposed(w, r)
+		p.notExposed(w, r)
 		return
 	}
 	port, right, ok := previewPortAndRight(p.h.d.Exposures(actorID), name)
 	if !ok {
-		notExposed(w, r)
+		p.notExposed(w, r)
 		return
 	}
 	pr, display, framed, err := p.auth.PrincipalFrame(r)
@@ -245,7 +312,8 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not resolve caller", http.StatusInternalServerError)
 		return
 	}
-	a, ok := p.h.authorizeInst(w, r, pr, display, inst, right)
+	refuse := func(w http.ResponseWriter, msg string, code int) { errorPage(w, p.uiOrigin, framed, msg, code) }
+	a, ok := p.h.authorizeInstWith(w, r, pr, display, inst, right, refuse)
 	if !ok {
 		return
 	}
@@ -532,7 +600,8 @@ func (c *previewConn) Close() error {
 }
 
 // proxyError answers a request the proxy could not complete with a plain
-// text page (never app content) naming what failed.
+// text page (never app content) naming what failed — the framed error page
+// for the Jam pane.
 func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err error) {
 	req, _ := r.Context().Value(proxyCtxKey{}).(*previewRequest)
 	if req == nil {
@@ -557,7 +626,20 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 		code, msg = http.StatusConflict, err.Error()
 	}
 	p.h.d.Log.Warn("preview proxy failed", "user", req.user, "session", req.session, "port", req.port, "right", string(req.right), "status", code, "err", err.Error())
-	http.Error(w, msg, code)
+	errorPage(w, p.uiOrigin, req.framed, msg, code)
+}
+
+// modifyResponse sanitises the app's response (sanitizeResponse) and, for
+// the Jam pane (a frame-authenticated request), drops its X-Frame-Options:
+// frame-ancestors already limits who may frame it to the UI origins.
+func (p *previewProxy) modifyResponse(resp *http.Response) error {
+	sanitizeResponse(resp.Header)
+	if resp.Request != nil {
+		if req, _ := resp.Request.Context().Value(proxyCtxKey{}).(*previewRequest); req != nil && req.framed {
+			resp.Header.Del("X-Frame-Options")
+		}
+	}
+	return nil
 }
 
 // isJamCookie reports whether a cookie name is one of Jam's (the preview

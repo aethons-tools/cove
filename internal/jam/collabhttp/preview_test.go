@@ -31,6 +31,7 @@ const (
 	previewSession = "ses_" + label26
 	appHost        = "app--" + label26 + "." + testDomain
 	appPort        = 5173
+	uiOrigin       = "https://jam.example"
 )
 
 // appTunnels is a fake Tunnels whose Open dials the test app's listener,
@@ -144,8 +145,10 @@ func newPreviewHarness(t *testing.T, app *httptest.Server) *previewHarness {
 			}
 			return collab.Principal{}, "", ErrNoCredentials
 		},
-		Now: clock.Now,
-		Log: log,
+		Frames:         NewFrameTickets(clock.Now),
+		FrameAncestors: []string{uiOrigin},
+		Now:            clock.Now,
+		Log:            log,
 	})
 	tun := &appTunnels{}
 	if app != nil {
@@ -860,5 +863,181 @@ func TestPreviewIdlePoolTimeout(t *testing.T) {
 	tr, ok := ph.h.p.rp.Transport.(*http.Transport)
 	if !ok || tr.IdleConnTimeout != 30*time.Second {
 		t.Fatalf("transport %T idle timeout %v, want 30s", ph.h.p.rp.Transport, tr.IdleConnTimeout)
+	}
+}
+
+// frameLogin gives user a frame (pane) session on appHost through the full
+// handler and returns its cookie.
+func (ph *previewHarness) frameLogin(t *testing.T, user string) *http.Cookie {
+	t.Helper()
+	tk, err := ph.auth.o.Frames.Mint(collab.Principal{UserID: ph.ids[user]}, user, appHost, collab.Preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "https://"+appHost+"/__jam/frame?t="+url.QueryEscape(tk), nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == FrameCookie {
+			return c
+		}
+	}
+	t.Fatalf("frame exchange = %d %v", rec.Code, rec.Header())
+	return nil
+}
+
+// getFramed is a navigation inside the pane's iframe, carrying c.
+func (ph *previewHarness) getFramed(path string, c *http.Cookie) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("GET", "https://"+appHost+path, nil)
+	if c != nil {
+		req.AddCookie(c)
+	}
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	return rec
+}
+
+// cspApp answers with its own CSP and X-Frame-Options.
+func cspApp(t *testing.T) *httptest.Server {
+	t.Helper()
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		fmt.Fprint(w, "hello from the app")
+	}))
+	t.Cleanup(app.Close)
+	return app
+}
+
+func TestFrameAncestorsValue(t *testing.T) {
+	if got := frameAncestors([]string{"https://jam.example", "http://localhost:8090"}); got != "frame-ancestors https://jam.example http://localhost:8090" {
+		t.Errorf("two origins: %q", got)
+	}
+	if got := frameAncestors(nil); got != "frame-ancestors 'none'" {
+		t.Errorf("none: %q", got)
+	}
+}
+
+// Every proxied response may be framed only by the UI origins — never by
+// another preview host, so a nested frame whose ancestors include a sibling
+// studio is blocked — and the app's own CSP stays beside Jam's.
+func TestPreviewFrameAncestors(t *testing.T) {
+	ph := newPreviewHarness(t, cspApp(t))
+	rec := ph.get("/", ph.login(t, "alice"))
+	if rec.Code != 200 {
+		t.Fatalf("%d %q", rec.Code, rec.Body)
+	}
+	csp := rec.Header().Values("Content-Security-Policy")
+	if len(csp) != 2 || !slices.Contains(csp, "frame-ancestors "+uiOrigin) || !slices.Contains(csp, "default-src 'self'") {
+		t.Fatalf("CSP %q", csp)
+	}
+	for _, v := range csp {
+		if strings.Contains(v, testDomain) || strings.Contains(v, "*") || strings.Contains(v, "'self'") && strings.HasPrefix(v, "frame-ancestors") {
+			t.Errorf("frame-ancestors admits a preview host: %q", v)
+		}
+	}
+	// Jam's own pages carry it too.
+	if rec := ph.get("/__jam/nope", nil); rec.Header().Get("Content-Security-Policy") != "frame-ancestors "+uiOrigin {
+		t.Errorf("reserved 404 CSP %q", rec.Header().Values("Content-Security-Policy"))
+	}
+	req := httptest.NewRequest("GET", "https://api--"+label26+"."+testDomain+"/", nil)
+	nrec := httptest.NewRecorder()
+	ph.h.ServeHTTP(nrec, req)
+	if nrec.Code != 404 || nrec.Header().Get("Content-Security-Policy") != "frame-ancestors "+uiOrigin {
+		t.Errorf("not exposed: %d CSP %q", nrec.Code, nrec.Header().Values("Content-Security-Policy"))
+	}
+	// No UI origins: nothing may frame a preview.
+	ph.auth.o.FrameAncestors = nil
+	ph.h = Preview(ph.d, ph.auth.PreviewAuth, testDomain)
+	rec = ph.get("/", ph.login(t, "alice"))
+	if csp := rec.Header().Values("Content-Security-Policy"); !slices.Contains(csp, "frame-ancestors 'none'") || len(csp) != 2 {
+		t.Fatalf("no origins: CSP %q", csp)
+	}
+}
+
+// An app's X-Frame-Options is dropped only for the pane (frame-authenticated);
+// a top-level visit keeps it.
+func TestPreviewXFrameOptionsStrippedOnlyWhenFramed(t *testing.T) {
+	ph := newPreviewHarness(t, cspApp(t))
+	if rec := ph.get("/", ph.login(t, "alice")); rec.Code != 200 || rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("top-level: %d XFO %q", rec.Code, rec.Header().Get("X-Frame-Options"))
+	}
+	rec := ph.getFramed("/", ph.frameLogin(t, "alice"))
+	if rec.Code != 200 || rec.Body.String() != "hello from the app" {
+		t.Fatalf("framed: %d %q", rec.Code, rec.Body)
+	}
+	if v := rec.Header().Values("X-Frame-Options"); len(v) != 0 {
+		t.Fatalf("framed XFO %q", v)
+	}
+	if csp := rec.Header().Values("Content-Security-Policy"); !slices.Contains(csp, "frame-ancestors "+uiOrigin) {
+		t.Fatalf("framed CSP %q", csp)
+	}
+}
+
+func wantFramedError(t *testing.T, rec *httptest.ResponseRecorder, code int, msg string) {
+	t.Helper()
+	body := rec.Body.String()
+	if rec.Code != code || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("%d %q: %q", rec.Code, rec.Header().Get("Content-Type"), body)
+	}
+	for _, s := range []string{msg, `parent.postMessage({jam:"frame-error",status:` + fmt.Sprint(code) + `}, "` + uiOrigin + `")`} {
+		if !strings.Contains(body, s) {
+			t.Errorf("body lacks %q:\n%s", s, body)
+		}
+	}
+}
+
+func TestPreviewFramedNotExposed(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	req := httptest.NewRequest("GET", "https://api--"+label26+"."+testDomain+"/", nil)
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	wantFramedError(t, rec, 404, notExposedMsg)
+	// Unframed: the plain text page.
+	req = httptest.NewRequest("GET", "https://api--"+label26+"."+testDomain+"/", nil)
+	rec = httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if rec.Code != 404 || strings.TrimSpace(rec.Body.String()) != notExposedMsg || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("plain 404: %d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestPreviewFramedForbidden(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	wantFramedError(t, ph.getFramed("/", ph.frameLogin(t, "carol")), 403, "you may not use preview on this studio")
+	if n := len(ph.tun.opened()); n != 0 {
+		t.Fatalf("opened %d tunnels", n)
+	}
+	// A top-level refusal stays plain text.
+	rec := ph.get("/", ph.login(t, "carol"))
+	if rec.Code != 403 || strings.Contains(rec.Body.String(), "postMessage") || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("plain 403: %d %q", rec.Code, rec.Body)
+	}
+}
+
+func TestPreviewFramedProxyErrors(t *testing.T) {
+	ph := newPreviewHarness(t, nil)
+	fc := ph.frameLogin(t, "alice")
+	for _, tc := range []struct {
+		err  error
+		code int
+		msg  string
+	}{
+		{attach.ErrDialBackTimeout, 504, "studio could not open the preview (is its image current?)"},
+		{attach.ErrStudioNotConnected, 503, "studio not connected"},
+		{errors.New("connection refused"), 502, "the app at port 5173 is not answering"},
+	} {
+		ph.tun.mu.Lock()
+		ph.tun.err = tc.err
+		ph.tun.mu.Unlock()
+		wantFramedError(t, ph.getFramed("/", fc), tc.code, tc.msg)
 	}
 }

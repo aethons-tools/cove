@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"html"
 	"io"
@@ -73,8 +74,13 @@ type PreviewAuthOptions struct {
 	// Frames holds the one-time tickets the Jam UI mints to frame a preview;
 	// /__jam/frame trades one for a frame session. Nil: framing off (404).
 	Frames *FrameTickets
-	Now    func() time.Time
-	Log    *slog.Logger
+	// FrameAncestors are the Jam UI's origins (ui-origins), the only pages
+	// that may frame a preview (Content-Security-Policy frame-ancestors); the
+	// first is where framed pages post their status (postMessage). Empty:
+	// nothing may frame a preview.
+	FrameAncestors []string
+	Now            func() time.Time
+	Log            *slog.Logger
 }
 
 // ErrCrossSite: a request carried the preview session cookie in a context
@@ -117,6 +123,13 @@ func NewPreviewAuth(o PreviewAuthOptions) *PreviewAuth {
 		o.Log = slog.Default()
 	}
 	o.Domain = strings.ToLower(o.Domain)
+	// An origin may be configured with a trailing "/"; CSP and postMessage
+	// want the bare origin.
+	anc := make([]string, 0, len(o.FrameAncestors))
+	for _, a := range o.FrameAncestors {
+		anc = append(anc, strings.TrimSuffix(a, "/"))
+	}
+	o.FrameAncestors = anc
 	return &PreviewAuth{
 		o:             o,
 		sessions:      map[[sha256.Size]byte]previewEntry{},
@@ -489,8 +502,9 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 //   - GET /__jam/frame?t=… trades a frame ticket minted for this host (when
 //     Frames is set; else 404) for a partitioned __Host-jam_frame cookie
 //     (frame);
-//   - GET /__jam/logout drops the session (preview or frame cookie) and the
-//     viewer's frame sessions on this host, and clears the preview cookie;
+//   - GET /__jam/logout drops the session (preview cookie, or frame cookie
+//     where frameCookieUseAllowed) and the viewer's frame sessions on this
+//     host, and clears the preview cookie;
 //   - any other /__jam path is 404.
 func (a *PreviewAuth) PreviewHostRoutes(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
@@ -652,6 +666,10 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 			case PreviewCookie:
 				m = a.sessions
 			case FrameCookie:
+				// Only from the pane itself: a sibling studio cannot end it.
+				if !frameCookieUseAllowed(r) {
+					continue
+				}
 				m = a.frameSessions
 			default:
 				continue
@@ -695,7 +713,7 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	// A "//"-led path would be refused as a return path; collapse it.
 	rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
 	if ok && r.Header.Get("Sec-Fetch-Dest") == "iframe" {
-		framedLoginPage(w, rt)
+		framedLoginPage(w, rt, a.uiOrigin())
 		return
 	}
 	if ok && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -722,15 +740,28 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 
 // framedLoginPage answers a framed request that has no credentials: 401 with
 // a page linking to u in a new top-level tab, whose script tells the Jam pane
-// why. The message carries no secret, so "*" may receive it.
-func framedLoginPage(w http.ResponseWriter, u string) {
+// (uiOrigin, JSON-encoded; no script when there is none — nothing may frame
+// the page then) why.
+func framedLoginPage(w http.ResponseWriter, u, uiOrigin string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusUnauthorized)
+	script := ""
+	if uiOrigin != "" {
+		target, _ := json.Marshal(uiOrigin)
+		script = `<script>parent.postMessage({jam:"frame-error",status:"cookies"}, ` + string(target) + `)</script>`
+	}
 	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
 		`<p>`+html.EscapeString("This browser can't sign in inside the pane.")+
-		` <a href="`+html.EscapeString(u)+`" target="_top">Open in new tab</a></p>`+
-		`<script>parent.postMessage({jam:"frame-error",status:"cookies"}, "*")</script>`+"\n")
+		` <a href="`+html.EscapeString(u)+`" target="_top">Open in new tab</a></p>`+script+"\n")
+}
+
+// uiOrigin is the first UI origin, where framed pages post ("" when none).
+func (a *PreviewAuth) uiOrigin() string {
+	if len(a.o.FrameAncestors) == 0 {
+		return ""
+	}
+	return a.o.FrameAncestors[0]
 }
 
 // validNonce reports whether v is shaped as newSecret's value (32 random

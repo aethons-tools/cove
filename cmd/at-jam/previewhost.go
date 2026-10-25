@@ -105,8 +105,10 @@ func loadPreviewCert(certFile, keyFile, domain string) (tls.Certificate, error) 
 // redirect URI is https://jam.<domain>/__jam/auth/callback. lc (nil when there
 // is no device client) is the CLI login whose participant ID tokens a
 // non-browser caller presents as a bearer. port is the admin listener's, the
-// only explicit port a login may return to.
-func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
+// only explicit port a login may return to. uiOrigins (ui-origins) are the
+// only pages that may frame a preview; frames (nil: framing off) are the Jam
+// pane's frame tickets, pruned by the PreviewAuth's Run.
+func newPreviewAuth(domain, port string, uiOrigins []string, frames *collabhttp.FrameTickets, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
 	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
 	if !ok {
 		return nil, fmt.Errorf("previews require operator-auth.oidc")
@@ -129,10 +131,12 @@ func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.Opera
 			u, ok := jam.UserByIdentity(st, iss, sub)
 			return u.ID, u.Name, ok
 		},
-		Bearer:       previewBearer(oidcAuth, lc, st),
-		BearerIssuer: bc.Issuer,
-		Now:          time.Now,
-		Log:          log,
+		Bearer:         previewBearer(oidcAuth, lc, st),
+		BearerIssuer:   bc.Issuer,
+		Frames:         frames,
+		FrameAncestors: uiOrigins,
+		Now:            time.Now,
+		Log:            log,
 	})
 	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidLoginReturn), nil, log)
 	if err != nil {

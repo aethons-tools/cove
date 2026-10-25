@@ -929,6 +929,7 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	r.Header.Set("Accept", "text/html")
 	r.Header.Set("Sec-Fetch-Dest", "iframe")
 	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	a.o.FrameAncestors = []string{"https://jam.example", "https://other.example"}
 	w := httptest.NewRecorder()
 	a.LoginRedirect(w, r)
 	body := w.Body.String()
@@ -941,7 +942,7 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	for _, s := range []string{
 		"This browser can&#39;t sign in inside the pane.",
 		`<a href="https://` + hostA + `/app?x=1&amp;y=&lt;b&gt;" target="_top">Open in new tab</a>`,
-		`parent.postMessage({jam:"frame-error",status:"cookies"}, "*")`,
+		`parent.postMessage({jam:"frame-error",status:"cookies"}, "https://jam.example")`,
 	} {
 		if !strings.Contains(body, s) {
 			t.Errorf("body lacks %q:\n%s", s, body)
@@ -949,6 +950,12 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	}
 	if strings.Contains(body, "<b>") {
 		t.Errorf("unescaped request URI in body:\n%s", body)
+	} // No UI origins: no frame may show it, so no message is posted.
+	a.o.FrameAncestors = nil
+	w = httptest.NewRecorder()
+	a.LoginRedirect(w, r)
+	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "postMessage") {
+		t.Errorf("no origins: %d %s", w.Code, w.Body)
 	}
 }
 
@@ -1049,9 +1056,21 @@ func TestLogoutEndsFrameSessions(t *testing.T) {
 	if _, _, _, err := a.PrincipalFrame(frameReq(hostB, bCk)); err != nil {
 		t.Fatalf("alice's hostB frame session: %v", err)
 	}
+	// A sibling studio (same-site) cannot log the pane out: the frame
+	// cookie is honoured only where frameCookieUseAllowed says.
+	r = httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
+	r.AddCookie(bobCk)
+	r.Header.Set("Sec-Fetch-Site", "same-site")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Header.Set("Sec-Fetch-Dest", "iframe")
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), r)
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, bobCk)); err != nil {
+		t.Fatalf("same-site logout ended the frame session: %v", err)
+	}
 	// Logging out from inside the pane (frame cookie only) ends that session.
 	r = httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
 	r.AddCookie(bobCk)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
 	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), r)
 	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, bobCk)); !errors.Is(err, ErrNoCredentials) {
 		t.Fatalf("frame session survives in-pane logout: %v", err)
