@@ -258,7 +258,7 @@ Attach-stream commands (not `ControlSink`); each is recorded as a `cove`/`comman
 - **Compact.** Runs `/compact <instructions>`: at the turn boundary when running, at once when
   holding, and, when waiting, in a **maintenance episode** (`--continue`; no `running`/`waiting`
   report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
-- **Clear.** Only while waiting (dropped while an episode is live). It writes
+- **Clear.** Applies only while waiting: dropped during a live agent episode; one pressed during an idle compaction applies once it finishes. It writes
   `/agent-data/.cove-clear-pending` (contents: who pressed). The next episode starts without
   `--continue`, with the starting prompt, a notice that the conversation was cleared, and the wake
   text. The marker beats the standing conversation marker on restart and is consumed on the

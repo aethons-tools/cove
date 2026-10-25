@@ -28,7 +28,7 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **Interrupt:** a visible button beside Copy SSH, enabled while the session is running. See [Session controls](#session-controls).
-- **⋯ menu:** Compact and Clear (see [Session controls](#session-controls)), then each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
+- **⋯ menu:** Compact and Clear (see [Session controls](#session-controls); only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `POST /app/user/session/{id}/<action>`.
   The server re-checks permission (403 otherwise). Ending a session reloads the page.
   The header doesn't refresh while the menu is open.
 
