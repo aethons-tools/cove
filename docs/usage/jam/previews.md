@@ -88,8 +88,8 @@ request (`Sec-Fetch-Site: same-origin`) or a WebSocket whose `Origin` is the
 preview host itself. So each pane load uses a fresh ticket, and a redirect or
 link from one studio into another inside the pane is not signed in. On a
 top-level or iframe navigation it is ignored (you log in); elsewhere refused. In
-an iframe it beats `__Host-jam_preview`, which an iframe navigation ignores.
-Your right is re-checked every time.
+an iframe it beats `__Host-jam_preview` (ignored on an iframe navigation), and
+it stands in for a stale one. Your right is re-checked every time.
 
 Every preview response carries `Content-Security-Policy: frame-ancestors`
 listing only the [`ui-origins`](serve.md) (`'none'` when unset), beside any CSP
