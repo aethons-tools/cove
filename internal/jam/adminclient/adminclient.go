@@ -129,30 +129,42 @@ func (c *Client) doRaw(method, path, contentType string, body []byte, out any) e
 
 // send issues one request; contentType "" sends no body.
 func (c *Client) send(httpc *http.Client, method, path, contentType string, body []byte, out any) error {
+	_, err := c.sendHeaders(httpc, method, path, contentType, body, nil, out)
+	return err
+}
+
+// sendHeaders is send with extra request headers (hdr may be nil), returning
+// the answer's headers. out may be a *[]byte to take a 2xx body raw.
+func (c *Client) sendHeaders(httpc *http.Client, method, path, contentType string, body []byte, hdr http.Header, out any) (http.Header, error) {
 	var r io.Reader
 	if contentType != "" {
 		r = bytes.NewReader(body)
 	}
 	req, err := http.NewRequest(method, c.base+path, r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	for k, vs := range hdr {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := httpc.Do(req)
 	if err != nil {
-		return fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
+		return nil, fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
 	}
-	return finish(resp, method, path, out)
+	return resp.Header, finish(resp, method, path, out)
 }
 
 // finish maps a non-2xx answer to a *StatusError (wrapping ErrNotFound for
 // 404 and ErrConflict for 409) and decodes a 2xx JSON answer into out (nil:
-// discarded). It closes the body.
+// discarded; a *[]byte takes the body raw). It closes the body.
 func finish(resp *http.Response, method, path string, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -164,6 +176,11 @@ func finish(resp *http.Response, method, path string, out any) error {
 		if resp.StatusCode == http.StatusConflict {
 			err = fmt.Errorf("%w: %w", ErrConflict, err)
 		}
+		return err
+	}
+	if raw, ok := out.(*[]byte); ok {
+		b, err := io.ReadAll(resp.Body)
+		*raw = b
 		return err
 	}
 	if out != nil {
