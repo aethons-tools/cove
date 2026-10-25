@@ -20,6 +20,15 @@ type KitDraft struct {
 	Actor     string    `json:"actor"` // who last wrote it (opened or saved)
 }
 
+// storedForm is d as both stores keep it: times in UTC at microseconds,
+// Postgres timestamptz precision, so the cache matches a reload exactly.
+// Every PutKitDraft writes this form.
+func (d KitDraft) storedForm() KitDraft {
+	d.OpenedAt = d.OpenedAt.UTC().Truncate(time.Microsecond)
+	d.UpdatedAt = d.UpdatedAt.UTC().Truncate(time.Microsecond)
+	return d
+}
+
 // GetKitDraft returns kit's open draft.
 func (m *memState) GetKitDraft(kit string) (KitDraft, bool) {
 	m.mu.RLock()

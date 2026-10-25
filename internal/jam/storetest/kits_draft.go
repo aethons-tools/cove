@@ -65,6 +65,22 @@ func runKitDraftConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatal("a draft for a kit that has none")
 		}
 	})
+	t.Run("draft times are stored as UTC microseconds", func(t *testing.T) {
+		st := withKit(t)
+		tr, objs := draftObjs(t, "a.txt", "x")
+		zone := time.FixedZone("UTC+1", 3600)
+		d := draftOn(tr.Hash())
+		d.OpenedAt = time.Unix(20, 123456789).In(zone)
+		d.UpdatedAt = time.Unix(30, 999).In(zone)
+		if err := st.PutKitDraft(d, objs); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := st.GetKitDraft("app")
+		wantOpened, wantUpdated := time.Unix(20, 123456000).UTC(), time.Unix(30, 0).UTC()
+		if got.OpenedAt != wantOpened || got.UpdatedAt != wantUpdated {
+			t.Fatalf("times = %v, %v; want %v, %v", got.OpenedAt, got.UpdatedAt, wantOpened, wantUpdated)
+		}
+	})
 	t.Run("refuses a draft that does not hold together and writes nothing", func(t *testing.T) {
 		st := withKit(t)
 		tr, objs := draftObjs(t, "a.txt", "x")
@@ -148,12 +164,7 @@ func runKitDraftConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if _, ok := st.GetKitDraft("app"); ok {
 			t.Fatal("the draft outlived its kit")
 		}
-		if _, err := st.GCKitObjects(); err != nil {
-			t.Fatal(err)
-		}
-		if _, ok := st.KitTree(tr.Hash()); ok {
-			t.Fatal("the removed draft's tree survived GC")
-		}
+		assertDraftCollected(t, st, tr)
 	})
 	t.Run("a config apply removing the kit removes its draft", func(t *testing.T) {
 		st := withKit(t)
@@ -167,6 +178,7 @@ func runKitDraftConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if _, ok := st.GetKitDraft("app"); ok {
 			t.Fatal("the draft outlived its kit")
 		}
+		assertDraftCollected(t, st, tr)
 	})
 	t.Run("drafts are not exported", func(t *testing.T) {
 		st := withKit(t)
@@ -192,4 +204,20 @@ func runKitDraftConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 			t.Fatal("an import made a draft")
 		}
 	})
+}
+
+// assertDraftCollected runs GC after kit app (v1: kit.yml) and its draft
+// tr (draft-only.txt) were removed: both trees and both blobs go.
+func assertDraftCollected(t *testing.T, st jam.Store, tr kittree.Tree) {
+	t.Helper()
+	if gc, err := st.GCKitObjects(); err != nil || gc != (jam.KitGC{Trees: 2, Blobs: 2}) {
+		t.Fatalf("gc = %+v %v, want the kit's and the draft's tree and blob", gc, err)
+	}
+	if _, ok := st.KitTree(tr.Hash()); ok {
+		t.Fatal("the removed draft's tree survived GC")
+	}
+	e, _ := tr.Lookup("draft-only.txt")
+	if _, ok := st.KitBlob(e.SHA256); ok {
+		t.Fatal("the removed draft's blob survived GC")
+	}
 }

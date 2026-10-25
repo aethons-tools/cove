@@ -822,4 +822,30 @@ func TestPostgresKitDraftSurvivesReopen(t *testing.T) {
 	if _, ok := again.KitTree(dt.Hash()); !ok {
 		t.Fatal("the draft tree was not loaded")
 	}
+	// The rows go too, not just the cache: removing kit app cascades to its
+	// draft, and discarding web's draft deletes its row.
+	if _, err := again.PushKitVersion("web", tr.Hash(), jam.KitObjects{}, jam.KitVersionMeta{PushedAt: time.Unix(10, 0).UTC()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	web := d
+	web.Kit = "web"
+	if err := again.PutKitDraft(web, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := again.RemoveKit("app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := again.RemoveKitDraft("web"); err != nil {
+		t.Fatal(err)
+	}
+	third, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(third.Close)
+	for _, kit := range []string{"app", "web"} {
+		if _, ok := third.GetKitDraft(kit); ok {
+			t.Fatalf("kit %s: the removed draft reloaded", kit)
+		}
+	}
 }

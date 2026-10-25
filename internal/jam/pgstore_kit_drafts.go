@@ -12,6 +12,7 @@ import (
 func (s *PostgresStore) PutKitDraft(d KitDraft, objs KitObjects) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	d = d.storedForm()
 	if err := checkKitDraft(s.memState, d, objs); err != nil {
 		return err
 	}
@@ -45,8 +46,9 @@ func (s *PostgresStore) RemoveKitDraft(kit string) error {
 	return nil
 }
 
-// loadKitDrafts reads every draft row into the cache (load, before the store
-// is shared). Times come back in UTC.
+// loadKitDrafts reads every draft row into the cache (load, after
+// loadKitObjects, before the store is shared). Times come back in UTC. A
+// draft whose tree is not loaded refuses the open, as corrupt kit objects do.
 func (s *PostgresStore) loadKitDrafts(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT name, base, tree, opened_at, updated_at, actor FROM kit_drafts`)
 	if err != nil {
@@ -59,6 +61,9 @@ func (s *PostgresStore) loadKitDrafts(ctx context.Context) error {
 			return err
 		}
 		d.OpenedAt, d.UpdatedAt = d.OpenedAt.UTC(), d.UpdatedAt.UTC()
+		if _, ok := s.kitTrees[d.Tree]; !ok {
+			return fmt.Errorf("pgstore: load kit_drafts: kit %s draft tree %.12s is not stored (corrupt store)", d.Kit, d.Tree)
+		}
 		s.kitDrafts[d.Kit] = d
 	}
 	return rows.Err()

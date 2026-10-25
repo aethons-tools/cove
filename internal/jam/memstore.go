@@ -207,6 +207,7 @@ func (fs *MemStore) GCKitObjects() (KitGC, error) {
 func (fs *MemStore) PutKitDraft(d KitDraft, objs KitObjects) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	d = d.storedForm()
 	if err := checkKitDraft(fs.memState, d, objs); err != nil {
 		return err
 	}
