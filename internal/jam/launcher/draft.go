@@ -38,8 +38,10 @@ func checkDraftImageID(id string) error {
 // gate and build args. Only the tags differ: the draft's own stage is
 // tagged jam.KitDraftStageTag(tag) and the image tag. Neither is ever a kit
 // version's stage or image tag. With a backend.LoggedKitBuilder, the docker
-// output goes to log and a done ctx stops the build. It returns the image
-// id. The launcher's own log lines never print build-arg values.
+// output goes to log and a done ctx stops the build. Backends other than
+// colima are not LoggedKitBuilders: their builds write no docker output to
+// log, and ctx is checked only between steps, never mid-step. It returns
+// the image id. The launcher's own log lines never print build-arg values.
 func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag string, log io.Writer) (string, error) {
 	if !strings.HasPrefix(tag, draftTagPrefix) {
 		return "", fmt.Errorf("draft build %s: %q is not a draft image tag", def.Ref.ID, tag)

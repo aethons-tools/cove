@@ -113,8 +113,9 @@ func unavailable(name, reason string) SetupSection {
 }
 
 // RenderSetupText writes the CLI's text form: one block per section headed
-// "== <name or title> (<source>[, stale][, <at>])", the reason in parentheses, the
-// body indented by bodyIndent, then the diff when one was asked for.
+// "== <heading> (<source>[, stale][, <at>])" (its Title when set, else its
+// Name), the reason in parentheses, the body indented by bodyIndent, then
+// the diff when one was asked for.
 func RenderSetupText(w io.Writer, s StudioSetup) {
 	fmt.Fprintf(w, "# %s\n", flat(s.Subject))
 	if s.Note != "" {

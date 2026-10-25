@@ -85,6 +85,7 @@ type Instance struct {
 	KitChain           []KitRef      `json:"kit_chain,omitempty"`           // the chain the image was built from (id+version per link, root first, the kit itself last); nil when unchained or raised before this was recorded
 	ImageTag           string        `json:"image_tag,omitempty"`           // the image tag the launcher ran the cove under (ImageTagger); "" = unknown (raised before this was recorded, or a launcher that cannot name it)
 	KitDraft           *KitDraftRef  `json:"kit_draft,omitempty"`           // a draft studio: the kit and draft tree it runs (Kit is then that kit at v0); its tree stays GC-live while the instance exists
+	KitDraftImage      string        `json:"kit_draft_image,omitempty"`     // a draft studio: the id of the image it runs; its image facts are read by it, never by the moving draft ImageTag
 	TurnEndedAt        time.Time     `json:"turn_ended_at,omitempty"`       // when the cove last left Running for Holding/Waiting
 	IdleDeadline       time.Time     `json:"idle_deadline,omitempty"`       // armed at turn end from IdleOverride or the role's idle timeout; zero = none armed
 	IdleOverride       *IdleOverride `json:"idle_override,omitempty"`       // the cove's own idle-timeout override (PUT /idle)

@@ -435,3 +435,30 @@ func TestOSRunIOContextPropagatesExitCode(t *testing.T) {
 		t.Fatalf("err = %v, want exit 3", err)
 	}
 }
+
+// cancelOnWrite cancels its ctx a moment after the child's output reaches
+// it: by then the child has exited 0 and exec has seen it exit.
+type cancelOnWrite struct {
+	once   sync.Once
+	cancel context.CancelFunc
+}
+
+func (w *cancelOnWrite) Write(p []byte) (int, error) {
+	w.once.Do(func() {
+		time.Sleep(200 * time.Millisecond)
+		w.cancel()
+	})
+	return len(p), nil
+}
+
+// A command that succeeded keeps its success when the cancel lands only as
+// the call returns: ctx.Err() is returned for a failed command only.
+func TestOSRunIOContextKeepsASuccessTheCancelMissed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := &cancelOnWrite{cancel: cancel}
+	err := OS{}.RunIOContext(ctx, nil, w, io.Discard, "sh", "-c", "printf hi")
+	if err != nil || ctx.Err() == nil {
+		t.Fatalf("err = %v (ctx %v)", err, ctx.Err())
+	}
+}

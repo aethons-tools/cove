@@ -380,9 +380,18 @@ func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (stri
 	if noFollow {
 		return 0
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := followContext()
 	defer stop()
 	return followDraftBuild(ctx, c, kit, name, b.ID, stdout, stderr, time.After)
+}
+
+// followContext is done on the first SIGINT or SIGTERM, which then stops
+// being caught: a second one terminates at-jam, even while a request is in
+// flight.
+func followContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
 }
 
 // followDraftBuild polls build id's log (every draftBuildPoll, waited with

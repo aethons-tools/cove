@@ -78,8 +78,7 @@ chain (its stages reused as usual), the harness, the sealed hardening layer
 and the build args, with the draft's files as the kit's own stage. Nothing
 is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
 stage `…-stage`), never a version's image or stage tag. It needs a launcher
-that builds images
-([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one
+that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one
 the build routes answer 503
 `test builds need a launcher that builds images (runtime.launcher)`.
 
@@ -104,7 +103,8 @@ the build routes answer 503
 `at-jam studio raise --id try --role dev --kit-draft app` raises a manual
 studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
 tree as of the raise, unpublished. Admin only, like every raise; the role
-supplies all but the kit, shown as `<kit> (draft @<tree[:7]>)`.
+supplies all but the kit. Its session context's kit fact and its setup
+inspect name the kit `<kit> (draft @<tree[:7]>)`.
 
 - The raise reads the draft (problems refuse it), resolves its parents as a
   push would, and test-builds it under the role's model-spec harness. The
@@ -112,13 +112,14 @@ supplies all but the kit, shown as `<kit> (draft @<tree[:7]>)`.
   and its image exists; otherwise (none, failed, image gone) a build starts
   and the raise waits (`studio raise` allows 30 minutes). A request gone
   first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
-- 409 while a build of another tree or harness runs, or `draft <kit> changed during the raise (retry)`.
-  A failed build is 400 `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
-- The studio runs that image by id, records `kit_draft` (`kit`, `tree`) and
-  is answered `kit_draft_tree`. Its image status is `draft`: pushing or
-  publishing never makes it stale or restarts it onto current. Its tree stays
-  stored while it exists, even once the draft is discarded or published, for
-  its session context and setup inspect ([inspect.md](inspect.md#sections)).
+- 409 while a build of another tree or harness runs, or
+  `draft <kit> changed during the raise (retry)`. A failed build is 400
+  `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
+- The studio runs that image by id (its setup inspect reads it by id too),
+  records `kit_draft` (`kit`, `tree`), and the raise answers `kit_draft_tree`. Its image status is `draft`: pushing or publishing never
+  makes it stale or restarts it onto current. Its tree stays stored while it
+  exists, even once the draft is discarded or published, for its session
+  context and setup inspect ([inspect.md](inspect.md#sections)).
 
 ## The `kit draft` verbs
 
@@ -134,24 +135,23 @@ at-jam kit draft build app [--no-follow]               # test-build the draft, f
 at-jam kit draft discard app                           # drop the draft
 ```
 
-Each write (and `build`) first fetches the status and sends its etag, so it overwrites an
-edit made since you last looked (`sync` replaces the whole tree). With
-`--etag <hash>`, a write is checked against the etag you already hold and
-fails with 412 instead. `publish` prints the new version's tree prefix, and
-its `warning` on stderr. The admin-client flags apply as for every
-[`kit` verb](kits.md#the-kit-verbs).
+Each write, and `build` when it starts one, first fetches the status and
+sends its etag, so it overwrites an edit made since you last looked (`sync`
+replaces the whole tree). With `--etag <hash>`, a write is checked against
+the etag you already hold and fails with 412 instead. `publish` prints the
+new version's tree prefix, its `warning` on stderr, and with `--pin` a
+`pinned …` line per follower pinned. The admin-client flags apply as for
+every [`kit` verb](kits.md#the-kit-verbs).
 
 - `status` prints `draft <kit>: base vN, current vM`, and when another
   version landed since the draft was opened, that publishing replaces it with
   the draft (nothing is merged). Names, paths and problems are printed escaped.
 - `sync` reads the directory as `kit push` does
-  ([kits-directory.md](kits-directory.md)) and replaces the
-  draft's tree with it. It prints the files
-  added, removed, modified or mode-changed, or `unchanged`. It needs an open
-  draft: run `kit draft open` first.
+  ([kits-directory.md](kits-directory.md)) and replaces the draft's tree with
+  it. It prints the files added, removed, modified or mode-changed, or
+  `unchanged`. It needs an open draft: run `kit draft open` first.
 - `get -o <file>` writes the file with its mode in the draft; an existing
   symlink there is replaced, never written through.
-- `publish --pin` prints a `pinned …` line per follower pinned.
 - `build` prints the build's log as it comes, escaped, and exits 0 on
   success (with the tag and the digest) or 1 on failure. `--no-follow`
   returns once the build started; `--show` prints the latest build and its
@@ -176,7 +176,7 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `tree`, `base`, `pinned`, `drift`, `warning`. |
 | `POST /admin/kits/{name}/draft/build` | Start a test build (`If-Match`; `application/json`, else 415). 202 with the build: `id`, `tree`, `state`, `tag`. 409 when one is running; 400 for problems. |
 | `GET /admin/kits/{name}/draft/build[?since=N]` | The latest build (`no-store`): `state` (`running`, `succeeded`, `failed`, `unknown`), `tree`, `tag`, `digest` (the image id), `error`, `started_at`, `finished_at`, `current`, `draft_etag`, and the `log` from offset N (`log_from`, `log_end` for the next `since`, `log_skipped` when bytes were dropped); 400 `since must be a log offset (0 or more)`. |
-| `DELETE /admin/kits/{name}/draft/build` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
+| `DELETE /admin/kits/{name}/draft/build` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`; `succeeded` when it completed before the cancel landed), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one
@@ -193,7 +193,7 @@ the count of files `changed`), never content or a path. A publish logs
 `kit draft build requested` and `kit draft build cancelled` (the kit, the
 operator, the build id), and `kit draft build started` and
 `kit draft build finished` (the kit, the tree prefix, the build id, its
-state), never log content. A store failure
-answers a fixed 500 `internal error` and logs `kit draft: store error` (at
-error, with the method and route); a draft not closed after a publish logs
+state), never log content. A store failure answers a fixed 500
+`internal error` and logs `kit draft: store error` (at error, with the method
+and route); a draft not closed after a publish logs
 `kit draft: published but not closed` at warn.

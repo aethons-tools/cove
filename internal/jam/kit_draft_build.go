@@ -140,7 +140,7 @@ func draftDefinitionLocked(store Store, name string, tree kittree.Tree, h harnes
 // for the last, each parent's version tree for the rest) into memory, so an
 // edit, a GC or a version removal landing while the build runs cannot pull a
 // blob out from under it. A pre-tree parent has no files, and so no build
-// context. It returns the draft tree and its blobs. Caller holds kitMu.
+// context; a parent version gone or unreadable fails the copy. It returns the draft tree and its blobs. Caller holds kitMu.
 func loadDraftFilesLocked(store Store, def *KitDefinition, tree kittree.Tree) (KitObjects, error) {
 	var objs KitObjects
 	last := len(def.Chain) - 1
@@ -149,9 +149,14 @@ func loadDraftFilesLocked(store Store, def *KitDefinition, tree kittree.Tree) (K
 		t := tree
 		if i < last {
 			v, ok := LoadKitVersion(store, link.Ref.ID, link.Ref.Version)
-			if !ok || v.TreeHash == "" {
+			switch {
+			case !ok:
+				return KitObjects{}, fmt.Errorf("kit %s@v%d is gone", link.Ref.ID, link.Ref.Version)
+			case v.TreeHash == "" && v.KitYML != nil: // pre-tree: no files
 				link.Files = nil
 				continue
+			case v.Err != nil:
+				return KitObjects{}, v.Err
 			}
 			t = v.Tree
 		}
@@ -415,7 +420,8 @@ func (b *KitDraftBuilds) viewLocked(j *draftBuildJob, since int64) KitDraftBuild
 }
 
 // Cancel stops kit name's running build and waits (until ctx is done) for
-// it to end; it is then failed, "cancelled". 404 when none is running.
+// it to end; it is then failed, "cancelled" — unless it completed before
+// the cancel landed, when it ends succeeded. 404 when none is running.
 // When ctx ends first the error is ctx's, with the build as it is (its id).
 func (b *KitDraftBuilds) Cancel(ctx context.Context, name string) (KitDraftBuild, error) {
 	if !studio.TagSafeName(name) {

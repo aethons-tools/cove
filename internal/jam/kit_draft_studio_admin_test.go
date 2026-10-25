@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -45,7 +46,10 @@ func TestAdminRaisesADraftStudio(t *testing.T) {
 func TestAdminDraftRaiseRequestGone(t *testing.T) {
 	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	sup, store, _, s := draftStudioSetup(t, fb)
+	release := sync.OnceFunc(func() { close(fb.release) })
+	t.Cleanup(release)
 	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.DiscardHandler), nil)
+	actorsBefore := len(store.ListActors())
 	ctx, cancel := context.WithCancel(context.Background())
 	body, _ := json.Marshal(CoveRaiseBody{ID: "try", Role: "dev", KitDraft: "my-app"})
 	req := httptest.NewRequestWithContext(ctx, "POST", "/admin/coves", bytes.NewReader(body))
@@ -67,10 +71,14 @@ func TestAdminDraftRaiseRequestGone(t *testing.T) {
 	for _, inst := range store.ListInstances() {
 		t.Fatalf("an instance was recorded: %+v", inst)
 	}
+	// The identity the raise enrolled is revoked: no actor is left for it.
+	if got := store.ListActors(); len(got) != actorsBefore {
+		t.Fatalf("actors = %+v, want the raise's identity rolled back (%d before)", got, actorsBefore)
+	}
 	if st, err := sup.KitDraftBuilds().Status("my-app", 0); err != nil || st.State != DraftBuildRunning || st.Tree != s.Tree {
 		t.Fatalf("build = %+v %v, want it still running on %s", st, err, s.Tree)
 	}
-	close(fb.release)
+	release()
 	rec = doJSON(t, h, "POST", "/admin/coves", CoveRaiseBody{ID: "try", Role: "dev", KitDraft: "my-app"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("raise after = %d %s", rec.Code, rec.Body)

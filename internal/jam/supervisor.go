@@ -270,6 +270,10 @@ type Supervisor struct {
 	// run (SetKitDraftBuilds); nil → both are unavailable (503).
 	draftBuilds *KitDraftBuilds
 	notifyMu    sync.Mutex // orders sink deliveries (see notifyExposures)
+	// labelsMu guards pendingLabels: the labels of manual raises in flight
+	// (RaiseManual's reserveLabel).
+	labelsMu      sync.Mutex
+	pendingLabels map[string]bool
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -388,7 +392,8 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	// The role, not the caller, decides the cove's egress policy AND its kit
 	// (Enroll just proved the role exists). Callers — the Requisitioner, sessions,
 	// standing — need no change, and none can widen a role's egress or pick its kit
-	// by setting the spec.
+	// by setting the spec; the one exception is the admin raise of a draft studio
+	// (spec.KitDraft, below), which runs that kit's draft in place of the role's.
 	spec.Egress = nil
 	role, roleOK := s.store.GetRole(spec.Project, spec.Role)
 	if roleOK && role.Scope.Egress != nil {
@@ -477,7 +482,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		inst.KitChain = chainRefs(def.Chain)
 	}
 	if draft != nil {
-		inst.KitDraft, inst.ImageTag = &draft.ref, draft.image.Tag
+		inst.KitDraft, inst.ImageTag, inst.KitDraftImage = &draft.ref, draft.image.Tag, draft.image.ID
 	}
 	if err := s.store.PutInstance(inst); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
@@ -585,12 +590,12 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 	return s.kitFor(role, h)
 }
 
-// draftRaise is what a draft studio's raise resolved: its definition, the
-// draft tree it runs, that tree's objects, and its built image.
 // draftRaiseGone answers a draft studio raise whose request went away while
 // it waited for the draft's test build.
 const draftRaiseGone = "the raise stopped waiting for the draft's test build (it runs on: raise again to use it)"
 
+// draftRaise is what a draft studio's raise resolved: its definition, the
+// draft tree it runs, that tree's objects, and its built image.
 type draftRaise struct {
 	def   KitDefinition
 	ref   KitDraftRef

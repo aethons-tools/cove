@@ -70,3 +70,37 @@ func TestRenderSetupTextUsesTheTitle(t *testing.T) {
 		t.Fatalf("got %q, want %q", b.String(), want)
 	}
 }
+
+// A draft studio's image facts are read by the image id it raised, never by
+// its moving tag: a later build retagging the tag to another image leaves
+// the studio's inspect showing what it runs.
+func TestDraftStudioSetupReadsItsImageByID(t *testing.T) {
+	sup, store, _, s := draftStudioSetup(t, &fakeDraftBuilder{})
+	inst, err := raiseDraftStudio(t, sup, "d1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.KitDraftImage != "sha256:img" {
+		t.Fatalf("recorded draft image = %q", inst.KitDraftImage)
+	}
+	tag, _ := KitDraftTag("my-app", s.Tree)
+	raised := ImageFacts{ID: "sha256:img", Labels: map[string]string{"which": "raised"}, Seed: []SeedFile{{Path: "raised.md", Size: 1}}}
+	moved := ImageFacts{ID: "sha256:other", Labels: map[string]string{"which": "moved"}, Seed: []SeedFile{{Path: "moved.md", Size: 1}}}
+	imgs := &fakeImages{facts: map[string]ImageFacts{"sha256:img": raised, tag: moved}}
+	d := SetupDeps{Store: store, Sup: sup, Images: imgs}
+	got, err := InstanceSetup(context.Background(), d, "d1", []string{SectionKit, SectionSeed}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	RenderSetupText(&b, got)
+	text := b.String()
+	for _, want := range []string{"image id: sha256:img", "which=raised", "raised.md", "image tag: " + tag} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("render lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "moved") {
+		t.Fatalf("render read the moved tag:\n%s", text)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-billy/v5/util"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -488,6 +489,29 @@ func TestBuildLogConcurrentWriters(t *testing.T) {
 	for w := range writers {
 		if c := counts[string(rune('a'+w))]; c != lines {
 			t.Fatalf("writer %d: %d lines, want %d", w, c, lines)
+		}
+	}
+}
+
+// A build copies each parent's version tree: a parent version that is gone
+// or unreadable fails the copy; only a pre-tree (text) parent has no files.
+func TestLoadDraftFilesParents(t *testing.T) {
+	st := NewMemStore()
+	doc := Kit{Name: "old", Current: 1, Versions: map[int]string{1: `{"kind":"studio","prompt":"p"}`}, Broken: map[int]string{2: "its base.context is not a readable tar.gz"}}
+	if err := st.PutKitDocs([]Kit{doc}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	self := kittree.Tree{}
+	def := func(parent KitRef) *KitDefinition {
+		return &KitDefinition{Chain: []KitLink{{Ref: parent}, {Ref: KitRef{ID: "app"}}}}
+	}
+	d := def(KitRef{ID: "old", Version: 1})
+	if _, err := loadDraftFilesLocked(st, d, self); err != nil || d.Chain[0].Files != nil {
+		t.Fatalf("pre-tree parent: %v (files %v)", err, d.Chain[0].Files)
+	}
+	for _, p := range []KitRef{{ID: "old", Version: 2}, {ID: "old", Version: 3}, {ID: "gone", Version: 1}} {
+		if _, err := loadDraftFilesLocked(st, def(p), self); err == nil {
+			t.Fatalf("parent %s: no error", p)
 		}
 	}
 }

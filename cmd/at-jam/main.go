@@ -1287,7 +1287,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft})
 		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
+			// Escaped: a draft studio's problems quote kit.yml values.
+			fmt.Fprintln(stderr, "at-jam:", textesc.Escape(err.Error(), false))
 			return 1
 		}
 		if res.KitDraftTree != "" {

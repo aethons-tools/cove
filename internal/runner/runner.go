@@ -255,6 +255,7 @@ const osWaitDelay = 10 * time.Second
 
 // RunIOContext is RunIO under ctx: when ctx is done the child gets an
 // interrupt, and a kill osWaitDelay later; the call then returns ctx.Err().
+// A command that succeeded returns nil even when ctx is done by then.
 func (OS) RunIOContext(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = orReader(stdin, os.Stdin)
@@ -263,8 +264,8 @@ func (OS) RunIOContext(ctx context.Context, stdin io.Reader, stdout, stderr io.W
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = osWaitDelay
 	err := cmd.Run()
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err() // a command that finished as the cancel landed keeps its success
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {

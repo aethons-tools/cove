@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -212,12 +214,14 @@ func TestDraftStudioRefusals(t *testing.T) {
 // a raise of the current tree does not wait on it, it is refused. The API
 // and the raise share the supervisor's one registry.
 func TestDraftStudioRefusesWhileAnotherTreeBuilds(t *testing.T) {
-	fb := &fakeDraftBuilder{release: make(chan struct{})}
+	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	sup, store, _, s := draftStudioSetup(t, fb)
+	t.Cleanup(func() { close(fb.release) })
 	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.DiscardHandler), nil)
 	if w := draftDo(t, h, "POST", "/admin/kits/my-app/draft/build", "application/json", s.ETag, nil); w.Code != http.StatusAccepted {
 		t.Fatalf("start = %d %s", w.Code, w.Body)
 	}
+	<-fb.started
 	if _, err := PutKitDraftFile(store, slog.New(slog.DiscardHandler), "my-app", "notes.txt", 0, []byte("x"), s.ETag, "op", draftNow); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +232,6 @@ func TestDraftStudioRefusesWhileAnotherTreeBuilds(t *testing.T) {
 	if fb.builds() != 1 {
 		t.Fatalf("builds = %d", fb.builds())
 	}
-	close(fb.release)
 }
 
 // Review Focus 4: discarding or publishing the draft leaves a running draft
@@ -307,5 +310,43 @@ func TestDraftStudioTreeReStoredAfterARacingDiscard(t *testing.T) {
 	}
 	if gc, err := store.GCKitObjects(); err != nil || gc.Trees != 0 {
 		t.Fatalf("gc = %+v %v (the instance keeps its tree)", gc, err)
+	}
+}
+
+// A manual raise reserves its label before it waits for the draft's build:
+// a second raise with the same label meanwhile is refused as taken, and the
+// label is free again once the first raise ends.
+func TestDraftStudioRaiseReservesItsLabel(t *testing.T) {
+	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
+	sup, store, _, _ := draftStudioSetup(t, fb)
+	release := sync.OnceFunc(func() { close(fb.release) })
+	t.Cleanup(release)
+	spec := RaiseSpec{Project: "default", Role: "dev", KitDraft: "my-app"}
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, _, err := RaiseManual(context.Background(), store, sup, "try", spec)
+		done <- err
+	}()
+	<-fb.started
+	// Bounded: an unreserved second raise would join the build's wait.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, _, _, err := RaiseManual(ctx, store, sup, "try", spec)
+	if err == nil || err.Error() != `a live session is already labelled "try"` || WriteStatus(err, 500) != http.StatusConflict {
+		t.Fatalf("second raise while the first builds = %v", err)
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, "try", spec); err == nil || WriteStatus(err, 500) != http.StatusConflict {
+		t.Fatalf("raise over the live session = %v", err)
+	}
+	// A failed raise releases its reservation.
+	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, "other", RaiseSpec{Project: "default", Role: "nope"}); err == nil {
+		t.Fatal("raise of an unknown role succeeded")
+	}
+	if sup.labelPending("other") {
+		t.Fatal("a failed raise kept its label reserved")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
@@ -214,5 +215,18 @@ func TestStudioRaiseKitDraft(t *testing.T) {
 	out.Reset()
 	if code := run([]string{"studio", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "\timage=draft\n") {
 		t.Fatalf("list: %d %q", code, out.String())
+	}
+}
+
+// A raise's server error is escaped: draft problems quote kit.yml values.
+func TestStudioRaiseEscapesTheServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "raise: draft studio: kit.yml: base \"a\x1b[2Jb\" unknown", http.StatusBadRequest)
+	}))
+	t.Cleanup(ts.Close)
+	var out, errb bytes.Buffer
+	code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "try", "--role", "guest", "--kit-draft", "app"}, func(string) string { return "" }, &out, &errb)
+	if code != 1 || strings.Contains(errb.String(), "\x1b") || !strings.Contains(errb.String(), `a\x1b[2Jb`) {
+		t.Fatalf("raise: %d %q", code, errb.String())
 	}
 }
