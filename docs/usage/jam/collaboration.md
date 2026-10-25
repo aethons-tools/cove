@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — at-jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-25
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -98,7 +98,8 @@ Jam checks each cert request and each connection against four rules, in order:
    (default `members`; see [previews.md](previews.md)) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
-A removed user matches none of them. A studio that is terminating or gone
+A removed user matches none of them. The `ide` preview (the studio's web
+IDE, [previews.md](previews.md#a-web-ide)) checks `ssh`, not `preview`. A studio that is terminating or gone
 takes no certs or tunnels (409); a paused one is resumed for an allowed caller
 ([Idle studios](#idle-studios)). The rules need no project membership: a
 share grant works for a user who is in no project.
