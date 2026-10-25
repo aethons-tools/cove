@@ -202,3 +202,20 @@ func TestPathParentRefusedOutsideGitImport(t *testing.T) {
 		t.Fatalf("resolve: want chain error, got %v", err)
 	}
 }
+
+// A parent whose own error already names it (a broken migrated version) is
+// not named twice: the chain error places "(parent of …)" after the name.
+func TestResolveKitChainBrokenParentNamedOnce(t *testing.T) {
+	st := NewMemStore()
+	if err := st.PutKitDocs([]Kit{legacyDoc("p", `{"kind":"studio"}`, `{"kind":"studio","base":{"context":"!!not base64"}}`)}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ResolveKitChain(st, "c", chainKit("p@v2", ""))
+	const want = "kit p@v2 (parent of c) could not be migrated to a tree: its base.context is not valid base64"
+	if !errors.Is(err, ErrKitChain) || err.Error() != want {
+		t.Fatalf("got  %v\nwant %s", err, want)
+	}
+}

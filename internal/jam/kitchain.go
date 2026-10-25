@@ -76,7 +76,12 @@ func ResolveKitChain(store KitReader, self string, sk studio.StudioKit) ([]KitLi
 			return nil, chainErr("kit %s has no version v%d (parent of %s)", name, version, curName)
 		}
 		if pv.Err != nil {
-			return nil, chainErr("kit %s@v%d (parent of %s) is invalid: %v", name, version, curName, pv.Err)
+			// LoadKitVersion's own errors start "kit name@vN": name it once.
+			ref := fmt.Sprintf("kit %s@v%d", name, version)
+			if rest, named := strings.CutPrefix(pv.Err.Error(), ref); named {
+				return nil, chainErr("%s (parent of %s)%s", ref, curName, rest)
+			}
+			return nil, chainErr("%s (parent of %s) is invalid: %v", ref, curName, pv.Err)
 		}
 		parent := pv.Kit
 		rev = append(rev, KitLink{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(parent, h)}, Kit: parent, Follow: pin == 0, Files: pv.Files})
