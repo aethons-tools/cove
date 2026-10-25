@@ -129,6 +129,10 @@ type Workload struct {
 	spawner Spawner
 	conn    *connectorRefresher
 	wake    *wakeBox
+	cmds    *cmdBox
+	// interrupts numbers the interrupt control requests (request ids); Run's
+	// goroutine only.
+	interrupts uint64
 	// gate is what a RunGate control needs from the running unit: its ctx, the
 	// handle results go up on, and the agent's last spawn env (nil = inherit).
 	gateMu  sync.Mutex
@@ -174,7 +178,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.Connector != nil {
 		conn = newConnectorRefresher(*cfg.Connector, log)
 	}
-	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox()}
+	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox(), cmds: newCmdBox()}
 }
 
 // resumeText is the prompt a Wake delivers.
@@ -317,7 +321,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 		started := time.Now()
 
-		waitErr := w.episode(ctx, h, proc, tr, first)
+		waitErr := w.episode(ctx, h, t, proc, tr, first)
 		split.Flush()
 		if tr.ResumeOwed() {
 			// The last resume prompt was written but the agent never started the
@@ -456,9 +460,10 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 }
 
 // episode drives one agent process: writes prompt, then reacts to tracker
-// changes, Wakes, the background-wait timer and exit until the process exits.
-// It returns the process's exit error.
-func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Process, tr *idleTracker, prompt string) error {
+// changes, Wakes, session-header commands, the background-wait timer and exit
+// until the process exits. turn is the episode's event turn. It returns the
+// process's exit error.
+func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32, proc Process, tr *idleTracker, prompt string) error {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	in := proc.Input()
@@ -471,13 +476,14 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		w.log.Info("agentrun: closing agent stdin", "why", why)
 		_ = in.Close()
 	}
-	write := func(text string) {
-		if _, err := in.Write(w.cfg.Harness.EncodeInput(text)); err != nil {
+	writeRaw := func(b []byte) {
+		if _, err := in.Write(b); err != nil {
 			// The process is gone (EPIPE); its exit reports the real outcome.
 			w.log.Warn("agentrun: write to agent stdin failed; awaiting exit", "err", err.Error())
 			closeInput("stdin write failed")
 		}
 	}
+	write := func(text string) { writeRaw(w.cfg.Harness.EncodeInput(text)) }
 	var hold *time.Timer
 	var holdC <-chan time.Time
 	stopHold := func() {
@@ -509,10 +515,14 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		}
 		return text
 	}
+	// ackBy: who interrupted the turn in flight; when it ends, the acknowledge
+	// turn is written instead of the usual turn-end action.
+	ackBy := ""
 	for {
-		var wake <-chan struct{}
+		var wake, cmds <-chan struct{}
 		if open {
 			wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
+			cmds = w.cmds.signal() // and commands for awaitWake, which drops them
 		}
 		select {
 		case err := <-exited:
@@ -520,12 +530,34 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		case <-ctx.Done():
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
-			// A signal whose reasons an earlier prompt already took is stale.
-			if w.wake.has() && tr.Wake() {
+			switch {
+			case !w.wake.has():
+				// A signal whose reasons an earlier prompt already took is stale.
+			case ackBy != "":
+				// The acknowledge turn answers it: only record it as pending
+				// (so an exit before the ack keeps it owed), never deliver now.
+				tr.Wake()
+			case tr.Wake():
 				write(resume())
 				tr.Wrote()
 				unhold()
 			}
+		case <-cmds:
+			if by, ok := w.cmds.takeInterrupt(); ok {
+				w.emitCommand(h, turn, "interrupt", by)
+				switch {
+				case !tr.Busy():
+					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "not in a turn")
+				case ackBy != "":
+					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "already interrupting")
+				default:
+					w.interrupts++
+					w.log.Info("agentrun: interrupting the agent's turn", "by", by)
+					writeRaw(w.cfg.Harness.EncodeInterrupt(fmt.Sprintf("cove-int-%d", w.interrupts)))
+					ackBy = by
+				}
+			}
+			w.dropUnbuilt("episode")
 		case <-tr.changed:
 		case <-holdC:
 			_, tasks := tr.Next()
@@ -536,6 +568,20 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 			unhold() // the agent now stops its tasks: busy until the episode exits
 		}
 		if !open {
+			continue
+		}
+		if ackBy != "" && !tr.Busy() {
+			// The interrupted turn ended: one acknowledge turn, which also
+			// answers any wakes coalesced into the interrupted one.
+			stopHold()
+			text := interruptPrompt(ackBy, w.wake.take())
+			if w.ctxr != nil {
+				text += contextNotice(w.ctxr.live(ctx), true)
+			}
+			write(text)
+			tr.Deliver()
+			unhold()
+			ackBy = ""
 			continue
 		}
 		switch act, tasks := tr.Next(); act {
@@ -570,6 +616,11 @@ func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs 
 			if rs = w.wake.take(); len(rs) > 0 {
 				return rs, true
 			}
+		case <-w.cmds.signal():
+			if by, ok := w.cmds.takeInterrupt(); ok {
+				w.log.Info("agentrun: interrupt ignored", "by", by, "why", "no live episode")
+			}
+			w.dropUnbuilt("waiting")
 		case <-ctx.Done():
 			return nil, false
 		case <-timeout:
@@ -599,6 +650,8 @@ func (w *Workload) logTurn(waitErr error) {
 // coalesced into one resume prompt at turn end); after the process exited, a
 // Run waiting after an episode consumes it and resumes. Coalesced wakes
 // merge their reasons: the one resume prompt names them all (renderWake).
+// Interrupt, Compact and Clear post to the command box the same way, never
+// blocking: the episode loop acts on them, or awaitWake drops them.
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
@@ -608,6 +661,26 @@ func (w *Workload) Control(c covemaster.Control) {
 	case covemaster.Wake:
 		w.log.Info("agentrun: wake requested", "reasons", len(c.Reasons))
 		w.wake.post(c.Reasons)
+	case covemaster.Interrupt:
+		w.log.Info("agentrun: interrupt requested", "by", c.By)
+		w.cmds.postInterrupt(c.By)
+	case covemaster.Compact:
+		w.log.Info("agentrun: compact requested", "by", c.By)
+		w.cmds.postCompact(c.By, c.Instructions)
+	case covemaster.Clear:
+		w.log.Info("agentrun: clear requested", "by", c.By)
+		w.cmds.postClear(c.By)
+	}
+}
+
+// dropUnbuilt takes and logs a pending Compact or Clear, which have no
+// behaviour yet, so neither lingers in the box. where names the consumer.
+func (w *Workload) dropUnbuilt(where string) {
+	if by, _, ok := w.cmds.takeCompact(); ok {
+		w.log.Info("agentrun: compact ignored (not supported yet)", "by", by, "where", where)
+	}
+	if by, ok := w.cmds.takeClear(); ok {
+		w.log.Info("agentrun: clear ignored (not supported yet)", "by", by, "where", where)
 	}
 }
 
