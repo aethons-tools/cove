@@ -190,3 +190,27 @@ func RemoveKitDraftFile(store Store, log *slog.Logger, name, p, ifMatch, actor s
 	next := cur.Without(p)
 	return saveDraftLocked(store, log, d, cur, next, KitObjects{Trees: []kittree.Tree{next}}, actor, now)
 }
+
+// ReplaceKitDraft replaces kit name's draft tree with files (a sync): their
+// root .dockerignore applied as on a push, the file rules held, kit.yml
+// optional. The input is checked before kitMu is taken; the ETag under it.
+func ReplaceKitDraft(store Store, log *slog.Logger, name string, files []kittree.File, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	if !studio.TagSafeName(name) {
+		return KitDraftSave{}, unsafeKitName()
+	}
+	files, err := kittree.Ignore(files)
+	if err != nil {
+		return KitDraftSave{}, writeErr(http.StatusBadRequest, "draft %s: %s", name, err)
+	}
+	next, blobs, err := kittree.BuildFiles(files)
+	if err != nil {
+		return KitDraftSave{}, writeErr(http.StatusBadRequest, "draft %s: %s", name, err)
+	}
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	d, cur, err := lockedDraftTree(store, name, ifMatch)
+	if err != nil {
+		return KitDraftSave{}, err
+	}
+	return saveDraftLocked(store, log, d, cur, next, KitObjects{Trees: []kittree.Tree{next}, Blobs: blobs}, actor, now)
+}

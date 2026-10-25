@@ -24,6 +24,7 @@ import (
 //	GET    /admin/kits/{name}/draft            status (ETag header)
 //	DELETE /admin/kits/{name}/draft            discard (If-Match; 204)
 //	GET    /admin/kits/{name}/draft/files/{path...}          one file's bytes
+//	PUT    /admin/kits/{name}/draft   replace the tree (x-tar, If-Match): kit draft sync
 //	PUT    /admin/kits/{name}/draft/files/{path...}[?mode=]  write one file (octet-stream, If-Match)
 //	DELETE /admin/kits/{name}/draft/files/{path...}          remove one file (If-Match)
 //
@@ -62,6 +63,26 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		log.Info("kit draft discarded", "operator", OperatorID(r), "kit", name, "tree", shortTree(d.Tree))
 		w.WriteHeader(http.StatusNoContent)
+	})
+	// The whole tree, replaced by an uncompressed tar of files (kit draft
+	// sync): read within the tree limits as it streams, the body capped at
+	// kittree.MaxUpload (413 past it), as POST …/versions reads a push.
+	mux.HandleFunc("PUT /admin/kits/{name}/draft", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !requireContentType(w, r, "application/x-tar") || !draftPrecheck(w, r, store, log, name) {
+			return
+		}
+		files, ok := readKitTar(w, r, "draft", name)
+		if !ok {
+			return
+		}
+		s, err := ReplaceKitDraft(store, log, name, files, r.Header.Get("If-Match"), OperatorID(r), time.Now().UTC())
+		if err != nil {
+			draftFail(w, r, log, err)
+			return
+		}
+		logDraftSaved(log, r, name, s)
+		writeDraftSave(w, s)
 	})
 	// One file of the draft. {path...} is the file's path, percent-decoded;
 	// it is CheckPath'd before any text names it.
@@ -264,4 +285,21 @@ func draftFileDotSegment(escaped string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// readKitTar reads a request's tar body into files within the tree limits,
+// the body capped at kittree.MaxUpload: 413 past it, 400 for an unreadable
+// or refused tar (located by noun and kit name, never echoing a bad name).
+// It answers the failure itself and reports false.
+func readKitTar(w http.ResponseWriter, r *http.Request, noun, name string) ([]kittree.File, bool) {
+	files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
+	if err != nil {
+		if bodyTooLarge(err) {
+			http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
+			return nil, false
+		}
+		http.Error(w, fmt.Sprintf("%s %s: %s", noun, name, err), http.StatusBadRequest)
+		return nil, false
+	}
+	return files, true
 }

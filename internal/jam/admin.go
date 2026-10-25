@@ -14,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
@@ -842,13 +841,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
 			return
 		}
-		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
-		if err != nil {
-			if bodyTooLarge(err) {
-				http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
-				return
-			}
-			http.Error(w, fmt.Sprintf("kit %s: %s", name, err), http.StatusBadRequest)
+		files, ok := readKitTar(w, r, "kit", name)
+		if !ok {
 			return
 		}
 		ref, unchanged, err := PushKitFiles(store, name, files)

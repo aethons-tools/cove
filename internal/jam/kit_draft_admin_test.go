@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"archive/tar"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -240,5 +242,90 @@ func TestDraftFileRoutesRefuseDotSegments(t *testing.T) {
 	}
 	if d, _ := st.GetKitDraft("app"); DraftETag(d.Tree) != tag {
 		t.Fatal("a refused path changed the draft")
+	}
+}
+
+func TestReplaceDraftRoute(t *testing.T) {
+	h, st := newTestAdmin(t)
+	pushApp(t, st, "kit.yml", "kind: studio\n")
+	tag := draftDo(t, h, "POST", "/admin/kits/app/draft", "application/json", "", nil).Header().Get("ETag")
+	const xtar = "application/x-tar"
+	// A hand-made `tar -C dir -cf - .`: "./" prefixes and directory entries.
+	var hand bytes.Buffer
+	tw := tar.NewWriter(&hand)
+	for _, e := range []struct {
+		name string
+		flag byte
+		mode int64
+		data string
+	}{{"./", tar.TypeDir, 0o755, ""}, {"./kit.yml", tar.TypeReg, 0o644, "kind: studio\n"}, {"./bin/", tar.TypeDir, 0o755, ""}, {"./bin/run", tar.TypeReg, 0o700, "echo\n"}} {
+		if err := tw.WriteHeader(&tar.Header{Name: e.name, Typeflag: e.flag, Mode: e.mode, Size: int64(len(e.data))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(e.data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", "text/plain", tag, hand.Bytes()); w.Code != http.StatusUnsupportedMediaType || body(w) != "kit draft: Content-Type must be application/x-tar" {
+		t.Fatalf("Content-Type = %d %s", w.Code, w.Body)
+	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, "", hand.Bytes()); w.Code != http.StatusPreconditionRequired {
+		t.Fatalf("no If-Match = %d", w.Code)
+	}
+	w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, tag, hand.Bytes())
+	var s KitDraftSave
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &s) != nil || w.Header().Get("ETag") != s.ETag || !slices.Equal(s.Changed, []DraftChange{{"bin/run", "added"}}) {
+		t.Fatalf("replace = %d %s", w.Code, w.Body)
+	}
+	if g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/bin/run", "", "", nil); g.Header().Get("X-Kit-File-Mode") != "0755" {
+		t.Fatalf("mode = %q", g.Header().Get("X-Kit-File-Mode"))
+	}
+	// Hostile tars (Review Focus 4): a symlink, escape-character and dot
+	// segment names, garbage. Each is refused and stores nothing.
+	var link bytes.Buffer
+	lw := tar.NewWriter(&link)
+	if err := lw.WriteHeader(&tar.Header{Name: "leak", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}); err != nil {
+		t.Fatal(err)
+	}
+	lw.Close()
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, link.Bytes()); w.Code != http.StatusBadRequest || body(w) != "draft app: leak: symlinks are not allowed" {
+		t.Fatalf("symlink = %d %s", w.Code, w.Body)
+	}
+	var esc bytes.Buffer
+	if err := kittree.WriteTar(&esc, []kittree.File{{Path: "a\x1b[31mb", Data: []byte("x")}}); err != nil {
+		t.Fatal(err)
+	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, esc.Bytes()); w.Code != http.StatusBadRequest || body(w) != unsafeDraftPath {
+		t.Fatalf("escape name = %d %q", w.Code, w.Body)
+	}
+	for _, name := range []string{"../x", "a/./b", "x/../../y"} {
+		var dot bytes.Buffer
+		dw := tar.NewWriter(&dot)
+		if err := dw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}); err != nil {
+			t.Fatal(err)
+		}
+		dw.Write([]byte("x"))
+		dw.Close()
+		if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, dot.Bytes()); w.Code != http.StatusBadRequest || strings.Contains(w.Body.String(), name) {
+			t.Fatalf("tar %q = %d %q", name, w.Code, w.Body)
+		}
+	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, []byte("garbage, not a tar, garbage, not a tar")); w.Code != http.StatusBadRequest || body(w) != "draft app: not a readable tar" {
+		t.Fatalf("garbage = %d %s", w.Code, w.Body)
+	}
+	// The body cap (MaxUpload) answers 413, as push does.
+	withDraftLimits(t, 1, 1024, 8<<20)
+	var big bytes.Buffer
+	if err := kittree.WriteTar(&big, []kittree.File{{Path: "kit.yml", Data: make([]byte, 2<<20)}}); err != nil {
+		t.Fatal(err)
+	}
+	if w := draftDo(t, h, "PUT", "/admin/kits/app/draft", xtar, s.ETag, big.Bytes()); w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize = %d %s", w.Code, w.Body)
+	}
+	if d, _ := st.GetKitDraft("app"); DraftETag(d.Tree) != s.ETag {
+		t.Fatal("a refused replace changed the draft")
 	}
 }
