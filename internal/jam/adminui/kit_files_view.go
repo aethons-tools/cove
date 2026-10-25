@@ -49,19 +49,21 @@ const (
 	maskWhole                   // the whole text replaced by hiddenContext
 )
 
-// maxMaskDepth bounds the alias and merge-key chains maskKitYML follows.
-const maxMaskDepth = 16
+// maxMaskDepth bounds the nesting maskKitYML checks.
+const maxMaskDepth = 64
 
 // maskKitYML is a kit.yml text that does not parse (the migration keeps such
-// a text verbatim) as the page shows it, so no packed base64 is shown. The
-// values of base.context, base.context-files (or contextFiles) and
-// base.context-dir are replaced by hiddenContext, wherever base gets them:
-// written in it, through an alias, a merge key, or a top-level merge key.
-// No other key is touched, and a text with nothing to mask is shown as
-// stored. Fail-safe: a text that is not one YAML document but mentions
-// "context", a chain too deep to follow, a re-marshal that fails, or a
-// result that still carries a masked value (an anchored scalar) is
-// hiddenContext alone.
+// a text verbatim) as the page shows it, so no packed base64 is shown.
+//
+// Only a plain text is masked: one YAML document whose root is a mapping,
+// with only scalar keys and no anchors, aliases or merge keys anywhere. Its
+// top-level base mapping's context, context-files (or contextFiles) and
+// context-dir values are replaced by hiddenContext; no other key is
+// touched, and a plain text with nothing to mask is shown as stored. Any
+// other text that mentions "context" (more than one document, invalid YAML,
+// another root, an anchor, alias or merge key, nesting past maxMaskDepth)
+// is hiddenContext alone, as is a plain text whose re-marshal fails or
+// still carries a masked value.
 func maskKitYML(text string) (string, maskKind) {
 	whole := func() (string, maskKind) {
 		if strings.Contains(text, "context") {
@@ -77,102 +79,63 @@ func maskKitYML(text string) (string, maskKind) {
 	if err := dec.Decode(&next); err != io.EOF {
 		return whole() // a second document, or one that does not decode
 	}
-	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return text, maskNone // no mapping, no base
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode || !plainYAML(doc.Content[0], 0) {
+		return whole()
 	}
-	m := &masker{}
-	m.top(doc.Content[0], 0)
-	switch {
-	case m.deep:
-		return hiddenContext, maskWhole
-	case m.count == 0:
+	top := doc.Content[0]
+	var values []string
+	masked := 0
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		base := top.Content[i+1]
+		if top.Content[i].Value != "base" || base.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(base.Content); j += 2 {
+			switch base.Content[j].Value {
+			case "context", "context-files", "contextFiles", "context-dir":
+				if v := base.Content[j+1]; v.Kind == yaml.ScalarNode && v.Value != "" {
+					values = append(values, v.Value)
+				}
+				base.Content[j+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hiddenContext}
+				masked++
+			}
+		}
+	}
+	if masked == 0 {
 		return text, maskNone
 	}
 	b, err := yaml.Marshal(&doc)
 	if err != nil {
 		return hiddenContext, maskWhole
 	}
-	for _, v := range m.values {
-		if v != "" && strings.Contains(string(b), v) {
+	for _, v := range values {
+		if strings.Contains(string(b), v) {
 			return hiddenContext, maskWhole
 		}
 	}
 	return string(b), maskPartial
 }
 
-// masker replaces base's packed-context values, counting them and
-// recording the scalars among them; deep is set when a chain is longer than
-// maxMaskDepth.
-type masker struct {
-	count  int
-	values []string
-	deep   bool
-}
-
-// resolve follows aliases from n.
-func (m *masker) resolve(n *yaml.Node, depth int) *yaml.Node {
-	for ; n != nil && n.Kind == yaml.AliasNode; depth++ {
-		if depth > maxMaskDepth {
-			m.deep = true
-			return nil
-		}
-		n = n.Alias
+// plainYAML reports whether n holds no anchor, alias or merge key, every
+// mapping key is a scalar, and it nests at most maxMaskDepth deep.
+func plainYAML(n *yaml.Node, depth int) bool {
+	if depth > maxMaskDepth || n.Anchor != "" || n.Kind == yaml.AliasNode {
+		return false
 	}
-	return n
-}
-
-// merged calls fn on each mapping a merge key (<<) of mapping n merges in.
-func (m *masker) merged(n *yaml.Node, depth int, fn func(*yaml.Node, int)) {
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value != "<<" {
-			continue
-		}
-		v := m.resolve(n.Content[i+1], depth)
-		srcs := []*yaml.Node{v}
-		if v != nil && v.Kind == yaml.SequenceNode {
-			srcs = v.Content
-		}
-		for _, src := range srcs {
-			if src = m.resolve(src, depth); src != nil && src.Kind == yaml.MappingNode {
-				fn(src, depth+1)
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i < len(n.Content); i += 2 {
+			k := n.Content[i]
+			if k.Kind != yaml.ScalarNode || k.Value == "<<" || k.Tag == "!!merge" {
+				return false
 			}
 		}
 	}
-}
-
-// top masks every base of top-level mapping n, its own or merged in.
-func (m *masker) top(n *yaml.Node, depth int) {
-	if depth > maxMaskDepth {
-		m.deep = true
-		return
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == "base" {
-			if b := m.resolve(n.Content[i+1], depth); b != nil && b.Kind == yaml.MappingNode {
-				m.base(b, depth+1)
-			}
+	for _, c := range n.Content {
+		if !plainYAML(c, depth+1) {
+			return false
 		}
 	}
-	m.merged(n, depth, m.top)
-}
-
-// base masks the packed-context keys of base mapping n, its own or merged in.
-func (m *masker) base(n *yaml.Node, depth int) {
-	if depth > maxMaskDepth {
-		m.deep = true
-		return
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		switch n.Content[i].Value {
-		case "context", "context-files", "contextFiles", "context-dir":
-			if v := m.resolve(n.Content[i+1], depth); v != nil && v.Kind == yaml.ScalarNode {
-				m.values = append(m.values, v.Value)
-			}
-			n.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hiddenContext}
-			m.count++
-		}
-	}
-	m.merged(n, depth, m.base)
+	return true
 }
 
 // pathText is a tree path as shown: SetupDisplayText's escaping, with \n and

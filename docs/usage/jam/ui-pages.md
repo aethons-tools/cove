@@ -183,8 +183,8 @@ build digest, and its `kit.yml` as stored, with **Copy**. A stored version that 
 studio kit (a pre-studio row) shows its parse error and raw text instead. A
 packed context left in its `base` is masked as `«packed context, not shown»`,
 with a note above the push form to remove it before pushing; a text the page
-cannot analyse (not one YAML document) that mentions a context is not shown at
-all, and the page says to get it with `at-jam config write`. A broken version,
+cannot analyse (not one plain YAML document: anchors, aliases and merge keys
+count against it) that mentions a context is not shown at all, and the page says to get it with `at-jam config write`. A broken version,
 one the migration to trees could not convert, shows its migration error.
 
 A kit built on a parent kit ([kits-inheritance.md](kits-inheritance.md)) also
