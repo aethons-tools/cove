@@ -195,12 +195,24 @@ func imageLabelsBody(f ImageFacts) string {
 }
 
 // kitDetailBody renders each chain link's provenance (from the registry) and
-// the merged build args (redacted).
-func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) string {
+// the merged build args (redacted). draft, when set, is a draft studio's: its
+// own link (that kit at v0) reads from the draft tree.
+func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string, draft *KitDraftRef) string {
 	var sb strings.Builder
 	sb.WriteString("provenance (root first):\n")
 	rows := make([][]string, 0, len(chain))
 	for _, r := range chain {
+		if draft != nil && r.ID == draft.Kit && r.Version == 0 {
+			files := "not loadable"
+			if t, ok := store.KitTree(draft.Tree); ok {
+				files = fmt.Sprintf("tree %s, %d file", shortDigest(draft.Tree), len(t.Entries))
+				if len(t.Entries) != 1 {
+					files += "s"
+				}
+			}
+			rows = append(rows, []string{"  " + flat(r.ID) + " (draft)", "draft, not published", files})
+			continue
+		}
 		src := "unknown (not in the registry)"
 		if k, ok := store.GetKit(r.ID); ok {
 			if m, ok := k.Meta[r.Version]; ok {

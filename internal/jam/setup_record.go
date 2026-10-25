@@ -136,7 +136,7 @@ func (s *Supervisor) recordRaiseSetup(inst Instance, spec RaiseSpec, def *KitDef
 		RecordSetupPart(s.store, s.log, inst.ActorID, SetupPartConnector, snippet.Fingerprint(c), func() string { return connectorBody(c) }, now)
 	}
 	RecordSetupPart(s.store, s.log, inst.ActorID, SetupPartKit, kitFingerprint(inst.Kit, inst.ImageTag), func() string {
-		return kitRefsBody(inst.Kit, inst.KitChain, inst.ImageTag)
+		return instanceKitRefsBody(inst)
 	}, now)
 }
 

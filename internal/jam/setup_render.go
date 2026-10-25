@@ -229,7 +229,7 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 				sec.Body = kitRefsBody(KitRef{}, nil, "") + d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			default:
 				chain := chainOrSelf(chainRefs(wb.def.Chain), wb.def.Ref)
-				sec.Body = kitRefsBody(wb.def.Ref, chainRefs(wb.def.Chain), wb.imageTag) + kitDetailBody(d.Store, chain, wb.def.Kit.BuildArgs) +
+				sec.Body = kitRefsBody(wb.def.Ref, chainRefs(wb.def.Chain), wb.imageTag) + kitDetailBody(d.Store, chain, wb.def.Kit.BuildArgs, nil) +
 					d.imageLabelsPart(ctx, &img, wb.imageTag, noKit)
 			}
 		case SectionSeed:
@@ -396,14 +396,17 @@ func (d SetupDeps) instanceEnv(inst Instance, actor Actor, snaps map[string]Setu
 }
 
 func (d SetupDeps) instanceKitSection(ctx context.Context, m *imageMemo, inst Instance, snaps map[string]SetupSnapshot, noKit string) SetupSection {
-	sec := SetupSection{Name: SectionKit, Source: SourceRecomputed, Reason: reasonNoSnapshot, Body: kitRefsBody(inst.Kit, inst.KitChain, inst.ImageTag)}
+	sec := SetupSection{Name: SectionKit, Source: SourceRecomputed, Reason: reasonNoSnapshot, Body: instanceKitRefsBody(inst)}
+	if inst.KitDraft != nil {
+		sec.Title = SectionKit + " (draft @" + inst.KitDraft.Tree[:min(7, len(inst.KitDraft.Tree))] + ")"
+	}
 	if s, ok := snaps[SetupPartKit]; ok {
 		sec.Source, sec.Reason, sec.At, sec.Body = SourceSnapshot, "", s.At, s.Body
 	}
 	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[2]string]currentImage{}, inst) == "stale"
 	if inst.Kit.ID != "" {
 		sk, _ := instanceKit(d.Store, inst)
-		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs)
+		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs, inst.KitDraft)
 	}
 	sec.Body += d.imageLabelsPart(ctx, m, inst.ImageTag, noKit)
 	return sec

@@ -44,7 +44,10 @@ var setupSectionOrder = []string{SectionIdentity, SectionContext, SectionEgress,
 // redacted); Diff, when Diffed, is the line diff of this studio's body (-)
 // against a raise now (+).
 type SetupSection struct {
-	Name         string          `json:"name"`
+	Name string `json:"name"`
+	// Title, when set, heads the section in place of Name. A draft studio's
+	// kit section is "kit (draft @<tree[:7]>)". Name stays the section's key.
+	Title        string          `json:"title,omitempty"`
 	Source       string          `json:"source"`
 	Stale        bool            `json:"stale,omitempty"`
 	At           time.Time       `json:"at,omitzero"`
@@ -110,7 +113,7 @@ func unavailable(name, reason string) SetupSection {
 }
 
 // RenderSetupText writes the CLI's text form: one block per section headed
-// "== <name> (<source>[, stale][, <at>])", the reason in parentheses, the
+// "== <name or title> (<source>[, stale][, <at>])", the reason in parentheses, the
 // body indented by bodyIndent, then the diff when one was asked for.
 func RenderSetupText(w io.Writer, s StudioSetup) {
 	fmt.Fprintf(w, "# %s\n", flat(s.Subject))
@@ -125,7 +128,11 @@ func RenderSetupText(w io.Writer, s StudioSetup) {
 		if !sec.At.IsZero() {
 			head += ", " + sec.At.UTC().Format(time.RFC3339)
 		}
-		fmt.Fprintf(w, "\n== %s (%s)\n", flat(sec.Name), flat(head))
+		name := sec.Name
+		if sec.Title != "" {
+			name = sec.Title
+		}
+		fmt.Fprintf(w, "\n== %s (%s)\n", flat(name), flat(head))
 		if sec.Reason != "" {
 			fmt.Fprintf(w, "(%s)\n", flat(sec.Reason))
 		}
