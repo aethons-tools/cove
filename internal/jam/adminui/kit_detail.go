@@ -374,10 +374,7 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 	}
 	fromVer, _ := jam.LoadKitVersion(store, name, diff)
 	fv := viewKit(diff, fromVer, true, file)
-	lines, tooLarge := lineDiff(fv.diffText, d.View.diffText)
-	for i := range lines { // a tree's kit.yml is shown as stored: make its control and format characters visible
-		lines[i].Text = jam.SetupDisplayText(lines[i].Text)
-	}
+	lines, tooLarge := yamlDiff(fv.diffText, d.View.diffText)
 	d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
 	d.CtxDiff = ctxDiff(name, fv, d.View)
 	if file != "" {
@@ -425,3 +422,14 @@ func chainOf(store jam.Store, name string, sk studio.StudioKit) (chain []kitPare
 
 // lineDiff is the plan and version diff (linediff.Diff).
 var lineDiff = linediff.Diff
+
+// yamlDiff is the line diff of two kit.yml texts as the pages show it: a
+// tree's kit.yml is shown as stored, so each line's control and format
+// characters are made visible.
+func yamlDiff(from, to string) ([]diffLine, bool) {
+	lines, tooLarge := lineDiff(from, to)
+	for i := range lines {
+		lines[i].Text = jam.SetupDisplayText(lines[i].Text)
+	}
+	return lines, tooLarge
+}

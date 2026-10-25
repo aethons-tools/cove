@@ -79,7 +79,7 @@
   </form>
 </section>
 {{end}}
-{{/* draft-file-diff */}}
+{{with .FileDiff}}{{template "ctx-file" .}}{{end}}
 <section class="card" id="draft-tree">
   <header><h2>Files</h2><span class="sub">{{.Size}} · marked against v{{.Base}}</span></header>
   <table class="dtree">
@@ -104,7 +104,18 @@
   </form>
   </details>
 </section>
-{{/* draft-diff */}}
+{{with .Changes}}
+<section class="card" id="draft-changes">
+  <header><h2>Changes vs v{{.From}}</h2><span class="sub">the draft's files against its base, file by file</span></header>
+  {{template "ctx-diff-rows" .}}
+</section>
+{{end}}
+{{with .YAMLDiff}}
+<section class="card" id="draft-yaml-diff">
+  <header><h2>kit.yml vs v{{.From}}</h2></header>
+  {{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
+</section>
+{{end}}
 {{else}}
 <section class="card" id="draft-none">
   <header><h2>No draft</h2><span class="sub">a draft is a copy of one version's files: edit it here, then publish it as the next version</span></header>

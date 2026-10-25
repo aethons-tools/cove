@@ -55,6 +55,9 @@ type draftView struct {
 	Removed       []draftRow   // files of the base the draft no longer has
 	Editor        *draftEditor // the file asked for (?file=), opened; nil = none
 	FileMissing   bool         // ?file= named no file of the draft (or an unsafe path)
+	Changes       *ctxDiffView // the files against the base
+	YAMLDiff      *kitDiff     // kit.yml's line diff; nil when kit.yml is unchanged
+	FileDiff      *ctxFileView // ?file=…&diff=1: that file against the base
 }
 
 // draftRow is one row of the Draft tab's file tree: a directory or a file.
@@ -147,13 +150,14 @@ func buildDraftPage(store jam.Store, name string, q draftQuery) (draftPage, bool
 			return p, true, err
 		}
 	}
+	draftDiff(store, name, st, base, q, p.Draft)
 	return p, true, nil
 }
 
 // status is the GET answer's code for p: 404 when the file asked for is not
-// in the draft.
+// in the draft (or, for its diff, in neither the draft nor its base).
 func (p draftPage) status() int {
-	if d := p.Draft; d != nil && d.FileMissing {
+	if d := p.Draft; d != nil && (d.FileMissing || (d.FileDiff != nil && d.FileDiff.Missing)) {
 		return http.StatusNotFound
 	}
 	return http.StatusOK

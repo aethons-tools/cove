@@ -59,11 +59,7 @@
     {{with .CtxDiff}}
     <section class="card" id="ctx-diff">
       <header><h2>Files v{{.From}} → v{{.To}}</h2><span class="sub">the kit directory, file by file</span></header>
-      {{if .Rows}}<table>
-        <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
-        <tbody>{{range .Rows}}<tr data-change="{{.Change}}"><td>{{.Change}}</td><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}}</td></tr>{{end}}</tbody>
-      </table>{{end}}
-      <div class="body unset">{{with .More}}… {{.}} more changed, not listed; {{end}}{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>
+      {{template "ctx-diff-rows" .}}
     </section>
     {{end}}
     {{with .File}}{{if .Diff}}{{template "ctx-file" .}}{{end}}{{end}}

@@ -54,10 +54,17 @@
   <header><h2>File</h2></header>
   <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s files.</div></div>
   {{else}}
-  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
+  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → {{if .To}}v{{.To}}{{else}}draft{{end}}{{else}}content{{end}}</span></header>
   {{if .Note}}<div class="body unset">{{.Note}}</div>
   {{else if .Diff}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
   {{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" "<kit>"}}</p></div>{{else if .Masked}}<div class="body"><p class="hint">{{template "kit-masked-note"}}</p></div>{{end}}<pre class="yaml">{{.Content}}</pre>{{end}}
   {{end}}
 </section>
 {{end}}
+
+{{/* ctx-diff-rows is a tree diff's table and counts (ctxDiffView): the kit page's and the Draft tab's. */}}
+{{define "ctx-diff-rows"}}{{if .Rows}}<table>
+        <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
+        <tbody>{{range .Rows}}<tr data-change="{{.Change}}"><td>{{.Change}}</td><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}}</td></tr>{{end}}</tbody>
+      </table>{{end}}
+      <div class="body unset">{{with .More}}… {{.}} more changed, not listed; {{end}}{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>{{end}}
