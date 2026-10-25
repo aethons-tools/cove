@@ -843,6 +843,7 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	req.Header.Set("Sec-Fetch-Site", "same-site")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	req.Header.Set("Sec-Fetch-Mode", "no-cors")
 	rec := httptest.NewRecorder()
 	ph.h.ServeHTTP(rec, req)
 	if rec.Header().Get("Location") != "" {
@@ -850,6 +851,15 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	}
 	// Inside an iframe the refusal is the framed error page.
 	wantFramedError(t, rec, http.StatusForbidden, "cross-site request refused")
+	// A same-site iframe navigation ignores it (the pane of a UI sharing the
+	// registrable domain, reloading without a ticket): the framed signin page.
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	rec = httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if body := rec.Body.String(); rec.Code != http.StatusUnauthorized || rec.Header().Get("Location") != "" ||
+		strings.Contains(body, "hello from the app") || !strings.Contains(body, `status:"signin"`) {
+		t.Fatalf("same-site iframe navigation = %d %q", rec.Code, body)
+	}
 	// A cross-site fetch (not an iframe) gets the plain text refusal.
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
@@ -983,6 +993,19 @@ func TestPreviewXFrameOptionsStrippedOnlyWhenFramed(t *testing.T) {
 	if v := rec.Header().Values("X-Frame-Options"); len(v) != 0 {
 		t.Fatalf("framed XFO %q", v)
 	}
+	// With the Lax preview cookie too (a UI sharing the registrable domain),
+	// the pane's frame cookie decides: still framed, XFO still dropped.
+	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	req.AddCookie(ph.login(t, "alice"))
+	req.AddCookie(ph.frameLogin(t, "alice"))
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	both := httptest.NewRecorder()
+	ph.h.ServeHTTP(both, req)
+	if v := both.Header().Values("X-Frame-Options"); both.Code != 200 || len(v) != 0 {
+		t.Fatalf("framed with both cookies: %d XFO %q", both.Code, v)
+	}
 	// The two variants share a URL: caches must keep them apart.
 	if v := strings.Join(rec.Header().Values("Vary"), ","); !strings.Contains(v, "Cookie") {
 		t.Fatalf("framed Vary %q", v)
@@ -1102,24 +1125,27 @@ func TestPreviewFramedProxyErrors(t *testing.T) {
 	}
 }
 
-// A frame cookie arriving on a cross-site iframe navigation — an app in the
-// pane redirecting or linking to another studio, rather than a pane load with
-// a fresh ticket — is not signed in: the framed login page, never the app.
-func TestPreviewFrameCookieNotHonouredCrossSiteIframe(t *testing.T) {
+// A frame cookie arriving on a cross-site or same-site iframe navigation — an
+// app in the pane redirecting or linking to another studio, or a UI reload,
+// rather than a pane load with a fresh ticket — is not signed in: the framed
+// login page (signin, so the pane re-mints), never the app and never a 403.
+func TestPreviewFrameCookieNotHonouredFrameNavigation(t *testing.T) {
 	ph := newPreviewHarness(t, helloApp(t, nil))
 	fc := ph.frameLogin(t, "alice")
-	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
-	req.AddCookie(fc)
-	req.Header.Set("Accept", "text/html")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Dest", "iframe")
-	rec := httptest.NewRecorder()
-	ph.h.ServeHTTP(rec, req)
-	body := rec.Body.String()
-	if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
-		!strings.Contains(body, "Reopen this preview from the Jam pane") || !strings.Contains(body, `status:"signin"`) {
-		t.Fatalf("cross-site iframe with frame cookie = %d %q", rec.Code, body)
+	for _, site := range []string{"cross-site", "same-site"} {
+		req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+		req.AddCookie(fc)
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+		req.Header.Set("Sec-Fetch-Dest", "iframe")
+		rec := httptest.NewRecorder()
+		ph.h.ServeHTTP(rec, req)
+		body := rec.Body.String()
+		if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
+			!strings.Contains(body, "Reopen this preview from the Jam pane") || !strings.Contains(body, `status:"signin"`) {
+			t.Fatalf("%s iframe with frame cookie = %d %q", site, rec.Code, body)
+		}
 	}
 	if n := len(ph.tun.opened()); n != 0 {
 		t.Fatalf("opened %d tunnels", n)

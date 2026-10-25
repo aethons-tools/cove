@@ -133,7 +133,7 @@ func TestBrowserStudio(t *testing.T) {
 	if !strings.HasPrefix(one.Src, pv.URL+"/ide?") || one.Open != "https://ide--"+personal.ActorID+".preview.test/" {
 		t.Fatalf("(1) frame src %q, open %q", one.Src, one.Open)
 	}
-	if one.Allow != "clipboard-read; clipboard-write" || one.Referrer != "no-referrer" || one.Sandboxed {
+	if one.Allow != "clipboard-read; clipboard-write" || one.Referrer != "origin" || one.Sandboxed {
 		t.Fatalf("(1) frame attributes: %+v", one)
 	}
 	if one.Ratio < 0.58 || one.Ratio > 0.62 || one.Saved == 0 {
