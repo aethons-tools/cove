@@ -64,11 +64,15 @@ func (c *Client) DiscardKitDraft(name, etag string) error {
 	return err
 }
 
-// KitDraftFile is file p of kit name's draft.
-func (c *Client) KitDraftFile(name, p string) ([]byte, error) {
+// KitDraftFile is file p of kit name's draft: its bytes and its mode
+// ("0644" or "0755", from X-Kit-File-Mode).
+func (c *Client) KitDraftFile(name, p string) ([]byte, string, error) {
 	var b []byte
-	_, err := c.sendHeaders(c.draftClient(0), "GET", draftFilePath(name, p), "", nil, nil, &b)
-	return b, err
+	h, err := c.sendHeaders(c.draftClient(0), "GET", draftFilePath(name, p), "", nil, nil, &b)
+	if err != nil {
+		return nil, "", err
+	}
+	return b, h.Get("X-Kit-File-Mode"), nil
 }
 
 // PutKitDraftFile writes file p (mode "" keeps the file's, else "0644" or "0755").

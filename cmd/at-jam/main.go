@@ -103,7 +103,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes] [--force]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -870,10 +870,13 @@ func (t *tierFlags) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync")
+		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub == "draft" { // its own verbs and flags (kitdraft.go)
+		return cmdKitDraft(rest, stdout, stderr)
+	}
 	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
@@ -1054,6 +1057,9 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			if h.Source != nil {
 				srcText, commit = kitSourceText(h.Source), shortCommit(h.Source.Commit)
+			}
+			if h.Source == nil && h.Origin != "" {
+				srcText = h.Origin // "draft": published from a draft
 			}
 			fmt.Fprintf(tw, "v%d\t%s\t%s\t%s\t%s\n", h.Version, cur, pushed, srcText, commit)
 		}

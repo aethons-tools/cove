@@ -1,7 +1,7 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule and the open, status, discard, file read/write/remove and publish API.
-read_when: You want to open, inspect, edit, discard or publish a kit's draft over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the /admin/kits/{name}/draft routes (files and publish included) and their audit lines
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|publish|discard` verbs and the open, status, discard, file read/write/remove and publish API.
+read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines
 prereqs: kits.md, kits-directory.md
 tier: leaf
 updated: 2026-10-25
@@ -58,6 +58,32 @@ and closes the draft.
 - A config-managed kit publishes (as does a managed follower pinned), and the
   answer carries `drift: true` and
   `warning`: `this will drift from the config repo; config write it to keep the repo in sync`.
+
+## The `kit draft` verbs
+
+```
+at-jam kit draft open app [--from v2]                  # → opened draft app from v2 (etag "…")
+at-jam kit draft status app [--json]                   # base and current, files, changes vs the base, problems
+at-jam kit draft get app run.sh [-o run.sh]            # one file's bytes (stdout by default)
+at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads stdin)
+at-jam kit draft rm app old.sh                         # remove a file
+at-jam kit draft publish app [--pin]                   # → published draft app as v4
+at-jam kit draft discard app                           # drop the draft
+```
+
+Each write first fetches the status and sends its etag. With `--etag <hash>`,
+a script writes against the etag it already holds and fails with 412 instead
+of overwriting another edit. `publish` prints a warning on stderr for a
+config-managed kit. All verbs take the admin-client flags
+(`--app`/`--admin-url`/`--token`).
+
+- `status` prints `draft <kit>: base vN, current vM`, and when another
+  version landed since the draft was opened, that publishing replaces it with
+  the draft (nothing is merged). Names, paths and problems are printed escaped.
+- `get -o <file>` writes the file with its mode in the draft; an existing
+  symlink there is replaced, never written through.
+- `publish --pin` prints a `pinned …` line per follower pinned.
+- A usage error exits 2; a refused call exits 1 with the server's text.
 
 ## API
 

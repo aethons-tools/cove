@@ -31,8 +31,8 @@ func TestKitDraftClient(t *testing.T) {
 	if err != nil || len(s.Changed) != 1 || s.Changed[0].Path != uni {
 		t.Fatalf("put = %+v %v", s, err)
 	}
-	if b, err := c.KitDraftFile("app", uni); err != nil || string(b) != "hi\n" {
-		t.Fatalf("get = %q %v", b, err)
+	if b, mode, err := c.KitDraftFile("app", uni); err != nil || string(b) != "hi\n" || mode != "0755" {
+		t.Fatalf("get = %q %q %v", b, mode, err)
 	}
 	// A stale ETag is a 412 with the fixed text (Review Focus 1).
 	_, err = c.PutKitDraftFile("app", "x", []byte("x"), "", st.ETag)
