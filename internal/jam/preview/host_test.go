@@ -135,9 +135,18 @@ func TestUnderDomain(t *testing.T) {
 }
 
 func TestValidPortNamesReservedPorts(t *testing.T) {
-	for port, want := range map[int]string{2222: "not 2222 (sshd) or 3128 (egress proxy)", 3128: "not 2222 (sshd) or 3128 (egress proxy)"} {
+	for port, want := range map[int]string{2222: "not 2222 (sshd), 3128 (egress proxy) or 13337 (the built-in IDE)", 3128: "not 2222 (sshd), 3128 (egress proxy) or 13337 (the built-in IDE)"} {
 		if err := ValidPort(port); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ValidPort(%d) = %v, want %q", port, err, want)
 		}
+	}
+}
+
+func TestIDEPortReserved(t *testing.T) {
+	if err := ValidPort(IDEPort); err == nil {
+		t.Fatal("the IDE port must not be exposable")
+	}
+	if err := ValidName(IDEName); err != nil {
+		t.Fatalf("ide must stay a valid name (a kit overrides the built-in IDE by exposing it): %v", err)
 	}
 }
