@@ -1,6 +1,6 @@
 # Session controls: interrupt, compact, clear — design
 
-**Status:** built — branch feat/session-controls (PR pending).
+**Status:** built — PR #490.
 **Context:** Sessions today can only be released (or restarted/upgraded by operators). Three gaps hurt cost and quality ([TODO.md](../../TODO.md) "Context lifecycle for long-running sessions"):
 
 1. **Interrupt.** A mistyped message or a wrong paste starts a turn, and the agent acts on it. People need to stop the turn *now* without losing the session.
