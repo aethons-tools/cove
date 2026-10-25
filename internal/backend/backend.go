@@ -3,6 +3,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sort"
@@ -283,6 +284,15 @@ type KitImageBuilder interface {
 	// HasKitBase reports whether a chain stage tagged tag (by ResolveKitBaseTarOn,
 	// after its gate passed) exists on this substrate. A miss is (false, nil).
 	HasKitBase(tag string) (bool, error)
+}
+
+// LoggedKitBuilder is optionally implemented by a KitImageBuilder that can
+// run its builds under a context, their output copied to a log: the Jam
+// launcher's kit draft test build (docs/usage/jam/kits-drafts.md#test-build).
+// The returned builder builds exactly as the receiver does — same argv,
+// same gate — only logged and cancellable.
+type LoggedKitBuilder interface {
+	WithBuildLog(ctx context.Context, log io.Writer) KitImageBuilder
 }
 
 // Factory constructs a Backend bound to a Runner.
