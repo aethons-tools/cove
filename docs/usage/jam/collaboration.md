@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — at-jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-25
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -98,7 +98,8 @@ Jam checks each cert request and each connection against four rules, in order:
    (default `members`; see [previews.md](previews.md)) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
-A removed user matches none of them. A studio that is terminating or gone
+A removed user matches none of them. The `ide` preview (the studio's web
+IDE, [previews.md](previews.md#a-web-ide)) checks `ssh`, not `preview`. A studio that is terminating or gone
 takes no certs or tunnels (409); a paused one is resumed for an allowed caller
 ([Idle studios](#idle-studios)). The rules need no project membership: a
 share grant works for a user who is in no project.
@@ -107,8 +108,8 @@ share grant works for a user who is in no project.
 
 | Command | What it does |
 |---------|--------------|
-| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes their open SSH connections, as unshare does). The grant is keyed to the session and removed when it ends. |
-| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes the user's open SSH connections to the studio, unless they still hold `ssh` another way. |
+| `at-jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]` | Grants the user those rights on the studio (`POST …/studios/<studio>/shares` `{user, rights, for}` → 201) until `--for` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes all their open connections to the studio — SSH, IDE and previews — as unshare does). The grant is keyed to the session and removed when it ends. |
+| `at-jam studio unshare <studio> --with user:<name>` | Removes the grant (`DELETE …/shares/<user>` → 204; none → 404; the user may also be a `usr_` id, or the name of a removed user with a leftover grant) and closes all the user's open connections to the studio (SSH, IDE and previews), unless they still hold `ssh` another way. |
 | `at-jam studio access <studio>` | Who can reach it and why (`GET …/access` → `{requester, role, grants, live, previews_on, previews}`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), the open connections (each with its right, `ssh` or `preview`) and a `PREVIEWS` section (name, port, URL). |
 
 They pick the plane as the ssh commands do. An operator may share anything. A
@@ -164,7 +165,7 @@ loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
 tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW.md](../../OVERVIEW.md)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for the dial-back; a teardown or a pause closes a
+studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s, 30 s for `ide`); a teardown or a pause closes a
 studio's tunnels and it takes none until it is resumed or raised again.
 
 ## Previews

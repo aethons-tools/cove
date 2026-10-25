@@ -12,6 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabwire"
+	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 // RevokeEvery is how often Live.Run re-checks open connections by default.
@@ -30,9 +31,12 @@ type liveEntry struct {
 	collabwire.LiveConn
 	userID   ident.ID // the roster user whose access the connection rides on; "" for an operator
 	operator bool
-	right    collab.Right // what the connection is for: collab.SSH or collab.Preview
-	port     int          // the studio port it reaches (SSHPort, or the exposed port)
-	close    func()
+	right    collab.Right // the right it rides on: collab.SSH or collab.Preview
+	port     int          // the studio port it reaches (SSHPort, or the preview's port)
+	// viaPreview: a preview proxy connection (right is collab.SSH for the
+	// ide preview), not an SSH tunnel.
+	viaPreview bool
+	close      func()
 }
 
 // NewLive returns an empty registry.
@@ -104,10 +108,12 @@ func (l *Live) CloseUser(session string, user ident.ID) int {
 // CloseUnexposed closes every open preview connection (operators' included)
 // on session to a port not in exposed — the agent unexposed it, moved its
 // name to another port, or the session went — and returns how many it
-// closed. It judges the connections themselves, not a remembered previous
-// set, so it is right on the first change after a Jam restart. It only
-// collects under the lock; the closes run on their own goroutine, so a caller
-// holding a lock (the supervisor's exposure sink) never waits on a tunnel.
+// closed. The built-in IDE (preview.IDEPort) is never exposed, so its
+// connections are left alone; a kit's own ide exposure follows the rule. It
+// judges the connections themselves, not a remembered previous set, so it is
+// right on the first change after a Jam restart. It only collects under the
+// lock; the closes run on their own goroutine, so a caller holding a lock
+// (the supervisor's exposure sink) never waits on a tunnel.
 func (l *Live) CloseUnexposed(session string, exposed []int32) int {
 	if l == nil {
 		return 0
@@ -115,7 +121,7 @@ func (l *Live) CloseUnexposed(session string, exposed []int32) int {
 	l.mu.Lock()
 	var closing []*liveEntry
 	for e := range l.conns {
-		if e.right == collab.Preview && e.Session == session && !slices.Contains(exposed, int32(e.port)) {
+		if e.viaPreview && e.Session == session && e.port != preview.IDEPort && !slices.Contains(exposed, int32(e.port)) {
 			closing = append(closing, e)
 		}
 	}
@@ -150,7 +156,7 @@ func (l *Live) Sweep(store jam.Store, now time.Time, log *slog.Logger) int {
 		e.close()
 		n++
 		msg := "ssh tunnel revoked"
-		if e.right == collab.Preview {
+		if e.viaPreview {
 			msg = "preview connection revoked"
 		}
 		log.Info(msg, "user", e.User, "session", e.Session, "right", string(e.right), "port", e.port, "reason", reason)

@@ -42,19 +42,27 @@ const (
 	labelRebuildEvery = time.Second
 	labelMissTTL      = 2 * time.Second
 	labelMissMax      = 4096
+	// ideOpenTimeout bounds opening a tunnel for the ide preview: cove-master
+	// may first start the built-in IDE (up to 15 s), so it is longer than
+	// openTimeout.
+	ideOpenTimeout = 30 * time.Second
 )
 
-// errPreviewAccessEnded: the caller lost preview between the request's check
-// and its tunnel's registration (an unshare raced it).
+// errPreviewAccessEnded: the caller lost the target's right (preview, or ssh
+// for the ide preview) between the request's check and its tunnel's
+// registration (an unshare raced it).
 var errPreviewAccessEnded = errors.New("preview access ended")
 
 // Preview serves the previews domain (docs/usage/jam/previews.md):
 // the login host jam.<domain> gets auth.LoginHostHandler; a preview host
 // <name>--<label>.<domain> gets auth.PreviewHostRoutes over the proxy, which
 // forwards each request to the studio port the session exposes as name —
-// through a studio tunnel (Tunnels.Open), for a caller collab.Decide allows
-// preview on a live (or woken) studio. Every other host — and every host when
-// d.PreviewURL or d.Exposures is nil (previews off) — is 404.
+// through a studio tunnel (Tunnels.OpenPreview), for a caller collab.Decide
+// allows preview on a live (or woken) studio. The name ide is the studio's
+// IDE: the built-in one on preview.IDEPort unless the kit exposes ide itself,
+// under the ssh right instead of preview (previewPortAndRight). Every other
+// host — and every host when d.PreviewURL or d.Exposures is nil (previews
+// off) — is 404.
 //
 // The app never sees Jam's credentials: the proxy drops the preview session
 // cookie, a Jam bearer and any client-sent X-Jam-User from the request, and
@@ -158,8 +166,17 @@ type previewTarget struct {
 	actorID string
 	port    int
 	p       collab.Principal
-	user    string // audit user (usr_… or op:<id>)
-	name    string // display name
+	user    string       // audit user (usr_… or op:<id>)
+	name    string       // display name
+	right   collab.Right // collab.SSH for the ide preview, else collab.Preview
+}
+
+// openTimeout bounds opening t's tunnel.
+func (t previewTarget) openTimeout() time.Duration {
+	if t.right == collab.SSH {
+		return ideOpenTimeout
+	}
+	return openTimeout
 }
 
 type previewAuditKey struct{ session, user, name string }
@@ -171,6 +188,7 @@ type proxyCtxKey struct{}
 type previewRequest struct {
 	host      string // pool host
 	port      int
+	right     collab.Right
 	session   string
 	user      string
 	name      string // display name, sent as X-Jam-User
@@ -180,7 +198,7 @@ type previewRequest struct {
 // poolHost names t's connection pool. It is opaque (a hash) rather than the
 // ids themselves, which need not be DNS-safe; dial maps it back.
 func (t previewTarget) poolHost() string {
-	sum := sha256.Sum256([]byte(t.user + "\x00" + strconv.Itoa(t.port) + "\x00" + t.actorID))
+	sum := sha256.Sum256([]byte(t.user + "\x00" + strconv.Itoa(t.port) + "\x00" + t.actorID + "\x00" + string(t.right)))
 	return hex.EncodeToString(sum[:16]) + poolSuffix
 }
 
@@ -200,7 +218,7 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 		notExposed(w, r)
 		return
 	}
-	port, ok := exposedPort(p.h.d.Exposures(actorID), name)
+	port, right, ok := previewPortAndRight(p.h.d.Exposures(actorID), name)
 	if !ok {
 		notExposed(w, r)
 		return
@@ -226,18 +244,18 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not resolve caller", http.StatusInternalServerError)
 		return
 	}
-	a, ok := p.h.authorizeInst(w, r, pr, display, inst, collab.Preview)
+	a, ok := p.h.authorizeInst(w, r, pr, display, inst, right)
 	if !ok {
 		return
 	}
-	t := previewTarget{actorID: actorID, port: port, p: a.p, user: a.auditUser(), name: a.name}
+	t := previewTarget{actorID: actorID, port: port, p: a.p, user: a.auditUser(), name: a.name, right: right}
 	host := t.poolHost()
 	p.mu.Lock()
 	p.targets[host] = t
 	p.mu.Unlock()
-	p.audit(a, name, port)
+	p.audit(a, name, port, right)
 	req := &previewRequest{
-		host: host, port: port, session: actorID, user: t.user, name: a.name,
+		host: host, port: port, right: right, session: actorID, user: t.user, name: a.name,
 		stripAuth: p.jamAuthorization(r),
 	}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), proxyCtxKey{}, req)))
@@ -314,13 +332,28 @@ func (p *previewProxy) cached(label string) (id string, ok, known bool) {
 	return "", false, false
 }
 
-func exposedPort(exps []jam.Exposure, name string) (int, bool) {
+// previewPortAndRight resolves a preview name to the studio port it reaches
+// and the right it needs. The ide name is the studio's IDE, under ssh: the
+// kit's exposure named ide if there is one, else the built-in IDE on
+// preview.IDEPort. Any other name is its exposure, under preview; !ok when the
+// session exposes no such name.
+func previewPortAndRight(exps []jam.Exposure, name string) (port int, right collab.Right, ok bool) {
 	for _, e := range exps {
 		if e.Name == name {
-			return e.Port, true
+			port, ok = e.Port, true
+			break
 		}
 	}
-	return 0, false
+	if name == preview.IDEName {
+		if !ok {
+			port = preview.IDEPort
+		}
+		return port, collab.SSH, true
+	}
+	if !ok {
+		return 0, "", false
+	}
+	return port, collab.Preview, true
 }
 
 // jamAuthorization reports whether r's Authorization is a Jam credential, to
@@ -382,7 +415,7 @@ func sameIssuer(a, b string) bool {
 
 // audit logs "preview opened" for the first request of (session, user, name)
 // in each previewAuditEvery.
-func (p *previewProxy) audit(a access, name string, port int) {
+func (p *previewProxy) audit(a access, name string, port int, right collab.Right) {
 	now := p.h.d.Now()
 	k := previewAuditKey{a.inst.ActorID, a.auditUser(), name}
 	p.mu.Lock()
@@ -400,7 +433,7 @@ func (p *previewProxy) audit(a access, name string, port int) {
 	}
 	p.mu.Unlock()
 	if fresh {
-		p.h.d.Log.Info("preview opened", "user", a.auditUser(), "display", a.name, "session", a.inst.ActorID, "name", name, "port", port, "right", string(collab.Preview), "reason", string(a.reason))
+		p.h.d.Log.Info("preview opened", "user", a.auditUser(), "display", a.name, "session", a.inst.ActorID, "name", name, "port", port, "right", string(right), "reason", string(a.reason))
 	}
 }
 
@@ -456,7 +489,7 @@ func (p *previewProxy) dial(ctx context.Context, _, addr string) (net.Conn, erro
 	if !ok {
 		return nil, errUnknownPoolHost
 	}
-	ctx, cancel := context.WithTimeout(ctx, openTimeout)
+	ctx, cancel := context.WithTimeout(ctx, t.openTimeout())
 	defer cancel()
 	conn, err := p.h.d.Tunnels.OpenPreview(ctx, t.actorID, int32(t.port))
 	if err != nil {
@@ -466,13 +499,13 @@ func (p *previewProxy) dial(ctx context.Context, _, addr string) (net.Conn, erro
 	pc.remove = p.h.d.Live.add(&liveEntry{
 		LiveConn: collabwire.LiveConn{Session: t.actorID, User: t.user, Name: t.name, Since: p.h.d.Now()},
 		userID:   t.p.UserID, operator: t.p.Operator != "",
-		right: collab.Preview, port: t.port,
+		right: t.right, port: t.port, viaPreview: true,
 		close: func() { _ = pc.Close() },
 	})
 	// An unshare removes the grant before it closes registered connections,
 	// so re-checking once registered closes one that raced it.
 	inst, ok := p.h.d.Store.GetInstance(t.actorID)
-	if _, allowed := collab.Decide(p.h.d.Store, p.h.d.Now(), t.p, inst, collab.Preview); !ok || !allowed {
+	if _, allowed := collab.Decide(p.h.d.Store, p.h.d.Now(), t.p, inst, t.right); !ok || !allowed {
 		_ = pc.Close()
 		return nil, errPreviewAccessEnded
 	}
@@ -510,7 +543,7 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 	code, msg := http.StatusBadGateway, fmt.Sprintf("the app at port %d is not answering", req.port)
 	switch {
 	case errors.Is(err, errPreviewAccessEnded):
-		code, msg = http.StatusForbidden, "you may not use "+string(collab.Preview)+" on this studio"
+		code, msg = http.StatusForbidden, "you may not use "+string(req.right)+" on this studio"
 	case errors.Is(err, attach.ErrDialBackTimeout):
 		code, msg = http.StatusGatewayTimeout, "studio could not open the preview (is its image current?)"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -522,7 +555,7 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, attach.ErrTunnelsClosed):
 		code, msg = http.StatusConflict, err.Error()
 	}
-	p.h.d.Log.Warn("preview proxy failed", "user", req.user, "session", req.session, "port", req.port, "right", string(collab.Preview), "status", code, "err", err.Error())
+	p.h.d.Log.Warn("preview proxy failed", "user", req.user, "session", req.session, "port", req.port, "right", string(req.right), "status", code, "err", err.Error())
 	http.Error(w, msg, code)
 }
 
