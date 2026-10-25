@@ -212,3 +212,254 @@ func TestInterruptBeforeEpisodeDropped(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestCompactText(t *testing.T) {
+	if got := compactText("keep X"); got != "/compact keep X" {
+		t.Fatalf("compactText = %q", got)
+	}
+	if got := compactText(""); got != "/compact" {
+		t.Fatalf("compactText(\"\") = %q", got)
+	}
+}
+
+func compact(w *Workload, by, instructions string) {
+	w.Control(covemaster.Control{Kind: covemaster.Compact, By: by, Instructions: instructions})
+}
+
+func squawk(w *Workload) {
+	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+}
+
+func TestCompactMidTurnWaitsForResult(t *testing.T) {
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
+	compact(w, "Ann", "keep X")
+	p.in.noMessage(t, 100*time.Millisecond)
+	p.emit(lnResult)
+	if got := p.in.next(t); got != "/compact keep X" {
+		t.Fatalf("message after the result = %q", got)
+	}
+	want := `{"type":"cove","subtype":"command","command":"compact","by":"Ann"}`
+	if !eventually(func() bool {
+		for _, ev := range h.eventList() {
+			if ev.raw == want && ev.turn == 1 {
+				return true
+			}
+		}
+		return false
+	}) {
+		t.Fatalf("no command record %s", want)
+	}
+	p.in.staysOpen(t, 30*time.Millisecond) // the compaction runs
+	p.emit(lnInit, lnResult)
+	p.in.waitClosed(t) // then the normal turn-end logic: idle, close
+}
+
+func TestCompactThenCoalescedWake(t *testing.T) {
+	w, p := interruptRun(t, &recordHandle{})
+	squawk(w)
+	compact(w, "Ann", "keep X")
+	p.in.noMessage(t, 50*time.Millisecond)
+	p.emit(lnResult)
+	if got := p.in.next(t); got != "/compact keep X" {
+		t.Fatalf("first message after the result = %q", got)
+	}
+	p.in.noMessage(t, 50*time.Millisecond) // the wake waits for the compaction
+	p.emit(lnInit, lnResult)
+	if got := p.in.next(t); got != residentResumePrompt {
+		t.Fatalf("message after the compaction = %q", got)
+	}
+}
+
+func TestCompactHoldingWritesNow(t *testing.T) {
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
+	p.emit(lnTasks1, lnResult)
+	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+		t.Fatal("no Holding")
+	}
+	compact(w, "Ann", "keep X")
+	if got := p.in.next(t); got != "/compact keep X" {
+		t.Fatalf("message = %q", got)
+	}
+	running := h.count(covemaster.Running)
+	p.emit(lnInit)
+	time.Sleep(30 * time.Millisecond) // the loop sees the compaction's turn in flight
+	p.emit(lnResult)                  // compacted; the task is still outstanding
+	p.in.staysOpen(t, 50*time.Millisecond)
+	if n := h.count(covemaster.Holding); n != 1 {
+		t.Fatalf("Holding reported %d times; the session never left the hold", n)
+	}
+	if n := h.count(covemaster.Running); n != running {
+		t.Fatalf("Running reported during the compaction (%d, was %d)", n, running)
+	}
+}
+
+func TestInterruptDuringCompactIgnored(t *testing.T) {
+	w, p := interruptRun(t, &recordHandle{})
+	compact(w, "Ann", "keep X")
+	p.in.noMessage(t, 30*time.Millisecond) // taken mid-turn
+	p.emit(lnResult)
+	p.in.next(t) // the boundary /compact
+	p.emit(lnInit)
+	interrupt(w, "Bob")
+	p.in.noCtrl(t, 100*time.Millisecond)
+	p.emit(lnResult)
+	p.in.waitClosed(t) // no acknowledge turn either
+}
+
+// Both owed at one turn boundary: the interrupt's acknowledge turn first,
+// then the compact.
+func TestInterruptThenCompactAckFirst(t *testing.T) {
+	w, p := interruptRun(t, &recordHandle{})
+	interrupt(w, "Ann")
+	p.in.nextCtrl(t)
+	compact(w, "Bob", "keep X")
+	p.in.noMessage(t, 30*time.Millisecond)
+	p.emit(lnToolRes, lnResult)
+	if got := p.in.next(t); !strings.Contains(got, "Ann pressed **Interrupt**") {
+		t.Fatalf("first message = %q, want the acknowledge prompt", got)
+	}
+	p.in.noMessage(t, 30*time.Millisecond)
+	p.emit(lnInit, lnResult)
+	if got := p.in.next(t); got != "/compact keep X" {
+		t.Fatalf("second message = %q", got)
+	}
+}
+
+// idleRun starts a resident Run whose first episode has ended and Waiting is
+// reported.
+func idleRun(t *testing.T, h *recordHandle) (*Workload, *streamSpawner, context.CancelFunc, chan error) {
+	t.Helper()
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, h)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("Run did not return")
+		}
+	})
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, lnResult)
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+		t.Fatal("not waiting")
+	}
+	return w, s, cancel, done
+}
+
+func TestCompactIdleSpawnsMaintenance(t *testing.T) {
+	h := &recordHandle{}
+	w, s, _, _ := idleRun(t, h)
+	compact(w, "Ann", "keep X")
+	m := s.next(t)
+	if !hasArg(m.args, "--continue") {
+		t.Fatalf("maintenance spawn missing --continue: %v", m.args)
+	}
+	if got := m.in.next(t); got != "/compact keep X" {
+		t.Fatalf("maintenance message = %q", got)
+	}
+	m.emit(lnInit, lnResult)
+	m.in.waitClosed(t)
+	m.exit <- nil
+	time.Sleep(50 * time.Millisecond)
+	if n := h.count(covemaster.Running); n != 1 {
+		t.Fatalf("Running reported %d times; the maintenance episode must not report it", n)
+	}
+	if n := h.count(covemaster.Waiting); n != 1 {
+		t.Fatalf("Waiting reported %d times; the session never left waiting", n)
+	}
+	want := `{"type":"cove","subtype":"command","command":"compact","by":"Ann"}`
+	found := false
+	for _, ev := range h.eventList() {
+		if ev.raw == want && ev.turn == 2 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no command record %s on turn 2 in %+v", want, h.eventList())
+	}
+}
+
+func TestWakeDuringIdleCompactWaits(t *testing.T) {
+	h := &recordHandle{}
+	w, s, _, _ := idleRun(t, h)
+	compact(w, "Ann", "keep X")
+	m := s.next(t)
+	m.in.next(t)
+	squawk(w)
+	m.in.noMessage(t, 100*time.Millisecond)
+	m.emit(lnInit, lnResult)
+	m.in.waitClosed(t)
+	m.exit <- nil
+	p := s.next(t)
+	if got := p.in.next(t); got != residentResumePrompt {
+		t.Fatalf("resume prompt = %q", got)
+	}
+	if !eventually(func() bool { return h.count(covemaster.Running) == 2 }) {
+		t.Fatalf("Running not reported for the resumed episode (running=%d)", h.count(covemaster.Running))
+	}
+}
+
+// A maintenance episode that never finishes is stopped after compactTimeout;
+// Run goes back to waiting.
+func TestCompactIdleTimeout(t *testing.T) {
+	old := compactTimeout
+	compactTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { compactTimeout = old })
+	h := &recordHandle{}
+	w, s, _, done := idleRun(t, h)
+	compact(w, "Ann", "keep X")
+	m := s.next(t)
+	m.in.next(t) // never answered: the timeout kills it
+	assertBlocked(t, done, 150*time.Millisecond)
+	squawk(w)
+	p := s.next(t)
+	if got := p.in.next(t); got != residentResumePrompt {
+		t.Fatalf("resume prompt = %q", got)
+	}
+}
+
+// Teardown during a maintenance episode still ends Run with the ctx error.
+func TestCompactIdleCancelReturns(t *testing.T) {
+	w, s, cancel, done := idleRun(t, &recordHandle{})
+	compact(w, "Ann", "keep X")
+	m := s.next(t)
+	m.in.next(t)
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("Run = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	done <- nil // for the cleanup
+}
+
+// A Clear posted during a maintenance episode is left for the wait after it.
+func TestClearDuringIdleCompactLeftForWait(t *testing.T) {
+	w, s, _, _ := idleRun(t, &recordHandle{})
+	compact(w, "Ann", "keep X")
+	m := s.next(t)
+	m.in.next(t)
+	w.Control(covemaster.Control{Kind: covemaster.Clear, By: "Bob"})
+	time.Sleep(30 * time.Millisecond)
+	w.cmds.mu.Lock()
+	pending := w.cmds.clear
+	w.cmds.mu.Unlock()
+	if !pending {
+		t.Fatal("the clear was taken during the maintenance episode")
+	}
+	m.emit(lnInit, lnResult)
+	m.in.waitClosed(t)
+	m.exit <- nil
+}

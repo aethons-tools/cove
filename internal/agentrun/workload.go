@@ -279,7 +279,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 		started := time.Now()
 
-		waitErr := w.episode(ctx, h, t, proc, tr, first)
+		waitErr := w.episode(ctx, h, t, proc, tr, first, false)
 		split.Flush()
 		if tr.ResumeOwed() {
 			// The last resume prompt was written but the agent never started the
@@ -317,12 +317,59 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		// session ends (end, idle teardown, wait-max); no result file is read.
 		w.logTurn(waitErr)
 		h.Report(covemaster.Waiting)
-		rs, ok := w.awaitWake(ctx, nil)
-		if !ok {
+		for {
+			rs, c, ok := w.awaitWake(ctx, nil)
+			if !ok {
+				return ctx.Err()
+			}
+			if c == nil {
+				prompt, continued = renderWake(w.resumeText(), rs), true
+				break
+			}
+			turn++
+			if err := w.compactIdle(ctx, h, turn, *c); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// compactIdle runs a Compact pressed with no live episode as a maintenance
+// episode: a continued process whose only message is /compact, bounded by
+// compactTimeout. Jam isn't told (no Running, no Waiting after): the session
+// stays waiting. Wakes stay buffered for the wait after it, and so do Clears.
+// It returns an error only when ctx ends; any other failure is logged and Run
+// goes back to waiting.
+func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn uint32, c compactReq) error {
+	mctx, cancel := context.WithTimeout(ctx, compactTimeout)
+	defer cancel()
+	proc, tr, split, err := w.spawn(mctx, h, turn, true)
+	if err != nil {
+		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		prompt, continued = renderWake(w.resumeText(), rs), true
+		w.log.Warn("agentrun: compact not run — the agent could not be started; waiting", "by", c.by, "err", err.Error())
+		return nil
 	}
+	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
+	w.emitCommand(h, turn, "compact", c.by)
+	waitErr := w.episode(mctx, h, turn, proc, tr, compactText(c.instructions), true)
+	split.Flush()
+	// The episode consumed any command signal without taking a Clear (or a
+	// newer Compact restored on exit): hand them on to the wait.
+	w.cmds.repost()
+	switch {
+	case ctx.Err() != nil:
+		w.log.Info("agentrun: agent interrupted by context cancel", "err", ctx.Err())
+		return ctx.Err()
+	case mctx.Err() != nil:
+		w.log.Warn("agentrun: compact timed out; maintenance episode stopped, waiting", "by", c.by, "timeout", compactTimeout.String())
+	case waitErr != nil:
+		w.log.Warn("agentrun: compact FAILED — maintenance episode exited non-zero; waiting", "by", c.by, "exit", waitErr.Error())
+	default:
+		w.log.Info("agentrun: compacted; waiting", "by", c.by)
+	}
+	return nil
 }
 
 // spawn starts one agent process for event turn turn: it refreshes the
@@ -478,7 +525,10 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 // changes, Wakes, session-header commands, the background-wait timer and exit
 // until the process exits. turn is the episode's event turn. It returns the
 // process's exit error.
-func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32, proc Process, tr *idleTracker, prompt string) error {
+//
+// A maintenance episode's prompt is a /compact: it reads no Wakes (they stay
+// buffered), takes no Clear, and closes stdin once the compaction's turn ends.
+func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32, proc Process, tr *idleTracker, prompt string, maintenance bool) error {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	in := proc.Input()
@@ -538,11 +588,23 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 	// ackBy: who interrupted the turn in flight; when it ends, the acknowledge
 	// turn is written instead of the usual turn-end action.
 	ackBy := ""
+	// compact: a Compact taken but not yet written (at the next turn
+	// boundary); compacting: a written /compact's turn is in flight.
+	var compact *compactReq
+	compacting := maintenance
+	defer func() {
+		if compact != nil {
+			// The process exited before the turn boundary: the press is not lost.
+			w.cmds.restoreCompact(*compact)
+		}
+	}()
 	for {
 		var wake, cmds <-chan struct{}
 		if open {
-			wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
-			cmds = w.cmds.signal() // and commands for awaitWake, which drops them
+			if !maintenance {
+				wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
+			}
+			cmds = w.cmds.signal() // and commands for awaitWake
 		}
 		select {
 		case err := <-exited:
@@ -570,6 +632,9 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "not in a turn")
 				case ackBy != "":
 					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "already interrupting")
+				case compacting:
+					// The compaction finishes and its turn ends anyway.
+					w.log.Info("agentrun: interrupt ignored", "by", by, "why", "compacting")
 				default:
 					w.interrupts++
 					w.log.Info("agentrun: interrupting the agent's turn", "by", by)
@@ -577,7 +642,16 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 					ackBy = by
 				}
 			}
-			w.dropUnbuilt("episode")
+			if by, instructions, ok := w.cmds.takeCompact(); ok {
+				if compacting {
+					w.log.Info("agentrun: compact ignored", "by", by, "why", "already compacting")
+				} else {
+					compact = &compactReq{by: by, instructions: instructions} // the last press wins
+				}
+			}
+			if !maintenance {
+				w.dropClear("episode")
+			}
 		case <-tr.changed:
 		case <-holdC:
 			_, tasks := tr.Next()
@@ -604,6 +678,32 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 			ackBy = ""
 			continue
 		}
+		if compacting {
+			if tr.Busy() {
+				// Nothing to do until the compaction's turn ends; a hold stays
+				// reported (its turn is ours, not the agent's).
+				continue
+			}
+			compacting = false
+			if maintenance {
+				closeInput("compacted")
+				continue
+			}
+			// Carry on with the usual turn-end action.
+		}
+		if compact != nil && !tr.Busy() {
+			// At the turn boundary (or now, between turns): compact before any
+			// coalesced wake is delivered, so its resume lands in the new context.
+			// A hold's timer restarts after the compaction; Holding stays reported.
+			stopHold()
+			w.log.Info("agentrun: compacting the conversation", "by", compact.by)
+			write(compactText(compact.instructions))
+			tr.MarkBusy()
+			compacting = true
+			w.emitCommand(h, turn, "compact", compact.by)
+			compact = nil
+			continue
+		}
 		switch act, tasks := tr.Next(); act {
 		case actDeliverWake:
 			stopHold()
@@ -614,8 +714,10 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
 				hold = time.NewTimer(w.cfg.BackgroundWait)
 				holdC = hold.C
-				h.Report(covemaster.Holding)
-				held = true
+				if !held { // a hold resumed after a compaction is still reported
+					h.Report(covemaster.Holding)
+					held = true
+				}
 			}
 		case actClose:
 			stopHold()
@@ -627,24 +729,28 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 	}
 }
 
-// awaitWake blocks until a Wake with reasons still to answer arrives, skipping
-// stale signals. ok is false when ctx ends or timeout (nil = none) fires.
-func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs []covemaster.WakeReason, ok bool) {
+// awaitWake blocks until a Wake with reasons still to answer (rs) or a Compact
+// (compact) arrives, skipping stale signals. ok is false when ctx ends or
+// timeout (nil = none) fires.
+func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs []covemaster.WakeReason, compact *compactReq, ok bool) {
 	for {
 		select {
 		case <-w.wake.signal():
 			if rs = w.wake.take(); len(rs) > 0 {
-				return rs, true
+				return rs, nil, true
 			}
 		case <-w.cmds.signal():
 			if by, ok := w.cmds.takeInterrupt(); ok {
 				w.log.Info("agentrun: interrupt ignored", "by", by, "why", "no live episode")
 			}
-			w.dropUnbuilt("waiting")
+			w.dropClear("waiting")
+			if by, instructions, ok := w.cmds.takeCompact(); ok {
+				return nil, &compactReq{by: by, instructions: instructions}, true
+			}
 		case <-ctx.Done():
-			return nil, false
+			return nil, nil, false
 		case <-timeout:
-			return nil, false
+			return nil, nil, false
 		}
 	}
 }
@@ -671,7 +777,8 @@ func (w *Workload) logTurn(waitErr error) {
 // Run waiting after an episode consumes it and resumes. Coalesced wakes
 // merge their reasons: the one resume prompt names them all (renderWake).
 // Interrupt, Compact and Clear post to the command box the same way, never
-// blocking: the episode loop acts on them, or awaitWake drops them.
+// blocking: the episode loop acts on them, or awaitWake does (a Compact runs
+// a maintenance episode; the others are dropped).
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
@@ -693,12 +800,9 @@ func (w *Workload) Control(c covemaster.Control) {
 	}
 }
 
-// dropUnbuilt takes and logs a pending Compact or Clear, which have no
-// behaviour yet, so neither lingers in the box. where names the consumer.
-func (w *Workload) dropUnbuilt(where string) {
-	if by, _, ok := w.cmds.takeCompact(); ok {
-		w.log.Info("agentrun: compact ignored (not supported yet)", "by", by, "where", where)
-	}
+// dropClear takes and logs a pending Clear, which has no behaviour yet, so it
+// doesn't linger in the box. where names the consumer.
+func (w *Workload) dropClear(where string) {
 	if by, ok := w.cmds.takeClear(); ok {
 		w.log.Info("agentrun: clear ignored (not supported yet)", "by", by, "where", where)
 	}

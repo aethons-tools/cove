@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
@@ -70,6 +71,20 @@ func (b *cmdBox) takeCompact() (by, instructions string, ok bool) {
 	return by, instructions, ok
 }
 
+// restoreCompact hands back a compact that was taken but never written (its
+// episode exited first), unless a newer one is already posted.
+func (b *cmdBox) restoreCompact(c compactReq) {
+	b.mu.Lock()
+	restored := !b.compact
+	if restored {
+		b.compact, b.compactBy, b.instructions = true, c.by, c.instructions
+	}
+	b.mu.Unlock()
+	if restored {
+		b.repost()
+	}
+}
+
 func (b *cmdBox) postClear(by string) {
 	b.mu.Lock()
 	b.clear, b.clearBy = true, by
@@ -93,6 +108,23 @@ func (b *cmdBox) repost() {
 	case b.sig <- struct{}{}:
 	default:
 	}
+}
+
+// compactTimeout bounds a maintenance episode (a Compact pressed with no live
+// episode): past it the process is stopped and Run goes back to waiting. A var
+// so tests can shrink it.
+var compactTimeout = 10 * time.Minute
+
+// compactReq is a taken Compact: who pressed it and the instructions that
+// follow /compact.
+type compactReq struct{ by, instructions string }
+
+// compactText is the user message that runs Claude's native /compact.
+func compactText(instructions string) string {
+	if instructions == "" {
+		return "/compact"
+	}
+	return "/compact " + instructions
 }
 
 // interruptPrompt is the acknowledge turn written after an interrupted turn
