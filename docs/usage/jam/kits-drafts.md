@@ -1,5 +1,5 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs and the open, status, discard, file read/write/remove, publish and build API.
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs and the open, status, discard, file read/write/remove, publish and build API.
 read_when: You want to open, inspect, edit, discard, test-build or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415, 428 or 503.
 owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines
 prereqs: kits.md, kits-directory.md
@@ -109,10 +109,11 @@ at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads s
 at-jam kit draft rm app old.sh                         # remove a file
 at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
 at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
+at-jam kit draft build app [--no-follow]               # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
 at-jam kit draft discard app                           # drop the draft
 ```
 
-Each write first fetches the status and sends its etag, so it overwrites an
+Each write (and `build`) first fetches the status and sends its etag, so it overwrites an
 edit made since you last looked (`sync` replaces the whole tree). With
 `--etag <hash>`, a write is checked against the etag you already hold and
 fails with 412 instead. `publish` prints the new version's tree prefix, and
@@ -130,6 +131,11 @@ its `warning` on stderr. The admin-client flags apply as for every
 - `get -o <file>` writes the file with its mode in the draft; an existing
   symlink there is replaced, never written through.
 - `publish --pin` prints a `pinned …` line per follower pinned.
+- `build` prints the build's log as it comes, escaped, and exits 0 on
+  success (with the tag and the digest) or 1 on failure. `--no-follow`
+  returns once the build started; `--show` prints the latest build and its
+  log without starting one; `--cancel` stops it. Ctrl-C stops the following
+  (exit 130), not the build. See [Test build](#test-build).
 - A usage error (a flag of another verb included) exits 2; a refused call
   exits 1 with the server's text.
 
