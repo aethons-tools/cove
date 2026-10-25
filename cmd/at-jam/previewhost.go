@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -48,17 +49,41 @@ func adminTLSConfig(adminCert, previewCert tls.Certificate, domain string) *tls.
 // are served on the admin listener, so the URL names its port unless that is
 // 443 — a bare https:// URL would reach the cove-facing listener instead.
 func previewURLFunc(domain, adminListen string) func(actorID, name string) (string, error) {
-	_, port, _ := net.SplitHostPort(adminListen)
 	return func(actorID, name string) (string, error) {
 		h, err := preview.Host(domain, name, actorID)
 		if err != nil {
 			return "", err
 		}
-		if port != "" && port != "443" {
-			h = net.JoinHostPort(h, port)
-		}
-		return "https://" + h + "/", nil
+		return previewOrigin(h, adminListen) + "/", nil
 	}
+}
+
+// previewOrigin is https://host, with the admin listener's port unless 443.
+func previewOrigin(host, adminListen string) string {
+	if _, port, _ := net.SplitHostPort(adminListen); port != "" && port != "443" {
+		host = net.JoinHostPort(host, port)
+	}
+	return "https://" + host
+}
+
+// frameURLs mints the Jam pane's frame URLs (userui.Deps.Frames): the
+// preview host's ticket exchange, /__jam/frame?t=, on the same origin as
+// previewURLFunc's URL, with a ticket minted for that host.
+type frameURLs struct {
+	tickets             *collabhttp.FrameTickets
+	domain, adminListen string
+}
+
+func (f frameURLs) FrameURL(p collab.Principal, display, actorID, name string, right collab.Right) (string, error) {
+	h, err := preview.Host(f.domain, name, actorID)
+	if err != nil {
+		return "", err
+	}
+	t, err := f.tickets.Mint(p, display, h, right)
+	if err != nil {
+		return "", err
+	}
+	return previewOrigin(h, f.adminListen) + "/__jam/frame?t=" + url.QueryEscape(t), nil
 }
 
 // hostRouter dispatches a request on its Host: domain itself or any name
@@ -105,8 +130,10 @@ func loadPreviewCert(certFile, keyFile, domain string) (tls.Certificate, error) 
 // redirect URI is https://jam.<domain>/__jam/auth/callback. lc (nil when there
 // is no device client) is the CLI login whose participant ID tokens a
 // non-browser caller presents as a bearer. port is the admin listener's, the
-// only explicit port a login may return to.
-func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
+// only explicit port a login may return to. uiOrigins (ui-origins) are the
+// only pages that may frame a preview; frames (nil: framing off) are the Jam
+// pane's frame tickets, pruned by the PreviewAuth's Run.
+func newPreviewAuth(domain, port string, uiOrigins []string, frames *collabhttp.FrameTickets, bc browserauth.RawConfig, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, st jam.Store, log *slog.Logger) (*collabhttp.PreviewAuth, error) {
 	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
 	if !ok {
 		return nil, fmt.Errorf("previews require operator-auth.oidc")
@@ -129,10 +156,12 @@ func newPreviewAuth(domain, port string, bc browserauth.RawConfig, lc *jam.Opera
 			u, ok := jam.UserByIdentity(st, iss, sub)
 			return u.ID, u.Name, ok
 		},
-		Bearer:       previewBearer(oidcAuth, lc, st),
-		BearerIssuer: bc.Issuer,
-		Now:          time.Now,
-		Log:          log,
+		Bearer:         previewBearer(oidcAuth, lc, st),
+		BearerIssuer:   bc.Issuer,
+		Frames:         frames,
+		FrameAncestors: uiOrigins,
+		Now:            time.Now,
+		Log:            log,
 	})
 	svc, err := browserauth.New(context.Background(), bc, browserauth.PreviewMount(pa.Complete, pa.ValidLoginReturn), nil, log)
 	if err != nil {
@@ -277,4 +306,20 @@ func previewAdminHosts(c *serveConfig) []string {
 		out = append(out, h)
 	}
 	return append(out, c.UIHosts...)
+}
+
+// paneFramingOn: the Jam pane may frame previews (Studio, View here) only
+// when previews are on and ui-origins names the UI; otherwise previews send
+// frame-ancestors 'none' and the browser would block the frame unexplained.
+func paneFramingOn(c *serveConfig) bool {
+	return c.Previews != nil && len(c.UIOrigins) > 0
+}
+
+// previewUIOriginsWarning is serve's startup warning when previews are on but
+// ui-origins is empty ("" otherwise): no page may then frame a preview.
+func previewUIOriginsWarning(c *serveConfig) string {
+	if c.Previews == nil || len(c.UIOrigins) > 0 {
+		return ""
+	}
+	return "previews: ui-origins is empty, so the Jam pane can't frame previews; add the UI's own origin"
 }

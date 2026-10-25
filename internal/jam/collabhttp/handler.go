@@ -182,9 +182,15 @@ func (h *handler) authorize(w http.ResponseWriter, r *http.Request, right collab
 // writes the refusal (403, or the wake's 409/503/504, or 409 not running) and
 // returns false when it fails.
 func (h *handler) authorizeInst(w http.ResponseWriter, r *http.Request, p collab.Principal, name string, inst jam.Instance, right collab.Right) (access, bool) {
+	return h.authorizeInstWith(w, r, p, name, inst, right, http.Error)
+}
+
+// authorizeInstWith is authorizeInst answering its refusal (403) through
+// refuse — the preview proxy's framed error page.
+func (h *handler) authorizeInstWith(w http.ResponseWriter, r *http.Request, p collab.Principal, name string, inst jam.Instance, right collab.Right, refuse func(http.ResponseWriter, string, int)) (access, bool) {
 	reason, ok := collab.Decide(h.d.Store, h.d.Now(), p, inst, right)
 	if !ok {
-		http.Error(w, "you may not use "+string(right)+" on this studio", http.StatusForbidden)
+		refuse(w, "you may not use "+string(right)+" on this studio", http.StatusForbidden)
 		return access{}, false
 	}
 	// Only a live studio takes certs or tunnels: the supervisor closes a

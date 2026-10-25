@@ -1,7 +1,7 @@
 ---
-summary: Studio previews — an agent exposes a port it serves (`expose(port, name)`) and authorized people open it at `https://<name>--<label>.<domain>/` through Jam: preview hosts and labels, who may open one, the browser login via `jam.<domain>` and its host-only cookie, bearer access for scripts, what the app sees, operator setup, the web-IDE pattern, limits and troubleshooting.
+summary: Studio previews — an agent exposes a port it serves (`expose(port, name)`) and authorized people open it at `https://<name>--<label>.<domain>/` through Jam: preview hosts and labels, who may open one, the browser login via `jam.<domain>` and its host-only cookie, framing in the Jam pane, bearer access for scripts, what the app sees, operator setup, the web-IDE pattern, limits and troubleshooting.
 read_when: You want to open or script against a studio preview, set up previews on a Jam (DNS, wildcard cert, IdP redirect URI, `previews:`), run a web IDE in a studio, write an app that runs behind a preview, or a preview link 404s, 403s, 502s or 504s.
-owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the built-in code-server IDE and a kit's own, preview limits and troubleshooting
+owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, framing in the Jam pane (frame tickets, __Host-jam_frame, frame-ancestors), bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the built-in code-server IDE and a kit's own, preview limits and troubleshooting
 prereqs: collaboration.md (who may connect, sharing, the tunnel), serve.md (the previews: block)
 tier: leaf
 updated: 2026-10-25
@@ -62,10 +62,54 @@ navigation, or when `Origin` is a preview host of the same session. A
 WebSocket always needs such an `Origin`. A browser without Fetch Metadata
 needs one (or such a `Referer`) for any method but `GET`/`HEAD`/`OPTIONS`.
 Anything else — an iframe, or a fetch or form from another studio — gets
-403 "cross-site request refused". When the session ends, the next visit
+403 "cross-site request refused" (the Jam pane uses its own cookie: see
+[Framing](#framing-the-jam-pane)). When the session ends, the next visit
 logs in again, without a prompt while your IdP session lasts. A request with
 more than one session cookie counts as signed out. A non-browser request (no
 `Accept: text/html`) with no credentials gets a 401.
+
+## Framing (the Jam pane)
+
+The Jam UI can show a preview in a pane (an iframe). It mints a frame
+ticket: single-use, valid 60 s, bound to one viewer (user or operator), one
+preview host and the right it was minted under — not to a browser, so for
+those 60 s it is a bearer. The iframe opens `https://<host>/__jam/frame?t=…`,
+which trades it for a `__Host-jam_frame` cookie (host-only, `Secure`,
+`HttpOnly`, `SameSite=None`, `Partitioned`, 8 h) and answers 200 with a
+page whose script sends the frame to `/` (a redirect would keep the UI as
+initiator, arriving cross-site). It works only as the UI's iframe load
+(`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest:
+iframe`), so the UI must be on a registrable domain apart from `<domain>`
+([setup](#setting-up-previews-operator) step 1), and is audit-logged as
+"preview frame opened" with `host` (encoding preview name and studio
+label), `user` or `operator`, and `right`; never the ticket or cookie.
+The cookie lives only in the UI's partition and counts only on a
+same-origin request (`Sec-Fetch-Site: same-origin`) or a WebSocket whose
+`Origin` is the preview host itself. So each pane load uses a fresh ticket,
+and a redirect or link from one studio into another inside the pane is not
+signed in. Top-level it is ignored (you log in); in a same-site frame (a
+sibling studio in the pane) refused. Your right is re-checked every time.
+
+Every preview response carries `Content-Security-Policy: frame-ancestors`
+listing only the [`ui-origins`](serve.md) (`'none'` when unset), beside any
+CSP of the app's, so a frame nested under another preview is blocked. The app's
+`X-Frame-Options` is dropped only on a pane request (with `Vary: Cookie`).
+Jam's error pages tell the pane their status (`postMessage` to the
+**first** `ui-origins` entry, so list the production UI first): inside
+any iframe, the 404 and the 403s
+"cross-site request refused" and "this login is not linked to a Jam user";
+on a pane request, the 403 "you may not use …" and the proxy's errors
+(502, 503, 504, 429, 409); other errors stay plain text. A pane load with
+no frame session gets a 401 page (**Open in new tab**) posting `"signin"`
+(cross-site with no ticket — a reload or another studio's redirect; the UI
+re-mints) or `"cookies"` (same-origin with no frame cookie: the browser
+refused it, as Safari does). `/__jam/logout` ends your preview and pane
+sessions on that host, honouring each cookie only where it counts, so a
+sibling studio cannot log you out (say, with an `<img>`). The browser's
+partitioned cookie lingers, naming no session. Threat note: an app in the
+pane can navigate it to another studio's `/__jam/frame?t=…` with a ticket
+its author minted for themselves (within 60 s), showing you that studio
+signed in as them.
 
 ## API clients and scripts
 
@@ -148,7 +192,7 @@ after another lookup; reload.
 | 404 "nothing is exposed at this address" | The name is not exposed (ask the agent to `expose` it again, e.g. after a restart), the studio is gone, or the Jam has no `previews:` block (its `expose` answers 409). |
 | 401 | No credentials, or the bearer is invalid or expired: log in again. |
 | 403 | No rule gives you `preview` (`ssh` for `ide`), or your login is not linked to a Jam user. Ask for a share. |
-| 403 "cross-site request refused" | Another page (an iframe, or another studio's fetch, form or WebSocket) used your preview session. Open the preview directly. |
+| 403 "cross-site request refused" | Another page (an iframe, or another studio's fetch, form or WebSocket) used your preview session. Open the preview directly, or from the Jam pane ([Framing](#framing-the-jam-pane)). |
 | 502 "the app at port … is not answering" | Nothing is listening on that port in the studio, or the app failed. |
 | 504 "studio could not open the preview (is its image current?)" | The studio's cove-master predates previews. Raise the studio again. |
 | 429 "… kept for SSH" | The studio's previews hold all 12 of their tunnels (many viewers or long-polls). Retry once some close. |

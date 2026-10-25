@@ -1,6 +1,7 @@
 # Session view, part 3: the studio view — design
 
-**Status:** approved in brainstorming (2026-10-24); not built.
+**Status:** built (2026-10-25): #481 code-server in the image and cove-master, #482 `ide` routing, #483 the frame boundary, and #485 the UI.
+**Amendments:** the IDE frame is kept across pane tab switches (only a conversation switch reloads it, as designed); the first open widens the pane to 60% unless a size was saved; `POST /app/user/session/{id}/frame` is limited to 30 mints per user per minute; an `ide` exposure is omitted from Previews.
 **Context:** sub-project 3 of the session view ([part 1](2026-10-24-session-view-shell-design.md), [part 2](2026-10-24-session-thinking-view-design.md); user doc [session-view.md](../../usage/jam/session-view.md)). The pane gains a **Studio** tab, a web IDE (code-server) on the session's workspace, and the **Previews** tab shows previews inline. Both are framed inside `/app/user`.
 
 ## Decisions (2026-10-24)

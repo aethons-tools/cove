@@ -2721,10 +2721,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// waiting studio; the inbox reads the same channel log, and the legacy
 		// log as History.
 		userMux := http.NewServeMux()
+		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
+		// "Framing"): the previews' login trades them for frame sessions and
+		// prunes them.
+		var frames *collabhttp.FrameTickets
+		if cfg.Previews != nil {
+			frames = collabhttp.NewFrameTickets(time.Now)
+		}
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userMux.Handle("/app/user/", userui.Handler(userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
+		userDeps := userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		// Never a typed nil: a nil Frames hides Studio and View here, as it must
+		// without ui-origins (previews then refuse every framer).
+		if frames != nil && paneFramingOn(&cfg) {
+			userDeps.Frames = frameURLs{tickets: frames, domain: cfg.Previews.Domain, adminListen: cfg.AdminListen}
+		}
+		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
 		// tabs (WithSetupDeps) render with the same deps.
@@ -2796,12 +2809,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				log.Warn("previews: the previews domain shares a registrable domain with the admin host; preview apps can set cookies the admin site receives — use a separate registrable domain for previews",
 					"previews-domain", cfg.Previews.Domain, "admin-host", s.host, "registrable-domain", s.site)
 			}
-			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
+			if msg := previewUIOriginsWarning(&cfg); msg != "" {
+				log.Warn(msg)
+			}
+			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, cfg.UIOrigins, frames, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: previews:", err)
 				return 1
 			}
-			go previewAuth.Run(context.Background())
+			go previewAuth.Run(context.Background()) // also prunes frames
 			// The preview proxy serves the login host and every preview host;
 			// it names its callers through previewAuth, not a plane's Principal.
 			previewHandler := collabhttp.Preview(collabDeps(nil), previewAuth, cfg.Previews.Domain)

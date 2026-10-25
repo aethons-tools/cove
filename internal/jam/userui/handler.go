@@ -72,7 +72,7 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	if lg == nil {
 		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	h := &handler{d: d, lg: lg, streams: map[ident.ID]int{}}
+	h := &handler{d: d, lg: lg, streams: map[ident.ID]int{}, mints: newMintLimiter(time.Now)}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -98,6 +98,7 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /app/user/session/{id}/thinking/events", h.thinkingEvents)
 	mux.HandleFunc("GET /app/user/session/{id}/thinking/page", h.thinkingPage)
 	mux.HandleFunc("GET /app/user/session/{id}/thinking/raw", h.thinkingRaw)
+	mux.HandleFunc("POST /app/user/session/{id}/frame", h.frameRoute) // more specific than {action}
 	mux.HandleFunc("POST /app/user/session/{id}/{action}", h.sessionAction)
 	h.pushRoutes(mux)
 	return mux
@@ -117,6 +118,8 @@ type handler struct {
 	// maxThinkingStreams).
 	mu      sync.Mutex
 	streams map[ident.ID]int
+
+	mints *mintLimiter // frame URLs minted per user (frameRoute)
 }
 
 // build assembles the page for the request's participant and ?c selection.
