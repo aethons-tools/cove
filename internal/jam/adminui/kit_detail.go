@@ -22,6 +22,7 @@ type kitListRow struct {
 	Egress         int
 	UsedBy         int
 	Invalid        bool
+	Draft          bool // an open draft
 }
 
 // kitVersion is one entry in a kit's version rail.
@@ -164,12 +165,13 @@ type kitDetail struct {
 	Effective   *kitView    // the chain merged; nil unless chained
 	UsedByKits  []kitChild
 	IsDefault   bool
-	Source      *sourceView  // tracked source; nil = not tracked
-	SetWith     string       // chain parents imported from the same repo, comma-joined; "" = not part of a set
-	CanSource   bool         // import/track/sync controls are available
-	Ctx         *ctxListView // the viewed version's files; nil = none
-	CtxDiff     *ctxDiffView // the two versions' files compared; nil = no diff or no tree
-	File        *ctxFileView // one file (?file=); nil = none asked
+	Source      *sourceView   // tracked source; nil = not tracked
+	SetWith     string        // chain parents imported from the same repo, comma-joined; "" = not part of a set
+	CanSource   bool          // import/track/sync controls are available
+	Draft       *jam.KitDraft // the kit's open draft; nil = none
+	Ctx         *ctxListView  // the viewed version's files; nil = none
+	CtxDiff     *ctxDiffView  // the two versions' files compared; nil = no diff or no tree
+	File        *ctxFileView  // one file (?file=); nil = none asked
 	NotFound    bool
 	NotFoundFor string
 }
@@ -228,6 +230,7 @@ func kitListRows(store jam.Store) []kitListRow {
 	var out []kitListRow
 	for _, k := range store.ListKits() {
 		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.VersionNumbers()), UsedBy: len(kitUses(store, k.Name))}
+		_, row.Draft = store.GetKitDraft(k.Name)
 		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err == nil {
 			row.Base, row.Egress = baseLabel(cur.Kit), len(cur.Kit.Egress)
 		} else {
@@ -327,6 +330,9 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 		view = k.Current
 	}
 	d := kitDetail{Title: "Kits", Name: name, Current: k.Current, IsDefault: name == studio.DefaultStudioKitID, Uses: kitUses(store, name), Source: newSourceView(k.Source)}
+	if dr, open := store.GetKitDraft(name); open {
+		d.Draft = &dr
+	}
 	prev := 0
 	for _, n := range k.VersionNumbers() {
 		ver := kitVersion{N: n, Prev: prev, Current: n == k.Current}

@@ -1,0 +1,63 @@
+{{/* kit-style is the kit pages' styles: the kit page and its Draft tab. */}}
+{{define "kit-style"}}
+<style>
+  .crumbs{font-size:12.5px;color:var(--faint);margin-bottom:4px}
+  .crumbs a{color:var(--muted);text-decoration:none}
+  .page-head .spacer{flex:1}
+  .page-head form{display:inline}
+  .kit-layout{display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start}
+  .rail{padding:6px}
+  .ver{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;border:1px solid transparent}
+  .ver.sel{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 30%,transparent)}
+  .ver .top{display:flex;align-items:center;gap:6px}
+  .ver .top a{font-weight:600;text-decoration:none;color:var(--ink)}
+  .ver .links{display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px}
+  .ver .links a{color:var(--muted)}
+  .ver .dig{font:11px "IBM Plex Mono",monospace;color:var(--faint)}
+  .ver form{display:inline}
+  .stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+  section.card{overflow:visible}
+  section.card>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  section.card>header h2{margin:0}
+  section.card>header .sub{font-size:12px}
+  section.card>header .spacer{flex:1}
+  section.card>.body{padding:12px 16px}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:0}
+  dl.kv dt{color:var(--muted);font-size:13px}
+  dl.kv dd{margin:0;word-break:break-word}
+  .unset{color:var(--faint)}
+  pre.yaml,pre.diff{margin:0;padding:12px 16px;overflow-x:auto;font:12.5px/1.55 "IBM Plex Mono",ui-monospace,monospace;background:var(--surface-2);border-radius:0 0 12px 12px}
+  .prompt{white-space:pre-wrap}
+  details.edit>summary{cursor:pointer;list-style:none;padding:9px 16px;font-size:12.5px;font-weight:600;color:var(--accent);user-select:none}
+  details.edit>summary::-webkit-details-marker{display:none}
+  details.edit form{padding:12px 16px 16px;background:var(--surface-2);border-radius:0 0 12px 12px}
+  .dtree td.name{white-space:pre}
+  .dtree tr.dir td{color:var(--muted)}
+  .dtree tr[data-change="removed"] td.name{text-decoration:line-through;color:var(--faint)}
+  #draft label.check{display:flex;flex-direction:row;align-items:center;gap:8px;margin:8px 0;font-size:13px}
+  #draft label.check input{width:auto}
+  textarea.editor{min-height:28em;white-space:pre;tab-size:4}
+  @media (max-width:860px){.kit-layout{grid-template-columns:1fr}}
+</style>
+{{end}}
+
+{{/* kit-masked-note says a shown kit.yml differs from the stored one: base's packed context is masked. */}}
+{{define "kit-masked-note"}}A packed context in this text is shown masked («packed context, not shown»); remove it before pushing.{{end}}
+
+{{/* kit-hidden-note says how to get at a kit.yml not shown at all; the dot is the kit's name. */}}
+{{define "kit-hidden-note"}}This kit.yml is not shown: it may hold a packed context. Write it out with <code>at-jam config write &lt;dir&gt; --all</code> (it is <code>kits/{{.}}/kit.yml</code>), fix it, and push that directory with <code>at-jam kit push</code>.{{end}}
+
+{{/* ctx-file is one file of a version's tree (ctxFileView): its content, its line diff, or why neither. */}}
+{{define "ctx-file"}}
+<section class="card" id="ctx-file">
+  {{if .Missing}}
+  <header><h2>File</h2></header>
+  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s files.</div></div>
+  {{else}}
+  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
+  {{if .Note}}<div class="body unset">{{.Note}}</div>
+  {{else if .Diff}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}
+  {{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" "<kit>"}}</p></div>{{else if .Masked}}<div class="body"><p class="hint">{{template "kit-masked-note"}}</p></div>{{end}}<pre class="yaml">{{.Content}}</pre>{{end}}
+  {{end}}
+</section>
+{{end}}

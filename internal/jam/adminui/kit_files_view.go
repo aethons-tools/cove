@@ -3,6 +3,7 @@ package adminui
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"slices"
 	"strconv"
@@ -144,7 +145,10 @@ func pathText(p string) string {
 	return strings.NewReplacer("\n", `\n`, "\t", `\t`).Replace(jam.SetupDisplayText(p))
 }
 
-func modeText(e ctxEntry) string { return fmt.Sprintf("%04o", uint32(e.Mode)) }
+func modeText(e ctxEntry) string { return fileModeText(e.Mode) }
+
+// fileModeText is a file mode as the kit pages show it: "0644", "0755".
+func fileModeText(m fs.FileMode) string { return fmt.Sprintf("%04o", uint32(m)) }
 
 func bytesText(n int64) string { return strconv.FormatInt(n, 10) + " B" }
 

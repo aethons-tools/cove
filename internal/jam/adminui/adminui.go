@@ -57,7 +57,8 @@ var pages = map[string]page{
 	"destination":  mustParse(specsPage("/app/admin/destinations"), "dest_fields.html", "destination.html"),
 	"model-specs":  mustParse(specsPage("/app/admin/model-specs"), "model_spec_fields.html", "model_specs.html"),
 	"model-spec":   mustParse(specsPage("/app/admin/model-specs"), "model_spec_fields.html", "model_spec.html"),
-	"kit":          mustParse(specsPage("/app/admin/kits"), "kit.html"),
+	"kit":          mustParse(specsPage("/app/admin/kits"), "kit_shared.html", "kit.html"),
+	"kit-draft":    mustParse(specsPage("/app/admin/kits"), "kit_shared.html", "kit_draft.html"),
 	"project":      mustParse(projPage, "attention.html", "coves.html", "context_panel.html", "squawks.html", "project.html"),
 	"agent":        mustParse(jamPage("agents"), "access.html", "agent.html"),
 	"search":       mustParse(pageMeta{}, "search.html"),
@@ -135,6 +136,7 @@ var funcs = template.FuncMap{
 	"destURL":    destURL,
 	"specURL":    specURL,
 	"kitURL":     kitURL,
+	"draftURL":   draftURL,
 	"projectURL": projectURL,
 	"userURL":    userURL,
 	"chainForm": func(project string, c chainView) map[string]any {
@@ -269,6 +271,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerProjects(mux, store, sup, msgs, canEdit, log, guardWrite)
 	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
 	registerKits(mux, store, o.kitFetcher, log, guardWrite)
+	registerKitDraft(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)

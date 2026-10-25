@@ -1,0 +1,67 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Kit not found</h1></div>
+<div class="banner">No kit <span class="mono">{{.NotFoundFor}}</span>. <a href="/app/admin/kits">Back to kits</a></div>
+{{else}}
+{{template "kit-style"}}
+<div class="crumbs"><a href="/app/admin/kits">Kits</a></div>
+{{template "draft-body" .}}
+{{end}}
+{{end}}
+
+{{/* draft-body is the Draft tab's swappable body (#draft): every write answers it. */}}
+{{define "draft-body"}}
+{{$name := .Name}}
+<div id="draft">
+<div class="page-head">
+  <h1>{{.Name}}</h1>{{template "managed-badge" (managed "kit" .Name)}}
+  <span class="chip accent">current v{{.Current}}</span>
+  {{with .Draft}}<span class="chip">draft · base v{{.Base}}</span>{{end}}
+</div>
+<nav class="subtabs" aria-label="Kit views"><a href="{{kitURL .Name}}">Overview</a><a href="{{draftURL .Name}}" aria-current="page">Draft</a></nav>
+<div class="stack">
+{{/* draft-published */}}
+{{with .Draft}}{{$etag := .ETag}}
+<section class="card" id="draft-status">
+  <header><h2>Draft</h2><span class="sub">base v{{.Base}}, current v{{.Current}} · last saved by {{.Actor}} at {{.Updated}}</span><span class="spacer"></span>
+    <form hx-post="/app/admin/kits/{{$name}}/draft/discard" hx-target="#draft" hx-swap="outerHTML" hx-confirm="Discard the draft of {{$name}}? Its changes are lost.">
+      <input type="hidden" name="etag" value="{{$etag}}"><button class="small danger" type="submit">Discard</button></form></header>
+  {{if .Superseded}}<div class="body"><div class="banner" id="draft-superseded">base v{{.Base}}, current v{{.Current}}: publishing makes the draft's files the next version as they are; v{{.Current}}'s changes are not merged.</div></div>{{end}}
+</section>
+<section class="card" id="draft-publish">
+  <header><h2>Publish</h2><span class="sub">makes the draft the next version of {{$name}} and closes it</span></header>
+  <div class="body">
+    {{if .Problems}}<div class="banner error" id="draft-problems"><div>Publishing is blocked until these are fixed:<ul>{{range .Problems}}<li>{{displayText .}}</li>{{end}}</ul></div></div>{{else}}<p class="unset" id="draft-no-problems">No problems: the draft can be published.</p>{{end}}
+    {{if .Managed}}<div class="banner" id="draft-drift">{{.DriftWarning}}</div>{{end}}
+    {{/* draft-publish-form */}}
+  </div>
+</section>
+{{/* draft-editor */}}
+{{/* draft-file-diff */}}
+<section class="card" id="draft-tree">
+  <header><h2>Files</h2><span class="sub">{{.Size}} · marked against v{{.Base}}</span></header>
+  <table class="dtree">
+    <thead><tr><th>Path</th><th>Mode</th><th>Size</th><th>vs v{{.Base}}</th></tr></thead>
+    <tbody>
+    {{range .Tree}}{{if .Dir}}<tr class="dir"><td class="name mono">{{.Pad}}{{.Name}}/</td><td></td><td></td><td></td></tr>
+    {{else}}<tr data-path="{{.Path}}"{{with .Change}} data-change="{{.}}"{{end}}><td class="name mono">{{.Pad}}<a href="{{.Href}}">{{.Name}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td><td>{{with .Change}}<span class="chip">{{.}}</span>{{end}}</td></tr>
+    {{end}}{{end}}
+    {{range .Removed}}<tr data-path="{{.Path}}" data-change="removed"><td class="name mono"><a href="{{.Href}}">{{.Name}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td><td><span class="chip">removed</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{/* draft-add */}}
+{{/* draft-diff */}}
+{{else}}
+<section class="card" id="draft-none">
+  <header><h2>No draft</h2><span class="sub">a draft is a copy of one version's files: edit it here, then publish it as the next version</span></header>
+  <form class="body" hx-post="/app/admin/kits/{{$name}}/draft" hx-swap="none">
+    <label>Open from <select name="from">{{range $.Versions}}<option value="{{.}}"{{if eq . $.Current}} selected{{end}}>v{{.}}{{if eq . $.Current}} (current){{end}}</option>{{end}}</select></label>
+    <div class="form-actions"><button type="submit" class="primary" id="draft-open">Open draft</button></div>
+  </form>
+</section>
+{{end}}
+</div>
+</div>
+{{end}}
