@@ -56,7 +56,11 @@ var ErrIDEUnavailable = errors.New("ide unavailable: code-server not installed")
 type ideRunner interface {
 	Acquire(ctx context.Context) error
 	Release()
+	Close()
 }
+
+// errIDEClosed is Acquire's error once Close has run.
+var errIDEClosed = errors.New("ide: closed")
 
 // IDE lazily runs the studio's built-in code-server: the first tunnel to its
 // port starts it, and it stops once no tunnel has been open for Idle.
@@ -75,6 +79,8 @@ type IDE struct {
 	start    *ideStart
 	stopping chan struct{} // the stopping process's done
 	open     int
+	closed   bool          // Close ran: nothing starts again
+	closing  chan struct{} // closed by Close; aborts a start in flight
 	idle     *time.Timer
 	idleGen  uint64 // invalidates a timer that fired after it was stopped
 }
@@ -95,7 +101,7 @@ type ideStart struct {
 
 // NewIDE returns a stopped IDE; nothing runs until the first Acquire.
 func NewIDE(cfg IDEConfig, log *slog.Logger) *IDE {
-	return &IDE{cfg: cfg.withDefaults(), log: newLogger(log)}
+	return &IDE{cfg: cfg.withDefaults(), log: newLogger(log), closing: make(chan struct{})}
 }
 
 // Acquire ensures code-server is running and accepting on Addr (starting it
@@ -104,6 +110,10 @@ func NewIDE(cfg IDEConfig, log *slog.Logger) *IDE {
 func (i *IDE) Acquire(ctx context.Context) error {
 	for {
 		i.mu.Lock()
+		if i.closed {
+			i.mu.Unlock()
+			return errIDEClosed
+		}
 		if i.proc != nil {
 			i.open++
 			i.stopIdleLocked()
@@ -194,11 +204,18 @@ func (i *IDE) run(st *ideStart) {
 	if err == nil && p.exited { // died between accepting and now
 		err = fmt.Errorf("ide: code-server exited right after starting")
 	}
+	if err == nil && i.closed { // Close is waiting on this start: stop it
+		i.stopping = p.done
+		p.cancel()
+		err = errIDEClosed
+	}
 	st.err = err
 	i.start = nil
 	if err == nil {
 		i.proc = p
-		if i.open == 0 { // every waiter gave up: let it idle out
+		if i.open == 0 {
+			// Arm the idle clock; waiters that still want it cancel it on
+			// their next pass.
 			i.armIdleLocked()
 		}
 	}
@@ -242,6 +259,10 @@ func (i *IDE) launch() (*ideProc, error) {
 			p.cancel()
 			<-p.done
 			return nil, fmt.Errorf("ide: code-server not accepting on %s after %s", i.cfg.Addr, i.cfg.StartWait)
+		case <-i.closing:
+			p.cancel()
+			<-p.done
+			return nil, errIDEClosed
 		case <-tick.C:
 		}
 	}
@@ -296,6 +317,37 @@ func (w *logLines) Write(b []byte) (int, error) {
 		w.buf = nil
 	}
 	return len(b), nil
+}
+
+// Close stops code-server (SIGTERM to its group, SIGKILL after Grace),
+// whatever is open, and returns once it has been reaped — including one a
+// start in flight produces. Nothing starts afterwards. Safe to call twice.
+func (i *IDE) Close() {
+	i.mu.Lock()
+	if !i.closed {
+		i.closed = true
+		close(i.closing)
+	}
+	for {
+		if i.proc != nil {
+			i.stopIdleLocked()
+			p := i.stopLocked()
+			i.log.Info("ide stopped", "reason", "shutdown", "pid", p.cmd.Process.Pid)
+		}
+		var wait <-chan struct{}
+		switch {
+		case i.start != nil:
+			wait = i.start.done
+		case i.stopping != nil:
+			wait = i.stopping
+		default:
+			i.mu.Unlock()
+			return
+		}
+		i.mu.Unlock()
+		<-wait
+		i.mu.Lock()
+	}
 }
 
 // pid is the running process's pid, or 0 (tests).

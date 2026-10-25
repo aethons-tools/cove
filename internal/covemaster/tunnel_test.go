@@ -382,6 +382,7 @@ func (r *recIDE) record(s string) {
 
 func (r *recIDE) Acquire(context.Context) error { r.record("acquire"); return r.err }
 func (r *recIDE) Release()                      { r.record("release"); close(r.released) }
+func (r *recIDE) Close()                        { r.record("close") }
 
 func (r *recIDE) got() []string {
 	r.mu.Lock()
@@ -413,6 +414,18 @@ func TestDialBackIDEPortStartsIDE(t *testing.T) {
 	}
 }
 
+// When Run returns, the IDE is closed: no code-server outlives cove-master.
+func TestRunClosesIDE(t *testing.T) {
+	f := &scriptRuntime{opened: make(chan string, 1)}
+	ide := &recIDE{released: make(chan struct{})}
+	c := tunnelClient(t, f, nil)
+	c.cfg.IDE = ide
+	runFor(t, c, 300*time.Millisecond)
+	if got := ide.got(); !slices.Equal(got, []string{"close"}) {
+		t.Fatalf("calls %v, want close once Run returned", got)
+	}
+}
+
 // An IDE that can't start means no dial and no tunnel: Jam's dial-back times
 // out (its 504).
 func TestDialBackIDEAcquireFailsNoTunnel(t *testing.T) {
@@ -425,8 +438,9 @@ func TestDialBackIDEAcquireFailsNoTunnel(t *testing.T) {
 	})
 	c.cfg.IDE = ide
 	runFor(t, c, 500*time.Millisecond)
-	if got := ide.got(); !slices.Equal(got, []string{"acquire"}) {
-		t.Fatalf("calls %v, want only the failed acquire", got)
+	// "close" is Run's shutdown, not part of the tunnel.
+	if got := ide.got(); !slices.Equal(got, []string{"acquire", "close"}) {
+		t.Fatalf("calls %v, want only the failed acquire (then Run's close)", got)
 	}
 	select {
 	case <-f.opened:

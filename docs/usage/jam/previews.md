@@ -116,7 +116,7 @@ HTTP/2). `CONNECT` is refused (405).
 ## A web IDE
 
 Every studio has a built-in code-server, started on first use and stopped
-after 30 idle minutes. It opens from the Studio tab
+after 30 idle minutes (or when cove-master exits). It opens from the Studio tab
 ([session-view.md](session-view.md)). A kit can still provide its own by
 exposing it as `ide`, which takes precedence.
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +17,7 @@ import (
 )
 
 // TestMain doubles as the fake code-server: with IDE_FAKE=1 the test binary
-// records its pid in IDE_FAKE_COUNT and (unless IDE_FAKE_MODE=nolisten)
+// records its pid and argv as one line in IDE_FAKE_COUNT and (unless IDE_FAKE_MODE=nolisten)
 // listens on --bind-addr until SIGTERM. Tests never run the real binary.
 func TestMain(m *testing.M) {
 	if os.Getenv("IDE_FAKE") == "1" {
@@ -37,7 +38,7 @@ func fakeCodeServer(args []string) int {
 		if err != nil {
 			return 3
 		}
-		_, _ = fh.WriteString(strconv.Itoa(os.Getpid()) + "\n")
+		_, _ = fh.WriteString(strings.Join(append([]string{strconv.Itoa(os.Getpid())}, args...), "\t") + "\n")
 		_ = fh.Close()
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
@@ -101,8 +102,8 @@ func starts(t *testing.T, count string) []int {
 		t.Fatal(err)
 	}
 	var pids []int
-	for _, l := range strings.Fields(string(raw)) {
-		p, err := strconv.Atoi(l)
+	for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		p, err := strconv.Atoi(strings.SplitN(l, "\t", 2)[0])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,8 +168,67 @@ func TestIDEAcquireStartsAndReuses(t *testing.T) {
 	if got := starts(t, count); len(got) != 1 {
 		t.Fatalf("starts = %v, want one process reused", got)
 	}
+	raw, err := os.ReadFile(count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := strings.Split(strings.TrimSpace(string(raw)), "\t")[1:]
+	want := []string{"--bind-addr", cfg.Addr, "--auth", "none", "--disable-telemetry", "--disable-update-check", cfg.Workspace}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("argv = %q, want %q", argv, want)
+	}
 	ide.Release()
 	ide.Release()
+}
+
+// Close stops code-server at once, open tunnels or not, and waits until it is
+// reaped; later Acquires fail rather than start a new one.
+func TestIDECloseStopsAndWaits(t *testing.T) {
+	cfg, count := fakeIDE(t, "")
+	ide := NewIDE(cfg, nil)
+	if err := ide.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	pid := starts(t, count)[0]
+	ide.Close()
+	if alive(pid) {
+		t.Fatalf("pid %d alive after Close returned", pid)
+	}
+	if accepts(cfg.Addr) {
+		t.Fatal("port still accepts after Close")
+	}
+	if ide.pid() != 0 || ide.busy() {
+		t.Fatal("state not cleared by Close")
+	}
+	if err := ide.Acquire(context.Background()); err == nil {
+		t.Fatal("Acquire after Close started a new IDE")
+	}
+	if got := starts(t, count); len(got) != 1 {
+		t.Fatalf("starts = %v after Close", got)
+	}
+	ide.Release() // the first Acquire's; harmless after Close
+	ide.Close()   // idempotent
+}
+
+// Close during a start aborts it at once (not after StartWait) and stops
+// what it started.
+func TestIDECloseDuringStart(t *testing.T) {
+	cfg, count := fakeIDE(t, "nolisten")
+	ide := NewIDE(cfg, nil)
+	errc := make(chan error, 1)
+	go func() { errc <- ide.Acquire(context.Background()) }()
+	waitUntil(t, "process started", func() bool { return len(starts(t, count)) == 1 })
+	begin := time.Now()
+	ide.Close()
+	if d := time.Since(begin); d > cfg.StartWait/2 {
+		t.Fatalf("Close took %s: it waited out the start", d)
+	}
+	if pid := starts(t, count)[0]; alive(pid) {
+		t.Fatalf("pid %d alive after Close returned", pid)
+	}
+	if err := <-errc; err == nil {
+		t.Fatal("Acquire succeeded though Close stopped the start")
+	}
 }
 
 func TestIDEIdleStopsThenRestarts(t *testing.T) {
