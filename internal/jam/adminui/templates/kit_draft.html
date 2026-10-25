@@ -36,7 +36,29 @@
     {{/* draft-publish-form */}}
   </div>
 </section>
-{{/* draft-editor */}}
+{{if .FileMissing}}<section class="card" id="draft-missing"><div class="body"><div class="banner error">No such file in the draft.</div></div></section>{{end}}
+{{with .Editor}}
+<section class="card" id="draft-editor">
+  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{.Mode}} · {{.Size}} B</span><span class="spacer"></span>
+    <a class="sub" href="{{.DiffHref}}">diff vs v{{$.Draft.Base}}</a> <a class="sub" href="{{.DownloadHref}}">Download</a></header>
+  {{if .Stale}}<div class="body" id="draft-stale"><div class="banner error">{{.StaleMsg}} <a href="{{.ReloadHref}}">reload</a></div>
+    <p class="hint">Your text below was not saved. Copy it, reload, and make the edit again.</p></div>{{end}}
+  {{if .Editable}}
+  <form class="body" hx-post="/app/admin/kits/{{$name}}/draft/save" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+    {{if .Invisible}}<p class="hint" id="draft-invisible">This file holds invisible or bidirectional characters (a byte-order mark, a direction override); the editor keeps them as they are, and diffs show them escaped.</p>{{end}}
+    <textarea class="editor" name="content" spellcheck="false" autocomplete="off" wrap="off">
+{{.Text}}</textarea>
+    <label class="check"><input type="checkbox" name="executable" value="1"{{if .Exec}} checked{{end}}> Executable (0755)</label>
+    <div class="form-actions"><button type="submit" class="primary"{{if .Stale}} disabled{{end}}>Save</button></div>
+  </form>
+  {{else}}
+  <div class="body"><p class="unset" id="draft-noedit">{{.Note}}</p></div>
+  {{/* draft-file-upload */}}
+  {{end}}
+  {{/* draft-file-actions */}}
+</section>
+{{end}}
 {{/* draft-file-diff */}}
 <section class="card" id="draft-tree">
   <header><h2>Files</h2><span class="sub">{{.Size}} · marked against v{{.Base}}</span></header>

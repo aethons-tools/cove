@@ -50,9 +50,11 @@ type draftView struct {
 	Managed       bool   // config-managed: publishing drifts
 	DriftWarning  string // jam.DraftDriftWarning, shown when Managed
 	Problems      []string
-	Size          string     // the draft's total size
-	Tree          []draftRow // its files, nested by directory
-	Removed       []draftRow // files of the base the draft no longer has
+	Size          string       // the draft's total size
+	Tree          []draftRow   // its files, nested by directory
+	Removed       []draftRow   // files of the base the draft no longer has
+	Editor        *draftEditor // the file asked for (?file=), opened; nil = none
+	FileMissing   bool         // ?file= named no file of the draft (or an unsafe path)
 }
 
 // draftRow is one row of the Draft tab's file tree: a directory or a file.
@@ -140,8 +142,19 @@ func buildDraftPage(store jam.Store, name string, q draftQuery) (draftPage, bool
 	}
 	base, _ := jam.LoadKitVersion(store, name, st.Base)
 	p.Draft = newDraftView(name, st, base.Tree)
+	if q.File != "" && !q.Diff {
+		if err := openDraftFile(store, name, q.File, p.Draft); err != nil {
+			return p, true, err
+		}
+	}
 	return p, true, nil
 }
 
-// status is the GET answer's code for p.
-func (p draftPage) status() int { return http.StatusOK }
+// status is the GET answer's code for p: 404 when the file asked for is not
+// in the draft.
+func (p draftPage) status() int {
+	if d := p.Draft; d != nil && d.FileMissing {
+		return http.StatusNotFound
+	}
+	return http.StatusOK
+}

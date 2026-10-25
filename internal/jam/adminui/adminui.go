@@ -272,6 +272,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
 	registerKits(mux, store, o.kitFetcher, log, guardWrite)
 	registerKitDraft(mux, store, log, guardWrite)
+	registerDraftEditor(mux, store, log, guardWrite)
 	registerDestinations(mux, store, log, credExists, guardWrite)
 	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
 	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)

@@ -64,7 +64,7 @@ func hiddenETag(t *testing.T, s string) string {
 
 // draftWriteRoutes are the Draft tab's writes, under /app/admin/kits/app;
 // each later task appends its own.
-var draftWriteRoutes = []string{"/draft", "/draft/discard"}
+var draftWriteRoutes = []string{"/draft", "/draft/discard", "/draft/save"}
 
 // Every Draft-tab write refuses a cross-origin form POST (403) before it
 // reads the form, and changes nothing.
