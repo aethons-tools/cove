@@ -142,16 +142,24 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	if spec.Kit.Digest == "" {
 		return "", fmt.Errorf("raise %s: kit %s has no build-digest", name, spec.Kit.ID)
 	}
-	ok, err := l.inv.Has(spec.Kit)
-	if err != nil {
-		return "", fmt.Errorf("raise %s: inventory: %w", name, err)
+	var image, digest string
+	if d := spec.DraftImage; d != nil {
+		// A draft studio runs its test build's image by id: the tag names
+		// the latest build of that tree and may move. The supervisor built
+		// (or checked) it just before; the kit inventory does not apply.
+		image, digest = d.Tag, d.ID
+	} else {
+		ok, err := l.inv.Has(spec.Kit)
+		if err != nil {
+			return "", fmt.Errorf("raise %s: inventory: %w", name, err)
+		}
+		if !ok {
+			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
+		}
+		// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
+		// names the exact built image by its build-input digest.
+		image = l.imageTag(spec.Kit)
 	}
-	if !ok {
-		return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
-	}
-	// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
-	// names the exact built image by its build-input digest.
-	image, digest := l.imageTag(spec.Kit), ""
 	mounts, err := l.stateMounts(spec, name)
 	if err != nil {
 		return "", fmt.Errorf("raise %s: %w", name, err)

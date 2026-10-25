@@ -65,6 +65,11 @@ type RaiseSpec struct {
 	// always sets it; the launcher stages it for cove-master, which delivers
 	// its core as an appended system prompt every turn.
 	Context *sessionctx.Bundle
+	// DraftImage, set by Supervisor.Raise for a draft studio
+	// (docs/usage/jam/kits-drafts.md#draft-studio), is the test build's image
+	// the launcher runs (by id) instead of the kit inventory's. nil for every
+	// other raise.
+	DraftImage *KitDraftImage
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
