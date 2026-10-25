@@ -947,7 +947,7 @@ function meFrameLoad(rec, url){
   f.className='st-iframe';
   f.title=rec.kind==='ide' ? 'IDE' : rec.name;
   f.setAttribute('allow', 'clipboard-read; clipboard-write');
-  f.setAttribute('referrerpolicy', 'no-referrer');
+  f.setAttribute('referrerpolicy', 'origin');
   f.addEventListener('load', function(){ if(rec.iframe===f && !rec.err) rec.status.textContent=''; });
   f.src=url;
   rec.iframe=f;

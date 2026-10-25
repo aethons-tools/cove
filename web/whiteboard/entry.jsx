@@ -139,6 +139,10 @@ function Board({ el, base, boardId, readOnly }) {
   return (
     <div className="wb-canvas">
       {error && <div className="wb-error wb-banner">{error}</div>}
+      {/* Keep Excalidraw's built-in embeddable allowlist (no validateEmbeddable
+          override): this editor runs on the Jam UI origin, and a board element
+          that could embed a preview host would pass the frame exchange's
+          same-site Referer check (docs/usage/jam/previews.md, Framing). */}
       <Excalidraw
         excalidrawAPI={setApi}
         initialData={initial}
