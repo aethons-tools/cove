@@ -173,6 +173,7 @@ type KitSummary struct {
 	// Parent is the current version's base kit as written ("web-dev" or
 	// "web-dev@v3"); empty when it has none.
 	Parent string `json:"parent,omitempty"`
+	Draft  bool   `json:"draft,omitempty"` // an open draft (kits-drafts.md)
 }
 
 // KitFileInfo is one file of a kit version, as GET /admin/kits/{name} lists it.
@@ -832,7 +833,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !studio.TagSafeName(name) {
-			http.Error(w, "kit name is not tag-safe (allowed: [A-Za-z0-9_.-])", http.StatusBadRequest)
+			http.Error(w, unsafeKitNameText, http.StatusBadRequest)
 			return
 		}
 		// A tar body only, checked before the body is read: a browser's
@@ -863,6 +864,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, k := range store.ListKits() {
 			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
 			sum.Parent = kitParentSpec(currentKitYML(store, k))
+			_, sum.Draft = store.GetKitDraft(k.Name)
 			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -1045,6 +1047,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
+	registerKitDrafts(mux, store, log)
 
 	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
