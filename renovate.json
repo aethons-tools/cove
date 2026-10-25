@@ -122,6 +122,15 @@
       "matchStrings": ["ARG CC_SKILLS_GOLANG_VERSION=(?<currentValue>\\S+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "samber/cc-skills-golang"
+    },
+    {
+      "customType": "regex",
+      "description": "code-server — CODE_SERVER_VERSION arg in the base image (release .deb). The per-arch CODE_SERVER_SHA256_* args must be updated with it; the build fails on a mismatch.",
+      "managerFilePatterns": ["images/cove-base-image/Dockerfile"],
+      "matchStrings": ["ARG CODE_SERVER_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "coder/code-server",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ]
 }

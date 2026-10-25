@@ -57,7 +57,7 @@ func jamEnv(getenv func(string) string, suffix string) string {
 	return getenv("AT_HARBOR_" + suffix)
 }
 
-func buildConfig(getenv func(string) string) (covemaster.Config, error) {
+func buildConfig(getenv func(string) string, log *slog.Logger) (covemaster.Config, error) {
 	addr := jamEnv(getenv, "RUNTIME_ADDR")
 	token := jamEnv(getenv, "IDENTITY_TOKEN")
 	secret := jamEnv(getenv, "LAUNCH_SECRET")
@@ -72,6 +72,7 @@ func buildConfig(getenv func(string) string) (covemaster.Config, error) {
 	return covemaster.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(clientTransportCreds())},
+		IDE:         covemaster.NewIDE(covemaster.IDEConfig{}, log),
 	}, nil
 }
 
@@ -121,7 +122,7 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 
 func run(getenv func(string) string, stderr *os.File) int {
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cfg, err := buildConfig(getenv)
+	cfg, err := buildConfig(getenv, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "cove-master:", err)
 		return 2

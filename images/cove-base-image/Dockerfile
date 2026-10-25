@@ -20,19 +20,19 @@ LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + 
 # the Ubuntu archive fails the build loudly; bump it via the Renovate PR.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server=1:9.6p1-3ubuntu13.19 \
-      ca-certificates=20260601~24.04.1 \
-      curl=8.5.0-2ubuntu10.15 \
-      git=1:2.43.0-1ubuntu7.3 \
+      openssh-server=1:9.6p1-3ubuntu13.20 \
+      ca-certificates=20260816ubuntu0.24.04.1 \
+      curl=8.5.0-2ubuntu10.16 \
+      git=1:2.43.0-1ubuntu7.4 \
       gh=2.45.0-1ubuntu0.3 \
       nftables=1.0.9-1ubuntu0.1 \
-      squid=6.14-0ubuntu0.24.04.4 \
-      sudo=1.9.15p5-3ubuntu5.24.04.3 \
-      systemd=255.4-1ubuntu8.17 \
-      systemd-sysv=255.4-1ubuntu8.17 \
+      squid=6.14-0ubuntu0.24.04.5 \
+      sudo=1.9.15p5-3ubuntu5.24.04.4 \
+      systemd=255.4-1ubuntu8.18 \
+      systemd-sysv=255.4-1ubuntu8.18 \
       jq=1.7.1-3ubuntu0.24.04.2 \
       gnupg=2.4.4-2ubuntu17.6 \
-      xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
+      xz-utils=5.6.1+really5.4.5-1ubuntu0.4 \
       unzip=6.0-28ubuntu4.1 \
       python3=3.12.3-0ubuntu2.1  \
       shellcheck=0.9.0-1 \
@@ -59,6 +59,18 @@ RUN install -m 0755 -d /etc/apt/keyrings \
       docker-buildx-plugin=0.36.1-1~ubuntu.24.04~noble \
       docker-compose-plugin=5.5.1-1~ubuntu.24.04~noble \
  && rm -rf /var/lib/apt/lists/*
+
+# code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
+# Renovate bumps CODE_SERVER_VERSION; update both SHA-256s with it (the build fails on a mismatch).
+ARG CODE_SERVER_VERSION=4.143.1
+ARG CODE_SERVER_SHA256_AMD64=e4b771c98fafbe2af3990ecd71d93ba22515588db550007076768a014ae34c02
+ARG CODE_SERVER_SHA256_ARM64=79ca8df2db219b24de75e2a830c5302808124d8c2bf132f4bc6105cea834bb1c
+RUN set -eux; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) sum="$CODE_SERVER_SHA256_AMD64";; arm64) sum="$CODE_SERVER_SHA256_ARM64";; *) echo "unsupported $arch"; exit 1;; esac; \
+    curl -fsSL -o /tmp/cs.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${arch}.deb"; \
+    printf "%s  /tmp/cs.deb\n" "$sum" > /tmp/cs.sha256; sha256sum -c /tmp/cs.sha256; rm -f /tmp/cs.sha256; \
+    apt-get install -y --no-install-recommends /tmp/cs.deb; rm -f /tmp/cs.deb; \
+    code-server --version
 
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
 RUN mkdir -p /run/sshd \

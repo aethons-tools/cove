@@ -166,6 +166,11 @@ type outcome struct {
 // the parent ctx is cancelled, or a fatal (auth) error occurs. Transient drops
 // reconnect with backoff; the workload runs exactly once across reconnects.
 func (c *Client) Run(ctx context.Context, w Workload) error {
+	if c.cfg.IDE != nil {
+		// Deferred first so it runs last, after cancel has ended the tunnels:
+		// no code-server outlives its supervisor.
+		defer c.cfg.IDE.Close()
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

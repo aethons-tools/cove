@@ -1,10 +1,10 @@
 ---
 summary: Studio previews — an agent exposes a port it serves (`expose(port, name)`) and authorized people open it at `https://<name>--<label>.<domain>/` through Jam: preview hosts and labels, who may open one, the browser login via `jam.<domain>` and its host-only cookie, bearer access for scripts, what the app sees, operator setup, the web-IDE pattern, limits and troubleshooting.
 read_when: You want to open or script against a studio preview, set up previews on a Jam (DNS, wildcard cert, IdP redirect URI, `previews:`), run a web IDE in a studio, write an app that runs behind a preview, or a preview link 404s, 403s, 502s or 504s.
-owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the code-server pattern, preview limits and troubleshooting
+owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the built-in code-server IDE and a kit's own, preview limits and troubleshooting
 prereqs: collaboration.md (who may connect, sharing, the tunnel), serve.md (the previews: block)
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-25
 ---
 
 # Studio previews
@@ -19,7 +19,7 @@ The agent calls `expose(port, name)` ([intercom.md](intercom.md)) and gets
 `https://<name>--<label>.<domain>/`. Its session context tells it to post the
 link in its channel ([session-context.md](session-context.md)). `name` is 1–30
 of `[a-z0-9-]`: no leading or trailing `-`, no `--`, not `jam` or `xn`. The
-port is 1024–65535, not 2222 (sshd) or 3128 (the egress proxy). A session may expose at most 8, and
+port is 1024–65535, not 2222 (sshd), 3128 (the egress proxy) or 13337 (the built-in IDE, see [A web IDE](#a-web-ide)). A session may expose at most 8, and
 exposing a name again moves it to the new port. `unexpose(name)` removes one
 and closes its open connections at once. `exposures()` lists them. Changes
 are logged (`preview exposed` / `preview unexposed`: session, name, port).
@@ -115,8 +115,11 @@ HTTP/2). `CONNECT` is refused (405).
 
 ## A web IDE
 
-A web IDE needs no Jam support. Have a kit install code-server and run it
-on a port (e.g. 8443), then the agent calls `expose(8443, "ide")`.
+Every studio image includes code-server. cove-master starts it on first use
+(a tunnel to `127.0.0.1:13337`) and stops it after 30 idle minutes or when
+cove-master exits. Jam does not serve it yet: the Studio tab and the `ide`
+preview name (under the ssh right) are coming. Until then a kit or agent can
+run its own IDE on another port and `expose(<port>, "ide")`, as before.
 
 ## Limits
 

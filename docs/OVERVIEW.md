@@ -4,7 +4,7 @@ read_when: You need what at-cove is, the kit format, the `at-cove` command surfa
 owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-25
 ---
 
 # at-cove — Project Overview
@@ -435,7 +435,7 @@ Because hardening trusts the base, `cove-base-image` carries the overridable
 defaults every sandbox needs in `/home/agent/.init-agent-data`: the startup
 settings (`settings.json`, `.claude.json`), the agent docs (`CLAUDE.md`,
 `PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, `reference/`), the
-generic board/docs `skills/`, and the `.refresh` manifest. The sealed layer then, last: installs the
+generic board/docs `skills/`, and the `.refresh` manifest. It also installs `code-server` (a pinned, SHA-256-verified release `.deb`) for the built-in Studio IDE. The sealed layer then, last: installs the
 embedded version-locked `at-task`; populates `/etc/environment` (so `pam_env`
 exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
 egress/sshd hardening.
