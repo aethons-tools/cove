@@ -3,6 +3,7 @@ package adminui
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"slices"
 	"strconv"
@@ -144,7 +145,10 @@ func pathText(p string) string {
 	return strings.NewReplacer("\n", `\n`, "\t", `\t`).Replace(jam.SetupDisplayText(p))
 }
 
-func modeText(e ctxEntry) string { return fmt.Sprintf("%04o", uint32(e.Mode)) }
+func modeText(e ctxEntry) string { return fileModeText(e.Mode) }
+
+// fileModeText is a file mode as the kit pages show it: "0644", "0755".
+func fileModeText(m fs.FileMode) string { return fmt.Sprintf("%04o", uint32(m)) }
 
 func bytesText(n int64) string { return strconv.FormatInt(n, 10) + " B" }
 
@@ -202,8 +206,14 @@ type ctxDiffView struct {
 }
 
 // ctxDiff compares from's and to's trees; nil when neither has one. A
-// version without one compares as empty.
+// version without one compares as empty. Each row links its version diff.
 func ctxDiff(kit string, from, to kitView) *ctxDiffView {
+	return ctxDiffLinked(from, to, func(p string) string { return fileHref(kit, to.N, from.N, p) })
+}
+
+// ctxDiffLinked is ctxDiff with each row linked by href (the Draft tab links
+// its own file diff).
+func ctxDiffLinked(from, to kitView, href func(p string) string) *ctxDiffView {
 	if from.ctx == nil && to.ctx == nil {
 		return nil
 	}
@@ -220,7 +230,7 @@ func ctxDiff(kit string, from, to kitView) *ctxDiffView {
 	for _, p := range slices.Compact(paths) {
 		a, inA := from.ctx.get(p)
 		b, inB := to.ctx.get(p)
-		row := ctxChange{Path: pathText(p), Href: fileHref(kit, to.N, from.N, p)}
+		row := ctxChange{Path: pathText(p), Href: href(p)}
 		switch {
 		case !inA:
 			row.Change, row.Mode, row.Size = "added", modeText(b), bytesText(b.Size)

@@ -134,8 +134,8 @@ func draftChanges(from, to kittree.Tree) []DraftChange {
 	return out
 }
 
-// kitManaged reports whether the config repo manages kit name (a managed mark).
-func kitManaged(store Store, name string) bool {
+// KitManaged reports whether the config repo manages kit name (a managed mark).
+func KitManaged(store Store, name string) bool {
 	key := ConfigKey{Kind: ConfigKindKit, Name: name}
 	return slices.ContainsFunc(store.ListConfigMarks(), func(m ConfigMark) bool { return m.Key() == key })
 }
@@ -197,7 +197,7 @@ func KitDraftStatusOf(store Store, name string) (KitDraftStatus, error) {
 		Kit: name, Base: d.Base, Current: k.Current, Tree: d.Tree, ETag: DraftETag(d.Tree),
 		OpenedAt: d.OpenedAt, UpdatedAt: d.UpdatedAt, Actor: d.Actor,
 		Entries: draftEntries(tree), Changes: draftChanges(base, tree), Problems: problems,
-		Managed: kitManaged(store, name),
+		Managed: KitManaged(store, name),
 	}, nil
 }
 

@@ -137,6 +137,18 @@ func KitDraftFile(store Store, name, p string) ([]byte, kittree.Entry, string, e
 // .dockerignore drops the files it newly excludes. The file rules hold
 // (kittree.Tree.ValidateFiles, in saveDraftLocked); kit.yml may be missing or invalid.
 func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.FileMode, data []byte, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	return putDraftFile(store, log, name, p, mode, data, ifMatch, actor, now, false)
+}
+
+// AddKitDraftFile is PutKitDraftFile for a new file: a path the draft
+// already has is refused (409), after the ETag check and under kitMu, so it
+// never overwrites.
+func AddKitDraftFile(store Store, log *slog.Logger, name, p string, data []byte, mode fs.FileMode, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	return putDraftFile(store, log, name, p, mode, data, ifMatch, actor, now, true)
+}
+
+// putDraftFile is PutKitDraftFile; with add, it refuses a path the draft has.
+func putDraftFile(store Store, log *slog.Logger, name, p string, mode fs.FileMode, data []byte, ifMatch, actor string, now time.Time, add bool) (KitDraftSave, error) {
 	if err := checkDraftFileArgs(name, p); err != nil {
 		return KitDraftSave{}, err
 	}
@@ -152,9 +164,13 @@ func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.File
 	if err != nil {
 		return KitDraftSave{}, err
 	}
+	e, exists := cur.Lookup(p)
+	if exists && add {
+		return KitDraftSave{}, writeErr(http.StatusConflict, "draft %s already has a file %s", name, p)
+	}
 	if mode == 0 {
 		mode = 0o644
-		if e, ok := cur.Lookup(p); ok {
+		if exists {
 			mode = e.Mode
 		}
 	}
@@ -213,4 +229,46 @@ func ReplaceKitDraft(store Store, log *slog.Logger, name string, files []kittree
 		return KitDraftSave{}, err
 	}
 	return saveDraftLocked(store, log, d, cur, next, KitObjects{Trees: []kittree.Tree{next}, Blobs: blobs}, actor, now)
+}
+
+// RenameKitDraftFile moves file from to path to in kit name's draft, under
+// kitMu and against ifMatch, as one save: its content and mode move with it.
+// 404 when the draft has no file from, 409 when it already has one at to; a
+// rename to its own path changes nothing. The draft's .dockerignore applies
+// to the result as on a put: to excluded refuses, and a file renamed to
+// .dockerignore drops the files it newly excludes. The file rules hold
+// (saveDraftLocked); kit.yml may be renamed away (a problem, not a refusal).
+func RenameKitDraftFile(store Store, log *slog.Logger, name, from, to, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	if err := checkDraftFileArgs(name, from); err != nil {
+		return KitDraftSave{}, err
+	}
+	if err := kittree.CheckPath(to); err != nil {
+		return KitDraftSave{}, draftPathErr(name, err)
+	}
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	d, cur, err := lockedDraftTree(store, name, ifMatch)
+	if err != nil {
+		return KitDraftSave{}, err
+	}
+	e, ok := cur.Lookup(from)
+	if !ok {
+		return KitDraftSave{}, writeErr(http.StatusNotFound, "draft %s has no file %s", name, from)
+	}
+	if from == to {
+		return saveDraftLocked(store, log, d, cur, cur, KitObjects{}, actor, now)
+	}
+	if _, taken := cur.Lookup(to); taken {
+		return KitDraftSave{}, writeErr(http.StatusConflict, "draft %s already has a file %s", name, to)
+	}
+	moved := e
+	moved.Path = to
+	next, err := kittree.IgnoreTree(cur.Without(from).With(moved), freshBlobs(store, nil))
+	if err != nil {
+		return KitDraftSave{}, writeErr(http.StatusBadRequest, "draft %s: %s", name, err)
+	}
+	if _, kept := next.Lookup(to); !kept {
+		return KitDraftSave{}, writeErr(http.StatusBadRequest, "draft %s: %s: excluded by .dockerignore", name, to)
+	}
+	return saveDraftLocked(store, log, d, cur, next, KitObjects{Trees: []kittree.Tree{next}}, actor, now)
 }

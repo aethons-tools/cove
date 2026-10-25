@@ -1,0 +1,150 @@
+{{define "content"}}
+{{if .NotFound}}
+<div class="page-head"><h1>Kit not found</h1></div>
+<div class="banner">No kit <span class="mono">{{.NotFoundFor}}</span>. <a href="/app/admin/kits">Back to kits</a></div>
+{{else}}
+{{template "kit-style"}}
+<div class="crumbs"><a href="/app/admin/kits">Kits</a></div>
+{{template "draft-body" .}}
+{{end}}
+{{end}}
+
+{{/* draft-body is the Draft tab's swappable body (#draft): every write answers it. */}}
+{{define "draft-body"}}
+{{$name := .Name}}
+<div id="draft">
+<div class="page-head">
+  <h1>{{.Name}}</h1>{{template "managed-badge" (managed "kit" .Name)}}
+  <span class="chip accent">current v{{.Current}}</span>
+  {{with .Draft}}<span class="chip">draft · base v{{.Base}}</span>{{end}}
+</div>
+<nav class="subtabs" aria-label="Kit views"><a href="{{kitURL .Name}}">Overview</a><a href="{{draftURL .Name}}" aria-current="page">Draft</a></nav>
+<div class="stack">
+{{with .Published}}
+<section class="card" id="draft-published">
+  <header><h2>Published v{{.Version}}</h2><span class="sub">from the draft (base v{{.Base}})</span><span class="spacer"></span><a class="sub" href="{{kitURL $name}}?v={{.Version}}">view v{{.Version}}</a></header>
+  <div class="body">
+    {{range .Pinned}}<p>pinned {{.}}</p>{{end}}
+    {{with .Warning}}<div class="banner" id="draft-published-warning">{{.}}</div>{{end}}
+  </div>
+  {{if .Drift}}
+  <div class="body" id="config-write">
+    <h3>Write to config repo</h3>
+    <p>In your config repo checkout run <code>at-jam config write &lt;repo&gt;</code>, check <code>git diff</code>, and commit. Expect these files:</p>
+    <ul class="mono">{{range .ConfigFiles}}<li data-change="{{.Change}}">{{.Path}} <span class="unset">{{.Change}}</span></li>{{end}}</ul>
+  </div>
+  {{end}}
+</section>
+{{end}}
+{{with .Draft}}{{$etag := .ETag}}
+<section class="card" id="draft-status">
+  <header><h2>Draft</h2><span class="sub">base v{{.Base}}, current v{{.Current}} · last saved by {{.Actor}} at {{.Updated}}</span><span class="spacer"></span>
+    <form hx-post="/app/admin/kits/{{$name}}/draft/discard" hx-target="#draft" hx-swap="outerHTML" hx-confirm="Discard the draft of {{$name}}? Its changes are lost.">
+      <input type="hidden" name="etag" value="{{$etag}}"><button class="small danger" type="submit">Discard</button></form></header>
+  {{if .Superseded}}<div class="body"><div class="banner" id="draft-superseded">base v{{.Base}}, current v{{.Current}}: publishing makes the draft's files the next version as they are; v{{.Current}}'s changes are not merged.</div></div>{{end}}
+</section>
+<section class="card" id="draft-publish">
+  <header><h2>Publish</h2><span class="sub">makes the draft the next version of {{$name}} and closes it</span></header>
+  <div class="body">
+    {{if .Problems}}<div class="banner error" id="draft-problems"><div>Publishing is blocked until these are fixed:<ul>{{range .Problems}}<li>{{displayText .}}</li>{{end}}</ul></div></div>{{else}}<p class="unset" id="draft-no-problems">No problems: the draft can be published.</p>{{end}}
+    {{if .Managed}}<div class="banner" id="draft-drift">{{.DriftWarning}}</div>{{end}}
+    <form hx-post="/app/admin/kits/{{$name}}/draft/publish" hx-target="#draft" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" hx-confirm="Publish the draft as the next version of {{$name}}?{{if .Managed}} {{.DriftWarning}}{{end}}">
+      <input type="hidden" name="etag" value="{{$etag}}">
+      <label class="check"><input type="checkbox" name="pin" value="1"> Pin followers <span class="hint">kits that follow {{$name}} stay on the version they follow now (v{{.Current}})</span></label>
+      {{with .PinDriftNote}}<div class="banner" id="draft-pin-drift">{{.}}</div>{{end}}
+      {{if .Managed}}<label class="check"><input type="checkbox" name="drift" value="1" required> {{.DriftConfirm}}</label>{{else if .PinDrift}}<label class="check"><input type="checkbox" name="drift" value="1" data-require-with="pin"> {{.DriftConfirm}} <span class="hint">needed with Pin followers</span></label>{{end}}
+      <div class="form-actions"><button type="submit" class="primary" id="draft-publish-button"{{if .Problems}} disabled title="Fix the problems first"{{end}}>Publish</button></div>
+    </form>
+  </div>
+</section>
+{{if .FileMissing}}<section class="card" id="draft-missing"><div class="body"><div class="banner error">No such file in the draft.</div></div></section>{{end}}
+{{with .Editor}}
+<section class="card" id="draft-editor">
+  <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{.Mode}} · {{.Size}} B</span><span class="spacer"></span>
+    <a class="sub" href="{{.DiffHref}}">diff vs v{{$.Draft.Base}}</a> <a class="sub" href="{{.DownloadHref}}" download>Download</a></header>
+  {{if .Stale}}<div class="body" id="draft-stale"><div class="banner error">{{.StaleMsg}}. <a href="{{.ReloadHref}}">reload</a></div></div>{{end}}
+  {{if .Editable}}
+  <form class="body" data-draft-save hx-post="/app/admin/kits/{{$name}}/draft/save" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+    {{if .Invisible}}<p class="hint" id="draft-invisible">This file holds invisible or bidirectional characters (a byte-order mark, a direction override); the editor keeps them as they are, and diffs show them escaped.</p>{{end}}
+    <textarea class="editor" name="content" data-draft-editor{{if .Stale}} data-unsaved{{end}} spellcheck="false" autocomplete="off" wrap="off">
+{{.Text}}</textarea>
+    <label class="check"><input type="checkbox" name="executable" value="1"{{if .Exec}} checked{{end}}> Executable (0755)</label>
+    <div class="form-actions"><button type="submit" class="primary"{{if .Stale}} disabled{{end}}>Save</button></div>
+  </form>
+  {{else}}
+  <div class="body"><p class="unset" id="draft-noedit">{{.Note}}</p></div>
+  <form class="body" id="draft-mode" hx-post="/app/admin/kits/{{$name}}/draft/mode" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+    <label class="check"><input type="checkbox" name="executable" value="1"{{if .Exec}} checked{{end}}> Executable (0755)</label>
+    <div class="form-actions"><button type="submit" class="small">Set mode</button></div>
+  </form>
+  {{end}}
+  <details class="edit" id="draft-replace"><summary>Replace with an upload…</summary>
+    <form hx-post="/app/admin/kits/{{$name}}/draft/replace" hx-encoding="multipart/form-data" hx-target="#draft" hx-swap="outerHTML">
+      <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+      <label>New content <span class="hint">up to {{$.Draft.MaxFile}}; the uploaded file's own name is ignored</span><input type="file" name="file" required></label>
+      <label class="check"><input type="checkbox" name="executable" value="1"{{if .Exec}} checked{{end}}> Executable (0755)</label>
+      <div class="form-actions"><button type="submit" class="primary">Replace</button></div>
+    </form>
+  </details>
+  <form class="body" id="draft-rename" hx-post="/app/admin/kits/{{$name}}/draft/rename" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="from" value="{{.RawPath}}">
+    <label>Rename to <input name="to" required value="{{.RawPath}}" autocomplete="off" spellcheck="false"></label>
+    <div class="form-actions"><button type="submit" class="small">Rename</button></div>
+  </form>
+  <form class="body" id="draft-delete" hx-post="/app/admin/kits/{{$name}}/draft/delete" hx-target="#draft" hx-swap="outerHTML" hx-confirm="Remove {{.Path}} from the draft?">
+    <input type="hidden" name="etag" value="{{.ETag}}"><input type="hidden" name="path" value="{{.RawPath}}">
+    <div class="form-actions"><button type="submit" class="small danger">Delete</button></div>
+  </form>
+</section>
+{{end}}
+{{with .FileDiff}}{{template "ctx-file" .}}{{end}}
+<section class="card" id="draft-tree">
+  <header><h2>Files</h2><span class="sub">{{.Size}} · marked against v{{.Base}}</span></header>
+  <table class="dtree">
+    <thead><tr><th>Path</th><th>Mode</th><th>Size</th><th>vs v{{.Base}}</th></tr></thead>
+    <tbody>
+    {{range .Tree}}{{if .Dir}}<tr class="dir"><td class="name mono">{{.Pad}}{{.Name}}/</td><td></td><td></td><td></td></tr>
+    {{else}}<tr data-path="{{.Path}}"{{with .Change}} data-change="{{.}}"{{end}}><td class="name mono">{{.Pad}}<a href="{{.Href}}">{{.Name}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td><td>{{with .Change}}<span class="chip">{{.}}</span>{{end}}</td></tr>
+    {{end}}{{end}}
+    {{range .Removed}}<tr data-path="{{.Path}}" data-change="removed"><td class="name mono"><a href="{{.Href}}">{{.Name}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td><td><span class="chip">removed</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+<section class="card" id="draft-add">
+  <details class="edit"><summary>Add file…</summary>
+  <form hx-post="/app/admin/kits/{{$name}}/draft/add" hx-encoding="multipart/form-data" hx-target="#draft" hx-swap="outerHTML">
+    <input type="hidden" name="etag" value="{{$etag}}">
+    <label>Path <span class="hint">slash-separated, inside the kit directory, e.g. <code>scripts/setup.sh</code></span><input name="path" required autocomplete="off" spellcheck="false"></label>
+    <label>Content <span class="hint">optional: upload a file (up to {{.MaxFile}}; its own name is ignored), or leave empty for an empty text file to edit</span><input type="file" name="file"></label>
+    <label class="check"><input type="checkbox" name="executable" value="1"> Executable (0755)</label>
+    <div class="form-actions"><button type="submit" class="primary">Add</button></div>
+  </form>
+  </details>
+</section>
+{{with .Changes}}
+<section class="card" id="draft-changes">
+  <header><h2>Changes vs v{{.From}}</h2><span class="sub">the draft's files against its base, file by file</span></header>
+  {{template "ctx-diff-rows" .}}
+</section>
+{{end}}
+{{with .YAMLDiff}}
+<section class="card" id="draft-yaml-diff">
+  <header><h2>kit.yml vs v{{.From}}</h2></header>
+  {{if .Note}}<div class="body unset">{{.Note}}</div>{{else}}{{if .Hidden}}<div class="body"><p class="hint">{{template "kit-hidden-note" $name}}</p></div>{{end}}{{if .TooLarge}}<div class="body unset">Too large to diff here.</div>{{else}}{{template "diff-lines" .Lines}}{{end}}{{end}}
+</section>
+{{end}}
+{{else}}
+<section class="card" id="draft-none">
+  <header><h2>No draft</h2><span class="sub">a draft is a copy of one version's files: edit it here, then publish it as the next version</span></header>
+  <form class="body" hx-post="/app/admin/kits/{{$name}}/draft" hx-swap="none">
+    <label>Open from <select name="from">{{range $.Versions}}<option value="{{.}}"{{if eq . $.Current}} selected{{end}}>v{{.}}{{if eq . $.Current}} (current){{end}}</option>{{end}}</select></label>
+    <div class="form-actions"><button type="submit" class="primary" id="draft-open">Open draft</button></div>
+  </form>
+</section>
+{{end}}
+</div>
+</div>
+{{end}}
