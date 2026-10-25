@@ -303,3 +303,29 @@ func TestOrderKitEntriesAcrossGroups(t *testing.T) {
 		t.Fatalf("order %v cycle %v", names, cycle)
 	}
 }
+
+// A config repo written by an older Jam (kit.yml with base.context-dir and a
+// context/ dir beside it) is refused with a fixed hint to rewrite it with
+// config write.
+func TestLoadKitsHintsConfigWriteForOldContextField(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"kits/app/kit.yml":            "kind: studio\nbase:\n  context-dir: context\n",
+		"kits/app/context/Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+		"kits/files/kit.yml":          "kind: studio\nbase:\n  context-files: {dockerfile: x}\n",
+		"kits/bad/kit.yml":            "kind: studio\nworkers: {}\n",
+	})
+	const hint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+	tr, _ := LoadConfigTree(root)
+	joined := strings.Join(tr.Refusals, "\n")
+	for _, want := range []string{
+		"kits/app/kit.yml: base.context-dir is no longer supported; put a Dockerfile next to kit.yml" + hint,
+		"kits/files/kit.yml: base.context-files is no longer supported; put a Dockerfile next to kit.yml" + hint,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Count(joined, hint) != 2 {
+		t.Errorf("the hint is only for the context fields:\n%s", joined)
+	}
+}

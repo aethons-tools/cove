@@ -16,8 +16,9 @@ A kit version is a directory: `kit.yml` plus its files.
 A `Dockerfile` next to `kit.yml` makes the directory, **minus `kit.yml`**, the
 build context. It is streamed to `docker build -` as a deterministic tar
 (sorted, epoch mtime, fixed uid/gid), modes kept, so a script keeps its `+x`.
-The Dockerfile builds `FROM ${COVE_BASE_IMAGE}` (the blessed base, or the
-parent's stage for a child kit).
+The Dockerfile must start `ARG COVE_BASE_IMAGE` then `FROM ${COVE_BASE_IMAGE}`
+(docker substitutes a build arg in `FROM` only when it is declared first), so
+it builds on the blessed base, or on the parent's stage for a child kit.
 
 Because `kit.yml` is outside the build context, an edit to `kit.yml` alone
 (prompt, notes with an inline body, secrets) reuses the image, while an edit to
@@ -84,6 +85,14 @@ current. Push the kit as a directory, or pin a version that migrated. A stored
 definition that no longer parses keeps its text, minus the context fields, as
 `kit.yml`.
 
+**A config repo written by an older Jam** still holds `kits/<n>/kit.yml`
+with `base.context-dir` and the files under `kits/<n>/context/`. `config
+diff`, `apply` and `sync` refuse it (the context-field error below, followed by
+`; a config repo written by an older Jam: run at-jam config write <repo> and
+commit`). After the upgrade, run `at-jam config write <repo>` once and commit:
+it rewrites each `kit.yml` without the field and mirrors the migrated files to
+the kit's root, removing `context/`.
+
 The pre-migration text is kept in the kit's `legacy` field for one release.
 **Rolling back to an older Jam after the migration is not supported.**
 
@@ -104,6 +113,6 @@ unsafe name:
 | `<dir>: no such directory` | `kit push <dir>` cannot find it (`not a directory`, `cannot open the directory` alike). |
 | `not a readable tar` | The upload is not an uncompressed tar. |
 | `kit upload over <N> bytes` | The upload body is over the cap (413). |
-| `base.context is no longer supported; put a Dockerfile next to kit.yml` | The old packed context; `base.context-files` and `base.context-dir` alike. |
+| `base.context is no longer supported; put a Dockerfile next to kit.yml` | The old packed context (refused at push, git import and config apply); `base.context-files` and `base.context-dir` alike. In a config repo, [rewrite it](#stored-as-trees). |
 | `studio kit: base.image and a Dockerfile next to kit.yml are mutually exclusive` | Both an `image:` base and a `Dockerfile`. |
 | `note "x.md": file x.md is not in the kit` | A note's `file:` is not in the directory. |

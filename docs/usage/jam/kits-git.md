@@ -179,7 +179,7 @@ failure (the message is already redacted), and **500** for a store failure.
 | `commit … not found in … (or the server does not serve commits by id)` | Unknown id, or the server refuses fetch-by-commit: use a branch or tag. |
 | `<dir>: not a directory` / `<dir>: kit.yml missing at the root` | No such directory, or no `kit.yml` in it (check `//<dir>`). |
 | `<dir>/<path>: symlinks are not allowed` | A symlink in the kit directory: commit the file itself. |
-| `base.context… is no longer supported; put a Dockerfile next to kit.yml` | The kit still uses a packed build context: a `Dockerfile` beside `kit.yml` makes the directory the build context. |
+| `base.context… is no longer supported…` | The kit still uses a packed build context; see [the refusals](kits-directory.md#refusals). |
 | `note "…": file must be a relative path inside the kit directory` / `note "…": file … is not in the kit` | A note's `file` escapes the directory or is missing: keep it relative, inside `<dir>`. |
 | `exceeded the <n>-byte transfer limit` / `checkout too large` / `timed out after …` | The repo is too big or too slow for one fetch: move the kit to a smaller repo. |
 | `kit has no tracked source (use kit track)` | `sync` needs `track` first. |

@@ -415,3 +415,44 @@ func TestWriteConfigTreeRefusesSymlinkedFilesParents(t *testing.T) {
 		}
 	}
 }
+
+// The upgrade recovery: a config repo written by an older Jam (kit.yml with
+// base.context-dir, the context under kits/<n>/context/) is refused by apply
+// with the hint; config write then mirrors the migrated kit over it — the
+// kit.yml rewritten, context/ gone — and apply has nothing left to do.
+func TestConfigWriteRewritesOldContextDirRepo(t *testing.T) {
+	url, st := configServer(t)
+	if _, _, err := jam.PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "kits/app/kit.yml"), "kind: studio\nbase:\n  context-dir: context\n", 0o644)
+	mustWrite(t, filepath.Join(repo, "kits/app/context/Dockerfile"), "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", 0o644)
+	mustWrite(t, filepath.Join(repo, "kits/app/context/run.sh"), "echo\n", 0o755)
+	code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url)
+	if code == 0 || !strings.Contains(out+errs, "base.context-dir is no longer supported; put a Dockerfile next to kit.yml; a config repo written by an older Jam: run at-jam config write <repo> and commit") {
+		t.Fatalf("apply on the old repo: %d %s %s", code, out, errs)
+	}
+	if code, out, errs := runJam("config", "write", repo, "--all", "--admin-url", url); code != 0 {
+		t.Fatalf("write: %d %s %s", code, out, errs)
+	}
+	tree := readTree(t, repo)
+	if tree["kits/app/kit.yml"] != "kind: studio\n" || tree["kits/app/Dockerfile"] == "" || tree["kits/app/run.sh"] != "echo\n" {
+		t.Fatalf("tree %v", tree)
+	}
+	for p := range tree {
+		if strings.HasPrefix(p, "kits/app/context/") {
+			t.Fatalf("%s survived the write: %v", p, tree)
+		}
+	}
+	before, _ := st.GetKit("app")
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 || !strings.Contains(out, "0 created, 0 updated") {
+		t.Fatalf("apply after the write (adopts, no new version): %d\n%s\n%s", code, out, errs)
+	}
+	if after, _ := st.GetKit("app"); after.Current != before.Current {
+		t.Fatalf("apply made a version: v%d → v%d", before.Current, after.Current)
+	}
+	if code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url); code != 0 || !strings.Contains(out, "nothing to apply") {
+		t.Fatalf("second apply: %d\n%s\n%s", code, out, errs)
+	}
+}

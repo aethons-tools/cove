@@ -14,6 +14,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -294,7 +295,7 @@ func (l *treeLoader) loadKits() {
 		}
 		set, err := loadKitSet(l.root, gitsource.Source{Repo: ConfigDirRepo, Dir: rel}, n)
 		if err != nil {
-			l.refuse("%s", locate(rel, err))
+			l.refuse("%s%s", locate(rel, err), l.oldContextHint(rel))
 			continue
 		}
 		if msg := l.checkTreeKitSet(set); msg != "" {
@@ -316,6 +317,25 @@ func (l *treeLoader) loadKits() {
 		l.refuse("kits: cycle among %s", strings.Join(cycle, ", "))
 	}
 	l.tr.Kits, l.tr.KitCycle = ordered, cycle
+}
+
+// oldConfigRepoHint follows the refusal of a kits/<n>/kit.yml that still
+// names a packed-context field: a config repo written by an older Jam, which
+// config write mirrors into a kit directory.
+const oldConfigRepoHint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+
+// oldContextHint is oldConfigRepoHint when rel/kit.yml, a regular file of at
+// most kittree.MaxFile bytes, names a packed-context field, else "".
+func (l *treeLoader) oldContextHint(rel string) string {
+	p := rel + "/" + gitsource.KitFile
+	if fi, err := l.r.Lstat(p); err != nil || !fi.Mode().IsRegular() || fi.Size() > kittree.MaxFile {
+		return ""
+	}
+	data, err := l.r.ReadFile(p)
+	if err != nil || studio.RefuseContextFields(data) == nil {
+		return ""
+	}
+	return oldConfigRepoHint
 }
 
 // locate is err as a refusal of the kit at rel (kits/<n>): kept when it

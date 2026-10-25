@@ -31,9 +31,7 @@ prompt: "You work on my-app …"
   don't affect the child.
 - **The child's own stage:** a `Dockerfile` next to the child's `kit.yml`
   makes its [directory](kits-directory.md#the-directory) the stage's build
-  context, built `FROM ${COVE_BASE_IMAGE}` (declare `ARG COVE_BASE_IMAGE`
-  before the `FROM`, as docker requires for a build arg in `FROM`), which now
-  resolves to the parent's stage.
+  context; its `FROM ${COVE_BASE_IMAGE}` now resolves to the parent's stage.
 - **No context:** the child reuses its parent's image as it is and only adds
   definition.
 - `kit` and `image` are mutually exclusive.
