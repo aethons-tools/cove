@@ -153,11 +153,18 @@ func kitDefinitionFromVersion(store Store, ref KitRef, v KitVersion, h harnessin
 	}
 	self := &chain[len(chain)-1]
 	self.Ref.Version, self.Files = ref.Version, v.Files // self is this stored version
+	return chainDefinition(ref, sk, chain, h), nil
+}
+
+// chainDefinition is the definition of kit sk (ref) over its resolved chain
+// under h: Kit = the merged chain, Ref.Digest = studio.ChainDigest(chain, h).
+// An unchained kit is exactly as parsed, not re-merged.
+func chainDefinition(ref KitRef, sk studio.StudioKit, chain []KitLink, h harnessinstall.Install) KitDefinition {
 	kits := chainKits(chain)
 	ref.Digest = studio.ChainDigest(kits, h)
-	merged := sk // an unchained kit is exactly as parsed, not re-merged
+	merged := sk
 	if len(chain) > 1 {
 		merged = studio.Merge(kits)
 	}
-	return KitDefinition{Ref: ref, Kit: merged, Chain: chain, Harness: h}, nil
+	return KitDefinition{Ref: ref, Kit: merged, Chain: chain, Harness: h}
 }
