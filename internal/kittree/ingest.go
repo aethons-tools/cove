@@ -86,6 +86,34 @@ func Ignore(files []File) ([]File, error) {
 	return out, nil
 }
 
+// IgnoreTree is t less the entries its own root .dockerignore excludes
+// (kit.yml, Dockerfile and .dockerignore never are), the rules read through
+// blobs: Ignore for a tree whose content is stored. A .dockerignore whose
+// blob is missing refuses.
+func IgnoreTree(t Tree, blobs Blobs) (Tree, error) {
+	files := make([]File, len(t.Entries))
+	for i, e := range t.Entries {
+		files[i] = File{Path: e.Path}
+		if e.Path == dockerignoreFile {
+			b, ok := blobs(e.SHA256)
+			if !ok {
+				return Tree{}, errors.New(".dockerignore: has no stored content")
+			}
+			files[i].Data = b
+		}
+	}
+	kept, err := Ignore(files)
+	if err != nil {
+		return Tree{}, err
+	}
+	out := Tree{Entries: make([]Entry, 0, len(kept))}
+	for _, f := range kept {
+		e, _ := t.Lookup(f.Path)
+		out.Entries = append(out.Entries, e)
+	}
+	return out, nil
+}
+
 // ReadDir reads the kit directory dir (slash, relative to root; "." for the
 // root) of an untrusted tree into files, in walk order (each directory's
 // entries by name, a directory's files where its name sorts; Build sorts by
@@ -373,7 +401,7 @@ func readRegular(r *os.Root, name string, want fs.FileInfo, p string) ([]byte, f
 		return nil, 0, fmt.Errorf("%s: cannot be read", p)
 	}
 	if int64(len(data)) > MaxFile {
-		return nil, 0, fileTooLarge(p)
+		return nil, 0, FileTooLarge(p)
 	}
 	return data, fi.Mode(), nil
 }
@@ -449,7 +477,7 @@ func ReadTar(r io.Reader) ([]File, error) {
 			return nil, &tarError{err}
 		}
 		if int64(len(data)) > MaxFile {
-			return nil, fileTooLarge(name)
+			return nil, FileTooLarge(name)
 		}
 		if total += int64(len(data)); total > MaxTotal {
 			return nil, treeTooLarge()
