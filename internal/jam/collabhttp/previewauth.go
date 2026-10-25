@@ -279,8 +279,9 @@ func (a *PreviewAuth) lookupSession(m map[[sha256.Size]byte]previewEntry, vals [
 // iframe), so it is honoured only where no other page can have caused the
 // request: a WebSocket upgrade only with an Origin of exactly https://<Host>;
 // else Sec-Fetch-Site same-origin. Nothing else: not a cross-site iframe
-// navigation — every pane load trades a fresh ticket (/__jam/frame) and is
-// same-origin from its 303 on, while an app in the pane redirecting or
+// navigation — every pane load trades a fresh ticket (/__jam/frame), whose
+// landing page then navigates the frame same-origin, while an app in the
+// pane redirecting or
 // linking it to another studio arrives cross-site too (Fetch Metadata
 // follows the UI initiator across redirects) — no top-level navigation, no
 // same-site iframe (a sibling preview framed in the same pane shares the
@@ -610,9 +611,13 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 }
 
 // frame trades a frame ticket (?t=) for a frame session: only in the Jam
-// UI's own iframe navigation (isUIFrameNavigation), only for a ticket minted for this host — any
-// lookup spends it — and then sets the partitioned __Host-jam_frame cookie
-// and sends the frame to /.
+// UI's own iframe navigation (isUIFrameNavigation), only for a ticket minted
+// for this host — any lookup spends it — and then sets the partitioned
+// __Host-jam_frame cookie and answers 200 with a landing page that sends the
+// frame to / itself (frameLandingPage). Not a redirect: a redirected
+// navigation keeps the UI as its initiator, so it would arrive cross-site and
+// the frame cookie would not count; one the preview document starts is
+// same-origin.
 func (a *PreviewAuth) frame(w http.ResponseWriter, r *http.Request) {
 	// The URL carries a ticket: never cache it or leak it onward as a Referer.
 	w.Header().Set("Cache-Control", "no-store")
@@ -646,8 +651,17 @@ func (a *PreviewAuth) frame(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode, Partitioned: true,
 		MaxAge: int(FrameSessionTTL / time.Second),
 	})
-	w.Header().Set("Location", "/")
-	w.WriteHeader(http.StatusSeeOther)
+	frameLandingPage(w)
+}
+
+// frameLandingPage answers the exchange: a page whose script replaces itself
+// with / (a same-origin navigation), with a link for when scripts are off.
+func frameLandingPage(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
+		`<script>location.replace("/")</script>`+
+		`<noscript><p><a href="/">Open the preview</a></p></noscript>`+"\n")
 }
 
 // ticketRedeem redeems t for host, refusing an empty ticket or a host that is
@@ -740,7 +754,7 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	// A "//"-led path would be refused as a return path; collapse it.
 	rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
 	if ok && r.Header.Get("Sec-Fetch-Dest") == "iframe" {
-		framedLoginPage(w, rt, a.uiOrigin())
+		framedLoginPage(w, r, rt, a.uiOrigin())
 		return
 	}
 	if ok && strings.Contains(r.Header.Get("Accept"), "text/html") {
@@ -765,21 +779,28 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Jam preview: log in in a browser, or send Authorization: Bearer <token> (at-jam login)", http.StatusUnauthorized)
 }
 
-// framedLoginPage answers a framed request that has no credentials: 401 with
+// framedLoginPage answers a framed request r that has no credentials: 401 with
 // a page linking to u in a new top-level tab, whose script tells the Jam pane
 // (uiOrigin, JSON-encoded; no script when there is none — nothing may frame
-// the page then) why.
-func framedLoginPage(w http.ResponseWriter, u, uiOrigin string) {
+// the page then) why: status "cookies" for a same-origin navigation carrying
+// no frame cookie (the browser refused the partitioned cookie after the
+// exchange, as Safari does), else "signin" (no usable session — a reload, an
+// expired session, or a redirect from another studio — so the pane re-mints).
+func framedLoginPage(w http.ResponseWriter, r *http.Request, u, uiOrigin string) {
+	status, msg := "signin", "Reopen this preview from the Jam pane."
+	if _, err := r.Cookie(FrameCookie); err != nil && r.Header.Get("Sec-Fetch-Site") == "same-origin" {
+		status, msg = "cookies", "This browser didn't keep the pane's sign-in cookie; open the preview in a new tab."
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusUnauthorized)
 	script := ""
 	if uiOrigin != "" {
 		target, _ := json.Marshal(uiOrigin)
-		script = `<script>parent.postMessage({jam:"frame-error",status:"cookies"}, ` + string(target) + `)</script>`
+		script = `<script>parent.postMessage({jam:"frame-error",status:"` + status + `"}, ` + string(target) + `)</script>`
 	}
 	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
-		`<p>`+html.EscapeString("Not signed in inside the pane. Open this preview from the Jam pane or in a new tab.")+
+		`<p>`+html.EscapeString(msg)+
 		` <a href="`+html.EscapeString(u)+`" target="_top">Open in new tab</a></p>`+script+"\n")
 }
 

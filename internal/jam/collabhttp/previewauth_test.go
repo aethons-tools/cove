@@ -678,7 +678,7 @@ func (f *previewFixture) frameSession(t *testing.T, ft *FrameTickets) *http.Cook
 		t.Fatal(err)
 	}
 	w := f.exchange(hostA, tk, "iframe")
-	if w.Code != http.StatusSeeOther {
+	if w.Code != http.StatusOK {
 		t.Fatalf("exchange = %d %s", w.Code, w.Body)
 	}
 	for _, c := range w.Result().Cookies() {
@@ -705,9 +705,17 @@ func TestFrameExchange(t *testing.T) {
 	if w := a.exchange(hostA, tk, ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("no Sec-Fetch-Dest = %d", w.Code)
 	}
+	// A 200 landing page, not a redirect: a redirected navigation keeps the
+	// UI as its initiator (cross-site), while one the preview document
+	// starts itself is same-origin.
 	w = a.exchange(hostA, tk, "iframe")
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
+	if w.Code != http.StatusOK || w.Header().Get("Location") != "" {
 		t.Fatalf("exchange = %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if body := w.Body.String(); !strings.Contains(body, `<script>location.replace("/")</script>`) ||
+		!strings.Contains(body, `<noscript>`) || !strings.Contains(body, `href="/"`) ||
+		!strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("landing page %q %q", w.Header().Get("Content-Type"), body)
 	}
 	if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
 		t.Fatalf("exchange headers %v", w.Header())
@@ -941,6 +949,7 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	a := newTestPreviewAuth(t)
 	r := httptest.NewRequest("GET", "https://"+hostA+"/app?x=1&y=<b>", nil)
 	r.Header.Set("Accept", "text/html")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	r.Header.Set("Sec-Fetch-Dest", "iframe")
 	r.Header.Set("Sec-Fetch-Mode", "navigate")
 	a.o.FrameAncestors = []string{"https://jam.example", "https://other.example"}
@@ -954,9 +963,9 @@ func TestLoginRedirectInFrame(t *testing.T) {
 		t.Fatalf("Content-Type %q", w.Header().Get("Content-Type"))
 	}
 	for _, s := range []string{
-		"Not signed in inside the pane. Open this preview from the Jam pane or in a new tab.",
+		"Reopen this preview from the Jam pane.",
 		`<a href="https://` + hostA + `/app?x=1&amp;y=&lt;b&gt;" target="_top">Open in new tab</a>`,
-		`parent.postMessage({jam:"frame-error",status:"cookies"}, "https://jam.example")`,
+		`parent.postMessage({jam:"frame-error",status:"signin"}, "https://jam.example")`,
 	} {
 		if !strings.Contains(body, s) {
 			t.Errorf("body lacks %q:\n%s", s, body)
@@ -964,6 +973,19 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	}
 	if strings.Contains(body, "<b>") {
 		t.Errorf("unescaped request URI in body:\n%s", body)
+	}
+	// Same-origin in the frame with no frame cookie: the browser refused the
+	// partitioned cookie after the exchange (Safari).
+	so := httptest.NewRequest("GET", "https://"+hostA+"/", nil)
+	so.Header.Set("Accept", "text/html")
+	so.Header.Set("Sec-Fetch-Site", "same-origin")
+	so.Header.Set("Sec-Fetch-Dest", "iframe")
+	so.Header.Set("Sec-Fetch-Mode", "navigate")
+	w = httptest.NewRecorder()
+	a.LoginRedirect(w, so)
+	if body := w.Body.String(); w.Code != http.StatusUnauthorized ||
+		!strings.Contains(body, `status:"cookies"`) || !strings.Contains(body, "keep the pane") {
+		t.Errorf("same-origin, no cookie: %d %s", w.Code, body)
 	}
 	// No UI origins: no frame may show it, so no message is posted.
 	a.o.FrameAncestors = nil

@@ -1118,7 +1118,7 @@ func TestPreviewFrameCookieNotHonouredCrossSiteIframe(t *testing.T) {
 	ph.h.ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
-		!strings.Contains(body, "Open this preview from the Jam pane or in a new tab") {
+		!strings.Contains(body, "Reopen this preview from the Jam pane") || !strings.Contains(body, `status:"signin"`) {
 		t.Fatalf("cross-site iframe with frame cookie = %d %q", rec.Code, body)
 	}
 	if n := len(ph.tun.opened()); n != 0 {
@@ -1141,5 +1141,42 @@ func TestPreviewFrameCookieTopLevelLogsIn(t *testing.T) {
 	ph.h.ServeHTTP(rec, req)
 	if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || !strings.HasPrefix(loc, "https://jam."+testDomain+"/__jam/start?") {
 		t.Fatalf("top-level with frame cookie = %d %q %q", rec.Code, loc, rec.Body)
+	}
+}
+
+// The realistic pane load: the exchange's landing page navigates the frame
+// itself, so the follow-up is same-origin and carries the frame cookie.
+func TestPreviewFramePaneLoad(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	tk, err := ph.auth.o.Frames.Mint(collab.Principal{UserID: ph.ids["alice"]}, "alice", appHost, collab.Preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "https://"+appHost+"/__jam/frame?t="+url.QueryEscape(tk), nil)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(rec.Body.String(), `location.replace("/")`) {
+		t.Fatalf("exchange = %d %v %q", rec.Code, rec.Header(), rec.Body)
+	}
+	var fc *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == FrameCookie {
+			fc = c
+		}
+	}
+	if fc == nil {
+		t.Fatalf("no frame cookie: %v", rec.Header())
+	}
+	if rec := ph.getFramed("/", fc); rec.Code != 200 || rec.Body.String() != "hello from the app" {
+		t.Fatalf("follow-up = %d %q", rec.Code, rec.Body)
+	}
+	// Without the cookie (the browser refused it): the "cookies" page.
+	rec = ph.getFramed("/", nil)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `status:"cookies"`) {
+		t.Fatalf("no cookie = %d %q", rec.Code, rec.Body)
 	}
 }
