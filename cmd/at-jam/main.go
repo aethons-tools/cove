@@ -1059,7 +1059,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				srcText, commit = kitSourceText(h.Source), shortCommit(h.Source.Commit)
 			}
 			if h.Source == nil && h.Origin != "" {
-				srcText = h.Origin // "draft": published from a draft
+				srcText = textesc.Escape(h.Origin, false) // "draft": published from a draft
 			}
 			fmt.Fprintf(tw, "v%d\t%s\t%s\t%s\t%s\n", h.Version, cur, pushed, srcText, commit)
 		}

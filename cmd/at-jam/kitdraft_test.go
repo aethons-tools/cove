@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -69,6 +70,9 @@ func TestKitDraftVerbs(t *testing.T) {
 	// --etag writes against the given etag: a stale one fails, nothing written (Review Focus 1).
 	if code, _, errs = kit("put", "app", "x.txt", script, "--etag", strings.Repeat("0", 64)); code != 1 || !strings.Contains(errs, "draft app changed since you loaded it (reload)") {
 		t.Fatalf("stale --etag: %d %q", code, errs)
+	}
+	if code, _, errs = kit("get", "app", "x.txt"); code != 1 || !strings.Contains(errs, "draft app has no file x.txt") {
+		t.Fatalf("stale --etag wrote x.txt: %d %q", code, errs)
 	}
 	if code, out, _ = kit("put", "app", "y.txt", script, "--etag", st.ETag); code != 0 {
 		t.Fatalf("put --etag: %d %q", code, out)
@@ -216,5 +220,66 @@ func TestKitDraftPutStdin(t *testing.T) {
 	}
 	if code, out, _ := kit("get", "app", "in.txt"); code != 0 || out != "from stdin\n" {
 		t.Fatalf("get: %d %q", code, out)
+	}
+}
+
+// Strings a server answers with (etag, mode, kind, warning, origin) reach
+// the terminal escaped: no raw ESC or U+202E.
+func TestKitDraftEscapesServerStrings(t *testing.T) {
+	const bad = "\x1b[2J\u202e"
+	st := jam.KitDraftStatus{Kit: "app", Base: 1, Current: 1, ETag: bad, Actor: bad,
+		Entries:  []jam.DraftEntry{{Path: "a", Mode: bad, Size: 1}},
+		Changes:  []jam.DraftChange{{Path: "a", Kind: bad}},
+		Problems: []string{bad}}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var v any
+		switch {
+		case r.URL.Path == "/admin/kits/app/history":
+			v = []jam.KitVersionInfo{{Version: 1, Origin: bad, Current: true}}
+		case r.URL.Path == "/admin/kits/app/draft/publish":
+			v = jam.KitDraftPublish{Kit: "app", Version: 2, Pinned: []string{bad}, Drift: true, Warning: bad}
+		case r.Method == "GET" || r.Method == "POST":
+			v = st
+		default:
+			v = jam.KitDraftSave{Kit: "app", ETag: bad, Changed: st.Changes, Problems: st.Problems}
+		}
+		_ = json.NewEncoder(w).Encode(v)
+	}))
+	t.Cleanup(ts.Close)
+	f := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, argv := range [][]string{
+		{"kit", "draft", "open", "app"}, {"kit", "draft", "status", "app"},
+		{"kit", "draft", "put", "app", "a", f, "--etag", "e"}, {"kit", "draft", "rm", "app", "a", "--etag", "e"},
+		{"kit", "draft", "publish", "app", "--etag", "e"}, {"kit", "versions", "app"},
+	} {
+		var out, errb bytes.Buffer
+		code := run(append(argv, "--admin-url", ts.URL), func(string) string { return "" }, &out, &errb)
+		all := out.String() + errb.String()
+		if code != 0 || strings.ContainsAny(all, "\x1b\u202e") {
+			t.Fatalf("%v: %d %q", argv, code, all)
+		}
+	}
+}
+
+// A flag the verb does not take is a usage error; --help is not.
+func TestKitDraftFlagsPerVerb(t *testing.T) {
+	kit, _, _ := draftCLI(t)
+	for _, args := range [][]string{
+		{"open", "app", "--mode", "755"}, {"status", "app", "--pin"}, {"put", "app", "a", "f", "--from", "v1"},
+		{"status", "app", "-o", "x"}, {"open", "app", "--json"}, {"status", "app", "--etag", "e"},
+	} {
+		if code, _, errs := kit(args...); code != 2 || !strings.Contains(errs, "flag provided but not defined") {
+			t.Fatalf("%q: %d %q", args, code, errs)
+		}
+	}
+	for _, argv := range [][]string{{"kit", "draft", "--help"}, {"kit", "draft", "-h"}, {"kit", "draft", "put", "-h"}} {
+		var out, errb bytes.Buffer
+		if code := run(argv, func(string) string { return "" }, &out, &errb); code != 0 || !strings.Contains(out.String(), "draft") {
+			t.Fatalf("%q: %d %q %q", argv, code, out.String(), errb.String())
+		}
 	}
 }

@@ -74,8 +74,8 @@ at-jam kit draft discard app                           # drop the draft
 Each write first fetches the status and sends its etag. With `--etag <hash>`,
 a script writes against the etag it already holds and fails with 412 instead
 of overwriting another edit. `publish` prints a warning on stderr for a
-config-managed kit. All verbs take the admin-client flags
-(`--app`/`--admin-url`/`--token`).
+config-managed kit. The admin-client flags apply as for every
+[`kit` verb](kits.md#the-kit-verbs).
 
 - `status` prints `draft <kit>: base vN, current vM`, and when another
   version landed since the draft was opened, that publishing replaces it with
@@ -83,7 +83,8 @@ config-managed kit. All verbs take the admin-client flags
 - `get -o <file>` writes the file with its mode in the draft; an existing
   symlink there is replaced, never written through.
 - `publish --pin` prints a `pinned …` line per follower pinned.
-- A usage error exits 2; a refused call exits 1 with the server's text.
+- A usage error (a flag of another verb included) exits 2; a refused call
+  exits 1 with the server's text.
 
 ## API
 
