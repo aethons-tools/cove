@@ -68,7 +68,11 @@ func sessionEnv(t *testing.T) (*env, jam.Participant, jam.Instance, jam.Instance
 		}
 	}
 	_ = events.Append(sessionevents.Event{ActorID: personal.ActorID, StreamID: "s", Seq: 1, Kind: sessionevents.KindEvent, Turn: 1, ObservedAt: now,
+		Raw:   []byte(`{"type":"result","modelUsage":{"claude-x":{"contextWindow":200000}}}`),
 		Index: sessionevents.Index{Type: "result", CostUSD: 0.42, InputTokens: 1200, OutputTokens: 300}})
+	ctx := `{"type":"assistant","parent_tool_use_id":null,"message":{"model":"claude-x","usage":{"input_tokens":2,"cache_read_input_tokens":84000,"output_tokens":298}}}`
+	_ = events.Append(sessionevents.Event{ActorID: personal.ActorID, StreamID: "s", Seq: 2, Kind: sessionevents.KindEvent, Turn: 1, ObservedAt: now,
+		Raw: []byte(ctx), Index: sessionevents.DeriveIndex([]byte(ctx))})
 	return e, p, personal, standing, ops
 }
 
@@ -96,7 +100,7 @@ func TestSessionHeader(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/?c="+e.homeOf(t, personal), nil), p, false))
 	body := rec.Body.String()
-	for _, want := range []string{`id="session-head"`, "personal", "pair", "proj", "$0.42", "1h 30m", "is idle", `data-tab="thinking"`, `data-tab="previews"`, `data-tab="artifacts"`, `data-tab="status"`, "Release"} {
+	for _, want := range []string{`id="session-head"`, "personal", "pair", "proj", "$0.42", "ctx 84k / 200k · 42%", "84300 of 200000 tokens", "1h 30m", "is idle", `data-tab="thinking"`, `data-tab="previews"`, `data-tab="artifacts"`, `data-tab="status"`, "Release"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("header missing %q", want)
 		}
@@ -335,5 +339,30 @@ func TestSessionHeaderCommandButtons(t *testing.T) {
 	}
 	if want := `hx-confirm="Clear this session's conversation? The agent keeps its files and memory but forgets the conversation."`; !strings.Contains(b, want) {
 		t.Errorf("Clear = %s, want %s", b, want)
+	}
+}
+
+func TestKTokens(t *testing.T) {
+	for n, want := range map[int64]string{950: "950", 84300: "84k", 199600: "200k", 1_000_000: "1M", 1_250_000: "1.2M"} {
+		if got := kTokens(n); got != want {
+			t.Errorf("kTokens(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestContextUse(t *testing.T) {
+	at := time.Unix(1000, 0)
+	for _, c := range []struct {
+		t    sessionevents.Totals
+		want string
+	}{
+		{sessionevents.Totals{}, ""},
+		{sessionevents.Totals{LastAt: at, Context: 950, ContextModel: "m"}, "ctx 950"},
+		{sessionevents.Totals{LastAt: at, Context: 950, ContextWindow: 1_000_000, ContextModel: "m"}, "ctx 950 / 1M · 0%"},
+		{sessionevents.Totals{LastAt: at, ContextModel: "m"}, "ctx —"}, // reset since the last call
+	} {
+		if got, _ := contextUse(c.t); got != c.want {
+			t.Errorf("contextUse(%+v) = %q, want %q", c.t, got, c.want)
+		}
 	}
 }

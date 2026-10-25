@@ -230,6 +230,9 @@ func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 	add("Turns", fmt.Sprintf("%d (%s)", t.Turns, plural(int(t.Episodes), "episode")))
 	add("Tool calls", fmt.Sprintf("%d (%s)", t.ToolCalls, plural(t.Errors, "error")))
 	add("Tokens", fmt.Sprintf("%d in / %d out", t.InputTokens, t.OutputTokens))
+	if _, exact := contextUse(t); exact != "" {
+		add("Context", strings.TrimPrefix(exact, "context: "))
+	}
 	add("Cost", usd(t.CostUSD))
 	add("This turn", usd(t.TurnCostUSD))
 	if !t.LastAt.IsZero() {
