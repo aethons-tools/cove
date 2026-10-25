@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -199,38 +201,69 @@ func TestMigrateKitTreesDefaultKitNotReversioned(t *testing.T) {
 	}
 }
 
+// oldDigest is the hex sha256 of a canonical form an old Jam's mark
+// recorded, written out literally by each test (not computed by the code
+// under test).
+func oldDigest(canon string) string {
+	sum := sha256.Sum256([]byte(canon))
+	return hex.EncodeToString(sum[:])
+}
+
+// markedLegacyJam is a store with pre-tree kit app (text, source src) and a
+// config mark recording digest.
+func markedLegacyJam(t *testing.T, text string, src *KitSource, digest string) *MemStore {
+	t.Helper()
+	st := NewMemStore()
+	doc := legacyDoc("app", text)
+	doc.Source = src
+	if err := st.PutKitDocs([]Kit{doc}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: digest}}}); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// A mark an old Jam recorded for the kit's current text is re-keyed: the
+// released kitCanon (the stored text, then "# source:" when tracked) and
+// this branch's interim one (the text as studio ToJSON) alike. The stored
+// texts are not in ToJSON form.
 func TestMigrateKitTreesRekeysTheMark(t *testing.T) {
-	for _, src := range []*KitSource{nil, {Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main"}} {
-		st := NewMemStore()
-		text := `{"kind":"studio","prompt":"p"}`
-		doc := legacyDoc("app", text)
-		doc.Source = src
-		if err := st.PutKitDocs([]Kit{doc}, KitObjects{}); err != nil {
-			t.Fatal(err)
-		}
-		if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: legacyKitCanonDigest(text, src)}}}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := MigrateKitTrees(st, nil, nil); err != nil {
-			t.Fatal(err)
-		}
-		states, err := ConfigMarkStates(st)
-		if err != nil || len(states) != 1 || states[0].State != ConfigInSync {
-			t.Fatalf("tracked %v: states = %+v %v", src != nil, states, err)
-		}
+	src := &KitSource{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main"}
+	const yml = "kind: studio\nprompt: p\n"
+	const jsonText = `{"kind":"studio","prompt":"p"}`
+	const asToJSON = `{"kind":"studio","base":{},"prompt":"p"}`
+	const srcLine = "\n# source: https://github.com/acme/kits//app@main\n"
+	for _, c := range []struct {
+		name, text string
+		src        *KitSource
+		canon      string
+	}{
+		{"released yaml", yml, nil, yml},
+		{"released yaml tracked", yml, src, yml + srcLine},
+		{"released json", jsonText, nil, jsonText},
+		{"interim yaml", yml, nil, asToJSON},
+		{"interim yaml tracked", yml, src, asToJSON + srcLine},
+		{"interim json", jsonText, nil, asToJSON},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			st := markedLegacyJam(t, c.text, c.src, oldDigest(c.canon))
+			if _, err := MigrateKitTrees(st, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			states, err := ConfigMarkStates(st)
+			if err != nil || len(states) != 1 || states[0].State != ConfigInSync {
+				t.Fatalf("states = %+v %v", states, err)
+			}
+		})
 	}
 }
 
 // A managed kit edited in Jam before the upgrade (its mark recorded another
 // text) keeps its mark: it still shows as drifted.
 func TestMigrateKitTreesKeepsADriftedMark(t *testing.T) {
-	st := NewMemStore()
-	if err := st.PutKitDocs([]Kit{legacyDoc("app", `{"kind":"studio","prompt":"edited"}`)}, KitObjects{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: legacyKitCanonDigest(`{"kind":"studio","prompt":"p"}`, nil)}}}); err != nil {
-		t.Fatal(err)
-	}
+	st := markedLegacyJam(t, "kind: studio\nprompt: edited\n", nil, oldDigest("kind: studio\nprompt: p\n"))
 	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -244,14 +277,8 @@ func TestMigrateKitTreesKeepsADriftedMark(t *testing.T) {
 // to the broken canon: not drift (the migration, not an operator, changed
 // it). Its plan is an update to the repo's copy, which un-breaks it.
 func TestMigrateKitTreesBrokenManagedKit(t *testing.T) {
-	st := NewMemStore()
-	text := `{"kind":"studio","base":{"context":"!!not base64"}}`
-	if err := st.PutKitDocs([]Kit{legacyDoc("app", text)}, KitObjects{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: legacyKitCanonDigest(text, nil)}}}); err != nil {
-		t.Fatal(err)
-	}
+	text := "kind: studio\nbase:\n  context: '!!not base64'\n"
+	st := markedLegacyJam(t, text, nil, oldDigest(text))
 	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -396,6 +423,9 @@ func TestLegacyContextRefusals(t *testing.T) {
 		{`{"kind":"studio","base":{"contextFiles":{"a":["y"]}}}`, errLegacyTree.Error()},
 		{`{"kind":"studio","base":{"contextFiles":{"a":"y"},"context-files":{"b":"z"}}}`, errLegacyTwice.Error()},
 		{"kind: studio\nx: &c {context: abc}\nbase:\n  <<: *c\n", errLegacyAlias.Error()},
+		{"kind: studio\nx: &c abc\nbase: {context: *c}\n", errLegacyAlias.Error()},
+		{"kind: studio\nbase: {context: [abc]}\n", errLegacyAlias.Error()},
+		{"kind: studio\nx: &c {a: b}\nbase: {context-files: *c}\n", errLegacyAlias.Error()},
 	} {
 		if _, _, err := legacyKitTree(c.text); err == nil || err.Error() != c.want {
 			t.Fatalf("%s: err = %v, want %s", c.text, err, c.want)

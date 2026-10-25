@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
@@ -395,4 +396,31 @@ func TestConfigImportMigratesAPreTreeBackup(t *testing.T) {
 	if k, _ := st.GetKit("app"); k.Trees[1] == "" || len(k.Versions) != 0 {
 		t.Fatalf("the imported kit was not migrated: %+v", k)
 	}
+}
+
+// A broken kit in an imported pre-tree backup opens kit.migrate at once, on
+// the tracker the config routes were given (WithConfig's env.Conditions).
+func TestConfigImportRaisesKitMigrate(t *testing.T) {
+	st := NewMemStore()
+	tr := condition.New(condition.Options{})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil,
+		WithConfig(st, nil, withConds(allCreds, tr), log))
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "app", Current: 1, Versions: map[int]string{1: `{"kind":"studio","base":{"context":"!!not base64"}}`}}}}
+	body, _ := json.Marshal(snap)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/admin/config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:1234" // LoopbackAuthenticator
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("import = %d %s", w.Code, w.Body)
+	}
+	if !tr.IsOpen(condition.Key(KitMigrateKind, "app")) {
+		t.Fatal("kit.migrate:app must be open after the import")
+	}
+}
+
+func withConds(env ConfigEnv, t *condition.Tracker) ConfigEnv {
+	env.Conditions = t
+	return env
 }

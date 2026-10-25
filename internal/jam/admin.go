@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -429,10 +430,18 @@ func RosterSummaries(store Store) []ActorSummary {
 // AdminOption mounts extra routes on the /admin/* mux, inside the operator
 // authenticator — for features whose packages jam must not import (e.g. the
 // session-events export).
-type AdminOption func(*http.ServeMux)
+type AdminOption func(*adminMux)
+
+// adminMux is the /admin/* mux an AdminOption mounts on, with the settings
+// an option hands the core routes: conds, the conditions tracker the config
+// import raises kit.migrate on (WithConfig's ConfigEnv.Conditions; nil = none).
+type adminMux struct {
+	*http.ServeMux
+	conds *condition.Tracker
+}
 
 func WithAdminRoute(pattern string, h http.Handler) AdminOption {
-	return func(m *http.ServeMux) { m.Handle(pattern, h) }
+	return func(m *adminMux) { m.Handle(pattern, h) }
 }
 
 // validateOverride checks a grant override's credentials against the effective
@@ -449,6 +458,21 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 	return ValidateCredentials(EffectiveScope(Grant{Overrides: o}, r), credExists)
 }
 
+// importConfigMigrated imports snap and migrates its pre-tree kits to trees
+// (kits-directory.md#stored-as-trees; a snapshot of trees is a no-op),
+// raising kit.migrate on t. It holds configMu across both (configMu → kitMu,
+// as an apply), so no apply, drift check or release sees imported kits
+// before they are trees. A migration failure is a plain (500) error.
+func importConfigMigrated(store Store, snap ConfigSnapshot, t *condition.Tracker, log *slog.Logger) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if err := store.ImportConfig(snap); err != nil {
+		return err
+	}
+	_, err := migrateKitTreesLocked(store, t, log)
+	return err
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
@@ -456,6 +480,7 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 // browser (may be nil) serves everything outside /admin/ — the /app browser app.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, browser http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
+	var importConds *condition.Tracker // set from the options below, before any request
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -513,7 +538,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, w := range MigrateSnapshotModelSpecs(&snap) {
 			log.Warn("admin config import: model-spec migrated with a loss", "detail", w)
 		}
-		if err := store.ImportConfig(snap); err != nil {
+		err := importConfigMigrated(store, snap, importConds, log)
+		if err != nil {
 			switch {
 			case errors.Is(err, ErrConfigNotEmpty):
 				http.Error(w, err.Error(), http.StatusConflict)
@@ -522,12 +548,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			default:
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-			return
-		}
-		// A pre-tree backup's kits are config text: migrate them now
-		// (kits-directory.md#stored-as-trees). A snapshot of trees is a no-op.
-		if _, err := MigrateKitTrees(store, nil, log); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		log.Info("admin config imported", "operator", OperatorID(r),
@@ -1028,9 +1048,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
 
+	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
-		o(mux)
+		o(am)
 	}
+	importConds = am.conds
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
 		return guarded

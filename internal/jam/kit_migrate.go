@@ -11,6 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // KitMigrateKind is the condition kind of a kit whose current version the
@@ -31,7 +32,8 @@ type KitTreeMigration struct {
 // Kit.Legacy.
 //
 // A managed kit's config mark that recorded its current version's old
-// canonical form (legacyKitCanonDigest) is re-keyed to the new one, so the
+// canonical form (legacyKitCanonDigest, or this branch's interim
+// legacyKitCanonJSONDigest) is re-keyed to the new one, so the
 // upgrade shows no drift: the tree's listing (kitCanon), or for a version
 // kept broken its "# broken:" canon. A mark that recorded anything else (the
 // kit was edited in Jam before the upgrade) is left, still drifted.
@@ -43,6 +45,11 @@ type KitTreeMigration struct {
 func MigrateKitTrees(store Store, t *condition.Tracker, log *slog.Logger) (KitTreeMigration, error) {
 	configMu.Lock()
 	defer configMu.Unlock()
+	return migrateKitTreesLocked(store, t, log)
+}
+
+// migrateKitTreesLocked is MigrateKitTrees for a caller holding configMu.
+func migrateKitTreesLocked(store Store, t *condition.Tracker, log *slog.Logger) (KitTreeMigration, error) {
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	var rep KitTreeMigration
@@ -105,7 +112,7 @@ func MigrateKitTrees(store Store, t *condition.Tracker, log *slog.Logger) (KitTr
 func rekeyedKitMark(marks map[ConfigKey]ConfigMark, k, doc Kit, trees map[string]kittree.Tree, blobs map[string][]byte) (ConfigMark, bool) {
 	mk, managed := marks[ConfigKey{ConfigKindKit, k.Name}]
 	cur, hasCur := k.Versions[k.Current]
-	if !managed || !hasCur || mk.Digest != legacyKitCanonDigest(cur, k.Source) {
+	if !managed || !hasCur || (mk.Digest != legacyKitCanonDigest(cur, k.Source) && mk.Digest != legacyKitCanonJSONDigest(cur, k.Source)) {
 		return ConfigMark{}, false
 	}
 	canon := brokenKitCanon(doc.Broken[k.Current])
@@ -116,15 +123,39 @@ func rekeyedKitMark(marks map[ConfigKey]ConfigMark, k, doc Kit, trees map[string
 	return mk, true
 }
 
-// legacyKitCanonDigest is the digest a config mark recorded for a pre-tree
-// kit: sha256 of its stored config, then for a tracked kit
-// "\n# source: <repo>[//dir]@<ref>\n".
+// legacyKitCanonDigest is the digest a released (pre-tree) Jam's config
+// mark recorded for a kit: sha256 of kitCanon as it was there (frozen copy
+// of ddd02da's config_export.go): the stored config text, then for a
+// tracked kit "\n# source: <repo>[//dir]@<ref>\n".
 func legacyKitCanonDigest(config string, tracked *KitSource) string {
-	b := config
-	if tracked != nil {
-		b += "\n# source: " + gitsource.Source{Repo: tracked.Repo, Dir: tracked.Dir, Ref: tracked.Ref}.String() + "\n"
+	return sha256Hex(legacyKitCanonSuffix(config, tracked))
+}
+
+// legacyKitCanonJSONDigest is the digest the interim kitCanon of this
+// branch's own history (faf0ab1..514ccce, never released) recorded: the
+// config normalized by studio.ParseStudioKit and StudioKit.ToJSON (the
+// stored text when either fails), then the same source line. A mark holding
+// it is re-keyed too.
+func legacyKitCanonJSONDigest(config string, tracked *KitSource) string {
+	if sk, err := studio.ParseStudioKit([]byte(config)); err == nil {
+		if text, err := sk.ToJSON(); err == nil {
+			config = string(text)
+		}
 	}
-	sum := sha256.Sum256([]byte(b))
+	return sha256Hex(legacyKitCanonSuffix(config, tracked))
+}
+
+// legacyKitCanonSuffix is config with the old kitCanon's source line.
+func legacyKitCanonSuffix(config string, tracked *KitSource) string {
+	if tracked == nil {
+		return config
+	}
+	src := gitsource.Source{Repo: tracked.Repo, Dir: tracked.Dir, Ref: tracked.Ref}
+	return config + "\n# source: " + src.String() + "\n"
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
 }
 

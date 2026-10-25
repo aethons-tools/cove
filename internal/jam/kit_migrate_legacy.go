@@ -125,8 +125,8 @@ func takeLegacyContext(top *yaml.Node) (b64, inline *yaml.Node, err error) {
 	if found > 1 {
 		return nil, nil, errLegacyTwice
 	}
-	if b64 != nil && b64.Kind != yaml.ScalarNode {
-		return nil, nil, errLegacyBase64
+	if (b64 != nil && b64.Kind != yaml.ScalarNode) || (inline != nil && inline.Kind == yaml.AliasNode) {
+		return nil, nil, errLegacyAlias
 	}
 	return b64, inline, nil
 }

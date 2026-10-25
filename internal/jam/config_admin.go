@@ -168,7 +168,8 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		}
 		writeJSON(w, http.StatusOK, res)
 	}
-	return func(mux *http.ServeMux) {
+	return func(mux *adminMux) {
+		mux.conds = env.Conditions // the config import raises kit.migrate here
 		mux.HandleFunc("POST /admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
 			// force plans as a forced apply would, so the digests match.
 			run(w, r, "diff", ConfigApplyOptions{DryRun: true, Force: r.URL.Query().Get("force") == "1", Now: time.Now()})

@@ -36,7 +36,7 @@ Conditions survive a Jam restart and keep their original start time.
 | `pool.account.refresh:<account>` | warning; critical while every account fails | 2 consecutive failed refresh passes | the next successful refresh, a fresh token (`pool add`), or removal of the account |
 | `push:relay` | warning | 5 consecutive transient [push](push-delivery.md#how-jam-sends) send failures (network error, 429 or 5xx from a push service) | the next send a push service answers with anything but 429 or 5xx |
 | `config.drift:jam` | info | a config-managed object was edited or removed in Jam since its apply ([config-git.md](config-git.md#drift-and-release)) | an apply, sync or release leaves none drifted (checked every minute and after each) |
-| `kit.migrate:<kit>` | warning | the kit's current version could not be migrated to a tree at the upgrade ([kits-directory.md](kits-directory.md#stored-as-trees)) | a serve start finds its current version not broken (a new push, or a pin) |
+| `kit.migrate:<kit>` | warning | the kit's current version could not be migrated to a tree at the upgrade, or at the import of a pre-tree backup ([kits-directory.md](kits-directory.md#stored-as-trees)) | a serve start finds its current version not broken (a new push, or a pin) |
 
 Each carries its fix (e.g. `gcloud auth application-default login` for a
 gcp-exchange ADC). Conditions name things only — never secret values.

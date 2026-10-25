@@ -69,6 +69,9 @@ once, in one transaction, and logs `kits migrated to trees`:
 - `kit.yml` becomes the stored definition re-rendered without the context
   fields. The context's own `.dockerignore` applies, as it did to the build.
 
+The migration holds every distinct file of every old context in memory at once,
+until its transaction commits: allow for their unpacked size.
+
 Build digests of kits with a context change once, so running studios show
 `image=stale` once and rebuild on their next raise. Kits without one, the
 default kit included, keep their version and image. A config-managed kit's
