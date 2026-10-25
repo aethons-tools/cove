@@ -34,6 +34,27 @@ func draftFileTooLarge(name, p string) error {
 	return writeErr(http.StatusRequestEntityTooLarge, "draft %s: %s", name, kittree.FileTooLarge(p))
 }
 
+// checkDraftFileArgs refuses a kit name that is not tag-safe and an unsafe
+// path, before any text names either.
+func checkDraftFileArgs(name, p string) error {
+	if !studio.TagSafeName(name) {
+		return unsafeKitName()
+	}
+	if err := kittree.CheckPath(p); err != nil {
+		return draftPathErr(name, err)
+	}
+	return nil
+}
+
+// storedDraftTree is d's tree; its absence is a store fault (a 500).
+func storedDraftTree(store Store, d KitDraft) (kittree.Tree, error) {
+	t, ok := store.KitTree(d.Tree)
+	if !ok {
+		return kittree.Tree{}, fmt.Errorf("kit %s draft: tree %.12s is not stored", d.Kit, d.Tree)
+	}
+	return t, nil
+}
+
 // lockedDraftTree is kit name's draft, its ETag checked against ifMatch, and
 // its tree. Caller holds kitMu.
 func lockedDraftTree(store Store, name, ifMatch string) (KitDraft, kittree.Tree, error) {
@@ -44,9 +65,9 @@ func lockedDraftTree(store Store, name, ifMatch string) (KitDraft, kittree.Tree,
 	if err := checkDraftETag(d, ifMatch); err != nil {
 		return KitDraft{}, kittree.Tree{}, err
 	}
-	t, ok := store.KitTree(d.Tree)
-	if !ok {
-		return KitDraft{}, kittree.Tree{}, fmt.Errorf("kit %s draft: tree %.12s is not stored", name, d.Tree)
+	t, err := storedDraftTree(store, d)
+	if err != nil {
+		return KitDraft{}, kittree.Tree{}, err
 	}
 	return d, t, nil
 }
@@ -86,11 +107,8 @@ func freshBlobs(store Store, fresh map[string][]byte) kittree.Blobs {
 // KitDraftFile is file p of kit name's draft: its bytes, its entry and the
 // draft's ETag, read under kitMu.
 func KitDraftFile(store Store, name, p string) ([]byte, kittree.Entry, string, error) {
-	if !studio.TagSafeName(name) {
-		return nil, kittree.Entry{}, "", unsafeKitName()
-	}
-	if err := kittree.CheckPath(p); err != nil {
-		return nil, kittree.Entry{}, "", draftPathErr(name, err)
+	if err := checkDraftFileArgs(name, p); err != nil {
+		return nil, kittree.Entry{}, "", err
 	}
 	kitMu.Lock()
 	defer kitMu.Unlock()
@@ -98,9 +116,9 @@ func KitDraftFile(store Store, name, p string) ([]byte, kittree.Entry, string, e
 	if err != nil {
 		return nil, kittree.Entry{}, "", err
 	}
-	t, ok := store.KitTree(d.Tree)
-	if !ok {
-		return nil, kittree.Entry{}, "", fmt.Errorf("kit %s draft: tree %.12s is not stored", name, d.Tree)
+	t, err := storedDraftTree(store, d)
+	if err != nil {
+		return nil, kittree.Entry{}, "", err
 	}
 	e, ok := t.Lookup(p)
 	if !ok {
@@ -119,11 +137,8 @@ func KitDraftFile(store Store, name, p string) ([]byte, kittree.Entry, string, e
 // .dockerignore drops the files it newly excludes. The file rules hold
 // (kittree.Tree.ValidateFiles, in saveDraftLocked); kit.yml may be missing or invalid.
 func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.FileMode, data []byte, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
-	if !studio.TagSafeName(name) {
-		return KitDraftSave{}, unsafeKitName()
-	}
-	if err := kittree.CheckPath(p); err != nil {
-		return KitDraftSave{}, draftPathErr(name, err)
+	if err := checkDraftFileArgs(name, p); err != nil {
+		return KitDraftSave{}, err
 	}
 	if mode != 0 && mode != 0o644 && mode != 0o755 {
 		return KitDraftSave{}, writeErr(http.StatusBadRequest, "draft %s: mode must be 0644 or 0755", name)
@@ -160,11 +175,8 @@ func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.File
 // RemoveKitDraftFile removes file p from kit name's draft, under kitMu and
 // against ifMatch: 404 when the draft has no such file.
 func RemoveKitDraftFile(store Store, log *slog.Logger, name, p, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
-	if !studio.TagSafeName(name) {
-		return KitDraftSave{}, unsafeKitName()
-	}
-	if err := kittree.CheckPath(p); err != nil {
-		return KitDraftSave{}, draftPathErr(name, err)
+	if err := checkDraftFileArgs(name, p); err != nil {
+		return KitDraftSave{}, err
 	}
 	kitMu.Lock()
 	defer kitMu.Unlock()

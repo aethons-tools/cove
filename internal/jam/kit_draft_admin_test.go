@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -144,7 +145,8 @@ func TestDraftFileRoutes(t *testing.T) {
 	}
 	const octet = "application/octet-stream"
 	for _, ctype := range []string{"text/plain", "", "application/x-www-form-urlencoded"} {
-		if w := put("run.sh", ctype, tag, []byte("echo\n")); w.Code != http.StatusUnsupportedMediaType || body(w) != "kit draft: Content-Type must be application/octet-stream" {
+		// No If-Match either: the Content-Type is checked first.
+		if w := put("run.sh", ctype, "", []byte("echo\n")); w.Code != http.StatusUnsupportedMediaType || body(w) != "kit draft: Content-Type must be application/octet-stream" {
 			t.Fatalf("Content-Type %q = %d %s", ctype, w.Code, w.Body)
 		}
 	}
@@ -164,7 +166,8 @@ func TestDraftFileRoutes(t *testing.T) {
 	}
 	g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/run.sh", "", "", nil)
 	if g.Code != http.StatusOK || g.Body.String() != "echo SECRET-CONTENT\n" || g.Header().Get("X-Kit-File-Mode") != "0755" ||
-		g.Header().Get("ETag") != s.ETag || g.Header().Get("Content-Type") != octet || g.Header().Get("X-Content-Type-Options") != "nosniff" {
+		g.Header().Get("ETag") != s.ETag || g.Header().Get("Content-Type") != octet || g.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		g.Header().Get("Content-Disposition") != "attachment" || g.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("get = %d %q %v", g.Code, g.Body, g.Header())
 	}
 	// A percent-encoded unicode path round-trips.
@@ -192,13 +195,50 @@ func TestDraftFileRoutes(t *testing.T) {
 	if g := draftDo(t, h, "GET", "/admin/kits/app/draft/files/run.sh", "", "", nil); g.Code != http.StatusNotFound || body(g) != "draft app has no file run.sh" {
 		t.Fatalf("get removed = %d %s", g.Code, g.Body)
 	}
-	// Over MaxFile: 413 from the body cap.
+	// An identical write changes nothing and logs no save.
+	saves := strings.Count(logs.String(), "kit draft saved")
+	put("docs/%C3%BCn%C3%AF.md", octet, s.ETag, []byte("ok\n"))
+	if n := strings.Count(logs.String(), "kit draft saved"); n != saves {
+		t.Fatalf("a no-op write logged a save (%d → %d)", saves, n)
+	}
+	// Over MaxFile: 413 from the body cap; a stale tag is refused first (412).
 	withDraftLimits(t, kittree.MaxEntries, kittree.MaxTotal, 8)
+	if w := put("big.bin", octet, `"`+strings.Repeat("0", 64)+`"`, make([]byte, 9)); w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("oversize with a stale tag = %d %s", w.Code, w.Body)
+	}
 	if w := put("big.bin", octet, s.ETag, make([]byte, 9)); w.Code != http.StatusRequestEntityTooLarge || body(w) != "draft app: big.bin: more than 8 bytes (limit 8 bytes per file)" {
 		t.Fatalf("oversize = %d %s", w.Code, w.Body)
 	}
 	out := logs.String()
 	if !strings.Contains(out, "kit draft saved") || !strings.Contains(out, "tree="+s.Tree[:12]) || strings.Contains(out, "SECRET-CONTENT") {
 		t.Fatalf("audit log:\n%s", out)
+	}
+}
+
+// TestDraftFileRoutesRefuseDotSegments: ServeMux would 307 a literal ., ..
+// or empty segment to another path, so a redirect-following client would
+// write or remove a different file; the guard refuses them first, with or
+// without the browser app mounted.
+func TestDraftFileRoutesRefuseDotSegments(t *testing.T) {
+	st := NewMemStore()
+	pushApp(t, st, "kit.yml", "kind: studio\n", "b", "b\n", "a/b", "ab\n")
+	tag := openApp(t, st)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	browser := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "browser", http.StatusTeapot) })
+	for hname, h := range map[string]http.Handler{
+		"admin only":   NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil),
+		"with browser": NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, browser),
+	} {
+		for _, p := range []string{"a/./b", "a/../b", "a//b", "./b", "../b", "a/b/.", "a/%2E%2E/b", "a/%2e/b"} {
+			for _, m := range []string{"PUT", "GET", "DELETE"} {
+				w := draftDo(t, h, m, "/admin/kits/app/draft/files/"+p, "application/octet-stream", tag, []byte("x"))
+				if w.Code != http.StatusBadRequest || body(w) != unsafeDraftPath {
+					t.Fatalf("%s: %s %s = %d %q %v", hname, m, p, w.Code, w.Body, w.Header())
+				}
+			}
+		}
+	}
+	if d, _ := st.GetKitDraft("app"); DraftETag(d.Tree) != tag {
+		t.Fatal("a refused path changed the draft")
 	}
 }

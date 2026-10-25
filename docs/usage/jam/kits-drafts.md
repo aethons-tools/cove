@@ -46,16 +46,17 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `POST /admin/kits/{name}/draft` | Open, from `{"from": N}` (default current); `application/json`, else 415. 201 with the status; 409 `kit <name> already has a draft`; 400 for a version not stored as a tree. |
 | `GET /admin/kits/{name}/draft` | The status: `base`, `current`, `tree`, `etag` (also the `ETag` header), `entries` (`path`, `mode`, `size`, `sha256`), `changes` from the base, `problems`, `managed`. |
 | `DELETE /admin/kits/{name}/draft` | Discard (`If-Match`). 204. |
-| `GET /admin/kits/{name}/draft/files/{path}` | One file's bytes (`application/octet-stream`), with `ETag` (the draft's) and `X-Kit-File-Mode`. |
+| `GET /admin/kits/{name}/draft/files/{path}` | One file's bytes (`application/octet-stream`, as an attachment, `no-store`), with `ETag` (the draft's) and `X-Kit-File-Mode`. |
 | `PUT /admin/kits/{name}/draft/files/{path}[?mode=755]` | Write one file (`If-Match`; `application/octet-stream`, else 415; over the per-file limit 413). Without `mode` the file keeps its mode, a new one gets `0644`. |
 | `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one
-with a control or format character is refused without being echoed.
+with an empty, `.` or `..` segment (never redirected) or a control or
+format character is refused without being echoed.
 
 `GET /admin/kits` marks a kit with an open draft `"draft": true`.
 
-Each write logs `kit draft opened|saved|discarded` with the kit, the operator
-and the tree's first 12 hex digits (a save also the count of files
-`changed`), never content or a path.
+Each write that changes the draft logs `kit draft opened|saved|discarded`
+with the kit, the operator and the tree's first 12 hex digits (a save also
+the count of files `changed`), never content or a path.

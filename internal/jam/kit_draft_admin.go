@@ -9,9 +9,12 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // registerKitDrafts mounts the kit draft API (docs/usage/jam/kits-drafts.md)
@@ -73,6 +76,8 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("ETag", etag)
 		h.Set("X-Kit-File-Mode", fmt.Sprintf("%04o", e.Mode))
+		h.Set("Content-Disposition", "attachment")
+		h.Set("Cache-Control", "no-store")
 		w.Write(data)
 	})
 	mux.HandleFunc("PUT /admin/kits/{name}/draft/files/{path...}", func(w http.ResponseWriter, r *http.Request) {
@@ -151,8 +156,12 @@ func writeDraftSave(w http.ResponseWriter, s KitDraftSave) {
 	writeJSON(w, http.StatusOK, s)
 }
 
-// logDraftSaved is a draft write's audit line: never content or a path.
+// logDraftSaved is a draft write's audit line, only when it changed the
+// tree (a new tree always changes some file): never content or a path.
 func logDraftSaved(log *slog.Logger, r *http.Request, name string, s KitDraftSave) {
+	if len(s.Changed) == 0 {
+		return
+	}
 	log.Info("kit draft saved", "operator", OperatorID(r), "kit", name, "tree", shortTree(s.Tree), "changed", len(s.Changed))
 }
 
@@ -214,4 +223,45 @@ func shortTree(sha string) string {
 		return sha[:12]
 	}
 	return sha
+}
+
+// draftFilePathGuard refuses (400, the fixed unsafe-path text) a request
+// under /admin/kits/{name}/draft/files/ whose raw path has an empty, . or ..
+// segment after files/, before any ServeMux routes it: the mux would 307 it
+// to the cleaned path, and a client following the redirect would write or
+// remove a different file. It wraps the outermost admin handler.
+func draftFilePathGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if name, bad := draftFileDotSegment(r.URL.EscapedPath()); bad {
+			err := unsafeKitName()
+			if studio.TagSafeName(name) {
+				// CheckPath's own fixed refusal, the path never named.
+				err = draftPathErr(name, kittree.CheckPath(".."))
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// draftFileDotSegment reports whether escaped, a raw request path, is a
+// draft file route whose file path has an empty, . or .. segment (raw or
+// percent-encoded), and the route's kit name, unescaped.
+func draftFileDotSegment(escaped string) (string, bool) {
+	segs := strings.Split(escaped, "/")
+	// "", "admin", "kits", {name}, "draft", "files", {path...}
+	if len(segs) < 7 || segs[0] != "" || segs[1] != "admin" || segs[2] != "kits" || segs[4] != "draft" || segs[5] != "files" {
+		return "", false
+	}
+	for _, seg := range segs[6:] {
+		if u, err := url.PathUnescape(seg); err == nil {
+			seg = u
+		}
+		if seg == "" || seg == "." || seg == ".." {
+			name, _ := url.PathUnescape(segs[3])
+			return name, true
+		}
+	}
+	return "", false
 }

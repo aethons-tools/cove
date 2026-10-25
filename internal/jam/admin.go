@@ -1056,7 +1056,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	importConds = am.conds
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
-		return guarded
+		return draftFilePathGuard(guarded)
 	}
 	// The browser app (/app, its legacy redirects, and /me/studios) owns its own
 	// gates, so it is mounted OUTSIDE the /admin/* authenticator. Its session
@@ -1064,7 +1064,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
 	parent.Handle("/", browser)
-	return parent
+	return draftFilePathGuard(parent)
 }
 
 // projectErrStatus maps a store error to its HTTP status: an unknown project or

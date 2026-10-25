@@ -186,9 +186,9 @@ func KitDraftStatusOf(store Store, name string) (KitDraftStatus, error) {
 	if err != nil {
 		return KitDraftStatus{}, err
 	}
-	tree, ok := store.KitTree(d.Tree)
-	if !ok {
-		return KitDraftStatus{}, fmt.Errorf("kit %s draft: tree %.12s is not stored", name, d.Tree)
+	tree, err := storedDraftTree(store, d)
+	if err != nil {
+		return KitDraftStatus{}, err
 	}
 	k, _ := store.GetKit(name)
 	base, _ := store.KitTree(k.Trees[d.Base])
