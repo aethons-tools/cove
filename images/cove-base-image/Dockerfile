@@ -60,6 +60,18 @@ RUN install -m 0755 -d /etc/apt/keyrings \
       docker-compose-plugin=5.5.1-1~ubuntu.24.04~noble \
  && rm -rf /var/lib/apt/lists/*
 
+# code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
+# Renovate bumps CODE_SERVER_VERSION; update both SHA-256s with it (the build fails on a mismatch).
+ARG CODE_SERVER_VERSION=4.143.1
+ARG CODE_SERVER_SHA256_AMD64=e4b771c98fafbe2af3990ecd71d93ba22515588db550007076768a014ae34c02
+ARG CODE_SERVER_SHA256_ARM64=79ca8df2db219b24de75e2a830c5302808124d8c2bf132f4bc6105cea834bb1c
+RUN set -eux; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) sum="$CODE_SERVER_SHA256_AMD64";; arm64) sum="$CODE_SERVER_SHA256_ARM64";; *) echo "unsupported $arch"; exit 1;; esac; \
+    curl -fsSL -o /tmp/cs.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${arch}.deb"; \
+    printf "%s  /tmp/cs.deb\n" "$sum" > /tmp/cs.sha256; sha256sum -c /tmp/cs.sha256; rm -f /tmp/cs.sha256; \
+    apt-get install -y --no-install-recommends /tmp/cs.deb; rm -f /tmp/cs.deb; \
+    code-server --version
+
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
 RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                                   /etc/ssh/sshd_config \
