@@ -1091,3 +1091,43 @@ func TestLogoutEndsFrameSessions(t *testing.T) {
 		t.Fatalf("frame session survives in-pane logout: %v", err)
 	}
 }
+
+// A sibling studio's subresource (<img src=https://A/__jam/logout>, same-site,
+// the Lax preview cookie sent) must not log the viewer out: the preview
+// cookie counts in logout only where cookieUseAllowed says, so neither the
+// preview session nor the viewer's pane sessions end, and the cookie is not
+// cleared.
+func TestLogoutPreviewCookieNeedsAllowedUse(t *testing.T) {
+	a, ft := framed(t)
+	fc := a.frameSession(t, ft) // alice's pane session on hostA
+	pc := a.session(t)          // alice's preview session on hostA
+	r := httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
+	r.AddCookie(pc)
+	r.Header.Set("Sec-Fetch-Site", "same-site")
+	r.Header.Set("Sec-Fetch-Mode", "no-cors")
+	r.Header.Set("Sec-Fetch-Dest", "image")
+	w := httptest.NewRecorder()
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(w, r)
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, pc)); err != nil {
+		t.Fatalf("same-site logout ended the preview session: %v", err)
+	}
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, fc)); err != nil {
+		t.Fatalf("same-site logout ended the pane session: %v", err)
+	}
+	if sc := w.Header().Values("Set-Cookie"); len(sc) != 0 {
+		t.Fatalf("same-site logout cleared cookies: %q", sc)
+	}
+	// A top-level visit still logs out.
+	r = httptest.NewRequest("GET", "https://"+hostA+"/__jam/logout", nil)
+	r.AddCookie(pc)
+	r.Header.Set("Sec-Fetch-Site", "none")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Header.Set("Sec-Fetch-Dest", "document")
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), r)
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, pc)); !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("top-level logout kept the preview session: %v", err)
+	}
+	if _, _, _, err := a.PrincipalFrame(frameReq(hostA, fc)); !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("top-level logout kept the pane session: %v", err)
+	}
+}

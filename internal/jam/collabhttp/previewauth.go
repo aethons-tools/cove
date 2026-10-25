@@ -516,9 +516,10 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 //   - GET /__jam/frame?t=… trades a frame ticket minted for this host (when
 //     Frames is set; else 404) for a partitioned __Host-jam_frame cookie
 //     (frame);
-//   - GET /__jam/logout drops the session (preview cookie, or frame cookie
-//     where frameCookieUseAllowed) and the viewer's frame sessions on this
-//     host, and clears the preview cookie;
+//   - GET /__jam/logout drops the session (preview cookie where
+//     cookieUseAllowed, frame cookie where frameCookieUseAllowed) and the
+//     viewer's frame sessions on this host, and clears the preview cookie
+//     (logout);
 //   - any other /__jam path is 404.
 func (a *PreviewAuth) PreviewHostRoutes(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
@@ -670,7 +671,13 @@ func startedHere(r *http.Request, bind [sha256.Size]byte) bool {
 	return ok
 }
 
+// logout ends the sessions r's cookies name on this host, each only where
+// its cookie counts (cookieUseAllowed, frameCookieUseAllowed): a sibling
+// studio's same-site subresource or fetch carries the Lax preview cookie, and
+// must neither end it nor, through it, the viewer's pane sessions. The
+// preview cookie is cleared only where it counts, for the same reason.
 func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
+	previewOK := a.cookieUseAllowed(r)
 	if host, ok := a.canonicalHost(r.Host); ok {
 		a.mu.Lock()
 		var gone []collab.Principal
@@ -678,6 +685,9 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 			var m map[[sha256.Size]byte]previewEntry
 			switch c.Name {
 			case PreviewCookie:
+				if !previewOK {
+					continue
+				}
 				m = a.sessions
 			case FrameCookie:
 				// Only from the pane itself: a sibling studio cannot end it.
@@ -702,10 +712,12 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 		}
 		a.mu.Unlock()
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: PreviewCookie, Value: "", Path: "/",
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: -1,
-	})
+	if previewOK {
+		http.SetCookie(w, &http.Cookie{
+			Name: PreviewCookie, Value: "", Path: "/",
+			HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: -1,
+		})
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte("Logged out of this Jam preview.\n"))
 }

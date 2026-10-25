@@ -101,9 +101,10 @@ on a pane request, the 403 "you may not use …" and the proxy's errors
 without a frame session — a browser that refuses the partitioned cookie
 (Safari), or a cross-site iframe navigation without a ticket — gets a 401
 page with **Open in new tab**.
-`/__jam/logout` ends your pane sessions on that host server-side (it
-honours the frame cookie only where it counts, so a sibling studio cannot
-use it). The browser's partitioned cookie lingers harmlessly: it then names
+`/__jam/logout` ends your preview session and your pane sessions on that
+host server-side. It honours each cookie only where that cookie counts, so a
+sibling studio cannot log you out (for example with an `<img>` pointing at
+it). The browser's partitioned cookie lingers harmlessly: it then names
 no session.
 
 Threat note: an app shown in the pane can still navigate the pane to
