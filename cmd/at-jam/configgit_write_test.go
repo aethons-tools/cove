@@ -367,6 +367,8 @@ func TestWriteConfigTreeRefusesConflicts(t *testing.T) {
 	f := func(p string) jam.ConfigKitFile { return jam.ConfigKitFile{Path: p, Mode: 0o644} }
 	for name, exp := range map[string]jam.ConfigTreeExport{
 		"duplicate":        {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a"), f("a")}}},
+		"file-vs-dir-dot":  {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a"), f("a.b"), f("a/b")}}},
+		"file-vs-dir-dash": {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a/b/c"), f("a-x"), f("a/b")}}},
 		"file-vs-dir":      {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a/b"), f("a")}}},
 		"files-is-kit-dir": {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("kit.yml")}}, Files: map[string]string{"kits/k": "x"}},
 		"remove-in-kit":    {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("kit.yml")}}, Remove: []string{"kits/k/old"}},
@@ -382,6 +384,34 @@ func TestWriteConfigTreeRefusesConflicts(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(dir, "marker")); !os.IsNotExist(err) {
 			t.Errorf("%s: wrote before refusing", name)
+		}
+	}
+}
+
+// A symlinked or non-directory parent of a Files path (users/, a project's
+// roles/) is refused before anything is written.
+func TestWriteConfigTreeRefusesSymlinkedFilesParents(t *testing.T) {
+	for _, tc := range []struct{ link, file, want string }{
+		{"users", "users/bob.yml", `refusing to write "users/bob.yml": "users" is not a directory`},
+		{"projects/x/roles", "projects/x/roles/ic.yml", `refusing to write "projects/x/roles/ic.yml": "projects/x/roles" is not a directory`},
+	} {
+		dir := t.TempDir()
+		mustWrite(t, filepath.Join(dir, "elsewhere/bob.yml"), "keep\n", 0o644)
+		mustWrite(t, filepath.Join(dir, "elsewhere/ic.yml"), "keep\n", 0o644)
+		mustMkdir(t, filepath.Dir(filepath.Join(dir, tc.link)))
+		target, _ := filepath.Rel(filepath.Dir(filepath.Join(dir, tc.link)), filepath.Join(dir, "elsewhere"))
+		cfgMust(t, os.Symlink(target, filepath.Join(dir, tc.link)))
+		exp := jam.ConfigTreeExport{Files: map[string]string{"marker": "m", tc.file: "evil\n"}}
+		if err := writeConfigTree(dir, exp); err == nil || err.Error() != tc.want {
+			t.Fatalf("%s: err %v", tc.link, err)
+		}
+		for _, v := range []string{"elsewhere/bob.yml", "elsewhere/ic.yml"} {
+			if b, _ := os.ReadFile(filepath.Join(dir, v)); string(b) != "keep\n" {
+				t.Fatalf("%s: %s overwritten: %q", tc.link, v, b)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dir, "marker")); !os.IsNotExist(err) {
+			t.Fatalf("%s: wrote before refusing", tc.link)
 		}
 	}
 }
