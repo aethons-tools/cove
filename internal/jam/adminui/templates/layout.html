@@ -354,6 +354,34 @@
       var q = document.getElementById('q-page') || document.getElementById('q-top');
       if (q) { e.preventDefault(); q.focus(); q.select(); }
     });
+    // The Draft tab's editor (textarea[data-draft-editor]) is dirty once
+    // typed in, or when rendered [data-unsaved] (a refused stale save). While
+    // dirty, any other request from inside #draft, a link followed in this
+    // tab, or leaving the page asks first: each re-renders #draft without the
+    // typed text. Each swap of #draft (not the rail's poll) reads the state
+    // back, so a saved editor is clean again; a refused write swaps nothing.
+    var draftAsk = 'You have unsaved changes in the editor. Discard them?';
+    var draftEditorDirty = function(){ return !!document.querySelector('textarea[data-draft-editor][data-unsaved]'); };
+    var draftDirty = draftEditorDirty();
+    document.addEventListener('input', function(e){ if (e.target.matches && e.target.matches('textarea[data-draft-editor]')) draftDirty = true; });
+    document.body.addEventListener('htmx:confirm', function(e){
+      var elt = e.detail.elt;
+      if (!draftDirty || !elt.closest || !elt.closest('#draft') || elt.closest('[data-draft-save]')) return;
+      if (!confirm(draftAsk)) e.preventDefault(); // accepted: the swap of #draft resets the state
+    });
+    document.body.addEventListener('htmx:afterSettle', function(e){ var t = e.detail.target; if (t && t.id === 'draft') draftDirty = draftEditorDirty(); });
+    document.addEventListener('click', function(e){
+      var a = e.target.closest && e.target.closest('a[href]');
+      if (!draftDirty || !a || a.hasAttribute('download') || (a.target && a.target !== '_self') || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+      if (confirm(draftAsk)) draftDirty = false; else e.preventDefault();
+    });
+    window.addEventListener('beforeunload', function(e){ if (draftDirty) { e.preventDefault(); e.returnValue = ''; } });
+    // A box marked data-require-with="<name>" is required while its form's
+    // <name> checkbox is ticked (the Draft tab's drift box, with Pin followers).
+    document.addEventListener('change', function(e){
+      var c = e.target; if (!c.form || c.type !== 'checkbox' || !c.name) return;
+      c.form.querySelectorAll('[data-require-with]').forEach(function(r){ if (r.getAttribute('data-require-with') === c.name) r.required = c.checked; });
+    });
     // Copy buttons: data-copy="<selector>" copies that element's text.
     document.body.addEventListener('click', function(e){
       var b = e.target.closest('[data-copy]'); if (!b) return;

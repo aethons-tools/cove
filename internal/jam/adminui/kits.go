@@ -31,6 +31,12 @@ func renderKitBody(w http.ResponseWriter, r *http.Request, store jam.Store, canS
 	}
 	d.CanSource = canSource
 	renderFragment(w, r, "kit", "kit-body", d)
+	writeFlash(w, msg)
+}
+
+// writeFlash appends msg as an out-of-band #flash success message, escaped;
+// "" writes nothing.
+func writeFlash(w http.ResponseWriter, msg string) {
 	if msg != "" {
 		_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
 	}

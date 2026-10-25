@@ -4,7 +4,7 @@ read_when: You want to change something from the Jam admin UI instead of the CLI
 owns: the admin UI's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels and the write banner, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
 prereqs: ui.md for reaching the UI and its sections; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-25
 ---
 
 # Editing from the admin UI
@@ -87,7 +87,8 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 
 - **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
   and delete an unused one; each kit's page shows its versions, diffs them,
-  pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages).
+  pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages); its
+  Draft tab edits a draft ([kits-drafts-ui.md](kits-drafts-ui.md)).
 - **Destinations** — create one (every field, including client env, git
   routing and the session note) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).

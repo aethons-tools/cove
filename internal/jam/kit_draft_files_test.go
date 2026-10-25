@@ -269,3 +269,101 @@ func TestReplaceKitDraft(t *testing.T) {
 	_, err = ReplaceKitDraft(st, nil, "app", kittreetest.Files("a", "1", "b", "2"), s.ETag, "local", draftNow)
 	wantErr(t, err, "draft app: 2 files (limit 1)", 400)
 }
+
+// TestRenameKitDraftFile: a rename moves the content and mode in one save,
+// refuses a missing source, a taken, unsafe, ignored or file-over-directory
+// target (unechoed) and a stale ETag, leaves a rename to itself a no-op, and
+// applies a file renamed to .dockerignore.
+func TestRenameKitDraftFile(t *testing.T) {
+	st := NewMemStore()
+	pushApp(t, st, "kit.yml", "kind: studio\n", "run.sh*", "echo\n", "sub/x", "x", ".dockerignore", "*.log\n", "rules", "sub\n")
+	tag := openApp(t, st)
+	later := draftNow.Add(time.Minute)
+	s, err := RenameKitDraftFile(st, nil, "app", "run.sh", "bin/run.sh", tag, "alice", later)
+	if err != nil || !slices.Equal(s.Changed, []DraftChange{{"bin/run.sh", "added"}, {"run.sh", "removed"}}) || len(s.Problems) != 0 {
+		t.Fatalf("rename = %+v %v", s, err)
+	}
+	data, e, etag, err := KitDraftFile(st, "app", "bin/run.sh")
+	if err != nil || string(data) != "echo\n" || e.Mode != 0o755 || etag != s.ETag {
+		t.Fatalf("moved file = %q %+v %q %v", data, e, etag, err)
+	}
+	_, _, _, err = KitDraftFile(st, "app", "run.sh")
+	wantErr(t, err, "draft app has no file run.sh", 404)
+	if d, _ := st.GetKitDraft("app"); d.Actor != "alice" || !d.UpdatedAt.Equal(later) {
+		t.Fatalf("draft row = %+v", d)
+	}
+	same, err := RenameKitDraftFile(st, nil, "app", "bin/run.sh", "bin/run.sh", s.ETag, "bob", later)
+	if err != nil || same.ETag != s.ETag || len(same.Changed) != 0 {
+		t.Fatalf("rename to itself = %+v %v", same, err)
+	}
+	if d, _ := st.GetKitDraft("app"); d.Actor != "alice" {
+		t.Fatal("a no-op rename recorded its actor")
+	}
+	for name, tc := range map[string]struct {
+		from, to, want string
+		status         int
+	}{
+		"no such file":    {"nope", "x2", "draft app has no file nope", 404},
+		"taken":           {"bin/run.sh", "kit.yml", "draft app already has a file kit.yml", 409},
+		"bidi target":     {"bin/run.sh", "\u202etxt.exe", unsafeDraftPath, 400},
+		"dot dot target":  {"bin/run.sh", "../x", unsafeDraftPath, 400},
+		"unsafe source":   {"a\nb", "x", unsafeDraftPath, 400},
+		"file over a dir": {"bin/run.sh", "sub", "draft app: sub: is both a file and a directory", 400},
+		"ignored":         {"bin/run.sh", "run.log", "draft app: run.log: excluded by .dockerignore", 400},
+		"stale":           {"bin/run.sh", "b.sh", "draft app changed since you loaded it (reload)", 412},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ifMatch := s.ETag
+			if name == "stale" {
+				ifMatch = tag
+			}
+			_, err := RenameKitDraftFile(st, nil, "app", tc.from, tc.to, ifMatch, "alice", later)
+			wantErr(t, err, tc.want, tc.status)
+		})
+	}
+	if d, _ := st.GetKitDraft("app"); DraftETag(d.Tree) != s.ETag {
+		t.Fatal("a refused rename changed the draft")
+	}
+	// A file renamed to .dockerignore applies it: "sub" now drops sub/x.
+	s, err = RemoveKitDraftFile(st, nil, "app", ".dockerignore", s.ETag, "alice", later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err = RenameKitDraftFile(st, nil, "app", "rules", ".dockerignore", s.ETag, "alice", later)
+	if err != nil || !slices.Equal(s.Changed, []DraftChange{{".dockerignore", "added"}, {"rules", "removed"}, {"sub/x", "removed"}}) {
+		t.Fatalf("rename to .dockerignore = %+v %v", s, err)
+	}
+	// kit.yml renamed away is a problem, not a refusal.
+	s, err = RenameKitDraftFile(st, nil, "app", "kit.yml", "old.yml", s.ETag, "alice", later)
+	if err != nil || !slices.Equal(s.Problems, []string{"kit app: kit.yml missing at the root"}) {
+		t.Fatalf("rename kit.yml = %+v %v", s, err)
+	}
+	if v, _ := LoadKitVersion(st, "app", 0); v.Version != 1 || v.Err != nil {
+		t.Fatal("renames touched the published version")
+	}
+}
+
+// AddKitDraftFile writes a new file and refuses a path the draft already
+// has (409), after the ETag check, so a stale form is told to reload.
+func TestAddKitDraftFile(t *testing.T) {
+	st := NewMemStore()
+	pushApp(t, st, "kit.yml", "kind: studio\n", "run.sh*", "echo\n")
+	tag := openApp(t, st)
+	later := draftNow.Add(time.Minute)
+	s, err := AddKitDraftFile(st, nil, "app", "bin/new.sh", []byte("x\n"), 0o755, tag, "alice", later)
+	if err != nil || !slices.Equal(s.Changed, []DraftChange{{"bin/new.sh", "added"}}) {
+		t.Fatalf("add = %+v %v", s, err)
+	}
+	if data, e, _, _ := KitDraftFile(st, "app", "bin/new.sh"); string(data) != "x\n" || e.Mode != 0o755 {
+		t.Fatalf("added = %q %o", data, e.Mode)
+	}
+	_, err = AddKitDraftFile(st, nil, "app", "run.sh", nil, 0o644, s.ETag, "alice", later)
+	wantErr(t, err, "draft app already has a file run.sh", 409)
+	_, err = AddKitDraftFile(st, nil, "app", "run.sh", nil, 0o644, tag, "alice", later)
+	wantErr(t, err, "draft app changed since you loaded it (reload)", 412)
+	_, err = AddKitDraftFile(st, nil, "app", "../x", nil, 0o644, s.ETag, "alice", later)
+	wantErr(t, err, unsafeDraftPath, 400)
+	if data, _, _, _ := KitDraftFile(st, "app", "run.sh"); string(data) != "echo\n" {
+		t.Fatalf("a refused add overwrote run.sh: %q", data)
+	}
+}

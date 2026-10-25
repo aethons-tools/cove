@@ -76,7 +76,7 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 		return KitDraftPublish{}, err
 	}
 	pending := []pendingKitVersion{{ref: ref, meta: meta, tree: tree, objs: KitObjects{Trees: []kittree.Tree{tree}}}}
-	res := KitDraftPublish{Kit: name, Base: d.Base, Drift: kitManaged(store, name)}
+	res := KitDraftPublish{Kit: name, Base: d.Base, Drift: KitManaged(store, name)}
 	if pin {
 		pins, err := pinFollowersLocked(store, name, k.Current)
 		if err != nil {
@@ -84,7 +84,7 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 		}
 		for _, p := range pins {
 			res.Pinned = append(res.Pinned, fmt.Sprintf("%s v%d (%s@v%d)", p.ref.ID, p.ref.Version, name, k.Current))
-			res.Drift = res.Drift || kitManaged(store, p.ref.ID)
+			res.Drift = res.Drift || KitManaged(store, p.ref.ID)
 		}
 		pending = append(pending, pins...)
 	}
@@ -154,6 +154,16 @@ func pinFollowersLocked(store Store, name string, version int) ([]pendingKitVers
 		}
 	}
 	return out, nil
+}
+
+// KitFollowersToPin lists, sorted, the kits a publish of name with pin
+// would rewrite (pinFollowersLocked): those whose current kit.yml follows
+// name unpinned. Read under kitMu, as a publish reads them.
+func KitFollowersToPin(store Store, name string) []string {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	follow, _ := KitsReferencing(store, name)
+	return follow
 }
 
 // preTreeFollower is the first kit (by name) whose current version is not

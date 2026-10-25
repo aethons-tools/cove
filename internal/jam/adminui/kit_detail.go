@@ -22,6 +22,7 @@ type kitListRow struct {
 	Egress         int
 	UsedBy         int
 	Invalid        bool
+	Draft          bool // an open draft
 }
 
 // kitVersion is one entry in a kit's version rail.
@@ -127,6 +128,8 @@ type kitDiff struct {
 	Lines         []diffLine
 	DigestChanged bool
 	TooLarge      bool
+	Hidden        bool   // a side is not shown at all (the Draft tab's masked kit.yml)
+	Note          string // shown instead of the lines (the Draft tab: the draft changed while loading)
 }
 
 // kitUse is one role bound to the kit. Implicit marks a role with no kit set,
@@ -164,12 +167,13 @@ type kitDetail struct {
 	Effective   *kitView    // the chain merged; nil unless chained
 	UsedByKits  []kitChild
 	IsDefault   bool
-	Source      *sourceView  // tracked source; nil = not tracked
-	SetWith     string       // chain parents imported from the same repo, comma-joined; "" = not part of a set
-	CanSource   bool         // import/track/sync controls are available
-	Ctx         *ctxListView // the viewed version's files; nil = none
-	CtxDiff     *ctxDiffView // the two versions' files compared; nil = no diff or no tree
-	File        *ctxFileView // one file (?file=); nil = none asked
+	Source      *sourceView   // tracked source; nil = not tracked
+	SetWith     string        // chain parents imported from the same repo, comma-joined; "" = not part of a set
+	CanSource   bool          // import/track/sync controls are available
+	Draft       *jam.KitDraft // the kit's open draft; nil = none
+	Ctx         *ctxListView  // the viewed version's files; nil = none
+	CtxDiff     *ctxDiffView  // the two versions' files compared; nil = no diff or no tree
+	File        *ctxFileView  // one file (?file=); nil = none asked
 	NotFound    bool
 	NotFoundFor string
 }
@@ -228,6 +232,7 @@ func kitListRows(store jam.Store) []kitListRow {
 	var out []kitListRow
 	for _, k := range store.ListKits() {
 		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.VersionNumbers()), UsedBy: len(kitUses(store, k.Name))}
+		_, row.Draft = store.GetKitDraft(k.Name)
 		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err == nil {
 			row.Base, row.Egress = baseLabel(cur.Kit), len(cur.Kit.Egress)
 		} else {
@@ -327,6 +332,9 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 		view = k.Current
 	}
 	d := kitDetail{Title: "Kits", Name: name, Current: k.Current, IsDefault: name == studio.DefaultStudioKitID, Uses: kitUses(store, name), Source: newSourceView(k.Source)}
+	if dr, open := store.GetKitDraft(name); open {
+		d.Draft = &dr
+	}
 	prev := 0
 	for _, n := range k.VersionNumbers() {
 		ver := kitVersion{N: n, Prev: prev, Current: n == k.Current}
@@ -368,10 +376,7 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 	}
 	fromVer, _ := jam.LoadKitVersion(store, name, diff)
 	fv := viewKit(diff, fromVer, true, file)
-	lines, tooLarge := lineDiff(fv.diffText, d.View.diffText)
-	for i := range lines { // a tree's kit.yml is shown as stored: make its control and format characters visible
-		lines[i].Text = jam.SetupDisplayText(lines[i].Text)
-	}
+	lines, tooLarge := yamlDiff(fv.diffText, d.View.diffText)
 	d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
 	d.CtxDiff = ctxDiff(name, fv, d.View)
 	if file != "" {
@@ -419,3 +424,14 @@ func chainOf(store jam.Store, name string, sk studio.StudioKit) (chain []kitPare
 
 // lineDiff is the plan and version diff (linediff.Diff).
 var lineDiff = linediff.Diff
+
+// yamlDiff is the line diff of two kit.yml texts as the pages show it: a
+// tree's kit.yml is shown as stored, so each line's control and format
+// characters are made visible.
+func yamlDiff(from, to string) ([]diffLine, bool) {
+	lines, tooLarge := lineDiff(from, to)
+	for i := range lines {
+		lines[i].Text = jam.SetupDisplayText(lines[i].Text)
+	}
+	return lines, tooLarge
+}
