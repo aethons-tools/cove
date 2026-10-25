@@ -336,8 +336,8 @@ func TestFetchLimitIsPerFetch(t *testing.T) {
 	}
 }
 
-// The clone's .git is Jam's, not the kit's: fn must not see it (a
-// context-dir of "." would pack it), for a branch and for a commit id.
+// The clone's .git is Jam's, not the kit's: fn must not see it (a kit at
+// the root would store it in its tree), for a branch and for a commit id.
 func TestFetchRootHasNoGitDir(t *testing.T) {
 	url, c1, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n"})
 	f := &Fetcher{Timeout: 30 * time.Second}
@@ -401,7 +401,7 @@ func TestFetchAuth403(t *testing.T) {
 }
 
 // A checkout's file modes are git's (0644, 0755) whatever the serve's
-// umask, so a context-dir in it packs the same bytes everywhere.
+// umask, so a kit tree read from it hashes the same everywhere.
 func TestFetchModesPastUmask(t *testing.T) {
 	url, _, _ := gittest.Serve(t, map[string]string{"k/kit.yml": "kind: studio\n", "k/run.sh": "#!/bin/sh\n"}, gittest.WithExec("k/run.sh"))
 	old := syscall.Umask(0o077)

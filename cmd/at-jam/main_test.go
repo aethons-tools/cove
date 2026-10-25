@@ -1296,7 +1296,7 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 
 // A kit.yml with the old client-side base.context-dir is refused before
 // anything is sent: the directory itself is now the build context.
-func TestKitPushRefusesContextDir(t *testing.T) {
+func TestKitPushRefusesTheOldDirField(t *testing.T) {
 	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)

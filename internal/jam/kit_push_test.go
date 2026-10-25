@@ -13,19 +13,6 @@ import (
 
 func harnessDefault() harnessinstall.Install { return harnessinstall.Default() }
 
-// seedKit stores sk under name the way a pre-tree Jam would have: unchecked,
-// as kit.yml text (Store.PushKit). For fixtures of packed-context kits.
-func seedKit(t *testing.T, st Store, name string, sk studio.StudioKit) {
-	t.Helper()
-	text, err := sk.ToJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.PushKit(name, string(text)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // pushKit pushes sk under name as a one-file tree (its rendered kit.yml),
 // the way EnsureStudioKit does, reporting whether the version was unchanged.
 func pushKit(st Store, name string, sk studio.StudioKit) (KitRef, bool, error) {

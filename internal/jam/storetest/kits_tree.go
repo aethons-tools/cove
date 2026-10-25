@@ -19,6 +19,12 @@ func treeObjs(t *testing.T, kv ...string) (kittree.Tree, jam.KitObjects) {
 	return tr, jam.KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}
 }
 
+// kitYML is version's kit.yml text as LoadKitVersion reads it (0 = current).
+func kitYML(st jam.Store, name string, version int) (string, bool) {
+	v, ok := jam.LoadKitVersion(st, name, version)
+	return string(v.KitYML), ok && v.KitYML != nil
+}
+
 // runKitTreeConformance exercises kit trees, blobs, their atomic writes and GC.
 func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 	meta := jam.KitVersionMeta{PushedAt: time.Unix(10, 0).UTC()}
@@ -46,8 +52,8 @@ func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if again, _ := st.KitBlob(e.SHA256); !bytes.Equal(again, []byte("echo\n")) {
 			t.Fatal("KitBlob returned an aliased slice")
 		}
-		if cfg, ok := st.KitConfig("app", 1); !ok || cfg != "kind: studio\n" {
-			t.Fatalf("KitConfig = %q %v", cfg, ok)
+		if cfg, ok := kitYML(st, "app", 1); !ok || cfg != "kind: studio\n" {
+			t.Fatalf("kit.yml = %q %v", cfg, ok)
 		}
 	})
 	t.Run("push kit stores a one-file tree", func(t *testing.T) {
@@ -122,8 +128,8 @@ func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if err := st.PutKitDocs([]jam.Kit{good}, objs); err != nil {
 			t.Fatal(err)
 		}
-		if cfg, ok := st.KitConfig("a", 0); !ok || cfg != "kind: studio\n" {
-			t.Fatalf("KitConfig = %q %v", cfg, ok)
+		if cfg, ok := kitYML(st, "a", 0); !ok || cfg != "kind: studio\n" {
+			t.Fatalf("kit.yml = %q %v", cfg, ok)
 		}
 	})
 	t.Run("apply config writes kit objects", func(t *testing.T) {
@@ -204,8 +210,8 @@ func runKitTreeConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 				t.Fatal("an unreferenced blob was imported")
 			}
 		}
-		if cfg, ok := dst.KitConfig("app", 0); !ok || cfg != "kind: studio\n" {
-			t.Fatalf("KitConfig = %q %v", cfg, ok)
+		if cfg, ok := kitYML(dst, "app", 0); !ok || cfg != "kind: studio\n" {
+			t.Fatalf("kit.yml = %q %v", cfg, ok)
 		}
 		if gc, err := dst.GCKitObjects(); err != nil || gc != (jam.KitGC{}) {
 			t.Fatalf("gc after import = %+v %v", gc, err)

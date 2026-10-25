@@ -9,6 +9,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // pushTree pushes path → content files (a "*" suffix makes 0755) as kit name's next version.
@@ -60,8 +61,10 @@ func TestLoadKitVersionTextAndBroken(t *testing.T) {
 	if err := st.PutKitDocs([]Kit{doc}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
+	// A pre-tree version (a store that failed to migrate) is not parsed.
 	v, ok := LoadKitVersion(st, "old", 1)
-	if !ok || v.Err != nil || v.Kit.Prompt != "p" || v.Files != nil || !strings.HasPrefix(v.Key(), "text:") {
+	if !ok || v.Err == nil || v.Err.Error() != "kit old@v1 is not stored as a tree yet (Jam migrates kits at serve start)" ||
+		v.Kit.Prompt != "" || v.Files != nil || !strings.HasPrefix(v.Key(), "text:") {
 		t.Fatalf("text version = %+v", v)
 	}
 	b, ok := LoadKitVersion(st, "old", 2)
@@ -80,6 +83,52 @@ func TestLoadKitVersionReturnsCopies(t *testing.T) {
 	v.Kit.Egress[0] = "mutated"
 	if again, _ := LoadKitVersion(st, "app", 0); again.Kit.Egress[0] != "a.com" {
 		t.Fatal("the parse cache handed out a shared slice")
+	}
+}
+
+// The parse cache holds at most kitParseCap trees, least recently used
+// out first.
+func TestParseCacheBounded(t *testing.T) {
+	c := newParseLRU(2)
+	c.put("a", studio.StudioKit{Prompt: "a"})
+	c.put("b", studio.StudioKit{Prompt: "b"})
+	if _, ok := c.get("a"); !ok { // a is now the most recent
+		t.Fatal("a evicted early")
+	}
+	c.put("c", studio.StudioKit{Prompt: "c"})
+	if _, ok := c.get("b"); ok || c.len() != 2 {
+		t.Fatalf("b should be evicted (len %d)", c.len())
+	}
+	if sk, ok := c.get("a"); !ok || sk.Prompt != "a" {
+		t.Fatal("a lost")
+	}
+	c.drop("a")
+	if _, ok := c.get("a"); ok || c.len() != 1 {
+		t.Fatal("drop kept a")
+	}
+	if kitParses.cap != 256 {
+		t.Fatalf("kitParseCap = %d", kitParses.cap)
+	}
+}
+
+// GCKitObjects drops the parses of the trees it deletes.
+func TestGCKitObjectsDropsParses(t *testing.T) {
+	st := NewMemStore()
+	sha := pushTree(t, st, "gone", "kit.yml", "kind: studio\nprompt: gc parse cache\n").Hash()
+	if v, _ := LoadKitVersion(st, "gone", 0); v.Err != nil {
+		t.Fatal(v.Err)
+	}
+	if _, ok := kitParses.get(sha); !ok {
+		t.Fatal("parse not cached")
+	}
+	if err := st.RemoveKit("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GCKitObjects(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kitParses.get(sha); ok {
+		t.Fatal("GC kept the deleted tree's parse")
 	}
 }
 

@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"container/list"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -87,27 +88,97 @@ func LoadKitVersion(r KitReader, name string, version int) (KitVersion, bool) {
 	}
 	if text, ok := k.Versions[version]; ok {
 		v.KitYML = []byte(text)
-		v.Kit, v.Err = studio.ParseStudioKit([]byte(text))
+		v.Err = fmt.Errorf("kit %s@v%d is not stored as a tree yet (Jam migrates kits at serve start)", name, version)
 		return v, true
 	}
 	return KitVersion{}, false
 }
 
+// kitParseCap bounds kitParses.
+const kitParseCap = 256
+
 // kitParses caches successful tree parses by tree hash: trees are immutable,
-// so a hash always parses the same. Failures are not cached. Unbounded: trees
-// are few.
-var kitParses sync.Map // tree sha256 → studio.StudioKit
+// so a hash always parses the same. Failures are not cached. It holds the
+// kitParseCap most recently used trees; GCKitObjects drops the trees it
+// deletes (forgetKitParses).
+var kitParses = newParseLRU(kitParseCap)
 
 func parseTreeCached(sha string, t kittree.Tree, blobs kittree.Blobs) (studio.StudioKit, error) {
-	if sk, ok := kitParses.Load(sha); ok {
-		return cloneKit(sk.(studio.StudioKit)), nil
+	if sk, ok := kitParses.get(sha); ok {
+		return cloneKit(sk), nil
 	}
 	sk, err := studio.ParseTree(t, blobs)
 	if err != nil {
 		return studio.StudioKit{}, err
 	}
-	kitParses.Store(sha, sk)
+	kitParses.put(sha, sk)
 	return cloneKit(sk), nil
+}
+
+// forgetKitParses drops trees from the parse cache.
+func forgetKitParses(trees []string) {
+	for _, sha := range trees {
+		kitParses.drop(sha)
+	}
+}
+
+// parseLRU is a mutex-guarded least-recently-used map of tree hash to
+// parsed kit, at most cap entries.
+type parseLRU struct {
+	mu    sync.Mutex
+	cap   int
+	order *list.List               // front = most recently used; values are tree hashes
+	items map[string]*list.Element // tree hash → its element
+	kits  map[string]studio.StudioKit
+}
+
+func newParseLRU(n int) *parseLRU {
+	return &parseLRU{cap: n, order: list.New(), items: map[string]*list.Element{}, kits: map[string]studio.StudioKit{}}
+}
+
+func (c *parseLRU) get(sha string) (studio.StudioKit, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.items[sha]
+	if !ok {
+		return studio.StudioKit{}, false
+	}
+	c.order.MoveToFront(e)
+	return c.kits[sha], true
+}
+
+func (c *parseLRU) put(sha string, sk studio.StudioKit) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[sha]; ok {
+		c.order.MoveToFront(e)
+		c.kits[sha] = sk
+		return
+	}
+	c.items[sha] = c.order.PushFront(sha)
+	c.kits[sha] = sk
+	for c.order.Len() > c.cap {
+		old := c.order.Back()
+		c.order.Remove(old)
+		delete(c.items, old.Value.(string))
+		delete(c.kits, old.Value.(string))
+	}
+}
+
+func (c *parseLRU) drop(sha string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[sha]; ok {
+		c.order.Remove(e)
+		delete(c.items, sha)
+		delete(c.kits, sha)
+	}
+}
+
+func (c *parseLRU) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.order.Len()
 }
 
 // cloneKit deep-copies sk's slices and maps, so a caller cannot reach the cache.
@@ -125,23 +196,5 @@ func cloneKit(sk studio.StudioKit) studio.StudioKit {
 		}
 		sk.MCPServers = servers
 	}
-	sk.Base.ContextFiles = cloneContextTree(sk.Base.ContextFiles)
-	sk.Base.StoredContextFiles = cloneContextTree(sk.Base.StoredContextFiles)
 	return sk
-}
-
-func cloneContextTree(t studio.ContextTree) studio.ContextTree {
-	if t == nil {
-		return nil
-	}
-	out := make(studio.ContextTree, len(t))
-	for name, n := range t {
-		if n.File != nil {
-			f := *n.File
-			n.File = &f
-		}
-		n.Dir = cloneContextTree(n.Dir)
-		out[name] = n
-	}
-	return out
 }

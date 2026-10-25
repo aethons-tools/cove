@@ -14,14 +14,20 @@ import (
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
-// ctxBase is an own-context base (inline tree) whose Dockerfile builds FROM the
-// injected parent; marker keeps sibling contexts distinct.
-func ctxBase(parent, marker string) studio.Base {
-	df := "FROM ${COVE_BASE_IMAGE}\nRUN echo " + marker + "\n"
-	return studio.Base{Kit: parent, ContextFiles: studio.ContextTree{"dockerfile": {File: &df}}}
+// ctxLink is chain link name@vN whose tree holds a Dockerfile building FROM
+// the injected parent (none when parent is ""); marker keeps sibling
+// contexts distinct.
+func ctxLink(t *testing.T, name string, version int, parent, marker string) jam.KitLink {
+	t.Helper()
+	yml := "kind: studio\n"
+	if parent != "" {
+		yml += "base: {kit: " + parent + "}\n"
+	}
+	return treeLink(t, name, version, "kit.yml", yml, "Dockerfile", "FROM ${COVE_BASE_IMAGE}\nRUN echo "+marker+"\n")
 }
 
-// chainLink is one resolved chain link for kit name@vN with the given own base.
+// chainLink is one resolved chain link for kit name@vN with the given own
+// base and no build context.
 func chainLink(name string, version int, base studio.Base) jam.KitLink {
 	sk := studio.StudioKit{Kind: studio.Kind, Base: base}
 	return jam.KitLink{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk, harnessinstall.Default())}, Kit: sk}
@@ -45,9 +51,9 @@ func chainDef(buildArgs map[string]string, links ...jam.KitLink) KitDefinition {
 	}
 }
 
-func mustStage(t *testing.T, parentRef string, b studio.Base) string {
+func mustStage(t *testing.T, parentRef string, sk studio.StudioKit) string {
 	t.Helper()
-	tag, err := kitStageTag(newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm).asm, parentRef, studio.StudioKit{Base: b})
+	tag, err := kitStageTag(newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm).asm, parentRef, sk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,19 +63,25 @@ func mustStage(t *testing.T, parentRef string, b studio.Base) string {
 func noAsm(KitDefinition, string) error { return nil }
 
 // The stage tag is cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL,
-// canonical JSON of the link's own Base)>.
+// canonical JSON of the link's own Base[, NUL, build-context hash])>.
 func TestKitStageTagFormula(t *testing.T) {
-	b := ctxBase("web-dev", "x")
+	b := studio.Base{Kit: "web-dev"}
 	js, _ := json.Marshal(b)
-	sum := sha256.Sum256(append(append(append(append([]byte("asm"), 0), []byte("cove-kit-base:p")...), 0), js...))
+	head := append(append(append(append([]byte("asm"), 0), []byte("cove-kit-base:p")...), 0), js...)
+	sum := sha256.Sum256(head)
 	want := "cove-kit-base:" + hex.EncodeToString(sum[:])[:32]
 	if got, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: b}); got != want {
 		t.Fatalf("stage tag = %q, want %q", got, want)
 	}
+	ctxSum := sha256.Sum256(append(append(head, 0), []byte("ctx")...))
+	wantCtx := "cove-kit-base:" + hex.EncodeToString(ctxSum[:])[:32]
+	if got, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: b, BuildContext: "ctx"}); got != wantCtx {
+		t.Fatalf("stage tag with a build context = %q, want %q", got, wantCtx)
+	}
 	if q, _ := kitStageTag("asm", "cove-kit-base:q", studio.StudioKit{Base: b}); q == want {
 		t.Fatal("a different parent stage must give a different stage tag")
 	}
-	if y, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: ctxBase("web-dev", "y")}); y == want {
+	if y, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: studio.Base{Kit: "web-dev@v2"}}); y == want {
 		t.Fatal("a different own base must give a different stage tag")
 	}
 }
@@ -80,16 +92,16 @@ func TestKitStageTagFormula(t *testing.T) {
 func TestChainBuildsStagesRootToLeaf(t *testing.T) {
 	ops := &fakeOps{}
 	root := chainLink("base-dev", 1, studio.Base{})
-	mid := chainLink("web-dev", 2, ctxBase("base-dev", "mid"))
-	leaf := chainLink("my-app", 0, ctxBase("web-dev", "leaf"))
+	mid := ctxLink(t, "web-dev", 2, "base-dev", "mid")
+	leaf := ctxLink(t, "my-app", 0, "web-dev", "leaf")
 	def := chainDef(map[string]string{"A": "1"}, root, mid, leaf)
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
 
 	if st, err := l.PrepareKit(context.Background(), def); err != nil || st.State != KitReady {
 		t.Fatalf("PrepareKit = %+v, %v", st, err)
 	}
-	midStage := mustStage(t, "blessed-default", mid.Kit.Base)
-	leafStage := mustStage(t, midStage, leaf.Kit.Base)
+	midStage := mustStage(t, "blessed-default", mid.Kit)
+	leafStage := mustStage(t, midStage, leaf.Kit)
 	if len(ops.stages) != 2 ||
 		ops.stages[0].parent != "blessed-default" || ops.stages[0].stage != midStage ||
 		ops.stages[1].parent != midStage || ops.stages[1].stage != leafStage {
@@ -108,8 +120,8 @@ func TestChainBuildsStagesRootToLeaf(t *testing.T) {
 // the blessed base), and the child stage builds on what that returned.
 func TestChainRootContextThenChildStage(t *testing.T) {
 	ops := &fakeOps{resolvedTarBase: "cove-kit-base:rootid"}
-	root := chainLink("base-dev", 1, ctxBase("", "root"))
-	leaf := chainLink("my-app", 0, ctxBase("base-dev", "leaf"))
+	root := ctxLink(t, "base-dev", 1, "", "root")
+	leaf := ctxLink(t, "my-app", 0, "base-dev", "leaf")
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
 	if _, err := l.PrepareKit(context.Background(), chainDef(nil, root, leaf)); err != nil {
 		t.Fatal(err)
@@ -117,7 +129,7 @@ func TestChainRootContextThenChildStage(t *testing.T) {
 	if !strings.Contains(untarNames(t, ops.resolvedTar)["Dockerfile"], "echo root") {
 		t.Fatal("the root's own context must go through ResolveKitBaseTar")
 	}
-	want := mustStage(t, "cove-kit-base:rootid", leaf.Kit.Base)
+	want := mustStage(t, "cove-kit-base:rootid", leaf.Kit)
 	if len(ops.stages) != 1 || ops.stages[0].parent != "cove-kit-base:rootid" || ops.builtBase != want {
 		t.Fatalf("stages=%+v built=%q; want the leaf on the root's base", ops.stages, ops.builtBase)
 	}
@@ -128,14 +140,14 @@ func TestChainRootContextThenChildStage(t *testing.T) {
 func TestSiblingsShareParentStage(t *testing.T) {
 	ops := &fakeOps{}
 	root := chainLink("base-dev", 1, studio.Base{})
-	mid := chainLink("web-dev", 1, ctxBase("base-dev", "mid"))
-	a := chainLink("app-a", 0, ctxBase("web-dev", "a"))
-	b := chainLink("app-b", 0, ctxBase("web-dev", "b"))
+	mid := ctxLink(t, "web-dev", 1, "base-dev", "mid")
+	a := ctxLink(t, "app-a", 0, "web-dev", "a")
+	b := ctxLink(t, "app-b", 0, "web-dev", "b")
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
 	if _, err := l.PrepareKit(context.Background(), chainDef(nil, root, mid, a)); err != nil {
 		t.Fatal(err)
 	}
-	midStage := mustStage(t, "blessed-default", mid.Kit.Base)
+	midStage := mustStage(t, "blessed-default", mid.Kit)
 	ops.hasBaseAsks = nil
 	if _, err := l.PrepareKit(context.Background(), chainDef(nil, root, mid, b)); err != nil {
 		t.Fatal(err)
@@ -147,7 +159,7 @@ func TestSiblingsShareParentStage(t *testing.T) {
 	for _, s := range ops.stages {
 		built = append(built, s.stage)
 	}
-	bStage := mustStage(t, midStage, b.Kit.Base)
+	bStage := mustStage(t, midStage, b.Kit)
 	if len(ops.stages) != 3 || ops.stages[2].stage != bStage || ops.stages[2].parent != midStage {
 		t.Fatalf("stages built = %v; want mid once, then a, then b on mid", built)
 	}
@@ -162,13 +174,13 @@ func TestSiblingsShareParentStage(t *testing.T) {
 func TestChildWithoutContextReusesParentStage(t *testing.T) {
 	ops := &fakeOps{}
 	root := chainLink("base-dev", 1, studio.Base{})
-	mid := chainLink("web-dev", 1, ctxBase("base-dev", "mid"))
+	mid := ctxLink(t, "web-dev", 1, "base-dev", "mid")
 	child := chainLink("my-app", 0, studio.Base{Kit: "web-dev"})
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
 	if _, err := l.PrepareKit(context.Background(), chainDef(nil, root, mid, child)); err != nil {
 		t.Fatal(err)
 	}
-	midStage := mustStage(t, "blessed-default", mid.Kit.Base)
+	midStage := mustStage(t, "blessed-default", mid.Kit)
 	if len(ops.stages) != 1 || ops.stages[0].stage != midStage {
 		t.Fatalf("stages = %+v; want only the parent's stage", ops.stages)
 	}
@@ -182,10 +194,10 @@ func TestChildWithoutContextReusesParentStage(t *testing.T) {
 // stages move with the parent's new context.
 func TestPinnedParentStageStableAcrossParentPushes(t *testing.T) {
 	root := chainLink("base-dev", 1, studio.Base{})
-	v1 := chainLink("web-dev", 1, ctxBase("base-dev", "v1"))
-	v2 := chainLink("web-dev", 2, ctxBase("base-dev", "v2"))
-	pinned := chainLink("my-app", 0, ctxBase("web-dev@v1", "app"))
-	following := chainLink("my-app", 0, ctxBase("web-dev", "app"))
+	v1 := ctxLink(t, "web-dev", 1, "base-dev", "v1")
+	v2 := ctxLink(t, "web-dev", 2, "base-dev", "v2")
+	pinned := ctxLink(t, "my-app", 0, "web-dev@v1", "app")
+	following := ctxLink(t, "my-app", 0, "web-dev", "app")
 
 	leafStage := func(links ...jam.KitLink) string {
 		t.Helper()
@@ -209,8 +221,8 @@ func TestPinnedParentStageStableAcrossParentPushes(t *testing.T) {
 // no image.
 func TestChainStageGateFailureNamesLink(t *testing.T) {
 	root := chainLink("base-dev", 1, studio.Base{})
-	mid := chainLink("web-dev", 3, ctxBase("base-dev", "mid"))
-	leaf := chainLink("my-app", 0, ctxBase("web-dev", "leaf"))
+	mid := ctxLink(t, "web-dev", 3, "base-dev", "mid")
+	leaf := ctxLink(t, "my-app", 0, "web-dev", "leaf")
 	for _, tc := range []struct {
 		at   int
 		name string
@@ -227,7 +239,7 @@ func TestChainStageGateFailureNamesLink(t *testing.T) {
 
 	// The root's own gate failure names the root.
 	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed cove-base-image")}
-	rootCtx := chainLink("base-dev", 1, ctxBase("", "root"))
+	rootCtx := ctxLink(t, "base-dev", 1, "", "root")
 	_, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).PrepareKit(context.Background(), chainDef(nil, rootCtx, leaf))
 	if err == nil || !strings.Contains(err.Error(), "base-dev@v1") || ops.builds != 0 {
 		t.Fatalf("root gate failure: %v builds=%d; want an error naming base-dev@v1", err, ops.builds)
@@ -237,10 +249,10 @@ func TestChainStageGateFailureNamesLink(t *testing.T) {
 // Malformed chains fail closed: a root that names a parent, and a non-root link
 // that does not.
 func TestMalformedChainRefused(t *testing.T) {
-	leaf := chainLink("my-app", 0, ctxBase("web-dev", "leaf"))
+	leaf := ctxLink(t, "my-app", 0, "web-dev", "leaf")
 	for name, links := range map[string][]jam.KitLink{
 		"root names a parent (no context)": {chainLink("web-dev", 1, studio.Base{Kit: "x"}), leaf},
-		"root names a parent (context)":    {chainLink("web-dev", 1, ctxBase("x", "r")), leaf},
+		"root names a parent (context)":    {ctxLink(t, "web-dev", 1, "x", "r"), leaf},
 		"link without a parent":            {chainLink("base-dev", 1, studio.Base{}), chainLink("my-app", 0, studio.Base{Image: "img"})},
 		"parented kit with no chain":       {leaf},
 	} {
@@ -258,14 +270,14 @@ func TestMalformedChainRefused(t *testing.T) {
 // cached under the old one must not be reused un-gated, so the asm is part of
 // the stage tag and the second prepare rebuilds (and gates) the stage.
 func TestStageTagIncludesAssemblyFingerprint(t *testing.T) {
-	b := ctxBase("web-dev", "x")
-	a1, _ := kitStageTag("asm1", "p", studio.StudioKit{Base: b})
-	a2, _ := kitStageTag("asm2", "p", studio.StudioKit{Base: b})
+	x := ctxLink(t, "x", 1, "web-dev", "x")
+	a1, _ := kitStageTag("asm1", "p", x.Kit)
+	a2, _ := kitStageTag("asm2", "p", x.Kit)
 	if a1 == a2 {
 		t.Fatal("different assembly fingerprints must give different stage tags")
 	}
 	root := chainLink("base-dev", 1, studio.Base{})
-	leaf := chainLink("my-app", 0, ctxBase("base-dev", "leaf"))
+	leaf := ctxLink(t, "my-app", 0, "base-dev", "leaf")
 	def := chainDef(nil, root, leaf)
 	ops := &fakeOps{}
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
@@ -285,7 +297,7 @@ func TestStageTagIncludesAssemblyFingerprint(t *testing.T) {
 // The own-base guard reads the chain's last link, not the merged Kit (Merge
 // clears Base.Kit): a one-link chain whose own base names a parent is refused.
 func TestOneLinkChainNamingParentRefused(t *testing.T) {
-	def := chainDef(nil, chainLink("my-app", 0, ctxBase("web-dev", "leaf")))
+	def := chainDef(nil, ctxLink(t, "my-app", 0, "web-dev", "leaf"))
 	def.Kit.Base = studio.Base{} // as Merge leaves it
 	ops := &fakeOps{}
 	if _, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).PrepareKit(context.Background(), def); err == nil {

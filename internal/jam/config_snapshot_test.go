@@ -11,6 +11,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // populated returns a MemStore with one entry in every config aggregate AND in
@@ -84,7 +86,7 @@ func TestExportConfigIsDeepCopied(t *testing.T) {
 	if r, _ := s.GetRole(DefaultProject, "guest"); r.Name != "guest" {
 		t.Fatalf("store role mutated via snapshot: %+v", r)
 	}
-	if cfg, _ := s.KitConfig("base", 1); cfg != "image: x" {
+	if cfg, _ := testKitYML(s, "base", 1); cfg != "image: x" {
 		t.Fatalf("store kit mutated via snapshot: %q", cfg)
 	}
 }
@@ -265,7 +267,8 @@ func TestConfigSnapshotKitProvenanceRoundTrip(t *testing.T) {
 	src := NewMemStore()
 	at := time.Unix(100, 0).UTC()
 	vsrc := &KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: "c1"}
-	if _, err := src.PushKitMeta("web", `{"kind":"studio"}`, KitVersionMeta{PushedAt: at, Source: vsrc}); err != nil {
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\n")
+	if _, err := src.PushKitVersion("web", tr.Hash(), KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}, KitVersionMeta{PushedAt: at, Source: vsrc}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.SetKitSource("web", &KitSource{Repo: vsrc.Repo, Dir: "web", Ref: "main", Commit: "c1"}); err != nil {

@@ -195,7 +195,7 @@ func TestUnpackAcceptsFullArchiveWithLongNames(t *testing.T) {
 }
 
 // Unpack sets each file's mode past the serve's umask, so a kit context's
-// 0644 and 0755 files repack (studio.PackContextDir) to the same bytes.
+// 0644 and 0755 files read back as the same kit tree.
 func TestUnpackModesPastUmask(t *testing.T) {
 	src := t.TempDir()
 	mustWrite(t, filepath.Join(src, "a"), "a", 0o644)

@@ -194,12 +194,6 @@ func (m *memState) GetKit(name string) (Kit, bool) {
 	return copyKit(k), true
 }
 
-func (m *memState) KitConfig(name string, version int) (string, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.kitConfigLocked(name, version)
-}
-
 func (m *memState) ListKits() []Kit {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

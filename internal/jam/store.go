@@ -50,11 +50,6 @@ type Store interface {
 	// without the push-time checks — seeding and tests; operator pushes go
 	// through jam.PushKitFiles.
 	PushKit(name, config string) (int, error)
-	// PushKitMeta is PushKit with explicit provenance for the new version.
-	PushKitMeta(name, config string, meta KitVersionMeta) (int, error)
-	// PushKitTracked is PushKitMeta that also sets the kit's tracked source to
-	// track in the same write — both land or neither does.
-	PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error)
 	// PushKitVersion records tree as the kit's next version (current), with
 	// meta and, when track is non-nil, the tracked source. objs are written
 	// in the same transaction; tree must be among them or already stored, and
@@ -73,9 +68,6 @@ type Store interface {
 	// is neither written nor stored refuses the call.
 	PutKitDocs(kits []Kit, objs KitObjects) error
 	GetKit(name string) (Kit, bool)
-	// KitConfig is version's kit.yml text (a pre-tree version's stored
-	// config); 0 = current.
-	KitConfig(name string, version int) (string, bool)
 	// KitTree and KitBlob read a stored tree or blob by sha256 (copies).
 	KitTree(sha string) (kittree.Tree, bool)
 	KitBlob(sha string) ([]byte, bool)

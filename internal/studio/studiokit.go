@@ -6,7 +6,6 @@ package studio
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -59,12 +58,6 @@ func ParseStudioKit(data []byte) (StudioKit, error) {
 	if err := dec.Decode(&sk); err != nil {
 		return StudioKit{}, fmt.Errorf("studio kit: %w", err)
 	}
-	if sk.Base.StoredContextFiles != nil {
-		if sk.Base.ContextFiles != nil {
-			return StudioKit{}, fmt.Errorf("studio kit: base: set context-files once (both context-files and contextFiles given)")
-		}
-		sk.Base.ContextFiles, sk.Base.StoredContextFiles = sk.Base.StoredContextFiles, nil
-	}
 	if err := sk.Validate(); err != nil {
 		return StudioKit{}, err
 	}
@@ -104,22 +97,6 @@ func (sk StudioKit) CheckPrompt() error {
 		return fmt.Errorf("studio kit: prompt is %d bytes; the kit core budget is %d — move detail out of the prompt", n, sessionctx.BudgetKit)
 	}
 	return nil
-}
-
-// ToJSON is the deterministic canonical form stored in the kit registry and
-// hashed. encoding/json emits struct fields in declaration order and map keys
-// sorted, so identical kits yield identical bytes.
-func (sk StudioKit) ToJSON() ([]byte, error) {
-	if sk.Kind == "" {
-		sk.Kind = Kind
-	}
-	// base.context-dir is a client-only authoring field packed into base.context
-	// at push. It must be resolved (see (*StudioKit).ResolveContextDir) before a
-	// kit is serialized for storage — the server can't read the operator's disk.
-	if sk.Base.ContextDir != "" {
-		return nil, fmt.Errorf("studio kit: base.context-dir must be resolved (packed) before serializing")
-	}
-	return json.Marshal(sk)
 }
 
 // CheckName validates the name a kit is pushed (registered) under: it must be

@@ -78,7 +78,7 @@ func (p *planner) kitDepth(name string) int {
 		if !ok {
 			return n
 		}
-		cfg, _ := p.m.kitConfigLocked(name, k.Current)
+		cfg, _ := p.m.kitYMLLocked(name, k.Current)
 		parent, _, _ := strings.Cut(kitParentSpec(cfg), "@")
 		if parent == "" || seen[parent] {
 			return n

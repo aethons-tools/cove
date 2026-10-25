@@ -225,15 +225,12 @@ func markedLegacyJam(t *testing.T, text string, src *KitSource, digest string) *
 	return st
 }
 
-// A mark an old Jam recorded for the kit's current text is re-keyed: the
-// released kitCanon (the stored text, then "# source:" when tracked) and
-// this branch's interim one (the text as studio ToJSON) alike. The stored
-// texts are not in ToJSON form.
+// A mark a released Jam recorded for the kit's current text is re-keyed:
+// its kitCanon is the stored text, then "# source:" when tracked.
 func TestMigrateKitTreesRekeysTheMark(t *testing.T) {
 	src := &KitSource{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main"}
 	const yml = "kind: studio\nprompt: p\n"
 	const jsonText = `{"kind":"studio","prompt":"p"}`
-	const asToJSON = `{"kind":"studio","base":{},"prompt":"p"}`
 	const srcLine = "\n# source: https://github.com/acme/kits//app@main\n"
 	for _, c := range []struct {
 		name, text string
@@ -243,9 +240,6 @@ func TestMigrateKitTreesRekeysTheMark(t *testing.T) {
 		{"released yaml", yml, nil, yml},
 		{"released yaml tracked", yml, src, yml + srcLine},
 		{"released json", jsonText, nil, jsonText},
-		{"interim yaml", yml, nil, asToJSON},
-		{"interim yaml tracked", yml, src, asToJSON + srcLine},
-		{"interim json", jsonText, nil, asToJSON},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			st := markedLegacyJam(t, c.text, c.src, oldDigest(c.canon))

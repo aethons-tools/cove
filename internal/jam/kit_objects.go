@@ -132,8 +132,10 @@ func (m *memState) deadKitObjects() (trees, blobs []string) {
 	return trees, blobs
 }
 
-// applyDropKitObjects deletes trees and blobs from the cache. Caller holds mu.
+// applyDropKitObjects deletes trees and blobs from the cache, and the trees'
+// parses (forgetKitParses). Caller holds mu.
 func (m *memState) applyDropKitObjects(trees, blobs []string) {
+	forgetKitParses(trees)
 	for _, sha := range trees {
 		delete(m.kitTrees, sha)
 	}
@@ -184,9 +186,9 @@ func (m *memState) KitBlob(sha string) ([]byte, bool) {
 	return bytes.Clone(b), ok
 }
 
-// kitConfigLocked is version's kit.yml text (a pre-tree version's stored
-// config); version 0 is current. Caller holds mu, or owns m.
-func (m *memState) kitConfigLocked(name string, version int) (string, bool) {
+// kitYMLLocked is a tree version's kit.yml text; version 0 is current. A
+// pre-tree version (not migrated) has none. Caller holds mu, or owns m.
+func (m *memState) kitYMLLocked(name string, version int) (string, bool) {
 	k, ok := m.kits[name]
 	if !ok {
 		return "", false
@@ -200,8 +202,6 @@ func (m *memState) kitConfigLocked(name string, version int) (string, bool) {
 				return string(b), true
 			}
 		}
-		return "", false
 	}
-	cfg, ok := k.Versions[version]
-	return cfg, ok
+	return "", false
 }

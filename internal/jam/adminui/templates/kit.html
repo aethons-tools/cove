@@ -86,14 +86,12 @@
     {{end}}
     {{with .CtxDiff}}
     <section class="card" id="ctx-diff">
-      <header><h2>{{if .Tree}}Files v{{.From}} → v{{.To}}{{else}}Context files v{{.From}} → v{{.To}}{{end}}</h2><span class="sub">{{if .Tree}}the kit directory, file by file{{else}}the packed <span class="mono">base.context</span>, file by file{{end}}</span></header>
-      {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
+      <header><h2>Files v{{.From}} → v{{.To}}</h2><span class="sub">the kit directory, file by file</span></header>
       {{if .Rows}}<table>
         <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
         <tbody>{{range .Rows}}<tr data-change="{{.Change}}"><td>{{.Change}}</td><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}}</td></tr>{{end}}</tbody>
       </table>{{end}}
       <div class="body unset">{{with .More}}… {{.}} more changed, not listed; {{end}}{{if not .Rows}}No file changed; {{end}}{{.Unchanged}} unchanged</div>
-      {{end}}
     </section>
     {{end}}
     {{with .File}}{{if .Diff}}{{template "ctx-file" .}}{{end}}{{end}}
@@ -112,9 +110,8 @@
       <header><h2>v{{.N}}</h2>{{if eq .N $cur}}<span class="chip accent">current</span>{{end}}<span class="sub mono">build digest {{.Digest}}</span></header>
       <div class="body">
         <dl class="kv">
-          <dt>Base</dt><dd>{{.Base}}{{if .Image}} <span class="mono">{{.Image}}</span>{{end}}{{if .ContextSize}} <span class="unset">({{.ContextSize}} encoded)</span>{{end}}</dd>
+          <dt>Base</dt><dd>{{.Base}}{{if .Image}} <span class="mono">{{.Image}}</span>{{end}}</dd>
           {{if $.Chain}}<dt>Built on</dt><dd>{{range $i, $p := $.Chain}}{{if $i}} → {{end}}<a class="chip" href="{{kitURL $p.Name}}">{{$p.Name}} v{{$p.Version}}</a> <span class="unset">{{if $p.Follow}}follows{{else}}pinned{{end}}</span>{{end}} <span class="unset">→ this kit</span></dd>{{end}}
-          {{if .Files}}<dt>Context files</dt><dd>{{range .Files}}<span class="chip">{{.}}</span>{{end}}</dd>{{end}}
           <dt>Egress</dt><dd>{{range .Egress}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
           <dt>Egress ceiling</dt><dd>{{range .Ceiling}}<span class="chip">{{.}}</span>{{else}}<span class="unset">none</span>{{end}}</dd>
           {{if .Excluded}}<dt>Excluded</dt><dd>{{range .Excluded}}<span class="chip">{{.}}</span>{{end}} <span class="unset">Anthropic is reached only through the broker (COV-208)</span></dd>{{end}}
@@ -142,7 +139,7 @@
     </section>
     {{end}}
     <section class="card">
-      <header><h2>YAML</h2><span class="sub">{{if $.Ctx}}{{if $.Ctx.Tree}}v{{.N}}'s kit.yml, as stored{{else}}v{{.N}}, rendered from the stored kit{{end}}{{else}}v{{.N}}, rendered from the stored kit{{end}}</span><span class="spacer"></span>
+      <header><h2>YAML</h2><span class="sub">v{{.N}}'s kit.yml, as stored</span><span class="spacer"></span>
         <button type="button" class="small" data-copy="#kit-yaml">Copy</button></header>
       <pre class="yaml" id="kit-yaml">{{.YAML}}</pre>
     </section>
@@ -151,14 +148,12 @@
 
     {{with .Ctx}}
     <section class="card" id="ctx-files">
-      <header><h2>{{if .Tree}}Files{{else}}Context files{{end}}</h2><span class="sub">{{if .Tree}}v{{.N}}'s directory ({{.Size}}), kit.yml included{{else}}v{{.N}}'s packed <span class="mono">base.context</span> ({{.Size}} encoded){{end}}</span></header>
-      {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
+      <header><h2>Files</h2><span class="sub">v{{.N}}'s directory ({{.Size}}), kit.yml included</span></header>
       <table>
         <thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
-        <tbody>{{range .Rows}}<tr><td class="mono"><a href="{{.Href}}">{{.Path}}</a>{{if .Dup}} <span class="unset">duplicate entries in tar</span>{{end}}</td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody>
+        <tbody>{{range .Rows}}<tr><td class="mono"><a href="{{.Href}}">{{.Path}}</a></td><td class="mono">{{.Mode}}</td><td>{{.Size}} B</td></tr>{{end}}</tbody>
       </table>
       {{with .Hidden}}<div class="body unset">{{.}} more file(s) not listed</div>{{end}}
-      {{end}}
     </section>
     {{end}}
     {{with .File}}{{if not .Diff}}{{template "ctx-file" .}}{{end}}{{end}}
@@ -225,7 +220,7 @@
         <summary>Push new version</summary>
         <form hx-post="/app/admin/kits/{{.Name}}/versions" hx-target="#kit" hx-swap="outerHTML"{{with driftNote "kit" .Name}} hx-confirm="{{.}} Push anyway?"{{end}}>
           <label>Studio kit YAML <span class="hint">pre-filled with v{{.View.N}}; pushing makes a new current version (an unchanged kit makes none)</span>
-            <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.Raw}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
+            <textarea class="tall" name="config" required spellcheck="false">{{if .View.ParseErr}}{{.View.RawShown}}{{else}}{{.View.PushYAML}}{{end}}</textarea></label>
           <div class="form-actions"><button type="submit" class="primary">Push version</button></div>
         </form>
       </details>
@@ -235,15 +230,12 @@
 </div>
 {{end}}
 
-{{/* ctx-file is one file of a version's tree or packed context (ctxFileView): its content, its line diff, or why neither. */}}
+{{/* ctx-file is one file of a version's tree (ctxFileView): its content, its line diff, or why neither. */}}
 {{define "ctx-file"}}
 <section class="card" id="ctx-file">
-  {{if .Err}}
-  <header><h2>{{if .Tree}}File{{else}}Context file{{end}}</h2></header>
-  <div class="body unset">context unreadable: {{.Err}}</div>
-  {{else if .Missing}}
-  <header><h2>{{if .Tree}}File{{else}}Context file{{end}}</h2></header>
-  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s {{if .Tree}}files{{else}}packed context{{end}}.</div></div>
+  {{if .Missing}}
+  <header><h2>File</h2></header>
+  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s files.</div></div>
   {{else}}
   <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
   {{if .Note}}<div class="body unset">{{.Note}}</div>

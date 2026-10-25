@@ -1,10 +1,6 @@
 package adminui_test
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -113,42 +109,6 @@ func TestKitVersionDiff(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("diff missing %q", want)
 		}
-	}
-}
-
-func TestKitPagePackedContextSummarized(t *testing.T) {
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	for name, body := range map[string]string{"Dockerfile": "FROM ${COVE_BASE_IMAGE}\n", "install.sh": "echo hi\n"} {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		_, _ = tw.Write([]byte(body))
-	}
-	_ = tw.Close()
-	_ = gz.Close()
-	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
-	store := newStore(t)
-	seedKit(t, store, "ctx", "kind: studio\nbase:\n  context: "+b64+"\n")
-	body := get(t, kitsHandler(store), "/app/admin/kits/ctx").Body.String()
-	for _, want := range []string{"Dockerfile", "install.sh", "0755", "«tar.gz, 2 files"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("packed-context kit page missing %q", want)
-		}
-	}
-	// the display YAML abbreviates the blob (the push form keeps it whole);
-	// every base64 gzip starts "H4sI"
-	i := strings.Index(body, `id="kit-yaml">`)
-	if i < 0 {
-		t.Fatal("no display YAML")
-	}
-	yaml := body[i : i+strings.Index(body[i:], "</pre>")]
-	if strings.Contains(yaml, "H4sI") || !strings.Contains(yaml, "«tar.gz, 2 files") {
-		t.Errorf("display YAML should abbreviate the packed context:\n%s", yaml)
-	}
-	if !strings.Contains(body, "H4sI") {
-		t.Errorf("the push form should carry the full context")
 	}
 }
 

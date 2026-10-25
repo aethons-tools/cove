@@ -480,8 +480,8 @@ func (fs *capFS) Create(name string) (billy.File, error) {
 }
 
 // OpenFile opens name; a file it creates gets exactly perm (git's 0644 or
-// 0755), past the serve's umask, so a context-dir in the checkout packs the
-// same bytes on every serve.
+// 0755), past the serve's umask, so a kit read from the checkout is the same
+// tree on every serve.
 func (fs *capFS) OpenFile(name string, flag int, perm os.FileMode) (billy.File, error) {
 	f, err := fs.Filesystem.OpenFile(name, flag, perm)
 	if err == nil && flag&os.O_CREATE != 0 {

@@ -227,13 +227,6 @@ type failStore struct {
 	failPush, failSet bool
 }
 
-func (s *failStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
-	if s.failPush {
-		return 0, errors.New("push failed")
-	}
-	return s.Store.PushKitTracked(name, config, meta, track)
-}
-
 // PutKitDocs fails as the write it stands for: with failPush when any doc
 // adds a version, else (a source-only move) with failSet.
 func (s *failStore) PutKitDocs(kits []Kit, objs KitObjects) error {
@@ -342,7 +335,7 @@ func TestImportOfTrackedSourceAdvancesTrackedCommit(t *testing.T) {
 		t.Fatalf("sync must see c2 as changed: %+v %v", res, err)
 	}
 	k, _ := st.GetKit("web-dev")
-	if cfg, _ := st.KitConfig("web-dev", k.Current); !strings.Contains(cfg, "two") || k.Source.Commit != "c2" {
+	if cfg, _ := testKitYML(st, "web-dev", k.Current); !strings.Contains(cfg, "two") || k.Source.Commit != "c2" {
 		t.Fatalf("not on c2 content: %s %+v", cfg, k.Source)
 	}
 	// The unchanged path too: importing identical content still moves the commit.

@@ -184,7 +184,7 @@ func writeFile(root *os.Root, name string, mode os.FileMode, r io.Reader, left i
 		return 0, fmt.Errorf("config tree: %s: %w", name, err)
 	}
 	n, err := io.Copy(f, io.LimitReader(r, left+1))
-	if err == nil { // the mode past the umask: a kit's context-dir packs its files' modes
+	if err == nil { // the mode past the umask: a kit tree keeps its files' modes
 		err = f.Chmod(mode)
 	}
 	if cerr := f.Close(); err == nil {

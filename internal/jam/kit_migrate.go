@@ -11,7 +11,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/kittree"
-	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // KitMigrateKind is the condition kind of a kit whose current version the
@@ -32,8 +31,7 @@ type KitTreeMigration struct {
 // Kit.Legacy.
 //
 // A managed kit's config mark that recorded its current version's old
-// canonical form (legacyKitCanonDigest, or this branch's interim
-// legacyKitCanonJSONDigest) is re-keyed to the new one, so the
+// canonical form (legacyKitCanonDigest) is re-keyed to the new one, so the
 // upgrade shows no drift: the tree's listing (kitCanon), or for a version
 // kept broken its "# broken:" canon. A mark that recorded anything else (the
 // kit was edited in Jam before the upgrade) is left, still drifted.
@@ -112,7 +110,7 @@ func migrateKitTreesLocked(store Store, t *condition.Tracker, log *slog.Logger) 
 func rekeyedKitMark(marks map[ConfigKey]ConfigMark, k, doc Kit, trees map[string]kittree.Tree, blobs map[string][]byte) (ConfigMark, bool) {
 	mk, managed := marks[ConfigKey{ConfigKindKit, k.Name}]
 	cur, hasCur := k.Versions[k.Current]
-	if !managed || !hasCur || (mk.Digest != legacyKitCanonDigest(cur, k.Source) && mk.Digest != legacyKitCanonJSONDigest(cur, k.Source)) {
+	if !managed || !hasCur || (mk.Digest != legacyKitCanonDigest(cur, k.Source)) {
 		return ConfigMark{}, false
 	}
 	canon := brokenKitCanon(doc.Broken[k.Current])
@@ -128,20 +126,6 @@ func rekeyedKitMark(marks map[ConfigKey]ConfigMark, k, doc Kit, trees map[string
 // of ddd02da's config_export.go): the stored config text, then for a
 // tracked kit "\n# source: <repo>[//dir]@<ref>\n".
 func legacyKitCanonDigest(config string, tracked *KitSource) string {
-	return sha256Hex(legacyKitCanonSuffix(config, tracked))
-}
-
-// legacyKitCanonJSONDigest is the digest the interim kitCanon of this
-// branch's own history (faf0ab1..514ccce, never released) recorded: the
-// config normalized by studio.ParseStudioKit and StudioKit.ToJSON (the
-// stored text when either fails), then the same source line. A mark holding
-// it is re-keyed too.
-func legacyKitCanonJSONDigest(config string, tracked *KitSource) string {
-	if sk, err := studio.ParseStudioKit([]byte(config)); err == nil {
-		if text, err := sk.ToJSON(); err == nil {
-			config = string(text)
-		}
-	}
 	return sha256Hex(legacyKitCanonSuffix(config, tracked))
 }
 

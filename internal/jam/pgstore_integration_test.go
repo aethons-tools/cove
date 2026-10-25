@@ -504,7 +504,8 @@ func TestPostgresKitSourceReload(t *testing.T) {
 	}
 	at := time.Unix(1_000_000, 0).UTC()
 	vsrc := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: strings.Repeat("a", 40)}
-	if _, err := s.PushKitMeta("web", `{"kind":"studio"}`, jam.KitVersionMeta{PushedAt: at, Source: vsrc}); err != nil {
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\n")
+	if _, err := s.PushKitVersion("web", tr.Hash(), jam.KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}, jam.KitVersionMeta{PushedAt: at, Source: vsrc}, nil); err != nil {
 		t.Fatal(err)
 	}
 	tracked := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main"}

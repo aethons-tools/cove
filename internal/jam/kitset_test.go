@@ -30,9 +30,16 @@ func setFixture(t *testing.T, files map[string]string) *fakeFetcher {
 	return newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": files})
 }
 
+// testKitYML is version's kit.yml text as LoadKitVersion reads it (0 =
+// current).
+func testKitYML(st KitReader, name string, version int) (string, bool) {
+	v, ok := LoadKitVersion(st, name, version)
+	return string(v.KitYML), ok && v.KitYML != nil
+}
+
 func storedKit(t *testing.T, st Store, name string, version int) studio.StudioKit {
 	t.Helper()
-	text, ok := st.KitConfig(name, version)
+	text, ok := testKitYML(st, name, version)
 	if !ok {
 		t.Fatalf("no %s@v%d", name, version)
 	}
@@ -427,7 +434,7 @@ func TestSyncDoesNotRegress(t *testing.T) {
 		t.Fatal(bErr)
 	}
 	k, _ := st.GetKit("app")
-	if cfg, _ := st.KitConfig("app", k.Current); !strings.Contains(cfg, "three") || k.Source.Commit != "c3" {
+	if cfg, _ := testKitYML(st, "app", k.Current); !strings.Contains(cfg, "three") || k.Source.Commit != "c3" {
 		t.Fatalf("app current v%d = %s, tracked %s; want c3's content", k.Current, cfg, k.Source.Commit)
 	}
 	c3 := 0

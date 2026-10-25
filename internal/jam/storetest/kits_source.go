@@ -17,7 +17,8 @@ func runKitSourceConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		st := mk(t)
 		at := time.Unix(1_000_000, 0).UTC()
 		src := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: strings.Repeat("a", 40)}
-		v, err := st.PushKitMeta("web", `{"kind":"studio"}`, jam.KitVersionMeta{PushedAt: at, Source: src})
+		tr, objs := treeObjs(t, "kit.yml", "kind: studio\n")
+		v, err := st.PushKitVersion("web", tr.Hash(), objs, jam.KitVersionMeta{PushedAt: at, Source: src}, nil)
 		if err != nil || v != 1 {
 			t.Fatalf("push: %d %v", v, err)
 		}
@@ -36,7 +37,8 @@ func runKitSourceConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 	t.Run("push tracked sets version and source together", func(t *testing.T) {
 		st := mk(t)
 		src := &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: "c1"}
-		v, err := st.PushKitTracked("web", `{"kind":"studio"}`, jam.KitVersionMeta{PushedAt: time.Unix(5, 0).UTC(), Source: src}, src)
+		tr, objs := treeObjs(t, "kit.yml", "kind: studio\n")
+		v, err := st.PushKitVersion("web", tr.Hash(), objs, jam.KitVersionMeta{PushedAt: time.Unix(5, 0).UTC(), Source: src}, src)
 		if err != nil || v != 1 {
 			t.Fatalf("push: %d %v", v, err)
 		}
@@ -44,7 +46,8 @@ func runKitSourceConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		if !reflect.DeepEqual(k.Source, src) || !reflect.DeepEqual(k.Meta[1].Source, src) {
 			t.Fatalf("%+v", k)
 		}
-		if _, err := st.PushKitTracked("web", `{"kind":"studio","prompt":"x"}`, jam.KitVersionMeta{PushedAt: time.Unix(6, 0).UTC()}, nil); err != nil {
+		tr2, objs2 := treeObjs(t, "kit.yml", "kind: studio\nprompt: x\n")
+		if _, err := st.PushKitVersion("web", tr2.Hash(), objs2, jam.KitVersionMeta{PushedAt: time.Unix(6, 0).UTC()}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if k, _ = st.GetKit("web"); !reflect.DeepEqual(k.Source, src) {

@@ -765,16 +765,8 @@ func (s *PostgresStore) RemoveRole(project, name string) error {
 	return nil
 }
 
+// PushKit stores config as a one-file tree (kit.yml) version.
 func (s *PostgresStore) PushKit(name, config string) (int, error) {
-	return s.PushKitMeta(name, config, KitVersionMeta{PushedAt: time.Now().UTC()})
-}
-
-func (s *PostgresStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
-	return s.PushKitTracked(name, config, meta, nil)
-}
-
-// PushKitTracked stores config as a one-file tree (kit.yml) version.
-func (s *PostgresStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
@@ -782,7 +774,7 @@ func (s *PostgresStore) PushKitTracked(name, config string, meta KitVersionMeta,
 	if err != nil {
 		return 0, fmt.Errorf("kit %s: %w", name, err)
 	}
-	return s.PushKitVersion(name, t.Hash(), objs, meta, track)
+	return s.PushKitVersion(name, t.Hash(), objs, KitVersionMeta{PushedAt: time.Now().UTC()}, nil)
 }
 
 // PushKitVersion writes objs and the kit's new doc in one transaction; the

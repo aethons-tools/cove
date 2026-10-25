@@ -862,8 +862,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		var out []KitSummary
 		for _, k := range store.ListKits() {
 			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
-			if cfg, ok := store.KitConfig(k.Name, k.Current); ok {
-				sum.Parent = kitParentSpec(cfg)
+			if v, ok := LoadKitVersion(store, k.Name, k.Current); ok {
+				sum.Parent = kitParentSpec(string(v.KitYML))
 			}
 			out = append(out, sum)
 		}

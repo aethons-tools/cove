@@ -300,7 +300,7 @@ func TestRaiseStoredOverBudgetKitTruncates(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
 	sk := studio.StudioKit{Kind: studio.Kind, Prompt: strings.Repeat("old kit line\n", 100)}
-	text, err := sk.ToJSON()
+	text, err := studio.RenderKitYAML(sk)
 	if err != nil {
 		t.Fatal(err)
 	}

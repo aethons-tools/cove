@@ -134,7 +134,7 @@ func TestBuildDigestGolden(t *testing.T) {
 		want string
 	}{
 		"image+egress+args": {StudioKit{Kind: Kind, Base: Base{Image: "r"}, Egress: []string{"b.com", "a.com"}, BuildArgs: map[string]string{"X": "1"}}, "326c44cd6f3577418565161b9adbc7858882311da51899e218a430c59588c3d1"},
-		"empty context":     {StudioKit{Kind: Kind, Base: Base{ContextFiles: map[string]ContextNode{}}}, "9465da82541dac6f5cf5ea635073c9af2b409e7336dfa759969b94e280a742c0"},
+		"default":           {StudioKit{Kind: Kind}, "9465da82541dac6f5cf5ea635073c9af2b409e7336dfa759969b94e280a742c0"},
 		"mcp server":        {StudioKit{Kind: Kind, MCPServers: map[string]kit.MCPServer{"m": {Command: "x"}}}, "c642bd71dfc52f3c60eb0a69f09e49b21e10e96e74f2cb36484bd84e4a6f8e1b"},
 	} {
 		if got := BuildDigest(tc.sk, dh); got != tc.want {

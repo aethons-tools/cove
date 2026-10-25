@@ -17,10 +17,10 @@ import (
 )
 
 // ParseFiles is the one ingest pipeline from files to a kit: it builds files
-// into a tree (kittree.Build: paths, modes, limits, kit.yml at the root),
-// refuses the packed-context fields (RefuseContextFields) and parses the tree
-// (ParseTree). It does not apply .dockerignore: callers that take files from
-// outside (a push) run kittree.Ignore first. Errors are unprefixed; the caller
+// into a tree (kittree.Build: paths, modes, limits, kit.yml at the root) and
+// parses the tree (ParseTree, which refuses the packed-context fields). It
+// does not apply .dockerignore: callers that take files from outside (a push)
+// run kittree.Ignore first. Errors are unprefixed; the caller
 // locates them (a kit name, a directory). A refusal of the tree itself (a
 // path, a limit, no kit.yml) is a *TreeError, so a caller can locate those
 // at the kit and leave the kit.yml errors as they are.
@@ -29,18 +29,8 @@ func ParseFiles(files []kittree.File) (kittree.Tree, map[string][]byte, StudioKi
 	if err != nil {
 		return kittree.Tree{}, nil, StudioKit{}, &TreeError{err}
 	}
-	if e, ok := tree.Lookup(kittree.KitFile); ok {
-		if err := RefuseContextFields(blobs[e.SHA256]); err != nil {
-			return kittree.Tree{}, nil, StudioKit{}, err
-		}
-	}
 	sk, err := ParseTree(tree, kittree.MapBlobs(blobs))
 	if err != nil {
-		return kittree.Tree{}, nil, StudioKit{}, err
-	}
-	// The parsed kit is the final word: no packed-context field however it
-	// was spelled.
-	if err := refuseDecodedContext(sk.Base); err != nil {
 		return kittree.Tree{}, nil, StudioKit{}, err
 	}
 	return tree, blobs, sk, nil
@@ -64,11 +54,11 @@ func ParseTree(t kittree.Tree, blobs kittree.Blobs) (StudioKit, error) {
 	return sk, nil
 }
 
-// ParseKitFS parses the kit directory fsys: its kit.yml (ParseStudioKit),
+// ParseKitFS parses the kit directory fsys: its kit.yml (RefuseContextFields,
+// then ParseStudioKit),
 // each note's file read from fsys into its body (relative to the root, inside
 // it, at most maxNoteFileBytes in total), and the rule that base.image and a
-// Dockerfile next to kit.yml exclude each other. It does not refuse the old
-// packed-context fields; ingest calls RefuseContextFields.
+// Dockerfile next to kit.yml exclude each other.
 func ParseKitFS(fsys billy.Filesystem) (StudioKit, error) {
 	data, err := readKitFile(fsys, kittree.KitFile, maxRootFile)
 	switch {
@@ -77,6 +67,9 @@ func ParseKitFS(fsys billy.Filesystem) (StudioKit, error) {
 	case errors.Is(err, errTooLarge):
 		return StudioKit{}, fmt.Errorf("%s: larger than %d bytes", kittree.KitFile, maxRootFile)
 	case err != nil:
+		return StudioKit{}, err
+	}
+	if err := RefuseContextFields(data); err != nil {
 		return StudioKit{}, err
 	}
 	sk, err := ParseStudioKit(data)
@@ -152,24 +145,24 @@ func RefuseContextFields(kitYML []byte) error {
 			}
 		}
 	}
-	// Decoded leniently, the way ParseStudioKit sees it: aliases and merge
-	// keys resolved. A decode error leaves the fields it reached set.
+	// Decoded leniently, the way the YAML decoder sees it: aliases and merge
+	// keys resolved. A decode error leaves the fields it reached set; a field
+	// present at all (even null, or an alias) has a non-zero Kind.
 	var doc struct {
-		Base Base `yaml:"base"`
+		Base struct {
+			Packed  yaml.Node `yaml:"context"`
+			Inline  yaml.Node `yaml:"context-files"`
+			Stored  yaml.Node `yaml:"contextFiles"`
+			HostDir yaml.Node `yaml:"context-dir"`
+		} `yaml:"base"`
 	}
 	_ = yaml.Unmarshal(kitYML, &doc)
-	return refuseDecodedContext(doc.Base)
-}
-
-// refuseDecodedContext refuses a decoded base that carries a packed-context
-// field.
-func refuseDecodedContext(b Base) error {
-	switch {
-	case b.Context != "":
+	switch b := doc.Base; {
+	case b.Packed.Kind != 0:
 		return contextFieldErr("base.context")
-	case b.ContextFiles != nil || b.StoredContextFiles != nil:
+	case b.Inline.Kind != 0 || b.Stored.Kind != 0:
 		return contextFieldErr("base.context-files")
-	case b.ContextDir != "":
+	case b.HostDir.Kind != 0:
 		return contextFieldErr("base.context-dir")
 	}
 	return nil

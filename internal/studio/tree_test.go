@@ -179,3 +179,10 @@ func TestSetBaseKitEditsOnlyTheScalar(t *testing.T) {
 		}
 	}
 }
+
+func TestParseKitFSRefusesPackedContext(t *testing.T) {
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\nbase:\n  context: H4sI\n")
+	if _, err := ParseTree(tr, kittree.MapBlobs(blobs)); err == nil || err.Error() != "base.context is no longer supported; put a Dockerfile next to kit.yml" {
+		t.Fatalf("err = %v", err)
+	}
+}

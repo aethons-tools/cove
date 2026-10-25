@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestKitWithoutNameParsesAndStoresNoName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("nameless kit refused: %v", err)
 	}
-	j, err := sk.ToJSON()
+	j, err := json.Marshal(sk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +31,7 @@ func TestLegacyNameAcceptedButNotStored(t *testing.T) {
 	if sk.LegacyName != "web" {
 		t.Fatalf("LegacyName = %q", sk.LegacyName)
 	}
-	j, _ := sk.ToJSON()
+	j, _ := json.Marshal(sk)
 	if strings.Contains(string(j), `"name"`) {
 		t.Fatalf("legacy name leaked into canonical JSON: %s", j)
 	}

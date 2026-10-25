@@ -12,7 +12,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/studio"
-	"gopkg.in/yaml.v3"
 )
 
 // kitListRow is one kits-table row, summarizing the current version.
@@ -95,28 +94,25 @@ type kv struct{ Key, Value string }
 
 // kitView is one parsed version, ready to render.
 type kitView struct {
-	N           int
-	ParseErr    string // the stored config isn't a valid studio kit (legacy row)
-	Raw         string // the stored text, for the push form when ParseErr is set
-	RawShown    string // Raw as shown: a packed context as its placeholder (escape with SetupDisplayText)
-	YAML        string // display YAML (a packed context abbreviated)
-	PushYAML    string // full YAML, for pre-filling a new version
-	Base        string
-	Image       string
-	Files       []string // context-files paths
-	ContextSize string   // encoded size of a packed context
-	Egress      []string
-	Ceiling     []string
-	Excluded    []string
-	BuildArgs   []kv
-	Secrets     []kv
-	MCPServers  []kv // name → type
-	Notes       []kv // name → read-when
-	Prompt      string
-	Digest      string
+	N          int
+	ParseErr   string // the version is broken, or its kit.yml isn't a valid studio kit
+	RawShown   string // an unparsable kit.yml as shown (hiddenKitYML; escape with SetupDisplayText), also the push form's text
+	YAML       string // display YAML
+	PushYAML   string // full YAML, for pre-filling a new version
+	Base       string
+	Image      string
+	Egress     []string
+	Ceiling    []string
+	Excluded   []string
+	BuildArgs  []kv
+	Secrets    []kv
+	MCPServers []kv // name → type
+	Notes      []kv // name → read-when
+	Prompt     string
+	Digest     string
 
-	ctx      *ctxRead // the packed context, read once; nil = none
-	diffText string   // what a version diff compares (packed context abbreviated)
+	ctx      *ctxRead // the version's tree, read once; nil = none
+	diffText string   // what a version diff compares
 }
 
 // diffLine is one line of a version or plan diff.
@@ -168,9 +164,9 @@ type kitDetail struct {
 	Source      *sourceView  // tracked source; nil = not tracked
 	SetWith     string       // chain parents imported from the same repo, comma-joined; "" = not part of a set
 	CanSource   bool         // import/track/sync controls are available
-	Ctx         *ctxListView // the viewed version's packed-context files; nil = none
-	CtxDiff     *ctxDiffView // the two versions' packed contexts compared; nil = no diff or no packed context
-	File        *ctxFileView // one context file (?file=); nil = none asked
+	Ctx         *ctxListView // the viewed version's files; nil = none
+	CtxDiff     *ctxDiffView // the two versions' files compared; nil = no diff or no tree
+	File        *ctxFileView // one file (?file=); nil = none asked
 	NotFound    bool
 	NotFoundFor string
 }
@@ -204,12 +200,6 @@ func ownBaseLabel(k studio.BaseKind) string {
 	switch k {
 	case studio.BaseImage:
 		return "image"
-	case studio.BaseContextFiles:
-		return "context-files"
-	case studio.BaseContextZip:
-		return "context"
-	case studio.BaseContextDir:
-		return "context-dir"
 	}
 	return "blessed default"
 }
@@ -245,17 +235,6 @@ func kitListRows(store jam.Store) []kitListRow {
 	return out
 }
 
-// displayKit is sk as shown: no legacy name, and a packed context replaced by
-// its one-line placeholder (ctxRead.placeholder), so neither the YAML nor a version
-// diff carries the base64 blob.
-func displayKit(sk studio.StudioKit, ctx *ctxRead) studio.StudioKit {
-	sk.LegacyName = ""
-	if sk.Base.Context != "" {
-		sk.Base.Context = ctx.placeholder()
-	}
-	return sk
-}
-
 func shortDigest(d string) string {
 	if len(d) > 12 {
 		return d[:12]
@@ -270,48 +249,24 @@ func sizeLabel(n int) string {
 	return strconv.Itoa((n+1023)/1024) + " KiB"
 }
 
-func toYAML(sk studio.StudioKit) string {
-	b, err := yaml.Marshal(sk)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
-
-func treePaths(t studio.ContextTree, prefix string) []string {
-	var out []string
-	for _, k := range slices.Sorted(maps.Keys(t)) {
-		n := t[k]
-		if n.File != nil {
-			out = append(out, prefix+k)
-		} else {
-			out = append(out, treePaths(n.Dir, prefix+k+"/")...)
-		}
-	}
-	return out
-}
-
-// viewKit renders stored version v (number n). A tree version shows its
-// kit.yml as stored and lists its files; a pre-tree version keeps the
-// packed-context rendering (viewStored).
+// viewKit renders stored version v (number n): its kit.yml as stored and
+// its files. A version with no tree (broken, or pre-tree on a store that
+// failed to migrate) shows only its own fixed error; a kit.yml that does not
+// parse shows its error and the text with any packed context hidden
+// (hiddenKitYML).
 func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
-	if v.TreeHash == "" && v.KitYML == nil && v.Err != nil {
-		// A broken version: no tree, no text; its own fixed error says why.
-		return kitView{N: n, ParseErr: v.Err.Error()}
-	}
 	if v.TreeHash == "" {
-		return viewStored(n, string(v.KitYML), unpack, want)
+		msg := "version has no tree"
+		if v.Err != nil {
+			msg = v.Err.Error()
+		}
+		return kitView{N: n, ParseErr: msg}
 	}
 	kv := kitView{N: n, ctx: treeRead(v, want, unpack)}
 	text := string(v.KitYML)
 	if v.Err != nil {
-		kv.ParseErr, kv.Raw, kv.RawShown, kv.diffText = v.Err.Error(), text, text, text
-		// A kit.yml kept verbatim (the migration's unparsable config) may
-		// still hold a packed base.context: shown and diffed as its
-		// placeholder, never the base64.
-		if a, _ := abbreviateStored(text, func(b64 string) *ctxRead { return readContext(b64, false, "") }); a != "" {
-			kv.RawShown, kv.diffText = a, a
-		}
+		shown := hiddenKitYML(text)
+		kv.ParseErr, kv.RawShown, kv.diffText = v.Err.Error(), shown, shown
 		return kv
 	}
 	kv.YAML, kv.PushYAML, kv.diffText = jam.SetupDisplayText(text), text, text
@@ -319,54 +274,13 @@ func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
 	return kv
 }
 
-// abbreviateStored finds a packed base.context in stored text that parses as
-// YAML but not as a studio kit, reads it with read, and returns the text
-// re-marshalled with the context's placeholder in place of the base64 ("" when
-// that fails) and the read; "", nil when there is no packed context.
-// Re-marshalling re-formats the YAML (shown and diffed; Raw keeps the text).
-func abbreviateStored(stored string, read func(b64 string) *ctxRead) (string, *ctxRead) {
-	doc, node := storedContextNode(stored)
-	if node == nil {
-		return "", nil
-	}
-	c := read(node.Value)
-	node.Value, node.Style, node.Tag = c.placeholder(), 0, "!!str"
-	b, err := yaml.Marshal(doc)
-	if err != nil {
-		return "", c
-	}
-	return string(b), c
-}
-
-// viewStored parses one stored config text (a pre-tree version, or a chain's
-// merged YAML) for display. With unpack, a packed context is read (once) for
-// its file list, keeping the file named want.
-func viewStored(n int, stored string, unpack bool, want string) kitView {
+// viewYAML renders a chain's merged YAML y for display (the Effective card).
+func viewYAML(n int, y string) kitView {
 	v := kitView{N: n}
-	sk, err := studio.ParseStudioKit([]byte(stored))
+	sk, err := studio.ParseStudioKit([]byte(y))
 	if err != nil {
-		v.ParseErr, v.Raw, v.RawShown, v.diffText = err.Error(), stored, stored, stored
-		if a, c := abbreviateStored(stored, func(b64 string) *ctxRead { return readContext(b64, unpack, want) }); c != nil {
-			v.ctx = c
-			if a != "" {
-				v.RawShown, v.diffText = a, a
-			}
-		}
+		v.ParseErr = err.Error()
 		return v
-	}
-	if sk.Base.Context != "" {
-		v.ctx = readContext(sk.Base.Context, unpack, want)
-	}
-	full := sk
-	full.LegacyName = ""
-	v.PushYAML = toYAML(full)
-	v.YAML = toYAML(displayKit(sk, v.ctx))
-	v.diffText = v.YAML
-	if len(sk.Base.ContextFiles) > 0 {
-		v.Files = treePaths(sk.Base.ContextFiles, "")
-	}
-	if sk.Base.Context != "" {
-		v.ContextSize = sizeLabel(len(sk.Base.Context))
 	}
 	fillKitView(&v, sk)
 	return v
@@ -394,8 +308,8 @@ func fillKitView(v *kitView, sk studio.StudioKit) {
 }
 
 // buildKitDetail gathers the kit page for version view (0 = current), diffed
-// against version diff when diff > 0, showing the packed-context file named
-// file when it is non-empty (File.Missing when neither version has it). false
+// against version diff when diff > 0, showing the file named file when it is
+// non-empty (File.Missing when neither version has it). false
 // when the kit doesn't exist.
 func buildKitDetail(store jam.Store, name string, view, diff int, file string) (kitDetail, bool) {
 	k, ok := store.GetKit(name)
@@ -489,7 +403,7 @@ func chainOf(store jam.Store, name string, sk studio.StudioKit) (chain []kitPare
 	for _, l := range links {
 		chain = append(chain, kitParent{Name: l.Name, Version: l.Version, Follow: l.Follow})
 	}
-	v := viewStored(0, y, false, "")
+	v := viewYAML(0, y)
 	if v.ParseErr != "" {
 		return chain, nil, v.ParseErr
 	}

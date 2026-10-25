@@ -140,16 +140,8 @@ func (fs *MemStore) RemoveRole(project, name string) error {
 	return nil
 }
 
+// PushKit stores config as a one-file tree (kit.yml) version.
 func (fs *MemStore) PushKit(name, config string) (int, error) {
-	return fs.PushKitMeta(name, config, KitVersionMeta{PushedAt: time.Now().UTC()})
-}
-
-func (fs *MemStore) PushKitMeta(name, config string, meta KitVersionMeta) (int, error) {
-	return fs.PushKitTracked(name, config, meta, nil)
-}
-
-// PushKitTracked stores config as a one-file tree (kit.yml) version.
-func (fs *MemStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
 	if name == "" || config == "" {
 		return 0, fmt.Errorf("kit name and config are required")
 	}
@@ -157,7 +149,7 @@ func (fs *MemStore) PushKitTracked(name, config string, meta KitVersionMeta, tra
 	if err != nil {
 		return 0, fmt.Errorf("kit %s: %w", name, err)
 	}
-	return fs.PushKitVersion(name, t.Hash(), objs, meta, track)
+	return fs.PushKitVersion(name, t.Hash(), objs, KitVersionMeta{PushedAt: time.Now().UTC()}, nil)
 }
 
 func (fs *MemStore) PushKitVersion(name, tree string, objs KitObjects, meta KitVersionMeta, track *KitSource) (int, error) {

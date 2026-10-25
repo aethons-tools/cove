@@ -23,7 +23,7 @@ import (
 // adoptJam is a Jam with every object shape an operator's Jam has: custom
 // and preset header specs, env templates, git, allow paths, notes; an
 // uppercase project with members, rooms, escalation, resources, chat
-// service and context; a kit with a context-dir; a kit tracked from git —
+// service and context; a kit with a Dockerfile; a kit tracked from git —
 // and values that do not survive a naive YAML round trip.
 func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 	t.Helper()
@@ -384,7 +384,7 @@ func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 	}
 	applyPlan(t, st, p)
 	k, _ := st.GetKit("ic")
-	cfg, _ := st.KitConfig("ic", k.Current)
+	cfg, _ := testKitYML(st, "ic", k.Current)
 	if !strings.Contains(cfg, "then review") || k.Source == nil || k.Source.Commit != "c2" {
 		t.Fatalf("kit after apply: v%d %q source %+v", k.Current, cfg, k.Source)
 	}

@@ -5,10 +5,10 @@ import (
 	"io/fs"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
-// ctxEntry is one file of a version as the kit page lists it: from a tree,
-// or from a pre-tree packed context.
+// ctxEntry is one file of a version's tree as the kit page lists it.
 type ctxEntry struct {
 	Path string
 	Mode fs.FileMode
@@ -18,13 +18,20 @@ type ctxEntry struct {
 }
 
 // treeRead lists tree version v's files, kit.yml included. With unpack, the
-// file named want has its first maxFileShow+1 bytes read through v.Files.
-// v's tree is a stored one (the store validated it on write).
+// file named want has its first maxFileShow+1 bytes read through v.Files; a
+// kit.yml that does not parse is read as shown (hiddenKitYML), so no packed
+// context is shown. v's tree is a stored one (the store validated it on
+// write).
 func treeRead(v jam.KitVersion, want string, unpack bool) *ctxRead {
-	c := &ctxRead{tree: true, size: sizeLabel(int(v.Tree.Size())), read: true, byPath: make(map[string]int, len(v.Tree.Entries))}
+	c := &ctxRead{size: sizeLabel(int(v.Tree.Size())), byPath: make(map[string]int, len(v.Tree.Entries))}
 	for i, e := range v.Tree.Entries {
 		ent := ctxEntry{Path: e.Path, Mode: e.Mode, Size: e.Size, Sum: e.SHA256}
-		if unpack && e.Path == want && v.Files != nil {
+		switch {
+		case !unpack || e.Path != want:
+		case e.Path == kittree.KitFile && v.Err != nil:
+			shown := []byte(hiddenKitYML(string(v.KitYML)))
+			ent.Data = shown[:min(len(shown), maxFileShow+1)]
+		case v.Files != nil:
 			if f, err := v.Files.Open(e.Path); err == nil {
 				ent.Data, _ = io.ReadAll(io.LimitReader(f, maxFileShow+1))
 				_ = f.Close()
