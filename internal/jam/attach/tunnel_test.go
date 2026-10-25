@@ -543,3 +543,54 @@ func TestOpenKeepsDialBackDespiteCtxDeadline(t *testing.T) {
 		t.Fatalf("Open waited %v, want about DialBack", d)
 	}
 }
+
+// deadlineCtx reports a deadline and fires it (Done closed, Err
+// DeadlineExceeded) a little before, so a select on it and on a timer set
+// to the deadline always sees the deadline first.
+type deadlineCtx struct {
+	context.Context
+	deadline time.Time
+	done     chan struct{}
+}
+
+func newDeadlineCtx(d time.Duration) *deadlineCtx {
+	c := &deadlineCtx{Context: context.Background(), deadline: time.Now().Add(d), done: make(chan struct{})}
+	time.AfterFunc(d/2, func() { close(c.done) })
+	return c
+}
+
+func (c *deadlineCtx) Deadline() (time.Time, bool) { return c.deadline, true }
+func (c *deadlineCtx) Done() <-chan struct{}       { return c.done }
+func (c *deadlineCtx) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// A preview whose dial-back wait came from its ctx deadline still reports a
+// missing dial-back as ErrDialBackTimeout: the broker's timer and the
+// deadline fire together, and the error must not depend on which wins.
+func TestOpenPreviewDeadlineWaitReportsDialBackTimeout(t *testing.T) {
+	b := NewTunnelBroker((&pushRec{ok: true}).push, TunnelOptions{DialBack: 10 * time.Millisecond})
+	for name, mk := range map[string]func() context.Context{
+		"deadline fires first": func() context.Context { return newDeadlineCtx(200 * time.Millisecond) },
+		"real deadline": func() context.Context {
+			c, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			t.Cleanup(cancel)
+			return c
+		},
+	} {
+		if _, err := b.OpenPreview(mk(), "ses_a", 13337); !errors.Is(err, ErrDialBackTimeout) {
+			t.Errorf("%s: err = %v, want ErrDialBackTimeout", name, err)
+		}
+	}
+	// A cancelled (not timed-out) ctx is still reported as such.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	time.AfterFunc(20*time.Millisecond, cancel)
+	if _, err := b.OpenPreview(ctx, "ses_a", 13337); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled: err = %v, want context.Canceled", err)
+	}
+}

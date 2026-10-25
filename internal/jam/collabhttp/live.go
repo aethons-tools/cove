@@ -111,9 +111,9 @@ func (l *Live) CloseUser(session string, user ident.ID) int {
 // closed. The built-in IDE (preview.IDEPort) is never exposed, so its
 // connections are left alone; a kit's own ide exposure follows the rule. It
 // judges the connections themselves, not a remembered previous set, so it is
-// right on the first change after a Jam restart. It only
-// collects under the lock; the closes run on their own goroutine, so a caller
-// holding a lock (the supervisor's exposure sink) never waits on a tunnel.
+// right on the first change after a Jam restart. It only collects under the
+// lock; the closes run on their own goroutine, so a caller holding a lock
+// (the supervisor's exposure sink) never waits on a tunnel.
 func (l *Live) CloseUnexposed(session string, exposed []int32) int {
 	if l == nil {
 		return 0

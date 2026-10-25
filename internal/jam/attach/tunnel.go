@@ -143,7 +143,8 @@ func (b *TunnelBroker) open(ctx context.Context, actorID string, port int32, pre
 		b.mu.Unlock()
 		return nil, ErrStudioNotConnected
 	}
-	t := time.NewTimer(b.dialBackWait(ctx, preview))
+	wait, untilDeadline := b.dialBackWait(ctx, preview)
+	t := time.NewTimer(wait)
 	defer t.Stop()
 	select {
 	case h := <-p.ready:
@@ -156,20 +157,29 @@ func (b *TunnelBroker) open(ctx context.Context, actorID string, port int32, pre
 	case <-t.C:
 		return nil, b.abandon(id, p, ErrDialBackTimeout)
 	case <-ctx.Done():
-		return nil, b.abandon(id, p, ctx.Err())
+		err := ctx.Err()
+		if untilDeadline && errors.Is(err, context.DeadlineExceeded) {
+			// The deadline was the dial-back wait: it and the timer fire
+			// together, and either way the studio did not dial back.
+			err = ErrDialBackTimeout
+		}
+		return nil, b.abandon(id, p, err)
 	}
 }
 
 // dialBackWait is how long an open waits for the studio to dial back:
 // DialBack, or for a preview the time left to ctx's deadline when that is
-// later (the studio may first start the built-in IDE, which can take 15 s).
-func (b *TunnelBroker) dialBackWait(ctx context.Context, preview bool) time.Duration {
+// later (the studio may first start the built-in IDE, which can take 15 s);
+// untilDeadline reports the latter.
+func (b *TunnelBroker) dialBackWait(ctx context.Context, preview bool) (wait time.Duration, untilDeadline bool) {
 	if preview {
 		if dl, ok := ctx.Deadline(); ok {
-			return max(b.opt.DialBack, time.Until(dl))
+			if left := time.Until(dl); left > b.opt.DialBack {
+				return left, true
+			}
 		}
 	}
-	return b.opt.DialBack
+	return b.opt.DialBack, false
 }
 
 func (b *TunnelBroker) releaseLocked(actorID string, preview bool) {
