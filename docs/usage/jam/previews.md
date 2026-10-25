@@ -77,18 +77,18 @@ those 60 s it is a bearer. The iframe opens `https://<host>/__jam/frame?t=…`,
 which trades it for a `__Host-jam_frame` cookie (host-only, `Secure`,
 `HttpOnly`, `SameSite=None`, `Partitioned`, 8 h) and answers 200 with a
 page whose script sends the frame to `/` (a redirect would keep the UI as
-initiator, arriving cross-site). It works only as the UI's iframe load
-(`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest:
-iframe`), so the UI must be on a registrable domain apart from `<domain>`
-([setup](#setting-up-previews-operator) step 1), and is audit-logged as
+initiator, not same-origin). It works only as the UI's iframe load
+(`Sec-Fetch-Site: cross-site` or `same-site`, `Sec-Fetch-Mode: navigate`,
+`Sec-Fetch-Dest: iframe`), so framing works whether or not the UI shares
+`<domain>`'s registrable domain, and is audit-logged as
 "preview frame opened" with `host` (encoding preview name and studio
 label), `user` or `operator`, and `right`; never the ticket or cookie.
 The cookie lives only in the UI's partition and counts only on a
 same-origin request (`Sec-Fetch-Site: same-origin`) or a WebSocket whose
 `Origin` is the preview host itself. So each pane load uses a fresh ticket,
 and a redirect or link from one studio into another inside the pane is not
-signed in. Top-level it is ignored (you log in); in a same-site frame (a
-sibling studio in the pane) refused. Your right is re-checked every time.
+signed in. On a top-level or iframe navigation it is ignored (you log in);
+elsewhere refused. Your right is re-checked every time.
 
 Every preview response carries `Content-Security-Policy: frame-ancestors`
 listing only the [`ui-origins`](serve.md) (`'none'` when unset), beside any
@@ -101,7 +101,7 @@ any iframe, the 404 and the 403s
 on a pane request, the 403 "you may not use …" and the proxy's errors
 (502, 503, 504, 429, 409); other errors stay plain text. A pane load with
 no frame session gets a 401 page (**Open in new tab**) posting `"signin"`
-(cross-site with no ticket — a reload or another studio's redirect; the UI
+(cross-site or same-site with no ticket — a reload or another studio's redirect; the UI
 re-mints) or `"cookies"` (same-origin with no frame cookie: the browser
 refused it, as Safari does). `/__jam/logout` ends your preview and pane
 sessions on that host, honouring each cookie only where it counts, so a

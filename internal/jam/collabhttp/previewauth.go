@@ -214,7 +214,7 @@ func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, erro
 //     is ErrCrossSite (cookieUseAllowed);
 //  2. else its __Host-jam_frame session, by the same rules but honoured only
 //     where frameCookieUseAllowed says; elsewhere it is ignored on a
-//     top-level navigation or a cross-site iframe navigation (frameCookieIgnored:
+//     top-level navigation or a frame navigation (frameCookieIgnored:
 //     no credentials, so the caller logs in) and is ErrCrossSite otherwise;
 //  3. else its Authorization bearer via Bearer, else ErrNoCredentials.
 func (a *PreviewAuth) PrincipalFrame(r *http.Request) (collab.Principal, string, bool, error) {
@@ -278,8 +278,9 @@ func (a *PreviewAuth) lookupSession(m map[[sha256.Size]byte]previewEntry, vals [
 // session cookie. The cookie is SameSite=None (it must reach a cross-site
 // iframe), so it is honoured only where no other page can have caused the
 // request: a WebSocket upgrade only with an Origin of exactly https://<Host>;
-// else Sec-Fetch-Site same-origin. Nothing else: not a cross-site iframe
-// navigation — every pane load trades a fresh ticket (/__jam/frame), whose
+// else Sec-Fetch-Site same-origin. Nothing else: not a cross-site or
+// same-site iframe navigation — every pane load trades a fresh ticket
+// (/__jam/frame), whose
 // landing page then navigates the frame same-origin, while an app in the
 // pane redirecting or
 // linking it to another studio arrives cross-site too (Fetch Metadata
@@ -298,23 +299,30 @@ func frameCookieUseAllowed(r *http.Request) bool {
 // frameCookieIgnored reports whether r's frame cookie, when not allowed
 // (frameCookieUseAllowed), counts as absent rather than refused: on a
 // top-level navigation (a browser that does not partition cookies sends it
-// there) or a cross-site iframe navigation (the pane without a ticket), so
-// the viewer is asked to log in (LoginRedirect) instead of seeing a 403.
+// there) or a frame navigation (isFrameNavigation: the pane without a
+// ticket, e.g. a UI reload), so the viewer is asked to log in (LoginRedirect)
+// instead of seeing a 403.
 func frameCookieIgnored(r *http.Request) bool {
 	if frameCookieUseAllowed(r) {
 		return false
 	}
 	h := r.Header
-	return isUIFrameNavigation(r) || (h.Get("Sec-Fetch-Mode") == "navigate" && h.Get("Sec-Fetch-Dest") == "document")
+	return isFrameNavigation(r) || (h.Get("Sec-Fetch-Mode") == "navigate" && h.Get("Sec-Fetch-Dest") == "document")
 }
 
-// isUIFrameNavigation reports whether r is an iframe navigation started by a
-// cross-site page — the Jam UI, which is on a registrable domain apart from
-// the previews' (docs/usage/jam/previews.md), so a sibling preview or the
-// login host can only ever be same-site.
-func isUIFrameNavigation(r *http.Request) bool {
+// isFrameNavigation reports whether r is an iframe navigation another site's
+// page started: Sec-Fetch-Site cross-site or same-site (the Jam UI may share
+// the previews' registrable domain), never same-origin, none or absent. Only
+// the frame exchange trusts it, and a valid single-use host-bound ticket and
+// frame-ancestors (the UI origins) still bound it. Accepting same-site does
+// not expose the frame cookie, which no navigation carries
+// (frameCookieUseAllowed); it only lets a sibling studio replay a ticket its
+// owner minted for themselves — the session-fixation edge a redirect already
+// has (docs/usage/jam/previews.md).
+func isFrameNavigation(r *http.Request) bool {
 	h := r.Header
-	return h.Get("Sec-Fetch-Site") == "cross-site" && h.Get("Sec-Fetch-Mode") == "navigate" &&
+	site := h.Get("Sec-Fetch-Site")
+	return (site == "cross-site" || site == "same-site") && h.Get("Sec-Fetch-Mode") == "navigate" &&
 		h.Get("Sec-Fetch-Dest") == "iframe"
 }
 
@@ -611,18 +619,19 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 }
 
 // frame trades a frame ticket (?t=) for a frame session: only in the Jam
-// UI's own iframe navigation (isUIFrameNavigation), only for a ticket minted
+// UI's own iframe navigation (isFrameNavigation), only for a ticket minted
 // for this host — any lookup spends it — and then sets the partitioned
 // __Host-jam_frame cookie and answers 200 with a landing page that sends the
 // frame to / itself (frameLandingPage). Not a redirect: a redirected
-// navigation keeps the UI as its initiator, so it would arrive cross-site and
+// navigation keeps the UI as its initiator, so it would arrive cross-site (or
+// same-site) and
 // the frame cookie would not count; one the preview document starts is
 // same-origin.
 func (a *PreviewAuth) frame(w http.ResponseWriter, r *http.Request) {
 	// The URL carries a ticket: never cache it or leak it onward as a Referer.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	if !isUIFrameNavigation(r) {
+	if !isFrameNavigation(r) {
 		http.Error(w, "frame links open only inside the Jam pane", http.StatusBadRequest)
 		return
 	}

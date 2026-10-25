@@ -1102,24 +1102,27 @@ func TestPreviewFramedProxyErrors(t *testing.T) {
 	}
 }
 
-// A frame cookie arriving on a cross-site iframe navigation — an app in the
-// pane redirecting or linking to another studio, rather than a pane load with
-// a fresh ticket — is not signed in: the framed login page, never the app.
-func TestPreviewFrameCookieNotHonouredCrossSiteIframe(t *testing.T) {
+// A frame cookie arriving on a cross-site or same-site iframe navigation — an
+// app in the pane redirecting or linking to another studio, or a UI reload,
+// rather than a pane load with a fresh ticket — is not signed in: the framed
+// login page (signin, so the pane re-mints), never the app and never a 403.
+func TestPreviewFrameCookieNotHonouredFrameNavigation(t *testing.T) {
 	ph := newPreviewHarness(t, helloApp(t, nil))
 	fc := ph.frameLogin(t, "alice")
-	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
-	req.AddCookie(fc)
-	req.Header.Set("Accept", "text/html")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Dest", "iframe")
-	rec := httptest.NewRecorder()
-	ph.h.ServeHTTP(rec, req)
-	body := rec.Body.String()
-	if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
-		!strings.Contains(body, "Reopen this preview from the Jam pane") || !strings.Contains(body, `status:"signin"`) {
-		t.Fatalf("cross-site iframe with frame cookie = %d %q", rec.Code, body)
+	for _, site := range []string{"cross-site", "same-site"} {
+		req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+		req.AddCookie(fc)
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("Sec-Fetch-Site", site)
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+		req.Header.Set("Sec-Fetch-Dest", "iframe")
+		rec := httptest.NewRecorder()
+		ph.h.ServeHTTP(rec, req)
+		body := rec.Body.String()
+		if rec.Code != http.StatusUnauthorized || strings.Contains(body, "hello from the app") ||
+			!strings.Contains(body, "Reopen this preview from the Jam pane") || !strings.Contains(body, `status:"signin"`) {
+			t.Fatalf("%s iframe with frame cookie = %d %q", site, rec.Code, body)
+		}
 	}
 	if n := len(ph.tun.opened()); n != 0 {
 		t.Fatalf("opened %d tunnels", n)

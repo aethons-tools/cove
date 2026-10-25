@@ -834,7 +834,7 @@ func TestFrameCookieUse(t *testing.T) {
 		{"cross-site fetch", "GET", fetch("cross-site", "cors", "empty"), ErrCrossSite},
 		{"same-site fetch from a sibling", "POST", fetch("same-site", "cors", "empty"), ErrCrossSite},
 		{"iframe no-cors", "GET", fetch("cross-site", "no-cors", "iframe"), ErrCrossSite},
-		{"sibling iframe navigation", "GET", fetch("same-site", "navigate", "iframe"), ErrCrossSite},
+		{"same-site iframe navigation (the UI on a shared registrable domain)", "GET", fetch("same-site", "navigate", "iframe"), ErrNoCredentials},
 		{"user-typed iframe navigation", "GET", fetch("none", "navigate", "iframe"), ErrCrossSite},
 		{"iframe navigation, no Sec-Fetch-Site", "GET", hdrs{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, ErrCrossSite},
 		{"websocket, same session's other host", "GET", ws("https://"+hostB, "same-site"), ErrCrossSite},
@@ -1035,12 +1035,12 @@ func TestFrameCookieIsJams(t *testing.T) {
 	}
 }
 
-// The exchange runs only for the Jam UI's own iframe navigation: cross-site
-// (a sibling preview or the login host is same-site) and in navigate mode.
-func TestFrameExchangeNeedsCrossSiteNavigation(t *testing.T) {
+// The exchange runs only for an iframe navigation another site's page (the
+// Jam UI) started: cross-site or same-site, never same-origin, user-typed or
+// without Fetch Metadata, and in navigate mode.
+func TestFrameExchangeNeedsFrameNavigation(t *testing.T) {
 	a, ft := framed(t)
 	for _, tc := range []struct{ name, site, mode string }{
-		{"sibling (same-site)", "same-site", "navigate"},
 		{"same-origin", "same-origin", "navigate"},
 		{"user-typed", "none", "navigate"},
 		{"no Sec-Fetch-Site", "", "navigate"},
@@ -1061,6 +1061,50 @@ func TestFrameExchangeNeedsCrossSiteNavigation(t *testing.T) {
 		if w.Code != http.StatusBadRequest || len(w.Header().Values("Set-Cookie")) != 0 {
 			t.Errorf("%s: %d %v", tc.name, w.Code, w.Header())
 		}
+	}
+}
+
+// A Jam UI sharing the previews' registrable domain frames them same-site:
+// the exchange accepts that iframe navigation too.
+func TestFrameExchangeSameSite(t *testing.T) {
+	a, ft := framed(t)
+	tk, _ := ft.Mint(collab.Principal{UserID: aliceID}, "alice", hostA, collab.Preview)
+	r := httptest.NewRequest("GET", "https://"+hostA+"/__jam/frame?t="+url.QueryEscape(tk), nil)
+	r.Header.Set("Sec-Fetch-Site", "same-site")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Header.Set("Sec-Fetch-Dest", "iframe")
+	w := httptest.NewRecorder()
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `location.replace("/")`) {
+		t.Fatalf("same-site exchange = %d %q", w.Code, w.Body)
+	}
+	var fc *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == FrameCookie {
+			fc = c
+		}
+	}
+	if fc == nil || fc.Value == "" {
+		t.Fatalf("no frame cookie in %v", w.Header())
+	}
+	// The landing page's same-origin navigation is signed in.
+	r = httptest.NewRequest("GET", "https://"+hostA+"/", nil)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Header.Set("Sec-Fetch-Dest", "iframe")
+	r.AddCookie(fc)
+	if p, _, isFramed, err := a.PrincipalFrame(r); err != nil || p.UserID != aliceID || !isFramed {
+		t.Fatalf("after same-site exchange: %+v %v %v", p, isFramed, err)
+	}
+	// Single use: the spent ticket is refused.
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "https://"+hostA+"/__jam/frame?t="+url.QueryEscape(tk), nil)
+	r.Header.Set("Sec-Fetch-Site", "same-site")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.Header.Set("Sec-Fetch-Dest", "iframe")
+	a.PreviewHostRoutes(http.NotFoundHandler()).ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("replayed ticket = %d", w.Code)
 	}
 }
 
