@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -64,6 +66,12 @@ var streamLogCap int64 = 16 << 20
 // var so tests can point it away from the real /agent-data.
 var defaultConversationMarker = "/agent-data/.cove-conversation"
 
+// defaultClearMarker is the file a Clear pressed while waiting writes (its
+// contents are who pressed it): on the persisted /agent-data volume, so the
+// fresh start it asks for survives a cove-master restart. A var so tests can
+// point it away from the real /agent-data.
+var defaultClearMarker = "/agent-data/.cove-clear-pending"
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent (and its gates)
@@ -112,6 +120,11 @@ type Config struct {
 	// the prior conversation with standingRestartPrompt (falling back once to a
 	// fresh start if that fails before the agent replies).
 	ConversationMarker string
+	// ClearMarker is the clear-pending file's path; empty defaults to
+	// defaultClearMarker. Present before an episode (or at Run start), that
+	// episode starts a fresh conversation, whatever the session kind, with the
+	// raise prompt and clearedNotice; its first reply removes it.
+	ClearMarker string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -129,12 +142,19 @@ type Workload struct {
 	spawner Spawner
 	conn    *connectorRefresher
 	wake    *wakeBox
+	cmds    *cmdBox
+	// interrupts numbers the interrupt control requests (request ids); Run's
+	// goroutine only.
+	interrupts uint64
 	// gate is what a RunGate control needs from the running unit: its ctx, the
 	// handle results go up on, and the agent's last spawn env (nil = inherit).
 	gateMu  sync.Mutex
 	gateCtx context.Context
 	gateH   covemaster.Handle
 	gateEnv []string
+	// streamOut is the stream log every episode's stdout is appended to; nil =
+	// unavailable (events only). Set once at Run start.
+	streamOut io.Writer
 	// contextCore is the written CORE.md path; "" = no context in effect.
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
@@ -163,6 +183,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.ConversationMarker == "" {
 		cfg.ConversationMarker = defaultConversationMarker
 	}
+	if cfg.ClearMarker == "" {
+		cfg.ClearMarker = defaultClearMarker
+	}
 	sp := cfg.Spawner
 	if sp == nil {
 		sp = execSpawner{grace: cfg.Grace}
@@ -174,7 +197,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.Connector != nil {
 		conn = newConnectorRefresher(*cfg.Connector, log)
 	}
-	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox()}
+	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox(), cmds: newCmdBox()}
 }
 
 // resumeText is the prompt a Wake delivers.
@@ -227,7 +250,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			}
 		}
 	}
-	var out io.Writer // nil-able extra sink under the line splitter
 	logPath := w.cfg.StreamLogPath
 	if logPath == "" {
 		logPath = defaultStreamLogPath
@@ -237,17 +259,20 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Warn("agentrun: stream log unavailable; events only", "path", logPath, "err", err.Error())
 	} else {
 		defer f.Close()
-		out = f
+		w.streamOut = f
 	}
 	prompt := w.cfg.Prompt
 	continued := false
 	// A standing session's state persists across restarts (COV-249): when a
 	// prior conversation exists, the first episode continues it.
 	// resuming: this episode continues from the marker (the fallback below
-	// applies to it, once).
+	// applies to it, once). A Clear still pending (pressed before a restart)
+	// wins over the marker: start fresh.
 	persists := w.cfg.SessionKind == "standing"
 	resuming := false
-	if persists {
+	if fresh, ok := w.clearedStart(""); ok {
+		prompt = fresh
+	} else if persists {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
 			prompt, continued, resuming = standingRestartPrompt, true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
@@ -257,50 +282,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	for {
 		turn++
 		t := turn
-		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
-		tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
-		if persists {
-			tr.onReply = w.markConversation // a reply means a conversation to continue exists
-		}
-		trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
-			if dropped > 0 {
-				w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
-				return
-			}
-			tr.Observe(line)
-		}}
-		sinks := []io.Writer{split, trSplit}
-		if out != nil {
-			sinks = append([]io.Writer{out}, sinks...)
-		}
-		sink := io.MultiWriter(sinks...)
-		var env []string
-		if w.conn != nil {
-			var fp string
-			var changed bool
-			env, fp, changed = w.conn.prepare(ctx)
-			// A model-spec edit takes effect here, at the next episode: the
-			// harness re-checks the new spec first and the run fails loud if
-			// it can't satisfy it.
-			if err := w.applySpec(w.conn.last.ModelSpec); err != nil {
-				return err
-			}
-			if changed {
-				h.ConnectorApplied(fp)
-			}
-		}
-		// The files the argv names are rewritten every episode, not only on a
-		// spec change: the agent may have deleted them (a missing --settings
-		// file fails every later claude at startup).
-		if err := w.cfg.Harness.Prepare(w.spec); err != nil {
-			w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
-			return err
-		}
-		bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
-		env = w.overlayEnv(env, extra)
-		w.gateMu.Lock()
-		w.gateEnv = env // gates run with the agent's env
-		w.gateMu.Unlock()
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
@@ -309,15 +290,16 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 				first += contextNotice(changed, false)
 			}
 		}
-		proc, err := w.spawner.Spawn(ctx, bin, args, w.cfg.WorkDir, env, sink)
+		proc, tr, split, err := w.spawn(ctx, h, t, continued)
 		if err != nil {
-			return fmt.Errorf("agentrun: start %s: %w", bin, err)
+			return err
 		}
+		w.dropStaleInterrupt(h, t) // before Running: a press after it is this episode's
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 		started := time.Now()
 
-		waitErr := w.episode(ctx, h, proc, tr, first)
+		waitErr := w.episode(ctx, h, t, proc, tr, first, false)
 		split.Flush()
 		if tr.ResumeOwed() {
 			// The last resume prompt was written but the agent never started the
@@ -355,12 +337,138 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		// session ends (end, idle teardown, wait-max); no result file is read.
 		w.logTurn(waitErr)
 		h.Report(covemaster.Waiting)
-		rs, ok := w.awaitWake(ctx, nil)
-		if !ok {
+		for {
+			rs, c, ok := w.awaitWake(ctx, h, turn, nil)
+			if !ok {
+				return ctx.Err()
+			}
+			if c == nil {
+				prompt, continued = renderWake(w.resumeText(), rs), true
+				if fresh, ok := w.clearedStart(prompt); ok {
+					prompt, continued = fresh, false
+				}
+				break
+			}
+			if _, ok := w.clearPending(); ok {
+				// The cleared conversation is not continued: nothing to compact.
+				w.ignoreCommand(h, turn, "compact", c.by, "no conversation")
+				continue
+			}
+			turn++
+			if err := w.compactIdle(ctx, h, turn, *c); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// compactIdle runs a Compact pressed with no live episode as a maintenance
+// episode: a continued process whose only message is /compact, bounded by
+// compactTimeout. Jam isn't told (no Running, no Waiting after): the session
+// stays waiting. Wakes stay buffered for the wait after it, and so do Clears.
+// It returns an error only when ctx ends; any other failure is logged and Run
+// goes back to waiting.
+func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn uint32, c compactReq) error {
+	mctx, cancel := context.WithTimeout(ctx, compactTimeout)
+	defer cancel()
+	proc, tr, split, err := w.spawn(mctx, h, turn, true)
+	if err != nil {
+		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		prompt, continued = renderWake(w.resumeText(), rs), true
+		w.log.Warn("agentrun: compact not run — the agent could not be started; waiting", "by", c.by, "err", err.Error())
+		return nil
 	}
+	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
+	w.emitCommand(h, turn, "compact", c.by, "")
+	w.dropStaleInterrupt(h, turn)
+	waitErr := w.episode(mctx, h, turn, proc, tr, compactText(c.instructions), true)
+	split.Flush()
+	// The episode consumed any command signal without taking a Clear (or a
+	// newer Compact restored on exit): hand them on to the wait.
+	w.cmds.repost()
+	switch {
+	case ctx.Err() != nil:
+		w.log.Info("agentrun: agent interrupted by context cancel", "err", ctx.Err())
+		return ctx.Err()
+	case mctx.Err() != nil:
+		w.log.Warn("agentrun: compact timed out; maintenance episode stopped, waiting", "by", c.by, "timeout", compactTimeout.String())
+	case waitErr != nil:
+		w.log.Warn("agentrun: compact FAILED — maintenance episode exited non-zero; waiting", "by", c.by, "exit", waitErr.Error())
+	default:
+		w.log.Info("agentrun: compacted; waiting", "by", c.by)
+	}
+	return nil
+}
+
+// spawn starts one agent process for event turn turn: it refreshes the
+// connector (re-validating a changed model-spec), rewrites the harness files
+// and spawns the harness command, its stdout teed to the stream log, the
+// session event stream and a fresh idle tracker. The splitter must be flushed
+// once the process exits.
+func (w *Workload) spawn(ctx context.Context, h covemaster.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
+	split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(turn, line, dropped) }}
+	tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
+	// A reply means a conversation exists: a standing session's to continue
+	// after a restart, and (fresh) the one a pending Clear asked for.
+	var onReply []func()
+	if w.cfg.SessionKind == "standing" {
+		onReply = append(onReply, w.markConversation)
+	}
+	if !continued {
+		onReply = append(onReply, w.consumeClear)
+	}
+	if len(onReply) > 0 {
+		tr.onReply = func() {
+			for _, f := range onReply {
+				f()
+			}
+		}
+	}
+	trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
+		if dropped > 0 {
+			w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
+			return
+		}
+		tr.Observe(line)
+	}}
+	sinks := []io.Writer{split, trSplit}
+	if w.streamOut != nil {
+		sinks = append([]io.Writer{w.streamOut}, sinks...)
+	}
+	sink := io.MultiWriter(sinks...)
+	var env []string
+	if w.conn != nil {
+		var fp string
+		var changed bool
+		env, fp, changed = w.conn.prepare(ctx)
+		// A model-spec edit takes effect here, at the next episode: the
+		// harness re-checks the new spec first and the run fails loud if
+		// it can't satisfy it.
+		if err := w.applySpec(w.conn.last.ModelSpec); err != nil {
+			return nil, nil, nil, err
+		}
+		if changed {
+			h.ConnectorApplied(fp)
+		}
+	}
+	// The files the argv names are rewritten every episode, not only on a
+	// spec change: the agent may have deleted them (a missing --settings
+	// file fails every later claude at startup).
+	if err := w.cfg.Harness.Prepare(w.spec); err != nil {
+		w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
+		return nil, nil, nil, err
+	}
+	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+	env = w.overlayEnv(env, extra)
+	w.gateMu.Lock()
+	w.gateEnv = env // gates run with the agent's env
+	w.gateMu.Unlock()
+	proc, err := w.spawner.Spawn(ctx, bin, args, w.cfg.WorkDir, env, sink)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("agentrun: start %s: %w", bin, err)
+	}
+	return proc, tr, split, nil
 }
 
 // markConversation records that this standing session has a conversation to
@@ -456,9 +564,13 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 }
 
 // episode drives one agent process: writes prompt, then reacts to tracker
-// changes, Wakes, the background-wait timer and exit until the process exits.
-// It returns the process's exit error.
-func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Process, tr *idleTracker, prompt string) error {
+// changes, Wakes, session-header commands, the background-wait timer and exit
+// until the process exits. turn is the episode's event turn. It returns the
+// process's exit error.
+//
+// A maintenance episode's prompt is a /compact: it reads no Wakes (they stay
+// buffered), takes no Clear, and closes stdin once the compaction's turn ends.
+func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32, proc Process, tr *idleTracker, prompt string, maintenance bool) error {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	in := proc.Input()
@@ -471,13 +583,14 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		w.log.Info("agentrun: closing agent stdin", "why", why)
 		_ = in.Close()
 	}
-	write := func(text string) {
-		if _, err := in.Write(w.cfg.Harness.EncodeInput(text)); err != nil {
+	writeRaw := func(b []byte) {
+		if _, err := in.Write(b); err != nil {
 			// The process is gone (EPIPE); its exit reports the real outcome.
 			w.log.Warn("agentrun: write to agent stdin failed; awaiting exit", "err", err.Error())
 			closeInput("stdin write failed")
 		}
 	}
+	write := func(text string) { writeRaw(w.cfg.Harness.EncodeInput(text)) }
 	var hold *time.Timer
 	var holdC <-chan time.Time
 	stopHold := func() {
@@ -509,10 +622,26 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		}
 		return text
 	}
+	// ackBy: who interrupted the turn in flight; when it ends, the acknowledge
+	// turn is written instead of the usual turn-end action.
+	ackBy := ""
+	// compact: a Compact taken but not yet written (at the next turn
+	// boundary); compacting: a written /compact's turn is in flight.
+	var compact *compactReq
+	compacting := maintenance
+	defer func() {
+		if compact != nil {
+			// The process exited before the turn boundary: the press is not lost.
+			w.cmds.restoreCompact(*compact)
+		}
+	}()
 	for {
-		var wake <-chan struct{}
+		var wake, cmds <-chan struct{}
 		if open {
-			wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
+			if !maintenance {
+				wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
+			}
+			cmds = w.cmds.signal() // and commands for awaitWake
 		}
 		select {
 		case err := <-exited:
@@ -520,11 +649,50 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		case <-ctx.Done():
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
-			// A signal whose reasons an earlier prompt already took is stale.
-			if w.wake.has() && tr.Wake() {
-				write(resume())
+			switch {
+			case !w.wake.has():
+				// A signal whose reasons an earlier prompt already took is stale.
+			case ackBy != "":
+				// The acknowledge turn answers it: only record it as pending
+				// (so an exit before the ack keeps it owed), never deliver now.
+				tr.Wake()
+			case tr.Wake():
+				// Marked before the write: a fast turn end must not be seen first.
 				tr.Wrote()
+				write(resume())
 				unhold()
+			}
+		case <-cmds:
+			if by, ok := w.cmds.takeInterrupt(); ok {
+				switch {
+				case !tr.Busy():
+					w.ignoreCommand(h, turn, "interrupt", by, "not in a turn")
+				case ackBy != "":
+					w.ignoreCommand(h, turn, "interrupt", by, "already interrupting")
+				case compacting:
+					// The compaction finishes and its turn ends anyway.
+					w.ignoreCommand(h, turn, "interrupt", by, "compacting")
+				default:
+					w.interrupts++
+					w.log.Info("agentrun: interrupting the agent's turn", "by", by)
+					w.emitCommand(h, turn, "interrupt", by, "")
+					writeRaw(w.cfg.Harness.EncodeInterrupt(fmt.Sprintf("cove-int-%d", w.interrupts)))
+					ackBy = by
+				}
+			}
+			if by, instructions, ok := w.cmds.takeCompact(); ok {
+				if compacting {
+					w.ignoreCommand(h, turn, "compact", by, "already compacting")
+				} else {
+					compact = &compactReq{by: by, instructions: instructions} // the last press wins
+				}
+			}
+			if !maintenance {
+				// Clear is for a waiting session only; a maintenance episode
+				// leaves it for the wait after it.
+				if by, ok := w.cmds.takeClear(); ok {
+					w.ignoreCommand(h, turn, "clear", by, "live episode")
+				}
 			}
 		case <-tr.changed:
 		case <-holdC:
@@ -538,6 +706,46 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 		if !open {
 			continue
 		}
+		if ackBy != "" && !tr.Busy() {
+			// The interrupted turn ended: one acknowledge turn, which also
+			// answers any wakes coalesced into the interrupted one.
+			stopHold()
+			text := interruptPrompt(ackBy, w.wake.take())
+			if w.ctxr != nil {
+				text += contextNotice(w.ctxr.live(ctx), true)
+			}
+			tr.Deliver() // before the write, as above
+			write(text)
+			unhold()
+			ackBy = ""
+			continue
+		}
+		if compacting {
+			if tr.Busy() {
+				// Nothing to do until the compaction's turn ends; a hold stays
+				// reported (its turn is ours, not the agent's).
+				continue
+			}
+			compacting = false
+			if maintenance {
+				closeInput("compacted")
+				continue
+			}
+			// Carry on with the usual turn-end action.
+		}
+		if compact != nil && !tr.Busy() {
+			// At the turn boundary (or now, between turns): compact before any
+			// coalesced wake is delivered, so its resume lands in the new context.
+			// A hold's timer restarts after the compaction; Holding stays reported.
+			stopHold()
+			w.log.Info("agentrun: compacting the conversation", "by", compact.by)
+			tr.MarkBusy() // before the write, as above
+			write(compactText(compact.instructions))
+			compacting = true
+			w.emitCommand(h, turn, "compact", compact.by, "")
+			compact = nil
+			continue
+		}
 		switch act, tasks := tr.Next(); act {
 		case actDeliverWake:
 			stopHold()
@@ -548,8 +756,10 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
 				hold = time.NewTimer(w.cfg.BackgroundWait)
 				holdC = hold.C
-				h.Report(covemaster.Holding)
-				held = true
+				if !held { // a hold resumed after a compaction is still reported
+					h.Report(covemaster.Holding)
+					held = true
+				}
 			}
 		case actClose:
 			stopHold()
@@ -561,19 +771,32 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, proc Proces
 	}
 }
 
-// awaitWake blocks until a Wake with reasons still to answer arrives, skipping
-// stale signals. ok is false when ctx ends or timeout (nil = none) fires.
-func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs []covemaster.WakeReason, ok bool) {
+// awaitWake blocks until a Wake with reasons still to answer (rs) or a Compact
+// (compact) arrives, skipping stale signals. A Clear is handled here (see
+// takeClear). turn is the last episode's event turn, for command records. ok
+// is false when ctx ends or timeout (nil = none) fires.
+func (w *Workload) awaitWake(ctx context.Context, h covemaster.Handle, turn uint32, timeout <-chan time.Time) (rs []covemaster.WakeReason, compact *compactReq, ok bool) {
 	for {
 		select {
 		case <-w.wake.signal():
 			if rs = w.wake.take(); len(rs) > 0 {
-				return rs, true
+				// A Clear pressed alongside still applies to the episode this
+				// Wake starts.
+				w.takeClear(h, turn)
+				return rs, nil, true
+			}
+		case <-w.cmds.signal():
+			if by, ok := w.cmds.takeInterrupt(); ok {
+				w.ignoreCommand(h, turn, "interrupt", by, "no live episode")
+			}
+			w.takeClear(h, turn)
+			if by, instructions, ok := w.cmds.takeCompact(); ok {
+				return nil, &compactReq{by: by, instructions: instructions}, true
 			}
 		case <-ctx.Done():
-			return nil, false
+			return nil, nil, false
 		case <-timeout:
-			return nil, false
+			return nil, nil, false
 		}
 	}
 }
@@ -599,6 +822,10 @@ func (w *Workload) logTurn(waitErr error) {
 // coalesced into one resume prompt at turn end); after the process exited, a
 // Run waiting after an episode consumes it and resumes. Coalesced wakes
 // merge their reasons: the one resume prompt names them all (renderWake).
+// Interrupt, Compact and Clear post to the command box the same way, never
+// blocking: the episode loop acts on them, or awaitWake does (a Compact runs
+// a maintenance episode, a Clear writes the clear marker, an Interrupt is
+// dropped).
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
@@ -608,6 +835,72 @@ func (w *Workload) Control(c covemaster.Control) {
 	case covemaster.Wake:
 		w.log.Info("agentrun: wake requested", "reasons", len(c.Reasons))
 		w.wake.post(c.Reasons)
+	case covemaster.Interrupt:
+		w.log.Info("agentrun: interrupt requested", "by", c.By)
+		w.cmds.postInterrupt(c.By)
+	case covemaster.Compact:
+		w.log.Info("agentrun: compact requested", "by", c.By)
+		w.cmds.postCompact(c.By, c.Instructions)
+	case covemaster.Clear:
+		w.log.Info("agentrun: clear requested", "by", c.By)
+		w.cmds.postClear(c.By)
+	}
+}
+
+// takeClear takes a Clear pressed while waiting and writes the clear marker
+// (its contents: who pressed it), so the next episode starts fresh, even
+// after a restart. No turn starts. Run's goroutine only.
+func (w *Workload) takeClear(h covemaster.Handle, turn uint32) {
+	by, ok := w.cmds.takeClear()
+	if !ok {
+		return
+	}
+	w.emitCommand(h, turn, "clear", by, "")
+	if err := os.WriteFile(w.cfg.ClearMarker, []byte(by), 0o600); err != nil {
+		w.log.Warn("agentrun: clear marker not written; the conversation continues", "by", by, "path", w.cfg.ClearMarker, "err", err.Error())
+		return
+	}
+	w.log.Info("agentrun: conversation cleared; the next episode starts fresh", "by", by)
+}
+
+// clearPending reports whether a Clear is pending (the marker exists) and who
+// pressed it: "someone" when the marker is empty or unreadable.
+func (w *Workload) clearPending() (by string, ok bool) {
+	b, err := os.ReadFile(w.cfg.ClearMarker)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", false
+	case err != nil:
+		w.log.Warn("agentrun: clear marker unreadable; clearing anyway", "path", w.cfg.ClearMarker, "err", err.Error())
+	}
+	if by = strings.TrimSpace(string(b)); by == "" {
+		by = "someone"
+	}
+	return by, true
+}
+
+// clearedStart is a pending Clear's fresh first message: the raise prompt,
+// clearedNotice, then wake (the text the episode would otherwise have opened
+// with; "" = none). ok is false when no Clear is pending.
+func (w *Workload) clearedStart(wake string) (prompt string, ok bool) {
+	by, ok := w.clearPending()
+	if !ok {
+		return "", false
+	}
+	w.log.Info("agentrun: starting a fresh conversation after a clear", "by", by)
+	prompt = w.cfg.Prompt + "\n\n" + clearedNotice(by)
+	if wake != "" {
+		prompt += "\n\n" + wake
+	}
+	return prompt, true
+}
+
+// consumeClear removes the clear marker once the fresh conversation exists
+// (its first reply). Runs on the stdout goroutine (the idle tracker's
+// onReply); Run reads or writes the marker only between episodes.
+func (w *Workload) consumeClear() {
+	if err := os.Remove(w.cfg.ClearMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.log.Warn("agentrun: clear marker not removed; the next episode starts fresh again", "path", w.cfg.ClearMarker, "err", err.Error())
 	}
 }
 

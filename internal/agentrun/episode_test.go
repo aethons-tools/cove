@@ -15,16 +15,21 @@ import (
 	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
-// pipeInput records stream-json user messages written to the agent's stdin.
+// pipeInput records stream-json user messages (msgs) and control requests
+// (ctrls, by subtype) written to the agent's stdin.
 type pipeInput struct {
 	msgs   chan string
+	ctrls  chan string
 	closed chan struct{}
 	once   sync.Once
 	broken atomic.Bool // set: writes fail as if the process had exited (EPIPE)
+	// onWrite, when set, runs inside Write after a message is queued: a fake
+	// agent answering before Write returns.
+	onWrite atomic.Pointer[func(string)]
 }
 
 func newPipeInput() *pipeInput {
-	return &pipeInput{msgs: make(chan string, 16), closed: make(chan struct{})}
+	return &pipeInput{msgs: make(chan string, 16), ctrls: make(chan string, 16), closed: make(chan struct{})}
 }
 
 func (p *pipeInput) Write(b []byte) (int, error) {
@@ -38,15 +43,25 @@ func (p *pipeInput) Write(b []byte) (int, error) {
 	}
 	var m struct {
 		Type    string `json:"type"`
+		Request struct {
+			Subtype string `json:"subtype"`
+		} `json:"request"`
 		Message struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"message"`
 	}
+	if err := json.Unmarshal(b, &m); err == nil && m.Type == "control_request" && m.Request.Subtype != "" && len(b) > 0 && b[len(b)-1] == '\n' {
+		p.ctrls <- m.Request.Subtype
+		return len(b), nil
+	}
 	if err := json.Unmarshal(b, &m); err != nil || m.Type != "user" || m.Message.Role != "user" || b[len(b)-1] != '\n' {
 		return 0, io.ErrShortWrite // malformed: surface as a test failure via next()
 	}
 	p.msgs <- m.Message.Content
+	if f := p.onWrite.Load(); f != nil {
+		(*f)(m.Message.Content)
+	}
 	return len(b), nil
 }
 
@@ -60,6 +75,27 @@ func (p *pipeInput) next(t *testing.T) string {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no stdin message")
 		return ""
+	}
+}
+
+// nextCtrl returns the subtype of the next control request written.
+func (p *pipeInput) nextCtrl(t *testing.T) string {
+	t.Helper()
+	select {
+	case c := <-p.ctrls:
+		return c
+	case <-time.After(2 * time.Second):
+		t.Fatal("no control request")
+		return ""
+	}
+}
+
+func (p *pipeInput) noCtrl(t *testing.T, d time.Duration) {
+	t.Helper()
+	select {
+	case c := <-p.ctrls:
+		t.Fatalf("unexpected control request %q", c)
+	case <-time.After(d):
 	}
 }
 
@@ -132,7 +168,8 @@ func (s *streamSpawner) next(t *testing.T) *streamProc {
 
 func streamWL(t *testing.T, dir string, s *streamSpawner, mut func(*Config)) *Workload {
 	t.Helper()
-	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: s}
+	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: s,
+		ClearMarker: filepath.Join(dir, ".cove-clear-pending")}
 	if mut != nil {
 		mut(&cfg)
 	}

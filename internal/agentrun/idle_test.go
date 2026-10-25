@@ -215,3 +215,25 @@ func TestIdleTrackerResumeOwedUntilTurnStarts(t *testing.T) {
 		t.Fatal("the resumed turn started: nothing owed")
 	}
 }
+
+func TestTrackerBusyMarkDeliver(t *testing.T) {
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
+	if !tr.Busy() {
+		t.Fatal("a new tracker is busy")
+	}
+	feed(tr, lnResult)
+	if tr.Busy() {
+		t.Fatal("busy after a result")
+	}
+	tr.MarkBusy()
+	if !tr.Busy() || tr.ResumeOwed() {
+		t.Fatalf("MarkBusy: busy=%v resumeOwed=%v", tr.Busy(), tr.ResumeOwed())
+	}
+	if tr.Wake() {
+		t.Fatal("Wake while busy must coalesce")
+	}
+	tr.Deliver()
+	if tr.PendingWake() || !tr.ResumeOwed() || !tr.Busy() {
+		t.Fatalf("Deliver: pending=%v resumeOwed=%v busy=%v", tr.PendingWake(), tr.ResumeOwed(), tr.Busy())
+	}
+}
