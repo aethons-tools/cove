@@ -53,7 +53,7 @@ func (f *studioFrames) mints(name string) int {
 }
 
 // framePage is the fake preview: <p id="ok">name</p>, posting a frame-error
-// to its parent when ?post= asks (a number posts as a number).
+// to its parent when ?post= asks (a number posts as a number), ?late= ms later.
 func framePage(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -64,7 +64,11 @@ func framePage(w http.ResponseWriter, r *http.Request) {
 			status = n
 		}
 		b, _ := json.Marshal(map[string]any{"jam": "frame-error", "status": status})
-		fmt.Fprintf(w, `<script>parent.postMessage(%s, '*')</script>`, b)
+		delay := r.URL.Query().Get("late") // ms: post that much later
+		if delay == "" {
+			delay = "0"
+		}
+		fmt.Fprintf(w, `<script>setTimeout(function(){ parent.postMessage(%s, '*'); }, %s)</script>`, b, strconv.Quote(delay))
 	}
 }
 
@@ -234,4 +238,164 @@ func TestBrowserStudio(t *testing.T) {
 	// Closing the pane removes the IDE's iframe.
 	run("close", chromedp.Click(`.sh-tabs [data-tab="previews"]`, chromedp.ByQuery),
 		poll(`document.getElementById('side-pane').hidden && !document.querySelector('iframe.st-iframe')`))
+}
+
+// frameGate wraps the user handler: the frame route answers code (when
+// non-zero) or is held for hold before it is served.
+type frameGate struct {
+	mu   sync.Mutex
+	code int
+	hold time.Duration
+	h    http.Handler
+}
+
+func (g *frameGate) set(code int, hold time.Duration) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.code, g.hold = code, hold
+}
+
+func (g *frameGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/frame") {
+		g.mu.Lock()
+		code, hold := g.code, g.hold
+		g.mu.Unlock()
+		if code != 0 {
+			http.Error(w, "refused", code)
+			return
+		}
+		time.Sleep(hold)
+	}
+	g.h.ServeHTTP(w, r)
+}
+
+// The pane's framed views at their edges: a remembered Studio tab stays
+// closed for a viewer without ssh; a refused mint keeps the plain Open in new
+// tab; a non-http(s) frame URL isn't loaded; a late message from a replaced
+// frame can't fail the new one; a preview's 502 reads as such; and a page
+// restored from the back/forward cache reopens the Studio.
+func TestBrowserStudioEdges(t *testing.T) {
+	ctx := browserCtx(t)
+	e, p, personal, standing, _ := frameEnv(t)
+	pv := httptest.NewServer(http.HandlerFunc(framePage))
+	defer pv.Close()
+	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
+	e.Deps.Frames = ff
+	e.Deps.PreviewURL = func(actorID, name string) (string, error) {
+		return "https://" + name + "--" + actorID + ".preview.test/", nil
+	}
+	gate := &frameGate{h: withStatic(Handler(e.Deps, nil))}
+	srv := httptest.NewServer(asWho(gate, p))
+	defer srv.Close()
+	home, sHome := e.homeOf(t, personal), e.homeOf(t, standing)
+
+	poll := func(js string) chromedp.Action {
+		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	run := func(what string, acts ...chromedp.Action) {
+		t.Helper()
+		if err := chromedp.Run(ctx, acts...); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	}
+	eval := func(js string, out any) {
+		t.Helper()
+		if err := chromedp.Run(ctx, chromedp.Evaluate(js, out)); err != nil {
+			t.Fatalf("%s: %v", js, err)
+		}
+	}
+	const js = `function F(){ return document.querySelector('#studio iframe.st-iframe'); }
+		function S(){ var x=document.querySelector('#studio .st-status'); return x ? x.textContent : null; }`
+	status := func(want string) chromedp.Action {
+		return poll(`(function(){` + js + `return S()===` + strconv.Quote(want) + `;})()`)
+	}
+	settle := func() { time.Sleep(400 * time.Millisecond) }
+	openStudio := func(what string) {
+		t.Helper()
+		run(what, chromedp.Evaluate(`localStorage.clear()`, nil), chromedp.Navigate(srv.URL+"/app/user/?c="+home),
+			chromedp.WaitVisible(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
+			chromedp.Click(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
+			poll(`!!document.querySelector('#studio')`))
+	}
+
+	// (1) A remembered Studio tab, or &tab=studio, stays closed for a viewer
+	// without ssh (no Studio in the header), and isn't saved over.
+	run("open", chromedp.EmulateViewport(1400, 900), chromedp.Navigate(srv.URL+"/app/user/?c="+home),
+		chromedp.WaitVisible(`#session-head`, chromedp.ByQuery),
+		chromedp.Evaluate(`localStorage.clear(); localStorage.setItem('jam-pane:last', JSON.stringify({tab:'studio'}))`, nil))
+	var closed struct {
+		Hidden, Button bool
+		Last           string
+	}
+	for _, extra := range []string{"", "&tab=studio"} {
+		run("no ssh"+extra, chromedp.Navigate(srv.URL+"/app/user/?c="+sHome+extra), chromedp.WaitVisible(`#session-head`, chromedp.ByQuery))
+		settle()
+		eval(`({Hidden:document.getElementById('side-pane').hidden, Button:!!document.querySelector('.sh-tabs [data-tab="studio"]'),
+			Last:localStorage.getItem('jam-pane:last')})`, &closed)
+		if !closed.Hidden || closed.Button || closed.Last != `{"tab":"studio"}` {
+			t.Fatalf("(1) a remembered Studio without ssh%s: %+v", extra, closed)
+		}
+	}
+
+	// (6, 7) A refused mint says so and keeps the plain Open in new tab.
+	gate.set(http.StatusForbidden, 0)
+	openStudio("refused")
+	run("refused", status("No longer shared with you."))
+	var open string
+	eval(`document.querySelector('#studio .st-open').href`, &open)
+	if open != "https://ide--"+personal.ActorID+".preview.test/" {
+		t.Fatalf("(6) Open in new tab after a refused mint: %q", open)
+	}
+	gate.set(http.StatusTooManyRequests, 0)
+	run("429", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("Too many views opened; wait a minute."))
+	gate.set(0, 0)
+
+	// (4) A frame URL that isn't http(s) isn't loaded.
+	ff.mu.Lock()
+	ff.base = "javascript:parent.document.body.dataset.pwned='1'//"
+	ff.mu.Unlock()
+	run("bad scheme", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("Couldn't open this view."))
+	var pwned bool
+	eval(`(function(){`+js+`return !!F() || document.body.dataset.pwned==='1';})()`, &pwned)
+	if pwned {
+		t.Fatal("(4) a javascript: frame URL was loaded")
+	}
+	ff.mu.Lock()
+	ff.base = pv.URL
+	ff.mu.Unlock()
+
+	// (3) A frame that posts after a new mint has started can't fail the new frame.
+	ff.queue("ide", "post=403&late=1000")
+	run("late frame", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+		poll(`(function(){`+js+`var f=F(); return !!f && f.src.includes('late=');})()`), status(""))
+	gate.set(0, 2500*time.Millisecond)
+	run("re-mint", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+		poll(`(function(){`+js+`var f=F(); return !!f && !f.src.includes('late=');})()`))
+	gate.set(0, 0)
+	run("new frame loads", status(""))
+	settle()
+	var st string
+	eval(`(function(){`+js+`return S();})()`, &st)
+	if st != "" {
+		t.Fatalf("(3) the replaced frame's late message failed the new one: %q", st)
+	}
+
+	// (5) Restored from the back/forward cache (pagehide emptied the keep),
+	// the Studio opens again.
+	before := ff.mints("ide")
+	run("bfcache", chromedp.Evaluate(`window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}))`, nil),
+		poll(`!document.querySelector('#studio')`),
+		chromedp.Evaluate(`window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))`, nil),
+		poll(`(function(){`+js+`return !!F();})()`), status(""))
+	if n := ff.mints("ide") - before; n != 1 {
+		t.Fatalf("(5) bfcache restore: %d mints, want 1", n)
+	}
+
+	// (7) A framed preview posting 502 isn't answering.
+	ff.queue("app", "post=502")
+	run("preview 502",
+		chromedp.Click(`.sh-tabs [data-tab="previews"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
+		chromedp.Click(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
+		poll(`(function(){var x=document.querySelector('#side-pane-body .pv-status'); return !!x && x.textContent==="The preview isn't answering.";})()`))
 }

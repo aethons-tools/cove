@@ -396,3 +396,21 @@ func TestPreviewUIOriginsWarning(t *testing.T) {
 		t.Fatalf("previews off: %q", got)
 	}
 }
+
+// The Jam pane frames (Studio, View here) only when previews are on and
+// ui-origins names the UI: otherwise previews send frame-ancestors 'none'.
+func TestPaneFramingOn(t *testing.T) {
+	for _, tc := range []struct {
+		c    serveConfig
+		want bool
+	}{
+		{serveConfig{}, false},
+		{serveConfig{UIOrigins: []string{"https://jam.example"}}, false},
+		{serveConfig{Previews: &previewsConfig{Domain: "p.example"}}, false},
+		{serveConfig{Previews: &previewsConfig{Domain: "p.example"}, UIOrigins: []string{"https://jam.example"}}, true},
+	} {
+		if got := paneFramingOn(&tc.c); got != tc.want {
+			t.Errorf("paneFramingOn(previews %v, origins %v) = %v, want %v", tc.c.Previews != nil, tc.c.UIOrigins, got, tc.want)
+		}
+	}
+}

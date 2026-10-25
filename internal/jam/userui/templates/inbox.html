@@ -106,7 +106,7 @@
      /app/user/session/{id}/pane?tab= target; layout.html's mePane loads it). */}}
 {{define "sessionpane"}}{{with .Pane}}
 {{if eq .Tab "studio"}}
-  {{if .Studio}}<div class="studio" id="studio" data-session="{{.ID}}"><div class="st-bar"><span class="st-status">Starting the IDE…</span><span class="spacer"></span><button type="button" class="st-reload">Reload</button><a class="st-open" target="_blank" rel="noopener">Open in new tab</a></div><div class="st-frame"></div></div>
+  {{if .Studio}}<div class="studio" id="studio" data-session="{{.ID}}"><div class="st-bar"><span class="st-status">Starting the IDE…</span><span class="spacer"></span><button type="button" class="st-reload">Reload</button><a class="st-open"{{with .IDEOpen}} href="{{.}}"{{end}} target="_blank" rel="noopener">Open in new tab</a></div><div class="st-frame"></div></div>
   {{else}}<p class="empty">The studio isn't available to you here.</p>{{end}}
 {{else if eq .Tab "thinking"}}
   {{if .EventsOff}}<p class="empty">Session events aren't recorded on this jam.</p>

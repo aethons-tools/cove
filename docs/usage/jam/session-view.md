@@ -50,7 +50,8 @@ on push and every 30s.
 - **Studio:** the session's IDE, in the pane. See [Studio](#studio).
 - **Previews:** the session's exposed ports ([previews.md](previews.md)). Each link opens in a
   new tab. With framing on, **View here** shows one preview in the pane (see
-  [View here](#view-here)). The `ide` exposure is left out, because Studio shows it. The tab says
+  [View here](#view-here)). The `ide` exposure is left out of the list: SSH holders reach it through
+Studio. The tab says
   so when previews are off, or when collab doesn't allow you to open them.
 - **Artifacts:** what the home channel holds, newest first:
   - whiteboards, with thumbnails;
@@ -66,13 +67,16 @@ on push and every 30s.
 **Layout memory:** the open tab, placement and size are saved in `localStorage` under
 `jam-pane:<session id>`. A session you have never opened starts from the last layout you
 used (`jam-pane:last`). `&tab=studio|previews|artifacts|status|thinking` on a conversation URL opens that
-tab. A tab clicked while a whiteboard is open goes back to the chat with that tab open.
+tab. A remembered or linked Studio tab stays closed when the header has no Studio (no SSH, or
+framing off). A tab clicked while a whiteboard is open goes back to the chat with that tab open.
+A page restored with the browser's Back or Forward lays the pane out again and reloads its tab.
 
 ## Studio
 
 The **Studio** tab is a web IDE (code-server) on the session's workspace, framed in the pane.
 It is a shell, so it shows only if you may SSH ([collab](collaboration.md#who-may-connect)) and
-framing is on ([previews.md](previews.md#framing-the-jam-pane)). There is no browse-only mode.
+framing is on: previews are on and [`ui-origins`](serve.md) is set, since previews refuse every
+other framer ([previews.md](previews.md#framing-the-jam-pane)). There is no browse-only mode.
 A kit's own `ide` exposure replaces the built-in IDE ([previews.md](previews.md#a-web-ide)).
 
 - **First start:** opening the tab asks `POST /app/user/session/{id}/frame` (form field `name`;
@@ -80,12 +84,13 @@ A kit's own `ide` exposure replaces the built-in IDE ([previews.md](previews.md#
   one-time frame URL, and loads it. It reads "Starting the IDE…" until the frame loads; the
   first start can take several seconds while code-server starts.
 - **Kept across tabs:** switching to another pane tab hides the IDE without unloading it. Going
-  back shows it as it was.
+  back shows it as it was. Closing the pane (**×**, or clicking Studio again) unloads the IDE.
 - **Conversation switch:** a different conversation is a full page load, so the IDE reloads
   (1–3 s). code-server and VS Code state (open files, terminals) live in the studio and survive.
 - **Width:** the first open takes 60% of the split, unless you have a saved size for that placement.
-- **Reload** mints a fresh URL and reloads. **Open in new tab** opens the IDE on its own host,
-  where you sign in normally.
+- **Reload** mints a fresh URL and reloads; the old frame is removed while the new URL is minted.
+  **Open in new tab** opens the IDE on its own host, where you sign in normally. It works even
+  when a mint is refused.
 - **Rate limit:** 30 mints per user per minute, then 429 ("Too many views opened; wait a minute.").
 
 **Errors** show in place of "Starting the IDE…":
@@ -94,15 +99,17 @@ A kit's own `ide` exposure replaces the built-in IDE ([previews.md](previews.md#
 |-------|-------|
 | `signin` (the frame login lapsed) | re-mints once; if it recurs, a **Reopen this view** button |
 | `cookies` (an expired login, or the browser refused the frame cookie) | retries once, then "This browser can't sign in inside the pane — use Open in new tab." (Safari does this) |
-| 403 | No longer shared with you. |
-| 404 | Nothing to show: the studio isn't running. |
+| 403 (refused mint, or from the frame) | No longer shared with you. |
+| 404, refused mint (not exposed, or framing off) | Nothing to show. |
+| 404, from the frame | Nothing to show: the studio isn't running. |
+| a frame URL that isn't `http(s)`, or another refused mint | Couldn't open this view. |
 | 502, 503, 504 | The IDE didn't start: the studio's image may predate it, so upgrade the studio or expose an IDE as `ide`. |
 
 ### View here
 
 With framing on, each row in Previews has **View here**. It replaces the list with that one
 preview framed, under a bar with **← All previews**, the name, a status and **Open in new tab**. One preview
-is framed at a time. It loads and fails like the Studio, but its errors read "The preview isn't answering."
+is framed at a time. It loads and fails like the Studio, but a 502, 503 or 504 reads "The preview isn't answering."
 Going back reloads the list.
 
 ## Cost and counts

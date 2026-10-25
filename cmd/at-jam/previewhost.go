@@ -308,6 +308,13 @@ func previewAdminHosts(c *serveConfig) []string {
 	return append(out, c.UIHosts...)
 }
 
+// paneFramingOn: the Jam pane may frame previews (Studio, View here) only
+// when previews are on and ui-origins names the UI; otherwise previews send
+// frame-ancestors 'none' and the browser would block the frame unexplained.
+func paneFramingOn(c *serveConfig) bool {
+	return c.Previews != nil && len(c.UIOrigins) > 0
+}
+
 // previewUIOriginsWarning is serve's startup warning when previews are on but
 // ui-origins is empty ("" otherwise): no page may then frame a preview.
 func previewUIOriginsWarning(c *serveConfig) string {

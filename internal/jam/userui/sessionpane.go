@@ -34,8 +34,10 @@ type SessionPane struct {
 	// EventsOff: this jam records no session events.
 	Streams   []sessionevents.StreamInfo
 	EventsOff bool
-	// Studio: the Studio tab's IDE may be framed here (ssh and framing on).
-	Studio bool
+	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
+	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
+	Studio  bool
+	IDEOpen string
 }
 
 // PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -81,6 +83,9 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 	case "studio":
 		_, ok := collab.Decide(h.d.Store, time.Now(), collabPrincipal(r, p), inst, collab.SSH)
 		pane.Studio = ok && h.d.Frames != nil
+		if pane.Studio && h.d.PreviewURL != nil {
+			pane.IDEOpen, _ = h.d.PreviewURL(inst.ActorID, preview.IDEName)
+		}
 	case "thinking":
 		if h.d.Events == nil {
 			pane.EventsOff = true

@@ -493,7 +493,11 @@ function mePanePlace(){
   var s=meSplit(); if(!s) return;
   s._pane=mePaneLoad(s.dataset.session);
   var q=new URLSearchParams(location.search).get('tab');
-  if(mePaneTabs[q]){ s._pane.tab=q; mePaneSave(s); }
+  if(mePaneTabs[q]) s._pane.tab=q;
+  // A remembered (or linked) Studio stays closed without the header's Studio
+  // (no ssh, or framing off); the saved layout is left as it was.
+  if(s._pane.tab==='studio' && !document.querySelector('.sh-tabs [data-tab="studio"]')) s._pane.tab=null;
+  else if(mePaneTabs[q]) mePaneSave(s);
   mePaneApply(s, true);
   meNarrow.addEventListener('change', function(){ mePaneApply(s, false); });
   // Drag (or arrow keys on) the divider to resize; the size is kept per placement.
@@ -921,7 +925,8 @@ function meFrameRefused(s){
 function meFrameStart(rec){ rec.signin=false; rec.cookies=false; meFrameMint(rec); }
 function meFrameMint(rec){
   var n=rec.seq=(rec.seq||0)+1;
-  rec.err=false;
+  // Detach the old frame: a late message from it can't fail the new one.
+  rec.frame.textContent=''; rec.iframe=null; rec.err=false;
   rec.status.textContent=rec.kind==='ide' ? 'Starting the IDE…' : 'Loading…';
   fetch('/app/user/session/'+encodeURIComponent(rec.sid)+'/frame', {method:'POST', credentials:'same-origin',
     headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'name='+encodeURIComponent(rec.name)})
@@ -929,11 +934,11 @@ function meFrameMint(rec){
    .then(function(j){
      if(!meFrameLive(rec) || rec.seq!==n) return;
      if(j.open && /^https?:\/\//i.test(j.open)) rec.open.href=j.open;
+     if(!/^https?:\/\//i.test(String(j.url))){ meFrameSay(rec, meFrameRefused()); return; }
      meFrameLoad(rec, j.url);
    })
    .catch(function(s){
      if(!meFrameLive(rec) || rec.seq!==n) return;
-     rec.frame.textContent=''; rec.iframe=null;
      meFrameSay(rec, meFrameRefused(s));
    });
 }
@@ -1059,6 +1064,12 @@ document.addEventListener('htmx:afterSettle', function(e){
   if(el) meStudioAdopt(el);
 });
 window.addEventListener('pagehide', function(){ meStudioClose(); mePvClose(); });
+// Restored from the back/forward cache: pagehide emptied the framed views,
+// so lay the pane out (and fetch its tab) again.
+window.addEventListener('pageshow', function(e){
+  var s=meSplit();
+  if(e.persisted && s && s._pane) mePaneApply(s, true);
+});
 function meSend(e, to){
   e.preventDefault();
   var f=e.target, body=(f.body.value||"").trim();

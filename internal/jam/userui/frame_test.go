@@ -206,6 +206,10 @@ func TestStudioTab(t *testing.T) {
 		!strings.Contains(body, `class="st-reload"`) || !strings.Contains(body, `class="st-open"`) {
 		t.Errorf("studio pane = %d:\n%s", code, body)
 	}
+	// Open in new tab works without a mint: the plain IDE URL is rendered in.
+	if !strings.Contains(body, `class="st-open" href="https://ide--`+personal.ActorID+`.preview.test/"`) {
+		t.Errorf("studio pane has no plain Open in new tab URL:\n%s", body)
+	}
 	if _, body := e.paneTab(t, p, standing.ActorID, "studio", false); strings.Contains(body, `id="studio"`) {
 		t.Error("a studio pane without ssh")
 	}

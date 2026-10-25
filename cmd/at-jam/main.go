@@ -2726,7 +2726,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
 		userDeps := userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
-		if frames != nil { // never a typed nil: a nil Frames hides Studio and View here
+		// Never a typed nil: a nil Frames hides Studio and View here, as it must
+		// without ui-origins (previews then refuse every framer).
+		if frames != nil && paneFramingOn(&cfg) {
 			userDeps.Frames = frameURLs{tickets: frames, domain: cfg.Previews.Domain, adminListen: cfg.AdminListen}
 		}
 		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
