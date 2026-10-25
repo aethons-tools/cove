@@ -215,16 +215,13 @@ func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) str
 		}
 		files := "unknown"
 		if v, ok := LoadKitVersion(store, r.ID, r.Version); ok {
-			switch {
-			case v.TreeHash != "":
+			if v.Err != nil { // broken, tree not stored, unparsable or pre-tree
+				files = "not loadable"
+			} else {
 				files = fmt.Sprintf("tree %s, %d file", shortDigest(v.TreeHash), len(v.Tree.Entries))
 				if len(v.Tree.Entries) != 1 {
 					files += "s"
 				}
-			case v.Err != nil:
-				files = "not loadable"
-			default:
-				files = "config text (not yet a tree)"
 			}
 		}
 		rows = append(rows, []string{"  " + flat(r.String()), src, files})

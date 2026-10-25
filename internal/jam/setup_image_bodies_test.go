@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 func seedFacts() ImageFacts {
@@ -81,6 +83,22 @@ func TestKitDetailBodyShowsTrees(t *testing.T) {
 	}
 	one := pushTree(t, st, "solo", "kit.yml", "kind: studio\n")
 	if body := kitDetailBody(st, []KitRef{{ID: "solo", Version: 1}}, nil); !strings.Contains(body, "tree "+one.Hash()[:12]+", 1 file\n") {
+		t.Fatalf("body:\n%s", body)
+	}
+}
+
+// noTrees is a store whose trees are all missing: a kit doc naming one
+// reads as referenced but not stored.
+type noTrees struct{ Store }
+
+func (noTrees) KitTree(string) (kittree.Tree, bool) { return kittree.Tree{}, false }
+
+// A referenced tree that is not stored is "not loadable", not an empty tree.
+func TestKitDetailBodyUnstoredTreeNotLoadable(t *testing.T) {
+	st := NewMemStore()
+	pushTree(t, st, "app", "kit.yml", "kind: studio\n")
+	body := kitDetailBody(noTrees{st}, []KitRef{{ID: "app", Version: 1}}, nil)
+	if !strings.Contains(body, "not loadable") || strings.Contains(body, "0 files") {
 		t.Fatalf("body:\n%s", body)
 	}
 }
