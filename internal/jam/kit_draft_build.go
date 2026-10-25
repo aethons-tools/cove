@@ -415,6 +415,7 @@ func (b *KitDraftBuilds) viewLocked(j *draftBuildJob, since int64) KitDraftBuild
 
 // Cancel stops kit name's running build and waits (until ctx is done) for
 // it to end; it is then failed, "cancelled". 404 when none is running.
+// When ctx ends first the error is ctx's, with the build as it is (its id).
 func (b *KitDraftBuilds) Cancel(ctx context.Context, name string) (KitDraftBuild, error) {
 	if !studio.TagSafeName(name) {
 		return KitDraftBuild{}, unsafeKitName()
@@ -427,14 +428,15 @@ func (b *KitDraftBuilds) Cancel(ctx context.Context, name string) (KitDraftBuild
 		return KitDraftBuild{}, writeErr(http.StatusNotFound, "kit %s has no draft build running", name)
 	}
 	j.cancel()
+	var err error
 	select {
 	case <-j.done:
 	case <-ctx.Done():
-		return KitDraftBuild{}, ctx.Err()
+		err = ctx.Err()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.viewLocked(j, 0), nil
+	return b.viewLocked(j, 0), err
 }
 
 // Wait waits up to timeout for every build goroutine to end (after the

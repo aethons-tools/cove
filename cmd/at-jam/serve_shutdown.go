@@ -15,11 +15,16 @@ import (
 // builds to stop before it exits.
 const buildShutdownWait = 15 * time.Second
 
-// shutdownSignals delivers SIGINT and SIGTERM, which serve handles
-// (stopBuildsOnSignal).
+// shutdownSignals delivers SIGTERM and SIGINT, which serve handles
+// (stopBuildsOnSignal). A SIGINT ignored when serve started (a shell's
+// background job) stays ignored.
 func shutdownSignals() <-chan os.Signal {
 	c := make(chan os.Signal, 2)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	sigs := []os.Signal{syscall.SIGTERM}
+	if !signal.Ignored(os.Interrupt) {
+		sigs = append(sigs, os.Interrupt)
+	}
+	signal.Notify(c, sigs...)
 	return c
 }
 
@@ -52,7 +57,7 @@ func stopBuildsOnSignal(sigs <-chan os.Signal, stop context.CancelFunc, builds *
 // shell reports 130 or 143). The exit below runs only should the signal not
 // kill the process.
 func dieBySignal(sig os.Signal) {
-	signal.Reset(os.Interrupt, syscall.SIGTERM)
+	signal.Reset(sig)
 	if s, ok := sig.(syscall.Signal); ok {
 		_ = syscall.Kill(os.Getpid(), s)
 		time.Sleep(5 * time.Second)

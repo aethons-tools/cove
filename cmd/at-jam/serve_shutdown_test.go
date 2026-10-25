@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -132,27 +134,80 @@ func TestShutdownWithoutBuildsExits(t *testing.T) {
 	<-stopped
 }
 
-// The real path: serve's handler, signalled, ends the process killed by
-// that signal (a shell's 143), as an unhandled SIGTERM did — not by an exit
-// code. The test re-runs itself as the child.
-func TestShutdownDiesByTheSignal(t *testing.T) {
-	if os.Getenv("AT_JAM_SHUTDOWN_CHILD") == "1" {
-		go stopBuildsOnSignal(shutdownSignals(), func() {}, nil, slog.New(slog.DiscardHandler), dieBySignal)
-		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
-		time.Sleep(10 * time.Second)
-		os.Exit(3) // not reached when the signal killed us
+// shutdownChild runs serve's real handler in this test binary re-run as a
+// child (AT_JAM_SHUTDOWN_CHILD=mode): stop appends "stopped;" and die the
+// signal's name to the marker file (AT_JAM_SHUTDOWN_MARKER) before
+// dieBySignal. Mode "term" sends itself SIGTERM; "ignored-int" ignores
+// SIGINT first (as a shell's background job does), then sends SIGINT and
+// SIGTERM. It never returns.
+func shutdownChild(mode string) {
+	marker := os.Getenv("AT_JAM_SHUTDOWN_MARKER")
+	mark := func(s string) {
+		f, err := os.OpenFile(marker, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = f.WriteString(s)
+			_ = f.Close()
+		}
 	}
+	if mode == "ignored-int" {
+		signal.Ignore(os.Interrupt)
+	}
+	sigs := shutdownSignals() // installed before any signal is sent
+	go stopBuildsOnSignal(sigs, func() { mark("stopped;") }, nil, slog.New(slog.DiscardHandler), func(s os.Signal) {
+		mark(s.String())
+		dieBySignal(s)
+	})
+	if mode == "ignored-int" {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+	}
+	_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	time.Sleep(10 * time.Second)
+	os.Exit(3) // not reached when the signal killed us
+}
+
+// runShutdownChild runs test (re-run as a child in mode) and returns the
+// signal that killed it and its marker file's text.
+func runShutdownChild(t *testing.T, test, mode string) (syscall.Signal, string) {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "marker")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestShutdownDiesByTheSignal$")
-	cmd.Env = append(os.Environ(), "AT_JAM_SHUTDOWN_CHILD=1")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+test+"$")
+	cmd.Env = append(os.Environ(), "AT_JAM_SHUTDOWN_CHILD="+mode, "AT_JAM_SHUTDOWN_MARKER="+marker)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
-		t.Fatalf("child = %v, want killed by SIGTERM", err)
+		t.Fatalf("child = %v, want killed by a signal", err)
 	}
 	ws, ok := ee.Sys().(syscall.WaitStatus)
-	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGTERM {
-		t.Fatalf("child ended %v, want killed by SIGTERM", ee)
+	if !ok || !ws.Signaled() {
+		t.Fatalf("child ended %v, want killed by a signal", ee)
+	}
+	b, _ := os.ReadFile(marker)
+	return ws.Signal(), string(b)
+}
+
+// The real path: serve's handler, signalled, stops the builds and then
+// ends the process killed by that signal (a shell's 143), as an unhandled
+// SIGTERM did, not by an exit code.
+func TestShutdownDiesByTheSignal(t *testing.T) {
+	if m := os.Getenv("AT_JAM_SHUTDOWN_CHILD"); m != "" {
+		shutdownChild(m)
+	}
+	sig, marker := runShutdownChild(t, "TestShutdownDiesByTheSignal", "term")
+	if sig != syscall.SIGTERM || marker != "stopped;terminated" {
+		t.Fatalf("child killed by %v, marker %q; want SIGTERM through the handler (stopped;terminated)", sig, marker)
+	}
+}
+
+// A serve started with SIGINT ignored keeps ignoring it: SIGINT neither
+// stops it nor kills it, SIGTERM still does.
+func TestShutdownKeepsAnIgnoredSIGINT(t *testing.T) {
+	if m := os.Getenv("AT_JAM_SHUTDOWN_CHILD"); m != "" {
+		shutdownChild(m)
+	}
+	sig, marker := runShutdownChild(t, "TestShutdownKeepsAnIgnoredSIGINT", "ignored-int")
+	if sig != syscall.SIGTERM || marker != "stopped;terminated" {
+		t.Fatalf("child killed by %v, marker %q; want SIGINT ignored and SIGTERM through the handler", sig, marker)
 	}
 }

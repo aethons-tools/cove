@@ -78,8 +78,10 @@ chain (its stages reused as usual), the harness, the sealed hardening layer
 and the build args, with the draft's files as the kit's own stage. Nothing
 is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
 stage `…-stage`), never a version's image or stage tag. It needs a launcher
-that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one the build routes
-answer 503 `test builds need a launcher that builds images (runtime.launcher)`.
+that builds images
+([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one
+the build routes answer 503
+`test builds need a launcher that builds images (runtime.launcher)`.
 
 - It builds the draft at the ETag you send (`If-Match`), under the default
   harness. A draft with problems is refused (400
@@ -160,8 +162,9 @@ Each write that changes the draft logs `kit draft opened|saved|discarded`
 with the kit, the operator and the tree's first 12 hex digits (a save also
 the count of files `changed`), never content or a path. A publish logs
 `kit draft published` with the kit, the operator, the new `version`, the
-`base`, the `tree` prefix, the count `pinned` and `drift`. A build logs `kit draft build requested` and `kit draft build cancelled`
-(the kit, the operator, the build id), and `kit draft build started` and
+`base`, the `tree` prefix, the count `pinned` and `drift`. A build logs
+`kit draft build requested` and `kit draft build cancelled` (the kit, the
+operator, the build id), and `kit draft build started` and
 `kit draft build finished` (the kit, the tree prefix, the build id, its
 state), never log content. A store failure
 answers a fixed 500 `internal error` and logs `kit draft: store error` (at

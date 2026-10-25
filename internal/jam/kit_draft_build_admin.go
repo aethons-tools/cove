@@ -83,7 +83,7 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			// The request went away while the build was stopping: it was
 			// cancelled and ends on its own. The name was checked tag-safe.
-			log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name)
+			log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name, "build", v.ID)
 			http.Error(w, "kit "+name+" draft build is still stopping", http.StatusServiceUnavailable)
 			return
 		}

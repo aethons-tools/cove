@@ -80,7 +80,13 @@ func TestDraftBuildRoutes(t *testing.T) {
 	if f.Code != http.StatusOK || json.Unmarshal(f.Body.Bytes(), &fv) != nil || fv.Log != "" || fv.LogFrom != gv.LogEnd {
 		t.Fatalf("follow = %d %s", f.Code, f.Body)
 	}
-	for _, q := range []string{"-1", "x"} {
+	// Past the end is clamped to it; past int64 is refused.
+	l := draftDo(t, h, "GET", path+"?since=9223372036854775807", "", "", nil)
+	var lv KitDraftBuild
+	if l.Code != http.StatusOK || json.Unmarshal(l.Body.Bytes(), &lv) != nil || lv.Log != "" || lv.LogFrom != gv.LogEnd || lv.LogEnd != gv.LogEnd {
+		t.Fatalf("since past the end = %d %s", l.Code, l.Body)
+	}
+	for _, q := range []string{"-1", "x", "9223372036854775808", "99999999999999999999"} {
 		if w := draftDo(t, h, "GET", path+"?since="+q, "", "", nil); w.Code != http.StatusBadRequest || body(w) != "since must be a log offset (0 or more)" {
 			t.Fatalf("since=%s = %d %s", q, w.Code, w.Body)
 		}
@@ -143,8 +149,10 @@ func TestDraftBuildCancelRequestGone(t *testing.T) {
 	fb := &fakeDraftBuilder{during: func() { <-hold }, release: make(chan struct{})} // ignores its ctx until hold closes
 	h, b, etag, logs := buildsHandler(t, fb)
 	const path = "/admin/kits/app/draft/build"
-	if w := draftDo(t, h, "POST", path, "application/json", etag, nil); w.Code != http.StatusAccepted {
-		t.Fatalf("start = %d %s", w.Code, w.Body)
+	sw := draftDo(t, h, "POST", path, "application/json", etag, nil)
+	var sv KitDraftBuild
+	if sw.Code != http.StatusAccepted || json.Unmarshal(sw.Body.Bytes(), &sv) != nil || sv.ID == "" {
+		t.Fatalf("start = %d %s", sw.Code, sw.Body)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r := httptest.NewRequestWithContext(ctx, "DELETE", path, nil)
@@ -157,7 +165,7 @@ func TestDraftBuildCancelRequestGone(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable || body(w) != "kit app draft build is still stopping" {
 		t.Fatalf("gone = %d %s", w.Code, w.Body)
 	}
-	if recs := auditRecords(t, logs, "kit draft build cancelled"); len(recs) != 1 || recs[0]["kit"] != "app" {
+	if recs := auditRecords(t, logs, "kit draft build cancelled"); len(recs) != 1 || recs[0]["kit"] != "app" || recs[0]["build"] != sv.ID {
 		t.Fatalf("audit = %v\n%s", recs, logs)
 	}
 	close(hold)
