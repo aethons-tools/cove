@@ -950,7 +950,8 @@ func TestLoginRedirectInFrame(t *testing.T) {
 	}
 	if strings.Contains(body, "<b>") {
 		t.Errorf("unescaped request URI in body:\n%s", body)
-	} // No UI origins: no frame may show it, so no message is posted.
+	}
+	// No UI origins: no frame may show it, so no message is posted.
 	a.o.FrameAncestors = nil
 	w = httptest.NewRecorder()
 	a.LoginRedirect(w, r)

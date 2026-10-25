@@ -2797,6 +2797,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				log.Warn("previews: the previews domain shares a registrable domain with the admin host; preview apps can set cookies the admin site receives — use a separate registrable domain for previews",
 					"previews-domain", cfg.Previews.Domain, "admin-host", s.host, "registrable-domain", s.site)
 			}
+			if msg := previewUIOriginsWarning(&cfg); msg != "" {
+				log.Warn(msg)
+			}
 			previewAuth, err := newPreviewAuth(cfg.Previews.Domain, adminPort, cfg.UIOrigins, frames, *cfg.browserAuthConfig(), cfg.operatorLoginConfig(), auth, st, log)
 			if err != nil {
 				fmt.Fprintln(stderr, "at-jam: previews:", err)

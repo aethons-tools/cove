@@ -845,11 +845,18 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	req.Header.Set("Sec-Fetch-Dest", "iframe")
 	rec := httptest.NewRecorder()
 	ph.h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden || strings.TrimSpace(rec.Body.String()) != "cross-site request refused" || rec.Header().Get("Location") != "" {
-		t.Fatalf("%d %q loc=%q", rec.Code, rec.Body, rec.Header().Get("Location"))
+	if rec.Header().Get("Location") != "" {
+		t.Fatalf("loc=%q", rec.Header().Get("Location"))
 	}
-	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
-		t.Fatalf("Content-Type %q", rec.Header().Get("Content-Type"))
+	// Inside an iframe the refusal is the framed error page.
+	wantFramedError(t, rec, http.StatusForbidden, "cross-site request refused")
+	// A cross-site fetch (not an iframe) gets the plain text refusal.
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	rec = httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || strings.TrimSpace(rec.Body.String()) != "cross-site request refused" || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("plain: %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
 	}
 	if n := len(ph.tun.opened()); n != 0 {
 		t.Fatalf("%d tunnels opened for a refused request", n)
@@ -987,6 +994,9 @@ func wantFramedError(t *testing.T, rec *httptest.ResponseRecorder, code int, msg
 	if rec.Code != code || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("%d %q: %q", rec.Code, rec.Header().Get("Content-Type"), body)
 	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control %q", cc)
+	}
 	for _, s := range []string{msg, `parent.postMessage({jam:"frame-error",status:` + fmt.Sprint(code) + `}, "` + uiOrigin + `")`} {
 		if !strings.Contains(body, s) {
 			t.Errorf("body lacks %q:\n%s", s, body)
@@ -1007,6 +1017,52 @@ func TestPreviewFramedNotExposed(t *testing.T) {
 	ph.h.ServeHTTP(rec, req)
 	if rec.Code != 404 || strings.TrimSpace(rec.Body.String()) != notExposedMsg || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
 		t.Fatalf("plain 404: %d %q", rec.Code, rec.Body)
+	}
+	// The two variants share a URL: caches must keep them apart.
+	if v := rec.Header().Get("Vary"); !strings.Contains(v, "Sec-Fetch-Dest") {
+		t.Errorf("plain 404 Vary %q", v)
+	}
+}
+
+// An unbound bearer login inside an iframe gets the framed 403.
+func TestPreviewFramedUnbound(t *testing.T) {
+	ph := newPreviewHarness(t, helloApp(t, nil))
+	ph.auth.o.Bearer = func(*http.Request) (collab.Principal, string, error) { return collab.Principal{}, "", ErrUnbound }
+	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	req.Header.Set("Authorization", "Bearer whatever")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	rec := httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	wantFramedError(t, rec, http.StatusForbidden, ErrUnbound.Error())
+}
+
+// An app's 1xx (103 Early Hints) must not cost the final response Jam's
+// frame-ancestors: the proxy clears the writer's headers after a 1xx.
+func TestPreviewEarlyHintsKeepFrameAncestors(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", "</a.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.Header().Del("Link")
+		fmt.Fprint(w, "hello from the app")
+	}))
+	t.Cleanup(app.Close)
+	ph := newPreviewHarness(t, app)
+	front := httptest.NewServer(ph.h)
+	t.Cleanup(front.Close)
+	req, _ := http.NewRequest("GET", front.URL+"/", nil)
+	req.Host = appHost
+	req.AddCookie(ph.login(t, "alice"))
+	resp, err := front.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || string(body) != "hello from the app" {
+		t.Fatalf("%d %q", resp.StatusCode, body)
+	}
+	if csp := resp.Header.Values("Content-Security-Policy"); !slices.Equal(csp, []string{"frame-ancestors " + uiOrigin}) {
+		t.Fatalf("CSP after 103: %q", csp)
 	}
 }
 

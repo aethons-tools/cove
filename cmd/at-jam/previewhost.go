@@ -282,3 +282,12 @@ func previewAdminHosts(c *serveConfig) []string {
 	}
 	return append(out, c.UIHosts...)
 }
+
+// previewUIOriginsWarning is serve's startup warning when previews are on but
+// ui-origins is empty ("" otherwise): no page may then frame a preview.
+func previewUIOriginsWarning(c *serveConfig) string {
+	if c.Previews == nil || len(c.UIOrigins) > 0 {
+		return ""
+	}
+	return "previews: ui-origins is empty, so the Jam pane can't frame previews; add the UI's own origin"
+}
