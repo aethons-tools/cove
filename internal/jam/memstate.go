@@ -35,6 +35,7 @@ type memState struct {
 	kits      map[string]Kit               // keyed by Name
 	kitTrees  map[string]kittree.Tree      // kit tree sha256 → tree (kit_objects.go)
 	kitBlobs  map[string][]byte            // blob sha256 → bytes
+	kitDrafts map[string]KitDraft          // kit name → its open draft (kit_drafts.go)
 	instances map[string]Instance          // keyed by ActorID
 	projects  map[string]Project           // live projects, keyed by Name
 	// removedProjects are tombstones, keyed by id (their names are free).
@@ -87,6 +88,7 @@ func newMemState() *memState {
 		kits:            map[string]Kit{},
 		kitTrees:        map[string]kittree.Tree{},
 		kitBlobs:        map[string][]byte{},
+		kitDrafts:       map[string]KitDraft{},
 		instances:       map[string]Instance{},
 		projects:        map[string]Project{},
 		removedProjects: map[ident.ID]Project{},
@@ -562,6 +564,7 @@ func (m *memState) applyRemoveKit(name string) bool {
 		return false
 	}
 	delete(m.kits, name)
+	delete(m.kitDrafts, name) // a kit's draft goes with it
 	return true
 }
 

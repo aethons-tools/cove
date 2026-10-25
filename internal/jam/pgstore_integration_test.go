@@ -781,3 +781,45 @@ func TestPostgresLoadRefusesCorruptKitObjects(t *testing.T) {
 		})
 	}
 }
+
+// TestPostgresKitDraftSurvivesReopen: a draft row and its loose tree load
+// back on open.
+func TestPostgresKitDraftSurvivesReopen(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	s, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\n")
+	if _, err := s.PushKitVersion("app", tr.Hash(), jam.KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}, jam.KitVersionMeta{PushedAt: time.Unix(10, 0).UTC()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	dt, dblobs, err := kittree.BuildFiles(kittreetest.Files("notes.md", "draft\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := jam.KitDraft{Kit: "app", Base: 1, Tree: dt.Hash(), OpenedAt: time.Unix(20, 0).UTC(), UpdatedAt: time.Unix(30, 0).UTC(), Actor: "local"}
+	if err := s.PutKitDraft(d, jam.KitObjects{Trees: []kittree.Tree{dt}, Blobs: dblobs}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := jam.NewPostgresStore(ctx, dsn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.Close)
+	got, ok := again.GetKitDraft("app")
+	if !ok || got.Tree != d.Tree || got.Base != 1 || got.Actor != "local" || !got.OpenedAt.Equal(d.OpenedAt) || !got.UpdatedAt.Equal(d.UpdatedAt) {
+		t.Fatalf("reloaded draft = %+v %v", got, ok)
+	}
+	if _, ok := again.KitTree(dt.Hash()); !ok {
+		t.Fatal("the draft tree was not loaded")
+	}
+}

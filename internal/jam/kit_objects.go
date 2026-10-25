@@ -54,32 +54,13 @@ func oneFileKit(kitYML string) (kittree.Tree, KitObjects, error) {
 	return t, KitObjects{Trees: []kittree.Tree{t}, Blobs: blobs}, nil
 }
 
-// checkKitObjects refuses a kit write that does not hold together: a tree
-// that does not validate, a blob whose bytes are not its sha256, a tree entry
-// whose blob is neither written nor stored (or differs in size), or a doc
-// naming a tree that is neither. Caller holds mu.
+// checkKitObjects refuses a kit write that does not hold together: objects
+// failing checkObjects under the version rules (kittree.Tree.Validate), or a
+// doc naming a tree that is neither written nor stored. Caller holds mu.
 func checkKitObjects(m *memState, kits []Kit, objs KitObjects) error {
-	for sha, b := range objs.Blobs {
-		sum := sha256.Sum256(b)
-		if hex.EncodeToString(sum[:]) != sha {
-			return fmt.Errorf("kit blob %.12s: content does not match its sha256", sha)
-		}
-	}
-	written := map[string]bool{}
-	for _, t := range objs.Trees {
-		if err := t.Validate(); err != nil {
-			return fmt.Errorf("kit tree: %w", err)
-		}
-		for _, e := range t.Entries {
-			b, ok := objs.Blobs[e.SHA256]
-			if !ok {
-				b, ok = m.kitBlobs[e.SHA256]
-			}
-			if !ok || int64(len(b)) != e.Size {
-				return fmt.Errorf("kit tree %.12s: %s has no stored content", t.Hash(), e.Path)
-			}
-		}
-		written[t.Hash()] = true
+	written, err := checkObjects(m, objs, kittree.Tree.Validate)
+	if err != nil {
+		return err
 	}
 	for _, k := range kits {
 		for _, v := range slices.Sorted(maps.Keys(k.Trees)) {
@@ -93,6 +74,35 @@ func checkKitObjects(m *memState, kits []Kit, objs KitObjects) error {
 	return nil
 }
 
+// checkObjects checks objs on their own: every blob is its sha256, every
+// tree passes validate and names only blobs written or stored (of its
+// size). It returns the written trees' hashes. Caller holds mu.
+func checkObjects(m *memState, objs KitObjects, validate func(kittree.Tree) error) (map[string]bool, error) {
+	for sha, b := range objs.Blobs {
+		sum := sha256.Sum256(b)
+		if hex.EncodeToString(sum[:]) != sha {
+			return nil, fmt.Errorf("kit blob %.12s: content does not match its sha256", sha)
+		}
+	}
+	written := map[string]bool{}
+	for _, t := range objs.Trees {
+		if err := validate(t); err != nil {
+			return nil, fmt.Errorf("kit tree: %w", err)
+		}
+		for _, e := range t.Entries {
+			b, ok := objs.Blobs[e.SHA256]
+			if !ok {
+				b, ok = m.kitBlobs[e.SHA256]
+			}
+			if !ok || int64(len(b)) != e.Size {
+				return nil, fmt.Errorf("kit tree %.12s: %s has no stored content", t.Hash(), e.Path)
+			}
+		}
+		written[t.Hash()] = true
+	}
+	return written, nil
+}
+
 // applyKitObjects caches copies of objs. Caller holds mu and has checked them.
 func (m *memState) applyKitObjects(objs KitObjects) {
 	for _, t := range objs.Trees {
@@ -103,14 +113,17 @@ func (m *memState) applyKitObjects(objs KitObjects) {
 	}
 }
 
-// deadKitObjects lists, sorted, the trees no kit version references and the
-// blobs no remaining tree names. Caller holds mu.
+// deadKitObjects lists, sorted, the trees no kit version or draft references and
+// the blobs no remaining tree names. Caller holds mu.
 func (m *memState) deadKitObjects() (trees, blobs []string) {
 	live := map[string]bool{}
 	for _, k := range m.kits {
 		for _, sha := range k.Trees {
 			live[sha] = true
 		}
+	}
+	for _, d := range m.kitDrafts {
+		live[d.Tree] = true // an open draft references its tree too
 	}
 	liveBlobs := map[string]bool{}
 	for sha, t := range m.kitTrees {
