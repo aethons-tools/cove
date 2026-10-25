@@ -165,7 +165,7 @@ loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
 tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW.md](../../OVERVIEW.md)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for the dial-back; a teardown or a pause closes a
+studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s, 30 s for `ide`); a teardown or a pause closes a
 studio's tunnels and it takes none until it is resumed or raised again.
 
 ## Previews

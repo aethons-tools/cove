@@ -496,3 +496,50 @@ func TestPreviewTunnelCapDefaults(t *testing.T) {
 		}
 	}
 }
+
+// OpenPreview waits for the dial-back until its ctx deadline when that is
+// later than DialBack: the studio may first start the built-in IDE.
+func TestOpenPreviewWaitsUntilCtxDeadline(t *testing.T) {
+	p := &pushRec{ok: true}
+	b := NewTunnelBroker(p.push, TunnelOptions{DialBack: 50 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	res := make(chan result, 1)
+	go func() { c, err := b.OpenPreview(ctx, "ses_a", 13337); res <- result{c, err} }()
+	waitFor(t, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return len(p.ids) == 1 })
+	time.Sleep(300 * time.Millisecond) // well past DialBack
+	s := newFakeStream()
+	s.fromStudio <- openFrame(p.last()[len("ses_a/"):])
+	go func() { _ = b.Claim("ses_a", s) }()
+	r := <-res
+	if r.err != nil {
+		t.Fatalf("OpenPreview: %v, want the late dial-back spliced", r.err)
+	}
+	_ = r.c.Close()
+	// Without a deadline past DialBack it still times out at DialBack.
+	start := time.Now()
+	if _, err := b.OpenPreview(context.Background(), "ses_a", 13337); !errors.Is(err, ErrDialBackTimeout) {
+		t.Fatalf("no deadline: %v, want ErrDialBackTimeout", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("no deadline: waited %v", d)
+	}
+}
+
+// Open (SSH) keeps DialBack whatever its ctx deadline.
+func TestOpenKeepsDialBackDespiteCtxDeadline(t *testing.T) {
+	b := NewTunnelBroker((&pushRec{ok: true}).push, TunnelOptions{DialBack: 50 * time.Millisecond})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	if _, err := b.Open(ctx, "ses_a", 2222); !errors.Is(err, ErrDialBackTimeout) {
+		t.Fatalf("err = %v, want ErrDialBackTimeout", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("Open waited %v, want about DialBack", d)
+	}
+}

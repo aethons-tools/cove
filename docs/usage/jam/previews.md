@@ -125,8 +125,8 @@ studio's IDE, served without any `expose`. An IDE is a shell, so it needs the
 a preview-only viewer gets 403 "you may not use ssh on this studio". A kit or
 agent that runs its own IDE on another port and calls `expose(<port>, "ide")`
 replaces the built-in one; it still needs ssh. Port 13337 is reserved for the
-built-in IDE and cannot be exposed. The first request waits
-while code-server starts; unexposing never closes built-in IDE connections.
+built-in IDE and cannot be exposed. The first request may wait up to 15 s
+while code-server starts (Jam gives an `ide` tunnel 30 s to open); unexposing never closes built-in IDE connections.
 
 ## Limits
 

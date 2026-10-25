@@ -107,7 +107,8 @@ func (b *TunnelBroker) Open(ctx context.Context, actorID string, port int32) (ne
 
 // OpenPreview is Open for a preview connection: it also counts against the
 // studio's preview cap (MaxPreviewPerStudio), so previews never take the
-// tunnels kept for SSH; past it, ErrTooManyPreviewTunnels.
+// tunnels kept for SSH; past it, ErrTooManyPreviewTunnels. It waits for the
+// dial-back until ctx's deadline when that is later than DialBack.
 func (b *TunnelBroker) OpenPreview(ctx context.Context, actorID string, port int32) (net.Conn, error) {
 	return b.open(ctx, actorID, port, true)
 }
@@ -142,7 +143,7 @@ func (b *TunnelBroker) open(ctx context.Context, actorID string, port int32, pre
 		b.mu.Unlock()
 		return nil, ErrStudioNotConnected
 	}
-	t := time.NewTimer(b.opt.DialBack)
+	t := time.NewTimer(b.dialBackWait(ctx, preview))
 	defer t.Stop()
 	select {
 	case h := <-p.ready:
@@ -157,6 +158,18 @@ func (b *TunnelBroker) open(ctx context.Context, actorID string, port int32, pre
 	case <-ctx.Done():
 		return nil, b.abandon(id, p, ctx.Err())
 	}
+}
+
+// dialBackWait is how long an open waits for the studio to dial back:
+// DialBack, or for a preview the time left to ctx's deadline when that is
+// later (the studio may first start the built-in IDE, which can take 15 s).
+func (b *TunnelBroker) dialBackWait(ctx context.Context, preview bool) time.Duration {
+	if preview {
+		if dl, ok := ctx.Deadline(); ok {
+			return max(b.opt.DialBack, time.Until(dl))
+		}
+	}
+	return b.opt.DialBack
 }
 
 func (b *TunnelBroker) releaseLocked(actorID string, preview bool) {
