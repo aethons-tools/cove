@@ -117,7 +117,10 @@ func (l *Launcher) resolveStudioBase(ops backend.KitImageBuilder, def KitDefinit
 // top, when set, is a kit draft build's own stage tag: the Dockerfile's stage
 // is built FROM the blessed default, gated the same, and tagged top
 // (ResolveKitBaseTarOn), so the image builds FROM the draft's stage tag and
-// not the content-id ref a kit version's base resolves to.
+// not the content-id ref a kit version's base resolves to. colima's shared
+// streamed build still aliases the built image cove-kit-base:<64-hex image
+// id> on the way; that alias is content-addressed, disjoint from the 32-hex
+// kitStageTag tags, and never looked up by name, so it vouches for nothing.
 func (l *Launcher) resolveOwnBase(ops backend.KitImageBuilder, link jam.KitLink, top string) (string, error) {
 	b := link.Kit.Base
 	if b.HasParent() {

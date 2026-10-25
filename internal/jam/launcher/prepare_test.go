@@ -48,11 +48,13 @@ func untarNames(t *testing.T, raw []byte) map[string]string {
 type fakeInv struct {
 	mu      sync.Mutex
 	present map[string]bool
+	asks    int // Has calls
 }
 
 func (i *fakeInv) Has(r KitRef) (bool, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	i.asks++
 	return i.present[r.String()], nil
 }
 
@@ -85,7 +87,7 @@ func (c *countingOps) BuildKitImage(buildDir, tag, base string, buildArgs map[st
 	if c.buildErr != nil {
 		return "", c.buildErr
 	}
-	return "sha256:built", nil
+	return fakeImageID, nil
 }
 func (c *countingOps) builds() int {
 	c.mu.Lock()

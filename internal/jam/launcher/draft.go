@@ -2,10 +2,12 @@ package launcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -13,6 +15,21 @@ import (
 )
 
 const draftTagPrefix = "cove-kit-draft:"
+
+// errDraftImageID refuses a draft image id that is not a docker image id.
+// The id reaches `docker run` and `docker image inspect` argv, and colima
+// runs the mutable tag when it is empty, so only sha256:<64 hex> passes.
+var errDraftImageID = errors.New("kit draft image id must be sha256:<64 lowercase hex>")
+
+var draftImageIDRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// checkDraftImageID is errDraftImageID unless id is a docker image id.
+func checkDraftImageID(id string) error {
+	if !draftImageIDRe.MatchString(id) {
+		return errDraftImageID
+	}
+	return nil
+}
 
 // BuildKitDraft is jam.KitDraftBuilder: a kit draft's test build
 // (docs/usage/jam/kits-drafts.md#test-build). It builds def exactly as
@@ -31,6 +48,9 @@ func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag str
 	if lb, ok := l.cfg.Ops.(backend.LoggedKitBuilder); ok {
 		ops = lb.WithBuildLog(ctx, log)
 	}
+	// One dir per tag: two builds of the same tree would share (and one
+	// would remove) it. Safe only because jam.KitDraftBuilds runs at most
+	// one build per kit at a time, and a tag names one kit.
 	buildDir := filepath.Join(l.cfg.BuildRoot, "draft", strings.TrimPrefix(tag, draftTagPrefix))
 	defer os.RemoveAll(buildDir)
 	fmt.Fprintf(log, "== kit draft %s: %s (harness %s %s)\n", def.Ref.ID, chainText(def.Chain), def.Harness.Type, def.Harness.Version)
@@ -48,6 +68,9 @@ func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag str
 	id, err := ops.BuildKitImage(buildDir, tag, base, def.Kit.BuildArgs, false)
 	if err != nil {
 		return "", fmt.Errorf("draft build %s: build: %w", def.Ref.ID, err)
+	}
+	if err := checkDraftImageID(id); err != nil {
+		return "", fmt.Errorf("draft build %s: docker reported image id %q: %w", def.Ref.ID, id, err)
 	}
 	l.cfg.Log.Info("built kit draft", "kit", def.Ref.ID, "tag", tag, "asm", shortAsm(l.asm))
 	return id, nil
@@ -67,6 +90,12 @@ func chainText(chain []jam.KitLink) string {
 
 // HasKitDraftImage is jam.KitDraftBuilder's presence check: the image id on
 // the substrate (the daemon BuildKitDraft and Raise use).
-func (l *Launcher) HasKitDraftImage(id string) (bool, error) { return l.cfg.Ops.HasKitImage(id) }
+// A malformed id is refused before any inspect.
+func (l *Launcher) HasKitDraftImage(id string) (bool, error) {
+	if err := checkDraftImageID(id); err != nil {
+		return false, err
+	}
+	return l.cfg.Ops.HasKitImage(id)
+}
 
 var _ jam.KitDraftBuilder = (*Launcher)(nil)

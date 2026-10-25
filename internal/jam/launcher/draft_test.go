@@ -73,14 +73,14 @@ func TestBuildKitDraftArgv(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{}, // docker info (preflight)
 		{Stdout: "#5 [3/3] RUN install\n#5 DONE\n"}, // docker build --progress=plain …
-		{Stdout: "sha256:img\n"},                    // docker inspect --format {{.Id}} <tag>
+		{Stdout: fakeImageID + "\n"},                // docker inspect --format {{.Id}} <tag>
 	}}
 	l := colimaDraftLauncher(t, f)
 	link := treeLink(t, "app", 0, "kit.yml", "kind: studio\nbuild-args:\n  NPM_TOKEN: npmSECRET\n")
 	def := KitDefinition{Ref: link.Ref, Kit: link.Kit, Chain: []jam.KitLink{link}, Harness: harnessinstall.Default()}
 	var log bytes.Buffer
 	id, err := l.BuildKitDraft(context.Background(), def, draftTag, &log)
-	if err != nil || id != "sha256:img" {
+	if err != nil || id != fakeImageID {
 		t.Fatalf("BuildKitDraft = %q, %v", id, err)
 	}
 	builds, _ := dockerArgsAll(f.Calls, "build")
@@ -118,10 +118,10 @@ func TestBuildKitDraftStageArgv(t *testing.T) {
 	}
 	outs = append(outs, gatePasses(t)...)
 	outs = append(outs,
-		runner.FakeResult{},                       // docker tag cove-kit-base:child <tag>-stage
-		runner.FakeResult{},                       // docker info
-		runner.FakeResult{},                       // docker build --progress=plain …
-		runner.FakeResult{Stdout: "sha256:img\n"}) // docker inspect
+		runner.FakeResult{},                           // docker tag cove-kit-base:child <tag>-stage
+		runner.FakeResult{},                           // docker info
+		runner.FakeResult{},                           // docker build --progress=plain …
+		runner.FakeResult{Stdout: fakeImageID + "\n"}) // docker inspect
 	f := &runner.Fake{Outputs: outs}
 	l := colimaDraftLauncher(t, f)
 	root := treeLink(t, "web", 2, "kit.yml", "kind: studio\n")
@@ -227,12 +227,17 @@ func TestRaiseDraftStudioRunsItsBuiltImage(t *testing.T) {
 		Ops: ops, Runner: &runner.Fake{}, JamHost: "jam.example.com", RuntimeAddr: "jam.example.com:443",
 		IdentityFile: "k", KnownHostsDir: "/kh", Inventory: &fakeInv{}, sleep: func(time.Duration) {},
 	})
-	spec := jam.RaiseSpec{ActorID: "d1", Kit: jam.KitRef{ID: "app", Digest: "d1gest"}, DraftImage: &jam.KitDraftImage{Tag: draftTag, ID: "sha256:img"}}
+	inv := &fakeInv{}
+	l.inv = inv
+	spec := jam.RaiseSpec{ActorID: "d1", Kit: jam.KitRef{ID: "app", Digest: "d1gest"}, DraftImage: &jam.KitDraftImage{Tag: draftTag, ID: fakeImageID}}
 	if _, err := l.Raise(context.Background(), spec, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
 		t.Fatal(err)
 	}
-	if ops.runImage != draftTag || ops.runDigest != "sha256:img" {
+	if ops.runImage != draftTag || ops.runDigest != fakeImageID {
 		t.Fatalf("ran %q @ %q", ops.runImage, ops.runDigest)
+	}
+	if inv.asks != 0 {
+		t.Fatalf("a draft raise asked the kit inventory %d times", inv.asks)
 	}
 }
 
@@ -248,10 +253,10 @@ func TestBuildKitDraftUnchainedStageArgv(t *testing.T) {
 	}
 	outs = append(outs, gatePasses(t)...)
 	outs = append(outs,
-		runner.FakeResult{},                       // docker tag cove-kit-base:own <tag>-stage
-		runner.FakeResult{},                       // docker info
-		runner.FakeResult{},                       // docker build --progress=plain …
-		runner.FakeResult{Stdout: "sha256:img\n"}) // docker inspect
+		runner.FakeResult{},                           // docker tag cove-kit-base:own <tag>-stage
+		runner.FakeResult{},                           // docker info
+		runner.FakeResult{},                           // docker build --progress=plain …
+		runner.FakeResult{Stdout: fakeImageID + "\n"}) // docker inspect
 	f := &runner.Fake{Outputs: outs}
 	l := colimaDraftLauncher(t, f)
 	link := treeLink(t, "app", 0, "kit.yml", "kind: studio\n", "Dockerfile", df+"RUN make\n")
@@ -341,5 +346,60 @@ func TestBuildKitDraftMatchesPrepareKit(t *testing.T) {
 	}
 	if strings.HasPrefix(draftOps.builtTag, "cove-kit:") || draftOps.stages[0].stage == prepOps.stages[0].stage {
 		t.Fatalf("the draft wrote a kit version's tag: image %q stage %q", draftOps.builtTag, draftOps.stages[0].stage)
+	}
+}
+
+// badDraftImageIDs are ids a draft image must never be run or inspected by:
+// empty (colima would fall back to the mutable tag), a flag, a tag.
+var badDraftImageIDs = []string{"", "-x", "cove-kit-draft:app-0123456789ab", "sha256:" + strings.Repeat("A", 64), fakeImageID + "0"}
+
+// A draft studio runs only a well-formed image id; anything else is refused
+// before any container runs.
+func TestRaiseDraftStudioRefusesABadImageID(t *testing.T) {
+	for _, id := range badDraftImageIDs {
+		ops := &fakeOps{}
+		l := New(Config{
+			Ops: ops, Runner: &runner.Fake{}, JamHost: "jam.example.com", RuntimeAddr: "jam.example.com:443",
+			IdentityFile: "k", KnownHostsDir: "/kh", Inventory: &fakeInv{}, sleep: func(time.Duration) {},
+		})
+		spec := jam.RaiseSpec{ActorID: "d1", Kit: jam.KitRef{ID: "app", Digest: "d1gest"}, DraftImage: &jam.KitDraftImage{Tag: draftTag, ID: id}}
+		_, err := l.Raise(context.Background(), spec, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"})
+		if err == nil || !strings.Contains(err.Error(), errDraftImageID.Error()) {
+			t.Fatalf("id %q: err = %v, want %v", id, err, errDraftImageID)
+		}
+		if ops.ran || len(ops.created) != 0 {
+			t.Fatalf("id %q: a container ran (or a volume was made): %+v", id, ops)
+		}
+	}
+}
+
+func TestHasKitDraftImageRefusesABadImageID(t *testing.T) {
+	for _, id := range badDraftImageIDs {
+		ops := &fakeOps{}
+		l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
+		if ok, err := l.HasKitDraftImage(id); ok || !errors.Is(err, errDraftImageID) {
+			t.Fatalf("id %q: HasKitDraftImage = %v, %v", id, ok, err)
+		}
+		if len(ops.hasImageAsks) != 0 {
+			t.Fatalf("id %q: inspected %v", id, ops.hasImageAsks)
+		}
+	}
+	ops := &fakeOps{hasImage: map[string]bool{fakeImageID: true}}
+	if ok, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).HasKitDraftImage(fakeImageID); !ok || err != nil {
+		t.Fatalf("HasKitDraftImage(valid) = %v, %v", ok, err)
+	}
+}
+
+// The id docker reports for the built image is checked too: a draft build
+// never hands the supervisor an id Raise would refuse.
+func TestBuildKitDraftRefusesABadBuiltImageID(t *testing.T) {
+	for _, id := range badDraftImageIDs {
+		f := &runner.Fake{Outputs: []runner.FakeResult{{}, {}, {Stdout: id + "\n"}}} // info, build, inspect
+		l := colimaDraftLauncher(t, f)
+		link := treeLink(t, "app", 0, "kit.yml", "kind: studio\n")
+		def := KitDefinition{Ref: link.Ref, Kit: link.Kit, Chain: []jam.KitLink{link}, Harness: harnessinstall.Default()}
+		if got, err := l.BuildKitDraft(context.Background(), def, draftTag, io.Discard); got != "" || !errors.Is(err, errDraftImageID) {
+			t.Fatalf("id %q: BuildKitDraft = %q, %v", id, got, err)
+		}
 	}
 }

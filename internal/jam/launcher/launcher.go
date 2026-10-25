@@ -147,6 +147,11 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		// A draft studio runs its test build's image by id: the tag names
 		// the latest build of that tree and may move. The supervisor built
 		// (or checked) it just before; the kit inventory does not apply.
+		// The id is checked: it reaches `docker run` argv, and an empty one
+		// would run the mutable tag.
+		if err := checkDraftImageID(d.ID); err != nil {
+			return "", fmt.Errorf("raise %s: %w", name, err)
+		}
 		image, digest = d.Tag, d.ID
 	} else {
 		ok, err := l.inv.Has(spec.Kit)

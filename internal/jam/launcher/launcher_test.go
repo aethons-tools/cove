@@ -31,6 +31,10 @@ func readyInv() *fakeInv {
 	return i
 }
 
+// fakeImageID is the image id the fake builders return: a well-formed
+// sha256:<64 hex> image id, as docker reports one.
+const fakeImageID = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 type fakeOps struct {
 	ran         bool
 	runName     string
@@ -60,8 +64,9 @@ type fakeOps struct {
 	builtArgs    map[string]string
 	buildErr     error
 	hasImage     map[string]bool
-	resolvedBase string // ResolveKitBase returns this (default "blessed-default")
-	resolvedFrom string // the declaredBase ResolveKitBase was asked about
+	hasImageAsks []string // HasKitImage tags, in order
+	resolvedBase string   // ResolveKitBase returns this (default "blessed-default")
+	resolvedFrom string   // the declaredBase ResolveKitBase was asked about
 
 	resolvedTarBase string // ResolveKitBaseTar returns this (default "blessed-tar-base")
 	resolvedTar     []byte // the context tar bytes ResolveKitBaseTar was streamed
@@ -94,9 +99,12 @@ func (f *fakeOps) BuildKitImage(buildDir, tag, base string, buildArgs map[string
 	if f.buildErr != nil {
 		return "", f.buildErr
 	}
-	return "sha256:built", nil
+	return fakeImageID, nil
 }
-func (f *fakeOps) HasKitImage(tag string) (bool, error) { return f.hasImage[tag], nil }
+func (f *fakeOps) HasKitImage(tag string) (bool, error) {
+	f.hasImageAsks = append(f.hasImageAsks, tag)
+	return f.hasImage[tag], nil
+}
 func (f *fakeOps) ResolveKitBase(declaredBase string) (string, error) {
 	f.resolvedFrom = declaredBase
 	if f.resolvedBase != "" {
