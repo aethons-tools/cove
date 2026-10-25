@@ -40,6 +40,8 @@ type appTunnels struct {
 	addr  string
 	err   error
 	opens []string
+	// budgets records, per open, how long its ctx had left (0: no deadline).
+	budgets []time.Duration
 	// onOpen, when set, runs at the start of each Open (outside mu).
 	onOpen func()
 }
@@ -60,6 +62,11 @@ func (f *appTunnels) open(ctx context.Context, actorID string, port int32) (net.
 	}
 	f.mu.Lock()
 	f.opens = append(f.opens, fmt.Sprintf("%s:%d", actorID, port))
+	var budget time.Duration
+	if dl, ok := ctx.Deadline(); ok {
+		budget = time.Until(dl)
+	}
+	f.budgets = append(f.budgets, budget)
 	addr, err := f.addr, f.err
 	f.mu.Unlock()
 	if err != nil {
@@ -85,6 +92,8 @@ type previewHarness struct {
 	logs  *lockedWriter
 	d     Deps
 	ids   map[string]ident.ID
+	// setExposures replaces the session's exposures.
+	setExposures func([]jam.Exposure)
 }
 
 // newPreviewHarness: session ses_<label26> (project acme, role ic with
@@ -164,6 +173,11 @@ func newPreviewHarness(t *testing.T, app *httptest.Server) *previewHarness {
 	return &previewHarness{
 		h: Preview(d, auth, testDomain), auth: &previewFixture{PreviewAuth: auth, clock: clock, logs: logs},
 		st: st, live: live, tun: tun, clock: clock, logs: lw, d: d, ids: ids,
+		setExposures: func(e []jam.Exposure) {
+			mu.Lock()
+			defer mu.Unlock()
+			exps = append([]jam.Exposure(nil), e...)
+		},
 	}
 }
 

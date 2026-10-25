@@ -13,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // The session pane (docs/usage/jam/intercom-ui.md#the-session-view): the
@@ -29,6 +30,10 @@ type SessionPane struct {
 	Asks        []PaneAsk
 	Links       []PaneLink
 	Status      []StatusRow
+	// Streams are the session's recorded event streams (Thinking tab);
+	// EventsOff: this jam records no session events.
+	Streams   []sessionevents.StreamInfo
+	EventsOff bool
 }
 
 // PreviewLink is one exposed port, opened in a new tab.
@@ -50,7 +55,7 @@ type PaneLink struct{ URL, Label string }
 type StatusRow struct{ Name, Value string }
 
 // paneTabs are the tabs a session's pane has.
-var paneTabs = []string{"previews", "artifacts", "status"}
+var paneTabs = []string{"thinking", "previews", "artifacts", "status"}
 
 // maxPaneLinks bounds the Links list (the newest win).
 const maxPaneLinks = 50
@@ -69,6 +74,12 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
+	case "thinking":
+		if h.d.Events == nil {
+			pane.EventsOff = true
+		} else {
+			pane.Streams, _ = h.d.Events.Streams(inst.ActorID)
+		}
 	case "previews":
 		h.panePreviews(r, p, inst, &pane)
 	case "artifacts":

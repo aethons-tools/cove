@@ -79,3 +79,32 @@ func TestDetailClipRuneBoundary(t *testing.T) {
 		t.Fatalf("len %d truncated %d", len(v.Detail), v.DetailTruncated)
 	}
 }
+
+func TestViewPromptAndOther(t *testing.T) {
+	mk := func(raw string) EventView {
+		return View(sessionevents.Event{Kind: sessionevents.KindEvent, Raw: []byte(raw)})
+	}
+	p := mk(`{"type":"user","message":{"role":"user","content":"You were woken:\nnew squawk"}}`)
+	if p.Kind != KindPrompt || p.Narrative != "You were woken:" || p.Detail != "You were woken:\nnew squawk" {
+		t.Fatalf("string prompt = %+v", p)
+	}
+	p = mk(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Fix the bug"}]}}`)
+	if p.Kind != KindPrompt || p.Narrative != "Fix the bug" {
+		t.Fatalf("block prompt = %+v", p)
+	}
+	if w := mk(`{"type":"user","message":{"content":"  \n "}}`); w.Kind != KindOther {
+		t.Fatalf("whitespace prompt = %+v", w)
+	}
+	o := mk(`{"type":"system","subtype":"hook_response","output":"secret-ish"}`)
+	if o.Kind != KindOther || o.Narrative != "system/hook_response" {
+		t.Fatalf("other = %+v", o)
+	}
+	o = mk(`{"type":"rate_limit_event"}`)
+	if o.Kind != KindOther || o.Narrative != "rate_limit_event" {
+		t.Fatalf("rate limit = %+v", o)
+	}
+	th := mk(`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"","signature":"abc"}]}}`)
+	if th.Kind != KindThinking || th.Narrative != "" {
+		t.Fatalf("empty thinking = %+v", th)
+	}
+}

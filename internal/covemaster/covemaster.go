@@ -139,6 +139,10 @@ type Config struct {
 	// TunnelDial opens the local connection (test seam); default is a plain
 	// TCP dial.
 	TunnelDial func(ctx context.Context, addr string) (net.Conn, error)
+	// IDE runs the built-in code-server (an *IDE) behind tunnels to
+	// preview.IDEPort, started on first use. Nil means no built-in IDE, and
+	// that port is refused.
+	IDE ideRunner
 }
 
 func connectorMsg(fp string) *attachpb.StatusUp {

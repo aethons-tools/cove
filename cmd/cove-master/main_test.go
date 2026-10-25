@@ -4,24 +4,26 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/covemaster"
 )
 
 func TestBuildConfigRequiresEnv(t *testing.T) {
 	env := map[string]string{}
 	get := func(k string) string { return env[k] }
-	if _, err := buildConfig(get); err == nil {
+	if _, err := buildConfig(get, nil); err == nil {
 		t.Fatal("expected error when AT_JAM_RUNTIME_ADDR is missing")
 	}
 	env["AT_JAM_RUNTIME_ADDR"] = "jam:9090"
-	if _, err := buildConfig(get); err == nil {
+	if _, err := buildConfig(get, nil); err == nil {
 		t.Fatal("expected error when AT_JAM_IDENTITY_TOKEN is missing")
 	}
 	env["AT_JAM_IDENTITY_TOKEN"] = "tok"
-	if _, err := buildConfig(get); err == nil {
+	if _, err := buildConfig(get, nil); err == nil {
 		t.Fatal("expected error when AT_JAM_LAUNCH_SECRET is missing")
 	}
 	env["AT_JAM_LAUNCH_SECRET"] = "sec"
-	cfg, err := buildConfig(get)
+	cfg, err := buildConfig(get, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +32,9 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	}
 	if len(cfg.DialOptions) == 0 {
 		t.Fatal("expected transport credentials in DialOptions")
+	}
+	if _, ok := cfg.IDE.(*covemaster.IDE); !ok {
+		t.Fatalf("cfg.IDE = %T, want the built-in *covemaster.IDE", cfg.IDE)
 	}
 }
 
