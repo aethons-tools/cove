@@ -983,6 +983,10 @@ func TestPreviewXFrameOptionsStrippedOnlyWhenFramed(t *testing.T) {
 	if v := rec.Header().Values("X-Frame-Options"); len(v) != 0 {
 		t.Fatalf("framed XFO %q", v)
 	}
+	// The two variants share a URL: caches must keep them apart.
+	if v := strings.Join(rec.Header().Values("Vary"), ","); !strings.Contains(v, "Cookie") {
+		t.Fatalf("framed Vary %q", v)
+	}
 	if csp := rec.Header().Values("Content-Security-Policy"); !slices.Contains(csp, "frame-ancestors "+uiOrigin) {
 		t.Fatalf("framed CSP %q", csp)
 	}

@@ -92,7 +92,8 @@ Every preview response carries `Content-Security-Policy: frame-ancestors`
 listing only the [`ui-origins`](serve.md) (`'none'` when unset; list the
 UI's own origin there to enable the pane). Any CSP the app sends stays
 beside it, and a frame nested under another preview is blocked. The app's
-`X-Frame-Options` is dropped only on a pane (frame-cookie) request. Jam's
+`X-Frame-Options` is dropped only on a pane (frame-cookie) request, which
+then also carries `Vary: Cookie`. Jam's
 own error pages tell the pane their status (`postMessage` to the **first**
 `ui-origins` entry, so put the production UI origin first): inside any
 iframe, the 404 and the 403s "cross-site request refused" and "this login is not linked to a Jam user";

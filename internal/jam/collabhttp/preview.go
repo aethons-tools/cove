@@ -644,14 +644,17 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 }
 
 // modifyResponse sanitises the app's response (sanitizeResponse), adds Jam's
-// frame-ancestors beside any CSP of the app's, and, for the Jam pane (a frame-authenticated request), drops its X-Frame-Options:
-// frame-ancestors already limits who may frame it to the UI origins.
+// frame-ancestors beside any CSP of the app's, and, for the Jam pane (a
+// frame-authenticated request), drops its X-Frame-Options — frame-ancestors
+// already limits who may frame it to the UI origins — adding Vary: Cookie,
+// since that variant shares the URL with the top-level one.
 func (p *previewProxy) modifyResponse(resp *http.Response) error {
 	sanitizeResponse(resp.Header)
 	resp.Header.Add("Content-Security-Policy", p.csp)
 	if resp.Request != nil {
 		if req, _ := resp.Request.Context().Value(proxyCtxKey{}).(*previewRequest); req != nil && req.framed {
 			resp.Header.Del("X-Frame-Options")
+			resp.Header.Add("Vary", "Cookie")
 		}
 	}
 	return nil
