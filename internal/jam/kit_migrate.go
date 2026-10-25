@@ -145,7 +145,8 @@ func sha256Hex(s string) string {
 
 // kitMigrateConditions opens kit.migrate:<name> for each kit whose current
 // version is broken and clears every other open one. Its texts are fixed:
-// the kit's name and version, and the reason the migration recorded.
+// the kit's name and version, and the reason the migration recorded. The
+// migration, the import and every RunConfigDriftCheck round call it.
 func kitMigrateConditions(store Store, t *condition.Tracker) {
 	open := map[string]bool{}
 	for _, k := range store.ListKits() {

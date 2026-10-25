@@ -114,7 +114,10 @@ func checkConfigDriftLocked(store Store, t *condition.Tracker, log *slog.Logger)
 		Fix:     configDriftFix})
 }
 
-// RunConfigDriftCheck checks drift now and every `every` until ctx ends.
+// RunConfigDriftCheck checks drift now and every `every` until ctx ends. Each
+// round also re-evaluates the kit.migrate conditions, so a push, pin or
+// removal that leaves a kit's current version not broken clears its
+// condition within a round, and a pin onto a broken version opens it.
 func RunConfigDriftCheck(ctx context.Context, store Store, t *condition.Tracker, every time.Duration, log *slog.Logger) {
 	if t == nil {
 		return
@@ -122,6 +125,7 @@ func RunConfigDriftCheck(ctx context.Context, store Store, t *condition.Tracker,
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
+		kitMigrateConditions(store, t)
 		CheckConfigDrift(store, t, log)
 		select {
 		case <-ctx.Done():

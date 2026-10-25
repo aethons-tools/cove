@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -21,6 +22,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -424,5 +426,47 @@ func TestLegacyContextRefusals(t *testing.T) {
 		if _, _, err := legacyKitTree(c.text); err == nil || err.Error() != c.want {
 			t.Fatalf("%s: err = %v, want %s", c.text, err, c.want)
 		}
+	}
+}
+
+// The minute drift loop re-evaluates kit.migrate: a push of a good version
+// clears it, as does removing the kit; a broken current reopens it.
+func TestRunConfigDriftCheckReevaluatesKitMigrate(t *testing.T) {
+	st := NewMemStore()
+	if err := st.PutKitDocs([]Kit{
+		legacyDoc("app", `{"kind":"studio"}`, `{"kind":"studio","base":{"context":"!!not base64"}}`),
+		legacyDoc("gone", `{"kind":"studio","base":{"context":"!!not base64"}}`),
+	}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	tr := condition.New(condition.Options{})
+	if _, err := MigrateKitTrees(st, tr, nil); err != nil {
+		t.Fatal(err)
+	}
+	app, gone := condition.Key(KitMigrateKind, "app"), condition.Key(KitMigrateKind, "gone")
+	if !tr.IsOpen(app) || !tr.IsOpen(gone) {
+		t.Fatal("both broken kits must be open after the migration")
+	}
+	if _, _, err := PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveKitChecked(st, nil, "gone"); err != nil {
+		t.Fatal(err)
+	}
+	once := func() { // a cancelled loop checks once, then returns
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		RunConfigDriftCheck(ctx, st, tr, time.Hour, nil)
+	}
+	once()
+	if tr.IsOpen(app) || tr.IsOpen(gone) {
+		t.Fatalf("still open: app=%v gone=%v", tr.IsOpen(app), tr.IsOpen(gone))
+	}
+	if err := PinKitChecked(st, "app", 2); err != nil {
+		t.Fatal(err)
+	}
+	once()
+	if !tr.IsOpen(app) {
+		t.Fatal("pinning the broken version must reopen it")
 	}
 }
