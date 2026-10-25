@@ -4,7 +4,7 @@ read_when: You want the loose backlog of known follow-ups not yet filed as ticke
 owns: the informal TODO backlog
 prereqs: none
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-25
 ---
 
 * Special `.claude.json` file handling:
@@ -27,9 +27,10 @@ updated: 2026-10-22
   (revoked auth/model) is kept alive by its alarms or an on-idle `wake` idle timeout and
   never ends, holding its slot; after N failed turns it should end (a ticket marked
   blocked). See [turn-end.md](usage/jam/turn-end.md).
-* Context lifecycle for long-running (resident) sessions: compaction, clearing and memory.
-  Today resident sessions `--continue` forever and rely on claude's auto-compaction. Design
-  first; a timer or idle wake is a natural seam to start a fresh episode.
+* Context lifecycle for long-running (resident) sessions: automatic compact/clear policies.
+  Manual Compact and Clear exist ([session-view.md](usage/jam/session-view.md#session-controls));
+  resident sessions otherwise `--continue` forever and rely on claude's auto-compaction. Design
+  first; a timer or idle wake is a natural seam.
 * Session context: a Postgres restart test for `jam_settings` (the Jam-wide layer
   survives a store reopen), in the store-integration suite.
 * Connections: more than one connection of a kind (two Linear workspaces, two Discord

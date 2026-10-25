@@ -1,11 +1,15 @@
 # Session controls: interrupt, compact, clear — design
 
-**Status:** design — awaiting approval.
+**Status:** built — branch feat/session-controls (PR pending).
 **Context:** Sessions today can only be released (or restarted/upgraded by operators). Three gaps hurt cost and quality ([TODO.md](../../TODO.md) "Context lifecycle for long-running sessions"):
 
 1. **Interrupt.** A mistyped message or a wrong paste starts a turn, and the agent acts on it. People need to stop the turn *now* without losing the session.
 2. **Compact.** Long tasks grow the context: cost goes up and quality goes down. People need to shrink it and carry on with the same task.
 3. **Clear.** A finished task leaves its whole conversation behind. People need a blank conversation for the next task without releasing the session and starting a new one.
+
+## Planning amendments
+
+Five decisions made while planning changed the spec: the commands bypass `ControlSink`; the docs live in session-view.md; a clear-pending file beats the standing conversation marker; Interrupt is a visible button while Compact and Clear sit in the `⋯` menu; command records are synthetic `cove`/`command` event lines. See the [plan](../plans/2026-10-25-session-interrupt-compact-clear.md#plan-amendments-to-the-spec-decided-while-planning).
 
 ## Decisions (2026-10-25)
 

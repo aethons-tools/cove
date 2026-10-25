@@ -245,6 +245,25 @@ owed when the process exits — coalesced but undelivered, or written but not ye
 acted on (the write failed, or the agent exited before starting that turn) — is
 kept, so the next wait resumes at once.
 
+### Session controls (Interrupt, Compact, Clear)
+
+The header buttons ([session-view.md](session-view.md#session-controls)) reach cove-master as
+Attach-stream commands (not `ControlSink`); each is recorded as a `cove`/`command` event line.
+
+- **Interrupt.** Sends Claude a `control_request` interrupt: the foreground tool is killed;
+  background tasks keep running. Then one acknowledge turn runs, which folds in any coalesced
+  wakes; the agent asks what to do and waits. Ignored when not in a turn, while compacting, or
+  if it predates the episode. An interrupt racing the end of a turn may yield an acknowledge
+  for a turn that had just finished (benign).
+- **Compact.** Runs `/compact <instructions>`: at the turn boundary when running, at once when
+  holding, and, when waiting, in a **maintenance episode** (`--continue`; no `running`/`waiting`
+  report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
+- **Clear.** Only while waiting (dropped while an episode is live). It writes
+  `/agent-data/.cove-clear-pending` (contents: who pressed). The next episode starts without
+  `--continue`, with the starting prompt, a notice that the conversation was cleared, and the wake
+  text. The marker beats the standing conversation marker on restart and is consumed on the
+  agent's first reply.
+
 **Connector refresh.** Before every episode (agent spawn) — the first, and each resume after the process exited —
 cove-master re-fetches its connector (`GET /connector`, [connector.md](connector.md))
 and starts that episode with the current env and git routing, so a destination or grant

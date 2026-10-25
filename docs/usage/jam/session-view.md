@@ -1,7 +1,7 @@
 ---
 summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
-read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
-owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
+read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
+owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
 updated: 2026-10-25
@@ -27,7 +27,8 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 - **Uptime:** time since the session was raised.
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
-- **⋯ menu:** each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
+- **Interrupt:** a visible button beside Copy SSH, enabled while the session is running. See [Session controls](#session-controls).
+- **⋯ menu:** Compact and Clear (see [Session controls](#session-controls)), then each action asks for confirmation, then `POST /app/user/session/{id}/<action>`.
   The server re-checks permission (403 otherwise). Ending a session reloads the page.
   The header doesn't refresh while the menu is open.
 
@@ -36,6 +37,23 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 | Release | a personal session's owner, or an operator | tears it down |
 | End / Restart | operators, for non-personal sessions (Restart for standing) | tears it down; a standing session is raised again by its reconciler |
 | Upgrade | operators, standing sessions | queues an upgrade to the current image; the pending state shows beside it |
+
+### Session controls
+
+Interrupt, Compact and Clear act on the session's agent; cove-master's handling is in
+[coves.md](coves.md#session-controls-interrupt-compact-clear). Anyone who can see the
+session may press them, on any session kind. Clear asks for confirmation.
+
+| Control | Enabled when | Does |
+|---------|--------------|------|
+| Interrupt | running | stops the current turn; the agent then acknowledges in its channel and waits |
+| Compact | running, holding (a turn ended with background tasks outstanding) or waiting | shrinks the conversation with Claude's `/compact` |
+| Clear | waiting, including paused | starts the next turn as a blank conversation |
+
+Each press is `POST /app/user/session/{id}/interrupt|compact|clear`. The server answers 409
+when the control isn't available in the session's state, and 502 when the cove can't be reached.
+A paused studio is resumed first, so a press may take up to about 30s. The Thinking tab shows
+each press as "<Command> — pressed by <name>".
 
 ## Pane
 
