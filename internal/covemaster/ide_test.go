@@ -1,8 +1,10 @@
 package covemaster
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -40,6 +42,9 @@ func fakeCodeServer(args []string) int {
 		}
 		_, _ = fh.WriteString(strings.Join(append([]string{strconv.Itoa(os.Getpid())}, args...), "\t") + "\n")
 		_ = fh.Close()
+	}
+	if f := os.Getenv("IDE_FAKE_COUNT"); f != "" {
+		_ = os.WriteFile(f+".env", []byte(strings.Join(os.Environ(), "\n")+"\n"), 0o600)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer stop()
@@ -375,5 +380,39 @@ func TestIDEAcquireHonoursContext(t *testing.T) {
 	defer cancel()
 	if err := ide.Acquire(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want the ctx deadline", err)
+	}
+}
+
+func TestIDEChildEnvDropsJamAndHarborVars(t *testing.T) {
+	t.Setenv("AT_JAM_TEST_SECRET", "s3cret")
+	t.Setenv("AT_HARBOR_TEST_SECRET", "s3cret")
+	t.Setenv("IDE_ENV_HARMLESS", "ok")
+	cfg, count := fakeIDE(t, "")
+	ide := NewIDE(cfg, nil)
+	t.Cleanup(ide.Close)
+	if err := ide.Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(count + ".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(raw)
+	if strings.Contains(env, "AT_JAM_") || strings.Contains(env, "AT_HARBOR_") || strings.Contains(env, "s3cret") {
+		t.Errorf("code-server env leaks cove-master secrets:\n%s", env)
+	}
+	if !strings.Contains(env, "IDE_ENV_HARMLESS=ok") {
+		t.Errorf("harmless var missing from code-server env:\n%s", env)
+	}
+}
+
+func TestLogLinesFlushKeepsUnterminatedTail(t *testing.T) {
+	var out bytes.Buffer
+	w := &logLines{log: slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+	_, _ = w.Write([]byte("one\ntail"))
+	w.Close()
+	w.Close() // idempotent
+	if got := strings.Count(out.String(), "ide output"); got != 2 || !strings.Contains(out.String(), "line=tail") {
+		t.Errorf("want 2 records incl. tail, got:\n%s", out.String())
 	}
 }

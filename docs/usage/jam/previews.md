@@ -115,10 +115,11 @@ HTTP/2). `CONNECT` is refused (405).
 
 ## A web IDE
 
-Every studio has a built-in code-server, started on first use and stopped
-after 30 idle minutes (or when cove-master exits). It opens from the Studio tab
-([session-view.md](session-view.md)). A kit can still provide its own by
-exposing it as `ide`, which takes precedence.
+Every studio image includes code-server. cove-master starts it on first use
+(a tunnel to `127.0.0.1:13337`) and stops it after 30 idle minutes or when
+cove-master exits. Jam does not serve it yet: the Studio tab and the `ide`
+preview name (under the ssh right) are coming. Until then a kit or agent can
+run its own IDE on another port and `expose(<port>, "ide")`, as before.
 
 ## Limits
 

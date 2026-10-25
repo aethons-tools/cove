@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -88,6 +90,7 @@ type IDE struct {
 // ideProc is one code-server process; done closes once it is reaped.
 type ideProc struct {
 	cmd    *exec.Cmd
+	out    *logLines
 	cancel context.CancelFunc // SIGTERM to the group, SIGKILL after Grace
 	done   chan struct{}
 	exited bool // under IDE.mu: reaped; never publish it as running
@@ -231,6 +234,7 @@ func (i *IDE) launch() (*ideProc, error) {
 	pctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(pctx, bin, "--bind-addr", i.cfg.Addr, "--auth", "none",
 		"--disable-telemetry", "--disable-update-check", i.cfg.Workspace)
+	cmd.Env = childEnv(os.Environ())
 	inOwnProcessGroup(cmd)
 	cmd.WaitDelay = i.cfg.Grace
 	out := &logLines{log: i.log}
@@ -239,7 +243,7 @@ func (i *IDE) launch() (*ideProc, error) {
 		cancel()
 		return nil, fmt.Errorf("ide: start %s: %w", bin, err)
 	}
-	p := &ideProc{cmd: cmd, cancel: cancel, done: make(chan struct{})}
+	p := &ideProc{cmd: cmd, out: out, cancel: cancel, done: make(chan struct{})}
 	go i.reap(p)
 	i.log.Info("ide started", "pid", cmd.Process.Pid, "addr", i.cfg.Addr)
 
@@ -271,7 +275,8 @@ func (i *IDE) launch() (*ideProc, error) {
 // reap waits for the process, kills any of its group left behind, and clears
 // whatever state still points at it.
 func (i *IDE) reap(p *ideProc) {
-	err := p.cmd.Wait()
+	err := p.cmd.Wait() // returns after the output copier has drained
+	p.out.Close()
 	_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL) // stragglers; ESRCH when none
 	p.cancel()
 	i.mu.Lock()
@@ -286,6 +291,26 @@ func (i *IDE) reap(p *ideProc) {
 	}
 	i.mu.Unlock()
 	close(p.done)
+}
+
+// secretEnvPrefixes name cove-master's own credentials (AT_JAM_IDENTITY_TOKEN,
+// AT_JAM_LAUNCH_SECRET, AT_HARBOR_* and the connector settings); an IDE
+// terminal must not inherit them.
+var secretEnvPrefixes = []string{"AT_JAM_", "AT_HARBOR_"}
+
+// childEnv is env minus every variable named with a secretEnvPrefixes prefix.
+func childEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+next:
+	for _, kv := range env {
+		for _, p := range secretEnvPrefixes {
+			if strings.HasPrefix(kv, p) {
+				continue next
+			}
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // inOwnProcessGroup puts code-server in its own process group and makes
@@ -317,6 +342,15 @@ func (w *logLines) Write(b []byte) (int, error) {
 		w.buf = nil
 	}
 	return len(b), nil
+}
+
+// Close logs any buffered unterminated tail. Call it once the copier is done
+// (after cmd.Wait); safe to call twice.
+func (w *logLines) Close() {
+	if len(w.buf) > 0 {
+		w.log.Debug("ide output", "line", string(w.buf))
+		w.buf = nil
+	}
 }
 
 // Close stops code-server (SIGTERM to its group, SIGKILL after Grace),
