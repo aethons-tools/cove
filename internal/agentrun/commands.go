@@ -3,6 +3,7 @@ package agentrun
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -134,11 +135,12 @@ func compactText(instructions string) string {
 
 // interruptPrompt is the acknowledge turn written after an interrupted turn
 // ends. rs are the wakes coalesced into that turn: the prompt flags them as
-// waiting and names each non-squawk reason as renderWake does, but never asks
-// the agent to continue.
+// waiting (unless they are only context changes, which bring no message) and
+// names each non-squawk reason as renderWake does, but never asks the agent to
+// continue.
 func interruptPrompt(by string, rs []covemaster.WakeReason) string {
 	lines := []string{fmt.Sprintf(interruptAck, by)}
-	if len(rs) > 0 {
+	if slices.ContainsFunc(rs, func(r covemaster.WakeReason) bool { return r.Kind != "context-changed" }) {
 		lines = append(lines, interruptPending)
 		for _, r := range rs {
 			if l, ok := wakeLine(r); ok {

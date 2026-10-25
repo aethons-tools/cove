@@ -58,6 +58,10 @@ func TestInterruptPrompt(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
+	// A context change alone is no message: no pending line.
+	if got := interruptPrompt("Ann", []covemaster.WakeReason{{Kind: "context-changed"}}); got != ack {
+		t.Fatalf("context-changed only: got %q\nwant %q", got, ack)
+	}
 }
 
 // interruptRun starts a resident Run and returns the first episode with its
