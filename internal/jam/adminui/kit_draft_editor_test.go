@@ -75,7 +75,7 @@ func TestDraftStaleSaveKeepsText(t *testing.T) {
 	rec := post(t, h, "/app/admin/kits/app/draft/save", url.Values{"etag": {tab1}, "path": {"run.sh"}, "content": {"echo <tab1> typed\r\n"}, "executable": {"1"}})
 	body := rec.Body.String()
 	ed := section(body, "draft-editor")
-	if rec.Code != http.StatusOK || !strings.Contains(ed, `draft app changed since you loaded it (reload) <a href="/app/admin/kits/app/draft?file=run.sh">reload</a>`) {
+	if rec.Code != http.StatusOK || !strings.Contains(ed, `draft app changed since you loaded it (reload): your text is still in the editor — copy it before reloading. <a href="/app/admin/kits/app/draft?file=run.sh">reload</a>`) {
 		t.Fatalf("stale save = %d:\n%s", rec.Code, ed)
 	}
 	if got := editorValue(t, body); got != "echo <tab1> typed\n" {
@@ -203,7 +203,7 @@ func TestDraftStaleSaveDraftGone(t *testing.T) {
 	putDraft(t, store, "run.sh", 0, "echo other\n")
 	h := uiHandler(t, &draftGoneAfterRead{Store: store})
 	rec := post(t, h, "/app/admin/kits/app/draft/save", url.Values{"etag": {stale}, "path": {"run.sh"}, "content": {"echo typed\n"}})
-	if rec.Code != http.StatusPreconditionFailed || !strings.Contains(rec.Body.String(), "draft app changed since you loaded it (reload)") || strings.Contains(rec.Body.String(), "echo typed") {
+	if rec.Code != http.StatusPreconditionFailed || !strings.Contains(rec.Body.String(), "draft app changed since you loaded it (reload): your text is still in the editor — copy it before reloading") || strings.Contains(rec.Body.String(), "echo typed") {
 		t.Fatalf("stale save, draft gone = %d %s", rec.Code, rec.Body)
 	}
 	if data, _, _, _ := jam.KitDraftFile(store, "app", "run.sh"); string(data) != "echo other\n" {

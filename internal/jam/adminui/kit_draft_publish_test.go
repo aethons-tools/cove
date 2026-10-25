@@ -138,7 +138,7 @@ func TestDraftPublishManagedFollowerFiles(t *testing.T) {
 	if strings.Contains(pub, `id="draft-drift"`) {
 		t.Fatalf("an unmanaged kit shows the drift warning:\n%s", pub)
 	}
-	rec := post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {hiddenETag(t, pub)}, "pin": {"1"}})
+	rec := post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {hiddenETag(t, pub)}, "pin": {"1"}, "drift": {"1"}})
 	done := section(rec.Body.String(), "draft-published")
 	if rec.Code != http.StatusOK || !strings.Contains(done, `<li data-change="modified">kits/web/kit.yml`) || strings.Contains(done, "kits/app/") || !strings.Contains(done, jam.DraftDriftWarning) {
 		t.Fatalf("publish = %d:\n%s", rec.Code, done)
@@ -161,5 +161,55 @@ func TestDraftPublishAudit(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "run.sh") {
 		t.Errorf("the audit line names content or a path:\n%s", logs.String())
+	}
+}
+
+// A publish with Pin followers that would rewrite a config-managed follower
+// warns before, naming it, and needs the drift box when Pin is ticked (the
+// page requires it with Pin; the server refuses without it).
+func TestDraftPublishPinDriftWarnsFirst(t *testing.T) {
+	store, h := draftFixture(t)
+	for name, yml := range map[string]string{"web": "kind: studio\nbase:\n  kit: app\n", "api": "kind: studio\nbase:\n  kit: app\n"} {
+		if _, _, err := jam.PushKitFiles(store, name, kittreetest.Files("kit.yml", yml)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	markManaged(t, store, "web")
+	putDraft(t, store, "run.sh", 0, "echo two\n")
+	pub := section(get(t, h, "/app/admin/kits/app/draft").Body.String(), "draft-publish")
+	for _, want := range []string{
+		`id="draft-pin-drift">Pinning rewrites config-managed web: `,
+		`<input type="checkbox" name="drift" value="1" data-require-with="pin"> I understand this drifts from the config repo`,
+	} {
+		if !strings.Contains(pub, want) {
+			t.Errorf("publish card missing %q:\n%s", want, pub)
+		}
+	}
+	if strings.Contains(pub, `id="draft-drift"`) || strings.Contains(pub, "managed api") {
+		t.Errorf("only the managed follower is named:\n%s", pub)
+	}
+	rec := post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {hiddenETag(t, pub)}, "pin": {"1"}})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "pinning followers drifts config-managed web from the config repo: tick “I understand this drifts from the config repo” to publish") {
+		t.Fatalf("unconfirmed pin publish = %d %s", rec.Code, rec.Body)
+	}
+	if k, _ := store.GetKit("app"); k.Current != 1 {
+		t.Fatal("an unconfirmed pin publish published")
+	}
+	rec = post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {hiddenETag(t, pub)}, "pin": {"1"}, "drift": {"1"}})
+	if rec.Code != http.StatusOK || !strings.Contains(section(rec.Body.String(), "draft-published"), `kits/web/kit.yml`) {
+		t.Fatalf("confirmed pin publish = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Without Pin, a managed follower is not rewritten: no box is needed.
+func TestDraftPublishNoPinNoDriftBox(t *testing.T) {
+	store, h := draftFixture(t)
+	if _, _, err := jam.PushKitFiles(store, "web", kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: app\n")); err != nil {
+		t.Fatal(err)
+	}
+	markManaged(t, store, "web")
+	putDraft(t, store, "run.sh", 0, "echo two\n")
+	if rec := post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {draftETag(t, store)}}); rec.Code != http.StatusOK {
+		t.Fatalf("publish without pin = %d %s", rec.Code, rec.Body)
 	}
 }

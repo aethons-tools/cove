@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
@@ -62,7 +63,7 @@ func TestDraftDiffUnchanged(t *testing.T) {
 
 // Ruling 25 / F10: a base whose kit.yml holds a packed context is masked on
 // both sides of the diffs the same way, so the base64 is never shown and
-// only the real edit is a change; the editor alone shows the raw text.
+// only the real edit is a change; the editor does not show it either.
 func TestDraftDiffMasksPackedContext(t *testing.T) {
 	store := newStore(t)
 	b64 := packCtx(t, "Dockerfile", "FROM x\n")
@@ -98,9 +99,13 @@ func TestDraftDiffMasksPackedContext(t *testing.T) {
 		t.Errorf("a partly masked kit.yml has the hidden note")
 	}
 
+	// The editor never shows it either: a note, Download and Replace.
 	e := get(t, h, "/app/admin/kits/bad/draft?file=kit.yml").Body.String()
-	if ed := section(e, "draft-editor"); !strings.Contains(ed, b64) || strings.Contains(section(e, "draft-yaml-diff"), "H4sI") {
-		t.Errorf("editor should show the raw text, the diff never:\n%s", ed)
+	ed := section(e, "draft-editor")
+	if strings.Contains(e, "H4sI") || strings.Contains(ed, `name="content"`) ||
+		!strings.Contains(ed, `id="draft-noedit">This kit.yml holds a packed context; download, remove it, and replace`) ||
+		!strings.Contains(ed, `href="/app/admin/kits/bad/draft/download?path=kit.yml"`) || !strings.Contains(ed, `id="draft-replace"`) {
+		t.Errorf("editor of a packed-context kit.yml:\n%s", ed)
 	}
 }
 
@@ -245,5 +250,32 @@ func TestDraftDiffReadsKitYMLOnce(t *testing.T) {
 	body := get(t, uiHandler(t, countDraft{store, &reads}), "/app/admin/kits/app/draft?file=kit.yml&diff=1").Body.String()
 	if reads != 2 || !strings.Contains(section(body, "draft-yaml-diff"), "+ prompt: a") || !strings.Contains(section(body, "ctx-file"), "+ prompt: a") {
 		t.Errorf("draft reads = %d, want 2", reads)
+	}
+}
+
+// missTree is a store whose tree sha is lost.
+type missTree struct {
+	jam.Store
+	sha string
+}
+
+func (m missTree) KitTree(sha string) (kittree.Tree, bool) {
+	if sha == m.sha {
+		return kittree.Tree{}, false
+	}
+	return m.Store.KitTree(sha)
+}
+
+// A base version whose tree cannot be read is a store fault (the fixed
+// 500), never a diff against an empty base.
+func TestDraftBaseLoadFault(t *testing.T) {
+	store, _ := draftFixture(t)
+	putDraft(t, store, "run.sh", 0, "echo two\n")
+	k, _ := store.GetKit("app")
+	var logs bytes.Buffer
+	h := adminui.Handler(missTree{store, k.Trees[1]}, slog.New(slog.NewTextHandler(&logs, nil)), nil, nil, anyCred, nil)
+	rec := get(t, h, "/app/admin/kits/app/draft")
+	if rec.Code != http.StatusInternalServerError || strings.TrimSpace(rec.Body.String()) != `<p class="error">internal error</p>` || !strings.Contains(logs.String(), `msg="ui kit draft: store error"`) {
+		t.Fatalf("base fault = %d %s\n%s", rec.Code, rec.Body, logs.String())
 	}
 }

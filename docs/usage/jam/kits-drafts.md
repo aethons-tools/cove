@@ -129,15 +129,26 @@ field, so the [concurrency](#concurrency) rule holds in the browser too.
   line diff, with a packed context masked on both sides.
 - A file opens in a plain text editor when it is UTF-8 text of 1 MiB or
   less with no carriage returns; otherwise it shows a note, **Download** and
-  a mode toggle. Any file can be replaced by an upload (the upload's own
-  file name is never used), renamed or deleted.
+  a mode toggle. A `kit.yml` holding a packed context is never shown: the
+  note says to download it, remove the context, and replace it. Any file can
+  be replaced by an upload (the upload's own file name is never used),
+  renamed or deleted.
 - A save that lost a race answers with the editor still holding your text,
   unsaved, Save disabled, and a reload link.
+- While the editor holds unsaved text, any other Draft-tab action, a link
+  or leaving the page asks first (`You have unsaved changes in the editor.
+  Discard them?`): each would re-render the tab without it.
 
 Publishing a config-managed kit from the UI is allowed, with a step the
 API does not have: the form shows the drift warning and needs the box
 **I understand this drifts from the config repo** ticked (the server
-refuses 400 without it). The spec's "write to config repo instead" is read
+refuses 400 `kit <name> is managed by the config repo: tick “…” to
+publish` without it). When **Pin followers** would rewrite config-managed
+followers, the form names them next to the box, and with Pin ticked the
+same confirmation is needed (400 `pinning followers drifts config-managed
+<kits> from the config repo: tick “…” to publish`). The box is checked
+before the draft's existence and ETag, so an unticked publish of a gone or
+stale draft answers this 400, not 404 or 412. The spec's "write to config repo instead" is read
 as *publish, then write to the config repo*: after any publish that drifts
 (the kit, or a managed follower it pinned), the result card lists the
 config-repo files to expect — `kits/<name>/<path>` for each file that

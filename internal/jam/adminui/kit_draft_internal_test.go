@@ -36,3 +36,23 @@ func TestDraftTreeNests(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+// Sibling directories under one parent each get their row, and a file back
+// at the parent or the root closes them.
+func TestDraftTreeSiblingDirs(t *testing.T) {
+	entries := []jam.DraftEntry{
+		{Path: "a/b/x", Mode: "0644"}, {Path: "a/c/y", Mode: "0644"}, {Path: "a/z", Mode: "0644"}, {Path: "r", Mode: "0644"},
+	}
+	var got []string
+	for _, r := range draftTree("app", entries, nil) {
+		l := r.Pad + r.Name
+		if r.Dir {
+			l += "/"
+		}
+		got = append(got, l)
+	}
+	want := []string{"a/", "  b/", "    x", "  c/", "    y", "  z", "r"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("tree =\n%q\nwant\n%q", got, want)
+	}
+}

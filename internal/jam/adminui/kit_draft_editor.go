@@ -59,6 +59,8 @@ func draftEditorFor(store jam.Store, kit, p string) (*draftEditor, error) {
 	switch {
 	case len(data) > maxDraftEditBytes:
 		ed.Note = "over 1 MiB (" + bytesText(e.Size) + "): too large to edit here — Download it, or Replace it with an upload"
+	case p == kittree.KitFile && maskedKitYML(data):
+		ed.Note = "This kit.yml holds a packed context; download, remove it, and replace"
 	case !kittree.IsText(data):
 		ed.Note = "binary file (" + bytesText(e.Size) + "): not editable here — Download it, or Replace it with an upload"
 	case bytes.IndexByte(data, '\r') >= 0:
@@ -68,6 +70,13 @@ func draftEditorFor(store jam.Store, kit, p string) (*draftEditor, error) {
 		ed.Invisible = jam.SetupDisplayText(ed.Text) != ed.Text
 	}
 	return ed, nil
+}
+
+// maskedKitYML reports whether the kit page would mask kit.yml text data
+// (maskKitYML): the editor never shows such a text, as no page does.
+func maskedKitYML(data []byte) bool {
+	_, how := maskKitYML(string(data))
+	return how != maskNone
 }
 
 // openDraftFile sets v's editor to file p, or FileMissing when the draft has
@@ -172,6 +181,10 @@ func registerDraftEditor(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 	})
 }
 
+// editorKeptText tells the operator a refused save left their text unsaved
+// in the editor.
+const editorKeptText = "your text is still in the editor — copy it before reloading"
+
 // renderStaleSave answers a save refused as stale (412) with the #draft body
 // as it is now, its editor holding the submitted text unsaved (staleEditor).
 // It answers 200, since htmx swaps only 2xx. Should the draft be gone by
@@ -182,9 +195,9 @@ func renderStaleSave(w http.ResponseWriter, r *http.Request, store jam.Store, lo
 		return
 	}
 	if pg.Draft == nil {
-		draftUIFail(w, r, log, stale)
+		renderError(w, http.StatusPreconditionFailed, stale.Error()+": "+editorKeptText)
 		return
 	}
-	pg.Draft.Editor = staleEditor(name, p, text, etag, mode, stale.Error())
+	pg.Draft.Editor = staleEditor(name, p, text, etag, mode, stale.Error()+": "+editorKeptText)
 	writeDraftBody(w, r, pg, "")
 }

@@ -164,3 +164,15 @@ func TestDraftModeToggle(t *testing.T) {
 		t.Fatalf("stale mode = %d", rec.Code)
 	}
 }
+
+// The upload hints state the per-file limit as jam enforces it.
+func TestDraftUploadHintsShowLimit(t *testing.T) {
+	old := kittree.MaxFile
+	kittree.MaxFile = 2 << 20
+	t.Cleanup(func() { kittree.MaxFile = old })
+	_, h := draftFixture(t)
+	body := get(t, h, "/app/admin/kits/app/draft?file=run.sh").Body.String()
+	if strings.Count(body, "up to 2 MiB") != 2 || strings.Contains(body, "4 MiB") {
+		t.Errorf("hints:\n%s%s", section(body, "draft-replace"), section(body, "draft-add"))
+	}
+}
