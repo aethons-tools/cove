@@ -446,3 +446,33 @@ func TestReadDirCapsEntriesPerDirectory(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestIgnoreTree(t *testing.T) {
+	tr, blobs, err := BuildFiles([]File{
+		{Path: ".dockerignore", Data: []byte("*.log\nDockerfile\n")},
+		{Path: "debug.log", Data: []byte("x")},
+		{Path: "run.sh", Data: []byte("y")},
+		{Path: "Dockerfile", Data: []byte("FROM x\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := IgnoreTree(tr, MapBlobs(blobs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, e := range got.Entries {
+		paths = append(paths, e.Path)
+	}
+	if fmt.Sprint(paths) != "[.dockerignore Dockerfile run.sh]" {
+		t.Fatalf("kept %v (Dockerfile and .dockerignore are always kept)", paths)
+	}
+	plain, _, _ := BuildFiles([]File{{Path: "a.log", Data: []byte("x")}})
+	if kept, err := IgnoreTree(plain, MapBlobs(nil)); err != nil || len(kept.Entries) != 1 {
+		t.Fatalf("no .dockerignore = %+v %v", kept, err)
+	}
+	if _, err := IgnoreTree(tr, MapBlobs(nil)); err == nil {
+		t.Fatal("a .dockerignore whose content is missing must refuse")
+	}
+}

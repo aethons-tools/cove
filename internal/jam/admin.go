@@ -14,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
@@ -173,6 +172,7 @@ type KitSummary struct {
 	// Parent is the current version's base kit as written ("web-dev" or
 	// "web-dev@v3"); empty when it has none.
 	Parent string `json:"parent,omitempty"`
+	Draft  bool   `json:"draft,omitempty"` // an open draft (kits-drafts.md)
 }
 
 // KitFileInfo is one file of a kit version, as GET /admin/kits/{name} lists it.
@@ -832,7 +832,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !studio.TagSafeName(name) {
-			http.Error(w, "kit name is not tag-safe (allowed: [A-Za-z0-9_.-])", http.StatusBadRequest)
+			http.Error(w, unsafeKitNameText, http.StatusBadRequest)
 			return
 		}
 		// A tar body only, checked before the body is read: a browser's
@@ -841,13 +841,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
 			return
 		}
-		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
-		if err != nil {
-			if _, big := errors.AsType[*http.MaxBytesError](err); big {
-				http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
-				return
-			}
-			http.Error(w, fmt.Sprintf("kit %s: %s", name, err), http.StatusBadRequest)
+		files, ok := readKitTar(w, r, "kit", name)
+		if !ok {
 			return
 		}
 		ref, unchanged, err := PushKitFiles(store, name, files)
@@ -863,6 +858,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, k := range store.ListKits() {
 			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
 			sum.Parent = kitParentSpec(currentKitYML(store, k))
+			_, sum.Draft = store.GetKitDraft(k.Name)
 			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -926,7 +922,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		out := make([]KitVersionInfo, 0, len(vers))
 		for _, v := range vers {
 			m := k.Meta[v]
-			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
+			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Origin: m.Origin, Current: v == k.Current})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -1045,6 +1041,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
+	registerKitDrafts(mux, store, log)
 
 	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
@@ -1053,7 +1050,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	importConds = am.conds
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
-		return guarded
+		return draftFilePathGuard(guarded)
 	}
 	// The browser app (/app, its legacy redirects, and /me/studios) owns its own
 	// gates, so it is mounted OUTSIDE the /admin/* authenticator. Its session
@@ -1061,7 +1058,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
 	parent.Handle("/", browser)
-	return parent
+	return draftFilePathGuard(parent)
 }
 
 // projectErrStatus maps a store error to its HTTP status: an unknown project or

@@ -43,6 +43,10 @@ type TreeError struct{ Err error }
 func (e *TreeError) Error() string { return e.Err.Error() }
 func (e *TreeError) Unwrap() error { return e.Err }
 
+// ErrNoKitFile is ParseKitFS's refusal of a directory with no kit.yml at
+// its root (a draft may be in that state; a caller locates it at the kit).
+var ErrNoKitFile = errors.New("kit.yml missing at the root")
+
 // ParseTree parses kit version tree t, its bytes from blobs: ParseKitFS over
 // its billy view, with BuildContext set to t's context hash.
 func ParseTree(t kittree.Tree, blobs kittree.Blobs) (StudioKit, error) {
@@ -63,7 +67,7 @@ func ParseKitFS(fsys billy.Filesystem) (StudioKit, error) {
 	data, err := readKitFile(fsys, kittree.KitFile, maxRootFile)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return StudioKit{}, errors.New("kit.yml missing at the root")
+		return StudioKit{}, ErrNoKitFile
 	case errors.Is(err, errTooLarge):
 		return StudioKit{}, fmt.Errorf("%s: larger than %d bytes", kittree.KitFile, maxRootFile)
 	case err != nil:

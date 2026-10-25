@@ -492,6 +492,7 @@ func applyImport(m *memState, s ConfigSnapshot) {
 		m.roles[ident.ID(p)] = inner
 	}
 	m.kits = map[string]Kit{}
+	m.kitDrafts = map[string]KitDraft{} // drafts are never imported
 	for _, k := range s.Kits {
 		m.kits[k.Name] = copyKit(k)
 	}

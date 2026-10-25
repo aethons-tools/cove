@@ -208,6 +208,9 @@ func (s *PostgresStore) load(ctx context.Context) error {
 	if err := s.loadKitObjects(ctx); err != nil {
 		return err
 	}
+	if err := s.loadKitDrafts(ctx); err != nil {
+		return err
+	}
 	if err := s.loadDocs(ctx, "instances", func(doc []byte) error {
 		var i Instance
 		if err := json.Unmarshal(doc, &i); err != nil {

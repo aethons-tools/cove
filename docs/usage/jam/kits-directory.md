@@ -36,7 +36,8 @@ works: a leading `./` is dropped and directory entries are skipped.
 
 A root `.dockerignore` (docker's syntax) filters what is **stored**: ignored
 files are never read, sent or kept, and Jam applies it again to an upload.
-`kit.yml`, `Dockerfile` and `.dockerignore` are always kept.
+`kit.yml`, `Dockerfile` and `.dockerignore` are always kept. A kit draft applies it on
+every write too ([kits-drafts.md](kits-drafts.md)).
 
 ## Limits
 

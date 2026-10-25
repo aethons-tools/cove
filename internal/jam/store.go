@@ -71,9 +71,20 @@ type Store interface {
 	// KitTree and KitBlob read a stored tree or blob by sha256 (copies).
 	KitTree(sha string) (kittree.Tree, bool)
 	KitBlob(sha string) ([]byte, bool)
-	// GCKitObjects deletes the trees no kit version references and the blobs
+	// GCKitObjects deletes the trees no kit version or draft references and the blobs
 	// no remaining tree names, reporting how many of each went.
 	GCKitObjects() (KitGC, error)
+	// GetKitDraft, PutKitDraft and RemoveKitDraft hold the kits' drafts, at
+	// most one per kit (kit_drafts.go). PutKitDraft upserts d with objs in
+	// one atomic step: d.Kit must exist (ErrNotFound) with version d.Base,
+	// objs must pass the file rules (a draft may lack kit.yml), and d.Tree
+	// must be written or stored. RemoveKitDraft wraps ErrNotFound when there
+	// is no draft; RemoveKit (and a config apply's RemoveKits) drops the
+	// kit's draft. A draft's tree is referenced for GCKitObjects. Drafts are
+	// never in ExportConfig.
+	GetKitDraft(kit string) (KitDraft, bool)
+	PutKitDraft(d KitDraft, objs KitObjects) error
+	RemoveKitDraft(kit string) error
 	PinKit(name string, version int) error
 	ListKits() []Kit
 	RemoveKit(name string) error

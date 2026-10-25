@@ -27,6 +27,7 @@ type KitVersionInfo struct {
 	Version  int        `json:"version"`
 	PushedAt time.Time  `json:"pushed_at,omitzero"`
 	Source   *KitSource `json:"source,omitempty"`
+	Origin   string     `json:"origin,omitempty"` // "draft" for a version published from a draft
 	Current  bool       `json:"current,omitempty"`
 }
 

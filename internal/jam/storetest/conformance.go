@@ -27,6 +27,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runKitSourceConformance(t, newStore)
 	runKitSetConformance(t, newStore)
 	runKitTreeConformance(t, newStore)
+	runKitDraftConformance(t, newStore)
 	runConfigConformance(t, newStore)
 
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",

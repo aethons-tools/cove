@@ -163,3 +163,70 @@ func TestValidateRejectsTamperedTrees(t *testing.T) {
 		t.Fatal("Lookup of a missing path")
 	}
 }
+
+func TestBuildFilesNeedsNoKitYML(t *testing.T) {
+	tr, blobs, err := BuildFiles([]File{{Path: "run.sh", Mode: 0o700, Data: []byte("echo\n")}})
+	if err != nil || len(tr.Entries) != 1 || tr.Entries[0].Mode != 0o755 || len(blobs) != 1 {
+		t.Fatalf("BuildFiles = %+v, %d blobs, %v", tr, len(blobs), err)
+	}
+	if err := tr.ValidateFiles(); err != nil {
+		t.Fatalf("ValidateFiles = %v", err)
+	}
+	if err := tr.Validate(); err == nil || err.Error() != "kit.yml missing at the root" {
+		t.Fatalf("Validate = %v, want the kit.yml refusal", err)
+	}
+	if _, _, err := Build([]File{{Path: "run.sh", Data: []byte("x")}}); err == nil || err.Error() != "kit.yml missing at the root" {
+		t.Fatalf("Build = %v, want the kit.yml refusal", err)
+	}
+	empty, _, err := BuildFiles(nil)
+	if err != nil || len(empty.Entries) != 0 || empty.ValidateFiles() != nil {
+		t.Fatalf("an empty draft tree = %+v %v", empty, err)
+	}
+}
+
+func TestBuildFilesKeepsTheFileRules(t *testing.T) {
+	withLimits(t, 3, 6, 4)
+	for name, tc := range map[string]struct {
+		files []File
+		want  string
+	}{
+		"unsafe path":     {[]File{{Path: "a\nb"}}, errUnsafePath.Error()},
+		"too many":        {[]File{{Path: "a"}, {Path: "b"}, {Path: "c"}, {Path: "d"}}, "4 files (limit 3)"},
+		"file too large":  {[]File{{Path: "a", Data: []byte("12345")}}, "a: more than 4 bytes (limit 4 bytes per file)"},
+		"total too large": {[]File{{Path: "a", Data: []byte("1234")}, {Path: "b", Data: []byte("1234")}}, "more than 6 bytes in total (limit 6 bytes)"},
+		"twice":           {[]File{{Path: "a"}, {Path: "a"}}, "a: appears twice"},
+		"file and dir":    {[]File{{Path: "a"}, {Path: "a/b"}}, "a: is both a file and a directory"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := BuildFiles(tc.files); err == nil || err.Error() != tc.want {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestTreeWith(t *testing.T) {
+	tr, _, err := BuildFiles([]File{{Path: "b", Data: []byte("1")}, {Path: "d", Data: []byte("2")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := tr.With(Entry{Path: "c", Mode: 0o644, SHA256: hexSum([]byte("3")), Size: 1})
+	if paths := fmt.Sprint(entryPaths(got)); paths != "[b c d]" || len(tr.Entries) != 2 {
+		t.Fatalf("With added = %s (original %d entries)", paths, len(tr.Entries))
+	}
+	repl := got.With(Entry{Path: "b", Mode: 0o755, SHA256: hexSum([]byte("x")), Size: 1})
+	if e, _ := repl.Lookup("b"); e.Mode != 0o755 || len(repl.Entries) != 3 {
+		t.Fatalf("With replaced = %+v", repl)
+	}
+	if e, _ := got.Lookup("b"); e.Mode != 0o644 {
+		t.Fatal("With mutated its receiver")
+	}
+}
+
+func entryPaths(t Tree) []string {
+	var out []string
+	for _, e := range t.Entries {
+		out = append(out, e.Path)
+	}
+	return out
+}

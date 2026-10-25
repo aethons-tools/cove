@@ -204,6 +204,27 @@ func (fs *MemStore) GCKitObjects() (KitGC, error) {
 	return KitGC{Trees: len(trees), Blobs: len(blobs)}, nil
 }
 
+func (fs *MemStore) PutKitDraft(d KitDraft, objs KitObjects) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	d = d.storedForm()
+	if err := checkKitDraft(fs.memState, d, objs); err != nil {
+		return err
+	}
+	fs.applyKitObjects(objs)
+	fs.applyPutKitDraft(d)
+	return nil
+}
+
+func (fs *MemStore) RemoveKitDraft(kit string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if !fs.applyRemoveKitDraft(kit) {
+		return fmt.Errorf("kit %s draft: %w", kit, ErrNotFound)
+	}
+	return nil
+}
+
 // ApplyConfig applies a config write whole, or refuses it with nothing written.
 func (fs *MemStore) ApplyConfig(w ConfigWrite) error {
 	fs.mu.Lock()

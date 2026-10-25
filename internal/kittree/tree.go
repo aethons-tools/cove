@@ -98,7 +98,8 @@ func SizeText(n int64) string {
 
 func tooManyFiles(n int) error { return fmt.Errorf("%d files (limit %d)", n, MaxEntries) }
 
-func fileTooLarge(p string) error {
+// FileTooLarge is the refusal of file p over MaxFile.
+func FileTooLarge(p string) error {
 	return fmt.Errorf("%s: more than %s (limit %s per file)", p, SizeText(MaxFile), SizeText(MaxFile))
 }
 
@@ -106,9 +107,11 @@ func treeTooLarge() error {
 	return fmt.Errorf("more than %s in total (limit %s)", SizeText(MaxTotal), SizeText(MaxTotal))
 }
 
-// Build validates files as one tree, normalizing modes, and returns it with
-// its blobs by sha256. Identical content shares one blob.
-func Build(files []File) (Tree, map[string][]byte, error) {
+// BuildFiles validates files as a tree under the file rules alone (safe
+// paths, the two modes, the limits, no duplicate, no file where a directory
+// is), normalizing modes, and returns it with its blobs by sha256. It does
+// not require kit.yml: a kit draft may lack it while being edited.
+func BuildFiles(files []File) (Tree, map[string][]byte, error) {
 	if len(files) > MaxEntries {
 		return Tree{}, nil, tooManyFiles(len(files))
 	}
@@ -121,7 +124,7 @@ func Build(files []File) (Tree, map[string][]byte, error) {
 		}
 		n := int64(len(f.Data))
 		if n > MaxFile {
-			return Tree{}, nil, fileTooLarge(f.Path)
+			return Tree{}, nil, FileTooLarge(f.Path)
 		}
 		if total += n; total > MaxTotal {
 			return Tree{}, nil, treeTooLarge()
@@ -137,10 +140,43 @@ func Build(files []File) (Tree, map[string][]byte, error) {
 			return Tree{}, nil, fmt.Errorf("%s: appears twice", t.Entries[i].Path)
 		}
 	}
-	if err := t.Validate(); err != nil {
+	if err := t.ValidateFiles(); err != nil {
 		return Tree{}, nil, err
 	}
 	return t, blobs, nil
+}
+
+// Build validates files as one kit version's tree: BuildFiles, then kit.yml
+// at the root. Identical content shares one blob.
+func Build(files []File) (Tree, map[string][]byte, error) {
+	t, blobs, err := BuildFiles(files)
+	if err != nil {
+		return Tree{}, nil, err
+	}
+	if err := t.requireKitFile(); err != nil {
+		return Tree{}, nil, err
+	}
+	return t, blobs, nil
+}
+
+// With is t with e added, or replacing the entry at e.Path, kept in path
+// order. t itself is not changed; the result is not validated.
+func (t Tree) With(e Entry) Tree {
+	out := slices.Clone(t.Entries)
+	i, found := slices.BinarySearchFunc(out, e.Path, func(x Entry, p string) int { return strings.Compare(x.Path, p) })
+	if found {
+		out[i] = e
+	} else {
+		out = slices.Insert(out, i, e)
+	}
+	return Tree{Entries: out}
+}
+
+func (t Tree) requireKitFile() error {
+	if _, ok := t.Lookup(KitFile); !ok {
+		return errors.New("kit.yml missing at the root")
+	}
+	return nil
 }
 
 // Hash is the tree's identity: sha256 over the entries in path order, each
@@ -204,10 +240,19 @@ func isSHA256Hex(s string) bool {
 	return true
 }
 
-// Validate checks a tree read back from storage or a backup: sorted unique
-// safe paths, the two modes, lowercase hex sums, no file where another file's
-// directory is, kit.yml at the root, and the limits.
+// Validate checks a tree read back from storage or a backup as a kit
+// version: ValidateFiles, then kit.yml at the root.
 func (t Tree) Validate() error {
+	if err := t.ValidateFiles(); err != nil {
+		return err
+	}
+	return t.requireKitFile()
+}
+
+// ValidateFiles checks a tree under the file rules alone: sorted unique safe
+// paths, the two modes, lowercase hex sums, no file where another file's
+// directory is, and the limits. A kit draft's tree must pass it.
+func (t Tree) ValidateFiles() error {
 	if len(t.Entries) > MaxEntries {
 		return tooManyFiles(len(t.Entries))
 	}
@@ -226,7 +271,7 @@ func (t Tree) Validate() error {
 			return fmt.Errorf("%s: not a sha256", e.Path)
 		}
 		if e.Size < 0 || e.Size > MaxFile {
-			return fileTooLarge(e.Path)
+			return FileTooLarge(e.Path)
 		}
 		if total += e.Size; total > MaxTotal {
 			return treeTooLarge()
@@ -236,9 +281,6 @@ func (t Tree) Validate() error {
 				return fmt.Errorf("%s: is both a file and a directory", d)
 			}
 		}
-	}
-	if _, ok := t.Lookup(KitFile); !ok {
-		return errors.New("kit.yml missing at the root")
 	}
 	return nil
 }

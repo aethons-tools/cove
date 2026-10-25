@@ -164,8 +164,8 @@ at-jam kit untrack web                                      # stop tracking (ver
 
 The admin UI does the same from each kit's page — versions, diffs, pin, push ([ui-pages.md](ui-pages.md#kit-pages)); its "push a new version" box edits `kit.yml` and keeps the version's other files. A version's page shows its `kit.yml` as stored and a **Files** table (path, mode, size, `kit.yml` included). A diff shows the `kit.yml` line diff, then the files added, removed, modified (sizes) or mode-changed, with the unchanged counted. `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
 
-All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
-[operators.md](operators.md).
+All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see [operators.md](operators.md).
+To change a kit's files before they become a version, open a **draft** (`kit draft open|status|get|put|rm|sync|publish|discard`): see [kits-drafts.md](kits-drafts.md).
 
 ## Binding a kit to a role
 
