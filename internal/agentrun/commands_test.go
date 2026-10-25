@@ -2,6 +2,9 @@ package agentrun
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -462,4 +465,203 @@ func TestClearDuringIdleCompactLeftForWait(t *testing.T) {
 	m.emit(lnInit, lnResult)
 	m.in.waitClosed(t)
 	m.exit <- nil
+}
+
+func TestClearedNotice(t *testing.T) {
+	want := "Your conversation was cleared at Bob's request (the Clear button in the session header). " +
+		"Your workspace and memory files are as you left them."
+	if got := clearedNotice("Bob"); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}
+
+func clear(w *Workload, by string) {
+	w.Control(covemaster.Control{Kind: covemaster.Clear, By: by})
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// hasCommand reports whether h recorded the session-header command record for
+// command pressed by by.
+func hasCommand(h *recordHandle, command, by string) bool {
+	want := `{"type":"cove","subtype":"command","command":"` + command + `","by":"` + by + `"}`
+	for _, ev := range h.eventList() {
+		if ev.raw == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestClearNextEpisodeFresh(t *testing.T) {
+	h := &recordHandle{}
+	w, s, _, _ := idleRun(t, h)
+	clear(w, "Bob")
+	if !eventually(func() bool { return exists(w.cfg.ClearMarker) }) {
+		t.Fatal("clear marker not written")
+	}
+	if b, err := os.ReadFile(w.cfg.ClearMarker); err != nil || string(b) != "Bob" {
+		t.Fatalf("clear marker = %q, %v; want Bob", b, err)
+	}
+	if !eventually(func() bool { return hasCommand(h, "clear", "Bob") }) {
+		t.Fatalf("no clear command record in %+v", h.eventList())
+	}
+	select {
+	case p := <-s.procs:
+		t.Fatalf("a clear started an episode: %v", p.args)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if n := h.count(covemaster.Running); n != 1 {
+		t.Fatalf("Running reported %d times; a clear starts no turn", n)
+	}
+	squawk(w)
+	p := s.next(t)
+	if hasArg(p.args, "--continue") {
+		t.Fatalf("the episode after a clear must start fresh: %v", p.args)
+	}
+	got := p.in.next(t)
+	if !strings.HasPrefix(got, "do it\n\n") || !strings.Contains(got, "\n\n"+clearedNotice("Bob")+"\n\n") ||
+		!strings.HasSuffix(got, residentResumePrompt) {
+		t.Fatalf("first message = %q; want prompt, notice, resume prompt", got)
+	}
+}
+
+func TestClearWhileLiveDropped(t *testing.T) {
+	h := &recordHandle{}
+	w, p := interruptRun(t, h)
+	clear(w, "Bob")
+	if !eventually(func() bool { return hasCommand(h, "clear", "Bob") }) {
+		t.Fatalf("no clear command record in %+v", h.eventList())
+	}
+	p.emit(lnResult)
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+		t.Fatal("not waiting")
+	}
+	if exists(w.cfg.ClearMarker) {
+		t.Fatal("a clear pressed mid-turn wrote the marker")
+	}
+	squawk(w)
+	s := w.spawner.(*streamSpawner)
+	p2 := s.next(t)
+	if !hasArg(p2.args, "--continue") {
+		t.Fatalf("the next episode must continue: %v", p2.args)
+	}
+	if got := p2.in.next(t); got != residentResumePrompt {
+		t.Fatalf("resume prompt = %q", got)
+	}
+}
+
+// Review focus 4: a Clear pending when cove-master restarts wins over a
+// standing session's conversation marker.
+func TestClearSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	conv := filepath.Join(dir, ".cove-conversation")
+	if err := os.WriteFile(conv, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) {
+		c.Resident, c.SessionKind, c.ConversationMarker = true, "standing", conv
+	})
+	if err := os.WriteFile(w.cfg.ClearMarker, []byte("Bob"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, &recordHandle{})
+	t.Cleanup(func() { cancel(); <-done })
+	p := s.next(t)
+	if hasArg(p.args, "--continue") {
+		t.Fatalf("a pending clear must start fresh: %v", p.args)
+	}
+	if got, want := p.in.next(t), "do it\n\n"+clearedNotice("Bob"); got != want {
+		t.Fatalf("first message = %q\nwant %q", got, want)
+	}
+	p.emit(lnInit)
+	time.Sleep(20 * time.Millisecond)
+	if !exists(w.cfg.ClearMarker) {
+		t.Fatal("clear marker consumed before the agent replied")
+	}
+	p.emit(lnAssistant)
+	if !eventually(func() bool { return !exists(w.cfg.ClearMarker) }) {
+		t.Fatal("clear marker not consumed on the first reply")
+	}
+	if !exists(conv) {
+		t.Fatal("conversation marker gone after the reply")
+	}
+}
+
+func TestClearMarkerKeptIfNoReply(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, func(c *Config) { c.Resident = true })
+	if err := os.WriteFile(w.cfg.ClearMarker, []byte("Bob"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := &recordHandle{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, h)
+	t.Cleanup(func() { cancel(); <-done })
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	p.exit <- errors.New("exit status 1")
+	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+		t.Fatal("not waiting")
+	}
+	if !exists(w.cfg.ClearMarker) {
+		t.Fatal("clear marker consumed without a reply")
+	}
+	// Still pending: the next episode starts fresh again.
+	squawk(w)
+	p2 := s.next(t)
+	if hasArg(p2.args, "--continue") {
+		t.Fatalf("the clear is still pending; the episode must start fresh: %v", p2.args)
+	}
+	if got := p2.in.next(t); !strings.Contains(got, clearedNotice("Bob")) {
+		t.Fatalf("first message = %q; want the cleared notice", got)
+	}
+}
+
+// An unreadable or empty marker's presser is "someone".
+func TestClearNoticeSomeone(t *testing.T) {
+	dir := t.TempDir()
+	s := newStreamSpawner()
+	w := streamWL(t, dir, s, nil)
+	if err := os.WriteFile(w.cfg.ClearMarker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := runAsync(ctx, w, &recordHandle{})
+	t.Cleanup(func() { cancel(); <-done })
+	if got := s.next(t).in.next(t); !strings.Contains(got, clearedNotice("someone")) {
+		t.Fatalf("first message = %q; want the notice naming someone", got)
+	}
+}
+
+func TestCompactSkippedWhenClearPending(t *testing.T) {
+	h := &recordHandle{}
+	w, s, _, _ := idleRun(t, h)
+	clear(w, "Bob")
+	if !eventually(func() bool { return exists(w.cfg.ClearMarker) }) {
+		t.Fatal("clear marker not written")
+	}
+	compact(w, "Ann", "keep X")
+	select {
+	case p := <-s.procs:
+		t.Fatalf("a compact with a clear pending spawned: %v", p.args)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if !hasCommand(h, "compact", "Ann") {
+		t.Fatalf("no compact command record in %+v", h.eventList())
+	}
+	// Still waiting for a Wake, which starts the fresh episode.
+	squawk(w)
+	if p := s.next(t); hasArg(p.args, "--continue") {
+		t.Fatalf("the episode after a clear must start fresh: %v", p.args)
+	}
 }

@@ -162,7 +162,8 @@ func (s *streamSpawner) next(t *testing.T) *streamProc {
 
 func streamWL(t *testing.T, dir string, s *streamSpawner, mut func(*Config)) *Workload {
 	t.Helper()
-	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: s}
+	cfg := Config{WorkDir: dir, Prompt: "do it", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: s,
+		ClearMarker: filepath.Join(dir, ".cove-clear-pending")}
 	if mut != nil {
 		mut(&cfg)
 	}

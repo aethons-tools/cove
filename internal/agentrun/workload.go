@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -64,6 +66,12 @@ var streamLogCap int64 = 16 << 20
 // var so tests can point it away from the real /agent-data.
 var defaultConversationMarker = "/agent-data/.cove-conversation"
 
+// defaultClearMarker is the file a Clear pressed while waiting writes (its
+// contents are who pressed it): on the persisted /agent-data volume, so the
+// fresh start it asks for survives a cove-master restart. A var so tests can
+// point it away from the real /agent-data.
+var defaultClearMarker = "/agent-data/.cove-clear-pending"
+
 // Config configures the agent wrapper.
 type Config struct {
 	WorkDir string        // cwd for the agent (and its gates)
@@ -112,6 +120,11 @@ type Config struct {
 	// the prior conversation with standingRestartPrompt (falling back once to a
 	// fresh start if that fails before the agent replies).
 	ConversationMarker string
+	// ClearMarker is the clear-pending file's path; empty defaults to
+	// defaultClearMarker. Present before an episode (or at Run start), that
+	// episode starts a fresh conversation, whatever the session kind, with the
+	// raise prompt and clearedNotice; its first reply removes it.
+	ClearMarker string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -169,6 +182,9 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	}
 	if cfg.ConversationMarker == "" {
 		cfg.ConversationMarker = defaultConversationMarker
+	}
+	if cfg.ClearMarker == "" {
+		cfg.ClearMarker = defaultClearMarker
 	}
 	sp := cfg.Spawner
 	if sp == nil {
@@ -250,10 +266,13 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	// A standing session's state persists across restarts (COV-249): when a
 	// prior conversation exists, the first episode continues it.
 	// resuming: this episode continues from the marker (the fallback below
-	// applies to it, once).
+	// applies to it, once). A Clear still pending (pressed before a restart)
+	// wins over the marker: start fresh.
 	persists := w.cfg.SessionKind == "standing"
 	resuming := false
-	if persists {
+	if fresh, ok := w.clearedStart(""); ok {
+		prompt = fresh
+	} else if persists {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
 			prompt, continued, resuming = standingRestartPrompt, true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
@@ -318,13 +337,22 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.logTurn(waitErr)
 		h.Report(covemaster.Waiting)
 		for {
-			rs, c, ok := w.awaitWake(ctx, nil)
+			rs, c, ok := w.awaitWake(ctx, h, turn, nil)
 			if !ok {
 				return ctx.Err()
 			}
 			if c == nil {
 				prompt, continued = renderWake(w.resumeText(), rs), true
+				if fresh, ok := w.clearedStart(prompt); ok {
+					prompt, continued = fresh, false
+				}
 				break
+			}
+			if _, ok := w.clearPending(); ok {
+				// The cleared conversation is not continued: nothing to compact.
+				w.log.Info("agentrun: compact skipped — no conversation", "by", c.by)
+				w.emitCommand(h, turn, "compact", c.by)
+				continue
 			}
 			turn++
 			if err := w.compactIdle(ctx, h, turn, *c); err != nil {
@@ -380,8 +408,21 @@ func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn ui
 func (w *Workload) spawn(ctx context.Context, h covemaster.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
 	split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(turn, line, dropped) }}
 	tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
+	// A reply means a conversation exists: a standing session's to continue
+	// after a restart, and (fresh) the one a pending Clear asked for.
+	var onReply []func()
 	if w.cfg.SessionKind == "standing" {
-		tr.onReply = w.markConversation // a reply means a conversation to continue exists
+		onReply = append(onReply, w.markConversation)
+	}
+	if !continued {
+		onReply = append(onReply, w.consumeClear)
+	}
+	if len(onReply) > 0 {
+		tr.onReply = func() {
+			for _, f := range onReply {
+				f()
+			}
+		}
 	}
 	trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
 		if dropped > 0 {
@@ -650,7 +691,12 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 				}
 			}
 			if !maintenance {
-				w.dropClear("episode")
+				// Clear is for a waiting session only; a maintenance episode
+				// leaves it for the wait after it.
+				if by, ok := w.cmds.takeClear(); ok {
+					w.log.Info("agentrun: clear ignored", "by", by, "why", "live episode")
+					w.emitCommand(h, turn, "clear", by)
+				}
 			}
 		case <-tr.changed:
 		case <-holdC:
@@ -730,20 +776,24 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 }
 
 // awaitWake blocks until a Wake with reasons still to answer (rs) or a Compact
-// (compact) arrives, skipping stale signals. ok is false when ctx ends or
-// timeout (nil = none) fires.
-func (w *Workload) awaitWake(ctx context.Context, timeout <-chan time.Time) (rs []covemaster.WakeReason, compact *compactReq, ok bool) {
+// (compact) arrives, skipping stale signals. A Clear is handled here (see
+// takeClear). turn is the last episode's event turn, for command records. ok
+// is false when ctx ends or timeout (nil = none) fires.
+func (w *Workload) awaitWake(ctx context.Context, h covemaster.Handle, turn uint32, timeout <-chan time.Time) (rs []covemaster.WakeReason, compact *compactReq, ok bool) {
 	for {
 		select {
 		case <-w.wake.signal():
 			if rs = w.wake.take(); len(rs) > 0 {
+				// A Clear pressed alongside still applies to the episode this
+				// Wake starts.
+				w.takeClear(h, turn)
 				return rs, nil, true
 			}
 		case <-w.cmds.signal():
 			if by, ok := w.cmds.takeInterrupt(); ok {
 				w.log.Info("agentrun: interrupt ignored", "by", by, "why", "no live episode")
 			}
-			w.dropClear("waiting")
+			w.takeClear(h, turn)
 			if by, instructions, ok := w.cmds.takeCompact(); ok {
 				return nil, &compactReq{by: by, instructions: instructions}, true
 			}
@@ -778,7 +828,8 @@ func (w *Workload) logTurn(waitErr error) {
 // merge their reasons: the one resume prompt names them all (renderWake).
 // Interrupt, Compact and Clear post to the command box the same way, never
 // blocking: the episode loop acts on them, or awaitWake does (a Compact runs
-// a maintenance episode; the others are dropped).
+// a maintenance episode, a Clear writes the clear marker, an Interrupt is
+// dropped).
 func (w *Workload) Control(c covemaster.Control) {
 	switch c.Kind {
 	case covemaster.Teardown:
@@ -800,11 +851,60 @@ func (w *Workload) Control(c covemaster.Control) {
 	}
 }
 
-// dropClear takes and logs a pending Clear, which has no behaviour yet, so it
-// doesn't linger in the box. where names the consumer.
-func (w *Workload) dropClear(where string) {
-	if by, ok := w.cmds.takeClear(); ok {
-		w.log.Info("agentrun: clear ignored (not supported yet)", "by", by, "where", where)
+// takeClear takes a Clear pressed while waiting and writes the clear marker
+// (its contents: who pressed it), so the next episode starts fresh, even
+// after a restart. No turn starts. Run's goroutine only.
+func (w *Workload) takeClear(h covemaster.Handle, turn uint32) {
+	by, ok := w.cmds.takeClear()
+	if !ok {
+		return
+	}
+	w.emitCommand(h, turn, "clear", by)
+	if err := os.WriteFile(w.cfg.ClearMarker, []byte(by), 0o600); err != nil {
+		w.log.Warn("agentrun: clear marker not written; the conversation continues", "by", by, "path", w.cfg.ClearMarker, "err", err.Error())
+		return
+	}
+	w.log.Info("agentrun: conversation cleared; the next episode starts fresh", "by", by)
+}
+
+// clearPending reports whether a Clear is pending (the marker exists) and who
+// pressed it: "someone" when the marker is empty or unreadable.
+func (w *Workload) clearPending() (by string, ok bool) {
+	b, err := os.ReadFile(w.cfg.ClearMarker)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", false
+	case err != nil:
+		w.log.Warn("agentrun: clear marker unreadable; clearing anyway", "path", w.cfg.ClearMarker, "err", err.Error())
+	}
+	if by = strings.TrimSpace(string(b)); by == "" {
+		by = "someone"
+	}
+	return by, true
+}
+
+// clearedStart is a pending Clear's fresh first message: the raise prompt,
+// clearedNotice, then wake (the text the episode would otherwise have opened
+// with; "" = none). ok is false when no Clear is pending.
+func (w *Workload) clearedStart(wake string) (prompt string, ok bool) {
+	by, ok := w.clearPending()
+	if !ok {
+		return "", false
+	}
+	w.log.Info("agentrun: starting a fresh conversation after a clear", "by", by)
+	prompt = w.cfg.Prompt + "\n\n" + clearedNotice(by)
+	if wake != "" {
+		prompt += "\n\n" + wake
+	}
+	return prompt, true
+}
+
+// consumeClear removes the clear marker once the fresh conversation exists
+// (its first reply). Runs on the stdout goroutine (the idle tracker's
+// onReply); Run reads or writes the marker only between episodes.
+func (w *Workload) consumeClear() {
+	if err := os.Remove(w.cfg.ClearMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.log.Warn("agentrun: clear marker not removed; the next episode starts fresh again", "path", w.cfg.ClearMarker, "err", err.Error())
 	}
 }
 

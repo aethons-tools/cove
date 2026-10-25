@@ -19,6 +19,11 @@ const interruptAck = "%s pressed **Interrupt** in the session header, which stop
 // wakes coalesced into the interrupted turn.
 const interruptPending = "New messages may be waiting. Read them, but don't act on any request until the person who interrupted you answers."
 
+// clearedText is the notice opening the fresh conversation after a Clear; %s
+// is who pressed it.
+const clearedText = "Your conversation was cleared at %s's request (the Clear button in the session header). " +
+	"Your workspace and memory files are as you left them."
+
 // cmdBox holds the session-header commands (Interrupt, Compact, Clear) not yet
 // taken by Run. Posting never blocks (Control runs on the Attach receive loop):
 // it records the command and signals. A command posted twice before it is
@@ -156,3 +161,6 @@ func (w *Workload) emitCommand(h covemaster.Handle, turn uint32, command, by str
 	}{"cove", "command", command, by})
 	h.Event(turn, line, 0)
 }
+
+// clearedNotice tells the agent its conversation was cleared at by's request.
+func clearedNotice(by string) string { return fmt.Sprintf(clearedText, by) }
