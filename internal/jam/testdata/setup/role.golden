@@ -232,10 +232,10 @@
   chain (root first): default@v1 → web-dev@v1 → my-app@v2
   image tag: cove-kit:<hex>-asm1
   provenance (root first):
-    KIT         SOURCE
-    default@v1  local file, pushed <time>
-    web-dev@v1  https://github.com/o/kits//web-dev@main (commit <hex>), pushed <time>
-    my-app@v2   local file, pushed <time>
+    KIT         SOURCE                                                                                      FILES
+    default@v1  local file, pushed <time>                                                     tree <hex>, 1 files
+    web-dev@v1  https://github.com/o/kits//web-dev@main (commit <hex>), pushed <time>  tree <hex>, 1 files
+    my-app@v2   local file, pushed <time>                                                     tree <hex>, 1 files
   build args:
     GO_VERSION=1.27.1
     NODE_VERSION=22

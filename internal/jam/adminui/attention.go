@@ -11,7 +11,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/condition"
-	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // attnKind is what kind of trouble an attention item is. broken is red; stale
@@ -47,8 +46,7 @@ func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 	// Jam: kits whose current version doesn't parse; destinations in a
 	// connector conflict.
 	for _, k := range store.ListKits() {
-		cfg, _ := store.KitConfig(k.Name, k.Current)
-		if _, err := studio.ParseStudioKit([]byte(cfg)); err != nil {
+		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err != nil {
 			out = append(out, attnItem{Kind: attnConfig, Tab: "specs", Subject: "kit:" + k.Name, Href: kitURL(k.Name),
 				Why: fmt.Sprintf("kit %s v%d does not parse", k.Name, k.Current)})
 		}

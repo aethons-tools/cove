@@ -240,14 +240,10 @@ func kitParentSpec(config string) string {
 }
 
 // KitChainView is the chain (root first, excluding the kit itself) and the
-// effective kit, as YAML, of the stored config of kit name. An unchained kit's
-// effective view is its own kit, unmerged, so it renders exactly as stored. A
-// config or chain that does not resolve is returned as an error.
-func KitChainView(store Store, name, config string) (links []KitChainLink, effective string, err error) {
-	sk, err := studio.ParseStudioKit([]byte(config))
-	if err != nil {
-		return nil, "", err
-	}
+// effective kit, as YAML, of kit name's parsed version sk (LoadKitVersion's
+// Kit: note files read). An unchained kit's effective view is its own kit,
+// unmerged. A chain that does not resolve is returned as an error.
+func KitChainView(store Store, name string, sk studio.StudioKit) (links []KitChainLink, effective string, err error) {
 	chain, err := ResolveKitChain(store, name, sk)
 	if err != nil {
 		return nil, "", err

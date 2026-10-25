@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -254,9 +255,7 @@ func TestKitContextUnreadable(t *testing.T) {
 	// readable at push (the first header), refused by the scan
 	bad := packCtx(t, ctxFile{name: "Dockerfile", body: "FROM x\n"}, ctxFile{name: "../evil", body: "x"})
 	seedKit(t, store, "u", "kind: studio\nbase:\n  context: "+bad+"\n")
-	if _, err := store.PushKit("u", "kind: studio\nbase:\n  context: '!!not-base64'\n"); err != nil {
-		t.Fatal(err)
-	}
+	seedKitText(t, store, "u", "kind: studio\nbase:\n  context: '!!not-base64'\n")
 	h := kitsHandler(store)
 	body := get(t, h, "/app/admin/kits/u?v=1").Body.String()
 	if c := section(body, "ctx-files"); !strings.Contains(c, "context unreadable: not a safe, readable tar.gz") || strings.Contains(c, "evil") {
@@ -284,8 +283,9 @@ func TestKitContextUnreadable(t *testing.T) {
 }
 
 // seedKit stores config under name the way a pre-tree Jam would have:
-// parsed, as canonical JSON, unchecked (Store.PushKit). For fixtures of
-// packed-context kits, which a push now refuses.
+// parsed, as canonical JSON config text (Kit.Versions, not a tree), unchecked,
+// as the new current version. For fixtures of packed-context kits, which a
+// push now refuses.
 func seedKit(t *testing.T, st jam.Store, name, config string) {
 	t.Helper()
 	sk, err := studio.ParseStudioKit([]byte(config))
@@ -296,7 +296,27 @@ func seedKit(t *testing.T, st jam.Store, name, config string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PushKit(name, string(text)); err != nil {
+	seedKitText(t, st, name, string(text))
+}
+
+// seedKitText stores text verbatim as name's new current pre-tree version.
+func seedKitText(t *testing.T, st jam.Store, name, text string) {
+	t.Helper()
+	k, ok := st.GetKit(name)
+	if !ok {
+		k = jam.Kit{Name: name}
+	}
+	n := 1
+	if vs := k.VersionNumbers(); len(vs) > 0 {
+		n = vs[len(vs)-1] + 1
+	}
+	versions := maps.Clone(k.Versions)
+	if versions == nil {
+		versions = map[int]string{}
+	}
+	versions[n] = text
+	k.Versions, k.Current = versions, n
+	if err := st.PutKitDocs([]jam.Kit{k}, jam.KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 }

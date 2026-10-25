@@ -97,7 +97,7 @@ type kv struct{ Key, Value string }
 type kitView struct {
 	N           int
 	ParseErr    string // the stored config isn't a valid studio kit (legacy row)
-	Raw         string // the stored text, shown when ParseErr is set
+	Raw         string // the stored text, shown when ParseErr is set (escape with SetupDisplayText to display)
 	YAML        string // display YAML (a packed context abbreviated)
 	PushYAML    string // full YAML, for pre-filling a new version
 	Base        string
@@ -174,18 +174,27 @@ type kitDetail struct {
 	NotFoundFor string
 }
 
-// baseLabel names a base: its form, and for a chained kit the parent it is
-// built on ("kit: web@v2", plus " + context-files" for the kit's own stage).
-func baseLabel(b studio.Base) string {
-	k, err := b.Kind()
-	if err != nil {
-		return "invalid"
+// baseLabel names a kit's base: its form, and for a chained kit the parent
+// it is built on ("kit: web@v2", plus " + Dockerfile" for its own stage).
+func baseLabel(sk studio.StudioKit) string {
+	b := sk.Base
+	own := "blessed default"
+	if sk.BuildContext != "" {
+		own = "Dockerfile"
 	}
+	k, err := b.Kind()
 	switch {
-	case k == studio.BaseKit:
+	case err != nil:
+		return "invalid"
+	case k == studio.BaseKit && sk.BuildContext == "":
 		return "kit: " + b.Kit
 	case b.HasParent():
-		return "kit: " + b.Kit + " + " + ownBaseLabel(k)
+		if sk.BuildContext == "" {
+			own = ownBaseLabel(k)
+		}
+		return "kit: " + b.Kit + " + " + own
+	case sk.BuildContext != "":
+		return own
 	}
 	return ownBaseLabel(k)
 }
@@ -225,9 +234,8 @@ func kitListRows(store jam.Store) []kitListRow {
 	var out []kitListRow
 	for _, k := range store.ListKits() {
 		row := kitListRow{Name: k.Name, Current: k.Current, Count: len(k.VersionNumbers()), UsedBy: len(kitUses(store, k.Name))}
-		cfg, _ := store.KitConfig(k.Name, k.Current)
-		if sk, err := studio.ParseStudioKit([]byte(cfg)); err == nil {
-			row.Base, row.Egress = baseLabel(sk.Base), len(sk.Egress)
+		if cur, _ := jam.LoadKitVersion(store, k.Name, 0); cur.Err == nil {
+			row.Base, row.Egress = baseLabel(cur.Kit), len(cur.Kit.Egress)
 		} else {
 			row.Invalid = true
 		}
@@ -282,9 +290,28 @@ func treePaths(t studio.ContextTree, prefix string) []string {
 	return out
 }
 
-// viewKit parses one stored version for display. With unpack, a packed
-// context is read (once) for its file list, keeping the file named want.
-func viewKit(n int, stored string, unpack bool, want string) kitView {
+// viewKit renders stored version v (number n). A tree version shows its
+// kit.yml as stored and lists its files; a pre-tree version keeps the
+// packed-context rendering (viewStored).
+func viewKit(n int, v jam.KitVersion, unpack bool, want string) kitView {
+	if v.TreeHash == "" {
+		return viewStored(n, string(v.KitYML), unpack, want)
+	}
+	kv := kitView{N: n, ctx: treeRead(v, want, unpack)}
+	text := string(v.KitYML)
+	if v.Err != nil {
+		kv.ParseErr, kv.Raw, kv.diffText = v.Err.Error(), text, text
+		return kv
+	}
+	kv.YAML, kv.PushYAML, kv.diffText = jam.SetupDisplayText(text), text, text
+	fillKitView(&kv, v.Kit)
+	return kv
+}
+
+// viewStored parses one stored config text (a pre-tree version, or a chain's
+// merged YAML) for display. With unpack, a packed context is read (once) for
+// its file list, keeping the file named want.
+func viewStored(n int, stored string, unpack bool, want string) kitView {
 	v := kitView{N: n}
 	sk, err := studio.ParseStudioKit([]byte(stored))
 	if err != nil {
@@ -307,13 +334,20 @@ func viewKit(n int, stored string, unpack bool, want string) kitView {
 	v.PushYAML = toYAML(full)
 	v.YAML = toYAML(displayKit(sk, v.ctx))
 	v.diffText = v.YAML
-	v.Base, v.Image, v.Digest = baseLabel(sk.Base), sk.Base.Image, studio.BuildDigest(sk, harnessinstall.Default())
 	if len(sk.Base.ContextFiles) > 0 {
 		v.Files = treePaths(sk.Base.ContextFiles, "")
 	}
 	if sk.Base.Context != "" {
 		v.ContextSize = sizeLabel(len(sk.Base.Context))
 	}
+	fillKitView(&v, sk)
+	return v
+}
+
+// fillKitView sets v's fields read from parsed kit sk: base, digest, egress,
+// build args, secrets, MCP servers, notes and prompt.
+func fillKitView(v *kitView, sk studio.StudioKit) {
+	v.Base, v.Image, v.Digest = baseLabel(sk), sk.Base.Image, studio.BuildDigest(sk, harnessinstall.Default())
 	v.Egress = sk.Egress
 	v.Ceiling, v.Excluded = studio.Ceiling(sk.Egress)
 	for _, k := range slices.Sorted(maps.Keys(sk.BuildArgs)) {
@@ -329,7 +363,6 @@ func viewKit(n int, stored string, unpack bool, want string) kitView {
 		v.Notes = append(v.Notes, kv{n.Name, n.ReadWhen})
 	}
 	v.Prompt = sk.Prompt
-	return v
 }
 
 // buildKitDetail gathers the kit page for version view (0 = current), diffed
@@ -355,18 +388,16 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 			}
 		}
 		prev = n
-		cfg, _ := store.KitConfig(name, n)
-		if sk, err := studio.ParseStudioKit([]byte(cfg)); err == nil {
-			ver.Digest = shortDigest(studio.BuildDigest(sk, harnessinstall.Default()))
+		if kv, _ := jam.LoadKitVersion(store, name, n); kv.Err == nil {
+			ver.Digest = shortDigest(studio.BuildDigest(kv.Kit, harnessinstall.Default()))
 		}
 		d.Versions = append(d.Versions, ver)
 	}
-	from, _ := store.KitConfig(name, diff)
-	cur, _ := store.KitConfig(name, view)
+	viewVer, _ := jam.LoadKitVersion(store, name, view)
 	diffing := k.HasVersion(diff) && diff != view
-	d.View = viewKit(view, cur, true, file)
+	d.View = viewKit(view, viewVer, true, file)
 	if d.View.ParseErr == "" {
-		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, cur)
+		d.Chain, d.Effective, d.ChainErr = chainOf(store, name, viewVer.Kit)
 	}
 	if src := k.Meta[view].Source; src != nil {
 		d.SetWith = setParents(store, d.Chain, src)
@@ -386,8 +417,12 @@ func buildKitDetail(store jam.Store, name string, view, diff int, file string) (
 		}
 		return d, true
 	}
-	fv := viewKit(diff, from, true, file)
+	fromVer, _ := jam.LoadKitVersion(store, name, diff)
+	fv := viewKit(diff, fromVer, true, file)
 	lines, tooLarge := lineDiff(fv.diffText, d.View.diffText)
+	for i := range lines { // a tree's kit.yml is shown as stored: make its control and format characters visible
+		lines[i].Text = jam.SetupDisplayText(lines[i].Text)
+	}
 	d.Diff = &kitDiff{From: diff, To: view, Lines: lines, TooLarge: tooLarge, DigestChanged: fv.Digest != d.View.Digest}
 	d.CtxDiff = ctxDiff(name, fv, d.View)
 	if file != "" {
@@ -415,8 +450,8 @@ func setParents(store jam.Store, chain []kitParent, own *jam.KitSource) string {
 // chainOf resolves the chain of one stored kit version for display: its
 // parents root first and, when there are any, the merged effective kit. A chain
 // that doesn't resolve comes back as an error message.
-func chainOf(store jam.Store, name, config string) (chain []kitParent, eff *kitView, errMsg string) {
-	links, y, err := jam.KitChainView(store, name, config)
+func chainOf(store jam.Store, name string, sk studio.StudioKit) (chain []kitParent, eff *kitView, errMsg string) {
+	links, y, err := jam.KitChainView(store, name, sk)
 	if err != nil {
 		return nil, nil, err.Error()
 	}
@@ -426,7 +461,7 @@ func chainOf(store jam.Store, name, config string) (chain []kitParent, eff *kitV
 	for _, l := range links {
 		chain = append(chain, kitParent{Name: l.Name, Version: l.Version, Follow: l.Follow})
 	}
-	v := viewKit(0, y, false, "")
+	v := viewStored(0, y, false, "")
 	if v.ParseErr != "" {
 		return chain, nil, v.ParseErr
 	}

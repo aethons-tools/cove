@@ -321,7 +321,8 @@ func TestSetMixedParents(t *testing.T) {
 	if got := storedKit(t, st, "web-dev", 1).Base.Kit; got != studio.DefaultStudioKitID {
 		t.Fatalf("a registry parent must be stored as written, got %q", got)
 	}
-	links, _, err := KitChainView(st, "app", mustConfig(t, st, "app", 1))
+	app, _ := LoadKitVersion(st, "app", 1)
+	links, _, err := KitChainView(st, "app", app.Kit)
 	want := []KitChainLink{{Name: studio.DefaultStudioKitID, Version: 1, Follow: true}, {Name: "web-dev", Version: 1}}
 	if err != nil || !reflect.DeepEqual(links, want) {
 		t.Fatalf("chain %+v %v, want %+v", links, err, want)
@@ -329,15 +330,6 @@ func TestSetMixedParents(t *testing.T) {
 	if k, _ := st.GetKit("web-dev"); k.Meta[1].Parent == nil || k.Meta[1].Parent.Name != studio.DefaultStudioKitID {
 		t.Fatalf("web-dev parent = %+v", k.Meta[1].Parent)
 	}
-}
-
-func mustConfig(t *testing.T, st Store, name string, version int) string {
-	t.Helper()
-	text, ok := st.KitConfig(name, version)
-	if !ok {
-		t.Fatalf("no %s@v%d", name, version)
-	}
-	return text
 }
 
 // Two sets naming the same two kits in opposite parent order (a→z at ref x,

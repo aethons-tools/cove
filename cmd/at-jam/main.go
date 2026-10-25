@@ -953,9 +953,19 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// ParseStudioKit accepts JSON (and any YAML rows) alike. The default
 		// view is the server's effective (merged) YAML; an older server sends
 		// none, so show the stored kit.
+		// --own is the server's own view (note files read from the tree into
+		// their bodies) when it sends one, else the stored kit.yml.
 		shown := res.Config
-		if res.Effective != "" && !*own {
+		switch {
+		case res.Effective != "" && !*own:
 			shown = res.Effective
+		case res.Own != "":
+			shown = res.Own
+		}
+		if shown == "" && res.ChainError != "" {
+			// A broken version has no kit.yml: its own fixed error says why.
+			fmt.Fprintln(stderr, "at-jam kit show:", res.ChainError)
+			return 1
 		}
 		sk, err := studio.ParseStudioKit([]byte(shown))
 		if err != nil {

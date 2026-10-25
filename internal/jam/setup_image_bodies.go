@@ -213,9 +213,20 @@ func kitDetailBody(store Store, chain []KitRef, buildArgs map[string]string) str
 				src = "legacy version (no provenance)"
 			}
 		}
-		rows = append(rows, []string{"  " + flat(r.String()), src})
+		files := "unknown"
+		if v, ok := LoadKitVersion(store, r.ID, r.Version); ok {
+			switch {
+			case v.TreeHash != "":
+				files = fmt.Sprintf("tree %s, %d files", shortDigest(v.TreeHash), len(v.Tree.Entries))
+			case v.Err != nil:
+				files = "not loadable"
+			default:
+				files = "config text (not yet a tree)"
+			}
+		}
+		rows = append(rows, []string{"  " + flat(r.String()), src, files})
 	}
-	writeTable(&sb, []string{"  KIT", "SOURCE"}, rows)
+	writeTable(&sb, []string{"  KIT", "SOURCE", "FILES"}, rows)
 	if len(buildArgs) == 0 {
 		sb.WriteString("build args: none\n")
 		return sb.String()

@@ -1,7 +1,6 @@
 package adminui
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -11,26 +10,28 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
 
-// maxFileShow caps a packed-context file the page shows or diffs (64 KiB).
-const maxFileShow = 64 << 10
+// maxFileShow caps a file the page shows or diffs (64 KiB, as the CLI diff).
+const maxFileShow = kittree.MaxDiffFile
 
 // maxCtxEntries caps how many packed-context files a version's list shows.
 const maxCtxEntries = 500
 
-// ctxRead is one version's packed base.context, read once per request.
+// ctxRead is one version's files, read once per request: its tree, or a
+// pre-tree version's packed base.context.
 type ctxRead struct {
-	size   string // encoded size label
+	tree   bool   // the files are the version's tree (not a packed base.context)
+	size   string // size label (a packed context: encoded)
 	sum    string // "sha256:" + 8 hex of SHA-256 over the stored base64
 	read   bool   // the files were listed (false: not unpacked, or unreadable)
 	err    string // fixed reason the context is unreadable; "" = readable
-	files  []studio.ContextEntry
+	files  []ctxEntry
 	byPath map[string]int
 }
 
@@ -50,8 +51,9 @@ func readContext(b64 string, unpack bool, want string) *ctxRead {
 	case err != nil:
 		c.err = "not a safe, readable tar.gz"
 	default:
-		c.read, c.files, c.byPath = true, files, make(map[string]int, len(files))
+		c.read, c.byPath = true, make(map[string]int, len(files))
 		for i, f := range files {
+			c.files = append(c.files, ctxEntry{Path: f.Path, Mode: f.Mode, Size: f.Size, Sum: hex.EncodeToString(f.Sum[:]), Data: f.Data})
 			c.byPath[f.Path] = i
 		}
 	}
@@ -72,13 +74,13 @@ func (c *ctxRead) placeholder() string {
 	return fmt.Sprintf("«tar.gz, %d files, %s, %s»", len(c.files), c.size, c.sum)
 }
 
-func (c *ctxRead) get(p string) (studio.ContextEntry, bool) {
+func (c *ctxRead) get(p string) (ctxEntry, bool) {
 	if c == nil || !c.read {
-		return studio.ContextEntry{}, false
+		return ctxEntry{}, false
 	}
 	i, ok := c.byPath[p]
 	if !ok {
-		return studio.ContextEntry{}, false
+		return ctxEntry{}, false
 	}
 	return c.files[i], true
 }
@@ -107,7 +109,7 @@ func pathText(p string) string {
 	return strings.NewReplacer("\n", `\n`, "\t", `\t`).Replace(jam.SetupDisplayText(p))
 }
 
-func modeText(e studio.ContextEntry) string { return fmt.Sprintf("%04o", uint32(e.Mode)) }
+func modeText(e ctxEntry) string { return fmt.Sprintf("%04o", uint32(e.Mode)) }
 
 func bytesText(n int64) string { return strconv.FormatInt(n, 10) + " B" }
 
@@ -130,6 +132,7 @@ type ctxRow struct {
 // ctxListView is the viewed version's packed-context file list.
 type ctxListView struct {
 	N      int
+	Tree   bool   // the version's tree, kit.yml included (not a packed context)
 	Size   string // encoded size
 	Err    string // the context is unreadable: why (fixed text)
 	Rows   []ctxRow
@@ -140,7 +143,7 @@ func ctxList(kit string, v kitView) *ctxListView {
 	if v.ctx == nil {
 		return nil
 	}
-	l := &ctxListView{N: v.N, Size: v.ctx.size, Err: v.ctx.err}
+	l := &ctxListView{N: v.N, Tree: v.ctx.tree, Size: v.ctx.size, Err: v.ctx.err}
 	count := map[string]int{}
 	for _, f := range v.ctx.files {
 		count[f.Path]++
@@ -167,6 +170,7 @@ type ctxChange struct {
 // ctxDiffView compares two versions' packed contexts file by file.
 type ctxDiffView struct {
 	From, To  int
+	Tree      bool   // a side is a tree (not a packed context)
 	Err       string // a side is unreadable: which and why
 	Rows      []ctxChange
 	More      int // changed files past maxCtxEntries, not listed
@@ -179,7 +183,7 @@ func ctxDiff(kit string, from, to kitView) *ctxDiffView {
 	if from.ctx == nil && to.ctx == nil {
 		return nil
 	}
-	d := &ctxDiffView{From: from.N, To: to.N}
+	d := &ctxDiffView{From: from.N, To: to.N, Tree: from.ctx != nil && from.ctx.tree || to.ctx != nil && to.ctx.tree}
 	var errs []string
 	for _, v := range []kitView{from, to} {
 		if v.ctx != nil && v.ctx.err != "" {
@@ -236,6 +240,7 @@ func ctxDiff(kit string, from, to kitView) *ctxDiffView {
 // line diff (diff view), or a note when it can't be shown.
 type ctxFileView struct {
 	Path     string // display text
+	Tree     bool   // a version's tree (not a packed context)
 	Diff     bool
 	From, To int
 	Lines    []diffLine
@@ -253,13 +258,14 @@ func fileView(p string, from, to *ctxRead, diff bool) *ctxFileView {
 	if !diff {
 		inA = false
 	}
+	tree := to != nil && to.tree || diff && from != nil && from.tree
 	if !inA && !inB {
 		if e := unreadable(from, to, diff); e != "" {
-			return &ctxFileView{Diff: diff, Err: e}
+			return &ctxFileView{Diff: diff, Tree: tree, Err: e}
 		}
-		return &ctxFileView{Missing: true, Diff: diff}
+		return &ctxFileView{Missing: true, Diff: diff, Tree: tree}
 	}
-	f := &ctxFileView{Path: pathText(p), Diff: diff}
+	f := &ctxFileView{Path: pathText(p), Diff: diff, Tree: tree}
 	if !diff {
 		switch {
 		case b.Size > maxFileShow:
@@ -308,12 +314,14 @@ func unreadable(from, to *ctxRead, diff bool) string {
 	return why
 }
 
-func sideSize(e studio.ContextEntry, ok bool) string {
+func sideSize(e ctxEntry, ok bool) string {
 	if !ok {
 		return "absent"
 	}
 	return bytesText(e.Size)
 }
 
-// isBinary reports content shown only as a note: invalid UTF-8 or a NUL.
-func isBinary(b []byte) bool { return !utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0 }
+// isBinary reports content shown only as a note: not text as the CLI diff
+// reads it (kittree.IsText: invalid UTF-8, or a control character other than
+// tab, newline and carriage return).
+func isBinary(b []byte) bool { return !kittree.IsText(b) }

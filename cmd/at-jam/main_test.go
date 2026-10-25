@@ -1509,6 +1509,10 @@ func TestKitPushNotes(t *testing.T) {
 	if !ok || v.Err != nil || len(v.Kit.Notes) != 1 || v.Kit.Notes[0].Body != "RELEASE STEPS" {
 		t.Fatalf("stored kit must read the note body from its directory: %+v %v", v.Kit.Notes, v.Err)
 	}
+	out.Reset()
+	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "--own", "web"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "RELEASE STEPS") {
+		t.Fatalf("show --own must carry the note file's contents: exit=%d\n%s", code, out.String())
+	}
 	for name, body := range map[string]string{
 		"reserved": "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n",
 		"escape":   "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n",

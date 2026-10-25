@@ -4,7 +4,7 @@ read_when: You are registering a kit in Jam, pushing a kit directory or a new ve
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # The kit registry
@@ -137,7 +137,7 @@ at-jam kit push --config - --name web                       # read kit.yml from 
 at-jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
 at-jam kit show web                                         # current version's kit, its files (# files (tree <12 hex>):), ceiling/excluded
 at-jam kit show web --version 1                             # a specific version's config
-at-jam kit show web --own                                   # the kit's own YAML, not the merged (effective) one
+at-jam kit show web --own                                   # the kit's own YAML, not the merged one; `file:` notes shown with their contents
 at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
 at-jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
 at-jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
@@ -158,7 +158,7 @@ at-jam kit untrack web                                      # stop tracking (ver
   [builds on](kits-inheritance.md#guards)) can't be removed; the command reports
   the referencing role or kits. Rebind the role first.
 
-The admin UI does the same from each kit's page — versions, diffs, pin, push ([ui-pages.md](ui-pages.md#kit-pages)); its "push a new version" box edits `kit.yml` and keeps the version's other files. Its YAML and diffs show a pre-tree version's packed `context` as `«tar.gz, N files, SIZE, sha256:<8 hex>»`, never base64; a **Context files** table lists its files (a diff: added, removed, modified with sizes, mode-changed; unchanged counted), and `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
+The admin UI does the same from each kit's page — versions, diffs, pin, push ([ui-pages.md](ui-pages.md#kit-pages)); its "push a new version" box edits `kit.yml` and keeps the version's other files. A version's page shows its `kit.yml` as stored and a **Files** table (path, mode, size, `kit.yml` included). A diff shows the `kit.yml` line diff, then the files added, removed, modified (sizes) or mode-changed, with the unchanged counted. `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only). A pre-tree version shows its packed `context` as `«tar.gz, N files, SIZE, sha256:<8 hex>»`, never base64, with the same table as **Context files**.
 
 All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md).

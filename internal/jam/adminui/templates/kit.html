@@ -86,7 +86,7 @@
     {{end}}
     {{with .CtxDiff}}
     <section class="card" id="ctx-diff">
-      <header><h2>Context files v{{.From}} → v{{.To}}</h2><span class="sub">the packed <span class="mono">base.context</span>, file by file</span></header>
+      <header><h2>{{if .Tree}}Files v{{.From}} → v{{.To}}{{else}}Context files v{{.From}} → v{{.To}}{{end}}</h2><span class="sub">{{if .Tree}}the kit directory, file by file{{else}}the packed <span class="mono">base.context</span>, file by file{{end}}</span></header>
       {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
       {{if .Rows}}<table>
         <thead><tr><th>Change</th><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
@@ -104,7 +104,7 @@
       <header><h2>v{{.N}}</h2></header>
       <div class="body"><div class="banner error">Stored config is not a valid studio kit: {{.ParseErr}}</div>
         <p class="sub">Raises from this version fail closed. Push a valid version to replace it.</p></div>
-      <pre class="yaml">{{.Raw}}</pre>
+      <pre class="yaml">{{displayText .Raw}}</pre>
     </section>
     {{else}}
     {{if $.ChainErr}}<div class="banner error">Kit chain does not resolve: {{$.ChainErr}}</div>{{end}}
@@ -142,7 +142,7 @@
     </section>
     {{end}}
     <section class="card">
-      <header><h2>YAML</h2><span class="sub">v{{.N}}, rendered from the stored kit</span><span class="spacer"></span>
+      <header><h2>YAML</h2><span class="sub">{{if $.Ctx}}{{if $.Ctx.Tree}}v{{.N}}'s kit.yml, as stored{{else}}v{{.N}}, rendered from the stored kit{{end}}{{else}}v{{.N}}, rendered from the stored kit{{end}}</span><span class="spacer"></span>
         <button type="button" class="small" data-copy="#kit-yaml">Copy</button></header>
       <pre class="yaml" id="kit-yaml">{{.YAML}}</pre>
     </section>
@@ -151,7 +151,7 @@
 
     {{with .Ctx}}
     <section class="card" id="ctx-files">
-      <header><h2>Context files</h2><span class="sub">v{{.N}}'s packed <span class="mono">base.context</span> ({{.Size}} encoded)</span></header>
+      <header><h2>{{if .Tree}}Files{{else}}Context files{{end}}</h2><span class="sub">{{if .Tree}}v{{.N}}'s directory ({{.Size}}), kit.yml included{{else}}v{{.N}}'s packed <span class="mono">base.context</span> ({{.Size}} encoded){{end}}</span></header>
       {{if .Err}}<div class="body unset">context unreadable: {{.Err}}</div>{{else}}
       <table>
         <thead><tr><th>Path</th><th>Mode</th><th>Size</th></tr></thead>
@@ -235,15 +235,15 @@
 </div>
 {{end}}
 
-{{/* ctx-file is one packed-context file (ctxFileView): its content, its line diff, or why neither. */}}
+{{/* ctx-file is one file of a version's tree or packed context (ctxFileView): its content, its line diff, or why neither. */}}
 {{define "ctx-file"}}
 <section class="card" id="ctx-file">
   {{if .Err}}
-  <header><h2>Context file</h2></header>
+  <header><h2>{{if .Tree}}File{{else}}Context file{{end}}</h2></header>
   <div class="body unset">context unreadable: {{.Err}}</div>
   {{else if .Missing}}
-  <header><h2>Context file</h2></header>
-  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s packed context.</div></div>
+  <header><h2>{{if .Tree}}File{{else}}Context file{{end}}</h2></header>
+  <div class="body"><div class="banner error">No such file in {{if .Diff}}either version{{else}}this version{{end}}'s {{if .Tree}}files{{else}}packed context{{end}}.</div></div>
   {{else}}
   <header><h2 class="mono">{{.Path}}</h2><span class="sub">{{if .Diff}}v{{.From}} → v{{.To}}{{else}}content{{end}}</span></header>
   {{if .Note}}<div class="body unset">{{.Note}}</div>

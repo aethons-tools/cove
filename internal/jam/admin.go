@@ -15,6 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
+	"gopkg.in/yaml.v3"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -206,6 +207,9 @@ type KitConfigResult struct {
 	ChainError string `json:"chain_error,omitempty"`
 	// UsedByKits lists the kits whose current version names this one as parent.
 	UsedByKits []string `json:"used_by_kits,omitempty"`
+	// Own is the version's own kit (not merged) as YAML, its note files read
+	// from the tree into their bodies; empty when the version does not parse.
+	Own string `json:"own,omitempty"`
 }
 
 // PinBody is the POST /admin/kits/{name}/pin request.
@@ -861,9 +865,19 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, e := range v.Tree.Entries {
 			res.Files = append(res.Files, KitFileInfo{Path: e.Path, Mode: fmt.Sprintf("%04o", e.Mode), Size: e.Size})
 		}
-		var cerr error
-		if res.Chain, res.Effective, cerr = KitChainView(store, name, res.Config); cerr != nil {
-			res.ChainError = cerr.Error()
+		if v.Err != nil {
+			// A broken or unparsable version: its own fixed error, no chain.
+			res.ChainError = v.Err.Error()
+		} else {
+			var cerr error
+			if res.Chain, res.Effective, cerr = KitChainView(store, name, v.Kit); cerr != nil {
+				res.ChainError = cerr.Error()
+			}
+			own := v.Kit
+			own.LegacyName = "" // the registry names the kit
+			if y, err := yaml.Marshal(own); err == nil {
+				res.Own = string(y)
+			}
 		}
 		follow, pinned := KitsReferencing(store, name)
 		res.UsedByKits = append(follow, pinned...)

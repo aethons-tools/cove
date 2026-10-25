@@ -72,6 +72,15 @@ func TestKitDetailBody(t *testing.T) {
 	}
 }
 
+func TestKitDetailBodyShowsTrees(t *testing.T) {
+	st := NewMemStore()
+	tr := pushTree(t, st, "app", "kit.yml", "kind: studio\n", "Dockerfile", dockerfile)
+	body := kitDetailBody(st, []KitRef{{ID: "app", Version: 1}}, nil)
+	if !strings.Contains(body, "FILES") || !strings.Contains(body, "tree "+tr.Hash()[:12]+", 2 files") {
+		t.Fatalf("body:\n%s", body)
+	}
+}
+
 func TestImageBodiesInertAndNoMutation(t *testing.T) {
 	f := ImageFacts{ID: "sha256:abc", Env: []string{"A\x1b=b\nc", "TOKEN=zzz"},
 		Labels: map[string]string{"k\x1b": "v\x1b[2J", "ok": "a\x1bb"},

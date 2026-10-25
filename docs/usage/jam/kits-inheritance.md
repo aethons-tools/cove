@@ -4,7 +4,7 @@ read_when: You want one kit to build on another (a role bound to `my-app` gets `
 owns: the kit-inheritance story — the `base.kit` syntax and its refusals, follow vs pin, the chain cap/cycle/missing-parent errors, the merge rules, push-time checks on the merged kit, the stage-by-stage chain build and stage cache, chain staleness, the recorded raise chain, the rm/pin chain guards, and the chain in `kit show`/`kit list`
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # Kits building on kits
@@ -149,7 +149,8 @@ notes come from the current chain.
   direct parent is shown with how it's tracked; a pinned one reads
   `web-dev@v3 (pinned)`. A chained kit's effective output carries the comment
   `# effective view (base.kit flattened); use --own to edit and re-push`.
-  `--own` prints only the kit's own stored YAML. A chain
+  `--own` prints only the kit's own YAML (its `file:` notes read from its
+  files into `body:`). A chain
   that doesn't resolve prints `# chain error: …` and falls back to the kit's own
   YAML.
 - **`kit list`** adds `parent=<name>[@vN]` to a chained kit's row.
