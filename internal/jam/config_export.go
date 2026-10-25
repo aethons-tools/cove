@@ -320,7 +320,9 @@ func treeKitYML(m *memState, name string, yml []byte, inTree func(string) bool) 
 	return studio.SetBaseKit(yml, "../"+parent)
 }
 
-// ConfigKitFile is one file of a kit directory a config write writes.
+// ConfigKitFile is one file of a kit directory a config write writes. An
+// export's Data shares the stored (immutable) blob bytes with the state it
+// was rendered from: read it, never modify it.
 type ConfigKitFile struct {
 	Path string `json:"path"` // relative to the kit directory
 	Data []byte `json:"data"` // base64 in JSON

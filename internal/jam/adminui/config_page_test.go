@@ -2,6 +2,7 @@ package adminui_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -101,6 +102,18 @@ func TestConfigPageUntrack(t *testing.T) {
 	}
 	if _, ok := store.GetConfigSource(); ok || len(store.ListConfigMarks()) == 0 {
 		t.Fatal("untrack must forget the source and keep the marks")
+	}
+}
+
+// A Jam the drift check cannot render: the page says so instead of failing.
+func TestConfigPageDriftUnknown(t *testing.T) {
+	h, _ := managedUI(t)
+	defer adminui.SetConfigMarkStatesForTest(func(jam.Store) ([]jam.ConfigMarkState, error) {
+		return nil, errors.New("config drift: kit x cannot be rendered")
+	})()
+	rec := get(t, h, "/app/admin/config")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Could not compare with the live Jam") || !strings.Contains(rec.Body.String(), "unknown") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 

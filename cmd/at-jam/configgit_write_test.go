@@ -313,3 +313,75 @@ func TestWriteConfigTreeMirrorSkipsOddDockerignore(t *testing.T) {
 		}
 	}
 }
+
+// An in-tree symlink at an exported file's path, or at a directory on its
+// way, is never written through: the file lands as a regular file at its
+// mode, or the write is refused before anything is written.
+func TestWriteConfigTreeDoesNotFollowInTreeSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "users/bob.yml"), "bob\n", 0o644)
+	mustMkdir(t, filepath.Join(dir, "kits/app"))
+	cfgMust(t, os.Symlink("../../users/bob.yml", filepath.Join(dir, "kits/app/run.sh")))
+	exp := jam.ConfigTreeExport{Kits: map[string][]jam.ConfigKitFile{"kits/app": {
+		{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "run.sh", Data: []byte("echo\n"), Mode: 0o755}}}}
+	if err := writeConfigTree(dir, exp); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "users/bob.yml")); string(b) != "bob\n" {
+		t.Fatalf("users/bob.yml overwritten: %q", b)
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, "users/bob.yml")); fi.Mode().Perm() != 0o644 {
+		t.Fatalf("users/bob.yml mode %v", fi.Mode())
+	}
+	fi, err := os.Lstat(filepath.Join(dir, "kits/app/run.sh"))
+	if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o755 {
+		t.Fatalf("run.sh %v %v", fi, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kits/app/run.sh")); string(b) != "echo\n" {
+		t.Fatalf("run.sh %q", b)
+	}
+
+	// A symlinked subdir: refused before anything is written.
+	dir = t.TempDir()
+	mustWrite(t, filepath.Join(dir, "kits/other/kit.yml"), "kind: studio\n# other\n", 0o644)
+	mustMkdir(t, filepath.Join(dir, "kits/app"))
+	cfgMust(t, os.Symlink("../other", filepath.Join(dir, "kits/app/lib")))
+	exp = jam.ConfigTreeExport{Files: map[string]string{"marker": "m"}, Kits: map[string][]jam.ConfigKitFile{"kits/app": {
+		{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "lib/kit.yml", Data: []byte("evil\n"), Mode: 0o644}}}}
+	err = writeConfigTree(dir, exp)
+	if err == nil || err.Error() != `refusing to write "kits/app/lib/kit.yml": "kits/app/lib" is not a directory` {
+		t.Fatalf("err %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kits/other/kit.yml")); string(b) != "kind: studio\n# other\n" {
+		t.Fatalf("kits/other/kit.yml overwritten: %q", b)
+	}
+	for _, p := range []string{"marker", "kits/app/kit.yml"} {
+		if _, err := os.Lstat(filepath.Join(dir, p)); !os.IsNotExist(err) {
+			t.Fatalf("%s written before refusing", p)
+		}
+	}
+}
+
+// Conflicting paths are refused before anything is written.
+func TestWriteConfigTreeRefusesConflicts(t *testing.T) {
+	f := func(p string) jam.ConfigKitFile { return jam.ConfigKitFile{Path: p, Mode: 0o644} }
+	for name, exp := range map[string]jam.ConfigTreeExport{
+		"duplicate":        {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a"), f("a")}}},
+		"file-vs-dir":      {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("a/b"), f("a")}}},
+		"files-is-kit-dir": {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("kit.yml")}}, Files: map[string]string{"kits/k": "x"}},
+		"remove-in-kit":    {Kits: map[string][]jam.ConfigKitFile{"kits/k": {f("kit.yml")}}, Remove: []string{"kits/k/old"}},
+		"remove-kit-dir":   {Kits: map[string][]jam.ConfigKitFile{"kits/k": {}}, Remove: []string{"kits/k"}},
+	} {
+		dir := t.TempDir()
+		if exp.Files == nil {
+			exp.Files = map[string]string{}
+		}
+		exp.Files["marker"] = "m"
+		if err := writeConfigTree(dir, exp); err == nil || !strings.HasPrefix(err.Error(), "refusing to") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "marker")); !os.IsNotExist(err) {
+			t.Errorf("%s: wrote before refusing", name)
+		}
+	}
+}

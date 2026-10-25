@@ -166,7 +166,7 @@ otherwise updated.
 |---|---|
 | `POST /admin/config/diff?force=1` | Plan an uploaded tree (`configtar` tar.gz body); `force=1` plans as a forced apply (drift is an `update`, not a refusal). |
 | `POST /admin/config/apply?force=1&plan=<digest>` | Apply; a refused or stale-digest plan is 409. |
-| `GET /admin/config/export-tree?all=1` | Render the tree: `files`, `remove`, and `kits` (each `kits/<n>` dir's files: base64 `data`, `mode`; an empty list removes the dir). A kit pinned behind its in-tree parent is 409. |
+| `GET /admin/config/export-tree?all=1` | Render the tree: `files`, `remove`, and `kits` (each `kits/<n>` dir's files: base64 `data`, `mode`; the writer mirrors the dir to them, an empty list to nothing but what its `.dockerignore` excludes: see [the layout](#layout)). A kit pinned behind its in-tree parent is 409. |
 | `DELETE /admin/config/managed/{kind}/{name...}` | Release a mark (204); unknown kind 400, not managed 404.  |
 
 Uploads: `Content-Type: application/gzip` (any other type is 415, so a

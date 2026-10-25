@@ -275,16 +275,29 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 			return fmt.Errorf("refusing to write kit dir %q: not kits/<name>", d)
 		}
 		for p := range exp.Files {
-			if strings.HasPrefix(path.Clean(p), d+"/") {
+			if c := path.Clean(p); c == d || strings.HasPrefix(c, d+"/") {
 				return fmt.Errorf("refusing to write %q twice (a file and a kit dir's)", p)
 			}
 		}
+		for _, p := range exp.Remove {
+			if c := path.Clean(p); c == d || strings.HasPrefix(c, d+"/") {
+				return fmt.Errorf("refusing to remove %q inside the mirrored kit dir %s", p, d)
+			}
+		}
+		paths := make([]string, 0, len(files))
 		for _, f := range files {
 			if kittree.CheckPath(f.Path) != nil {
 				return fmt.Errorf("refusing to write an unsafe path under %s", d)
 			}
 			if f.Mode != 0o644 && f.Mode != 0o755 {
 				return fmt.Errorf("refusing to write %s/%s with mode %o", d, f.Path, f.Mode)
+			}
+			paths = append(paths, f.Path)
+		}
+		slices.Sort(paths)
+		for i := 1; i < len(paths); i++ {
+			if paths[i] == paths[i-1] || strings.HasPrefix(paths[i], paths[i-1]+"/") {
+				return fmt.Errorf("refusing to write %q: it conflicts with %q", d+"/"+paths[i], d+"/"+paths[i-1])
 			}
 		}
 	}
@@ -305,6 +318,13 @@ func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
 		}
 		if err != nil && !errors.Is(err, iofs.ErrNotExist) {
 			return err
+		}
+	}
+	for d, files := range exp.Kits {
+		for _, f := range files {
+			if err := checkKitFilePath(root, d, f.Path); err != nil {
+				return err
+			}
 		}
 	}
 	for p, content := range exp.Files {
@@ -380,10 +400,46 @@ func writeTreeFile(root *os.Root, p string, data []byte, mode os.FileMode) error
 	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return err
 	}
+	// os.Root follows a symlink that stays inside the tree: replace one (or
+	// any other non-regular file) at p instead of writing through it.
+	if fi, err := root.Lstat(name); err == nil && !fi.Mode().IsRegular() {
+		if fi.IsDir() {
+			return fmt.Errorf("refusing to write %q: it is a directory", p)
+		}
+		if err := root.Remove(name); err != nil {
+			return err
+		}
+	}
 	if err := root.WriteFile(name, data, mode); err != nil {
 		return err
 	}
 	return root.Chmod(name, mode)
+}
+
+// checkKitFilePath refuses to write kit dir d's file p (both checked) when
+// a directory on its way under d is, on disk, a symlink or not a directory
+// (os.Root would follow an in-tree symlink onto another file), or p itself
+// is a directory.
+func checkKitFilePath(root *os.Root, d, p string) error {
+	segs := strings.Split(p, "/")
+	for i := range segs {
+		q := d + "/" + strings.Join(segs[:i+1], "/")
+		fi, err := root.Lstat(filepath.FromSlash(q))
+		if errors.Is(err, iofs.ErrNotExist) {
+			return nil // nothing deeper exists either
+		}
+		if err != nil {
+			return fmt.Errorf("refusing to write %q: %q cannot be read", d+"/"+p, q)
+		}
+		last := i == len(segs)-1
+		if !last && !fi.IsDir() {
+			return fmt.Errorf("refusing to write %q: %q is not a directory", d+"/"+p, q)
+		}
+		if last && fi.IsDir() {
+			return fmt.Errorf("refusing to write %q: it is a directory", d+"/"+p)
+		}
+	}
+	return nil
 }
 
 // isKitDir reports whether p is kits/<name>, name a tag-safe kit name.
