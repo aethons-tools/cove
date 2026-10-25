@@ -137,6 +137,18 @@ func KitDraftFile(store Store, name, p string) ([]byte, kittree.Entry, string, e
 // .dockerignore drops the files it newly excludes. The file rules hold
 // (kittree.Tree.ValidateFiles, in saveDraftLocked); kit.yml may be missing or invalid.
 func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.FileMode, data []byte, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	return putDraftFile(store, log, name, p, mode, data, ifMatch, actor, now, false)
+}
+
+// AddKitDraftFile is PutKitDraftFile for a new file: a path the draft
+// already has is refused (409), after the ETag check and under kitMu, so it
+// never overwrites.
+func AddKitDraftFile(store Store, log *slog.Logger, name, p string, data []byte, mode fs.FileMode, ifMatch, actor string, now time.Time) (KitDraftSave, error) {
+	return putDraftFile(store, log, name, p, mode, data, ifMatch, actor, now, true)
+}
+
+// putDraftFile is PutKitDraftFile; with add, it refuses a path the draft has.
+func putDraftFile(store Store, log *slog.Logger, name, p string, mode fs.FileMode, data []byte, ifMatch, actor string, now time.Time, add bool) (KitDraftSave, error) {
 	if err := checkDraftFileArgs(name, p); err != nil {
 		return KitDraftSave{}, err
 	}
@@ -152,9 +164,13 @@ func PutKitDraftFile(store Store, log *slog.Logger, name, p string, mode fs.File
 	if err != nil {
 		return KitDraftSave{}, err
 	}
+	e, exists := cur.Lookup(p)
+	if exists && add {
+		return KitDraftSave{}, writeErr(http.StatusConflict, "draft %s already has a file %s", name, p)
+	}
 	if mode == 0 {
 		mode = 0o644
-		if e, ok := cur.Lookup(p); ok {
+		if exists {
 			mode = e.Mode
 		}
 	}

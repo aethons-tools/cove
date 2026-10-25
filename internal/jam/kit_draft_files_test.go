@@ -342,3 +342,28 @@ func TestRenameKitDraftFile(t *testing.T) {
 		t.Fatal("renames touched the published version")
 	}
 }
+
+// AddKitDraftFile writes a new file and refuses a path the draft already
+// has (409), after the ETag check, so a stale form is told to reload.
+func TestAddKitDraftFile(t *testing.T) {
+	st := NewMemStore()
+	pushApp(t, st, "kit.yml", "kind: studio\n", "run.sh*", "echo\n")
+	tag := openApp(t, st)
+	later := draftNow.Add(time.Minute)
+	s, err := AddKitDraftFile(st, nil, "app", "bin/new.sh", []byte("x\n"), 0o755, tag, "alice", later)
+	if err != nil || !slices.Equal(s.Changed, []DraftChange{{"bin/new.sh", "added"}}) {
+		t.Fatalf("add = %+v %v", s, err)
+	}
+	if data, e, _, _ := KitDraftFile(st, "app", "bin/new.sh"); string(data) != "x\n" || e.Mode != 0o755 {
+		t.Fatalf("added = %q %o", data, e.Mode)
+	}
+	_, err = AddKitDraftFile(st, nil, "app", "run.sh", nil, 0o644, s.ETag, "alice", later)
+	wantErr(t, err, "draft app already has a file run.sh", 409)
+	_, err = AddKitDraftFile(st, nil, "app", "run.sh", nil, 0o644, tag, "alice", later)
+	wantErr(t, err, "draft app changed since you loaded it (reload)", 412)
+	_, err = AddKitDraftFile(st, nil, "app", "../x", nil, 0o644, s.ETag, "alice", later)
+	wantErr(t, err, unsafeDraftPath, 400)
+	if data, _, _, _ := KitDraftFile(st, "app", "run.sh"); string(data) != "echo\n" {
+		t.Fatalf("a refused add overwrote run.sh: %q", data)
+	}
+}

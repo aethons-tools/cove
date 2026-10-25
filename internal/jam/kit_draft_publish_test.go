@@ -358,3 +358,25 @@ func TestPublishPinRefusesPreTreeFollower(t *testing.T) {
 		t.Fatalf("publish --pin = %+v %v (a pinned pre-tree kit and a broken kit are left alone)", res, err)
 	}
 }
+
+// KitFollowersToPin lists the kits a publish --pin would rewrite: those that
+// follow the kit unpinned, not those pinned already nor unrelated ones; and
+// KitManaged says which the config repo manages.
+func TestKitFollowersToPin(t *testing.T) {
+	st := NewMemStore()
+	pinnedFixture(t, st, map[string]string{
+		"web":   "kind: studio\nbase:\n  kit: app\n",
+		"api":   "kind: studio\nbase:\n  kit: app\n",
+		"fixed": "kind: studio\nbase:\n  kit: app@v1\n",
+		"other": "kind: studio\n",
+	})
+	if got := KitFollowersToPin(st, "app"); !slices.Equal(got, []string{"api", "web"}) {
+		t.Fatalf("followers to pin = %v", got)
+	}
+	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "web", Commit: "abc1234", Digest: "d", AppliedAt: time.Unix(1, 0).UTC()}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !KitManaged(st, "web") || KitManaged(st, "api") || KitManaged(st, "app") {
+		t.Fatal("KitManaged")
+	}
+}
