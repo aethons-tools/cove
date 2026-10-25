@@ -169,7 +169,9 @@ func build(ev sessionevents.Event) EventView {
 		Message struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
-		Result string `json:"result"`
+		Result  string `json:"result"`
+		Command string `json:"command"`
+		By      string `json:"by"`
 	}
 	if json.Unmarshal(ev.Raw, &env) != nil {
 		v.Label, v.Detail = "unparsed", string(ev.Raw)
@@ -224,6 +226,18 @@ func build(ev sessionevents.Event) EventView {
 			ev.Index.OutputTokens, time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Narrative = fmt.Sprintf("$%.4f · %s", ev.Index.CostUSD, time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Detail = env.Result
+	case "cove":
+		if env.Subtype == "command" && env.Command != "" {
+			// A session-control press (Interrupt/Compact/Clear) by a member.
+			text := strings.ToUpper(env.Command[:1]) + env.Command[1:] + " — pressed"
+			if env.By != "" {
+				text += " by " + env.By
+			}
+			v.Kind, v.Label = KindPrompt, "control"
+			v.Summary, v.Narrative = text, text
+		} else {
+			v.Label = env.Type
+		}
 	default:
 		v.Label = env.Type
 	}
