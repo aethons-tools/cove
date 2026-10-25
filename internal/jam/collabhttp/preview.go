@@ -193,6 +193,7 @@ type previewRequest struct {
 	user      string
 	name      string // display name, sent as X-Jam-User
 	stripAuth bool   // Authorization is a Jam credential
+	framed    bool   // resolved from the frame cookie (PrincipalFrame)
 }
 
 // poolHost names t's connection pool. It is opaque (a hash) rather than the
@@ -223,7 +224,7 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 		notExposed(w, r)
 		return
 	}
-	pr, display, err := p.auth.Principal(r)
+	pr, display, framed, err := p.auth.PrincipalFrame(r)
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrNoCredentials):
@@ -256,7 +257,7 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 	p.audit(a, name, port, right)
 	req := &previewRequest{
 		host: host, port: port, right: right, session: actorID, user: t.user, name: a.name,
-		stripAuth: p.jamAuthorization(r),
+		stripAuth: p.jamAuthorization(r), framed: framed,
 	}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), proxyCtxKey{}, req)))
 }
@@ -560,12 +561,13 @@ func (p *previewProxy) proxyError(w http.ResponseWriter, r *http.Request, err er
 }
 
 // isJamCookie reports whether a cookie name is one of Jam's (the preview
-// session, the preview login binding, or the login flow's), case-folded as browsers fold the __Host-
+// session, the preview login binding, the frame session, or the login flow's), case-folded as browsers fold the __Host-
 // prefix.
 func isJamCookie(name string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
 	return n == strings.ToLower(PreviewCookie) || n == "jam_preview" ||
 		n == strings.ToLower(PreviewLoginCookie) || n == "jam_preview_login" ||
+		n == strings.ToLower(FrameCookie) || n == "jam_frame" ||
 		strings.HasPrefix(n, "__host-jam_oauth") || strings.HasPrefix(n, "jam_oauth")
 }
 

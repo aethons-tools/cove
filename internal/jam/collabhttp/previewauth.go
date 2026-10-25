@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"html"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -32,6 +34,10 @@ const (
 	// the preview host by LoginRedirect, its SHA-256 rides the login into the
 	// code, and the trade (/__jam/session) requires it, then clears it.
 	PreviewLoginCookie = "__Host-jam_preview_login"
+	// FrameCookie names the frame session cookie set by /__jam/frame: host-only
+	// and Partitioned (CHIPS), so it lives only in the Jam UI's partition and
+	// is honoured only where frameCookieUseAllowed says.
+	FrameCookie = "__Host-jam_frame"
 	// PreviewLoginTTL is how long a started login may take.
 	PreviewLoginTTL = 10 * time.Minute
 	// PreviewSessionTTL is how long a preview login lasts.
@@ -63,8 +69,11 @@ type PreviewAuthOptions struct {
 	// preview proxy keeps any bearer whose unverified iss names it from the
 	// app, even one that fails verification. "" = only verified bearers.
 	BearerIssuer string
-	Now          func() time.Time
-	Log          *slog.Logger
+	// Frames holds the one-time tickets the Jam UI mints to frame a preview;
+	// /__jam/frame trades one for a frame session. Nil: framing off (404).
+	Frames *FrameTickets
+	Now    func() time.Time
+	Log    *slog.Logger
 }
 
 // ErrCrossSite: a request carried the preview session cookie in a context
@@ -79,6 +88,7 @@ type previewEntry struct {
 	host      string
 	expires   time.Time
 	bind      [sha256.Size]byte // a code's: SHA-256 of the starting browser's login cookie
+	right     collab.Right      // a frame session's ticket right, for audit only (rights are re-checked live)
 }
 
 // PreviewAuth logs browsers in to studio previews (docs/usage/jam/previews.md).
@@ -91,9 +101,10 @@ type previewEntry struct {
 type PreviewAuth struct {
 	o PreviewAuthOptions
 
-	mu       sync.Mutex
-	sessions map[[sha256.Size]byte]previewEntry
-	codes    map[[sha256.Size]byte]previewEntry
+	mu            sync.Mutex
+	sessions      map[[sha256.Size]byte]previewEntry
+	codes         map[[sha256.Size]byte]previewEntry
+	frameSessions map[[sha256.Size]byte]previewEntry
 }
 
 // NewPreviewAuth builds a PreviewAuth; call Run to prune expired entries.
@@ -106,9 +117,10 @@ func NewPreviewAuth(o PreviewAuthOptions) *PreviewAuth {
 	}
 	o.Domain = strings.ToLower(o.Domain)
 	return &PreviewAuth{
-		o:        o,
-		sessions: map[[sha256.Size]byte]previewEntry{},
-		codes:    map[[sha256.Size]byte]previewEntry{},
+		o:             o,
+		sessions:      map[[sha256.Size]byte]previewEntry{},
+		codes:         map[[sha256.Size]byte]previewEntry{},
+		frameSessions: map[[sha256.Size]byte]previewEntry{},
 	}
 }
 
@@ -127,10 +139,13 @@ func (a *PreviewAuth) Run(ctx context.Context) {
 }
 
 func (a *PreviewAuth) prune() {
+	if a.o.Frames != nil {
+		a.o.Frames.Prune()
+	}
 	now := a.o.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, m := range []map[[sha256.Size]byte]previewEntry{a.sessions, a.codes} {
+	for _, m := range []map[[sha256.Size]byte]previewEntry{a.sessions, a.codes, a.frameSessions} {
 		for k, e := range m {
 			if !now.Before(e.expires) {
 				delete(m, k)
@@ -170,49 +185,98 @@ func (a *PreviewAuth) isLoginHost(host string) bool {
 	return strings.TrimSuffix(strings.ToLower(h), ".") == preview.LoginHost(a.o.Domain)
 }
 
-// Principal names the caller of a request on a preview host: its
-// __Host-jam_preview session when it carries one (unknown, expired or issued
-// for another host ⇒ ErrNoCredentials; more than one such cookie is also
-// ErrNoCredentials, never a pick; an unprefixed jam_preview is ignored), else
-// its Authorization bearer via Bearer, else ErrNoCredentials. A request that
-// carries the cookie in a context another site's page may have caused is
-// ErrCrossSite (cookieUseAllowed).
+// Principal is PrincipalFrame without the framed report.
 func (a *PreviewAuth) Principal(r *http.Request) (collab.Principal, string, error) {
-	var vals []string
+	p, name, _, err := a.PrincipalFrame(r)
+	return p, name, err
+}
+
+// PrincipalFrame names the caller of a request on a preview host, and
+// reports framed when the frame cookie named it:
+//  1. its __Host-jam_preview session when it carries one (unknown, expired or
+//     issued for another host ⇒ ErrNoCredentials; more than one such cookie
+//     is also ErrNoCredentials, never a pick; an unprefixed jam_preview is
+//     ignored); carrying it in a context another site's page may have caused
+//     is ErrCrossSite (cookieUseAllowed);
+//  2. else its __Host-jam_frame session, by the same rules but honoured only
+//     where frameCookieUseAllowed says (else ErrCrossSite);
+//  3. else its Authorization bearer via Bearer, else ErrNoCredentials.
+func (a *PreviewAuth) PrincipalFrame(r *http.Request) (collab.Principal, string, bool, error) {
+	var previewVals, frameVals []string
 	for _, c := range r.Cookies() {
-		if c.Name == PreviewCookie {
-			vals = append(vals, c.Value)
+		switch c.Name {
+		case PreviewCookie:
+			previewVals = append(previewVals, c.Value)
+		case FrameCookie:
+			frameVals = append(frameVals, c.Value)
 		}
 	}
-	if len(vals) > 0 && !a.cookieUseAllowed(r) {
-		return collab.Principal{}, "", ErrCrossSite
+	if len(previewVals) > 0 {
+		if !a.cookieUseAllowed(r) {
+			return collab.Principal{}, "", false, ErrCrossSite
+		}
+		p, name, err := a.lookupSession(a.sessions, previewVals, r.Host)
+		return p, name, false, err
 	}
-	switch {
-	case len(vals) > 1:
-		return collab.Principal{}, "", ErrNoCredentials
-	case len(vals) == 1:
-		host, ok := a.canonicalHost(r.Host)
-		if !ok || vals[0] == "" {
-			return collab.Principal{}, "", ErrNoCredentials
+	if len(frameVals) > 0 {
+		if !frameCookieUseAllowed(r) {
+			return collab.Principal{}, "", false, ErrCrossSite
 		}
-		key := sha256.Sum256([]byte(vals[0]))
-		now := a.o.Now()
-		a.mu.Lock()
-		e, found := a.sessions[key]
-		if found && !now.Before(e.expires) {
-			delete(a.sessions, key)
-			found = false
-		}
-		a.mu.Unlock()
-		if !found || e.host != host {
-			return collab.Principal{}, "", ErrNoCredentials
-		}
-		return e.principal, e.name, nil
+		p, name, err := a.lookupSession(a.frameSessions, frameVals, r.Host)
+		return p, name, err == nil, err
 	}
 	if a.o.Bearer == nil {
+		return collab.Principal{}, "", false, ErrNoCredentials
+	}
+	p, name, err := a.o.Bearer(r)
+	return p, name, false, err
+}
+
+// lookupSession resolves the session cookie values vals in m for host:
+// exactly one value, known, unexpired and issued for host; else
+// ErrNoCredentials. An expired entry it finds is dropped.
+func (a *PreviewAuth) lookupSession(m map[[sha256.Size]byte]previewEntry, vals []string, host string) (collab.Principal, string, error) {
+	if len(vals) != 1 {
 		return collab.Principal{}, "", ErrNoCredentials
 	}
-	return a.o.Bearer(r)
+	h, ok := a.canonicalHost(host)
+	if !ok || vals[0] == "" {
+		return collab.Principal{}, "", ErrNoCredentials
+	}
+	key := sha256.Sum256([]byte(vals[0]))
+	now := a.o.Now()
+	a.mu.Lock()
+	e, found := m[key]
+	if found && !now.Before(e.expires) {
+		delete(m, key)
+		found = false
+	}
+	a.mu.Unlock()
+	if !found || e.host != h {
+		return collab.Principal{}, "", ErrNoCredentials
+	}
+	return e.principal, e.name, nil
+}
+
+// frameCookieUseAllowed reports whether r may be answered with its frame
+// session cookie. The cookie is SameSite=None (it must reach a cross-site
+// iframe), so it is honoured only where no other page can have caused the
+// request: a WebSocket upgrade only with an Origin of exactly https://<Host>;
+// else Sec-Fetch-Site same-origin, or a GET/HEAD iframe navigation
+// (Sec-Fetch-Mode navigate, Sec-Fetch-Dest iframe) — how the Jam pane loads
+// it. Nothing else: no top-level navigation, and no fallback for a request
+// without Fetch Metadata, which every frame-capable browser sends.
+func frameCookieUseAllowed(r *http.Request) bool {
+	if isWebSocketUpgrade(r) {
+		o := r.Header.Get("Origin")
+		return o != "" && o == "https://"+r.Host
+	}
+	h := r.Header
+	if h.Get("Sec-Fetch-Site") == "same-origin" {
+		return true
+	}
+	return h.Get("Sec-Fetch-Mode") == "navigate" && h.Get("Sec-Fetch-Dest") == "iframe" &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead)
 }
 
 // cookieUseAllowed reports whether r may be answered with its preview session
@@ -411,12 +475,18 @@ func (a *PreviewAuth) verifyParticipant(ctx context.Context, tok string) (ident.
 //     __Host-jam_preview_login cookie, then cleared) for a host-only
 //     __Host-jam_preview cookie and redirects to return_to, which must be a
 //     path (not "//…" or "/\…");
+//   - GET /__jam/frame?t=… trades a frame ticket minted for this host (when
+//     Frames is set; else 404) for a partitioned __Host-jam_frame cookie
+//     (frame);
 //   - GET /__jam/logout drops the session and clears the cookie;
 //   - any other /__jam path is 404.
 func (a *PreviewAuth) PreviewHostRoutes(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /__jam/session", a.session)
 	mux.HandleFunc("GET /__jam/logout", a.logout)
+	if a.o.Frames != nil {
+		mux.HandleFunc("GET /__jam/frame", a.frame)
+	}
 	mux.Handle("/__jam/", http.NotFoundHandler())
 	mux.Handle("/__jam", http.NotFoundHandler())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -498,6 +568,56 @@ func (a *PreviewAuth) session(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusFound)
 }
 
+// frame trades a frame ticket (?t=) for a frame session: only inside an
+// iframe (Sec-Fetch-Dest), only for a ticket minted for this host — any
+// lookup spends it — and then sets the partitioned __Host-jam_frame cookie
+// and sends the frame to /.
+func (a *PreviewAuth) frame(w http.ResponseWriter, r *http.Request) {
+	// The URL carries a ticket: never cache it or leak it onward as a Referer.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if r.Header.Get("Sec-Fetch-Dest") != "iframe" {
+		http.Error(w, "frame links open only inside the Jam pane", http.StatusBadRequest)
+		return
+	}
+	host, ok := a.canonicalHost(r.Host)
+	t := r.URL.Query().Get("t")
+	tk, redeemed := ticketRedeem(a.o.Frames, t, host, ok)
+	if !redeemed {
+		http.Error(w, "frame link expired — reopen the tab", http.StatusBadRequest)
+		return
+	}
+	sid, skey, err := newSecret()
+	if err != nil {
+		http.Error(w, "frame login failed", http.StatusInternalServerError)
+		return
+	}
+	a.mu.Lock()
+	a.frameSessions[skey] = previewEntry{
+		principal: tk.principal, name: tk.name, host: host, right: tk.right,
+		expires: a.o.Now().Add(FrameSessionTTL),
+	}
+	a.mu.Unlock()
+	a.o.Log.Info("preview frame opened", "host", host, "operator", tk.principal.Operator,
+		"user", string(tk.principal.UserID), "right", string(tk.right))
+	http.SetCookie(w, &http.Cookie{
+		Name: FrameCookie, Value: sid, Path: "/",
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode, Partitioned: true,
+		MaxAge: int(FrameSessionTTL / time.Second),
+	})
+	w.Header().Set("Location", "/")
+	w.WriteHeader(http.StatusSeeOther)
+}
+
+// ticketRedeem redeems t for host, refusing an empty ticket or a host that is
+// not a preview host (hostOK false) without a lookup.
+func ticketRedeem(f *FrameTickets, t, host string, hostOK bool) (frameTicket, bool) {
+	if !hostOK || t == "" {
+		return frameTicket{}, false
+	}
+	return f.Redeem(t, host)
+}
+
 // startedHere reports whether r carries a login cookie whose SHA-256 is bind.
 func startedHere(r *http.Request, bind [sha256.Size]byte) bool {
 	ok := false
@@ -533,19 +653,26 @@ func (a *PreviewAuth) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // LoginRedirect answers a request on a preview host that has no credentials:
-// a browser (Accept includes text/html) gets a __Host-jam_preview_login
+// inside an iframe (Sec-Fetch-Dest: iframe) — the Jam pane, whose frame
+// cookie the browser did not keep — it never redirects (an IdP inside a frame
+// cannot work) but answers 401 with a small page offering the preview in a
+// new tab and telling the parent (framedLoginPage); a browser (Accept includes text/html) gets a __Host-jam_preview_login
 // cookie (kept when it already has one, so tabs share it) and is sent to log
 // in on the login host, carrying the cookie's SHA-256 as bind, and return to
 // this URL; anything else gets 401 with a Bearer challenge.
 func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	host, ok := a.canonicalHost(r.Host)
+	self, login := host, preview.LoginHost(a.o.Domain)
+	if _, port, err := net.SplitHostPort(r.Host); err == nil && port != "" {
+		self, login = net.JoinHostPort(host, port), net.JoinHostPort(login, port)
+	}
+	// A "//"-led path would be refused as a return path; collapse it.
+	rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
+	if ok && r.Header.Get("Sec-Fetch-Dest") == "iframe" {
+		framedLoginPage(w, rt)
+		return
+	}
 	if ok && strings.Contains(r.Header.Get("Accept"), "text/html") {
-		self, login := host, preview.LoginHost(a.o.Domain)
-		if _, port, err := net.SplitHostPort(r.Host); err == nil && port != "" {
-			self, login = net.JoinHostPort(host, port), net.JoinHostPort(login, port)
-		}
-		// A "//"-led path would be refused as a return path; collapse it.
-		rt := (&url.URL{Scheme: "https", Host: self}).String() + "/" + strings.TrimLeft(r.URL.RequestURI(), "/")
 		nonce := ""
 		if c, err := r.Cookie(PreviewLoginCookie); err == nil && validNonce(c.Value) {
 			nonce = c.Value
@@ -565,6 +692,19 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer realm="jam-preview"`)
 	http.Error(w, "Jam preview: log in in a browser, or send Authorization: Bearer <token> (at-jam login)", http.StatusUnauthorized)
+}
+
+// framedLoginPage answers a framed request that has no credentials: 401 with
+// a page linking to u in a new top-level tab, whose script tells the Jam pane
+// why. The message carries no secret, so "*" may receive it.
+func framedLoginPage(w http.ResponseWriter, u string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Jam preview</title>`+
+		`<p>`+html.EscapeString("This browser can't sign in inside the pane.")+
+		` <a href="`+html.EscapeString(u)+`" target="_top">Open in new tab</a></p>`+
+		`<script>parent.postMessage({jam:"frame-error",status:"cookies"}, "*")</script>`+"\n")
 }
 
 // validNonce reports whether v is shaped as newSecret's value (32 random
