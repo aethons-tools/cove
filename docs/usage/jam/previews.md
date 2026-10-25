@@ -70,46 +70,47 @@ more than one session cookie counts as signed out. A non-browser request (no
 
 ## Framing (the Jam pane)
 
-The Jam UI can show a preview in a pane (an iframe). It mints a frame
-ticket: single-use, valid 60 s, bound to one viewer (user or operator), one
-preview host and the right it was minted under — not to a browser, so for
-those 60 s it is a bearer. The iframe opens `https://<host>/__jam/frame?t=…`,
-which trades it for a `__Host-jam_frame` cookie (host-only, `Secure`,
-`HttpOnly`, `SameSite=None`, `Partitioned`, 8 h) and answers 200 with a
-page whose script sends the frame to `/` (a redirect would keep the UI as
-initiator, not same-origin). It works only as the UI's iframe load
-(`Sec-Fetch-Site: cross-site` or `same-site`, `Sec-Fetch-Mode: navigate`,
-`Sec-Fetch-Dest: iframe`), so framing works whether or not the UI shares
-`<domain>`'s registrable domain, and is audit-logged as
-"preview frame opened" with `host` (encoding preview name and studio
-label), `user` or `operator`, and `right`; never the ticket or cookie.
-The cookie lives only in the UI's partition and counts only on a
-same-origin request (`Sec-Fetch-Site: same-origin`) or a WebSocket whose
-`Origin` is the preview host itself. So each pane load uses a fresh ticket,
-and a redirect or link from one studio into another inside the pane is not
-signed in. On a top-level or iframe navigation it is ignored (you log in);
-elsewhere refused. Your right is re-checked every time.
+The Jam UI can show a preview in a pane (an iframe). It mints a frame ticket:
+single-use, valid 60 s, bound to one viewer (user or operator), one preview host
+and the right it was minted under — not to a browser, so for those 60 s it is a
+bearer. The iframe opens `https://<host>/__jam/frame?t=…`, which trades it for a
+`__Host-jam_frame` cookie (host-only, `Secure`, `HttpOnly`, `SameSite=None`,
+`Partitioned`, 8 h) and answers 200 with a page whose script sends the frame to
+`/` (a redirect would keep the UI as initiator, not same-origin). It works only
+as the UI's iframe load (`Sec-Fetch-Site: cross-site` or `same-site`,
+`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: iframe`); same-site (the UI shares
+`<domain>`'s registrable domain) also needs a `Referer` whose origin is a
+`ui-origins` entry (the pane sends `referrerpolicy="origin"`). It is
+audit-logged as "preview frame opened" with `host` (encoding preview name and
+studio label), `user` or `operator`, and `right`; never the ticket or cookie.
+The cookie lives only in the UI's partition and counts only on a same-origin
+request (`Sec-Fetch-Site: same-origin`) or a WebSocket whose `Origin` is the
+preview host itself. So each pane load uses a fresh ticket, and a redirect or
+link from one studio into another inside the pane is not signed in. On a
+top-level or iframe navigation it is ignored (you log in); elsewhere refused. In
+an iframe it beats `__Host-jam_preview`, which an iframe navigation ignores.
+Your right is re-checked every time.
 
 Every preview response carries `Content-Security-Policy: frame-ancestors`
-listing only the [`ui-origins`](serve.md) (`'none'` when unset), beside any
-CSP of the app's, so a frame nested under another preview is blocked. The app's
-`X-Frame-Options` is dropped only on a pane request (with `Vary: Cookie`).
-Jam's error pages tell the pane their status (`postMessage` to the
-**first** `ui-origins` entry, so list the production UI first): inside
-any iframe, the 404 and the 403s
-"cross-site request refused" and "this login is not linked to a Jam user";
-on a pane request, the 403 "you may not use …" and the proxy's errors
-(502, 503, 504, 429, 409); other errors stay plain text. A pane load with
-no frame session gets a 401 page (**Open in new tab**) posting `"signin"`
-(cross-site or same-site with no ticket — a reload or another studio's redirect; the UI
-re-mints) or `"cookies"` (same-origin with no frame cookie: the browser
-refused it, as Safari does). `/__jam/logout` ends your preview and pane
-sessions on that host, honouring each cookie only where it counts, so a
-sibling studio cannot log you out (say, with an `<img>`). The browser's
-partitioned cookie lingers, naming no session. Threat note: an app in the
-pane can navigate it to another studio's `/__jam/frame?t=…` with a ticket
-its author minted for themselves (within 60 s), showing you that studio
-signed in as them.
+listing only the [`ui-origins`](serve.md) (`'none'` when unset), beside any CSP
+of the app's, so a frame nested under another preview is blocked. The app's
+`X-Frame-Options` is dropped only on a pane request (with `Vary: Cookie`). Jam's
+error pages tell the pane their status (`postMessage` to the **first**
+`ui-origins` entry, so list the production UI first): inside any iframe, the 404
+and the 403s "cross-site request refused" and "this login is not linked to a Jam
+user"; on a pane request, the 403 "you may not use …" and the proxy's errors
+(502, 503, 504, 429, 409); other errors stay plain text. A pane load with no
+frame session gets a 401 page (**Open in new tab**) posting `"signin"` (an
+iframe navigation with no ticket — a reload or another studio's redirect; the UI
+re-mints) or `"cookies"` (same-origin with no frame cookie: the browser refused
+it, as Safari does). `/__jam/logout` ends your preview and pane sessions on that
+host, honouring each cookie only where it counts, so a sibling studio cannot log
+you out (say, with an `<img>`). The browser's partitioned cookie lingers, naming
+no session. Threat note: an app in the pane can navigate it to another studio's
+`/__jam/frame?t=…` with a ticket its author minted for themselves (within 60 s),
+showing you that studio signed in as them. `frame-ancestors` blocks rendering,
+not `Set-Cookie`, so the same-site `Referer` check is what stops another page on
+the UI's site planting such a cookie in the UI's partition.
 
 ## API clients and scripts
 
@@ -143,8 +144,8 @@ HTTP/2). `CONNECT` is refused (405).
 1. Pick a `<domain>` on its own registrable domain, apart from the admin
    site: `jam-previews.example` beside `jam.example`, not
    `preview.jam.example`. Preview apps can set cookies on their registrable
-   domain, which the admin site would then receive. serve logs a warning when
-   they share one. Point DNS `*.<domain>` at the Jam host.
+   domain, which the admin site would then receive (cookie tossing; framing
+   works either way). serve logs a warning when they share one. Point DNS `*.<domain>` at the Jam host.
 2. Get a wildcard certificate for `*.<domain>`.
 3. In the IdP, add `https://jam.<domain>/__jam/auth/callback` as a redirect
    URI of the `/app` browser client ([operators.md](operators.md)). Add

@@ -843,6 +843,7 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	req.Header.Set("Sec-Fetch-Site", "same-site")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
 	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	req.Header.Set("Sec-Fetch-Mode", "no-cors")
 	rec := httptest.NewRecorder()
 	ph.h.ServeHTTP(rec, req)
 	if rec.Header().Get("Location") != "" {
@@ -850,6 +851,15 @@ func TestPreviewCrossSiteCookieRefused(t *testing.T) {
 	}
 	// Inside an iframe the refusal is the framed error page.
 	wantFramedError(t, rec, http.StatusForbidden, "cross-site request refused")
+	// A same-site iframe navigation ignores it (the pane of a UI sharing the
+	// registrable domain, reloading without a ticket): the framed signin page.
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	rec = httptest.NewRecorder()
+	ph.h.ServeHTTP(rec, req)
+	if body := rec.Body.String(); rec.Code != http.StatusUnauthorized || rec.Header().Get("Location") != "" ||
+		strings.Contains(body, "hello from the app") || !strings.Contains(body, `status:"signin"`) {
+		t.Fatalf("same-site iframe navigation = %d %q", rec.Code, body)
+	}
 	// A cross-site fetch (not an iframe) gets the plain text refusal.
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Dest", "empty")
@@ -982,6 +992,19 @@ func TestPreviewXFrameOptionsStrippedOnlyWhenFramed(t *testing.T) {
 	}
 	if v := rec.Header().Values("X-Frame-Options"); len(v) != 0 {
 		t.Fatalf("framed XFO %q", v)
+	}
+	// With the Lax preview cookie too (a UI sharing the registrable domain),
+	// the pane's frame cookie decides: still framed, XFO still dropped.
+	req := httptest.NewRequest("GET", "https://"+appHost+"/", nil)
+	req.AddCookie(ph.login(t, "alice"))
+	req.AddCookie(ph.frameLogin(t, "alice"))
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Dest", "iframe")
+	both := httptest.NewRecorder()
+	ph.h.ServeHTTP(both, req)
+	if v := both.Header().Values("X-Frame-Options"); both.Code != 200 || len(v) != 0 {
+		t.Fatalf("framed with both cookies: %d XFO %q", both.Code, v)
 	}
 	// The two variants share a URL: caches must keep them apart.
 	if v := strings.Join(rec.Header().Values("Vary"), ","); !strings.Contains(v, "Cookie") {

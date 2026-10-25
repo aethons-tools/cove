@@ -48,7 +48,7 @@ Either way, `ide` requests are authorised for **`collab.SSH`**, not `collab.Prev
 
 **Exchange.** `GET /__jam/frame?t=` on a preview host.
 - It is only valid when `Sec-Fetch-Dest: iframe`; otherwise 400.
-- *Amended 2026-10-25:* it requires an iframe navigation with `Sec-Fetch-Site` `cross-site` or `same-site` (never `same-origin`, `none` or absent), so a UI sharing the previews' registrable domain can frame them; the frame cookie itself is honoured only same-origin or on a same-host WebSocket.
+- *Amended 2026-10-25:* it requires an iframe navigation with `Sec-Fetch-Site` `cross-site` or `same-site` (never `same-origin`, `none` or absent), so a UI sharing the previews' registrable domain can frame them; same-site also needs a `Referer` whose origin is a UI origin (the pane sets `referrerpolicy="origin"`), since frame-ancestors does not stop another page on the site planting the cookie. The frame cookie itself is honoured only same-origin or on a same-host WebSocket, and inside an iframe it beats `__Host-jam_preview`, which an iframe navigation ignores.
 - The ticket must match the host and be unused and unexpired; otherwise 400 "frame link expired — reopen the tab". It is consumed on first use.
 - On success it creates a **frame session** (8 h, server-side, bound to user, host and right) and sets `__Host-jam_frame`, with the attributes `Secure; HttpOnly; Path=/; SameSite=None; Partitioned`.
 - It then responds 303 to `/`.
