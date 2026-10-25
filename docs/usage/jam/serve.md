@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # Running Jam (`at-jam serve`)
@@ -93,7 +93,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |
-| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. |
+| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. They are also the only pages that may frame a preview, and framed preview pages post their status to the first entry, so list the production UI origin first ([previews.md](previews.md#framing-the-jam-pane)); serve warns when previews are on and this is empty. |
 | `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/app` act as that user with **no login**: an admin under the user's first login (or `local` if they have none), and a member through their first OIDC identity, so the user needs one (`at-jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |

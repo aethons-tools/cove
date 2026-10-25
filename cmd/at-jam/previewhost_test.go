@@ -353,3 +353,17 @@ func TestPreviewURLNamesAdminPort(t *testing.T) {
 		}
 	}
 }
+
+// Previews without ui-origins: serve warns that the Jam pane can't frame them.
+func TestPreviewUIOriginsWarning(t *testing.T) {
+	const want = "previews: ui-origins is empty, so the Jam pane can't frame previews; add the UI's own origin"
+	if got := previewUIOriginsWarning(&serveConfig{Previews: &previewsConfig{Domain: "p.example"}}); got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := previewUIOriginsWarning(&serveConfig{Previews: &previewsConfig{Domain: "p.example"}, UIOrigins: []string{"https://jam.example"}}); got != "" {
+		t.Fatalf("with origins: %q", got)
+	}
+	if got := previewUIOriginsWarning(&serveConfig{}); got != "" {
+		t.Fatalf("previews off: %q", got)
+	}
+}
