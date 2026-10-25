@@ -139,6 +139,9 @@ type Workload struct {
 	gateCtx context.Context
 	gateH   covemaster.Handle
 	gateEnv []string
+	// streamOut is the stream log every episode's stdout is appended to; nil =
+	// unavailable (events only). Set once at Run start.
+	streamOut io.Writer
 	// contextCore is the written CORE.md path; "" = no context in effect.
 	contextCore string
 	// ctxr refreshes the context; nil = no live refresh.
@@ -231,7 +234,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			}
 		}
 	}
-	var out io.Writer // nil-able extra sink under the line splitter
 	logPath := w.cfg.StreamLogPath
 	if logPath == "" {
 		logPath = defaultStreamLogPath
@@ -241,7 +243,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		w.log.Warn("agentrun: stream log unavailable; events only", "path", logPath, "err", err.Error())
 	} else {
 		defer f.Close()
-		out = f
+		w.streamOut = f
 	}
 	prompt := w.cfg.Prompt
 	continued := false
@@ -261,50 +263,6 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	for {
 		turn++
 		t := turn
-		split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(t, line, dropped) }}
-		tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
-		if persists {
-			tr.onReply = w.markConversation // a reply means a conversation to continue exists
-		}
-		trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
-			if dropped > 0 {
-				w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
-				return
-			}
-			tr.Observe(line)
-		}}
-		sinks := []io.Writer{split, trSplit}
-		if out != nil {
-			sinks = append([]io.Writer{out}, sinks...)
-		}
-		sink := io.MultiWriter(sinks...)
-		var env []string
-		if w.conn != nil {
-			var fp string
-			var changed bool
-			env, fp, changed = w.conn.prepare(ctx)
-			// A model-spec edit takes effect here, at the next episode: the
-			// harness re-checks the new spec first and the run fails loud if
-			// it can't satisfy it.
-			if err := w.applySpec(w.conn.last.ModelSpec); err != nil {
-				return err
-			}
-			if changed {
-				h.ConnectorApplied(fp)
-			}
-		}
-		// The files the argv names are rewritten every episode, not only on a
-		// spec change: the agent may have deleted them (a missing --settings
-		// file fails every later claude at startup).
-		if err := w.cfg.Harness.Prepare(w.spec); err != nil {
-			w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
-			return err
-		}
-		bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
-		env = w.overlayEnv(env, extra)
-		w.gateMu.Lock()
-		w.gateEnv = env // gates run with the agent's env
-		w.gateMu.Unlock()
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
@@ -313,9 +271,9 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 				first += contextNotice(changed, false)
 			}
 		}
-		proc, err := w.spawner.Spawn(ctx, bin, args, w.cfg.WorkDir, env, sink)
+		proc, tr, split, err := w.spawn(ctx, h, t, continued)
 		if err != nil {
-			return fmt.Errorf("agentrun: start %s: %w", bin, err)
+			return err
 		}
 		h.Report(covemaster.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
@@ -365,6 +323,63 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		}
 		prompt, continued = renderWake(w.resumeText(), rs), true
 	}
+}
+
+// spawn starts one agent process for event turn turn: it refreshes the
+// connector (re-validating a changed model-spec), rewrites the harness files
+// and spawns the harness command, its stdout teed to the stream log, the
+// session event stream and a fresh idle tracker. The splitter must be flushed
+// once the process exits.
+func (w *Workload) spawn(ctx context.Context, h covemaster.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
+	split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(turn, line, dropped) }}
+	tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
+	if w.cfg.SessionKind == "standing" {
+		tr.onReply = w.markConversation // a reply means a conversation to continue exists
+	}
+	trSplit := &lineSplitter{max: trackerMaxLine, emit: func(line []byte, dropped uint64) {
+		if dropped > 0 {
+			w.log.Warn("agentrun: stdout line over the idle tracker cap ignored", "dropped", dropped)
+			return
+		}
+		tr.Observe(line)
+	}}
+	sinks := []io.Writer{split, trSplit}
+	if w.streamOut != nil {
+		sinks = append([]io.Writer{w.streamOut}, sinks...)
+	}
+	sink := io.MultiWriter(sinks...)
+	var env []string
+	if w.conn != nil {
+		var fp string
+		var changed bool
+		env, fp, changed = w.conn.prepare(ctx)
+		// A model-spec edit takes effect here, at the next episode: the
+		// harness re-checks the new spec first and the run fails loud if
+		// it can't satisfy it.
+		if err := w.applySpec(w.conn.last.ModelSpec); err != nil {
+			return nil, nil, nil, err
+		}
+		if changed {
+			h.ConnectorApplied(fp)
+		}
+	}
+	// The files the argv names are rewritten every episode, not only on a
+	// spec change: the agent may have deleted them (a missing --settings
+	// file fails every later claude at startup).
+	if err := w.cfg.Harness.Prepare(w.spec); err != nil {
+		w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
+		return nil, nil, nil, err
+	}
+	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+	env = w.overlayEnv(env, extra)
+	w.gateMu.Lock()
+	w.gateEnv = env // gates run with the agent's env
+	w.gateMu.Unlock()
+	proc, err := w.spawner.Spawn(ctx, bin, args, w.cfg.WorkDir, env, sink)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("agentrun: start %s: %w", bin, err)
+	}
+	return proc, tr, split, nil
 }
 
 // markConversation records that this standing session has a conversation to
