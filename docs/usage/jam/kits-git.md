@@ -4,7 +4,7 @@ read_when: You want a kit's definition to live in a git repo instead of a file y
 owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, the fetch limits, the kit-source admin API status codes, and kit-source troubleshooting
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs; serve.md for where the `kits` block sits in the serve config
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # Kits from git
@@ -61,12 +61,12 @@ quoted in its fetch error, so paste clone URLs only without credentials.
 
 ## The kit in the repo
 
-`<dir>/kit.yml` is an ordinary [StudioKit](kits.md#the-studiokit). Paths in
-it — `base.context-dir` and each note's `file` — are relative to `<dir>` and
-must **stay inside the checkout**: an absolute path, a `..` escape, or a
-symlink out of the checkout is refused. `context-dir` is packed into `context`
-exactly as `kit push` packs it (same caps, `.dockerignore` honored), so the
-stored kit is self-contained; the checkout is deleted after each fetch.
+`<dir>/kit.yml` is an ordinary [StudioKit](kits.md#the-studiokit). Jam reads
+the **whole directory** `<dir>` into the version, filtered by its
+`.dockerignore` ([kits-directory.md](kits-directory.md)): a symlink anywhere in
+it, or an irregular file, is refused (`<dir>/<path>: symlinks are not
+allowed`), and note files are read from it. The stored kit is
+self-contained; the checkout is deleted after each fetch.
 
 A `kit.yml` may build on a registry kit (`base: { kit: web-dev }`,
 [kits-inheritance.md](kits-inheritance.md#kits-from-git)) or on another kit in
@@ -154,8 +154,8 @@ kits:
 
 Per fetch: **50 MiB** transferred, **64 MiB** of checked-out files, **60 s**.
 A fetch (or sync) may also wait behind another fetch of the same repo, so the
-CLI allows 90 s per call. The packed context then meets the usual
-[`context` caps](kits.md#the-studiokit), and `kit.yml` is read only up to
+CLI allows 90 s per call. The directory then meets the
+[kit directory limits](kits-directory.md#limits), and `kit.yml` is read only up to
 4 MiB.
 
 ## Errors and troubleshooting
@@ -177,8 +177,10 @@ failure (the message is already redacted), and **500** for a store failure.
 | `repository … not found (or kits.git cred <name> cannot read it)` | Wrong URL, or the named credential's token cannot read this repo. |
 | `ref <ref> not found in …` | No such branch or tag; check spelling and that it is pushed. |
 | `commit … not found in … (or the server does not serve commits by id)` | Unknown id, or the server refuses fetch-by-commit: use a branch or tag. |
-| `file "<dir>/kit.yml": is missing or resolves outside the checkout` | No `kit.yml` there (check `//<dir>`), or it is a symlink out. |
-| `base.context-dir "…"` / `note "…" file "…"`: `does not resolve to a path inside the checkout` | An escape was refused: keep paths relative and inside the repo. |
+| `<dir>: not a directory` / `<dir>: kit.yml missing at the root` | No such directory, or no `kit.yml` in it (check `//<dir>`). |
+| `<dir>/<path>: symlinks are not allowed` | A symlink in the kit directory: commit the file itself. |
+| `base.context… is no longer supported…` | The kit still uses a packed build context; see [the refusals](kits-directory.md#refusals). |
+| `note "…": file must be a relative path inside the kit directory` / `note "…": file … is not in the kit` | A note's `file` escapes the directory or is missing: keep it relative, inside `<dir>`. |
 | `exceeded the <n>-byte transfer limit` / `checkout too large` / `timed out after …` | The repo is too big or too slow for one fetch: move the kit to a smaller repo. |
 | `kit has no tracked source (use kit track)` | `sync` needs `track` first. |
 

@@ -77,6 +77,16 @@ func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 	return st, jamFixtureIDs{bob: bob.ID, alice: alice.ID}
 }
 
+// exportedKitYML is kit name's kit.yml in exp's kit dirs; ok=false: not written.
+func exportedKitYML(exp ConfigTreeExport, name string) (string, bool) {
+	for _, f := range exp.Kits["kits/"+name] {
+		if f.Path == "kit.yml" {
+			return string(f.Data), true
+		}
+	}
+	return "", false
+}
+
 func TestExportConfigTreeAll(t *testing.T) {
 	st, ids := populatedJam(t)
 	exp, err := ExportConfigTree(st.ExportConfig(), nil, map[string]any{"display-name": "Aethon"}, true)
@@ -84,10 +94,15 @@ func TestExportConfigTreeAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"jam.yml", "context.md", "destinations/gh.yml", "model-specs/fast.yml", "model-specs/" + DefaultModelSpec + ".yml", "users/bob.yml",
-		"users/alice.yml", "connections/acme.yml", "kits/web-dev/kit.yml", "kits/app/kit.yml",
+		"users/alice.yml", "connections/acme.yml",
 		"projects/app/project.yml", "projects/app/context.md", "projects/app/roles/ic.yml"} {
 		if _, ok := exp.Files[p]; !ok {
 			t.Errorf("missing %s", p)
+		}
+	}
+	for _, n := range []string{"web-dev", "app"} {
+		if _, ok := exportedKitYML(exp, n); !ok {
+			t.Errorf("missing kits/%s/kit.yml", n)
 		}
 	}
 	proj := exp.Files["projects/app/project.yml"]
@@ -99,8 +114,8 @@ func TestExportConfigTreeAll(t *testing.T) {
 	if strings.Contains(proj, string(ids.bob)) || strings.Contains(proj, "usr_") || strings.Contains(proj, "con_") {
 		t.Fatalf("ids leaked:\n%s", proj)
 	}
-	if !strings.Contains(exp.Files["kits/app/kit.yml"], "kit: ../web-dev\n") {
-		t.Fatalf("path parent not rendered:\n%s", exp.Files["kits/app/kit.yml"])
+	if yml, _ := exportedKitYML(exp, "app"); !strings.Contains(yml, "kit: ../web-dev\n") {
+		t.Fatalf("path parent not rendered:\n%s", yml)
 	}
 	if strings.Contains(exp.Files["users/bob.yml"], "oidc") {
 		t.Fatal("identities written")
@@ -127,7 +142,7 @@ func TestExportConfigTreeManagedOnly(t *testing.T) {
 	if _, ok := exp.Files["users/alice.yml"]; ok {
 		t.Fatal("unmanaged user written without --all")
 	}
-	if !strings.Contains(exp.Files["kits/app/kit.yml"], "kit: web-dev@v1\n") {
+	if yml, _ := exportedKitYML(exp, "app"); !strings.Contains(yml, "kit: web-dev@v1\n") {
 		t.Fatal("a parent outside the tree must keep its stored ref")
 	}
 	want := []string{"destinations/gone.yml", "kits/app.source.yml", "projects/old/context.md", "projects/old/project.yml"} // an inline kit's other form
@@ -194,10 +209,10 @@ func TestExportConfigTreeIgnoresUnwrittenBehindPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := exp.Files["kits/web-dev/kit.yml"]; !ok {
+	if _, ok := exportedKitYML(exp, "web-dev"); !ok {
 		t.Fatal("managed parent not written")
 	}
-	if _, ok := exp.Files["kits/app/kit.yml"]; ok {
+	if _, ok := exp.Kits["kits/app"]; ok {
 		t.Fatal("unmanaged child written")
 	}
 	if _, err := ExportConfigTree(st.ExportConfig(), []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}}, nil, true); !errors.Is(err, ErrConfigKitPinBehind) {
@@ -230,24 +245,24 @@ func TestExportRendersTrackedKitAsSourceFile(t *testing.T) {
 	if got := exp.Files["kits/web-dev.source.yml"]; got != "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//web@main\n" {
 		t.Fatalf("source file %q", got)
 	}
-	if _, ok := exp.Files["kits/web-dev/kit.yml"]; ok {
-		t.Fatal("a tracked kit is also written inline")
+	if files, ok := exp.Kits["kits/web-dev"]; !ok || len(files) != 0 {
+		t.Fatalf("a tracked kit's directory must be mirrored to nothing: %+v", exp.Kits)
 	}
 }
 
 func TestKitCanonCarriesTrackedSource(t *testing.T) {
 	st, _ := trackedFixture(t)
-	objs, err := exportObjects(stateFromSnapshot(st.ExportConfig(), nil), nil, false)
+	objs, err := exportObjects(stateFromSnapshot(st.ExportConfig(), nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	k, _ := st.GetKit("web-dev")
-	cfg, _ := st.KitConfig("web-dev", k.Current)
-	if got := string(objs[ConfigKey{ConfigKindKit, "web-dev"}].Canon); got != cfg+"\n# source: https://github.com/acme/kits//web@main\n" {
+	v, _ := LoadKitVersion(st, "web-dev", 0)
+	untracked := string(kitCanon(v.Tree, st.KitBlob, nil))
+	if got := string(objs[ConfigKey{ConfigKindKit, "web-dev"}].Canon); got != untracked+"# source: https://github.com/acme/kits//web@main\n" {
 		t.Fatalf("canon %q", got)
 	}
-	if string(kitCanon(cfg, nil)) != cfg {
-		t.Fatal("an untracked kit's canon is not its config")
+	if !strings.HasPrefix(untracked, string(v.KitYML)) || strings.Contains(untracked, "# source:") {
+		t.Fatalf("an untracked kit's canon: %q", untracked)
 	}
 }
 
@@ -261,9 +276,14 @@ func TestExportRemovesAManagedKitsOtherForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"kits/app.source.yml", "kits/gone.source.yml", "kits/gone/kit.yml", "kits/web-dev/kit.yml"}
+	want := []string{"kits/app.source.yml", "kits/gone.source.yml"}
 	if !slices.Equal(exp.Remove, want) {
 		t.Fatalf("remove %v", exp.Remove)
+	}
+	for _, d := range []string{"kits/gone", "kits/web-dev"} { // gone from Jam; written by reference
+		if files, ok := exp.Kits[d]; !ok || len(files) != 0 {
+			t.Fatalf("%s must be mirrored to nothing: %+v", d, exp.Kits)
+		}
 	}
 }
 

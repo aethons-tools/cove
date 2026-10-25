@@ -82,7 +82,7 @@ func WithKitFetcher(store Store, f KitFetcher, log *slog.Logger) AdminOption {
 		}
 		return src, true
 	}
-	return func(mux *http.ServeMux) {
+	return func(mux *adminMux) {
 		mux.HandleFunc("POST /admin/kits/import", func(w http.ResponseWriter, r *http.Request) {
 			var b KitImportBody
 			if !decode(w, r, &b) {

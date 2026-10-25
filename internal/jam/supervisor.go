@@ -474,16 +474,16 @@ func (s *Supervisor) kitFor(role Role, h harnessinstall.Install) (KitDefinition,
 }
 
 // kitSource is the registry entry a raise's kit comes from: its ref (no digest
-// yet) and stored config. Turning it into a definition parses it, resolves its
-// parent chain and hashes.
+// yet) and stored version (LoadKitVersion). Turning it into a definition
+// resolves its parent chain and hashes.
 type kitSource struct {
-	ref    KitRef
-	config string
-	named  bool // role.Kit names it (vs the wiring default) — error wording only
+	ref   KitRef
+	ver   KitVersion
+	named bool // role.Kit names it (vs the wiring default) — error wording only
 }
 
 func (k kitSource) definition(store Store, h harnessinstall.Install) (KitDefinition, error) {
-	def, err := kitDefinitionFromConfig(store, k.ref, k.config, h)
+	def, err := kitDefinitionFromVersion(store, k.ref, k.ver, h)
 	if err != nil && k.named {
 		return KitDefinition{}, fmt.Errorf("studio kit %q: %w", k.ref.ID, err)
 	}
@@ -491,21 +491,21 @@ func (k kitSource) definition(store Store, h harnessinstall.Install) (KitDefinit
 }
 
 // kitSourceFor is kitFor's registry lookup: which kit version a raise for role
-// runs and its stored config, without parsing it.
+// runs and its stored version, without resolving its chain.
 func (s *Supervisor) kitSourceFor(role Role) (kitSource, bool, error) {
 	if role.Kit != "" {
-		ref, text, err := studioKitCurrent(s.store, role.Kit)
+		ref, ver, err := studioKitCurrent(s.store, role.Kit)
 		if err != nil {
 			return kitSource{}, false, err
 		}
-		return kitSource{ref: ref, config: text, named: true}, true, nil
+		return kitSource{ref: ref, ver: ver, named: true}, true, nil
 	}
 	if s.defaultStudioKit != nil {
-		text, ok := s.store.KitConfig(s.defaultStudioKit.ID, s.defaultStudioKit.Version)
+		ver, ok := LoadKitVersion(s.store, s.defaultStudioKit.ID, s.defaultStudioKit.Version)
 		if !ok {
 			return kitSource{}, false, fmt.Errorf("default studio kit %s not in registry", s.defaultStudioKit)
 		}
-		return kitSource{ref: KitRef{ID: s.defaultStudioKit.ID, Version: s.defaultStudioKit.Version}, config: text}, true, nil
+		return kitSource{ref: KitRef{ID: s.defaultStudioKit.ID, Version: s.defaultStudioKit.Version}, ver: ver}, true, nil
 	}
 	return kitSource{}, false, nil
 }
@@ -533,7 +533,7 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 	return s.kitFor(role, h)
 }
 
-// currentKitRef is raiseKit's Ref, cached on (kit ref, stored config, parent chain, harness):
+// currentKitRef is raiseKit's Ref, cached on (kit ref, version content, parent chain, harness):
 // the UI polls the studios list every few seconds, and a kit parse + digest per
 // poll per role is waste. The launcher's assembly half of the tag is never
 // cached (ImageTag is cheap and live).
@@ -546,7 +546,10 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 	if err != nil || !have {
 		return KitRef{}, false, err
 	}
-	chain := chainCacheKey(s.store, src.config)
+	chain := chainUnresolved
+	if src.ver.Err == nil {
+		chain = chainCacheKey(s.store, src.ver.Kit)
+	}
 	if chain == chainUnresolved {
 		// Never touch the cache for a broken chain: resolve fresh, which fails
 		// with the real error (or, if the chain healed meanwhile, succeeds
@@ -557,7 +560,7 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 		}
 		return def.Ref, true, nil
 	}
-	key := kitRefKey{ref: src.ref, config: src.config, chain: chain, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
+	key := kitRefKey{ref: src.ref, content: src.ver.Key(), chain: chain, harness: fmt.Sprintf("%s|%s|%s", h.Type, h.Version, strings.Join(h.Plugins, ","))}
 	if ref, ok := s.kitRefs.get(key); ok {
 		return ref, true, nil
 	}
@@ -571,8 +574,8 @@ func (s *Supervisor) currentKitRef(project string, role Role) (KitRef, bool, err
 
 type kitRefKey struct {
 	ref     KitRef
-	config  string // the stored config itself: a removed-and-re-pushed kit can reuse a version number
-	chain   string // the parents' resolved id@version + config hash ("" unchained): a parent push changes it
+	content string // the version's content identity (KitVersion.Key): a removed-and-re-pushed kit can reuse a version number
+	chain   string // the parents' resolved id@version + content identity ("" unchained): a parent push changes it
 	harness string
 }
 

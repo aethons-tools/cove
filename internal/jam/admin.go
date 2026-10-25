@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/studio"
+	"gopkg.in/yaml.v3"
 )
 
 // EnrollBody is the POST /admin/enrollments request. Scope comes from the role;
@@ -170,11 +175,22 @@ type KitSummary struct {
 	Parent string `json:"parent,omitempty"`
 }
 
+// KitFileInfo is one file of a kit version, as GET /admin/kits/{name} lists it.
+type KitFileInfo struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"` // "0644" | "0755"
+	Size int64  `json:"size"`
+}
+
 // KitConfigResult is a GET /admin/kits/{name} item.
 type KitConfigResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Config  string `json:"config"`
+	// Tree is the version's tree hash; "" for a pre-tree version.
+	Tree string `json:"tree,omitempty"`
+	// Files lists the version's files, kit.yml included, by path.
+	Files []KitFileInfo `json:"files,omitempty"`
 	// Source is where this version came from; nil = pushed from a local file.
 	Source *KitSource `json:"source,omitempty"`
 	// Tracking is the kit's tracked source (Commit = last synced); nil = untracked.
@@ -192,6 +208,9 @@ type KitConfigResult struct {
 	ChainError string `json:"chain_error,omitempty"`
 	// UsedByKits lists the kits whose current version names this one as parent.
 	UsedByKits []string `json:"used_by_kits,omitempty"`
+	// Own is the version's own kit (not merged) as YAML, its note files read
+	// from the tree into their bodies; empty when the version does not parse.
+	Own string `json:"own,omitempty"`
 }
 
 // PinBody is the POST /admin/kits/{name}/pin request.
@@ -411,10 +430,18 @@ func RosterSummaries(store Store) []ActorSummary {
 // AdminOption mounts extra routes on the /admin/* mux, inside the operator
 // authenticator — for features whose packages jam must not import (e.g. the
 // session-events export).
-type AdminOption func(*http.ServeMux)
+type AdminOption func(*adminMux)
+
+// adminMux is the /admin/* mux an AdminOption mounts on, with the settings
+// an option hands the core routes: conds, the conditions tracker the config
+// import raises kit.migrate on (WithConfig's ConfigEnv.Conditions; nil = none).
+type adminMux struct {
+	*http.ServeMux
+	conds *condition.Tracker
+}
 
 func WithAdminRoute(pattern string, h http.Handler) AdminOption {
-	return func(m *http.ServeMux) { m.Handle(pattern, h) }
+	return func(m *adminMux) { m.Handle(pattern, h) }
 }
 
 // validateOverride checks a grant override's credentials against the effective
@@ -431,6 +458,21 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 	return ValidateCredentials(EffectiveScope(Grant{Overrides: o}, r), credExists)
 }
 
+// importConfigMigrated imports snap and migrates its pre-tree kits to trees
+// (kits-directory.md#stored-as-trees; a snapshot of trees is a no-op),
+// raising kit.migrate on t. It holds configMu across both (configMu → kitMu,
+// as an apply), so no apply, drift check or release sees imported kits
+// before they are trees. A migration failure is a plain (500) error.
+func importConfigMigrated(store Store, snap ConfigSnapshot, t *condition.Tracker, log *slog.Logger) error {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if err := store.ImportConfig(snap); err != nil {
+		return err
+	}
+	_, err := migrateKitTreesLocked(store, t, log)
+	return err
+}
+
 // NewAdminHandler builds the loopback admin API. credExists validates that a
 // destination's cred_name resolves before the destination is accepted. login (may
 // be nil) is the public device-flow config advertised at /admin/login-config.
@@ -438,6 +480,7 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 // browser (may be nil) serves everything outside /admin/ — the /app browser app.
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, browser http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
+	var importConds *condition.Tracker // set from the options below, before any request
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -495,7 +538,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, w := range MigrateSnapshotModelSpecs(&snap) {
 			log.Warn("admin config import: model-spec migrated with a loss", "detail", w)
 		}
-		if err := store.ImportConfig(snap); err != nil {
+		err := importConfigMigrated(store, snap, importConds, log)
+		if err != nil {
 			switch {
 			case errors.Is(err, ErrConfigNotEmpty):
 				http.Error(w, err.Error(), http.StatusConflict)
@@ -783,13 +827,42 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
 		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
 	})
+	// A kit directory: an uncompressed tar of its files, read within the tree
+	// limits as it streams, the body capped at kittree.MaxUpload (413 past it).
+	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !studio.TagSafeName(name) {
+			http.Error(w, "kit name is not tag-safe (allowed: [A-Za-z0-9_.-])", http.StatusBadRequest)
+			return
+		}
+		// A tar body only, checked before the body is read: a browser's
+		// no-cors text/plain POST to the loopback admin port is refused.
+		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-tar" {
+			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
+			return
+		}
+		files, err := kittree.ReadTar(http.MaxBytesReader(w, r.Body, kittree.MaxUpload()))
+		if err != nil {
+			if _, big := errors.AsType[*http.MaxBytesError](err); big {
+				http.Error(w, fmt.Sprintf("kit upload over %d bytes", kittree.MaxUpload()), http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, fmt.Sprintf("kit %s: %s", name, err), http.StatusBadRequest)
+			return
+		}
+		ref, unchanged, err := PushKitFiles(store, name, files)
+		if err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+			return
+		}
+		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", name, "version", ref.Version, "unchanged", unchanged, "files", len(files))
+		writeJSON(w, http.StatusCreated, KitResult{Name: name, Version: ref.Version, Unchanged: unchanged})
+	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
-			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.Versions)}
-			if cfg, ok := store.KitConfig(k.Name, k.Current); ok {
-				sum.Parent = kitParentSpec(cfg)
-			}
+			sum := KitSummary{Name: k.Name, Current: k.Current, Versions: len(k.VersionNumbers())}
+			sum.Parent = kitParentSpec(currentKitYML(store, k))
 			out = append(out, sum)
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -805,20 +878,30 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			}
 			version = n
 		}
-		cfg, ok := store.KitConfig(name, version)
+		v, ok := LoadKitVersion(store, name, version)
 		if !ok {
 			http.Error(w, "no such kit or version", http.StatusNotFound)
 			return
 		}
 		k, _ := store.GetKit(name)
-		if version == 0 {
-			version = k.Current
+		res := KitConfigResult{Name: name, Version: v.Version, Config: string(v.KitYML), Tree: v.TreeHash,
+			Source: k.Meta[v.Version].Source, Tracking: k.Source, Parent: k.Meta[v.Version].Parent}
+		for _, e := range v.Tree.Entries {
+			res.Files = append(res.Files, KitFileInfo{Path: e.Path, Mode: fmt.Sprintf("%04o", e.Mode), Size: e.Size})
 		}
-		res := KitConfigResult{Name: name, Version: version, Config: cfg,
-			Source: k.Meta[version].Source, Tracking: k.Source, Parent: k.Meta[version].Parent}
-		var cerr error
-		if res.Chain, res.Effective, cerr = KitChainView(store, name, cfg); cerr != nil {
-			res.ChainError = cerr.Error()
+		if v.Err != nil {
+			// A broken or unparsable version: its own fixed error, no chain.
+			res.ChainError = v.Err.Error()
+		} else {
+			var cerr error
+			if res.Chain, res.Effective, cerr = KitChainView(store, name, v.Kit); cerr != nil {
+				res.ChainError = cerr.Error()
+			}
+			own := v.Kit
+			own.LegacyName = "" // the registry names the kit
+			if y, err := yaml.Marshal(own); err == nil {
+				res.Own = string(y)
+			}
 		}
 		follow, pinned := KitsReferencing(store, name)
 		res.UsedByKits = append(follow, pinned...)
@@ -831,12 +914,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit", http.StatusNotFound)
 			return
 		}
-		vers := make([]int, 0, len(k.Versions))
-		for v := range k.Versions {
-			vers = append(vers, v)
-		}
-		sort.Ints(vers)
-		writeJSON(w, http.StatusOK, vers)
+		writeJSON(w, http.StatusOK, k.VersionNumbers())
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/history", func(w http.ResponseWriter, r *http.Request) {
 		k, ok := store.GetKit(r.PathValue("name"))
@@ -844,17 +922,35 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "no such kit", http.StatusNotFound)
 			return
 		}
-		vers := make([]int, 0, len(k.Versions))
-		for v := range k.Versions {
-			vers = append(vers, v)
-		}
-		sort.Ints(vers)
+		vers := k.VersionNumbers()
 		out := make([]KitVersionInfo, 0, len(vers))
 		for _, v := range vers {
 			m := k.Meta[v]
 			out = append(out, KitVersionInfo{Version: v, PushedAt: m.PushedAt, Source: m.Source, Current: v == k.Current})
 		}
 		writeJSON(w, http.StatusOK, out)
+	})
+	mux.HandleFunc("GET /admin/kits/{name}/diff", func(w http.ResponseWriter, r *http.Request) {
+		var from, to int
+		for _, q := range []struct {
+			key string
+			dst *int
+		}{{"from", &from}, {"to", &to}} {
+			if s := r.URL.Query().Get(q.key); s != "" {
+				n, err := strconv.Atoi(s)
+				if err != nil || n < 1 {
+					http.Error(w, q.key+" must be a version number", http.StatusBadRequest)
+					return
+				}
+				*q.dst = n
+			}
+		}
+		d, err := KitVersionDiff(store, r.PathValue("name"), from, to)
+		if err != nil {
+			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
+			return
+		}
+		writeJSON(w, http.StatusOK, d)
 	})
 	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
 		var b PinBody
@@ -870,7 +966,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	})
 	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		if err := RemoveKitChecked(store, name); err != nil {
+		if err := RemoveKitChecked(store, log, name); err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
 			return
 		}
@@ -950,9 +1046,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
 
+	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
-		o(mux)
+		o(am)
 	}
+	importConds = am.conds
 	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
 		return guarded

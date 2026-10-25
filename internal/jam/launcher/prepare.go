@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/assemble"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -47,9 +49,9 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
 	}
 	// Resolve the FROM-base on the substrate (gate ON — no --allow-unverified for
-	// brokered coves). Three cases: an authored context (inline tree or stored
-	// tar.gz) is streamed to `docker build -` and gated; else a declared Base.Image
-	// is resolved+gated; an empty ref resolves to the blessed default.
+	// brokered coves). Three cases: a kit tree with a Dockerfile is streamed to
+	// `docker build -` and gated; else a declared Base.Image is resolved+gated;
+	// an empty ref resolves to the blessed default.
 	base, err := l.resolveStudioBase(def)
 	if err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
@@ -77,14 +79,14 @@ func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
 	if len(def.Chain) <= 1 {
 		// Guard on the chain's own link, not def.Kit.Base: Merge clears
 		// Base.Kit, so the merged kit cannot show a named parent.
-		own := def.Kit.Base
+		own := jam.KitLink{Ref: def.Ref, Kit: def.Kit}
 		if len(def.Chain) == 1 {
-			own = def.Chain[0].Kit.Base
+			own = def.Chain[0]
 		}
 		return l.resolveOwnBase(own)
 	}
 	root := def.Chain[0]
-	ref, err := l.resolveOwnBase(root.Kit.Base)
+	ref, err := l.resolveOwnBase(root)
 	if err != nil {
 		return "", fmt.Errorf("kit %s: %w", root.Ref, err)
 	}
@@ -96,57 +98,43 @@ func (l *Launcher) resolveStudioBase(def KitDefinition) (string, error) {
 	return ref, nil
 }
 
-// resolveOwnBase resolves a parentless base. An authored context (an inline tree
-// or a stored tar.gz) is produced as context tar bytes, pre-flighted
-// (fail-closed) by studio.ScanContextTar, then streamed to the backend's `docker
-// build -` FROM the blessed base and gated — no host dir, no extraction.
+// resolveOwnBase resolves a parentless link's base. A kit whose tree holds a
+// Dockerfile streams its directory (minus kit.yml) to the backend's `docker
+// build -` FROM the blessed base, gated — no host dir, no extraction.
 // Otherwise the declared Base.Image is resolved+gated ("" → blessed default).
-// A base naming a parent kit is refused (fail closed): only a resolved chain may
-// build it, on its parent's stage, never on the blessed base alone.
-func (l *Launcher) resolveOwnBase(b studio.Base) (string, error) {
+// A base naming a parent kit is refused (fail closed): only a resolved chain
+// may build it, on its parent's stage, never on the blessed base alone.
+func (l *Launcher) resolveOwnBase(link jam.KitLink) (string, error) {
+	b := link.Kit.Base
 	if b.HasParent() {
 		return "", fmt.Errorf("base names parent kit %q, which the kit chain does not resolve", b.Kit)
 	}
-	kind, err := b.Kind()
-	if err != nil {
-		return "", err
-	}
-	switch kind {
-	case studio.BaseContextFiles, studio.BaseContextZip:
-		tarBytes, err := scannedContextTar(b)
+	if link.Kit.BuildContext != "" {
+		r, err := contextReader(link)
 		if err != nil {
 			return "", err
 		}
-		return l.cfg.Ops.ResolveKitBaseTar(bytes.NewReader(tarBytes))
-	default: // BaseImage or BaseDefault: a declared ref, or "" → blessed default.
-		return l.cfg.Ops.ResolveKitBase(b.Image)
+		return l.cfg.Ops.ResolveKitBaseTar(r)
 	}
+	return l.cfg.Ops.ResolveKitBase(b.Image)
 }
 
 // resolveChainStage resolves one non-root chain link on parentRef (the previous
-// stage). A link with no own context is the parent's stage as-is. Otherwise its
-// stage is cached under kitStageTag(l.asm, parentRef, base): a present stage tag was
-// applied only after that stage's gate passed, so it is reused; a missing one
-// is built by streaming the link's scanned context FROM parentRef, gated
-// against the blessed base, and tagged. The stage lock keeps two concurrent
-// prepares sharing a parent from building the same stage twice.
+// stage). A link with no build context is the parent's stage as-is. Otherwise
+// its stage is cached under kitStageTag(l.asm, parentRef, link.Kit): a present
+// stage tag was applied only after that stage's gate passed, so it is reused;
+// a missing one is built by streaming the link's context (its tree minus
+// kit.yml) FROM parentRef, gated against the blessed base, and tagged. The
+// stage lock keeps two concurrent prepares sharing a parent from building the
+// same stage twice.
 func (l *Launcher) resolveChainStage(link jam.KitLink, parentRef string) (string, error) {
-	b := link.Kit.Base
-	if !b.HasParent() {
+	if !link.Kit.Base.HasParent() {
 		return "", fmt.Errorf("a non-root chain link must name its parent kit")
 	}
-	kind, err := b.Kind()
-	if err != nil {
-		return "", err
-	}
-	switch kind {
-	case studio.BaseKit:
+	if link.Kit.BuildContext == "" {
 		return parentRef, nil
-	case studio.BaseContextFiles, studio.BaseContextZip:
-	default:
-		return "", fmt.Errorf("unsupported base for a chain link")
 	}
-	stage, err := kitStageTag(l.asm, parentRef, b)
+	stage, err := kitStageTag(l.asm, parentRef, link.Kit)
 	if err != nil {
 		return "", err
 	}
@@ -157,37 +145,42 @@ func (l *Launcher) resolveChainStage(link jam.KitLink, parentRef string) (string
 	} else if ok {
 		return stage, nil
 	}
-	tarBytes, err := scannedContextTar(b)
+	r, err := contextReader(link)
 	if err != nil {
 		return "", err
 	}
-	return l.cfg.Ops.ResolveKitBaseTarOn(bytes.NewReader(tarBytes), parentRef, stage)
+	return l.cfg.Ops.ResolveKitBaseTarOn(r, parentRef, stage)
 }
 
-// scannedContextTar produces b's context tar and pre-flights it (fail-closed).
-func scannedContextTar(b studio.Base) ([]byte, error) {
-	tarBytes, err := b.ContextTar()
-	if err != nil {
+// contextReader is link's build context, its tree minus kit.yml, as a
+// deterministic tar (kittree.ContextTar), buffered (a tree is at most 64 MiB).
+// A link with a build context but no files loaded fails closed.
+func contextReader(link jam.KitLink) (io.Reader, error) {
+	if link.Files == nil {
+		return nil, fmt.Errorf("kit %s has a Dockerfile but its files are not loaded", link.Ref)
+	}
+	var buf bytes.Buffer
+	if err := kittree.ContextTar(&buf, link.Files); err != nil {
 		return nil, err
 	}
-	if err := studio.ScanContextTar(tarBytes); err != nil {
-		return nil, err
-	}
-	return tarBytes, nil
+	return &buf, nil
 }
 
 // kitStageTag is the local tag a chain stage is cached under:
 // cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL, JSON(own
-// base))>. asm is the launcher's assembly fingerprint (it covers the blessed
-// base ref), so a blessed-set rotation orphans stages gated against the old
-// set and they are rebuilt and re-gated. Otherwise it is deterministic in the
-// parent stage and the link's own Base, so siblings share
-// their parent's stage, a pinned parent's stage is stable across the parent's
-// later pushes, and a following parent's new context yields new stages below
-// it. 32 hex chars never collide with the 64-hex image-id tags under the same
-// repository.
-func kitStageTag(asm, parentRef string, b studio.Base) (string, error) {
-	js, err := json.Marshal(b)
+// base)[, NUL, build-context hash])>. The build-context hash is appended only
+// when the kit has one (a stage is only built for a kit with one), and an
+// edit to kit.yml alone (prompt, notes) reuses the stage while an edit to
+// any other file of the tree makes a new one. asm is the launcher's assembly
+// fingerprint (it covers the blessed base ref), so a blessed-set rotation
+// orphans stages gated against the old set and they are rebuilt and re-gated.
+// Otherwise it is deterministic in the parent stage and the link's own Base
+// and build context, so siblings share their parent's stage, a pinned parent's
+// stage is stable across the parent's later pushes, and a following parent's
+// new context yields new stages below it. 32 hex chars never collide with the
+// 64-hex image-id tags under the same repository.
+func kitStageTag(asm, parentRef string, sk studio.StudioKit) (string, error) {
+	js, err := json.Marshal(sk.Base)
 	if err != nil {
 		return "", fmt.Errorf("stage digest: %w", err)
 	}
@@ -197,6 +190,10 @@ func kitStageTag(asm, parentRef string, b studio.Base) (string, error) {
 	h.Write([]byte(parentRef))
 	h.Write([]byte{0})
 	h.Write(js)
+	if sk.BuildContext != "" {
+		h.Write([]byte{0})
+		h.Write([]byte(sk.BuildContext))
+	}
 	return "cove-kit-base:" + hex.EncodeToString(h.Sum(nil))[:32], nil
 }
 

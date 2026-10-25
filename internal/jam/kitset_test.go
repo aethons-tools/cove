@@ -30,9 +30,16 @@ func setFixture(t *testing.T, files map[string]string) *fakeFetcher {
 	return newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": files})
 }
 
+// testKitYML is version's kit.yml text as LoadKitVersion reads it (0 =
+// current).
+func testKitYML(st KitReader, name string, version int) (string, bool) {
+	v, ok := LoadKitVersion(st, name, version)
+	return string(v.KitYML), ok && v.KitYML != nil
+}
+
 func storedKit(t *testing.T, st Store, name string, version int) studio.StudioKit {
 	t.Helper()
-	text, ok := st.KitConfig(name, version)
+	text, ok := testKitYML(st, name, version)
 	if !ok {
 		t.Fatalf("no %s@v%d", name, version)
 	}
@@ -49,13 +56,13 @@ type putRecorder struct {
 	puts [][]string
 }
 
-func (s *putRecorder) PutKitDocs(kits []Kit) error {
+func (s *putRecorder) PutKitDocs(kits []Kit, objs KitObjects) error {
 	var names []string
 	for _, k := range kits {
 		names = append(names, k.Name)
 	}
 	s.puts = append(s.puts, names)
-	return s.Store.PutKitDocs(kits)
+	return s.Store.PutKitDocs(kits, objs)
 }
 
 func TestSetImportTwoKits(t *testing.T) {
@@ -145,8 +152,8 @@ func TestSetSyncParentUnchanged(t *testing.T) {
 		t.Fatalf("%+v %v", res, err)
 	}
 	web, _ := st.GetKit("web-dev")
-	if len(web.Versions) != 1 || web.Source.Commit != "c2" {
-		t.Fatalf("web-dev: versions=%d source=%+v", len(web.Versions), web.Source)
+	if len(web.VersionNumbers()) != 1 || web.Source.Commit != "c2" {
+		t.Fatalf("web-dev: versions=%d source=%+v", len(web.VersionNumbers()), web.Source)
 	}
 	if got := storedKit(t, st, "app", 2).Base.Kit; got != "web-dev@v1" {
 		t.Fatalf("app v2 base.kit = %q", got)
@@ -321,7 +328,8 @@ func TestSetMixedParents(t *testing.T) {
 	if got := storedKit(t, st, "web-dev", 1).Base.Kit; got != studio.DefaultStudioKitID {
 		t.Fatalf("a registry parent must be stored as written, got %q", got)
 	}
-	links, _, err := KitChainView(st, "app", mustConfig(t, st, "app", 1))
+	app, _ := LoadKitVersion(st, "app", 1)
+	links, _, err := KitChainView(st, "app", app.Kit)
 	want := []KitChainLink{{Name: studio.DefaultStudioKitID, Version: 1, Follow: true}, {Name: "web-dev", Version: 1}}
 	if err != nil || !reflect.DeepEqual(links, want) {
 		t.Fatalf("chain %+v %v, want %+v", links, err, want)
@@ -329,15 +337,6 @@ func TestSetMixedParents(t *testing.T) {
 	if k, _ := st.GetKit("web-dev"); k.Meta[1].Parent == nil || k.Meta[1].Parent.Name != studio.DefaultStudioKitID {
 		t.Fatalf("web-dev parent = %+v", k.Meta[1].Parent)
 	}
-}
-
-func mustConfig(t *testing.T, st Store, name string, version int) string {
-	t.Helper()
-	text, ok := st.KitConfig(name, version)
-	if !ok {
-		t.Fatalf("no %s@v%d", name, version)
-	}
-	return text
 }
 
 // Two sets naming the same two kits in opposite parent order (a→z at ref x,
@@ -435,7 +434,7 @@ func TestSyncDoesNotRegress(t *testing.T) {
 		t.Fatal(bErr)
 	}
 	k, _ := st.GetKit("app")
-	if cfg, _ := st.KitConfig("app", k.Current); !strings.Contains(cfg, "three") || k.Source.Commit != "c3" {
+	if cfg, _ := testKitYML(st, "app", k.Current); !strings.Contains(cfg, "three") || k.Source.Commit != "c3" {
 		t.Fatalf("app current v%d = %s, tracked %s; want c3's content", k.Current, cfg, k.Source.Commit)
 	}
 	c3 := 0
@@ -473,7 +472,7 @@ func TestPlanKitSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 {
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 1 {
 		t.Fatal("planning wrote")
 	}
 }

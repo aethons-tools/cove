@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
@@ -348,10 +349,10 @@ func TestConfigReleaseRoute(t *testing.T) {
 	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/widget/x", "", http.StatusBadRequest, nil)
 }
 
-// export-tree renders kit contexts as files only on ?contexts=files; an old
-// client's request gets the inline form and no new fields.
-func TestConfigExportTreeContextsOptIn(t *testing.T) {
-	st, b64 := ctxKitStore(t)
+// export-tree renders each kit as its directory: base64 data and modes in
+// "kits", none of its files in "files".
+func TestConfigExportTreeKitDirs(t *testing.T) {
+	st := kitsJam(t)
 	ts := configServer(t, st)
 	resp, err := http.Get(ts.URL + "/admin/config/export-tree?all=1")
 	if err != nil {
@@ -359,20 +360,67 @@ func TestConfigExportTreeContextsOptIn(t *testing.T) {
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	var old ConfigTreeExport
-	if err := json.Unmarshal(raw, &old); err != nil {
+	var exp ConfigTreeExport
+	if err := json.Unmarshal(raw, &exp); err != nil {
 		t.Fatal(err)
 	}
-	if old.Files["kits/builder/kit.yml"] != "kind: studio\nbase:\n  context: "+b64+"\n" ||
-		strings.Contains(string(raw), `"binary"`) || strings.Contains(string(raw), `"prune"`) {
-		t.Fatalf("old request: %s", raw)
+	if !strings.Contains(string(raw), `"kits"`) || strings.Contains(string(raw), `"binary"`) {
+		t.Fatalf("export: %s", raw)
 	}
-	var exp ConfigTreeExport
-	getURLJSON(t, ts.URL+"/admin/config/export-tree?all=1&contexts=files", &exp)
-	if ky := exp.Files["kits/builder/kit.yml"]; !strings.Contains(ky, "context-dir: context\n") || strings.Contains(ky, b64) {
-		t.Fatalf("kit.yml:\n%s", ky)
+	var run ConfigKitFile
+	for _, f := range exp.Kits["kits/web"] {
+		if f.Path == "run.sh" {
+			run = f
+		}
 	}
-	if b := exp.Binary["kits/builder/context/run.sh"]; b.Mode != 0o755 || len(exp.Prune) == 0 {
-		t.Fatalf("binary %+v prune %v", b, exp.Prune)
+	if run.Mode != 0o755 || string(run.Data) != "echo\n" {
+		t.Fatalf("run.sh %+v", run)
 	}
+	if _, ok := exp.Files["kits/web/kit.yml"]; ok {
+		t.Fatal("kit.yml is in files")
+	}
+}
+
+func TestConfigImportMigratesAPreTreeBackup(t *testing.T) {
+	st := NewMemStore()
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "app", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}}}
+	body, _ := json.Marshal(snap)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/admin/config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:1234" // LoopbackAuthenticator
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("import = %d %s", w.Code, w.Body)
+	}
+	if k, _ := st.GetKit("app"); k.Trees[1] == "" || len(k.Versions) != 0 {
+		t.Fatalf("the imported kit was not migrated: %+v", k)
+	}
+}
+
+// A broken kit in an imported pre-tree backup opens kit.migrate at once, on
+// the tracker the config routes were given (WithConfig's env.Conditions).
+func TestConfigImportRaisesKitMigrate(t *testing.T) {
+	st := NewMemStore()
+	tr := condition.New(condition.Options{})
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil,
+		WithConfig(st, nil, withConds(allCreds, tr), log))
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "app", Current: 1, Versions: map[int]string{1: `{"kind":"studio","base":{"context":"!!not base64"}}`}}}}
+	body, _ := json.Marshal(snap)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/admin/config", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:1234" // LoopbackAuthenticator
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("import = %d %s", w.Code, w.Body)
+	}
+	if !tr.IsOpen(condition.Key(KitMigrateKind, "app")) {
+		t.Fatal("kit.migrate:app must be open after the import")
+	}
+}
+
+func withConds(env ConfigEnv, t *condition.Tracker) ConfigEnv {
+	env.Conditions = t
+	return env
 }

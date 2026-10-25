@@ -11,6 +11,8 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // populated returns a MemStore with one entry in every config aggregate AND in
@@ -61,7 +63,7 @@ func TestExportConfigIncludesConfigExcludesState(t *testing.T) {
 	if _, ok := snap.Roles[string(def.ID)]["guest"]; !ok {
 		t.Fatalf("roles = %+v", snap.Roles)
 	}
-	if len(snap.Kits) != 1 || snap.Kits[0].Versions[1] != "image: x" {
+	if len(snap.Kits) != 1 || len(snap.Kits[0].Trees) != 1 || len(snap.KitTrees) != 1 || len(snap.KitBlobs) != 1 {
 		t.Fatalf("kits = %+v", snap.Kits)
 	}
 	if len(snap.Destinations) != 1 || len(snap.Projects) != 1 {
@@ -77,11 +79,14 @@ func TestExportConfigIsDeepCopied(t *testing.T) {
 	// Mutating the snapshot must not reach the store.
 	def, _ := s.GetProject(DefaultProject)
 	snap.Roles[string(def.ID)]["guest"] = Role{Name: "hacked"}
-	snap.Kits[0].Versions[1] = "tampered"
+	snap.Kits[0].Trees[1] = "tampered"
+	for _, b := range snap.KitBlobs {
+		b[0] = 'X'
+	}
 	if r, _ := s.GetRole(DefaultProject, "guest"); r.Name != "guest" {
 		t.Fatalf("store role mutated via snapshot: %+v", r)
 	}
-	if cfg, _ := s.KitConfig("base", 1); cfg != "image: x" {
+	if cfg, _ := testKitYML(s, "base", 1); cfg != "image: x" {
 		t.Fatalf("store kit mutated via snapshot: %q", cfg)
 	}
 }
@@ -262,7 +267,8 @@ func TestConfigSnapshotKitProvenanceRoundTrip(t *testing.T) {
 	src := NewMemStore()
 	at := time.Unix(100, 0).UTC()
 	vsrc := &KitSource{Repo: "https://github.com/acme/kits", Dir: "web", Ref: "main", Commit: "c1"}
-	if _, err := src.PushKitMeta("web", `{"kind":"studio"}`, KitVersionMeta{PushedAt: at, Source: vsrc}); err != nil {
+	tr, blobs := kittreetest.Tree(t, "kit.yml", "kind: studio\n")
+	if _, err := src.PushKitVersion("web", tr.Hash(), KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}, KitVersionMeta{PushedAt: at, Source: vsrc}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := src.SetKitSource("web", &KitSource{Repo: vsrc.Repo, Dir: "web", Ref: "main", Commit: "c1"}); err != nil {
@@ -299,5 +305,24 @@ func TestConfigSourceNotInExport(t *testing.T) {
 	}
 	if strings.Contains(string(b), "acme/jam") {
 		t.Fatalf("export carries the tracked source: %s", b)
+	}
+}
+
+func TestImportRefusesKitWithoutTree(t *testing.T) {
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, Kits: []Kit{{Name: "a", Current: 1, Trees: map[int]string{1: strings.Repeat("0", 64)}}}}
+	if err := NewMemStore().ImportConfig(snap); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestImportVersion4KitTextKept(t *testing.T) {
+	snap := ConfigSnapshot{Version: 4, Kits: []Kit{{Name: "a", Current: 1, Versions: map[int]string{1: "kind: studio\n"}}}}
+	st := NewMemStore()
+	if err := st.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	k, ok := st.GetKit("a")
+	if !ok || k.Versions[1] != "kind: studio\n" || len(k.Trees) != 0 {
+		t.Fatalf("kit = %+v %v", k, ok)
 	}
 }

@@ -95,6 +95,10 @@ func newConfigSourceView(cs jam.ConfigSource) *configSourceView {
 	return v
 }
 
+// configMarkStates is jam.ConfigMarkStates; a test swaps it to reach the
+// page's "could not compare" state, which no stored state produces.
+var configMarkStates = jam.ConfigMarkStates
+
 // buildConfigPage gathers the Config page: the tracked source, every managed
 // object with its state, and the newest apply.
 func buildConfigPage(store jam.Store, canGit bool, log *slog.Logger) configPage {
@@ -102,7 +106,7 @@ func buildConfigPage(store jam.Store, canGit bool, log *slog.Logger) configPage 
 	if cs, ok := store.GetConfigSource(); ok {
 		d.Source = newConfigSourceView(cs)
 	}
-	states, err := jam.ConfigMarkStates(store)
+	states, err := configMarkStates(store)
 	if err != nil {
 		log.Warn("ui config: drift not computed", "err", err.Error())
 		d.StatesErr = true
@@ -229,7 +233,7 @@ func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
 			ov.Href = configObjectHref(op.Kind, op.Name)
 		}
 		if op.Before != "" || op.After != "" {
-			ov.Lines, ov.TooLarge = lineDiff(jam.ConfigCanonDisplay(op.Kind, op.Before), jam.ConfigCanonDisplay(op.Kind, op.After))
+			ov.Lines, ov.TooLarge = lineDiff(op.Before, op.After)
 		}
 		v.Ops = append(v.Ops, ov)
 	}

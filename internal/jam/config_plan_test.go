@@ -8,6 +8,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 var allCreds = ConfigEnv{CredExists: func(string) bool { return true }}
@@ -85,6 +86,30 @@ func treeOf(t *testing.T, files map[string]string) *ConfigTree {
 	return tr
 }
 
+// exportTree is exp written as config write writes it, loaded back.
+func exportTree(t *testing.T, exp ConfigTreeExport) *ConfigTree {
+	t.Helper()
+	dir := t.TempDir()
+	writeExport(t, dir, exp)
+	tr, err := LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tr
+}
+
+// plannedKitYML is kit k's version v's kit.yml as the plan's write carries it.
+func plannedKitYML(w ConfigWrite, k Kit, v int) string {
+	for _, tr := range w.KitObjects.Trees {
+		if tr.Hash() == k.Trees[v] {
+			if e, ok := tr.Lookup("kit.yml"); ok {
+				return string(w.KitObjects.Blobs[e.SHA256])
+			}
+		}
+	}
+	return ""
+}
+
 func planOn(t *testing.T, st *MemStore, tr *ConfigTree, force bool) ConfigPlan {
 	t.Helper()
 	return PlanConfig(ConfigPlanInput{
@@ -127,7 +152,7 @@ func TestPlanCreatesInOrder(t *testing.T) {
 	if !slices.Equal(order, want) {
 		t.Fatalf("order %v", order)
 	}
-	if p.write.Kits[1].Versions[1] == "" || !strings.Contains(p.write.Kits[1].Versions[1], `"web-dev@v1"`) {
+	if yml := plannedKitYML(p.write, p.write.Kits[1], 1); yml != "kind: studio\nbase: {kit: web-dev@v1}\n" {
 		t.Fatalf("app not pinned to its parent: %+v", p.write.Kits)
 	}
 	if m := p.write.Kits[0].Meta[1]; m.Source == nil || m.Source.Repo != ConfigDirRepo || m.Source.Dir != "kits/web-dev" {
@@ -247,7 +272,7 @@ func TestPlanReapplyIsUnchanged(t *testing.T) {
 		}
 	}
 	exp, _ := ExportConfigTree(st.ExportConfig(), st.ListConfigMarks(), nil, false)
-	if p := planOn(t, st, treeOf(t, exp.Files), false); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
+	if p := planOn(t, st, exportTree(t, exp), false); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
 		t.Fatalf("write-then-plan is not a no-op: %+v", p)
 	}
 }
@@ -509,7 +534,7 @@ func TestPlanSourceKitReapplyAndCommitOnlyMove(t *testing.T) {
 	if op := opOf(moved, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(moved) != 0 {
 		t.Fatalf("commit-only move: %+v", moved.Ops)
 	}
-	if len(moved.write.Kits) != 1 || moved.write.Kits[0].Source.Commit != "k2" || len(moved.write.Kits[0].Versions) != 1 {
+	if len(moved.write.Kits) != 1 || moved.write.Kits[0].Source.Commit != "k2" || len(moved.write.Kits[0].VersionNumbers()) != 1 {
 		t.Fatalf("the tracked commit does not advance alone: %+v", moved.write.Kits)
 	}
 	if len(moved.refreshMarks) != 0 {
@@ -585,7 +610,7 @@ func TestPlanInlineKitFromGitRecordsProvenanceAndUntracks(t *testing.T) {
 		t.Fatalf("op %+v", op)
 	}
 	applyPlan(t, st, p)
-	if k, _ := st.GetKit("web"); k.Source != nil || len(k.Versions) != 1 {
+	if k, _ := st.GetKit("web"); k.Source != nil || len(k.VersionNumbers()) != 1 {
 		t.Fatalf("%+v", k)
 	}
 }
@@ -664,4 +689,30 @@ func TestPlanSourceKitDeleteIsAtItsSourceFile(t *testing.T) {
 	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigDelete || op.Path != "kits/app.source.yml" {
 		t.Fatalf("op %+v", op)
 	}
+}
+
+func TestPlanKitUpdateCarriesItsDiff(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\nprompt: a\n")); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	mustWrite(t, dir+"/kits/app/kit.yml", "kind: studio\nprompt: b\n", 0o644)
+	tr, err := LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks := []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "c", Digest: configObject{Canon: liveCanon(t, st, "app")}.Digest()}}
+	plan := PlanConfig(ConfigPlanInput{Tree: tr, Snapshot: st.ExportConfig(), Marks: marks, Env: allCreds, Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: time.Unix(1, 0)})
+	op := opOf(plan, ConfigKindKit, "app")
+	if op.Action != ConfigUpdate || !strings.Contains(op.Diff, "  -prompt: a\n  +prompt: b\n") {
+		t.Fatalf("op = %+v", op)
+	}
+}
+
+// liveCanon is kit name's canonical form in st (its current tree's listing).
+func liveCanon(t *testing.T, st Store, name string) []byte {
+	t.Helper()
+	v, _ := LoadKitVersion(st, name, 0)
+	return kitCanon(v.Tree, st.KitBlob, nil)
 }

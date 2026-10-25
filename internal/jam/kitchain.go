@@ -1,14 +1,16 @@
 package jam
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/go-git/go-billy/v5"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/studio"
@@ -18,7 +20,8 @@ import (
 type KitLink struct {
 	Ref    KitRef // ID, Version (0 for a kit not yet pushed), Digest = the link's own BuildDigest
 	Kit    studio.StudioKit
-	Follow bool // reached by a following (unpinned) reference
+	Follow bool             // reached by a following (unpinned) reference
+	Files  billy.Filesystem // the version's files (its build context, when Kit.BuildContext is set); nil for a kit not yet pushed or a pre-tree version
 }
 
 // MaxKitChain is the longest chain allowed, counting the kit itself.
@@ -40,7 +43,7 @@ func chainErr(format string, a ...any) error { return chainError{fmt.Sprintf(for
 // is root first, sk last; sk's own link has Version 0. A missing or invalid
 // parent, a cycle (including a kit naming itself) and a chain longer than
 // MaxKitChain fail with an error matching ErrKitChain.
-func ResolveKitChain(store Store, self string, sk studio.StudioKit) ([]KitLink, error) {
+func ResolveKitChain(store KitReader, self string, sk studio.StudioKit) ([]KitLink, error) {
 	h := harnessinstall.Default()
 	label := self
 	if label == "" {
@@ -68,15 +71,20 @@ func ResolveKitChain(store Store, self string, sk studio.StudioKit) ([]KitLink, 
 		if !ok || version == 0 {
 			return nil, chainErr("kit %s (parent of %s) is missing", name, curName)
 		}
-		text, ok := store.KitConfig(name, version)
+		pv, ok := LoadKitVersion(store, name, version)
 		if !ok {
 			return nil, chainErr("kit %s has no version v%d (parent of %s)", name, version, curName)
 		}
-		parent, err := studio.ParseStudioKit([]byte(text))
-		if err != nil {
-			return nil, chainErr("kit %s@v%d (parent of %s) is invalid: %v", name, version, curName, err)
+		if pv.Err != nil {
+			// LoadKitVersion's own errors start "kit name@vN": name it once.
+			ref := fmt.Sprintf("kit %s@v%d", name, version)
+			if rest, named := strings.CutPrefix(pv.Err.Error(), ref); named {
+				return nil, chainErr("%s (parent of %s)%s", ref, curName, rest)
+			}
+			return nil, chainErr("%s (parent of %s) is invalid: %v", ref, curName, pv.Err)
 		}
-		rev = append(rev, KitLink{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(parent, h)}, Kit: parent, Follow: pin == 0})
+		parent := pv.Kit
+		rev = append(rev, KitLink{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(parent, h)}, Kit: parent, Follow: pin == 0, Files: pv.Files})
 		path = append(path, name)
 		cur, curName = parent, name
 	}
@@ -102,15 +110,11 @@ func KitsReferencing(store Store, parent string) (follow, pinned []string) {
 		if k.Current == 0 {
 			continue
 		}
-		text, ok := store.KitConfig(k.Name, k.Current)
-		if !ok {
+		cur, ok := LoadKitVersion(store, k.Name, k.Current)
+		if !ok || cur.Err != nil || !cur.Kit.Base.HasParent() {
 			continue
 		}
-		sk, err := studio.ParseStudioKit([]byte(text))
-		if err != nil || !sk.Base.HasParent() {
-			continue
-		}
-		name, pin, err := sk.Base.ParentRef()
+		name, pin, err := cur.Kit.Base.ParentRef()
 		if err != nil || name != parent {
 			continue
 		}
@@ -127,18 +131,17 @@ func KitsReferencing(store Store, parent string) (follow, pinned []string) {
 
 // recordedChainKit is the merged kit of a recorded image chain, each link read
 // at its exact (immutable) version. A link no longer in the registry fails.
-func recordedChainKit(store Store, chain []KitRef) (studio.StudioKit, error) {
+func recordedChainKit(store KitReader, chain []KitRef) (studio.StudioKit, error) {
 	kits := make([]studio.StudioKit, 0, len(chain))
 	for _, r := range chain {
-		text, ok := store.KitConfig(r.ID, r.Version)
+		v, ok := LoadKitVersion(store, r.ID, r.Version)
 		if !ok {
 			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is missing", r)
 		}
-		sk, err := studio.ParseStudioKit([]byte(text))
-		if err != nil {
-			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is invalid: %w", r, err)
+		if v.Err != nil {
+			return studio.StudioKit{}, fmt.Errorf("kit %s (in the image's chain) is invalid: %w", r, v.Err)
 		}
-		kits = append(kits, sk)
+		kits = append(kits, v.Kit)
 	}
 	return studio.Merge(kits), nil
 }
@@ -159,41 +162,27 @@ func chainRefs(chain []KitLink) []KitRef {
 // chainUnresolved is chainCacheKey's "cannot fingerprint" marker.
 const chainUnresolved = "!"
 
-// chainCacheKey is a cheap fingerprint of the parents a kit config resolves
-// to right now: each parent's id@version (a following parent at its current
-// version) and a hash of its stored config, root last. "" for an unchained
-// kit. It parses configs only to read their base reference — no merge, no
-// build digest — so the current-image cache can key on it per poll. A chain
-// that does not resolve returns chainUnresolved: the caller must bypass the
-// cache entirely (no get, no put) and let the full resolution report the error.
-func chainCacheKey(store Store, config string) string {
-	sk, err := studio.ParseStudioKit([]byte(config))
-	if err != nil {
-		return chainUnresolved
-	}
+// chainCacheKey is a cheap fingerprint of the parents kit sk resolves to
+// right now: each parent's id@version (a following parent at its current
+// version) and its content identity (KitVersion.Key), root last. "" for an
+// unchained kit. It reads parents only for their base reference — no merge, no
+// build digest; tree parses are cached — so the current-image cache can key on
+// it per poll. A chain that does not resolve returns chainUnresolved: the
+// caller must bypass the cache entirely (no get, no put) and let the full
+// resolution report the error.
+func chainCacheKey(store KitReader, sk studio.StudioKit) string {
 	var b strings.Builder
 	for depth := 1; sk.Base.HasParent(); depth++ {
 		name, pin, err := sk.Base.ParentRef()
 		if err != nil || depth >= MaxKitChain {
 			return chainUnresolved
 		}
-		version := pin
-		if version == 0 {
-			k, ok := store.GetKit(name)
-			if !ok {
-				return chainUnresolved
-			}
-			version = k.Current
-		}
-		text, ok := store.KitConfig(name, version)
-		if !ok {
+		pv, ok := LoadKitVersion(store, name, pin)
+		if !ok || pv.Err != nil {
 			return chainUnresolved
 		}
-		sum := sha256.Sum256([]byte(text))
-		fmt.Fprintf(&b, "%s@v%d:%x;", name, version, sum[:8])
-		if sk, err = studio.ParseStudioKit([]byte(text)); err != nil {
-			return chainUnresolved
-		}
+		fmt.Fprintf(&b, "%s@v%d:%s;", name, pv.Version, pv.Key())
+		sk = pv.Kit
 	}
 	return b.String()
 }
@@ -201,8 +190,10 @@ func chainCacheKey(store Store, config string) string {
 // RemoveKitChecked removes a kit unless a role binds it or another kit's
 // current version names it as its parent (409 with the offenders listed). The
 // check and the removal run under kitMu, so a concurrent child push cannot
-// slip in between.
-func RemoveKitChecked(store Store, name string) error {
+// slip in between. It then collects the kit objects nothing references; a
+// collection failure is logged to log (nil = not logged) and never fails the
+// removal: the next serve start collects again.
+func RemoveKitChecked(store Store, log *slog.Logger, name string) error {
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	if project, role, ok := store.RoleReferencingKit(name); ok {
@@ -213,7 +204,11 @@ func RemoveKitChecked(store Store, name string) error {
 		slices.Sort(children)
 		return writeErr(http.StatusConflict, "kit %s is the parent of %s", name, strings.Join(children, ", "))
 	}
-	return store.RemoveKit(name)
+	if err := store.RemoveKit(name); err != nil {
+		return err
+	}
+	gcKitObjects(store, log)
+	return nil
 }
 
 // PinKitChecked rolls a kit's current pointer to version, unless a kit
@@ -222,7 +217,7 @@ func RemoveKitChecked(store Store, name string) error {
 func PinKitChecked(store Store, name string, version int) error {
 	kitMu.Lock()
 	defer kitMu.Unlock()
-	if _, ok := store.KitConfig(name, version); !ok {
+	if k, ok := store.GetKit(name); !ok || !k.HasVersion(version) {
 		return store.PinKit(name, version) // the store's own not-found/bad-version error
 	}
 	if follow, _ := KitsReferencing(store, name); len(follow) > 0 {
@@ -250,14 +245,10 @@ func kitParentSpec(config string) string {
 }
 
 // KitChainView is the chain (root first, excluding the kit itself) and the
-// effective kit, as YAML, of the stored config of kit name. An unchained kit's
-// effective view is its own kit, unmerged, so it renders exactly as stored. A
-// config or chain that does not resolve is returned as an error.
-func KitChainView(store Store, name, config string) (links []KitChainLink, effective string, err error) {
-	sk, err := studio.ParseStudioKit([]byte(config))
-	if err != nil {
-		return nil, "", err
-	}
+// effective kit, as YAML, of kit name's parsed version sk (LoadKitVersion's
+// Kit: note files read). An unchained kit's effective view is its own kit,
+// unmerged. A chain that does not resolve is returned as an error.
+func KitChainView(store Store, name string, sk studio.StudioKit) (links []KitChainLink, effective string, err error) {
 	chain, err := ResolveKitChain(store, name, sk)
 	if err != nil {
 		return nil, "", err

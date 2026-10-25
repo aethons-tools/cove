@@ -4,7 +4,7 @@ read_when: A kit in a git repo builds on another kit in the same repo (`base: { 
 owns: the kit-set story — path-parent syntax and resolution, set naming/order/pinning, the stored name@vN rewrite, set atomicity, set track/sync, the set refusals and their texts, set locking and its accepted race, the `also` result, the CLI ancestor lines, the UI flash suffix and the kit page's set note
 prereqs: kits-inheritance.md for `base.kit`, follow vs pin and the chain rules; kits-git.md for sources, import vs track/sync and provenance
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-24
 ---
 
 # Parents in the same repo
@@ -51,12 +51,14 @@ tracking https://github.com/acme/kits//app@main
   its `kit.yml` `name:`, else its directory's base name (the repo's name for
   the repo root). Two kits in one set may not share a name.
 - **Order:** the set is imported **root first**, the top kit last.
-- **Pinning:** each path reference is **stored** as `<name>@v<N>`: the version
-  that commit produced for the parent. That is its new version, or its current
-  one when its config is unchanged. `kit show app --own` therefore shows
+- **Pinning:** each path reference is **stored** as `<name>@v<N>`, rewritten
+  in place in the stored `kit.yml`: only that value changes, comments and
+  layout stay. `base.kit` must be a one-line plain or quoted value. `<N>` is
+  the version that commit produced for the parent: its new version, or its
+  current one when its directory is unchanged. `kit show app --own` therefore shows
   `kit: web-dev@v1`, not `../web`, and the child pins its parent exactly.
 - **Unchanged:** each kit reports `unchanged`, and gets no new version, when
-  its own stored config is identical. A changed child re-pinned to an
+  its directory (after the rewrite) is identical. A changed child re-pinned to an
   unchanged parent gets a new version; the parent keeps its version. A changed
   parent always gives the child a new version too, even with identical child
   text, because its stored `@vN` moved.

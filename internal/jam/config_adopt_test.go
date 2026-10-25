@@ -17,12 +17,13 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // adoptJam is a Jam with every object shape an operator's Jam has: custom
 // and preset header specs, env templates, git, allow paths, notes; an
 // uppercase project with members, rooms, escalation, resources, chat
-// service and context; a kit with a context-dir; a kit tracked from git —
+// service and context; a kit with a Dockerfile; a kit tracked from git —
 // and values that do not survive a naive YAML round trip.
 func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 	t.Helper()
@@ -67,9 +68,10 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 	conn, err := st.CreateConnection(Connection{ID: ident.New(ident.Connection), Kind: "discord", Name: "nea-discord", CredName: "discord-bot", Status: StatusLive})
 	must(t, err)
 
-	// A kit with a packed context (rendered as a context-dir).
-	b64 := ctxKitContext(t)
-	if _, _, err := PushStudioKit(st, "builder", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
+	// A kit directory: a Dockerfile, a .dockerignore, an executable script
+	// and a binary file in a subdirectory.
+	if _, _, err := PushKitFiles(st, "builder", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", dockerfile, ".dockerignore", "*.log\n",
+		"run.sh*", "#!/bin/sh\necho hi\n", "lib/blob.bin", "\xff\xfe\x00\x80\xc3\n")); err != nil {
 		t.Fatal(err)
 	}
 	// A kit pushed first (an earlier config write --all wrote it as
@@ -119,8 +121,9 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 }
 
 // exportToDir writes exp under dir as at-jam config write does: Files and
-// Binary, then Remove, then each Prune dir emptied of what the export does
-// not hold (and removed with its kit dir when left empty).
+// each kit dir's files, then Remove, then each kit dir mirrored: every file
+// there the export does not hold removed (the fixtures put no ignored files
+// on disk), and the dirs left empty.
 func exportToDir(t *testing.T, dir string, exp ConfigTreeExport) {
 	t.Helper()
 	writeExport(t, dir, exp)
@@ -129,19 +132,23 @@ func exportToDir(t *testing.T, dir string, exp ConfigTreeExport) {
 			t.Fatal(err)
 		}
 	}
-	for _, p := range exp.Prune {
-		root := filepath.Join(dir, filepath.FromSlash(p))
+	for d, files := range exp.Kits {
+		keep := map[string]bool{}
+		for _, f := range files {
+			keep[f.Path] = true
+		}
+		root := filepath.Join(dir, filepath.FromSlash(d))
 		var dirs []string
-		err := filepath.WalkDir(root, func(q string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(root, func(q string, e fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() {
+			if e.IsDir() {
 				dirs = append(dirs, q)
 				return nil
 			}
-			rel, _ := filepath.Rel(dir, q)
-			if _, ok := exp.Binary[filepath.ToSlash(rel)]; ok {
+			rel, _ := filepath.Rel(root, q)
+			if keep[filepath.ToSlash(rel)] {
 				return nil
 			}
 			return os.Remove(q)
@@ -152,7 +159,6 @@ func exportToDir(t *testing.T, dir string, exp ConfigTreeExport) {
 		for i := len(dirs) - 1; i >= 0; i-- {
 			_ = os.Remove(dirs[i])
 		}
-		_ = os.Remove(filepath.Dir(root))
 	}
 }
 
@@ -184,41 +190,36 @@ func notAdopted(p ConfigPlan) []string {
 // A fresh config write --all of a Jam, planned back against the same Jam
 // with no marks, adopts every object.
 func TestConfigWriteAllAdopts(t *testing.T) {
-	for _, opt := range []ConfigExportOptions{{All: true}, {All: true, ContextFiles: true}} {
-		t.Run(fmt.Sprintf("contextFiles=%v", opt.ContextFiles), func(t *testing.T) {
-			st, f := adoptJam(t)
-			exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, opt)
-			if err != nil {
-				t.Fatal(err)
-			}
-			dir := t.TempDir()
-			exportToDir(t, dir, exp)
-			for _, r := range notAdopted(planDirUnmarked(t, st, f, dir)) {
-				t.Errorf("%s", r)
-			}
-		})
-	}
-}
-
-// A kit written as kits/<n>/kit.yml (with a context-dir) by one config
-// write --all, then tracked from its own source, is written as
-// kits/<n>.source.yml by the next — which removes the earlier form, so the
-// tree loads and the kit adopts.
-func TestConfigWriteAllRemovesStaleKitForm(t *testing.T) {
-	st := NewMemStore()
-	if _, _, err := PushStudioKit(st, "ic", "kind: studio\nbase:\n  context: "+ctxKitContext(t)+"\n"); err != nil {
-		t.Fatal(err)
-	}
-	opt := ConfigExportOptions{All: true, ContextFiles: true}
-	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, opt)
+	st, f := adoptJam(t)
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(exp.Binary) == 0 {
-		t.Fatal("the kit's context was not written as files")
+	dir := t.TempDir()
+	exportToDir(t, dir, exp)
+	for _, r := range notAdopted(planDirUnmarked(t, st, f, dir)) {
+		t.Errorf("%s", r)
+	}
+}
+
+// A kit written as its directory kits/<n>/ by one config write --all, then
+// tracked from its own source, is written as kits/<n>.source.yml by the
+// next — which mirrors kits/<n>/ to nothing, so the tree loads and the kit
+// adopts.
+func TestConfigWriteAllRemovesStaleKitForm(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, "ic", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", dockerfile)); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Kits["kits/ic"]) != 2 {
+		t.Fatalf("the kit was not written as its directory: %+v", exp.Kits)
 	}
 	dir := t.TempDir()
-	exportToDir(t, dir, exp) // kits/ic/kit.yml and kits/ic/context/
+	exportToDir(t, dir, exp) // kits/ic/kit.yml and kits/ic/Dockerfile
 
 	kits := newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": {
 		"ic/kit.yml": "kind: studio\nprompt: work the ticket\n",
@@ -231,12 +232,12 @@ func TestConfigWriteAllRemovesStaleKitForm(t *testing.T) {
 	if _, err := TrackKit(context.Background(), st, f, nil, "ic", src, time.Unix(10, 0)); err != nil {
 		t.Fatal(err)
 	}
-	exp, err = ExportConfigTreeWith(st.ExportConfig(), nil, nil, opt)
+	exp, err = ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(exp.Remove, []string{"kits/ic/kit.yml"}) || !slices.Equal(exp.Prune, []string{"kits/ic/context"}) {
-		t.Fatalf("remove %v prune %v", exp.Remove, exp.Prune)
+	if files, ok := exp.Kits["kits/ic"]; !ok || len(files) != 0 || exp.Files["kits/ic.source.yml"] == "" {
+		t.Fatalf("kits %+v files %v", exp.Kits, exp.Files)
 	}
 	exportToDir(t, dir, exp)
 	if _, err := os.Stat(filepath.Join(dir, "kits/ic")); !os.IsNotExist(err) {
@@ -249,8 +250,8 @@ func TestConfigWriteAllRemovesStaleKitForm(t *testing.T) {
 }
 
 // Under --all and for a managed kit alike, the form a kit is not written in
-// is removed: kit.yml (and its context dir, with contexts=files) for a kit
-// written by reference, the .source.yml for one written inline.
+// is removed: its kits/<n>/ dir (mirrored to nothing) for a kit written by
+// reference, the .source.yml for one written as its directory.
 func TestExportRemovesEveryWrittenKitsOtherForm(t *testing.T) {
 	st, _ := trackedFixture(t)
 	if _, _, err := PushStudioKit(st, "app", "kind: studio\n"); err != nil {
@@ -259,33 +260,23 @@ func TestExportRemovesEveryWrittenKitsOtherForm(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		marks []ConfigMark
-		opt   ConfigExportOptions
+		all   bool
 	}{
-		{"all", nil, ConfigExportOptions{All: true, ContextFiles: true}},
-		{"managed", []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}, {Kind: ConfigKindKit, Name: "app"}}, ConfigExportOptions{ContextFiles: true}},
+		{"all", nil, true},
+		{"managed", []ConfigMark{{Kind: ConfigKindKit, Name: "web-dev"}, {Kind: ConfigKindKit, Name: "app"}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			exp, err := ExportConfigTreeWith(st.ExportConfig(), tc.marks, nil, tc.opt)
+			exp, err := ExportConfigTree(st.ExportConfig(), tc.marks, nil, tc.all)
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, p := range []string{"kits/app.source.yml", "kits/web-dev/kit.yml"} {
-				if !slices.Contains(exp.Remove, p) {
-					t.Errorf("remove %v lacks %s", exp.Remove, p)
-				}
+			if !slices.Contains(exp.Remove, "kits/app.source.yml") {
+				t.Errorf("remove %v lacks kits/app.source.yml", exp.Remove)
 			}
-			if !slices.Contains(exp.Prune, "kits/web-dev/context") || slices.Contains(exp.Prune, "kits/app/context") {
-				t.Errorf("prune %v", exp.Prune)
+			if web, ok := exp.Kits["kits/web-dev"]; !ok || len(web) != 0 || len(exp.Kits["kits/app"]) == 0 {
+				t.Errorf("kits %+v", exp.Kits)
 			}
 		})
-	}
-	// Without contexts=files a client knows no Prune: none is listed.
-	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(exp.Prune) != 0 {
-		t.Errorf("prune %v without contexts=files", exp.Prune)
 	}
 }
 
@@ -295,7 +286,7 @@ func TestExportRemovesEveryWrittenKitsOtherForm(t *testing.T) {
 func TestLoadConfigTreeKitDirWithoutKitYml(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "kits/ic.source.yml"), string(renderKitSourceFile(KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main"})), 0o644)
-	mustWrite(t, filepath.Join(dir, "kits/ic/context/Dockerfile"), "FROM x\n", 0o644)
+	mustWrite(t, filepath.Join(dir, "kits/ic/build.log"), "x", 0o644)
 	tr, err := LoadConfigTree(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -346,7 +337,7 @@ func TestExportRenderFailureIsAnError(t *testing.T) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
-	_, err := ExportConfigTreeWith(NewMemStore().ExportConfig(), nil, map[string]any{"x": make(chan int)}, ConfigExportOptions{All: true})
+	_, err := ExportConfigTree(NewMemStore().ExportConfig(), nil, map[string]any{"x": make(chan int)}, true)
 	if err == nil || err.Error() != "jam.yml cannot be rendered as a config file" {
 		t.Fatalf("err %v", err)
 	}
@@ -368,7 +359,7 @@ func trackedBehind(t *testing.T) (*MemStore, KitFetcher, *fakeFetcher, string) {
 	if _, err := TrackKit(context.Background(), st, f, nil, "ic", src, time.Unix(10, 0)); err != nil {
 		t.Fatal(err)
 	}
-	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true, ContextFiles: true})
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,13 +379,14 @@ func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 		t.Fatalf("refusals %v", p.Refusals)
 	}
 	op := opOf(p, ConfigKindKit, "ic")
-	if op.Action != ConfigUpdate || op.Unmanaged || !strings.Contains(op.Before, `"work the ticket"`) || !strings.Contains(op.After, "then review") {
+	if op.Action != ConfigUpdate || op.Unmanaged || !strings.Contains(op.Before, "prompt: work the ticket\n") || !strings.Contains(op.After, "then review") {
 		t.Fatalf("op %+v", op)
 	}
 	applyPlan(t, st, p)
 	k, _ := st.GetKit("ic")
-	if !strings.Contains(k.Versions[k.Current], "then review") || k.Source == nil || k.Source.Commit != "c2" {
-		t.Fatalf("kit after apply: v%d %q source %+v", k.Current, k.Versions[k.Current], k.Source)
+	cfg, _ := testKitYML(st, "ic", k.Current)
+	if !strings.Contains(cfg, "then review") || k.Source == nil || k.Source.Commit != "c2" {
+		t.Fatalf("kit after apply: v%d %q source %+v", k.Current, cfg, k.Source)
 	}
 	if !slices.ContainsFunc(st.ListConfigMarks(), func(m ConfigMark) bool { return m.Key() == ConfigKey{ConfigKindKit, "ic"} }) {
 		t.Fatal("kit ic is not managed after the apply")
@@ -432,7 +424,7 @@ func TestConfigPlanUnmanagedRefusalShowsBothSides(t *testing.T) {
 	must(t, CreateDestination(st, Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com",
 		IdentityIn: ApplyBearer, CredName: "gh", Apply: ApplyBearer, Note: "jam"}, func(string) bool { return true }))
 	dir := t.TempDir()
-	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true})
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +561,7 @@ func TestConfigWriteAllKitPromptRoundTrips(t *testing.T) {
 			if _, _, err := PushStudioKit(st, "k", string(renderYAML(map[string]string{"kind": "studio", "prompt": s}))); err != nil {
 				t.Skipf("not a kit Jam accepts: %v", err)
 			}
-			exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true, ContextFiles: true})
+			exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -603,7 +595,7 @@ func TestConfigMarkStatesRendersTabbedNote(t *testing.T) {
 // through JSON).
 func TestConfigWriteAllAdoptsAfterReload(t *testing.T) {
 	st, f := adoptJam(t)
-	exp, err := ExportConfigTreeWith(st.ExportConfig(), nil, nil, ConfigExportOptions{All: true, ContextFiles: true})
+	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

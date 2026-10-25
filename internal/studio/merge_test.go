@@ -68,9 +68,9 @@ func TestMergeEmptyPromptsSkippedAndSingle(t *testing.T) {
 
 func TestMergeKeepsLastOwnBase(t *testing.T) {
 	root := StudioKit{Kind: "studio", Base: Base{Image: "r"}}
-	leaf := StudioKit{Kind: "studio", Base: Base{Kit: "root", Context: "ctx"}}
+	leaf := StudioKit{Kind: "studio", Base: Base{Kit: "root"}, BuildContext: "ctx"}
 	m := Merge([]StudioKit{root, leaf})
-	if m.Base.Context != "ctx" || m.Base.Image != "" || m.Base.Kit != "" {
+	if m.BuildContext != "ctx" || m.Base.Image != "" || m.Base.Kit != "" {
 		t.Errorf("base %+v", m.Base)
 	}
 }

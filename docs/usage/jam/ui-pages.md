@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui.md for reaching the UI, the rail and tabs; ui-editing.md for the write banner and the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-25
 ---
 
 # Admin UI entity pages
@@ -174,13 +174,18 @@ against current. `?v=N` views a version; `?v=N&diff=M` adds a line diff of the
 two versions' YAML (long unchanged runs collapsed) and says whether the build
 digest changed — i.e. whether that version builds a new image.
 
-For the viewed version it shows the base (image ref, context-files paths, or a
-packed `context`'s files — [kits.md](kits.md#the-kit-verbs) has the table, the
-per-file view and diff), egress with the effective ceiling and anything excluded
-(COV-208), build args, secret demands (name + description; never values), the
-prompt, the build digest, and the YAML rendered back from the stored kit (a
-packed context as a placeholder) with **Copy**. A stored version that isn't a valid
-studio kit (a pre-studio row) shows its parse error and raw text instead.
+For the viewed version it shows the base (image ref, `Dockerfile`, or the
+blessed default; `kit: <parent>` for a chained kit), the kit's files and its
+`kit.yml` ([kits.md](kits.md#the-kit-verbs) has the table, the diff and
+`&file=`), egress with the effective ceiling and anything excluded (COV-208),
+build args, secret demands (name + description; never values), the prompt, the
+build digest, and its `kit.yml` as stored, with **Copy**. A stored version that isn't a valid
+studio kit (a pre-studio row) shows its parse error and raw text instead. A
+packed context left in its `base` is masked as `«packed context, not shown»`,
+with a note above the push form to remove it before pushing; a text the page
+cannot analyse (not one plain YAML document: anchors, aliases and merge keys
+count against it) that mentions a context is not shown at all, and the page says to get it with `at-jam config write`. A broken version,
+one the migration to trees could not convert, shows its migration error.
 
 A kit built on a parent kit ([kits-inheritance.md](kits-inheritance.md)) also
 shows **Built on** — each parent, root first, linked to its page with the

@@ -9,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -160,15 +161,15 @@ func TestLoadConfigTreeUnusableRoot(t *testing.T) {
 func TestResolveKitEntriesForest(t *testing.T) {
 	st := NewMemStore()
 	set := []kitSetEntry{
-		{Name: "base", Dir: "kits/base", Kit: studio.StudioKit{Kind: "studio"}},
-		{Name: "a", Dir: "kits/a", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../base"}}},
-		{Name: "b", Dir: "kits/b", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../base"}}},
+		{Name: "base", Dir: "kits/base", Kit: studio.StudioKit{Kind: "studio"}, files: kittreetest.Files("kit.yml", "kind: studio\n")},
+		{Name: "a", Dir: "kits/a", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../base"}}, files: kittreetest.Files("kit.yml", "kind: studio\nbase: {kit: ../base}\n")},
+		{Name: "b", Dir: "kits/b", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../base"}}, files: kittreetest.Files("kit.yml", "kind: studio\nbase: {kit: ../base}\n")},
 	}
 	out, err := resolveKitEntries(st, set, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out[1].Kit.Base.Kit != "base@v1" || out[2].Kit.Base.Kit != "base@v1" {
+	if out[1].Kit.Base.Kit != "base@v1" || out[2].Kit.Base.Kit != "base@v1" || string(kitYMLOf(out[2].files)) != "kind: studio\nbase: {kit: base@v1}\n" {
 		t.Fatalf("siblings not both pinned to base: %+v", out)
 	}
 }
@@ -223,7 +224,7 @@ func TestLoadKitsRefusesSymlinkedAncestor(t *testing.T) {
 	tr, _ := LoadConfigTree(root)
 	joined := strings.Join(tr.Refusals, "\n")
 	for _, want := range []string{
-		"kits/app/kit.yml: parent ../web is not a kit under kits/ (kits/<name>/kit.yml)",
+		"kits/app/kit.yml: kits/web: not a directory", // ReadDir never follows the symlinked dir
 		"kits/web: unexpected file (a kit is kits/<name>/kit.yml or kits/<name>.source.yml)",
 	} {
 		if !strings.Contains(joined, want) {
@@ -275,9 +276,9 @@ func TestLoadConfigTreeKitSourceRefusals(t *testing.T) {
 
 func TestResolveKitEntriesPathParentsStayInTheirGroup(t *testing.T) {
 	set := []kitSetEntry{
-		{Name: "web", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}},
-		{Name: "web2", Group: "g", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}}, // the same dir in another checkout
-		{Name: "app", Group: "g", Dir: "kits/app", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}},
+		{Name: "web", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}, files: kittreetest.Files("kit.yml", "kind: studio\n")},
+		{Name: "web2", Group: "g", Dir: "kits/web", Kit: studio.StudioKit{Kind: "studio"}, files: kittreetest.Files("kit.yml", "kind: studio\n# 2\n")}, // the same dir in another checkout
+		{Name: "app", Group: "g", Dir: "kits/app", Kit: studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}, files: kittreetest.Files("kit.yml", "kind: studio\nbase: {kit: ../web}\n")},
 	}
 	out, err := resolveKitEntries(NewMemStore(), set, nil)
 	if err != nil || out[2].Kit.Base.Kit != "web2@v1" {
@@ -300,5 +301,31 @@ func TestOrderKitEntriesAcrossGroups(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"base", "web", "app"}) || !slices.Equal(cycle, []string{"x", "y"}) {
 		t.Fatalf("order %v cycle %v", names, cycle)
+	}
+}
+
+// A config repo written by an older Jam (kit.yml with base.context-dir and a
+// context/ dir beside it) is refused with a fixed hint to rewrite it with
+// config write.
+func TestLoadKitsHintsConfigWriteForOldContextField(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"kits/app/kit.yml":            "kind: studio\nbase:\n  context-dir: context\n",
+		"kits/app/context/Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+		"kits/files/kit.yml":          "kind: studio\nbase:\n  context-files: {dockerfile: x}\n",
+		"kits/bad/kit.yml":            "kind: studio\nworkers: {}\n",
+	})
+	const hint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+	tr, _ := LoadConfigTree(root)
+	joined := strings.Join(tr.Refusals, "\n")
+	for _, want := range []string{
+		"kits/app/kit.yml: base.context-dir is no longer supported; put a Dockerfile next to kit.yml" + hint,
+		"kits/files/kit.yml: base.context-files is no longer supported; put a Dockerfile next to kit.yml" + hint,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Count(joined, hint) != 2 {
+		t.Errorf("the hint is only for the context fields:\n%s", joined)
 	}
 }

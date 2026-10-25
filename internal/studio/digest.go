@@ -11,7 +11,8 @@ import (
 )
 
 // BuildDigest is the content key of the image a studio kit builds under a
-// harness install. It hashes the BUILD-AFFECTING fields only — base, egress
+// harness install. It hashes the BUILD-AFFECTING fields only — base, the
+// build context's tree hash (when a Dockerfile sits next to kit.yml), egress
 // (order-normalized), build args, mcp-servers (baked into the image) and the
 // harness layer (type, exact CLI version, plugins: the role's model-spec,
 // COV-242) — so a raise-time edit (prompt, secret demands) reuses the cached
@@ -20,18 +21,20 @@ import (
 // non-nil so they hash identically.
 func BuildDigest(sk StudioKit, harness harnessinstall.Install) string {
 	return hashDigest(struct {
-		Base       Base                     `json:"base"`
-		Egress     []string                 `json:"egress"`
-		BuildArgs  map[string]string        `json:"buildArgs"`
-		MCPServers map[string]kit.MCPServer `json:"mcpServers,omitempty"`
-		Harness    harnessinstall.Install   `json:"harness"`
-	}{Base: sk.Base, Egress: normEgress(sk.Egress), BuildArgs: normBuildArgs(sk.BuildArgs), MCPServers: sk.MCPServers, Harness: normHarness(harness)})
+		Base         Base                     `json:"base"`
+		BuildContext string                   `json:"buildContext,omitempty"`
+		Egress       []string                 `json:"egress"`
+		BuildArgs    map[string]string        `json:"buildArgs"`
+		MCPServers   map[string]kit.MCPServer `json:"mcpServers,omitempty"`
+		Harness      harnessinstall.Install   `json:"harness"`
+	}{Base: sk.Base, BuildContext: sk.BuildContext, Egress: normEgress(sk.Egress), BuildArgs: normBuildArgs(sk.BuildArgs), MCPServers: sk.MCPServers, Harness: normHarness(harness)})
 }
 
 // ChainDigest is BuildDigest for a resolved kit chain (root first, the kit
 // itself last). A chain of one is exactly BuildDigest, so unchained kits keep
 // their image tags. Longer chains hash every link's own build-affecting fields
-// (base, egress, build args, MCP servers) in order plus the harness, so a
+// (base, the build context's tree hash when a Dockerfile sits next to
+// kit.yml, egress, build args, MCP servers) in order plus the harness, so a
 // change anywhere up the chain changes the child's digest. chain must hold at
 // least one kit: an empty chain hashes to a meaningless digest.
 func ChainDigest(chain []StudioKit, harness harnessinstall.Install) string {
@@ -39,14 +42,15 @@ func ChainDigest(chain []StudioKit, harness harnessinstall.Install) string {
 		return BuildDigest(chain[0], harness)
 	}
 	type link struct {
-		Base       Base                     `json:"base"`
-		Egress     []string                 `json:"egress"`
-		BuildArgs  map[string]string        `json:"buildArgs"`
-		MCPServers map[string]kit.MCPServer `json:"mcpServers,omitempty"`
+		Base         Base                     `json:"base"`
+		BuildContext string                   `json:"buildContext,omitempty"`
+		Egress       []string                 `json:"egress"`
+		BuildArgs    map[string]string        `json:"buildArgs"`
+		MCPServers   map[string]kit.MCPServer `json:"mcpServers,omitempty"`
 	}
 	links := make([]link, 0, len(chain))
 	for _, sk := range chain {
-		links = append(links, link{Base: sk.Base, Egress: normEgress(sk.Egress), BuildArgs: normBuildArgs(sk.BuildArgs), MCPServers: sk.MCPServers})
+		links = append(links, link{Base: sk.Base, BuildContext: sk.BuildContext, Egress: normEgress(sk.Egress), BuildArgs: normBuildArgs(sk.BuildArgs), MCPServers: sk.MCPServers})
 	}
 	return hashDigest(struct {
 		Chain   []link                 `json:"chain"`

@@ -85,7 +85,7 @@ func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree 
 func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (_ ConfigApplyResult, wrote bool, _ error) {
 	kitMu.Lock() // configMu → kitMu → store mu, as every kit writer takes kitMu before the store
 	defer kitMu.Unlock()
-	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.ExportConfig(), Instances: store.ListInstances(),
+	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.configSnapshot(), Instances: store.ListInstances(),
 		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
 	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
@@ -106,7 +106,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 		// object — the .source.yml kits' tracked commits, the config
 		// source's commit, the stale marks of unchanged objects: no
 		// version, no other mark, no audit entry.
-		if meta := (ConfigWrite{Kits: w.Kits, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
+		if meta := (ConfigWrite{Kits: w.Kits, KitObjects: w.KitObjects, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
 			if err := store.ApplyConfig(meta); err != nil {
 				return res, false, fmt.Errorf("config apply: write: %w", err)
 			}
@@ -115,6 +115,9 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 	}
 	if err := store.ApplyConfig(w); err != nil {
 		return res, false, fmt.Errorf("config apply: write: %w", err)
+	}
+	if len(w.RemoveKits) > 0 {
+		gcKitObjects(store, log)
 	}
 	res.Applied = true
 	logConfigApply(log, actor, opt, plan)

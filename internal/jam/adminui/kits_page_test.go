@@ -1,10 +1,6 @@
 package adminui_test
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 const kitV1 = `kind: studio
@@ -115,44 +112,6 @@ func TestKitVersionDiff(t *testing.T) {
 	}
 }
 
-func TestKitPagePackedContextSummarized(t *testing.T) {
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	for name, body := range map[string]string{"Dockerfile": "FROM ${COVE_BASE_IMAGE}\n", "install.sh": "echo hi\n"} {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		_, _ = tw.Write([]byte(body))
-	}
-	_ = tw.Close()
-	_ = gz.Close()
-	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
-	store := newStore(t)
-	if _, _, err := jam.PushStudioKit(store, "ctx", "kind: studio\nbase:\n  context: "+b64+"\n"); err != nil {
-		t.Fatal(err)
-	}
-	body := get(t, kitsHandler(store), "/app/admin/kits/ctx").Body.String()
-	for _, want := range []string{"Dockerfile", "install.sh", "0755", "«tar.gz, 2 files"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("packed-context kit page missing %q", want)
-		}
-	}
-	// the display YAML abbreviates the blob (the push form keeps it whole);
-	// every base64 gzip starts "H4sI"
-	i := strings.Index(body, `id="kit-yaml">`)
-	if i < 0 {
-		t.Fatal("no display YAML")
-	}
-	yaml := body[i : i+strings.Index(body[i:], "</pre>")]
-	if strings.Contains(yaml, "H4sI") || !strings.Contains(yaml, "«tar.gz, 2 files") {
-		t.Errorf("display YAML should abbreviate the packed context:\n%s", yaml)
-	}
-	if !strings.Contains(body, "H4sI") {
-		t.Errorf("the push form should carry the full context")
-	}
-}
-
 func TestKitPageLegacyRowShowsParseError(t *testing.T) {
 	store := newStore(t)
 	if _, err := store.PushKit("old", "listen: :443\n"); err != nil { // a pre-studio row
@@ -209,11 +168,28 @@ func TestPushVersionOnKitPage(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "unchanged") {
 		t.Errorf("identical push should report unchanged: %s", rec.Body.String())
 	}
-	if k, _ := store.GetKit("web"); k.Current != 3 || len(k.Versions) != 3 {
-		t.Fatalf("kit = current v%d, %d versions; want v3 of 3", k.Current, len(k.Versions))
+	if k, _ := store.GetKit("web"); k.Current != 3 || len(k.VersionNumbers()) != 3 {
+		t.Fatalf("kit = current v%d, %d versions; want v3 of 3", k.Current, len(k.VersionNumbers()))
 	}
 	if rec := post(t, h, "/app/admin/kits/ghost/versions", url.Values{"config": {kitV1}}); rec.Code != http.StatusNotFound {
 		t.Errorf("push to missing kit = %d, want 404", rec.Code)
+	}
+}
+
+// The kit page's "push a new version" box edits kit.yml only: the version
+// keeps the current one's other files, modes included.
+func TestPushVersionOnKitPageKeepsFiles(t *testing.T) {
+	store := newStore(t)
+	if _, _, err := jam.PushKitFiles(store, "dir", kittreetest.Files("kit.yml", "kind: studio\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	rec := post(t, kitsHandler(store), "/app/admin/kits/dir/versions", url.Values{"config": {"kind: studio\nprompt: hi\n"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "pushed dir v2") {
+		t.Fatalf("push v2 = %d: %s", rec.Code, rec.Body.String())
+	}
+	v, _ := jam.LoadKitVersion(store, "dir", 0)
+	if e, ok := v.Tree.Lookup("run.sh"); !ok || e.Mode != 0o755 || string(v.KitYML) != "kind: studio\nprompt: hi\n" {
+		t.Fatalf("v2 tree %+v kit.yml %q", v.Tree, v.KitYML)
 	}
 }
 

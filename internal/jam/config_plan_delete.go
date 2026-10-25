@@ -78,7 +78,8 @@ func (p *planner) kitDepth(name string) int {
 		if !ok {
 			return n
 		}
-		parent, _, _ := strings.Cut(kitParentSpec(k.Versions[k.Current]), "@")
+		cfg, _ := p.m.kitYMLLocked(name, k.Current)
+		parent, _, _ := strings.Cut(kitParentSpec(cfg), "@")
 		if parent == "" || seen[parent] {
 			return n
 		}

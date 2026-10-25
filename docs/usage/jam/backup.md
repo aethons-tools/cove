@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-21
+updated: 2026-10-25
 ---
 
 # Backing up and restoring Jam config
@@ -16,7 +16,7 @@ control-plane aggregates:
 
 - **actors** (identities, their **token hashes**, and grants)
 - **roles** (scope incl. egress, allocation incl. standing sessions, session context)
-- **kits** (all versions **and** the pin)
+- **kits** (every version: its files, as content-addressed trees and blobs, with the current pin and provenance)
 - **destinations**
 - **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
 - **projects** (escalation policy, chat service, session context and resources)
@@ -28,11 +28,13 @@ control-plane aggregates:
   runtime state and are not exported.
 - the **Jam-wide session context**
 
-The format is `version: 4`, which names projects by id in roles and grants; an
+The format is `version: 5`, which carries kit trees and blobs and names projects by id in roles and grants; an
 older Jam can't read it. Older backups still import: their project names become
 ids, a `version: 1` backup's per-project humans are merged into users the way an
 upgrade does ([comms-addressing.md](comms-addressing.md#project-members-and-rooms)),
 and a `version: 1` or `2` backup's project channels become rooms.
+A backup from before kit trees (version ≤ 4) still imports. Its kits are
+migrated to trees right after ([kits-directory.md](kits-directory.md#stored-as-trees)).
 
 Import requires an empty target, registry included — except connections, which
 a starting serve creates: a backup's connection of the same name takes over —

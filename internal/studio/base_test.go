@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-func validCtx(t *testing.T) string {
-	t.Helper()
-	return tarB64(t, map[string]string{"Dockerfile": "FROM x\n"})
-}
-
 func TestBaseKitParse(t *testing.T) {
 	for in, want := range map[string]struct {
 		name string
@@ -34,14 +29,14 @@ func TestBaseKitParse(t *testing.T) {
 	if k, err := (Base{Kit: "web"}).Kind(); err != nil || k != BaseKit {
 		t.Errorf("kit alone: %v %v", k, err)
 	}
-	if k, err := (Base{Kit: "web", Context: validCtx(t)}).Kind(); err != nil || k != BaseContextZip {
-		t.Errorf("kit+context: %v %v", k, err)
+	if k, err := (Base{Image: "x"}).Kind(); err != nil || k != BaseImage {
+		t.Errorf("image: %v %v", k, err)
 	}
-	if !(Base{Kit: "web", Context: validCtx(t)}).HasParent() || (Base{}).HasParent() {
+	if k, err := (Base{}).Kind(); err != nil || k != BaseDefault {
+		t.Errorf("default: %v %v", k, err)
+	}
+	if !(Base{Kit: "web"}).HasParent() || (Base{}).HasParent() {
 		t.Error("HasParent wrong")
-	}
-	if _, err := (Base{Kit: "web", Context: "a", ContextDir: "b"}).Kind(); err == nil {
-		t.Error("kit+two contexts accepted")
 	}
 }
 

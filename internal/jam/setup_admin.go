@@ -40,7 +40,7 @@ func WithSetupInspect(d SetupDeps, log *slog.Logger) AdminOption {
 			http.Error(w, "setup unavailable", http.StatusInternalServerError)
 		}
 	}
-	return func(mux *http.ServeMux) {
+	return func(mux *adminMux) {
 		mux.HandleFunc("GET /admin/roles/{project}/{role}/setup", func(w http.ResponseWriter, r *http.Request) {
 			sections, ok := sectionsOf(w, r)
 			if !ok {

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -66,6 +67,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/relay"
@@ -74,6 +76,7 @@ import (
 	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/switchboard"
+	"github.com/aethons-tools/cove/internal/textesc"
 	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -100,7 +103,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push|list|show|versions|pin|rm|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes] [--force]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -867,7 +870,7 @@ func (t *tierFlags) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|pin|rm|import|track|untrack|sync")
+		fmt.Fprintln(stderr, "at-jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -876,9 +879,11 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
-	config := fs.String("config", "", "path to the kit config.yml (or - for stdin); push only")
+	config := fs.String("config", "", "push: a kit.yml to push alone (or - for stdin); otherwise push <dir>")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
+	from := fs.Int("from", 0, "diff: the older version (default: the one before --to)")
+	to := fs.Int("to", 0, "diff: the newer version (default: current)")
 	own := fs.Bool("own", false, "show: print the kit's own stored YAML instead of the merged (effective) kit")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -892,63 +897,58 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
 	case "push":
-		if *name == "" || *config == "" {
-			fmt.Fprintln(stderr, "at-jam kit push: --name and --config are required")
+		if *config == "-" && *name == "" {
+			fmt.Fprintln(stderr, "at-jam kit push: --name is required with --config")
 			return 2
 		}
-		data, err := readConfig(*config) // file path or "-" for stdin
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam:", err)
-			return 1
-		}
-		sk, err := studio.ParseStudioKit(data)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: invalid studio kit config:", err)
-			return 1
-		}
-		if err := sk.CheckName(*name); err != nil {
+		files, kitName, err := kitPushFiles(pos, *config, *name)
+		if errors.Is(err, errKitPushUsage) {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
+			return 2
 		}
-		if err := sk.CheckPrompt(); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
-		}
-		// Resolve a client-only base.context-dir by packing that host directory
-		// into base.context (a zip) before sending — the server can't read the
-		// operator's filesystem. A relative context-dir is resolved against the
-		// kit file's directory (CWD for stdin). A no-op when unset.
-		baseDir := "."
-		if *config != "-" {
-			baseDir = filepath.Dir(*config)
-		}
-		if err := sk.ResolveContextDir(baseDir); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: base.context-dir:", err)
-			return 1
-		}
-		if err := sk.ResolveNoteFiles(baseDir); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push: notes:", err)
-			return 1
-		}
-		if err := sk.CheckNotes(); err != nil {
-			fmt.Fprintln(stderr, "at-jam kit push:", err)
-			return 1
-		}
-		resolved, err := sk.ToJSON()
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam kit push:", err)
 			return 1
 		}
-		res, err := c.PushKit(*name, string(resolved))
+		if kitName, err = checkKitPush(files, kitName, *name != ""); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
+		var body bytes.Buffer
+		if err := kittree.WriteTar(&body, files); err != nil {
+			fmt.Fprintln(stderr, "at-jam kit push:", err)
+			return 1
+		}
+		res, err := c.PushKitTree(kitName, body.Bytes())
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
 		if res.Unchanged {
-			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", *name, res.Version)
+			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", kitName, res.Version)
 		} else {
-			fmt.Fprintf(stdout, "pushed %s v%d\n", *name, res.Version)
+			fmt.Fprintf(stdout, "pushed %s v%d\n", kitName, res.Version)
 		}
+	case "diff":
+		if len(pos) != 1 {
+			fmt.Fprintln(stderr, "at-jam kit diff: expected one kit name")
+			return 2
+		}
+		for _, f := range []struct {
+			key string
+			n   int
+		}{{"from", *from}, {"to", *to}} {
+			if f.n < 0 {
+				fmt.Fprintln(stderr, "at-jam kit diff: "+f.key+" must be a version number")
+				return 2
+			}
+		}
+		d, err := c.KitDiff(pos[0], *from, *to)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s v%d → v%d\n%s", textesc.Escape(d.Name, false), d.From, d.To, textesc.Escape(d.Text, true))
 	case "list":
 		kits, err := c.ListKits()
 		if err != nil {
@@ -976,9 +976,19 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// ParseStudioKit accepts JSON (and any YAML rows) alike. The default
 		// view is the server's effective (merged) YAML; an older server sends
 		// none, so show the stored kit.
+		// --own is the server's own view (note files read from the tree into
+		// their bodies) when it sends one, else the stored kit.yml.
 		shown := res.Config
-		if res.Effective != "" && !*own {
+		switch {
+		case res.Effective != "" && !*own:
 			shown = res.Effective
+		case res.Own != "":
+			shown = res.Own
+		}
+		if shown == "" && res.ChainError != "" {
+			// A broken version has no kit.yml: its own fixed error says why.
+			fmt.Fprintln(stderr, "at-jam kit show:", res.ChainError)
+			return 1
 		}
 		sk, err := studio.ParseStudioKit([]byte(shown))
 		if err != nil {
@@ -1000,6 +1010,12 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own to edit and re-push")
 		}
 		fmt.Fprint(stdout, string(y))
+		if len(res.Files) > 0 {
+			fmt.Fprintf(stdout, "# files (tree %s):\n", shortCommit(res.Tree))
+			for _, f := range res.Files {
+				fmt.Fprintf(stdout, "#   %s  %8d  %s\n", f.Mode, f.Size, f.Path)
+			}
+		}
 		ceiling, excluded := studioShowEgress(sk.Egress)
 		fmt.Fprintf(stdout, "egress ceiling: %s\n", joinOrNone(ceiling))
 		fmt.Fprintf(stdout, "excluded (COV-208): %s\n", joinOrNone(excluded))
@@ -1990,6 +2006,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
+	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
+	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
+	// A failed migration fails closed: a half-read registry would raise kits
+	// from text the build no longer reads.
+	if mig, err := jam.MigrateKitTrees(st, conds, log); err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
+	} else if len(mig.Broken) > 0 {
+		log.Warn("kit versions kept broken (their packed context could not be read)", "versions", mig.Broken)
+	}
+	if gc, err := st.GCKitObjects(); err != nil {
+		log.Warn("kit object collection failed (retried next start)", "reason", err.Error())
+	} else if gc.Trees+gc.Blobs > 0 {
+		log.Info("kit objects collected", "trees", gc.Trees, "blobs", gc.Blobs)
+	}
 	go conds.Run(context.Background(), 5*time.Second)
 	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
 	// now, every minute, and after each config apply or release.

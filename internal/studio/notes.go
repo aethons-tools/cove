@@ -2,41 +2,17 @@ package studio
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // KitNote is one leaf a kit ships into its sessions' context (kit/<name>).
-// File is a CLIENT-ONLY authoring convenience resolved into Body at push.
+// File names a file in the kit tree; ParseKitFS reads it into Body.
 type KitNote struct {
 	Name     string `yaml:"name" json:"name"`
 	ReadWhen string `yaml:"read-when" json:"read-when"`
 	Body     string `yaml:"body,omitempty" json:"body"`
 	File     string `yaml:"file,omitempty" json:"-"`
-}
-
-// ResolveNoteFiles reads each note's file (relative to dir, never escaping it)
-// into its body. A note may set body or file, not both.
-func (sk *StudioKit) ResolveNoteFiles(dir string) error {
-	for i, n := range sk.Notes {
-		if n.File == "" {
-			continue
-		}
-		if n.Body != "" {
-			return fmt.Errorf("note %q: set body or file, not both", n.Name)
-		}
-		if !filepath.IsLocal(n.File) {
-			return fmt.Errorf("note %q: file %q must be a relative path inside %s", n.Name, n.File, dir)
-		}
-		raw, err := os.ReadFile(filepath.Join(dir, n.File))
-		if err != nil {
-			return fmt.Errorf("note %q: %w", n.Name, err)
-		}
-		sk.Notes[i].Body, sk.Notes[i].File = string(raw), ""
-	}
-	return nil
 }
 
 // Leaves returns the notes as session-context leaves.

@@ -86,25 +86,25 @@ func TestMemStoreKitPushPinResolve(t *testing.T) {
 		t.Fatalf("PushKit v2 = %d, %v", v2, err)
 	}
 	// Current resolves to the latest push.
-	if cfg, ok := fs.KitConfig("web", 0); !ok || cfg != "name: web\nversion: two\n" {
+	if cfg, ok := testKitYML(fs, "web", 0); !ok || cfg != "name: web\nversion: two\n" {
 		t.Fatalf("Current config = %q, %v", cfg, ok)
 	}
 	// A specific version is addressable.
-	if cfg, ok := fs.KitConfig("web", 1); !ok || cfg != "name: web\nversion: one\n" {
+	if cfg, ok := testKitYML(fs, "web", 1); !ok || cfg != "name: web\nversion: one\n" {
 		t.Fatalf("v1 config = %q, %v", cfg, ok)
 	}
 	// Pin rolls Current back.
 	if err := fs.PinKit("web", 1); err != nil {
 		t.Fatalf("PinKit: %v", err)
 	}
-	if cfg, _ := fs.KitConfig("web", 0); cfg != "name: web\nversion: one\n" {
+	if cfg, _ := testKitYML(fs, "web", 0); cfg != "name: web\nversion: one\n" {
 		t.Fatalf("after pin, Current = %q", cfg)
 	}
 	// Pin to an absent version fails.
 	if err := fs.PinKit("web", 99); err == nil {
 		t.Fatal("PinKit to absent version should fail")
 	}
-	if k, ok := fs.GetKit("web"); !ok || k.Current != 1 || len(k.Versions) != 2 {
+	if k, ok := fs.GetKit("web"); !ok || k.Current != 1 || len(k.VersionNumbers()) != 2 {
 		t.Fatalf("GetKit = %+v, %v", k, ok)
 	}
 	if err := fs.RemoveKit("nope"); err == nil {
@@ -117,7 +117,7 @@ func TestMemStoreKitPushPinResolve(t *testing.T) {
 	if err != nil || v3 != 3 {
 		t.Fatalf("PushKit after pin = %d, %v, want 3", v3, err)
 	}
-	if cfg, ok := fs.KitConfig("web", 2); !ok || cfg != "name: web\nversion: two\n" {
+	if cfg, ok := testKitYML(fs, "web", 2); !ok || cfg != "name: web\nversion: two\n" {
 		t.Fatalf("v2 config after pin+push = %q, %v, want unchanged", cfg, ok)
 	}
 }
@@ -189,7 +189,7 @@ func TestMemStoreGetKitConcurrentSafe(t *testing.T) {
 			// Range the returned Versions map outside any lock, exactly as the
 			// admin /versions handler does — this is what raced against
 			// PushKit's write to the live map before GetKit deep-copied it.
-			for range k.Versions {
+			for range k.Trees {
 			}
 		}
 	}()

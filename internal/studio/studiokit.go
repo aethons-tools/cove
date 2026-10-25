@@ -6,7 +6,6 @@ package studio
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -43,6 +42,10 @@ type StudioKit struct {
 	// into the image at /etc/cove/mcp-servers.json (env references only — never
 	// secret values; see kit.ValidateMCPServers).
 	MCPServers map[string]kit.MCPServer `yaml:"mcp-servers,omitempty" json:"mcp-servers,omitempty"`
+	// BuildContext is the tree hash of the kit's build context (its tree minus
+	// kit.yml) when a Dockerfile sits next to kit.yml; "" otherwise. Set by
+	// ParseTree, never serialized; build-affecting (BuildDigest).
+	BuildContext string `yaml:"-" json:"-"`
 }
 
 // ParseStudioKit unmarshals and validates studio-kit YAML. Unknown fields are
@@ -54,12 +57,6 @@ func ParseStudioKit(data []byte) (StudioKit, error) {
 	var sk StudioKit
 	if err := dec.Decode(&sk); err != nil {
 		return StudioKit{}, fmt.Errorf("studio kit: %w", err)
-	}
-	if sk.Base.StoredContextFiles != nil {
-		if sk.Base.ContextFiles != nil {
-			return StudioKit{}, fmt.Errorf("studio kit: base: set context-files once (both context-files and contextFiles given)")
-		}
-		sk.Base.ContextFiles, sk.Base.StoredContextFiles = sk.Base.StoredContextFiles, nil
 	}
 	if err := sk.Validate(); err != nil {
 		return StudioKit{}, err
@@ -100,22 +97,6 @@ func (sk StudioKit) CheckPrompt() error {
 		return fmt.Errorf("studio kit: prompt is %d bytes; the kit core budget is %d — move detail out of the prompt", n, sessionctx.BudgetKit)
 	}
 	return nil
-}
-
-// ToJSON is the deterministic canonical form stored in the kit registry and
-// hashed. encoding/json emits struct fields in declaration order and map keys
-// sorted, so identical kits yield identical bytes.
-func (sk StudioKit) ToJSON() ([]byte, error) {
-	if sk.Kind == "" {
-		sk.Kind = Kind
-	}
-	// base.context-dir is a client-only authoring field packed into base.context
-	// at push. It must be resolved (see (*StudioKit).ResolveContextDir) before a
-	// kit is serialized for storage — the server can't read the operator's disk.
-	if sk.Base.ContextDir != "" {
-		return nil, fmt.Errorf("studio kit: base.context-dir must be resolved (packed) before serializing")
-	}
-	return json.Marshal(sk)
 }
 
 // CheckName validates the name a kit is pushed (registered) under: it must be

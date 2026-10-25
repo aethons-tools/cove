@@ -17,6 +17,7 @@ import (
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -299,7 +300,7 @@ func TestRaiseStoredOverBudgetKitTruncates(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
 	sk := studio.StudioKit{Kind: studio.Kind, Prompt: strings.Repeat("old kit line\n", 100)}
-	text, err := sk.ToJSON()
+	text, err := studio.RenderKitYAML(sk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1559,15 +1560,16 @@ func TestRaiseWithoutModelSpecUsesDefaultHarness(t *testing.T) {
 	}
 }
 
-// kitConfigCounter counts registry reads (each one is a parse of the kit).
+// kitConfigCounter counts registry reads of a kit version's tree (each one is
+// a LoadKitVersion of the kit).
 type kitConfigCounter struct {
 	Store
 	reads int
 }
 
-func (c *kitConfigCounter) KitConfig(name string, version int) (string, bool) {
+func (c *kitConfigCounter) KitTree(sha string) (kittree.Tree, bool) {
 	c.reads++
-	return c.Store.KitConfig(name, version)
+	return c.Store.KitTree(sha)
 }
 
 // A raise parses (and hashes) its kit once: the definition resolved for the

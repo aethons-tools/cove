@@ -147,9 +147,9 @@ func TestApplyVsConcurrentKitPush(t *testing.T) {
 		t.Fatal("deadlock between config apply and kit push")
 	}
 	k, _ := st.GetKit("app")
-	cfg, _ := st.KitConfig("app", k.Current)
+	cfg, _ := testKitYML(st, "app", k.Current)
 	web, _ := st.GetKit("web")
-	if _, ok := web.Versions[parentVersion(t, cfg)]; !ok {
+	if !web.HasVersion(parentVersion(t, cfg)) {
 		t.Fatalf("app pins a web version that does not exist: %s", cfg)
 	}
 }

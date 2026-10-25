@@ -2,6 +2,7 @@ package adminui_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // trackManaged records the source managedUI's objects came from.
@@ -106,10 +108,10 @@ func TestConfigPageUntrack(t *testing.T) {
 
 // A Jam the drift check cannot render: the page says so instead of failing.
 func TestConfigPageDriftUnknown(t *testing.T) {
-	h, store := managedUI(t)
-	if _, err := store.PushKit("bad", "listen: :443"); err != nil {
-		t.Fatal(err)
-	}
+	h, _ := managedUI(t)
+	defer adminui.SetConfigMarkStatesForTest(func(jam.Store) ([]jam.ConfigMarkState, error) {
+		return nil, errors.New("config drift: kit x cannot be rendered")
+	})()
 	rec := get(t, h, "/app/admin/config")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Could not compare with the live Jam") || !strings.Contains(rec.Body.String(), "unknown") {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
@@ -357,5 +359,49 @@ func TestConfigPlanShowsUnmanagedRefusalDiff(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("plan lacks %q:\n%s", want, body)
 		}
+	}
+}
+
+// A kit update shows its version diff (kit.yml's lines, then the files),
+// escaped; a binary file is a one-line marker, never its bytes.
+func TestConfigPlanShowsKitVersionDiff(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{
+		"kits/app/kit.yml": "kind: studio\nprompt: b\n",
+		"kits/app/run.sh":  "echo '<script>alert(1)</script>'\n",
+		"kits/app/blob":    "\x00\x01SECRETBYTES-new",
+	}}
+	h, store := configUI(t, f, nil)
+	if _, _, err := jam.PushKitFiles(store, "app", kittreetest.Files("kit.yml", "kind: studio\nprompt: a\n", "run.sh", "echo hi\n", "blob", "\x00\x01SECRETBYTES-old")); err != nil {
+		t.Fatal(err)
+	}
+	trackManaged(t, store)
+	body := post(t, h, "/app/admin/config/diff", url.Values{}).Body.String()
+	for _, want := range []string{`<pre class="diff">kit.yml:`, "  -prompt: a\n  &#43;prompt: b\n", "modified  run.sh", "&lt;script&gt;alert(1)&lt;/script&gt;", "modified  blob", "(binary)"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("plan lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<script>alert") || strings.Contains(body, "SECRETBYTES") {
+		t.Fatalf("kit diff leaks markup or binary bytes:\n%s", body)
+	}
+}
+
+// A kit whose tree is unchanged but whose source differs shows the listing
+// diff (the `# source:` line), not "no changes".
+func TestConfigPlanKitSourceOnlyChange(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"kits/app/kit.yml": "kind: studio\n"}}
+	h, store := configUI(t, f, nil)
+	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := store.GetKit("app")
+	k.Source = &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main", Commit: "k1"}
+	if err := store.PutKitDocs([]jam.Kit{k}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	trackManaged(t, store)
+	body := post(t, h, "/app/admin/config/diff", url.Values{}).Body.String()
+	if !strings.Contains(body, `<span class="d-del">- # source: https://github.com/acme/kits//app@main</span>`) || strings.Contains(body, "no changes") {
+		t.Fatalf("source-only kit change:\n%s", body)
 	}
 }

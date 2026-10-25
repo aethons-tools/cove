@@ -1,0 +1,14 @@
+== Dockerfile 0644
+ARG COVE_BASE_IMAGE
+FROM ${COVE_BASE_IMAGE}
+COPY run.sh /usr/local/bin/
+
+== kit.yml 0644
+kind: studio
+egress:
+    - github.com
+prompt: p
+
+== run.sh 0755
+echo hi
+

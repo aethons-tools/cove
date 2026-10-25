@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // ConfigSnapshotVersion is the on-the-wire/on-disk schema version of a config
@@ -19,8 +21,10 @@ import (
 // connections, accounts, memberships, legacy aliases) with their ids; import
 // also reads 1, whose roster humans and kind-named chat services it migrates.
 // 4 names projects by id in roles (the map's key) and grants; import also
-// reads 1–3's names. Import rejects any other value rather than mis-loading.
-const ConfigSnapshotVersion = 4
+// reads 1–3's names. 5 carries kit trees and blobs (kit_trees, kit_blobs); import
+// also reads 1–4, whose kits are config text that the import route migrates
+// (MigrateKitTrees). Import rejects any other value rather than mis-loading.
+const ConfigSnapshotVersion = 5
 
 // ConfigSnapshot is a backup of the jam control-plane CONFIG aggregates only:
 // actors (with their token hashes and grants), roles, kits (all versions + the
@@ -32,8 +36,10 @@ type ConfigSnapshot struct {
 	Version      int                        `json:"version"`
 	ExportedAt   time.Time                  `json:"exported_at"`
 	Actors       []Actor                    `json:"actors"`
-	Roles        map[string]map[string]Role `json:"roles"` // project → name → Role
-	Kits         []Kit                      `json:"kits"`  // full: Current + all Versions
+	Roles        map[string]map[string]Role `json:"roles"`               // project → name → Role
+	Kits         []Kit                      `json:"kits"`                // full: Current + all Versions
+	KitTrees     []kittree.Tree             `json:"kit_trees,omitempty"` // every tree a kit version references, by hash order
+	KitBlobs     map[string][]byte          `json:"kit_blobs,omitempty"` // every blob those trees name (base64 in JSON)
 	Destinations []Destination              `json:"destinations"`
 	// ModelSpecs is omitted when empty, so pre-model-spec backups and readers
 	// are unaffected (no version bump).
@@ -74,7 +80,16 @@ var ErrUnsupportedConfigVersion = errors.New("unsupported config snapshot versio
 // stable/diffable backup. Runtime state (instances, read cursors) is never
 // read. Safe under the read lock; the returned snapshot shares nothing with the
 // live store.
-func (m *memState) ExportConfig() ConfigSnapshot {
+func (m *memState) ExportConfig() ConfigSnapshot { return m.exportConfig(false) }
+
+// configSnapshot is ExportConfig whose KitBlobs share the store's blob slices
+// (immutable once stored) instead of copying them: the read-only input of
+// in-process scratch state (planner, drift check, export tree). Never hand it
+// out or write to its blobs.
+func (m *memState) configSnapshot() ConfigSnapshot { return m.exportConfig(true) }
+
+// exportConfig is ExportConfig, sharing the blob slices when shareBlobs is set.
+func (m *memState) exportConfig(shareBlobs bool) ConfigSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -100,6 +115,22 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		snap.Kits = append(snap.Kits, copyKit(k))
 	}
 	sort.Slice(snap.Kits, func(i, j int) bool { return snap.Kits[i].Name < snap.Kits[j].Name })
+	live := map[string]bool{}
+	for _, k := range m.kits {
+		for _, sha := range k.Trees {
+			live[sha] = true
+		}
+	}
+	for _, sha := range slices.Sorted(maps.Keys(live)) {
+		t := m.kitTrees[sha]
+		snap.KitTrees = append(snap.KitTrees, kittree.Tree{Entries: slices.Clone(t.Entries)})
+		for _, e := range t.Entries {
+			if snap.KitBlobs == nil {
+				snap.KitBlobs = map[string][]byte{}
+			}
+			snap.KitBlobs[e.SHA256] = m.kitBlobs[e.SHA256] // copied (or not) below
+		}
+	}
 
 	for _, d := range m.dests {
 		snap.Destinations = append(snap.Destinations, copyDestination(d))
@@ -133,14 +164,21 @@ func (m *memState) ExportConfig() ConfigSnapshot {
 		jc := m.jamContext
 		snap.JamContext = &jc
 	}
-	return deepCopySnapshot(snap)
+	return copySnapshot(snap, shareBlobs)
 }
 
-// deepCopySnapshot returns a copy sharing no maps/slices/pointers with s, via a
-// JSON round-trip. The config structs are exactly what the store persists as
-// JSON docs, so marshaling cannot fail in practice; a failure yields the zero
-// snapshot rather than an aliased one.
-func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
+// deepCopySnapshot returns a copy sharing no maps/slices/pointers with s.
+func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot { return copySnapshot(s, false) }
+
+// copySnapshot returns a copy of s sharing no maps/slices/pointers with it,
+// via a JSON round-trip — except, when shareBlobs is set, the KitBlobs byte
+// slices (the map itself is new). Blobs never go through JSON: base64 would
+// cost several times their size. The config structs are exactly what the
+// store persists as JSON docs, so marshaling cannot fail in practice; a
+// failure yields the zero snapshot rather than an aliased one.
+func copySnapshot(s ConfigSnapshot, shareBlobs bool) ConfigSnapshot {
+	blobs := s.KitBlobs
+	s.KitBlobs = nil
 	b, err := json.Marshal(s)
 	if err != nil {
 		return ConfigSnapshot{Version: s.Version}
@@ -148,6 +186,43 @@ func deepCopySnapshot(s ConfigSnapshot) ConfigSnapshot {
 	var out ConfigSnapshot
 	if err := json.Unmarshal(b, &out); err != nil {
 		return ConfigSnapshot{Version: s.Version}
+	}
+	if blobs != nil {
+		out.KitBlobs = make(map[string][]byte, len(blobs))
+		for sha, b := range blobs {
+			if !shareBlobs {
+				b = bytes.Clone(b)
+			}
+			out.KitBlobs[sha] = b
+		}
+	}
+	return out
+}
+
+// importedKitObjects is the part of s's trees and blobs an import keeps:
+// the trees its kits reference and the blobs those trees name. The rest is
+// dropped, as GC would.
+func importedKitObjects(s ConfigSnapshot) KitObjects {
+	live := map[string]bool{}
+	for _, k := range s.Kits {
+		for _, sha := range k.Trees {
+			live[sha] = true
+		}
+	}
+	var out KitObjects
+	for _, t := range s.KitTrees {
+		if !live[t.Hash()] {
+			continue
+		}
+		out.Trees = append(out.Trees, t)
+		for _, e := range t.Entries {
+			if b, ok := s.KitBlobs[e.SHA256]; ok {
+				if out.Blobs == nil {
+					out.Blobs = map[string][]byte{}
+				}
+				out.Blobs[e.SHA256] = b
+			}
+		}
 	}
 	return out
 }
@@ -168,6 +243,11 @@ func checkImport(m *memState, s ConfigSnapshot) error {
 	}
 	if err := validateSnapshotProjectRefs(s); err != nil {
 		return err
+	}
+	// Against an empty state: every tree a kit names comes with the snapshot
+	// (the import replaces whatever unreferenced objects the target holds).
+	if err := checkKitObjects(newMemState(), s.Kits, KitObjects{Trees: s.KitTrees, Blobs: s.KitBlobs}); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	return validateSnapshotContext(s)
 }
@@ -392,11 +472,13 @@ func withReferencedProjects(s ConfigSnapshot) ConfigSnapshot {
 	return s
 }
 
-// applyImport overwrites the config maps from a (deep-copied) snapshot. Caller
-// holds the write lock and has already validated with checkImport. State maps
-// (instances, read cursors, channel members) are untouched.
+// applyImport overwrites the config maps from a snapshot. Caller holds the
+// write lock and has already validated with checkImport. State maps
+// (instances, read cursors, channel members) are untouched. Everything is
+// copied except the blob slices, which m shares with s: s is an import's own
+// deep copy (importPlan) or the read-only input of scratch state.
 func applyImport(m *memState, s ConfigSnapshot) {
-	s = withReferencedProjects(deepCopySnapshot(s))
+	s = withReferencedProjects(copySnapshot(s, true))
 	m.actors = map[string]Actor{}
 	for _, a := range s.Actors {
 		m.actors[a.TokenHash] = a
@@ -413,6 +495,12 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	for _, k := range s.Kits {
 		m.kits[k.Name] = copyKit(k)
 	}
+	m.kitTrees, m.kitBlobs = map[string]kittree.Tree{}, map[string][]byte{}
+	objs := importedKitObjects(s)
+	for _, t := range objs.Trees {
+		m.kitTrees[t.Hash()] = t // s's trees are already copies
+	}
+	maps.Copy(m.kitBlobs, objs.Blobs)
 	m.dests = map[string]Destination{}
 	for _, d := range s.Destinations {
 		m.dests[d.Name] = copyDestination(d)

@@ -2,6 +2,7 @@
 package studio
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -35,14 +36,14 @@ prompt: |
 	if sk.BuildArgs["NODE_VERSION"] != "20" || sk.Secrets["AT_TASK_GIT_TOKEN"].Description == "" {
 		t.Fatalf("bad parse: %+v", sk)
 	}
-	b, err := sk.ToJSON()
+	b, err := json.Marshal(sk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Deterministic: re-marshal equal.
-	b2, _ := sk.ToJSON()
+	b2, _ := json.Marshal(sk)
 	if string(b) != string(b2) {
-		t.Fatal("ToJSON not deterministic")
+		t.Fatal("JSON not deterministic")
 	}
 	if !strings.Contains(string(b), `"kind":"studio"`) {
 		t.Fatalf("canonical JSON missing kind: %s", b)
@@ -98,27 +99,14 @@ build-args:
 			wantErr: "reserved secret name",
 		},
 		{
-			name: "base image and context-files both set",
+			name: "base image and kit both set",
 			desc: "more than one base form is set (mutually exclusive)",
 			data: []byte(`kind: studio
-name: web
 base:
   image: ghcr.io/acme/web:latest
-  context-files:
-    dockerfile: "FROM x"
+  kit: web
 `),
-			wantErr: "exactly one",
-		},
-		{
-			name: "context-files without a dockerfile",
-			desc: "base.context-files is missing its required dockerfile",
-			data: []byte(`kind: studio
-name: web
-base:
-  context-files:
-    readme.txt: hello
-`),
-			wantErr: "dockerfile` file is required",
+			wantErr: "mutually exclusive",
 		},
 	}
 
@@ -137,7 +125,7 @@ base:
 
 func TestStudioKitJSONRoundTrip(t *testing.T) {
 	// Regression test: a StudioKit with build-args must survive a JSON round-trip
-	// (ToJSON → ParseStudioKit). This guards against JSON/YAML tag mismatches.
+	// (json.Marshal → ParseStudioKit). This guards against JSON/YAML tag mismatches.
 	sk := StudioKit{
 		Kind: "studio",
 		Base: Base{
@@ -154,9 +142,9 @@ func TestStudioKitJSONRoundTrip(t *testing.T) {
 	}
 
 	// Marshal to JSON.
-	jsonBytes, err := sk.ToJSON()
+	jsonBytes, err := json.Marshal(sk)
 	if err != nil {
-		t.Fatalf("ToJSON: %v", err)
+		t.Fatalf("json.Marshal: %v", err)
 	}
 
 	// Parse back from JSON.
@@ -218,7 +206,7 @@ mcp-servers:
 	if l.Type != "http" || l.URL != "${LINEAR_MCP_URL}" || l.Headers["Authorization"] != "Bearer ${LINEAR_TOKEN}" {
 		t.Fatalf("bad parse: %+v", sk.MCPServers)
 	}
-	b, err := sk.ToJSON()
+	b, err := json.Marshal(sk)
 	if err != nil {
 		t.Fatal(err)
 	}

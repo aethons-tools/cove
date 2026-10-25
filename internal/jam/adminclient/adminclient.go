@@ -341,6 +341,14 @@ func (c *Client) PushKit(name, config string) (jam.KitResult, error) {
 	return res, err
 }
 
+// PushKitTree pushes a kit directory, an uncompressed tar of its files
+// (kittree.WriteTar), as kit name's next version.
+func (c *Client) PushKitTree(name string, tarBody []byte) (jam.KitResult, error) {
+	var res jam.KitResult
+	err := c.doRaw("POST", "/admin/kits/"+url.PathEscape(name)+"/versions", "application/x-tar", tarBody, &res)
+	return res, err
+}
+
 // ListKits lists every kit in the registry.
 func (c *Client) ListKits() ([]jam.KitSummary, error) {
 	var out []jam.KitSummary
@@ -930,11 +938,12 @@ func (c *Client) ConfigSync(force bool, planDigest string) (jam.ConfigApplyResul
 }
 
 // ConfigExportTree renders Jam's managed objects (every live one with all)
-// as a config tree, kit contexts as kits/<n>/context/ files (Binary, Prune).
+// as a config tree: its files, the paths to remove, and each kit directory's
+// files at their modes (Kits).
 func (c *Client) ConfigExportTree(all bool) (jam.ConfigTreeExport, error) {
-	path := "/admin/config/export-tree?contexts=files"
+	path := "/admin/config/export-tree"
 	if all {
-		path += "&all=1"
+		path += "?all=1"
 	}
 	var exp jam.ConfigTreeExport
 	err := c.do("GET", path, nil, &exp)
@@ -949,4 +958,23 @@ func (c *Client) ConfigRelease(kind, name string) error {
 		segs[i] = url.PathEscape(s)
 	}
 	return c.do("DELETE", "/admin/config/managed/"+url.PathEscape(kind)+"/"+strings.Join(segs, "/"), nil, nil)
+}
+
+// KitDiff fetches kit name's version diff from → to (0 = the defaults: the
+// version before to, and current).
+func (c *Client) KitDiff(name string, from, to int) (jam.KitDiffResult, error) {
+	q := url.Values{}
+	if from > 0 {
+		q.Set("from", strconv.Itoa(from))
+	}
+	if to > 0 {
+		q.Set("to", strconv.Itoa(to))
+	}
+	path := "/admin/kits/" + url.PathEscape(name) + "/diff"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var d jam.KitDiffResult
+	err := c.do("GET", path, nil, &d)
+	return d, err
 }

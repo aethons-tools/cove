@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 func seedFacts() ImageFacts {
@@ -57,7 +59,7 @@ func TestKitDetailBody(t *testing.T) {
 	ref := mustEnsure(t, st, "base", chainKit("", "b"))
 	k, _ := st.GetKit("base")
 	k.Meta = map[int]KitVersionMeta{ref.Version: {PushedAt: time.Unix(0, 0).UTC(), Source: &KitSource{Repo: "https://x:y@github.com/o/kits", Dir: "base", Ref: "main", Commit: "abcdef0123456789"}}}
-	if err := st.PutKitDocs([]Kit{k}); err != nil {
+	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	got := kitDetailBody(st, []KitRef{ref, {ID: "ghost", Version: 3}}, map[string]string{"GO_VERSION": "1.27", "NPM_TOKEN": "npm_live"})
@@ -69,6 +71,35 @@ func TestKitDetailBody(t *testing.T) {
 	}
 	if strings.Contains(got, "x:y") || strings.Contains(got, "npm_live") {
 		t.Errorf("leak:\n%s", got)
+	}
+}
+
+func TestKitDetailBodyShowsTrees(t *testing.T) {
+	st := NewMemStore()
+	tr := pushTree(t, st, "app", "kit.yml", "kind: studio\n", "Dockerfile", dockerfile)
+	body := kitDetailBody(st, []KitRef{{ID: "app", Version: 1}}, nil)
+	if !strings.Contains(body, "FILES") || !strings.Contains(body, "tree "+tr.Hash()[:12]+", 2 files") {
+		t.Fatalf("body:\n%s", body)
+	}
+	one := pushTree(t, st, "solo", "kit.yml", "kind: studio\n")
+	if body := kitDetailBody(st, []KitRef{{ID: "solo", Version: 1}}, nil); !strings.Contains(body, "tree "+one.Hash()[:12]+", 1 file\n") {
+		t.Fatalf("body:\n%s", body)
+	}
+}
+
+// noTrees is a store whose trees are all missing: a kit doc naming one
+// reads as referenced but not stored.
+type noTrees struct{ Store }
+
+func (noTrees) KitTree(string) (kittree.Tree, bool) { return kittree.Tree{}, false }
+
+// A referenced tree that is not stored is "not loadable", not an empty tree.
+func TestKitDetailBodyUnstoredTreeNotLoadable(t *testing.T) {
+	st := NewMemStore()
+	pushTree(t, st, "app", "kit.yml", "kind: studio\n")
+	body := kitDetailBody(noTrees{st}, []KitRef{{ID: "app", Version: 1}}, nil)
+	if !strings.Contains(body, "not loadable") || strings.Contains(body, "0 files") {
+		t.Fatalf("body:\n%s", body)
 	}
 }
 
@@ -116,7 +147,7 @@ func TestKitDetailScpRepo(t *testing.T) {
 	ref := mustEnsure(t, st, "base", chainKit("", "b"))
 	k, _ := st.GetKit("base")
 	k.Meta = map[int]KitVersionMeta{ref.Version: {PushedAt: time.Unix(0, 0).UTC(), Source: &KitSource{Repo: "git@github.com:o/r", Ref: "main"}}}
-	if err := st.PutKitDocs([]Kit{k}); err != nil {
+	if err := st.PutKitDocs([]Kit{k}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	got := kitDetailBody(st, []KitRef{ref}, nil)

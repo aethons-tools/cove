@@ -89,7 +89,7 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 		wk.Meta[v] = m
 	}
 	wk.Source = src
-	if err := store.PutKitDocs([]Kit{wk}); err != nil {
+	if err := store.PutKitDocs([]Kit{wk}, KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
 	ms := ModelSpec{Name: "spec1", Type: "claude", Version: "2.1.0"}

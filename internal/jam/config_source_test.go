@@ -263,8 +263,8 @@ func TestConcurrentSyncsAndKitPush(t *testing.T) {
 		t.Fatal("deadlock between config syncs, a kit push and a kit sync")
 	}
 	for _, n := range []string{"web", "app", "solo"} {
-		if k, _ := st.GetKit(n); len(k.Versions) != 1 {
-			t.Fatalf("racing syncs wrote %d versions of %s", len(k.Versions), n)
+		if k, _ := st.GetKit(n); len(k.VersionNumbers()) != 1 {
+			t.Fatalf("racing syncs wrote %d versions of %s", len(k.VersionNumbers()), n)
 		}
 	}
 	if res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); err != nil || res.Applied {
@@ -411,9 +411,7 @@ func TestConfigRoundTripWithSourceKit(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for p, body := range exp.Files {
-		mustWrite(t, filepath.Join(dir, filepath.FromSlash(p)), body, 0o644)
-	}
+	writeExport(t, dir, exp)
 	tr, err := LoadConfigTree(dir)
 	if err != nil || len(tr.Refusals) > 0 {
 		t.Fatalf("%v %v", err, tr.Refusals)

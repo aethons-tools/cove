@@ -1,7 +1,6 @@
 package studio
 
 import (
-	"maps"
 	"slices"
 	"strings"
 
@@ -17,14 +16,13 @@ import (
 //
 // The result's Base is the last kit's own Base with Kit cleared. It is for
 // display only: builds walk the chain, not the merged Base. Inputs are not
-// mutated (Base.ContextFiles is cloned shallowly).
+// mutated.
 func Merge(chain []StudioKit) StudioKit {
 	if len(chain) == 0 {
 		return StudioKit{}
 	}
 	out := chain[len(chain)-1]
 	out.Base.Kit = ""
-	out.Base.ContextFiles = maps.Clone(out.Base.ContextFiles)
 	out.Egress = nil
 	out.BuildArgs = nil
 	out.Secrets = nil

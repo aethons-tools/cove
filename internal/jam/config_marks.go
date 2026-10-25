@@ -88,6 +88,7 @@ type ConfigWrite struct {
 	RemoveModelSpecs   []string
 	Kits               []Kit // whole docs, as PutKitDocs
 	RemoveKits         []string
+	KitObjects         KitObjects   // the trees and blobs Kits reference, written in the same transaction
 	Projects           []Project    // upserts; StatusRemoved = a tombstone
 	RemoveMemberships  []Membership // by ProjectID + UserID
 	Memberships        []Membership
@@ -105,7 +106,7 @@ func (w ConfigWrite) Empty() bool {
 	return len(w.Connections)+len(w.Users)+len(w.Accounts)+len(w.Destinations)+len(w.RemoveDestinations)+
 		len(w.ModelSpecs)+len(w.RemoveModelSpecs)+len(w.Kits)+len(w.RemoveKits)+len(w.Projects)+
 		len(w.RemoveMemberships)+len(w.Memberships)+len(w.Channels)+len(w.RemoveRoles)+len(w.Roles)+
-		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil && w.ConfigSource == nil
+		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil && w.ConfigSource == nil && w.KitObjects.empty()
 }
 
 // ListConfigMarks returns the managed marks, sorted by kind, then name.
@@ -128,6 +129,9 @@ func (m *memState) ListConfigMarks() []ConfigMark {
 // checkConfigWrite refuses a write that cannot apply whole. Caller holds mu.
 func checkConfigWrite(m *memState, w ConfigWrite) error {
 	if err := checkKitDocs(w.Kits); err != nil {
+		return fmt.Errorf("config write: %w", err)
+	}
+	if err := checkKitObjects(m, w.Kits, w.KitObjects); err != nil {
 		return fmt.Errorf("config write: %w", err)
 	}
 	if err := checkConfigSource(w.ConfigSource); err != nil {
@@ -291,6 +295,7 @@ func applyConfigWrite(m *memState, w ConfigWrite) {
 	for _, n := range w.RemoveModelSpecs {
 		m.applyRemoveModelSpec(n)
 	}
+	m.applyKitObjects(w.KitObjects)
 	for _, k := range w.Kits {
 		m.kits[k.Name] = copyKit(k)
 	}

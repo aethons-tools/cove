@@ -108,8 +108,8 @@ func TestImportAndTrackRecordProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, _ = st.GetKit("web-dev")
-	if k.Source == nil || k.Source.Commit != "c1" || len(k.Versions) != 1 {
-		t.Fatalf("track: %+v versions=%d", k.Source, len(k.Versions))
+	if k.Source == nil || k.Source.Commit != "c1" || len(k.VersionNumbers()) != 1 {
+		t.Fatalf("track: %+v versions=%d", k.Source, len(k.VersionNumbers()))
 	}
 }
 
@@ -156,8 +156,8 @@ func TestSyncUnchanged(t *testing.T) {
 	if err != nil || !res.Unchanged || res.Commit != "c2" {
 		t.Fatalf("identical content: %+v %v", res, err)
 	}
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 1 || k.Source.Commit != "c2" {
-		t.Fatalf("versions=%d commit=%s", len(k.Versions), k.Source.Commit)
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 1 || k.Source.Commit != "c2" {
+		t.Fatalf("versions=%d commit=%s", len(k.VersionNumbers()), k.Source.Commit)
 	}
 	fetched := f.fetches
 	res, err = SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(21, 5))
@@ -209,7 +209,7 @@ func TestSyncUntrackedAndUntrack(t *testing.T) {
 		t.Fatal(err)
 	}
 	k, _ := st.GetKit("web-dev")
-	if k.Source != nil || len(k.Versions) != 1 {
+	if k.Source != nil || len(k.VersionNumbers()) != 1 {
 		t.Fatalf("untrack: %+v", k)
 	}
 	if _, err := SyncKit(context.Background(), st, f, nil, "web-dev", time.Unix(50, 0)); !errors.Is(err, ErrNotTracked) {
@@ -227,20 +227,13 @@ type failStore struct {
 	failPush, failSet bool
 }
 
-func (s *failStore) PushKitTracked(name, config string, meta KitVersionMeta, track *KitSource) (int, error) {
-	if s.failPush {
-		return 0, errors.New("push failed")
-	}
-	return s.Store.PushKitTracked(name, config, meta, track)
-}
-
 // PutKitDocs fails as the write it stands for: with failPush when any doc
 // adds a version, else (a source-only move) with failSet.
-func (s *failStore) PutKitDocs(kits []Kit) error {
+func (s *failStore) PutKitDocs(kits []Kit, objs KitObjects) error {
 	push := false
 	for _, k := range kits {
 		cur, _ := s.Store.GetKit(k.Name)
-		push = push || len(k.Versions) > len(cur.Versions)
+		push = push || len(k.VersionNumbers()) > len(cur.VersionNumbers())
 	}
 	if push && s.failPush {
 		return errors.New("push failed")
@@ -248,7 +241,7 @@ func (s *failStore) PutKitDocs(kits []Kit) error {
 	if !push && s.failSet {
 		return errors.New("set failed")
 	}
-	return s.Store.PutKitDocs(kits)
+	return s.Store.PutKitDocs(kits, objs)
 }
 
 func (s *failStore) SetKitSource(name string, src *KitSource) error {
@@ -305,8 +298,8 @@ func TestConcurrentSyncsDoNotDuplicate(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if k, _ := st.GetKit("web-dev"); len(k.Versions) != 2 {
-		t.Fatalf("versions=%d, want 2", len(k.Versions))
+	if k, _ := st.GetKit("web-dev"); len(k.VersionNumbers()) != 2 {
+		t.Fatalf("versions=%d, want 2", len(k.VersionNumbers()))
 	}
 	// One fetch for the track, one for the first sync: the rest wait on the
 	// kit lock, then see the commit is current.
@@ -342,7 +335,7 @@ func TestImportOfTrackedSourceAdvancesTrackedCommit(t *testing.T) {
 		t.Fatalf("sync must see c2 as changed: %+v %v", res, err)
 	}
 	k, _ := st.GetKit("web-dev")
-	if cfg, _ := st.KitConfig("web-dev", k.Current); !strings.Contains(cfg, "two") || k.Source.Commit != "c2" {
+	if cfg, _ := testKitYML(st, "web-dev", k.Current); !strings.Contains(cfg, "two") || k.Source.Commit != "c2" {
 		t.Fatalf("not on c2 content: %s %+v", cfg, k.Source)
 	}
 	// The unchanged path too: importing identical content still moves the commit.
@@ -364,11 +357,11 @@ func TestKitLocksPruned(t *testing.T) {
 	}
 }
 
-// A kit whose context-dir is the repo root must not pack Jam's clone
-// metadata: refetching the same commit is then `unchanged`, not a new version.
-func TestImportRootContextDirIsDeterministic(t *testing.T) {
+// A kit directory at the repo root must not read Jam's clone metadata:
+// refetching the same commit is then `unchanged`, not a new version.
+func TestImportRootKitDirIsDeterministic(t *testing.T) {
 	url, _, _ := gittest.Serve(t, map[string]string{
-		"kit.yml":    "kind: studio\nname: rootkit\nbase:\n  context-dir: .\n",
+		"kit.yml":    "kind: studio\nname: rootkit\n",
 		"Dockerfile": "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
 	})
 	st := NewMemStore()
@@ -377,6 +370,9 @@ func TestImportRootContextDirIsDeterministic(t *testing.T) {
 	res, err := ImportKit(context.Background(), st, f, nil, "", src, time.Unix(10, 0))
 	if err != nil || res.Version != 1 || res.Unchanged {
 		t.Fatalf("first import: %+v %v", res, err)
+	}
+	if v, _ := LoadKitVersion(st, "rootkit", 0); len(v.Tree.Entries) != 2 {
+		t.Fatalf("root kit tree %+v (the clone's .git must not be read)", v.Tree.Entries)
 	}
 	res, err = ImportKit(context.Background(), st, f, nil, "", src, time.Unix(11, 0))
 	if err != nil || !res.Unchanged || res.Version != 1 {

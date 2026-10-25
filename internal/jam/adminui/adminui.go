@@ -118,6 +118,9 @@ var funcs = template.FuncMap{
 		return jam.StatusOf(jam.Phase(phase), jam.Activity(activity), hasStudio)
 	},
 	"statusClass": func(s jam.AgentStatus) string { return strings.ReplaceAll(string(s), " ", "-") },
+	// displayText makes stored text's control and format characters visible
+	// (jam.SetupDisplayText); HTML escaping stays the template's.
+	"displayText": jam.SetupDisplayText,
 	// frame, titlebar, apphead, attn, agentHref, managed and driftNote are bound per
 	// render (frameFuncs); these are the defaults a fragment renders with.
 	"frame":      func() frame { return frame{} },

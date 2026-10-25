@@ -74,8 +74,8 @@ func (f *Fetcher) Fetch(ctx context.Context, src Source, fn func(root, commit st
 		return err
 	}
 	// The clone's .git is Jam's (a shallow pack, the remote URL, index
-	// timestamps), not the kit's: drop it so a context-dir of "." packs only
-	// the repo's files and the same commit always packs the same bytes.
+	// timestamps), not the kit's: drop it so a kit directory at the root
+	// reads only the repo's files and the same commit always reads the same.
 	if err := os.RemoveAll(filepath.Join(root, git.GitDirName)); err != nil {
 		return &fetchError{fmt.Errorf("fetch %s: cleaning the checkout: %w", clip(redactURL(src.Repo)), err)}
 	}
@@ -480,8 +480,8 @@ func (fs *capFS) Create(name string) (billy.File, error) {
 }
 
 // OpenFile opens name; a file it creates gets exactly perm (git's 0644 or
-// 0755), past the serve's umask, so a context-dir in the checkout packs the
-// same bytes on every serve.
+// 0755), past the serve's umask, so a kit read from the checkout is the same
+// tree on every serve.
 func (fs *capFS) OpenFile(name string, flag int, perm os.FileMode) (billy.File, error) {
 	f, err := fs.Filesystem.OpenFile(name, flag, perm)
 	if err == nil && flag&os.O_CREATE != 0 {

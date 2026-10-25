@@ -157,13 +157,18 @@ func (r Role) ModelSpecName() string {
 }
 
 // Kit is one named registry entry: immutable, monotonically-numbered versions of
-// a kit config (config.yml text) behind a mutable Current pointer. A Role
+// a kit (each a content-addressed tree, kit_objects.go) behind a mutable Current pointer. A Role
 // references a Kit by name; the name resolves to Current. Pushing a new version
 // advances Current; pinning rolls it to an existing version.
 type Kit struct {
-	Name     string                 `json:"name"`
-	Current  int                    `json:"current"`
-	Versions map[int]string         `json:"versions"`         // version number → config.yml text (immutable)
+	Name    string `json:"name"`
+	Current int    `json:"current"`
+	// Versions is a pre-tree store's config text by version; new versions
+	// never use it, and MigrateKitTrees moves it into Legacy.
+	Versions map[int]string         `json:"versions,omitempty"`
+	Trees    map[int]string         `json:"trees,omitempty"`  // version → tree sha256 (immutable)
+	Broken   map[int]string         `json:"broken,omitempty"` // version → why the migration could not make its tree (fixed text); raising it fails closed
+	Legacy   map[int]string         `json:"legacy,omitempty"` // every migrated version's pre-migration config text, kept for one release
 	Meta     map[int]KitVersionMeta `json:"meta,omitempty"`   // version number → provenance; absent for legacy versions
 	Source   *KitSource             `json:"source,omitempty"` // tracked source; nil = not tracked
 }

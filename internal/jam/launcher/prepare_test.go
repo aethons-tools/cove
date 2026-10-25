@@ -3,9 +3,7 @@ package launcher
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/base64"
 	"errors"
 	"io"
 	"os"
@@ -16,20 +14,17 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
-// untarNames reads a tar.gz into a name→content map (test-side assertion of the
+// untarNames reads a tar into a name→content map (test-side assertion of the
 // streamed context docker would extract).
 func untarNames(t *testing.T, raw []byte) map[string]string {
 	t.Helper()
-	gr, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		t.Fatalf("gzip: %v", err)
-	}
-	tr := tar.NewReader(gr)
+	tr := tar.NewReader(bytes.NewReader(raw))
 	out := map[string]string{}
 	for {
 		hdr, err := tr.Next()
@@ -145,100 +140,6 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 	}
 }
 
-func sp(s string) *string { return &s }
-
-// A context-files base is produced as a context tar (Dockerfile + nested files),
-// scanned, streamed to the backend's `docker build -`, and gated; the kit image
-// is built FROM the resolved base.
-func TestPrepareStudioKitContextFilesBase(t *testing.T) {
-	ops := &fakeOps{resolvedTarBase: "blessed-df@sha256:aaa"}
-	l := New(Config{
-		Ops: ops, Runner: &runner.Fake{},
-		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		BuildRoot: t.TempDir(), Inventory: &fakeInv{},
-		assemble: func(KitDefinition, string) error { return nil },
-		sleep:    func(time.Duration) {},
-	})
-	df := "FROM ${COVE_BASE_IMAGE}\nRUN echo hi"
-	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
-		ContextFiles: studio.ContextTree{
-			"dockerfile": {File: sp(df)},
-			"scripts":    {Dir: studio.ContextTree{"setup.sh": {File: sp("echo setup")}}},
-		},
-	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
-	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
-	if err != nil || st.State != KitReady {
-		t.Fatalf("PrepareKit = %+v, %v", st, err)
-	}
-	// The context tar streamed to the backend carries the authored tree (the
-	// reserved `dockerfile` as a root Dockerfile, nested files under their paths).
-	files := untarNames(t, ops.resolvedTar)
-	if files["Dockerfile"] != df {
-		t.Fatalf("streamed Dockerfile = %q, want the authored one", files["Dockerfile"])
-	}
-	if files["scripts/setup.sh"] != "echo setup" {
-		t.Fatalf("streamed nested context file = %q", files["scripts/setup.sh"])
-	}
-	if ops.builtBase != "blessed-df@sha256:aaa" {
-		t.Fatalf("kit image built FROM %q, want the gated context base", ops.builtBase)
-	}
-	if ops.builtTag != l.imageTag(ref) {
-		t.Fatalf("image tag = %q, want the build-digest tag", ops.builtTag)
-	}
-}
-
-// A stored base64 tar.gz context is decoded, scanned, and streamed to the
-// backend's `docker build -`, then gated; the kit image is built FROM the base.
-func TestPrepareStudioKitTarContextBase(t *testing.T) {
-	ops := &fakeOps{resolvedTarBase: "blessed-tar@sha256:bbb"}
-	l := New(Config{
-		Ops: ops, Runner: &runner.Fake{},
-		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		BuildRoot: t.TempDir(), Inventory: &fakeInv{},
-		assemble: func(KitDefinition, string) error { return nil },
-		sleep:    func(time.Duration) {},
-	})
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-	for _, e := range []struct{ name, body string }{
-		{"Dockerfile", "FROM ${COVE_BASE_IMAGE}\n"},
-		{"app/main.go", "package main\n"},
-	} {
-		if err := tw.WriteHeader(&tar.Header{Name: e.name, Mode: 0o644, Size: int64(len(e.body)), Typeflag: tar.TypeReg}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tw.Write([]byte(e.body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	raw := buf.Bytes()
-	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
-		Context: base64.StdEncoding.EncodeToString(raw),
-	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
-	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
-	if err != nil || st.State != KitReady {
-		t.Fatalf("PrepareKit = %+v, %v", st, err)
-	}
-	if !bytes.Equal(ops.resolvedTar, raw) {
-		t.Fatalf("streamed context must be the stored tar bytes verbatim")
-	}
-	if got := untarNames(t, ops.resolvedTar)["app/main.go"]; got != "package main\n" {
-		t.Fatalf("streamed nested file = %q", got)
-	}
-	if ops.builtBase != "blessed-tar@sha256:bbb" {
-		t.Fatalf("kit image built FROM %q, want the gated tar base", ops.builtBase)
-	}
-}
-
 // An unblessed context base fails the prepare loudly (gate ON, fail-closed): the
 // kit image is never built.
 func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
@@ -250,11 +151,8 @@ func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
 		assemble: func(KitDefinition, string) error { return nil },
 		sleep:    func(time.Duration) {},
 	})
-	sk := studio.StudioKit{Kind: studio.Kind, Base: studio.Base{
-		ContextFiles: studio.ContextTree{"dockerfile": {File: sp("FROM scratch")}},
-	}}
-	ref := KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(sk, harnessinstall.Default())}
-	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: ref, Kit: sk})
+	link := treeLink(t, "web", 1, "kit.yml", "kind: studio\n", "Dockerfile", "FROM scratch\n")
+	st, err := l.PrepareKit(context.Background(), KitDefinition{Ref: link.Ref, Kit: link.Kit, Chain: []jam.KitLink{link}})
 	if err == nil || st.State == KitReady {
 		t.Fatalf("want a fail-closed prepare, got st=%+v err=%v", st, err)
 	}

@@ -556,8 +556,9 @@ func TestAdminRejectsNonLoopback(t *testing.T) {
 
 func TestAdminKitsCRUD(t *testing.T) {
 	h, _ := newTestAdmin(t)
-	// push v1, v2 — two valid, distinct configs (config RoE: parsed as YAML,
-	// stored as JSON). v2 adds an egress domain so the versions differ.
+	// push v1, v2 — two valid, distinct configs (parsed and validated as a
+	// studio kit, stored as kit.yml byte for byte). v2 adds an egress domain
+	// so the versions differ.
 	var r1 KitResult
 	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\n"}), &r1)
 	if r1.Version != 1 {
@@ -568,9 +569,9 @@ func TestAdminKitsCRUD(t *testing.T) {
 	if r2.Version != 2 {
 		t.Fatalf("push v2 = %+v", r2)
 	}
-	// re-pushing the current definition makes no new version
+	// re-pushing the current kit.yml makes no new version
 	var r3 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress: [example.com]\n"}), &r3)
+	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress:\n  - example.com\n"}), &r3)
 	if r3.Version != 2 || !r3.Unchanged {
 		t.Fatalf("unchanged push = %+v, want v2 unchanged", r3)
 	}
@@ -588,18 +589,16 @@ func TestAdminKitsCRUD(t *testing.T) {
 	if len(kits) != 1 || kits[0].Current != 2 || kits[0].Versions != 2 {
 		t.Fatalf("list = %+v", kits)
 	}
-	// show current + specific version — stored form is canonical JSON
+	// show current + specific version — stored form is kit.yml as pushed
 	var cur KitConfigResult
 	getJSON(t, h, "/admin/kits/web", &cur)
-	if cur.Version != 2 || !json.Valid([]byte(cur.Config)) ||
-		strings.Contains(cur.Config, `"name"`) || !strings.Contains(cur.Config, "example.com") {
-		t.Fatalf("show current = %+v (want canonical JSON with example.com)", cur)
+	if cur.Version != 2 || cur.Config != "kind: studio\negress:\n  - example.com\n" || cur.Tree == "" || len(cur.Files) != 1 {
+		t.Fatalf("show current = %+v (want the pushed kit.yml, one file)", cur)
 	}
 	var old KitConfigResult
 	getJSON(t, h, "/admin/kits/web?version=1", &old)
-	if old.Version != 1 || !json.Valid([]byte(old.Config)) ||
-		strings.Contains(old.Config, `"name"`) || strings.Contains(old.Config, "example.com") {
-		t.Fatalf("show v1 = %+v (want canonical JSON without example.com)", old)
+	if old.Version != 1 || old.Config != "kind: studio\nname: web\n" {
+		t.Fatalf("show v1 = %+v (want the pushed kit.yml)", old)
 	}
 	// versions
 	var vers []int

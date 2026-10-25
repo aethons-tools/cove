@@ -7,6 +7,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // TruncateAllForTest clears every control-plane table and resets the in-memory
@@ -14,7 +15,7 @@ import (
 // reusing the connection pool. Test-only: compiled only under the integration
 // build tag.
 func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instance_setup, instances, destinations, model_specs, projects, standing_sessions, share_grants, push_subscriptions, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants, config_marks`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE channel_reads, channel_members, channel_bindings, channels, actors, roles, kits, instance_setup, instances, destinations, model_specs, projects, standing_sessions, share_grants, push_subscriptions, legacy_human_aliases, memberships, accounts, connections, user_oidc, user_logins, users, participants, config_marks, kit_trees, kit_blobs`); err != nil {
 		return err
 	}
 	// The Jam context lives in jam_settings, which is not truncated (it also
@@ -29,6 +30,8 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.dests = map[string]Destination{}
 	s.specs = map[string]ModelSpec{}
 	s.kits = map[string]Kit{}
+	s.kitTrees = map[string]kittree.Tree{}
+	s.kitBlobs = map[string][]byte{}
 	s.instances = map[string]Instance{}
 	s.projects = map[string]Project{}
 	s.removedProjects = map[ident.ID]Project{}

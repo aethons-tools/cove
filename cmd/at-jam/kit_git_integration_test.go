@@ -64,9 +64,9 @@ func runKitAt(adminURL, sub string, args ...string) (int, string, string) {
 func TestKitGitEndToEnd(t *testing.T) {
 	const token = "s3cret-kit-token-e2e"
 	repo, first, update := gittest.Serve(t, map[string]string{
-		"web/kit.yml":          "kind: studio\nbase:\n  context-dir: image\nnotes:\n  - name: guide.md\n    read-when: always\n    file: docs/guide.md\n",
-		"web/image/Dockerfile": "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
-		"web/docs/guide.md":    "the first guide",
+		"web/kit.yml":       "kind: studio\nnotes:\n  - name: guide.md\n    read-when: always\n    file: docs/guide.md\n",
+		"web/Dockerfile":    "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
+		"web/docs/guide.md": "the first guide",
 	}, gittest.WithAuth("git", token))
 	store := jam.NewMemStore()
 	admin, logs := kitGitJam(t, store, repo, token)
@@ -82,8 +82,8 @@ func TestKitGitEndToEnd(t *testing.T) {
 	if code != 0 || !strings.HasPrefix(out, header) {
 		t.Fatalf("show: code=%d stderr=%q\n%s", code, errb, out)
 	}
-	if !strings.Contains(out, "    context: ") || !strings.Contains(out, "the first guide") {
-		t.Errorf("show: packed context or inlined note missing:\n%s", out)
+	if !strings.Contains(out, "body: the first guide") || !strings.Contains(out, "  Dockerfile\n") {
+		t.Errorf("show: inlined note or file list missing:\n%s", out)
 	}
 
 	second := update(map[string]string{"web/docs/guide.md": "the second guide"})

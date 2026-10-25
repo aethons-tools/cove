@@ -18,7 +18,7 @@ import (
 // credExists and poolConfigured feed ValidateModelSpec's principal check. Audit
 // logs carry the operator, name and type only — never provider-env or settings.
 func WithModelSpecs(store Store, credExists func(string) bool, poolConfigured bool, log *slog.Logger) AdminOption {
-	return func(mux *http.ServeMux) {
+	return func(mux *adminMux) {
 		mux.HandleFunc("GET /admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, store.ListModelSpecs())
 		})

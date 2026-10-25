@@ -109,8 +109,8 @@ so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. A
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the `at-jam` binary and the launcher's key), with
 **no source kit directory**, so the build can move to a remote substrate. The
-[session context](session-context.md) is compiled at raise, outside the image. A Dockerfile-context base
-is not yet buildable (deferred).
+[session context](session-context.md) is compiled at raise, outside the image. A kit's own stage is built
+from its directory ([kits-directory.md](kits-directory.md)).
 
 ### Egress drift
 

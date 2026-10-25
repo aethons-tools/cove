@@ -12,7 +12,6 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionview"
-	"github.com/aethons-tools/cove/internal/studio"
 )
 
 const (
@@ -166,7 +165,8 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 	for _, k := range store.ListKits() {
 		fields := []string{k.Name}
 		sub := "current v" + itoa(k.Current)
-		if sk, err := studio.ParseStudioKit([]byte(k.Versions[k.Current])); err == nil {
+		if cur, ok := jam.LoadKitVersion(store, k.Name, 0); ok && cur.Err == nil {
+			sk := cur.Kit
 			fields = append(append(fields, sk.Prompt), sk.Egress...)
 			if sk.Prompt != "" {
 				sub += " · " + sessionview.Clip(sk.Prompt, 90)

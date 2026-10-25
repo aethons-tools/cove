@@ -12,35 +12,25 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-// The chain kits: parent builds on the seeded default (the blessed base),
-// child builds on parent and needs parent's file to exist in its stage.
-const (
-	chainParentKit = `kind: studio
-base:
-  kit: default
-  context-files:
-    dockerfile: |
-      ARG COVE_BASE_IMAGE
-      FROM ${COVE_BASE_IMAGE}
-      RUN mkdir -p /opt && echo parent > /opt/parent
-`
-	chainChildKit = `kind: studio
-base:
-  kit: chain-parent
-  context-files:
-    dockerfile: |
-      ARG COVE_BASE_IMAGE
-      FROM ${COVE_BASE_IMAGE}
-      RUN test -f /opt/parent && echo child > /opt/child
-`
-	// hardeningMarker is a command only the sealed hardening layer runs (not
-	// cove-base-image): the layer that re-owns the agent's .ssh. Exactly one
-	// history entry of the final image must carry it.
-	hardeningMarker = "chown -R agent:agent /home/agent/.ssh"
+// The chain kits, each a kit directory (kit.yml + Dockerfile): parent builds
+// on the seeded default (the blessed base), child builds on parent and needs
+// parent's file to exist in its stage.
+var (
+	chainParentKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: default\n",
+		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN mkdir -p /opt && echo parent > /opt/parent\n")
+	chainChildKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: chain-parent\n",
+		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN test -f /opt/parent && echo child > /opt/child\n")
 )
+
+// hardeningMarker is a command only the sealed hardening layer runs (not
+// cove-base-image): the layer that re-owns the agent's .ssh. Exactly one
+// history entry of the final image must carry it.
+const hardeningMarker = "chown -R agent:agent /home/agent/.ssh"
 
 // TestChainBuildTwoLevels builds default → chain-parent → chain-child for real
 // on a docker daemon: each stage builds FROM the previous one and the harness
@@ -66,11 +56,14 @@ func TestChainBuildTwoLevels(t *testing.T) {
 	if _, err := jam.EnsureDefaultStudioKit(store); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []struct{ name, config string }{
+	for _, k := range []struct {
+		name  string
+		files []kittree.File
+	}{
 		{"chain-parent", chainParentKit},
 		{"chain-child", chainChildKit},
 	} {
-		if _, _, err := jam.PushStudioKit(store, k.name, k.config); err != nil {
+		if _, _, err := jam.PushKitFiles(store, k.name, k.files); err != nil {
 			t.Fatalf("push %s: %v", k.name, err)
 		}
 	}

@@ -18,7 +18,7 @@ func chainKit(parent, prompt string) studio.StudioKit {
 
 func mustEnsure(t *testing.T, st Store, name string, sk studio.StudioKit) KitRef {
 	t.Helper()
-	ref, _, err := ensureStudioKit(st, name, sk)
+	ref, _, err := pushKit(st, name, sk)
 	if err != nil {
 		t.Fatalf("ensure %s: %v", name, err)
 	}
@@ -89,7 +89,7 @@ func TestResolveKitChainCycle(t *testing.T) {
 	st := NewMemStore()
 	mustEnsure(t, st, "a", chainKit("", ""))
 	mustEnsure(t, st, "b", chainKit("a", ""))
-	_, _, err := ensureStudioKit(st, "a", chainKit("b", ""))
+	_, _, err := pushKit(st, "a", chainKit("b", ""))
 	if err == nil || err.Error() != "cycle: a → b → a" || WriteStatus(err, 500) != http.StatusBadRequest {
 		t.Fatalf("%v", err)
 	}
@@ -104,7 +104,7 @@ func TestResolveKitChainTooDeep(t *testing.T) {
 	mustEnsure(t, st, "c", chainKit("d", ""))
 	mustEnsure(t, st, "b", chainKit("c", ""))
 	mustEnsure(t, st, "a", chainKit("b", "")) // four links: allowed
-	_, _, err := ensureStudioKit(st, "top", chainKit("a", ""))
+	_, _, err := pushKit(st, "top", chainKit("a", ""))
 	if err == nil || err.Error() != "kit chain too deep (max 4): top → a → b → c → d" || WriteStatus(err, 500) != http.StatusBadRequest {
 		t.Fatalf("%v", err)
 	}
@@ -116,7 +116,7 @@ func TestResolveKitChainTooDeep(t *testing.T) {
 func TestEnsureKitMergedBudgets(t *testing.T) {
 	st := NewMemStore()
 	mustEnsure(t, st, "p", chainKit("", strings.Repeat("x", 500)))
-	_, _, err := ensureStudioKit(st, "c", chainKit("p", strings.Repeat("y", 500)))
+	_, _, err := pushKit(st, "c", chainKit("p", strings.Repeat("y", 500)))
 	want := studio.Merge([]studio.StudioKit{chainKit("", strings.Repeat("x", 500)), chainKit("", strings.Repeat("y", 500))}).CheckPrompt()
 	if want == nil || err == nil || err.Error() != want.Error() || WriteStatus(err, 500) != http.StatusBadRequest {
 		t.Fatalf("prompt: %v (want %v)", err, want)
@@ -129,7 +129,7 @@ func TestEnsureKitMergedBudgets(t *testing.T) {
 		child.Notes = append(child.Notes, studio.KitNote{Name: "c" + string(rune('a'+i)) + ".md", ReadWhen: "w", Body: "b"})
 	}
 	mustEnsure(t, st, "n", parent)
-	_, _, err = ensureStudioKit(st, "nc", child)
+	_, _, err = pushKit(st, "nc", child)
 	want = studio.Merge([]studio.StudioKit{parent, child}).CheckNotes()
 	if want == nil || err == nil || err.Error() != want.Error() || WriteStatus(err, 500) != http.StatusBadRequest {
 		t.Fatalf("notes: %v (want %v)", err, want)
@@ -153,7 +153,7 @@ func TestEnsureKitRecordsParent(t *testing.T) {
 	}
 	// the child is not re-pushed when its parent moves
 	mustEnsure(t, st, "p", chainKit("", "c"))
-	if _, unchanged, err := ensureStudioKit(st, "c", chainKit("p", "")); err != nil || !unchanged {
+	if _, unchanged, err := pushKit(st, "c", chainKit("p", "")); err != nil || !unchanged {
 		t.Fatalf("unchanged=%v err=%v", unchanged, err)
 	}
 	if k, _ := st.GetKit("c"); k.Current != 1 {
@@ -200,5 +200,22 @@ func TestPathParentRefusedOutsideGitImport(t *testing.T) {
 	}
 	if _, err := ResolveKitChain(store, "child", studio.StudioKit{Kind: "studio", Base: studio.Base{Kit: "../web"}}); err == nil || !errors.Is(err, ErrKitChain) {
 		t.Fatalf("resolve: want chain error, got %v", err)
+	}
+}
+
+// A parent whose own error already names it (a broken migrated version) is
+// not named twice: the chain error places "(parent of …)" after the name.
+func TestResolveKitChainBrokenParentNamedOnce(t *testing.T) {
+	st := NewMemStore()
+	if err := st.PutKitDocs([]Kit{legacyDoc("p", `{"kind":"studio"}`, `{"kind":"studio","base":{"context":"!!not base64"}}`)}, KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ResolveKitChain(st, "c", chainKit("p@v2", ""))
+	const want = "kit p@v2 (parent of c) could not be migrated to a tree: its base.context is not valid base64"
+	if !errors.Is(err, ErrKitChain) || err.Error() != want {
+		t.Fatalf("got  %v\nwant %s", err, want)
 	}
 }
