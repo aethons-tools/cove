@@ -258,7 +258,10 @@ type Supervisor struct {
 	exposureSink ExposureSink
 	// previews: studio previews are enabled on this Jam (SetPreviewsEnabled).
 	previews bool
-	notifyMu sync.Mutex // orders sink deliveries (see notifyExposures)
+	// draftBuilds runs kit draft test builds, and the images draft studios
+	// run (SetKitDraftBuilds); nil → both are unavailable (503).
+	draftBuilds *KitDraftBuilds
+	notifyMu    sync.Mutex // orders sink deliveries (see notifyExposures)
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -283,6 +286,20 @@ func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
 // SetTunnelCloser installs the tunnel closer after construction. Like the
 // control sink it is set once at wiring time; nil-safe throughout.
 func (s *Supervisor) SetTunnelCloser(c TunnelCloser) { s.tunnels = c }
+
+// SetKitDraftBuilds wires the kit draft test builds: the one registry the
+// admin build routes and a draft studio's raise both use. Set once at
+// wiring, before serving.
+func (s *Supervisor) SetKitDraftBuilds(b *KitDraftBuilds) { s.draftBuilds = b }
+
+// KitDraftBuilds is the registry SetKitDraftBuilds wired; nil when none was
+// (no launcher that builds images) or s is nil.
+func (s *Supervisor) KitDraftBuilds() *KitDraftBuilds {
+	if s == nil {
+		return nil
+	}
+	return s.draftBuilds
+}
 
 // SetTailReader wires the squawk log tail source used to baseline WaitSeq on
 // entering Waiting (and CommitSeq at Raise). Called once at wiring time before

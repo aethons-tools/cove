@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,4 +111,28 @@ func (c *Client) PublishKitDraft(name string, pin bool, etag string) (jam.KitDra
 	var res jam.KitDraftPublish
 	_, err = c.sendHeaders(c.draftClient(0), "POST", draftPath(name)+"/publish", "application/json", body, ifMatch(etag), &res)
 	return res, err
+}
+
+func draftBuildPath(name string) string { return draftPath(name) + "/build" }
+
+// StartKitDraftBuild starts a test build of kit name's draft at etag (202).
+func (c *Client) StartKitDraftBuild(name, etag string) (jam.KitDraftBuild, error) {
+	var b jam.KitDraftBuild
+	_, err := c.sendHeaders(c.draftClient(0), "POST", draftBuildPath(name), "application/json", []byte("{}"), ifMatch(etag), &b)
+	return b, err
+}
+
+// KitDraftBuildStatus is kit name's latest draft build, its log from offset since.
+func (c *Client) KitDraftBuildStatus(name string, since int64) (jam.KitDraftBuild, error) {
+	var b jam.KitDraftBuild
+	_, err := c.sendHeaders(c.draftClient(0), "GET", draftBuildPath(name)+"?since="+strconv.FormatInt(since, 10), "", nil, nil, &b)
+	return b, err
+}
+
+// CancelKitDraftBuild stops kit name's running draft build and answers it
+// once stopped (a docker build may take seconds to stop).
+func (c *Client) CancelKitDraftBuild(name string) (jam.KitDraftBuild, error) {
+	var b jam.KitDraftBuild
+	_, err := c.sendHeaders(c.draftClient(time.Minute), "DELETE", draftBuildPath(name), "", nil, nil, &b)
+	return b, err
 }

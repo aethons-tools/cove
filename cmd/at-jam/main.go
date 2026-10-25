@@ -2168,6 +2168,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Before Run: session context (compiled from Run's goroutines) says
 	// whether the expose tools work.
 	sup.SetPreviewsEnabled(previewURL != nil)
+	// Kit draft test builds, and the images draft studios run, build under
+	// buildCtx; SIGINT/SIGTERM cancels them before serve exits. The one
+	// registry is the supervisor's: the admin build routes read it there.
+	buildCtx, stopBuilds := context.WithCancel(context.Background())
+	var draftBuilds *jam.KitDraftBuilds
+	if b, ok := lch.(jam.KitDraftBuilder); ok {
+		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, b, log)
+		sup.SetKitDraftBuilds(draftBuilds)
+	}
+	go stopBuildsOnSignal(shutdownSignals(), stopBuilds, draftBuilds, log, dieBySignal)
 	go sup.Run(context.Background())
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and

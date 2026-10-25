@@ -1,7 +1,7 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs and the open, status, discard, file read/write/remove and publish API.
-read_when: You want to open, inspect, edit, discard or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415 or 428.
-owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files and publish included) and their audit lines
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, the `kit draft open|status|get|put|rm|sync|publish|discard` verbs and the open, status, discard, file read/write/remove, publish and build API.
+read_when: You want to open, inspect, edit, discard, test-build or publish a kit's draft with `at-jam kit draft` or over the admin API (`/admin/kits/{name}/draft`), or a draft call answered 409, 412, 413, 415, 428 or 503.
+owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines
 prereqs: kits.md, kits-directory.md
 tier: leaf
 updated: 2026-10-25
@@ -71,6 +71,32 @@ and closes the draft.
   the publish still answers 200, its `warning` (after any drift warning, `; `
   between) `published v<N>; the draft could not be closed — discard it`.
 
+## Test build
+
+A **test build** builds the draft's image the way a raise does: the parent
+chain (its stages reused as usual), the harness, the sealed hardening layer
+and the build args, with the draft's files as the kit's own stage. Nothing
+is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
+stage `…-stage`), never a version's image or stage tag. It needs a launcher
+that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one the build routes
+answer 503 `test builds need a launcher that builds images (runtime.launcher)`.
+
+- It builds the draft at the ETag you send (`If-Match`), under the default
+  harness. A draft with problems is refused (400
+  `draft <kit> has problems: …`) before anything builds.
+- One build per kit at a time. Another start answers 409
+  `kit <kit> already has a draft build running`.
+- The log is docker's output plus `== …` lines. Jam keeps its last 1 MiB in
+  memory only; a restart loses it, and the state is then `unknown`. It holds
+  whatever a Dockerfile prints, so clients show it escaped.
+- Editing the draft does not stop a build: it finishes on the tree it
+  started from. `current` says whether that tree is still the draft's, and
+  `draft_etag` is the draft's ETag now.
+- Stopping Jam (SIGINT or SIGTERM) cancels running builds: `failed`,
+  `cancelled: Jam is shutting down`. Jam waits up to 15 s for them to stop
+  (a second signal stops it at once), then exits by the signal. Draft images
+  are not collected: remove old `cove-kit-draft` images with `docker image rm`.
+
 ## The `kit draft` verbs
 
 ```
@@ -119,6 +145,9 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
 | `PUT /admin/kits/{name}/draft` | Replace the whole tree with an uncompressed tar (`If-Match`; `application/x-tar`, else 415), read and filtered by its `.dockerignore` as a push upload is: see [kits-directory.md](kits-directory.md). 400 for a refused tar, 413 past the upload cap; `kit.yml` may be absent (a problem, not a refusal). |
 | `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `tree`, `base`, `pinned`, `drift`, `warning`. |
+| `POST /admin/kits/{name}/draft/build` | Start a test build (`If-Match`; `application/json`, else 415). 202 with the build: `id`, `tree`, `state`, `tag`. 409 when one is running; 400 for problems. |
+| `GET /admin/kits/{name}/draft/build[?since=N]` | The latest build (`no-store`): `state` (`running`, `succeeded`, `failed`, `unknown`), `tree`, `tag`, `digest` (the image id), `error`, `started_at`, `finished_at`, `current`, `draft_etag`, and the `log` from offset N (`log_from`, `log_end` for the next `since`, `log_skipped` when bytes were dropped); 400 `since must be a log offset (0 or more)`. |
+| `DELETE /admin/kits/{name}/draft/build` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one
@@ -131,7 +160,10 @@ Each write that changes the draft logs `kit draft opened|saved|discarded`
 with the kit, the operator and the tree's first 12 hex digits (a save also
 the count of files `changed`), never content or a path. A publish logs
 `kit draft published` with the kit, the operator, the new `version`, the
-`base`, the `tree` prefix, the count `pinned` and `drift`. A store failure
+`base`, the `tree` prefix, the count `pinned` and `drift`. A build logs `kit draft build requested` and `kit draft build cancelled`
+(the kit, the operator, the build id), and `kit draft build started` and
+`kit draft build finished` (the kit, the tree prefix, the build id, its
+state), never log content. A store failure
 answers a fixed 500 `internal error` and logs `kit draft: store error` (at
 error, with the method and route); a draft not closed after a publish logs
 `kit draft: published but not closed` at warn.

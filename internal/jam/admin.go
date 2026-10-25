@@ -1042,6 +1042,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
 	registerKitDrafts(mux, store, log)
+	registerKitDraftBuilds(mux, sup.KitDraftBuilds, log)
 
 	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
