@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -72,12 +73,22 @@ func draftEditorFor(store jam.Store, kit, p string) (*draftEditor, error) {
 	return ed, nil
 }
 
-// maskedKitYML reports whether the kit page would mask kit.yml text data
-// (maskKitYML): the editor never shows such a text, as no page does.
+// maskedKitYML reports whether kit.yml text data may hold a packed context
+// the editor must not show: one maskKitYML masks in place, or a text it hides
+// whole that also carries a long base64 run. A text hidden whole only for
+// mentioning "context" (say a half-edited draft that doesn't parse) opens.
 func maskedKitYML(data []byte) bool {
-	_, how := maskKitYML(string(data))
-	return how != maskNone
+	switch _, how := maskKitYML(string(data)); how {
+	case maskPartial:
+		return true
+	case maskWhole:
+		return base64Run.Match(data)
+	}
+	return false
 }
+
+// base64Run matches a run of base64 long enough to be a packed context.
+var base64Run = regexp.MustCompile(`[A-Za-z0-9+/]{48,}={0,2}`)
 
 // openDraftFile sets v's editor to file p, or FileMissing when the draft has
 // no such file or p is unsafe (never named); another error is a store fault.
