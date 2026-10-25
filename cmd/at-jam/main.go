@@ -934,6 +934,15 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam kit diff: expected one kit name")
 			return 2
 		}
+		for _, f := range []struct {
+			key string
+			n   int
+		}{{"from", *from}, {"to", *to}} {
+			if f.n < 0 {
+				fmt.Fprintln(stderr, "at-jam kit diff: "+f.key+" must be a version number")
+				return 2
+			}
+		}
 		d, err := c.KitDiff(pos[0], *from, *to)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)

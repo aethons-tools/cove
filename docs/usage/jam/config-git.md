@@ -112,13 +112,13 @@ no create/update/delete/adopt and no `forget` prints `nothing to apply` and does
 A kit's plan entry compares its `kit.yml` and its file list (mode, size, sha256, path).
 Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N unchanged`, `unmanaged: …`,
 `serve-config: …`, and a `refused:` block (each refusal indented).
-A kit update prints its version diff (`kit.yml` lines, then the files) under its line; the Config page shows the same.
+A kit update prints its version diff (`kit.yml` lines, then the files) under its line; the Config page shows the same. Same tree, other source: the listing diff (its `# source:` line) instead.
 
 | Action | Meaning |
 |---|---|
 | `create` / `update` | In the repo, absent / different in Jam. A managed mark whose object is gone from Jam and present in the repo is a `create`; absent from both, it is a `forget`. |
 | `forget` | A managed mark whose object is gone from Jam and the repo: apply removes the mark only, so a later unmanaged object of that name stays untouched. Counted as a change (`N forgotten`). |
-| `update` + `(drift)` | The Jam object was edited since the last apply. Printed as a compact line diff (`--- jam` / `+++ repo`); refused without `--force`. A drifted `delete` prints `jam:` and `repo:` blocks, its repo side `(not in the repo)`. |
+| `update` + `(drift)` | The Jam object was edited since the last apply. A kit prints its version diff (Jam's tree → the repo's); any other kind a compact line diff (`--- jam` / `+++ repo`). Refused without `--force`. A drifted `delete` prints `jam:` and `repo:` blocks, its repo side `(not in the repo)`. |
 | `update` + `(not managed)` | The repo copy of an unmanaged Jam object differs: refused (below), printed with the same diff, which the Config page shows too. |
 | `adopt` | An unmanaged Jam object identical to the repo's: marked managed, nothing written. Adopted and updated (`update`) instead of refused: the seeded `claude-default` model spec, and a kit tracking the very repo, dir and ref its `kits/<n>.source.yml` names (its ref moved since Jam synced: a new version at the fetched commit). Never an inline kit or another source. |
 | `delete` | Managed, no longer in the repo. Subject to the guards below. |

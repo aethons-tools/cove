@@ -110,3 +110,43 @@ func loopback(r *http.Request) *http.Request {
 	r.RemoteAddr = "127.0.0.1:1234"
 	return r
 }
+
+func TestKitVersionDiffOneVersion(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := KitVersionDiff(st, "app", 0, 0); err == nil || WriteStatus(err, 500) != 400 || err.Error() != "kit app has only one version" {
+		t.Fatalf("one version: %v", err)
+	}
+	if _, err := KitVersionDiff(st, "app", 1, 1); err == nil || !strings.Contains(err.Error(), "pick two different versions") {
+		t.Fatalf("from == to: %v", err)
+	}
+}
+
+// A version whose tree is not stored answers LoadKitVersion's own fixed error.
+func TestKitVersionDiffUnstoredTree(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := st.GetKit("app")
+	k.Current, k.Trees[2] = 2, strings.Repeat("ab", 32) // the store refuses such a doc; a reader may still see one
+	_, err := KitVersionDiff(kitDocStore{st, k}, "app", 0, 0)
+	if err == nil || WriteStatus(err, 500) != 400 || err.Error() != "kit app@v2: tree abababababab is not stored" {
+		t.Fatalf("unstored: %v", err)
+	}
+}
+
+// kitDocStore serves doc for its kit name, the rest from the MemStore.
+type kitDocStore struct {
+	*MemStore
+	doc Kit
+}
+
+func (s kitDocStore) GetKit(name string) (Kit, bool) {
+	if name == s.doc.Name {
+		return s.doc, true
+	}
+	return s.MemStore.GetKit(name)
+}

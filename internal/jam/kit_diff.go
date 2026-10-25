@@ -16,8 +16,8 @@ type KitDiffResult struct {
 }
 
 // KitVersionDiff diffs kit name's version from → to (to 0 = current; from 0
-// = the version before to). An unknown kit or version is 404; from == to, no
-// earlier version, a broken version (its own fixed error) or a version not
+// = the version before to). An unknown kit or version is 404; a kit with
+// only one version, from == to, no earlier version, a broken version (its own fixed error) or a version not
 // stored as a tree is 400. Only stored trees (validated on write) are
 // diffed.
 func KitVersionDiff(store Store, name string, from, to int) (KitDiffResult, error) {
@@ -34,6 +34,9 @@ func KitVersionDiff(store Store, name string, from, to int) (KitDiffResult, erro
 				from = v
 			}
 		}
+	}
+	if from == 0 && len(k.VersionNumbers()) == 1 {
+		return KitDiffResult{}, writeErr(http.StatusBadRequest, "kit %s has only one version", name)
 	}
 	if from == 0 || from == to {
 		return KitDiffResult{}, writeErr(http.StatusBadRequest, "kit %s: pick two different versions (--from, --to)", name)
@@ -55,7 +58,7 @@ func KitVersionDiff(store Store, name string, from, to int) (KitDiffResult, erro
 		case v.TreeHash == "":
 			return KitDiffResult{}, writeErr(http.StatusBadRequest, "kit %s v%d is not stored as a tree", name, v.Version)
 		case v.Tree.Entries == nil:
-			return KitDiffResult{}, writeErr(http.StatusBadRequest, "kit %s v%d: its tree is not stored", name, v.Version)
+			return KitDiffResult{}, writeErr(http.StatusBadRequest, "%s", v.Err) // LoadKitVersion's fixed "tree … is not stored"
 		}
 	}
 	return KitDiffResult{Name: name, From: from, To: to, Text: kittree.DiffText(a.Tree, b.Tree, store.KitBlob)}, nil

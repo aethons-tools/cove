@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 func configServer(t *testing.T) (string, *jam.MemStore) {
@@ -465,5 +467,73 @@ func TestPrintConfigPlanKitVersionDiff(t *testing.T) {
 	want := "update  kit app\n    kit.yml:\n      -prompt: a\n      +prompt: b\n    files: 1 changed, 0 unchanged\n      mode      run.sh  0644 → 0755\\x1b[2J\n0 unchanged\n"
 	if !strings.HasPrefix(b.String(), want) {
 		t.Errorf("got %q\nwant prefix %q", b.String(), want)
+	}
+}
+
+// planKitDir plans a config dir holding kits/app/kit.yml = kitYML against
+// store as an apply of acme/jam@main.
+func planKitDir(t *testing.T, store jam.Store, kitYML string) jam.ConfigPlan {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "kits", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kits", "app", "kit.yml"), []byte(kitYML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := jam.LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return jam.PlanConfig(jam.ConfigPlanInput{Tree: tr, Snapshot: store.ExportConfig(), Marks: store.ListConfigMarks(),
+		Env: jam.ConfigEnv{CredExists: func(string) bool { return true }}, Source: gitsource.Source{Repo: "https://github.com/acme/jam", Ref: "main"},
+		Commit: "c2", Now: time.Unix(2, 0)})
+}
+
+// A kit whose tree is unchanged but whose source differs (tracked in Jam,
+// inline in the repo) shows the `# source:` line diff, not "no changes".
+func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
+	store := jam.NewMemStore()
+	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := store.GetKit("app")
+	k.Source = &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main", Commit: "k1"}
+	if err := store.PutKitDocs([]jam.Kit{k}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	printConfigPlan(&b, planKitDir(t, store, "kind: studio\n"))
+	if !strings.Contains(b.String(), "update  kit app  (not managed)\n") || !strings.Contains(b.String(), "  -# source: ") || strings.Contains(b.String(), "no changes") {
+		t.Errorf("source-only change: %q", b.String())
+	}
+}
+
+// A drifted kit update prints its version diff (Jam's current tree → the
+// repo's) under its line.
+func TestPrintConfigPlanDriftedKitVersionDiff(t *testing.T) {
+	store := jam.NewMemStore()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "kits", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kits", "app", "kit.yml"), []byte("kind: studio\nprompt: a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := jam.LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := jam.ApplyConfigTree(context.Background(), store, nil, tr, jam.ConfigEnv{CredExists: func(string) bool { return true }},
+		jam.ConfigApplyOptions{Source: gitsource.Source{Repo: "https://github.com/acme/jam", Ref: "main"}, Commit: "c1", Now: time.Unix(1, 0)}, nil, "test"); err != nil || !res.Applied {
+		t.Fatalf("apply: %+v %v", res, err)
+	}
+	if _, _, err := jam.PushKitFiles(store, "app", []kittree.File{{Path: "kit.yml", Data: []byte("kind: studio\nprompt: jam\n"), Mode: 0o644}}); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	printConfigPlan(&b, planKitDir(t, store, "kind: studio\nprompt: repo\n"))
+	if !strings.Contains(b.String(), "update  kit app  (drift)\n    kit.yml:\n       kind: studio\n      -prompt: jam\n      +prompt: repo\n") {
+		t.Errorf("drifted kit: %q", b.String())
 	}
 }

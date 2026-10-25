@@ -385,3 +385,23 @@ func TestConfigPlanShowsKitVersionDiff(t *testing.T) {
 		t.Fatalf("kit diff leaks markup or binary bytes:\n%s", body)
 	}
 }
+
+// A kit whose tree is unchanged but whose source differs shows the listing
+// diff (the `# source:` line), not "no changes".
+func TestConfigPlanKitSourceOnlyChange(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"kits/app/kit.yml": "kind: studio\n"}}
+	h, store := configUI(t, f, nil)
+	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := store.GetKit("app")
+	k.Source = &jam.KitSource{Repo: "https://github.com/acme/kits", Dir: "app", Ref: "main", Commit: "k1"}
+	if err := store.PutKitDocs([]jam.Kit{k}, jam.KitObjects{}); err != nil {
+		t.Fatal(err)
+	}
+	trackManaged(t, store)
+	body := post(t, h, "/app/admin/config/diff", url.Values{}).Body.String()
+	if !strings.Contains(body, `<span class="d-del">- # source: https://github.com/acme/kits//app@main</span>`) || strings.Contains(body, "no changes") {
+		t.Fatalf("source-only kit change:\n%s", body)
+	}
+}
