@@ -1,5 +1,7 @@
 package userui
 
+//go:generate sh -c "cd ../../.. && go tool tygo generate"
+
 import (
 	"encoding/json"
 	"errors"
