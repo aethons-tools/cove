@@ -17,6 +17,7 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
+	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
@@ -278,6 +279,54 @@ func TestBrowserNextComposerSends(t *testing.T) {
 	}
 	if want := "see:\n````\na ```b``` c\n````\n"; value != want {
 		t.Errorf("paste as code: box = %q, want %q", value, want)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// An ask renders as a card; choosing an option records the answer (the
+// log's ask state) and the card shows who chose what.
+func TestBrowserNextAnswersAnAsk(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	m := e.ask(intercom.AskEvent{Question: "Merge PR #12?", Options: yesNoOpts})
+	changes := &testChanges{}
+	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	var problems pageProblems
+	var text string
+	hold := chromedp.CSS(`#ask-` + m.ID + ` button:nth-of-type(2)`) // Ship it, Hold, Other…
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.WaitVisible(hold),
+		chromedp.Click(hold),
+		chromedp.WaitVisible(chromedp.CSS(`#ask-`+m.ID+` b`)),
+		into(&text, chromedp.Text(chromedp.CSS(`#ask-`+m.ID))),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "alice chose") || !strings.Contains(text, "Hold") {
+		t.Errorf("card after answering = %q", text)
+	}
+	if a, ok := e.Intercom.GetAsk(m.ID); !ok || a.Answer == nil || a.Answer.Choice != "no" {
+		t.Errorf("ask state = %+v", a)
 	}
 	for _, pr := range problems.all() {
 		t.Errorf("page problem: %s", pr)
