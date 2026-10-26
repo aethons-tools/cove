@@ -1,7 +1,7 @@
 ---
 summary: Operator guide to remote Studio Managers — enabling them, the `at-jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
 read_when: You register, rotate or revoke a Studio Manager, or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused).
-owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, disconnect/reconnect/revoke behaviour, and the manager metrics
+owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
 tier: leaf
 updated: 2026-10-26
@@ -69,8 +69,7 @@ On reconnect the manager reports its inventory and Jam reconciles:
 ## Revoke
 
 `revoke` refuses while the manager hosts studios: `manager <name> hosts <n> studios; revoke with force to forget them`.
-`--force` forgets them: they are marked dead and reaped from Jam's records, and their containers are left on the host.
+`--force` forgets them: they are marked Lost at once, and the next reconcile pass revokes their identities and removes them from Jam's records.
+Their containers are left on the host for the operator to remove.
 
-## Metrics
-
-`jam_managers` (registered remote managers; `local` excluded) and `jam_managers_connected`; see [monitoring.md](monitoring.md).
+Manager metrics are in [monitoring.md](monitoring.md#metrics).
