@@ -7,10 +7,11 @@ import { ConversationHeader } from "./ConversationHeader";
 import { MessageList } from "./MessageList";
 import { PresenceStrip } from "./PresenceStrip";
 import { messagesOf, useConversation } from "./useConversation";
-import { useLocation } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import { useBoot } from "../BootContext";
 import { Composer, type ComposerHandle } from "../composer/Composer";
 import { OpenAsks } from "../asks/OpenAsks";
+import { SessionView } from "../session/SessionView";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
@@ -19,6 +20,7 @@ export function ConversationView({ id }: { id: string }) {
   const q = useConversation(id);
   const client = useQueryClient();
   const here = useLocation();
+  const [search] = useSearchParams();
   const boot = useBoot();
   const [stick, setStick] = useState(0);
   const composer = useRef<ComposerHandle>(null);
@@ -41,20 +43,29 @@ export function ConversationView({ id }: { id: string }) {
 
   if (q.isPending) return <Loader m="md" size="sm" />;
   if (!q.data) return <Problem error={q.error!} here={here.pathname + here.search} />;
-  return (
-    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
-      <ConversationHeader c={q.data.pages[0]!} />
-      <OpenAsks asks={q.data.pages[0]!.openAsks} onJump={(id) => document.getElementById(`ask-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} />
+  const c = q.data.pages[0]!;
+  const jumpToAsk = (a: string) => document.getElementById(`ask-${a}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const main = (
+    <>
+      <OpenAsks asks={c.openAsks} onJump={jumpToAsk} />
       {/* A failed refresh keeps what's loaded (and the reader's place) on screen. */}
       {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
       <MessageList messages={messagesOf(q.data.pages)} channel={id} earlier={q.hasNextPage}
         loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} stickToEnd={stick}
-        onDiscuss={q.data.pages[0]!.sendTo ? (c) => composer.current?.discuss(c.id, c.question) : undefined} />
+        onDiscuss={c.sendTo ? (card) => composer.current?.discuss(card.id, card.question) : undefined} />
       <PresenceStrip channel={id} />
-      {q.data.pages[0]!.sendTo
-        ? <Composer ref={composer} key={q.data.pages[0]!.sendTo} to={q.data.pages[0]!.sendTo} label={q.data.pages[0]!.label} attachMax={boot.attachMax}
+      {c.sendTo
+        ? <Composer ref={composer} key={c.sendTo} to={c.sendTo} label={c.label} attachMax={boot.attachMax}
             onSent={() => setStick((n) => n + 1)} />
         : <Text size="sm" c="dimmed" p="xs">From before the upgrade: read-only.</Text>}
+    </>
+  );
+  return (
+    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
+      {c.session
+        ? <SessionView key={c.session} id={c.session} channel={id} linked={search.get("tab")} onAsk={jumpToAsk}
+            header={<ConversationHeader c={c} />}>{main}</SessionView>
+        : <><ConversationHeader c={c} />{main}</>}
     </Stack>
   );
 }
