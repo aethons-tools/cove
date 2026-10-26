@@ -222,7 +222,7 @@ describe("the session pane", () => {
     expect(web).toHaveAttribute("target", "_blank");
     expect(web).toHaveAttribute("rel", "noopener");
     await user.click(screen.getByRole("tab", { name: "Artifacts" }));
-    expect(await screen.findByRole("link", { name: /Plan/ })).toHaveAttribute("href", "/app/user/?c=chn_s&board=brd_1");
+    expect(await screen.findByRole("link", { name: /Plan/ })).toHaveAttribute("href", "/app/next/boards/brd_1");
     expect(screen.getByRole("img", { name: "shot.png" })).toHaveAttribute("src", "/app/user/blobs/blb_1");
     expect(screen.getByRole("link", { name: /log\.txt/ })).toHaveAttribute("download");
     expect(screen.getByRole("link", { name: "cove PR #472" })).toHaveAttribute("title", "https://github.com/aethons-tools/cove/pull/472");
