@@ -6,6 +6,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // This file holds every type the /app/user/api JSON carries. tygo reads only
@@ -151,6 +152,10 @@ type Conversation struct {
 	// and the editor is built); Board is the board ?board= opened.
 	NewBoard bool         `json:"-"`
 	Board    *BoardEditor `json:"-"`
+	// Session is the actor id of the session whose home this channel is,
+	// when the viewer may see it ("" = none): the app's session header and
+	// pane read api/sessions/{session}.
+	Session string `json:"session"`
 	// Head is the session header when this is a session's home channel.
 	Head *SessionHead `json:"-"`
 }
@@ -234,4 +239,96 @@ type AnswerRequest struct {
 	Version int    `json:"version"`
 	Choice  string `json:"choice"`
 	Comment string `json:"comment,omitempty"`
+}
+
+// SessionHead is a session's header (GET api/sessions/{id}).
+type SessionHead struct {
+	ID       string     `json:"id"`
+	Label    string     `json:"label"`
+	Kind     string     `json:"kind"` // standing | personal | ticket | session
+	Ticket   string     `json:"ticket"`
+	Role     string     `json:"role"`
+	Project  string     `json:"project"`
+	Owner    string     `json:"owner"`
+	State    SessionRow `json:"state"`
+	Since    string     `json:"since"` // time in the current state
+	OpenAsks int        `json:"openAsks"`
+	Cost     string     `json:"cost"` // "" = no turn yet
+	TurnCost string     `json:"turnCost"`
+	Tokens   string     `json:"tokens"`
+	// Context is the context window's use, short; ContextTip exact; "" = no model call yet.
+	Context    string `json:"context"`
+	ContextTip string `json:"contextTip"`
+	Uptime     string `json:"uptime"`
+	Mission    string `json:"mission"` // the agent's one-line focus; "" = none
+	SSH        string `json:"ssh"`     // the copyable command; "" = not allowed
+	Studio     bool   `json:"studio"`  // the Studio tab: ssh allowed and framing on
+	CanRelease bool   `json:"canRelease"`
+	CanRestart bool   `json:"canRestart"`
+	CanUpgrade bool   `json:"canUpgrade"`
+	Ops        bool   `json:"ops"` // the session actions are wired
+	// CanInterrupt, CanCompact, CanClear: shown whenever Ops is set; disabled when false.
+	CanInterrupt bool   `json:"canInterrupt"`
+	CanCompact   bool   `json:"canCompact"`
+	CanClear     bool   `json:"canClear"`
+	RestartLabel string `json:"restartLabel"` // Restart (standing) or End
+	UpgradeState string `json:"upgradeState"`
+}
+
+// SessionPane is one tab of a session's pane (GET api/sessions/{id}/pane/{tab}).
+type SessionPane struct {
+	ID       string        `json:"id"`
+	Tab      string        `json:"tab"`
+	Previews []PreviewLink `json:"previews"`
+	// PreviewsOff: this jam serves no previews (or the viewer may not open them).
+	PreviewsOff bool        `json:"previewsOff"`
+	Boards      []PaneBoard `json:"boards"`
+	Files       []FileChip  `json:"files"`
+	Asks        []PaneAsk   `json:"asks"`
+	Links       []PaneLink  `json:"links"`
+	Status      []StatusRow `json:"status"`
+	// Streams are the session's recorded event streams (Thinking tab);
+	// EventsOff: this jam records no session events. The app's Thinking
+	// tab comes in slice 6.
+	Streams   []sessionevents.StreamInfo `json:"-"`
+	EventsOff bool                       `json:"-"`
+	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
+	// IDEOpen: its plain URL, for Open in new tab when a mint fails (slice 6).
+	Studio  bool   `json:"-"`
+	IDEOpen string `json:"-"`
+}
+
+// PreviewLink is one exposed port, opened in a new tab; Frame: View here
+// (framed in the pane) is offered too.
+type PreviewLink struct {
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Port  int    `json:"port"`
+	Frame bool   `json:"frame"`
+}
+
+// PaneBoard is a whiteboard started in the session's home channel.
+type PaneBoard struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Channel string `json:"channel"`
+}
+
+// PaneAsk is an ask posted in the home channel, with its state.
+type PaneAsk struct {
+	ID       string `json:"id"`
+	Question string `json:"question"`
+	State    string `json:"state"` // open | answered | withdrawn
+}
+
+// PaneLink is a URL from the home channel's messages.
+type PaneLink struct {
+	URL   string `json:"url"`
+	Label string `json:"label"`
+}
+
+// StatusRow is one line of the Status tab.
+type StatusRow struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }

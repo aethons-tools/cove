@@ -16,6 +16,7 @@ import (
 	cdplog "github.com/chromedp/cdproto/log"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/kb"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -327,6 +328,85 @@ func TestBrowserNextAnswersAnAsk(t *testing.T) {
 	}
 	if a, ok := e.Intercom.GetAsk(m.ID); !ok || a.Answer == nil || a.Answer.Choice != "no" {
 		t.Errorf("ask state = %+v", a)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// A session's home channel shows its header; Status opens the pane beside
+// the messages, the keyboard widens it, ⇄ moves it below, and a session
+// never opened starts from that layout — under the app's CSP.
+func TestBrowserNextSessionPane(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p, personal, standing, _ := sessionEnv(t)
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	type layout struct {
+		Open  bool   `json:"open"`
+		Place string `json:"place"`
+		Body  string `json:"body"`
+		Size  int    `json:"size"`
+	}
+	var l layout
+	read := into(&l, chromedp.Evaluate[layout](`(function(){
+		var a=document.querySelector('aside[aria-label="Session pane"]'), s=a&&a.closest('[data-place]');
+		if(!a) return {open:false, place:'', body:'', size:0};
+		var r=a.getBoundingClientRect();
+		return {open:true, place:s.dataset.place, body:a.textContent, size:Math.round(s.dataset.place==='right'?r.width:r.height)};
+	})()`))
+	waitBody := func(text string) step {
+		return chromedp.Poll[chromedp.Void](`(document.getElementById('session-pane-body')||{textContent:''}).textContent.includes(`+"`"+text+"`"+`)`, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	var problems pageProblems
+	tab := chromedp.CSS(`[role="tab"][data-tab="status"]`)
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 900),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)),
+		chromedp.WaitVisible(tab),
+		chromedp.Click(tab),
+		waitBody("Turns"),
+		read,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !l.Open || l.Place != "right" || !strings.Contains(l.Body, "$0.42") || l.Size != 380 {
+		t.Fatalf("after Status: %+v", l)
+	}
+	if err := chromedp.Do(ctx, chromedp.Focus(chromedp.CSS(`[role="separator"]`)), chromedp.KeyEvent(kb.ArrowLeft), read); err != nil {
+		t.Fatal(err)
+	}
+	if l.Size != 404 {
+		t.Fatalf("resize: 380 → %d, want 404", l.Size)
+	}
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS(`[aria-label="Move the pane right or below"]`)), read); err != nil {
+		t.Fatal(err)
+	}
+	if l.Place != "below" {
+		t.Fatalf("after ⇄: %+v", l)
+	}
+	// A session never opened starts from that layout.
+	if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, standing)), waitBody("Up"), read); err != nil {
+		t.Fatal(err)
+	}
+	if !l.Open || l.Place != "below" {
+		t.Fatalf("new session: %+v", l)
 	}
 	for _, pr := range problems.all() {
 		t.Errorf("page problem: %s", pr)

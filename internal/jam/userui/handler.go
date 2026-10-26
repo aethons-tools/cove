@@ -150,13 +150,9 @@ func (h *handler) build(r *http.Request) (inboxPage, bool) {
 		if conv, ok := conversation(p, h.d, sel); ok {
 			conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
 			conv.NewBoard = h.d.Boards != nil && whiteboardBuilt() && conv.SendTo != "" && h.d.Boards.MayCreateIn(p.UserID, ident.ID(sel))
-			if inst, ok := homeSession(h.d, sel); ok {
-				// Only where the head's own routes resolve home: a ticket
-				// session's home is its ticket channel, not its session channel.
-				if _, home, ok := h.sessionFor(p, inst.ActorID); ok && home == sel {
-					hd := h.sessionHead(r, p, inst)
-					conv.Head = &hd
-				}
+			if inst, ok := h.headSession(p, sel); ok {
+				hd := h.sessionHead(r, p, inst)
+				conv.Head = &hd
 			}
 			if id := r.URL.Query().Get("board"); id != "" {
 				conv.Board = boardEditor(p, h.d, sel, id)
