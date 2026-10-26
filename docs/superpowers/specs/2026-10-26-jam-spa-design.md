@@ -80,7 +80,7 @@ Each slice is one PR and is usable at `/app/next/` when it merges:
   - The bootstrap is a JSON data block, HTML-escaped, not script.
 - **JSON responses** carry `Content-Type: application/json`, `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.
 - **One HTML sink.** Message HTML comes only from `squawkrender`. Exactly one component uses `dangerouslySetInnerHTML`, and an ESLint rule bans it everywhere else.
-- **Dependencies:** `package-lock.json` is committed and CI uses `npm ci`. Renovate (`renovate.json`, `config:recommended`) already discovers `web/app/package.json`; slice 1 only **appends** `packageRules` to the existing file (group `@mantine/*`, group `react` + `react-dom`), and replaces nothing. Fonts and assets are bundled, with no CDN at runtime.
+- **Dependencies:** `package-lock.json` is committed and CI uses `npm ci`. Renovate (`renovate.json`, `config:recommended`) already tracks npm here: its Dependency Dashboard lists `web/whiteboard/package.json`, and its built-in monorepo groups already bundle `react` + `react-dom` (and the Mantine packages) into single PRs. So `web/app` needs no config change. If one is ever needed, it is appended to the existing `renovate.json`, never a replacement. Fonts and assets are bundled, with no CDN at runtime.
 
 ## 5. Testing, cutover and docs
 
