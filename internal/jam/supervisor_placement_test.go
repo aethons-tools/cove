@@ -3,6 +3,8 @@ package jam
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/studio"
@@ -100,6 +102,23 @@ func TestRaiseRecordsPlacedManager(t *testing.T) {
 	}
 }
 
+// Without a placing launcher no manager names exist, so a raise naming any is
+// refused as an unknown manager rather than silently ignored.
+func TestRaiseWithoutPlacingLauncherRefusesNamedManagers(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	_, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Placement: Placement{Managers: []string{"local", "b"}}})
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "local") {
+		t.Fatalf("err = %v, want ErrUnknownManager naming local", err)
+	}
+	if len(f.raised) != 0 {
+		t.Fatalf("launcher raised %v, want nothing", f.raised)
+	}
+	if len(store.ListActors()) != 0 {
+		t.Fatal("refused raise must leave no dangling identity")
+	}
+}
+
 func TestRaiseWithoutPlacingLauncherLeavesManagerEmpty(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
@@ -127,6 +146,9 @@ func TestPrepareKitRunsOnManagerThatNeededIt(t *testing.T) {
 	}
 	if len(p.by["b"].raised) != 1 || inst.Manager != "b" {
 		t.Fatalf("retry raised=%v manager=%q, want one raise on b", p.by["b"].raised, inst.Manager)
+	}
+	if got := p.by["b"].gotSpec.Placement.Managers; !slices.Equal(got, []string{"b"}) {
+		t.Fatalf("retry Placement.Managers = %v, want [b]", got)
 	}
 }
 

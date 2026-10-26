@@ -67,15 +67,16 @@ The manager a studio runs on is shown as `manager=<name>` in `studio list` and a
 A [standing session](standing-sessions.md#state-across-restarts) is **pinned** to
 the manager holding its state and is only ever raised there. A
 [reset](standing-sessions.md#reset) clears the pin, so the next raise places it
-afresh; so does a pin to a manager that is no longer configured. A request whose
-`managers` list excludes the pinned manager is refused with "standing session is
-pinned to a manager the request excludes".
+afresh; so does a pin to a manager that is no longer configured. Standing raises
+come from the reconciler, which names no managers today; when a caller does supply
+a `managers` list that excludes the pinned manager, the raise is refused with
+"standing session is pinned to a manager the request excludes".
 
 ## The `studio` verbs
 
 ```
 at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md] [--kit-draft app] [--manager NAME ...] [--placement-timeout 30s]
-at-jam studio list     # id  name  role  unit  phase  activity  lease-holder  connector  image
+at-jam studio list     # id  name  role  unit  phase  activity  lease-holder  connector  image  manager=
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```

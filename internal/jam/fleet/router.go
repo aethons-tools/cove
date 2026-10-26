@@ -39,8 +39,11 @@ type Router struct {
 	members []Manager // registration order
 }
 
-// New returns an empty Router.
+// New returns an empty Router. A nil log discards.
 func New(log *slog.Logger) *Router {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	return &Router{log: log, wake: make(chan struct{}, 1), now: time.Now, poll: time.Second}
 }
 
@@ -261,13 +264,22 @@ func (r *Router) StateOwners(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// PurgeState purges actorID's state on the available managers that own it,
-// returning the first error. No owner is not an error.
+// PurgeState purges actorID's state, returning the first error. Local is
+// always asked (its purge deletes by name, so it must not hinge on StateOwners,
+// whose label filter misses state left under an earlier Jam identity); any
+// other available manager is asked only when it lists actorID as an owner. No
+// owner is not an error.
 func (r *Router) PurgeState(ctx context.Context, actorID string) error {
 	var first error
 	for _, m := range r.available() {
 		sk, ok := optional(m).(jam.StateKeeper)
 		if !ok {
+			continue
+		}
+		if m.Name() == LocalName {
+			if err := sk.PurgeState(ctx, actorID); err != nil {
+				first = cmpErr(first, fmt.Errorf("manager %s: %w", m.Name(), err))
+			}
 			continue
 		}
 		ids, err := sk.StateOwners(ctx)

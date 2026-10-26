@@ -3,14 +3,14 @@ package main
 import (
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
+	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 func TestPlanCredentials_FailsClosedOnUnsupplied(t *testing.T) {

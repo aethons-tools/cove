@@ -18,6 +18,9 @@ type fakeManager struct {
 	owners   []string
 	asm      string // ImageTag result
 
+	notReadyOnce atomic.Bool  // the next Raise reports jam.ErrKitNotReady
+	prepareState jam.KitState // what PrepareKit reports
+
 	mu       sync.Mutex
 	tornDown []string
 	probed   []string
@@ -52,6 +55,9 @@ func (f *fakeManager) Raise(_ context.Context, spec jam.RaiseSpec, _ jam.LaunchC
 	if f.raiseErr != nil {
 		return "", f.raiseErr
 	}
+	if f.notReadyOnce.CompareAndSwap(true, false) {
+		return "", jam.ErrKitNotReady
+	}
 	f.rec(&f.raised, spec.Role)
 	return f.name + "-loc", nil
 }
@@ -77,7 +83,7 @@ func (f *fakeManager) ApplyEgress(context.Context, jam.Instance, *jam.EgressPoli
 
 func (f *fakeManager) PrepareKit(_ context.Context, def jam.KitDefinition) (jam.KitStatus, error) {
 	f.rec(&f.prepared, f.name)
-	return jam.KitStatus{}, nil
+	return jam.KitStatus{State: f.prepareState}, nil
 }
 
 func (f *fakeManager) PurgeState(_ context.Context, id string) error {

@@ -787,10 +787,14 @@ func (s *Supervisor) applyStandingPin(spec *RaiseSpec, project ident.ID, project
 }
 
 // raiseOn raises through the launcher, recording which manager hosts the cove
-// when the launcher places raises; otherwise the Manager stays "".
+// when the launcher places raises; otherwise the Manager stays "" and, since no
+// manager names exist, a placement naming any is refused (ErrUnknownManager).
 func (s *Supervisor) raiseOn(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (Placed, error) {
 	if pl, ok := s.launcher.(PlacingLauncher); ok {
 		return pl.RaiseOn(ctx, spec, creds)
+	}
+	if len(spec.Placement.Managers) > 0 {
+		return Placed{}, fmt.Errorf("%w: %s", ErrUnknownManager, spec.Placement.Managers[0])
 	}
 	loc, err := s.launcher.Raise(ctx, spec, creds)
 	return Placed{Location: loc}, err

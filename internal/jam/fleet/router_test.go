@@ -150,6 +150,28 @@ func TestRouterStateOwnersUnionAndPurgeOnlyOwner(t *testing.T) {
 	}
 }
 
+// Local purges by name: a reset reaches it even when its StateOwners (a label
+// filter on the current Jam identity) does not list the id.
+func TestRouterPurgeStateAlwaysReachesLocal(t *testing.T) {
+	r := newRouter()
+	loc, a := newFake("x"), newFake("a")
+	a.owners = []string{"other"}
+	mustAdd(t, r, Local(loc), a)
+	if err := r.PurgeState(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(loc.get(&loc.purged), []string{"w1"}) || len(a.get(&a.purged)) != 0 {
+		t.Fatalf("local=%v a=%v, want local=[w1] a=[]", loc.get(&loc.purged), a.get(&a.purged))
+	}
+}
+
+func TestNewNilLoggerDiscards(t *testing.T) {
+	r := New(nil)
+	if err := r.Teardown(context.Background(), jam.Instance{ActorID: "i1", Manager: "gone"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stateOnly is a bare launcher that is a StateKeeper.
 type stateOnly struct{ jam.Launcher }
 
