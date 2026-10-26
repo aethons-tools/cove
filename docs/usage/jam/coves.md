@@ -44,7 +44,7 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ### Managers and placement
 
-Jam raises studios on named **managers**. Today the only manager is `local`: the
+Jam raises studios on named **managers**. Besides remote managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`), there is `local`: the
 [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) block, which Jam
 registers under that name at start (no block, no manager, placeholder studios only).
 A raise may name where it may run, and how long to wait for a place:

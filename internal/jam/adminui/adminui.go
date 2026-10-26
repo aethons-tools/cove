@@ -168,7 +168,8 @@ type options struct {
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
 	configEnv       jam.ConfigEnv
-	setup           *jam.SetupDeps // nil: no Setup tabs (WithSetupDeps)
+	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
+	managers        func() []jam.ManagerStatus // nil: no Managers panel (WithManagers)
 }
 
 // WithDisplayName names this Jam in the UI: the browser tab title reads
@@ -195,6 +196,12 @@ func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 // pages only show provenance.
 func WithKitFetcher(f jam.KitFetcher) Option {
 	return func(o *options) { o.kitFetcher = f }
+}
+
+// WithManagers shows a read-only Managers panel on the dashboard, one row per
+// status list returns. Rotating and revoking stay on the CLI and admin API.
+func WithManagers(list func() []jam.ManagerStatus) Option {
+	return func(o *options) { o.managers = list }
 }
 
 // WithConfigEnv gives the Config page the planner's view of the serve — the
@@ -232,11 +239,17 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 			renderFragment(w, r, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
 			return
 		}
+		var mgrs []jam.ManagerStatus
+		if o.managers != nil {
+			mgrs = o.managers()
+		}
 		render(w, r, "dashboard", map[string]any{
-			"Title":      "Dashboard",
-			"Coves":      jam.CoveSummaries(store, sup),
-			"Stats":      dashboardStats(store),
-			"JamContext": jamPanel(store),
+			"Title":       "Dashboard",
+			"HasManagers": o.managers != nil,
+			"Managers":    mgrs,
+			"Coves":       jam.CoveSummaries(store, sup),
+			"Stats":       dashboardStats(store),
+			"JamContext":  jamPanel(store),
 		})
 	})
 

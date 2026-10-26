@@ -189,3 +189,39 @@ func TestDestinationsView(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardManagersPanel(t *testing.T) {
+	store := newStore(t)
+	list := func() []jam.ManagerStatus {
+		return []jam.ManagerStatus{
+			{Name: "local", Local: true, Connected: true, Studios: 1},
+			{Name: "mac-1", Connected: true, Version: "v1.2.3", Studios: 2, Capacity: 4,
+				Strays: []jam.ManagedStudio{{ActorID: "stray-7"}}},
+		}
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithManagers(list)), "/app/admin/").Body.String()
+	for _, want := range []string{"Managers", "mac-1", "connected", "2/4", "v1.2.3", `title="stray-7"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	plain := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	if strings.Contains(plain, "Managers") {
+		t.Error("dashboard without WithManagers must not show a Managers panel")
+	}
+}
+
+func TestCovesTableManagerColumn(t *testing.T) {
+	store := newStore(t)
+	if err := store.PutInstance(jam.Instance{
+		ActorID: "spider-9", Project: "acme", Role: "worker", Manager: "mac-1",
+		Phase: jam.PhaseLive, Activity: jam.ActivityRunning,
+		RaisedAt: time.Now(), LastSeen: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), "/app/admin/").Body.String()
+	if !strings.Contains(body, "<th>Manager</th>") || !strings.Contains(body, "mac-1") {
+		t.Errorf("studios table missing Manager column/value; got:\n%s", body)
+	}
+}

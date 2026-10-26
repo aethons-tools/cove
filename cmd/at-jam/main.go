@@ -2895,6 +2895,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		if managerHub != nil {
+			uiOpts = append(uiOpts, adminui.WithManagers(managerHub.Statuses))
+		}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
