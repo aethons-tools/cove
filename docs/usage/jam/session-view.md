@@ -139,8 +139,9 @@ Going back reloads the list.
 ## Cost and counts
 
 `sessionevents.Totals` folds a session's events across all its streams into turns,
-episodes, tool calls, errors, tokens, and cost. Cost is summed per episode from each
-result's cumulative `total_cost_usd`; a turn's cost is its result's increase over the previous one. `sessionevents.TotalsCache` keeps the totals per
+episodes, tool calls, errors, tokens, and cost. A turn's cost is its result's increase
+over the previous result of the same claude session ([why](session-events.md)), and the
+cost is the sum of those. `sessionevents.TotalsCache` keeps the totals per
 session and reads only events newer than those it has seen. Event content is shown in the Thinking tab
 ([Sensitivity](session-events.md#sensitivity)).
 

@@ -352,7 +352,7 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 			window.addEventListener('unhandledrejection', function(e){ __errs.push(String(e.reason)); });`, nil),
 		poll(`document.querySelectorAll('#thinking .th-list .te').length===2 && !!document.querySelector('#thinking .te-more')`))
 	s := get()
-	if s.Orphans != 1 || s.Dividers["7"] != "episode 1 · $0.45 episode total · 3s" {
+	if s.Orphans != 1 || s.Dividers["7"] != "episode 1 · $0.45 session total · 3s" {
 		t.Fatalf("tail: %+v", s)
 	}
 	// Page 1 (seqs 3-5): the call (5) pairs the orphan result (6).
@@ -363,7 +363,7 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 		s.More != "3" || s.MoreOff {
 		t.Fatalf("after page 1: %+v", s)
 	}
-	if s.Dividers["4"] != "episode 1 · $0.25 episode total · 2s" || s.Dividers["7"] != "episode 1 · $0.20 · 3s" {
+	if s.Dividers["4"] != "episode 1 · $0.25 session total · 2s" || s.Dividers["7"] != "episode 1 · $0.20 · 3s" {
 		t.Fatalf("dividers after page 1: %+v", s.Dividers)
 	}
 	// Page 2 (seqs 1-2): the button still works; every delta is recomputed.
@@ -373,7 +373,7 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 	if len(s.Errs) != 0 || strings.Join(s.Seqs, ",") != "1,2,3,4,5,7" || s.More != "" {
 		t.Fatalf("after page 2: %+v", s)
 	}
-	want := map[string]string{"2": "episode 1 · $0.10 episode total · 1s", "4": "episode 1 · $0.15 · 2s", "7": "episode 1 · $0.20 · 3s"}
+	want := map[string]string{"2": "episode 1 · $0.10 session total · 1s", "4": "episode 1 · $0.15 · 2s", "7": "episode 1 · $0.20 · 3s"}
 	for k, v := range want {
 		if s.Dividers[k] != v {
 			t.Errorf("divider %s = %q, want %q", k, s.Dividers[k], v)

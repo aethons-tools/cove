@@ -114,3 +114,30 @@ func TestTotalsContext(t *testing.T) {
 		t.Fatalf("an older stream's message overrode the reset: %d", tot.Context)
 	}
 }
+
+// claude carries a session's total_cost_usd across --continue episodes, so a
+// continued episode's results count only their growth.
+func TestTotalsCostAcrossContinue(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	r := func(seq uint64, turn uint32, sess string, cost float64) Event {
+		ev := res("a", "s", seq, turn, cost, 0, 0, false, t0.Add(time.Duration(seq)*time.Second))
+		ev.Index.ClaudeSessionID = sess
+		return ev
+	}
+	var tot Totals
+	for _, ev := range []Event{
+		r(1, 1, "c1", 1.00),
+		r(2, 2, "c1", 1.10), // --continue: 1.00 carried over
+		r(3, 2, "c1", 1.30),
+		r(4, 3, "c2", 0.05), // after a Clear: a new claude session
+		r(5, 4, "c2", 0.07),
+	} {
+		tot.Add(ev)
+	}
+	if d := tot.CostUSD - 1.37; d > 1e-9 || d < -1e-9 {
+		t.Fatalf("cost = %v, want 1.37", tot.CostUSD)
+	}
+	if d := tot.TurnCostUSD - 0.02; d > 1e-9 || d < -1e-9 {
+		t.Fatalf("this turn = %v, want 0.02", tot.TurnCostUSD)
+	}
+}

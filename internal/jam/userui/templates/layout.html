@@ -734,17 +734,18 @@ function meThPair(call, res){
   if(note) call.insertBefore(note, call.querySelector('.te-raw'));
 }
 // meThCosts labels every result line, in list order, as a divider: its
-// episode, its cost since the previous loaded result of the same stream and
-// episode (results carry the episode's cumulative cost) — or, with none
-// loaded before it, the episode's total so far — and its duration. Run after
-// each insert or removal, as pages arrive out of order.
+// episode, its cost since the previous loaded result of the same claude
+// session (results carry the session's cumulative cost, across --continue
+// episodes) — or, with none loaded before it, the session's total so far —
+// and its duration. Run after each insert or removal, as pages arrive out of
+// order.
 function meThCosts(){
   var prev={};
   meTh.list.querySelectorAll('.te[data-kind="result"]').forEach(function(n){
     var c=n.querySelector('.te-cost'), cost=c ? parseFloat(c.dataset.cost)||0 : 0, ms=c ? +c.dataset.ms||0 : 0;
-    var k=n.dataset.stream+':'+n.dataset.turn, p=prev[k], x=n.querySelector('.te-text');
+    var k=(c && c.dataset.session) || n.dataset.stream+':'+n.dataset.turn, p=prev[k], x=n.querySelector('.te-text');
     prev[k]=cost;
-    var label='episode '+n.dataset.turn+' · $'+(p===undefined ? cost.toFixed(2)+' episode total' : (cost-p).toFixed(2))+' · '+meThFmt(ms);
+    var label='episode '+n.dataset.turn+' · $'+(p===undefined || cost<p ? cost.toFixed(2)+' session total' : (cost-p).toFixed(2))+' · '+meThFmt(ms);
     if(x.textContent!==label){ x.textContent=label; meThFilter(n); }
   });
 }
