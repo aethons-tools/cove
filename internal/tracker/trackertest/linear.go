@@ -63,8 +63,8 @@ func (l *Linear) HTTPClient() *http.Client { return Rewrite(l.srv) }
 // Client is Jam's Linear client against the fake.
 func (l *Linear) Client(t testing.TB) *linear.Client {
 	t.Helper()
-	c, err := linear.New(kit.Config{Tracker: &kit.Tracker{Linear: &kit.LinearTracker{
-		Team: l.Team, ClassLabelPrefix: "class:", DispatchLabelPrefix: "dispatch:", States: LinearStates()}}}, Token, l.HTTPClient())
+	c, err := linear.New(kit.LinearTracker{
+		Team: l.Team, ClassLabelPrefix: "class:", DispatchLabelPrefix: "dispatch:", States: LinearStates()}, Token, l.HTTPClient())
 	if err != nil {
 		t.Fatalf("linear.New: %v", err)
 	}

@@ -1,16 +1,12 @@
 // Package scheduler holds the tracker vocabulary Jam's Requisitioner and its
 // trackers share: lifecycle Roles, the Issue and Comment shapes, label
 // classification (ClassifyLabels) and the brief a raised session receives
-// (AssembleBrief). The polling engine that used to live here went with at-cove.
+// (AssembleBrief).
 package scheduler
 
-import (
-	"context"
-	"strings"
-	"time"
-)
+import "strings"
 
-// Role is a lifecycle role Jam transitions issues through. The Tracker maps
+// Role is a lifecycle role Jam transitions issues through. A tracker maps
 // each role to this team's configured state name and then to a tracker state id.
 type Role int
 
@@ -40,34 +36,6 @@ type Issue struct {
 type Comment struct {
 	Author string
 	Body   string
-}
-
-// InProgressIssue is an IN PROGRESS issue paired with the time it entered that
-// state, so the stale-claim reaper can compute its time-in-state.
-type InProgressIssue struct {
-	Issue
-	StartedAt time.Time
-}
-
-// Tracker is every tracker operation Jam needs. The implementation owns
-// team scoping and the Role→state-id mapping.
-type Tracker interface {
-	// ListReady returns issues in the READY state that are dispatchable now: all
-	// of their "blocks" blockers are Done (or they have none). Blocked-ness lives
-	// in the issue relationships, not the state — the scheduler never promotes
-	// BLOCKED→READY and never looks at the backlog (COV-65). A human moves work to
-	// READY when it should be considered; a still-blocked READY issue simply waits.
-	ListReady(ctx context.Context) ([]Issue, error)
-	ListInProgress(ctx context.Context) ([]InProgressIssue, error)
-	Comments(ctx context.Context, issueID string) ([]Comment, error)
-	Transition(ctx context.Context, issueID string, role Role) error
-	PostComment(ctx context.Context, issueID, body string) error
-}
-
-// Executor runs a dispatch command headlessly with the given environment. ctx
-// carries the per-task timeout; Run returns nil on exit 0, else an error.
-type Executor interface {
-	Run(ctx context.Context, argv []string, env []string) error
 }
 
 // ClassifyLabels derives an issue's handler class (the value after

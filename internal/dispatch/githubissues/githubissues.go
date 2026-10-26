@@ -1,13 +1,8 @@
-// Package githubissues is a GitHub repo's Issues as a tracker: a
-// scheduler.Tracker (at-cove, via New) and Jam's tracker.Tracker (via NewJam),
-// at parity with internal/dispatch/linear. Lifecycle states are status
-// labels (status:ready, status:in-progress, …) and Done is an issue being closed;
-// blocker gating is a body convention (Depends on #N / Blocked by #N, same-repo).
-//
-// The read half (New, ListReady, ListInProgress, Comments) landed in COV-109; the
-// write half (Transition, PostComment) in COV-110 completes the type so it fully
-// satisfies scheduler.Tracker. Live calls are exercised by the integration-tagged
-// test.
+// Package githubissues is a GitHub repo's Issues as Jam's tracker.Tracker
+// (NewJam), at parity with internal/dispatch/linear. Lifecycle states are
+// status labels (status:ready, status:in-progress, …) and Done is an issue
+// being closed; blocker gating is a body convention (Depends on #N / Blocked
+// by #N, same-repo). Live calls are exercised by the integration-tagged test.
 package githubissues
 
 import (
@@ -33,50 +28,36 @@ import (
 
 const api = "https://api.github.com"
 
-// Client talks to one GitHub repo's Issues. When complete it will satisfy
-// scheduler.Tracker; this part implements the read methods.
+// Client talks to one GitHub repo's Issues; it satisfies tracker.Tracker.
 type Client struct {
 	http           *http.Client
 	token          string
 	repo           string                    // "owner/name"
 	prefix         string                    // class label prefix, e.g. "class:"
-	dispatchPrefix string                    // dispatch label prefix (Jam only; at-cove has no gate)
-	jam            bool                      // Jam's client (NewJam): "owner/repo#N" keys, the dispatch gate, PRs and closed hits dropped
+	dispatchPrefix string                    // dispatch label prefix: only issues with a label under it are dispatchable
 	labels         map[scheduler.Role]string // role → status label
 }
 
-// New resolves the target repo (tracker.github.repo, else
-// source-control.github.project) and builds the role→label map and class prefix
-// from config. It errors on a missing tracker.github block, an unresolvable repo,
-// or an empty token. Unlike Linear, no network call is made at construction — the
-// lifecycle states are labels, not ids to be looked up.
-func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
-	if cfg.Tracker == nil || cfg.Tracker.GitHub == nil {
-		return nil, fmt.Errorf("githubissues: kit declares no tracker.github")
+// NewJam builds the Client Jam uses. Ticket keys are "owner/repo#N", the
+// dispatch-label gate defaults to "dispatch:", the class prefix to "class:",
+// and pull requests and already-closed issues are dropped from search hits.
+// The repo is required and validated; an empty token is an error. No network
+// call is made at construction — the lifecycle states are labels, not ids.
+func NewJam(gt kit.GitHubTracker, token string, httpc *http.Client) (*Client, error) {
+	repo := strings.TrimSpace(gt.Repo)
+	if err := ticketkey.ValidRepo(repo); err != nil {
+		return nil, fmt.Errorf("githubissues: %w", err)
 	}
 	if token == "" {
 		return nil, fmt.Errorf("githubissues: empty tracker token")
-	}
-	gt := cfg.Tracker.GitHub
-	repo := strings.TrimSpace(gt.Repo)
-	if repo == "" {
-		if cfg.SourceControl == nil || cfg.SourceControl.GitHub == nil {
-			return nil, fmt.Errorf("githubissues: no repo (set tracker.github.repo or source-control.github)")
-		}
-		repo = cfg.SourceControl.GitHub.Project
-	}
-	if repo == "" {
-		return nil, fmt.Errorf("githubissues: could not resolve a repo")
-	}
-	prefix := gt.ClassLabelPrefix
-	if prefix == "" {
-		prefix = "class:"
 	}
 	if httpc == nil {
 		httpc = http.DefaultClient
 	}
 	return &Client{
-		http: httpc, token: token, repo: repo, prefix: prefix,
+		http: httpc, token: token, repo: repo,
+		prefix:         cmp.Or(gt.ClassLabelPrefix, "class:"),
+		dispatchPrefix: cmp.Or(gt.DispatchLabelPrefix, "dispatch:"),
 		labels: map[scheduler.Role]string{
 			scheduler.RoleReady:      gt.States.Ready,
 			scheduler.RoleInProgress: gt.States.InProgress,
@@ -85,25 +66,6 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 			scheduler.RoleBlocked:    gt.States.Blocked,
 		},
 	}, nil
-}
-
-// NewJam builds the Client Jam uses. Ticket keys are "owner/repo#N", the
-// dispatch-label gate defaults to "dispatch:", and pull requests and
-// already-closed issues are dropped from search hits. The repo is required
-// (Jam has no source-control block to inherit it from). at-cove keeps New:
-// "#N" identifiers, no gate, unfiltered hits.
-func NewJam(gt kit.GitHubTracker, token string, httpc *http.Client) (*Client, error) {
-	gt.Repo = strings.TrimSpace(gt.Repo)
-	if err := ticketkey.ValidRepo(gt.Repo); err != nil {
-		return nil, fmt.Errorf("githubissues: %w", err)
-	}
-	c, err := New(kit.Config{Tracker: &kit.Tracker{GitHub: &gt}}, token, httpc)
-	if err != nil {
-		return nil, err
-	}
-	c.jam = true
-	c.dispatchPrefix = cmp.Or(gt.DispatchLabelPrefix, "dispatch:")
-	return c, nil
 }
 
 // send issues a REST call and returns the status, headers, body and any
@@ -127,12 +89,11 @@ func (c *Client) send(ctx context.Context, method, u string, payload []byte) (in
 	return resp.StatusCode, resp.Header, raw.Bytes(), nil
 }
 
-// do is send without the headers. For Jam's client a rate limit is a
-// *tracker.RateLimitError (so a write waits it out as a read does);
-// at-cove's (New) keeps its plain http error.
+// do is send without the headers. A rate limit is a
+// *tracker.RateLimitError (so a write waits it out as a read does).
 func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int, []byte, error) {
 	code, h, raw, err := c.send(ctx, method, u, payload)
-	if err == nil && c.jam {
+	if err == nil {
 		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
 			return code, raw, rl
 		}
@@ -145,7 +106,7 @@ func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int,
 func (c *Client) bodyText(raw []byte) string {
 	text := strings.TrimSpace(string(raw))
 	if c.token == "" {
-		return text // New refuses an empty token; never ReplaceAll("")
+		return text // NewJam refuses an empty token; never ReplaceAll("")
 	}
 	return strings.ReplaceAll(text, c.token, "[redacted]")
 }
@@ -174,8 +135,7 @@ func rateLimit(code int, h http.Header, body []byte, now time.Time) error {
 }
 
 // getJSON performs a GET and unmarshals a 200 body into out, erroring
-// otherwise. For Jam's client a rate limit is a *tracker.RateLimitError;
-// at-cove's (New) keeps its plain http error.
+// otherwise. A rate limit is a *tracker.RateLimitError.
 func (c *Client) getJSON(ctx context.Context, u string, out any) error {
 	_, err := c.getJSONLink(ctx, u, out)
 	return err
@@ -187,10 +147,8 @@ func (c *Client) getJSONLink(ctx context.Context, u string, out any) (string, er
 	if err != nil {
 		return "", err
 	}
-	if c.jam {
-		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
-			return "", rl
-		}
+	if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
+		return "", rl
 	}
 	if code != http.StatusOK {
 		return "", fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
@@ -219,39 +177,21 @@ func (c *Client) toIssue(n ghIssue) scheduler.Issue {
 		names[i] = l.Name
 	}
 	class, dispatchLabeled := scheduler.ClassifyLabels(names, c.prefix, c.dispatchPrefix)
-	if !c.jam {
-		dispatchLabeled = false // at-cove has no dispatch gate and never set the flag
-	}
 	return scheduler.Issue{
 		ID: strconv.Itoa(n.Number), Identifier: c.key(n.Number), Title: n.Title,
 		Description: n.Body, Class: class, DispatchLabeled: dispatchLabeled,
 	}
 }
 
-// key is issue n's identifier: "owner/repo#N" for Jam, "#N" for at-cove.
-func (c *Client) key(n int) string {
-	if c.jam {
-		return ticketkey.GitHub(c.repo, n)
-	}
-	return "#" + strconv.Itoa(n)
-}
+// key is issue n's identifier: "owner/repo#N".
+func (c *Client) key(n int) string { return ticketkey.GitHub(c.repo, n) }
 
 // search runs a GitHub issue search for the given status label in this repo,
-// scoped to open issues. at-cove's (New) reads the first page as it always
-// has; Jam's reads 100 a page and follows Link rel="next" (on the API host
-// only) for at most maxFeedPages pages, then drops pull requests and
+// scoped to open issues: 100 a page, following Link rel="next" (on the API
+// host only) for at most maxFeedPages pages, then dropping pull requests and
 // already-closed hits.
 func (c *Client) search(ctx context.Context, label string) ([]ghIssue, error) {
 	q := url.Values{"q": {fmt.Sprintf("repo:%s is:issue is:open label:%q", c.repo, label)}}
-	if !c.jam {
-		var out struct {
-			Items []ghIssue `json:"items"`
-		}
-		if err := c.getJSON(ctx, api+"/search/issues?"+q.Encode(), &out); err != nil {
-			return nil, err
-		}
-		return out.Items, nil // at-cove's search results, unfiltered
-	}
 	q.Set("per_page", "100")
 	var items []ghIssue
 	u := api + "/search/issues?" + q.Encode()
@@ -340,17 +280,15 @@ func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.jam {
-		// Jam's dispatch gate first: an issue not tagged for dispatch is never
-		// raised, so its blockers are not worth a GET each.
-		gated := items[:0]
-		for _, n := range items {
-			if c.toIssue(n).DispatchLabeled {
-				gated = append(gated, n)
-			}
+	// The dispatch gate first: an issue not tagged for dispatch is never
+	// raised, so its blockers are not worth a GET each.
+	gated := items[:0]
+	for _, n := range items {
+		if c.toIssue(n).DispatchLabeled {
+			gated = append(gated, n)
 		}
-		items = gated
 	}
+	items = gated
 	blockersOf := make(map[int][]int, len(items))
 	union := map[int]struct{}{}
 	for _, n := range items {
@@ -377,62 +315,6 @@ func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
 		}
 	}
 	return issues, nil
-}
-
-// ListInProgress returns open issues carrying the IN PROGRESS status label paired
-// with the time each entered that state, for the stale-claim reaper. The time is
-// the most recent `labeled` timeline event for that label. An issue with no such
-// event (or an unparseable timestamp) is skipped rather than reaped, since a
-// missing time can't establish that a claim is stale.
-func (c *Client) ListInProgress(ctx context.Context) ([]scheduler.InProgressIssue, error) {
-	label := c.labels[scheduler.RoleInProgress]
-	items, err := c.search(ctx, label)
-	if err != nil {
-		return nil, err
-	}
-	var issues []scheduler.InProgressIssue
-	for _, n := range items {
-		started, ok, err := c.enteredAt(ctx, n.Number, label)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		issues = append(issues, scheduler.InProgressIssue{Issue: c.toIssue(n), StartedAt: started})
-	}
-	return issues, nil
-}
-
-// enteredAt reads an issue's timeline and returns the created-at of the most
-// recent `labeled` event for label. ok is false when there is no such event.
-func (c *Client) enteredAt(ctx context.Context, number int, label string) (time.Time, bool, error) {
-	u := api + "/repos/" + c.repo + "/issues/" + strconv.Itoa(number) + "/timeline"
-	var events []struct {
-		Event     string `json:"event"`
-		CreatedAt string `json:"created_at"`
-		Label     struct {
-			Name string `json:"name"`
-		} `json:"label"`
-	}
-	if err := c.getJSON(ctx, u, &events); err != nil {
-		return time.Time{}, false, err
-	}
-	var latest time.Time
-	found := false
-	for _, e := range events {
-		if e.Event != "labeled" || e.Label.Name != label {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, e.CreatedAt)
-		if err != nil {
-			continue
-		}
-		if !found || t.After(latest) {
-			latest, found = t, true
-		}
-	}
-	return latest, found, nil
 }
 
 // Transition realizes a role change on an issue. For scheduler.RoleDone the issue
@@ -745,10 +627,7 @@ func (c *Client) Viewer(ctx context.Context) (string, error) {
 	return out.Login, nil
 }
 
-// Compile-time proof the client satisfies the full tracker interface.
-var _ scheduler.Tracker = (*Client)(nil)
-
-// Jam's contract (via NewJam; at-cove's New satisfies it too, with "#N" keys).
+// Jam's tracker contract.
 var _ tracker.Tracker = (*Client)(nil)
 
 // The client places its own feed cursor (pages it reads and skips).

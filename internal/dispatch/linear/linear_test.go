@@ -22,16 +22,14 @@ func jsonResp(body string) *http.Response {
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
 }
 
-func testCfg() kit.Config {
-	return kit.Config{
-		Tracker: &kit.Tracker{Linear: &kit.LinearTracker{
-			Team:             "AET",
-			ClassLabelPrefix: "class:",
-			States: kit.StateMap{
-				Ready: "Todo", InProgress: "In Progress", InReview: "In Review",
-				Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog",
-			},
-		}},
+func testCfg() kit.LinearTracker {
+	return kit.LinearTracker{
+		Team:             "AET",
+		ClassLabelPrefix: "class:",
+		States: kit.StateMap{
+			Ready: "Todo", InProgress: "In Progress", InReview: "In Review",
+			Done: "Done", NeedsInput: "Needs Input", Blocked: "Backlog",
+		},
 	}
 }
 
@@ -51,6 +49,22 @@ func newTestClient(t *testing.T, rt rtFunc) *Client {
 		t.Fatalf("New: %v", err)
 	}
 	return c
+}
+
+// F6: a zero tracker (no team) is a soft error before any network call,
+// never a panic or a query for team "".
+func TestNewRejectsZeroTracker(t *testing.T) {
+	called := false
+	_, err := New(kit.LinearTracker{}, "tok", &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return jsonResp(statesResponse), nil
+	})})
+	if err == nil || !strings.Contains(err.Error(), "no linear tracker configured") {
+		t.Fatalf("New(zero tracker) = %v; want the no-tracker error", err)
+	}
+	if called {
+		t.Fatal("New(zero tracker) made a network call")
+	}
 }
 
 func TestNewFetchesStateMapAndAuthHeader(t *testing.T) {
@@ -226,40 +240,6 @@ func TestListReadyHoldsOnMissingBlocker(t *testing.T) {
 	}
 }
 
-func TestListInProgressParsesStartedAtAndSkipsUnparseable(t *testing.T) {
-	// i1 has a parseable startedAt; i2's is absent → skipped (can't establish staleness).
-	const resp = `{"data":{"issues":{"nodes":[
-	 {"id":"i1","identifier":"AET-1","title":"T1","description":"","startedAt":"2026-07-15T09:00:00.000Z","labels":{"nodes":[{"name":"class:implement"}]}},
-	 {"id":"i2","identifier":"AET-2","title":"T2","description":"","startedAt":"","labels":{"nodes":[]}}
-	]}}}`
-	var vars map[string]any
-	calls := 0
-	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
-		calls++
-		if calls == 1 {
-			return jsonResp(statesResponse), nil
-		}
-		var body map[string]any
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &body)
-		vars, _ = body["variables"].(map[string]any)
-		return jsonResp(resp), nil
-	})
-	got, err := c.ListInProgress(context.Background())
-	if err != nil {
-		t.Fatalf("ListInProgress: %v", err)
-	}
-	if vars["state"] != "In Progress" {
-		t.Fatalf("query state = %v; want In Progress", vars["state"])
-	}
-	if len(got) != 1 || got[0].ID != "i1" || got[0].Class != "implement" {
-		t.Fatalf("ListInProgress = %+v; want only i1 with class implement", got)
-	}
-	if got[0].StartedAt.IsZero() {
-		t.Fatalf("StartedAt not parsed for i1")
-	}
-}
-
 func TestIssueByIdentifierSendsIdentifierAsVariable(t *testing.T) {
 	const resp = `{"data":{"issue":{"id":"i-internal-42"}}}`
 	var body map[string]any
@@ -385,8 +365,7 @@ func TestCommentsParsesThread(t *testing.T) {
 }
 
 func TestNewDefaultsDispatchPrefix(t *testing.T) {
-	// testCfg leaves DispatchLabelPrefix empty — the Jam serve-config path,
-	// which wraps a bare LinearTracker and bypasses kit.ParseConfig's defaulter.
+	// testCfg leaves DispatchLabelPrefix empty, as a Jam serve config may.
 	// New must still default the prefix so the dispatch gate is active, not open.
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
 		return jsonResp(statesResponse), nil
