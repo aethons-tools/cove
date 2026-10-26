@@ -3,6 +3,8 @@ package userui
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
 // The view models' JSON names are the app's contract (types.ts): pin them,
@@ -236,5 +239,86 @@ func TestAPIPresenceAndRailSelection(t *testing.T) {
 		if rr.UnreadTotal != want {
 			t.Errorf("rail%s unreadTotal = %d, want %d", q, rr.UnreadTotal, want)
 		}
+	}
+}
+func apiPost(t *testing.T, h http.Handler, p jam.Participant, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = appui.WithPrincipal(jam.WithParticipant(req, p), appui.Principal{User: &p})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestAPIRead(t *testing.T) {
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	pl, _ := e.Intercom.PlanPersonChat(bob, p.UserID)
+	m, _ := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "ping"})
+	h := Handler(e.Deps, nil)
+	path := "/app/user/api/conversations/" + string(m.Channel) + "/read"
+	if rec := apiPost(t, h, p, path, fmt.Sprintf(`{"seq":%d}`, m.Seq)); rec.Code != 204 {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body)
+	}
+	var rr RailResponse
+	_ = json.Unmarshal(apiGet(t, h, &p, "/app/user/api/rail").Body.Bytes(), &rr)
+	if rr.UnreadTotal != 0 {
+		t.Errorf("after read, unreadTotal = %d", rr.UnreadTotal)
+	}
+	if rec := apiPost(t, h, p, "/app/user/api/conversations/chn_01j9q3zzzzzzzzzzzzzzzzzz/read", `{"seq":1}`); rec.Code != 404 {
+		t.Errorf("read of a missing channel = %d", rec.Code)
+	}
+	if rec := apiPost(t, h, p, "/app/user/api/conversations/legacy:x/read", `{"seq":1}`); rec.Code != 204 {
+		t.Errorf("read of History = %d, want 204 (no-op)", rec.Code)
+	}
+	if rec := apiPost(t, h, p, path, `{"seq":`); rec.Code != 400 {
+		t.Errorf("bad JSON = %d", rec.Code)
+	}
+	req := httptest.NewRequest("POST", path, strings.NewReader("seq=1"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, jam.WithParticipant(req, p))
+	if rec.Code != http.StatusUnsupportedMediaType || !strings.Contains(rec.Body.String(), `"code":"unsupported_media_type"`) {
+		t.Errorf("form body = %d %s, want 415", rec.Code, rec.Body)
+	}
+}
+
+func TestAPIMembership(t *testing.T) {
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	h := Handler(e.Deps, nil)
+	base := "/app/user/api/conversations/" + engID
+	if rec := apiPost(t, h, p, base+"/call-in", `{"who":"user:`+string(bob)+`"}`); rec.Code != 204 || !isIn(e.st, e.room.ID, bob) {
+		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiPost(t, h, p, base+"/leave", `{}`); rec.Code != 204 || isIn(e.st, e.room.ID, p.UserID) {
+		t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+	}
+	if _, c, _ := getConv(t, e, p, engID, ""); !c.CanJoin || c.CanLeave {
+		t.Errorf("after leave: canJoin=%v canLeave=%v", c.CanJoin, c.CanLeave)
+	}
+	if rec := apiPost(t, h, p, base+"/join", `{}`); rec.Code != 204 || !isIn(e.st, e.room.ID, p.UserID) {
+		t.Fatalf("join = %d %s", rec.Code, rec.Body)
+	}
+	// JoinChannel refuses a missing, an unseen and a chat channel alike
+	// (ErrSendDenied): one 403, which says nothing about existence.
+	if rec := apiPost(t, h, p, "/app/user/api/conversations/chn_01j9q3zzzzzzzzzzzzzzzzzz/join", `{}`); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"code":"forbidden"`) {
+		t.Errorf("join missing = %d %s, want 403 forbidden", rec.Code, rec.Body)
+	}
+	if rec := apiPost(t, h, p, base+"/call-in", `{"who":"user:nobody"}`); rec.Code == 204 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+		t.Errorf("call-in nobody = %d %s", rec.Code, rec.Body)
+	}
+	// A chat's members are fixed.
+	pl, _ := e.Intercom.PlanPersonChat(bob, p.UserID)
+	m, _ := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "hi"})
+	if rec := apiPost(t, h, p, "/app/user/api/conversations/"+string(m.Channel)+"/leave", `{}`); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"code":"conflict"`) {
+		t.Errorf("leave a chat = %d %s, want 409 conflict", rec.Code, rec.Body)
 	}
 }
