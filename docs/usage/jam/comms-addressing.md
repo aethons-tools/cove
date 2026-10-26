@@ -40,7 +40,9 @@ what Jam itself writes, e.g. a personal session's grant and migrated policy) or
 by name. An id is matched only by that exact id, `user:*` or `*` — a name
 pattern like `user:a*` never matches an id — so ids never widen a name glob. Globs match only within
 their kind (`user:`, `channel:`, `ticket:`, `session:`); write each prefix you mean.
-For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach every ticket, `ticket:acme/*` every ticket of acme's repos.
+For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach every ticket, and `ticket:x/*` every ticket of owner `x`'s repos *or* every ticket scoped to a connection named `x` (`ticket:x/<key>`).
+A GitHub ticket is matched by its canonical key only, and a glob's GitHub-shaped parts are canonical too (lowercased, `#<n>` without leading zeros): `ticket:Acme/*` reaches `acme/board#7`, while `ticket:acme/board#??` does not reach `acme/board#07` (that is `#7`). So the spelling never changes the answer, and `ticket:` and `session:` agree.
+A malformed key with no `#` (`ticket:acme/board`) is no GitHub form, so `*` does not cross its `/`: it is denied (403) unless a glob covers it as written (`ticket:acme/*`), and only then refused as malformed (404).
 
 ## Project members and rooms
 

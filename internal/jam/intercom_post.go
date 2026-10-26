@@ -751,8 +751,8 @@ func (ic *Intercom) resolveRoom(project Project, name string, globs []string) (C
 
 // resolveTicket finds a ticket's channel: "<key>" on the tracker connection,
 // or "<connection name|id>/<key>". A GitHub key (owner/repo#<n>) is itself
-// split by '/', so it is matched whole first, and is looked up in its
-// canonical spelling. A session's own ticket needs no addressing; any other
+// split by '/', so it is matched whole first, and is authorized and looked
+// up in its canonical spelling only. A session's own ticket needs no addressing; any other
 // needs ticket:<glob> — checked before a malformed GitHub key is refused
 // (403 before 404), and the refusal never echoes the key.
 func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs []string) (Channel, error) {
@@ -778,10 +778,12 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	canon, isKey := key, true
 	if connOK {
 		canon, isKey = TicketUnit(ic.store, connID, key)
-		if canon != key {
-			forms = append(forms, "ticket:"+canon)
+		if c, err := ticketkey.Canonical(key); err == nil && connKind(ic.store, connID) == "github" {
+			// A GitHub key is authorized by its canonical spelling only (as
+			// session: is): how it is spelled can't change the answer.
+			forms = []string{"ticket:" + c}
 			if conn != "" {
-				forms = append(forms, "ticket:"+conn+"/"+canon)
+				forms = append(forms, "ticket:"+conn+"/"+c)
 			}
 		}
 	}
@@ -798,6 +800,8 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 		return ic.HomeChannel(*p.Session)
 	case !connOK:
 		return Channel{}, ErrSendUnresolved
+	case !isKey && ticketkey.IsGitHub(key):
+		return Channel{}, ErrSendUnresolved // another repo's: no ticket on the tracker
 	case !isKey:
 		return Channel{}, fmt.Errorf("%w: %w", ErrSendUnresolved, ticketkey.ErrGitHub)
 	}

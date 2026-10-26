@@ -170,6 +170,11 @@ func TestGlobMatchGitHubTickets(t *testing.T) {
 		{"ticket:*", "ticket:linear/ACME-7", false},
 		{"ticket:linear/*", "ticket:linear/ACME-7", true},
 		{"*", "channel:a/b", false},
+		// A glob's GitHub-shaped parts are canonical (final fix 4):
+		{"ticket:Acme/*", "ticket:acme/board#7", true},
+		{"ticket:acme/board#007", "ticket:acme/board#7", true},
+		{"ticket:acme/board#??", "ticket:acme/board#7", false},
+		{"ticket:GH-Acme/*", "ticket:GH-Acme/acme/board#7", true},
 	} {
 		if got := globMatch(c.glob, c.form); got != c.want {
 			t.Errorf("globMatch(%q, %q) = %v; want %v", c.glob, c.form, got, c.want)
@@ -382,5 +387,32 @@ func TestTrackerRepoScopesBindingsAndTickets(t *testing.T) {
 	other.ActorID, other.Unit = string(ident.New(ident.Session)), "other/repo#7"
 	if home, err := f.ic.HomeChannel(other); err != nil || home.Kind != SourceSession {
 		t.Fatalf("HomeChannel(other/repo#7) = %+v, %v; want its session channel", home, err)
+	}
+}
+
+// Final fix 4: a GitHub ticket is authorized by its canonical key only, and
+// a glob's GitHub-shaped parts are canonical too — so the spelling of the
+// address can't change the answer, and ticket: and session: agree.
+func TestGitHubTicketAuthorizationIsCanonical(t *testing.T) {
+	for _, c := range []struct {
+		glob string
+		want error // for both ticket:acme/board#07 and the ticket session's session:
+	}{
+		{"ticket:acme/board#??", ErrSendDenied}, // #07 is #7: one character
+		{"ticket:acme/board#07", nil},           // a glob's leading zeros are stripped
+		{"ticket:Acme/*", nil},                  // a glob's owner is lowercased
+		{"ticket:ACME/BOARD#7", nil},
+		{"ticket:other/*", ErrSendDenied},
+	} {
+		f := newGitHubICFixture(t, c.glob, "session:*")
+		if err := f.ic.SetUp(f.ticket); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.plan(f.standing, "ticket:acme/board#07"); !errors.Is(err, c.want) {
+			t.Errorf("glob %s: ticket:acme/board#07 → %v; want %v", c.glob, err, c.want)
+		}
+		if _, err := f.plan(f.standing, "session:"+f.ticket.ActorID); !errors.Is(err, c.want) {
+			t.Errorf("glob %s: session:<ticket session> → %v; want %v", c.glob, err, c.want)
+		}
 	}
 }

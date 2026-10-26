@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -126,6 +127,11 @@ func anyAllowed(forms []string, globs []string) bool {
 // as an ordinary character: ticket:* and * reach every ticket, and
 // ticket:acme/* reaches every ticket of acme's repos. Other forms, Linear
 // tickets included, match exactly as before.
+//
+// GitHub keys are case-insensitive and number-canonical, so against a
+// GitHub ticket form a glob is too: it and the form are lowercased, and a
+// glob's #<n> loses its leading zeros (ticket:Acme/* reaches acme/board#7;
+// ticket:acme/board#?? does not reach #07, which is #7).
 func globMatch(g, f string) bool {
 	if ok, _ := path.Match(g, f); ok {
 		return true
@@ -133,8 +139,21 @@ func globMatch(g, f string) bool {
 	if !isGitHubTicketForm(f) {
 		return false
 	}
+	g, f = canonicalGlob(g), strings.ToLower(f)
+	if ok, _ := path.Match(g, f); ok {
+		return true
+	}
 	ok, _ := path.Match(strings.ReplaceAll(g, "/", "\x00"), strings.ReplaceAll(f, "/", "\x00"))
 	return ok
+}
+
+// leadingZeros matches a #<n>'s leading zeros (not a lone #0).
+var leadingZeros = regexp.MustCompile(`#0+([0-9])`)
+
+// canonicalGlob is glob g with its GitHub-shaped parts canonical:
+// lowercased, and each #<n> without leading zeros.
+func canonicalGlob(g string) string {
+	return leadingZeros.ReplaceAllString(strings.ToLower(g), "#$1")
 }
 
 // isGitHubTicketForm reports a ticket form whose key is GitHub-shaped: it
