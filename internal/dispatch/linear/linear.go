@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/tracker"
 )
 
 const endpoint = "https://api.linear.app/graphql"
@@ -180,29 +180,11 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 	for i, l := range n.Labels.Nodes {
 		names[i] = l.Name
 	}
-	class, dispatchLabeled := classifyLabels(names, c.prefix, c.dispatchPrefix)
+	class, dispatchLabeled := scheduler.ClassifyLabels(names, c.prefix, c.dispatchPrefix)
 	return scheduler.Issue{
 		ID: n.ID, Identifier: n.Identifier, Title: n.Title,
 		Description: n.Description, Class: class, DispatchLabeled: dispatchLabeled,
 	}
-}
-
-// classifyLabels derives the handler class (the value after classPrefix, first
-// match wins) and whether the issue is tagged for dispatch (any label matching
-// dispatchPrefix — presence-only). An empty dispatchPrefix means no gate (every
-// issue is dispatchable); config defaults it to "dispatch:", so that case is
-// only reached by callers that bypass kit parsing.
-func classifyLabels(labels []string, classPrefix, dispatchPrefix string) (class string, dispatchLabeled bool) {
-	dispatchLabeled = dispatchPrefix == ""
-	for _, name := range labels {
-		if class == "" && strings.HasPrefix(name, classPrefix) {
-			class = strings.TrimPrefix(name, classPrefix)
-		}
-		if dispatchPrefix != "" && strings.HasPrefix(name, dispatchPrefix) {
-			dispatchLabeled = true
-		}
-	}
-	return class, dispatchLabeled
 }
 
 // ListReady returns issues in the READY state that are dispatchable now: every
@@ -380,16 +362,9 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 	return cs, nil
 }
 
-// FeedComment is one comment from the team-scoped comments feed.
-type FeedComment struct {
-	ID              string
-	Body            string
-	CreatedAt       time.Time
-	Author          string
-	AuthorID        string // the author's Linear user id
-	IssueIdentifier string
-	ParentID        string
-}
+// FeedComment is one comment from the team-scoped comments feed (Jam's
+// shared shape; ParentID is the Linear parent comment id).
+type FeedComment = tracker.FeedComment
 
 // CommentFeed returns comments in the Client's team created after `since`,
 // oldest-first, capped at `limit`. Backs the relay Linear ingress adapter.
@@ -445,3 +420,4 @@ func (c *Client) Viewer(ctx context.Context) (string, error) {
 }
 
 var _ scheduler.Tracker = (*Client)(nil)
+var _ tracker.Tracker = (*Client)(nil)

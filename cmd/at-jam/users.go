@@ -452,7 +452,7 @@ func cmdRoom(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet("room "+sub, flag.ContinueOnError)
 	client := clientFlags(fs, stderr)
-	conn := fs.String("connection", "", "the connection the ref is on: a name, id or kind (add; default: the linear connection)")
+	conn := fs.String("connection", "", "the connection the ref is on: a name, id or kind (add; default: the tracker connection)")
 	ref := fs.String("ref", "", "the surface the room posts to and hears from: a Linear issue key or a Discord channel id (add)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {

@@ -50,10 +50,18 @@ type Surface interface {
 	Service() string
 	// EGRESS: render+deliver one already-resolved message; return the Service-native id (receipt).
 	// m.ID is passed as the Service-side dedup key (Discord nonce / Linear body footer).
+	// An error wrapping ErrPermanent is never retried: the delivery is skipped.
 	Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (foreignID string, err error)
 	// INGRESS: foreign events strictly after `since`, plus the opaque watermark to persist next.
 	Poll(ctx context.Context, project, since string) (events []Event, next string, err error)
 	Close() error
+}
+
+// Backoff is an optional Surface capability: Until is when a rate limit the
+// Service imposed ends (zero or past: none in force). While one is, the
+// engine makes no deliveries and logs the wait once.
+type Backoff interface {
+	Until() time.Time
 }
 
 // EgressMark is the BOUNDED per-Service delivery bookkeeping (not stored in
@@ -109,7 +117,8 @@ type Directory interface {
 	Post(r Routed, m intercom.Squawk) error
 }
 
-// ErrPermanent marks a Post failure retrying can't fix.
+// ErrPermanent marks a failure retrying can't fix: a Directory's Post, or a
+// Service's Deliver (egress then skips that delivery, with one warn).
 var ErrPermanent = errors.New("relay: permanent")
 
 // Config tunes the Engine's two poll loops; zero values pick defaults (e.g.

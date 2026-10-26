@@ -38,7 +38,6 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
-	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -66,7 +65,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
-	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -77,6 +75,7 @@ import (
 	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/textesc"
+	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
@@ -2233,13 +2232,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
 	// channels key on the requisitioner's tracker connection, resolved below
-	// (until then, or with no requisitioner, the linear connection if any).
+	// (until then, or with no requisitioner, jam.TrackerConnection: the
+	// linear connection, else the github one).
 	var trackerConn atomic.Value // ident.ID
 	icTracker := func() (ident.ID, bool) {
 		if id, ok := trackerConn.Load().(ident.ID); ok {
 			return id, true
 		}
-		c, ok := st.ConnectionOfKind("linear")
+		c, ok := jam.TrackerConnection(st)
 		return c.ID, ok
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)
@@ -2381,7 +2381,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
 	// the Discord relay — runs always (message log via Postgres is always present):
 	// a personal session converses with its owner over it. The tracker, the
-	// Requisitioner, the escalation engine and the Linear relay need the tracker, so
+	// Requisitioner, the escalation engine and the tracker relay need the tracker, so
 	// they stay in the Requisitioner block below.
 	dc := cfg.Runtime.Requisitioner
 
@@ -2515,28 +2515,29 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	if dc != nil {
+		kind := dc.trackerKind()
 		// Resolve Jam's own tracker token (never injected into a cove, never logged).
-		lconn, lcred, err := resolveServeConnection(st, "runtime.requisitioner", "linear", dc.Connection, dc.TrackerTokenCred, cfg.Credentials)
+		tconn, tcred, err := resolveServeConnection(st, "runtime.requisitioner", kind, dc.Connection, dc.TrackerTokenCred, cfg.Credentials)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
-		trackerConn.Store(lconn.ID)
-		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[lcred]})
+		if dc.GitHub != nil { // only the tracker repo's issues are deliverable: other repos' are refused
+			jam.SetTrackerRepo(tconn.ID, strings.TrimSpace(dc.GitHub.Repo))
+		}
+		trackerConn.Store(tconn.ID)
+		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[tcred]})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: requisitioner connection credential:", err)
 			return 1
 		}
-		token := tokEnv[lcred]
-		log.Info("requisitioner: connection", "connection", lconn.Name, "id", lconn.ID)
-		// linear.New wants a full kit.Config; wrap the configured LinearTracker.
-		kitShell := kit.Config{Tracker: &kit.Tracker{Linear: dc.Linear}}
-		tracker, err := linear.New(kitShell, token, nil)
+		log.Info("requisitioner: connection", "kind", kind, "connection", tconn.Name, "id", tconn.ID)
+		trk, err := openTracker(dc, tokEnv[tcred], nil)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: requisitioner tracker:", err)
 			return 1
 		}
-		poll, _ := time.ParseDuration(dc.PollInterval) // "" or invalid → 0 → Requisitioner default
+		poll, _ := time.ParseDuration(dc.pollInterval()) // "" or invalid → 0 → Requisitioner default
 		// The Requisitioner's (project, role), normalized the same way as the
 		// Allocator's fallback (see requisitionerProject).
 		project := reqProject
@@ -2544,25 +2545,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Info("Jam allocator: roster max-ephemeral overrides Requisitioner max-concurrent",
 				"project", project, "role", dc.Role, "max-ephemeral", r.Allocation.MaxEphemeral, "max-concurrent", dc.MaxConcurrent)
 		}
-		tickets.set(linearTicketer{tracker})
-		disp := dispatcher.New(tracker, sup, st, alloc, dispatcher.Config{
+		tickets.set(trackerTicketer{trk})
+		disp := dispatcher.New(trk, sup, st, alloc, dispatcher.Config{
 			Role: dc.Role, Project: project, PollInterval: poll,
 		}, log)
 		go disp.Run(context.Background())
-		log.Info("requisitioner: resident", "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
+		log.Info("requisitioner: resident", "kind", kind, "role", dc.Role, "max-concurrent", dc.MaxConcurrent)
 
-		// relay linear engine: polls the team-scoped comments feed and
-		// posts inbound replies into the channel log opened above
-		// (ingress), and delivers outbound Log messages to Linear (egress,
-		// COV-176 Task 4) — the Log is the single source of truth for both
-		// directions.
-		self, err := tracker.Viewer(context.Background())
-		if err != nil {
-			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "error", err.Error())
-		}
+		// The tracker relay engine polls the tracker's comment feed and posts
+		// inbound replies into the channel log opened above (ingress). It also
+		// delivers outbound Log messages to the tracker (egress). The Log is
+		// the single source of truth for both directions.
 		dir.project = reqProject // by id: the relays' cursors and polling outlive a rename
-		dir.selfIdentity = self
-		surf := &linearSurface{feed: tracker, poster: tracker, started: time.Now()}
+		dir.trackerKind = kind
 		// Seed once: skip everything the 1a dual-write already delivered live,
 		// so turning egress on never re-posts the Log's shadow history.
 		// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
@@ -2570,16 +2565,34 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// the first cutover). needsSeed also re-seeds a marker whose LastSeq
 		// is zero, which covers a pre-COV-184 marker file (persisted the
 		// low-water as LastMsg, a string) upgrading in place — see
-		// fileMarkers.needsSeed.
-		if relayMarkers.needsSeed("linear") {
-			if err := relayMarkers.SetEgress("linear", relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
+		// fileMarkers.needsSeed. A new github service seeds at the tail.
+		if relayMarkers.needsSeed(kind) {
+			if err := relayMarkers.SetEgress(kind, relay.EgressMark{LastSeq: logTailSeq(chlog)}); err != nil {
 				fmt.Fprintln(stderr, "at-jam: relay egress seed:", err)
 				return 1
 			}
 		}
-		eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
-		go eng.Run(context.Background())
-		log.Info("Jam relay (linear): resident, egress ON", "self", self != "")
+		// startRelay runs the relay once Jam's tracker identity (the
+		// self-post filter) is known; only this engine reads selfIdentity.
+		startRelay := func(self string) {
+			dir.selfIdentity = self
+			surf := &trackerSurface{service: kind, feed: trk, poster: trk, started: time.Now()}
+			eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+			go eng.Run(context.Background())
+			log.Info("Jam relay ("+kind+"): resident, egress ON", "self", self != "")
+		}
+		if kind == tracker.KindGitHub {
+			// GitHub retries a failed Viewer (in the background: dispatch and
+			// reports run meanwhile) and starts the relay once it succeeds.
+			go func() {
+				if self, ok := trackerSelf(context.Background(), kind, trk.Viewer, log, sleepCtx); ok {
+					startRelay(self)
+				}
+			}()
+		} else {
+			self, _ := trackerSelf(context.Background(), kind, trk.Viewer, log, sleepCtx)
+			startRelay(self)
+		}
 
 	}
 	// Every live session gets its home channel — a ticket session its ticket
@@ -2602,12 +2615,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 	// relay discord engine: a resident engine over the same Log, markers file,
-	// cursors, and directory as the Linear one — delivers outbound Log messages
+	// cursors, and directory as the tracker one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for
 	// human replies, routing a reply back to the cove it answers via the receipt
-	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
-	// "discord" marks live side by side in the one markers file. Gated on
-	// runtime.discord; no Requisitioner needed.
+	// store (ingress). The engine keys EgressMark by Service(), so the tracker's
+	// ("linear" or "github") and "discord" marks live side by side in the one
+	// markers file. Gated on runtime.discord; no Requisitioner needed.
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // maxSquawkBodyBytes caps a POST body to bound abuse (~16 KiB).
@@ -223,6 +224,9 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	case errors.Is(err, ErrSendDenied):
 		http.Error(w, "target not authorized", http.StatusForbidden)
 		return
+	case errors.Is(err, ticketkey.ErrGitHub): // the fixed refusal; never the key sent
+		http.Error(w, "target not found: "+ticketkey.ErrGitHub.Error(), http.StatusNotFound)
+		return
 	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
 		http.Error(w, "target not found", http.StatusNotFound)
 		return
@@ -262,10 +266,20 @@ type targetOut struct {
 }
 
 func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
-	targets := ListTargets(h.store, actor, h.now())
+	var tracker func() (ident.ID, bool)
+	if h.ic != nil {
+		tracker = h.ic.Tracker
+	}
+	targets := ListTargets(h.store, tracker, actor, h.now())
 	out := make([]targetOut, 0, len(targets)+1)
-	if inst.Unit != "" {
-		out = append(out, targetOut{Target: "ticket:" + inst.Unit, Kind: "ticket", Name: inst.Unit})
+	// The session's own ticket, by its key on the tracker (canonical on
+	// github; a Unit that is no github key has no ticket there).
+	unit, onTicket := inst.Unit, inst.Unit != ""
+	if id, ok := trackerOrDefault(h.store, tracker); ok {
+		unit, onTicket = TicketUnit(h.store, id, inst.Unit)
+	}
+	if onTicket {
+		out = append(out, targetOut{Target: "ticket:" + unit, Kind: "ticket", Name: unit})
 	}
 	for _, t := range targets {
 		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})

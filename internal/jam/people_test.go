@@ -2,6 +2,8 @@ package jam
 
 import (
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 // peopleFixture is project acme chatting over discord with alice (bound to
@@ -151,5 +153,48 @@ func TestMemberOfCopiesDelivery(t *testing.T) {
 	ms[0].Delivery[0].Address = "MUTATED"
 	if again := MembersOf(s, p.ID); again[0].Delivery[0].Address != want {
 		t.Fatalf("MemberOf leaked a live Delivery slice: %+v", again[0].Delivery)
+	}
+}
+
+// Final fix 2: a member's tracker @-handle is per tracker kind — on a
+// GitHub-tracked Jam the github login, not the linear handle that happens
+// to be first; and a roster handle links to the tracker's kind.
+func TestMemberHandleOnTrackerKind(t *testing.T) {
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	gh, err := s.CreateConnection(Connection{Kind: "github", Name: "github"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A roster handle on a Jam whose only tracker is github: a github account.
+	if err := AddPerson(s, "acme", Human{Name: "alice", Handle: "alice-gh"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.ConnectionOfKind("linear"); ok {
+		t.Fatal("a roster handle created a linear connection on a github-tracked Jam")
+	}
+	if a, ok := s.AccountByHandle(gh.ID, "alice-gh"); !ok || a.UserID == "" {
+		t.Fatalf("alice-gh on github = %+v, %v; want alice's linked account", a, ok)
+	}
+	// alice gains a linear handle too (a linear connection now exists).
+	uid, _ := s.LookupName(ident.User, "alice")
+	if err := linkPersonAccount(s, "linear", uid, Account{Handle: "alice.lin"}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject("acme")
+	m, ok := MemberOf(s, p.ID, uid)
+	if !ok {
+		t.Fatal("no member")
+	}
+	if got := m.HandleOn("github"); got != "alice-gh" {
+		t.Errorf("HandleOn(github) = %q; want alice-gh", got)
+	}
+	if got := m.HandleOn("linear"); got != "alice.lin" {
+		t.Errorf("HandleOn(linear) = %q; want alice.lin", got)
+	}
+	if got := m.HandleOn("discord"); got != "" {
+		t.Errorf("HandleOn(discord) = %q; want none", got)
 	}
 }

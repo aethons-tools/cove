@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -112,12 +113,72 @@ func anyAllowed(forms []string, globs []string) bool {
 				}
 				continue
 			}
-			if ok, _ := path.Match(g, f); ok {
+			if globMatch(g, f) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// globMatch matches a target form against an addressing glob (path.Match).
+// A GitHub ticket key holds a '/' (owner/repo#<n>) that path.Match's '*'
+// never crosses. So a GitHub ticket form also matches with every '/' read
+// as an ordinary character: ticket:* and * reach every ticket, and
+// ticket:acme/* reaches every ticket of acme's repos. Other forms, Linear
+// tickets included, match exactly as before.
+//
+// GitHub keys are case-insensitive and number-canonical, so against a
+// GitHub ticket form a glob is too: it and the form are lowercased, and a
+// glob's #<n> loses its leading zeros (ticket:Acme/* reaches acme/board#7;
+// ticket:acme/board#?? does not reach #07, which is #7).
+func globMatch(g, f string) bool {
+	if ok, _ := path.Match(g, f); ok {
+		return true
+	}
+	if !isGitHubTicketForm(f) {
+		return false
+	}
+	// The form's key is already canonical; a connection name is
+	// case-sensitive. A bare form (ticket:owner/repo#n) is matched by the
+	// canonical glob; a scoped one (ticket:<conn>/owner/repo#n) by the glob
+	// with its first segment (the connection) kept as written.
+	gg := canonicalGlob(g)
+	if rest, ok := strings.CutPrefix(f, "ticket:"); ok && strings.Count(rest, "/") > 1 {
+		if gr, ok := strings.CutPrefix(g, "ticket:"); ok {
+			conn, tail, _ := strings.Cut(gr, "/")
+			gg = "ticket:" + conn + "/" + strings.TrimPrefix(canonicalGlob("ticket:"+tail), "ticket:")
+		} else {
+			gg = g
+		}
+	}
+	for _, x := range []string{g, gg} {
+		if ok, _ := path.Match(x, f); ok {
+			return true
+		}
+		if ok, _ := path.Match(strings.ReplaceAll(x, "/", "\x00"), strings.ReplaceAll(f, "/", "\x00")); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// leadingZeros matches a #<n>'s leading zeros (not a lone #0).
+var leadingZeros = regexp.MustCompile(`#0+([0-9])`)
+
+// canonicalGlob is glob g with its GitHub-shaped parts canonical:
+// lowercased, and each #<n> without leading zeros.
+func canonicalGlob(g string) string {
+	return leadingZeros.ReplaceAllString(strings.ToLower(g), "#$1")
+}
+
+// isGitHubTicketForm reports a ticket form whose key is GitHub-shaped: it
+// holds a '#', which no Linear key does. That covers "ticket:owner/repo#<n>",
+// bare or scoped to a connection, and a malformed GitHub key too — so the
+// addressing check runs before the key's shape is refused (403 before 404).
+func isGitHubTicketForm(f string) bool {
+	rest, ok := strings.CutPrefix(f, "ticket:")
+	return ok && strings.Contains(rest, "#")
 }
 
 // isIDForm reports whether a target form names a person by user id.
@@ -142,10 +203,13 @@ type Target struct {
 // ListTargets returns the actor's allowed-and-resolvable targets: the members,
 // rooms and other live sessions of each grant's project its addressing allows
 // (dedup by kind:name, grant then name order). An expired actor has none.
-func ListTargets(store Store, a Actor, now time.Time) []Target {
+// tracker is the tracker connection serve resolved (Intercom.Tracker), which
+// a ticket session's reachability is checked on; nil: TrackerConnection.
+func ListTargets(store Store, tracker func() (ident.ID, bool), a Actor, now time.Time) []Target {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return nil
 	}
+	trackerID, hasTracker := trackerOrDefault(store, tracker)
 	seen := map[string]bool{}
 	var out []Target
 	for _, g := range a.Grants {
@@ -172,10 +236,9 @@ func ListTargets(store Store, a Actor, now time.Time) []Target {
 				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
 			}
 		}
-		tracker, hasTracker := store.ConnectionOfKind("linear")
 		self, _ := store.GetInstance(a.ID)
 		for _, inst := range liveSessionsOf(store, p.Name) {
-			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, tracker.ID, self, inst, globs) {
+			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, trackerID, self, inst, globs) {
 				continue
 			}
 			name := sessionAddressName(store, inst)
@@ -189,17 +252,31 @@ func ListTargets(store Store, a Actor, now time.Time) []Target {
 	return out
 }
 
+// trackerOrDefault is tracker's connection, or with no tracker func the
+// store's TrackerConnection.
+func trackerOrDefault(store Store, tracker func() (ident.ID, bool)) (ident.ID, bool) {
+	if tracker != nil {
+		return tracker()
+	}
+	c, ok := TrackerConnection(store)
+	return c.ID, ok
+}
+
 // sessionTicketAllowed reports whether a session whose addressing is globs
 // may reach target where target's home is its ticket (on tracker): no ticket,
 // the poster's own ticket, or a ticket: glob in any form resolveTicket takes
 // — the bare key, or scoped to the tracker connection by name or id.
 func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
-	if target.Unit == "" || target.Unit == poster.Unit {
+	unit, onTicket := TicketUnit(store, tracker, target.Unit)
+	if !onTicket { // no ticket on tracker: its home is its own session channel
 		return true
 	}
-	forms := []string{"ticket:" + target.Unit, "ticket:" + string(tracker) + "/" + target.Unit}
+	if own, ok := TicketUnit(store, tracker, poster.Unit); ok && own == unit {
+		return true
+	}
+	forms := []string{"ticket:" + unit, "ticket:" + string(tracker) + "/" + unit}
 	if c, ok := store.GetConnection(tracker); ok {
-		forms = append(forms, "ticket:"+c.Name+"/"+target.Unit)
+		forms = append(forms, "ticket:"+c.Name+"/"+unit)
 	}
 	return anyAllowed(forms, globs)
 }

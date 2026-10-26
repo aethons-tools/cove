@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // Status is a registry entity's lifecycle state. Removal is a tombstone: a
@@ -41,7 +43,62 @@ type Connection struct {
 }
 
 // ConnectionKinds are the services a connection may be.
-var ConnectionKinds = []string{"linear", "discord"}
+var ConnectionKinds = []string{"linear", "discord", "github"}
+
+// TrackerKinds are the connection kinds a Requisitioner's tracker may be.
+var TrackerKinds = []string{"linear", "github"}
+
+// TrackerConnection is the tracker connection ticket bindings, room refs
+// and @-handles default to: the github tracker serve resolved (recorded by
+// SetTrackerRepo) when it is a live connection of store, else the linear
+// one, else the github one.
+func TrackerConnection(store Store) (Connection, bool) {
+	var resolved Connection
+	trackerRepos.Range(func(k, _ any) bool {
+		c, ok := store.GetConnection(k.(ident.ID))
+		if ok && c.Status == StatusLive && c.Kind == "github" {
+			resolved = c
+			return false
+		}
+		return true
+	})
+	if resolved.ID != "" {
+		return resolved, true
+	}
+	for _, k := range TrackerKinds {
+		if c, ok := store.ConnectionOfKind(k); ok {
+			return c, true
+		}
+	}
+	return Connection{}, false
+}
+
+// trackerRepos holds the repo each github tracker connection serve
+// resolved is on (runtime.requisitioner.github.repo), by connection id.
+var trackerRepos sync.Map // ident.ID → string
+
+// SetTrackerRepo records that github tracker connection conn is on repo
+// ("owner/name"; "" forgets it). Serve sets it once it resolves the
+// Requisitioner's connection: only that repo's issues are deliverable, so
+// a binding to, or a ticket on, any other is refused (ticketkey.ErrOtherRepo).
+func SetTrackerRepo(conn ident.ID, repo string) {
+	if repo == "" {
+		trackerRepos.Delete(conn)
+		return
+	}
+	trackerRepos.Store(conn, strings.ToLower(repo))
+}
+
+// onTrackerRepo reports whether canonical github key is on conn's repo (true
+// when no repo is recorded for conn: nothing to scope by).
+func onTrackerRepo(conn ident.ID, key string) bool {
+	repo, ok := trackerRepos.Load(conn)
+	if !ok {
+		return true
+	}
+	r, _, err := ticketkey.ParseGitHub(key)
+	return err == nil && r == repo.(string)
+}
 
 // Account is an identity on a connection's service. ServiceUID is the
 // service's immutable user id; Handle its mention handle; either may be

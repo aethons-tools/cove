@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // fakeFeeder is a fake commentFeeder recording the `since` it was called
@@ -36,7 +38,7 @@ func TestLinearSurfacePollMapsFeed(t *testing.T) {
 		{ID: "c1", Body: "hold", CreatedAt: started.Add(time.Hour), Author: "Brent", IssueIdentifier: "ACME-42", ParentID: ""},
 		{ID: "c2", Body: "?", CreatedAt: started.Add(2 * time.Hour), Author: "Brent", IssueIdentifier: "ACME-42", ParentID: "c1"},
 	}}
-	s := &linearSurface{feed: ff, started: started}
+	s := &trackerSurface{feed: ff, started: started}
 	evs, next, err := s.Poll(context.Background(), "acme", "")
 	if err != nil || len(evs) != 2 {
 		t.Fatalf("poll: %v %+v", err, evs)
@@ -66,7 +68,7 @@ func TestLinearSurfacePollSetSinceParses(t *testing.T) {
 	started := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
 	since := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	ff := &fakeFeeder{}
-	s := &linearSurface{feed: ff, started: started}
+	s := &trackerSurface{feed: ff, started: started}
 	if _, _, err := s.Poll(context.Background(), "acme", since.Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("poll: %v", err)
 	}
@@ -109,12 +111,12 @@ func TestDeliverPropagatesErrors(t *testing.T) {
 	m := intercom.Squawk{Body: "x"}
 	d := relay.Delivery{Service: "linear", Address: "ACME-7"}
 	// resolve error
-	s1 := &linearSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
+	s1 := &trackerSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
 	if _, err := s1.Deliver(context.Background(), d, m); err == nil {
 		t.Fatal("expected resolve error")
 	}
 	// post error
-	s2 := &linearSurface{poster: &fakePoster{idByID: map[string]string{"ACME-7": "iss_7"}, postErr: fmt.Errorf("nope")}}
+	s2 := &trackerSurface{poster: &fakePoster{idByID: map[string]string{"ACME-7": "iss_7"}, postErr: fmt.Errorf("nope")}}
 	if _, err := s2.Deliver(context.Background(), d, m); err == nil {
 		t.Fatal("expected post error")
 	}
@@ -327,7 +329,7 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 // prefix (@handle) is ours and never escaped.
 func TestLinearDeliverEscapesPlainText(t *testing.T) {
 	fp := &fakePoster{idByID: map[string]string{"ACME-1": "issue-1"}}
-	s := &linearSurface{poster: fp}
+	s := &trackerSurface{poster: fp}
 	d := relay.Delivery{Address: "ACME-1", BodyPrefix: "@alice "}
 	from := ident.ID("cove-1")
 	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "**bold**", ContentType: intercom.ContentMarkdown}); err != nil {
@@ -449,5 +451,26 @@ func TestFileCursorsRecoveryAndPrecedence(t *testing.T) {
 	}
 	if again, _ := os.ReadFile(p + ".bak"); string(again) != string(first) {
 		t.Fatalf("the first .bak was overwritten: %s", again)
+	}
+}
+
+// Final fix 3: a delivery to a ticket the tracker can never take (on another
+// repo, or no ticket key at all) is permanent, so egress skips it; any other
+// resolve failure stays retryable.
+func TestDeliverUndeliverableTicketIsPermanent(t *testing.T) {
+	m := intercom.Squawk{Body: "x"}
+	d := relay.Delivery{Service: "github", Address: "other/repo#7"}
+	for _, err := range []error{
+		fmt.Errorf("githubissues: ticket other/repo#7: %w", ticketkey.ErrOtherRepo),
+		ticketkey.ErrGitHub,
+	} {
+		s := &trackerSurface{service: "github", poster: &fakePoster{resolveErr: err}}
+		if _, got := s.Deliver(context.Background(), d, m); !errors.Is(got, relay.ErrPermanent) {
+			t.Errorf("resolve error %v → %v; want ErrPermanent", err, got)
+		}
+	}
+	s := &trackerSurface{service: "github", poster: &fakePoster{resolveErr: errors.New("down")}}
+	if _, got := s.Deliver(context.Background(), d, m); got == nil || errors.Is(got, relay.ErrPermanent) {
+		t.Errorf("a transient resolve error → %v; want retryable", got)
 	}
 }

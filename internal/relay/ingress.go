@@ -18,6 +18,7 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			continue // do NOT advance the cursor
 		}
 		failed := false
+		var unrouted []string
 		for _, ev := range evts {
 			id := "in:" + service + ":" + ev.ForeignID
 			if e.seen[id] {
@@ -26,6 +27,7 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			r, ok := e.dir.Route(service, project, ev)
 			if !ok {
 				e.log.Warn("relay: unrouted ingress event", "service", service, "foreign", ev.ForeignID)
+				unrouted = append(unrouted, id)
 				continue
 			}
 			m := intercom.Squawk{ID: id, From: r.From, Body: ev.Body, At: ev.At, ReplyTo: r.ReplyTo, ContentType: ev.ContentType,
@@ -48,6 +50,12 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			// it so the next tick re-Polls (over-reports) and retries the
 			// failed append. Idempotency (via `seen`) makes the replay safe.
 			continue
+		}
+		// The cursor moves on: an unrouted event is marked seen so a feed
+		// whose since is inclusive (GitHub) handing it back next poll is
+		// neither routed nor warned again. (A held cursor re-routes it.)
+		for _, id := range unrouted {
+			e.seen[id] = true
 		}
 		if err := e.cur.SetIngress(service, project, next); err != nil {
 			e.log.Warn("relay: set ingress cursor failed", "service", service, "project", project, "error", err.Error())

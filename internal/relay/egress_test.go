@@ -1,8 +1,13 @@
 package relay
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
@@ -139,5 +144,70 @@ func TestEgressSkipsOtherService(t *testing.T) {
 	e.egressTick(context.Background())
 	if surf.deliverCount() != 0 {
 		t.Fatal("a surface on another Service must not be delivered by this engine")
+	}
+}
+
+// backoffSurface is a fakeSurface whose first Deliver hits a rate limit
+// lasting until `until` (a relay.Backoff).
+type backoffSurface struct {
+	fakeSurface
+	until, limit time.Time
+}
+
+func (b *backoffSurface) Until() time.Time { return b.until }
+func (b *backoffSurface) Deliver(ctx context.Context, d Delivery, m intercom.Squawk) (string, error) {
+	if b.until.IsZero() {
+		b.until = b.limit
+		return "", errors.New("rate limited")
+	}
+	return b.fakeSurface.Deliver(ctx, d, m)
+}
+
+// While a rate limit holds, egress makes no deliveries and warns once for
+// the whole wait, however many ticks and messages it spans.
+func TestEgressWaitsOutBackoffWarningOnce(t *testing.T) {
+	surf := &backoffSurface{fakeSurface: fakeSurface{service: "github"}, limit: time.Now().Add(time.Hour)}
+	var buf bytes.Buffer
+	e := New(surf, openLog(t), &fakeMarkers{}, &fakeCursors{}, &fakeDirectory{surfaces: map[ident.ID][]Delivery{
+		chOps: {{Service: "github", Address: "acme/board#1"}, {Service: "github", Address: "acme/board#2"}},
+	}}, Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	post(t, e.lg, intercom.Squawk{})
+	post(t, e.lg, intercom.Squawk{})
+	for range 3 {
+		e.egressTick(context.Background())
+	}
+	if n := strings.Count(buf.String(), "level=WARN"); n != 1 || surf.deliverCount() != 0 {
+		t.Fatalf("%d warns, %d delivers; want one warn and no delivery:\n%s", n, surf.deliverCount(), buf.String())
+	}
+	surf.until = time.Now().Add(-time.Second) // the wait is over
+	e.egressTick(context.Background())
+	if surf.deliverCount() != 4 {
+		t.Fatalf("after the wait delivered %d; want 4", surf.deliverCount())
+	}
+}
+
+// Final fix 3: a delivery that fails permanently (ErrPermanent: the surface
+// can never take it) is skipped with one warn — it does not pin LastSeq and
+// is not retried every tick.
+func TestEgressPermanentDeliverErrorSkips(t *testing.T) {
+	surf := &fakeSurface{service: "github", permanentFor: map[string]bool{"other/repo#1": true}}
+	var buf bytes.Buffer
+	mk := &fakeMarkers{}
+	e := New(surf, openLog(t), mk, &fakeCursors{}, &fakeDirectory{surfaces: map[ident.ID][]Delivery{
+		chOps: {{Service: "github", Address: "other/repo#1"}, {Service: "github", Address: "acme/board#2"}},
+	}}, Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	post(t, e.lg, intercom.Squawk{})
+	last := post(t, e.lg, intercom.Squawk{})
+	for range 3 {
+		e.egressTick(context.Background())
+	}
+	if got := mk.Egress("github").LastSeq; got != last.Seq {
+		t.Fatalf("LastSeq = %d; want %d (past the permanently-failing surface)", got, last.Seq)
+	}
+	if surf.deliverCount() != 4 { // each message: one try at each surface
+		t.Fatalf("delivers = %d; want 4 (the permanent failure tried once per message)", surf.deliverCount())
+	}
+	if n := strings.Count(buf.String(), "level=WARN"); n != 2 {
+		t.Fatalf("%d warns; want one per skipped delivery:\n%s", n, buf.String())
 	}
 }

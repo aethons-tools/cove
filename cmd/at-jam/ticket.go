@@ -8,18 +8,18 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// ticketTracker is the slice of *linear.Client a ticket session's reports
-// need.
+// ticketTracker is the slice of tracker.Tracker a ticket session's reports need.
 type ticketTracker interface {
 	IssueByIdentifier(ctx context.Context, identifier string) (string, error)
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error
 	PostComment(ctx context.Context, issueID, body string) error
 }
 
-// linearTicketer moves a ticket session's ticket for POST /report
+// trackerTicketer moves a ticket session's ticket on the Requisitioner's
+// tracker (Linear or GitHub) for POST /report
 // (jam.TicketReporter) and marks it blocked when wake-on ends the session
 // without a final report (wakeon.TicketCloser).
-type linearTicketer struct{ t ticketTracker }
+type trackerTicketer struct{ t ticketTracker }
 
 // reportRole maps a report state to the tracker state it moves the ticket to.
 func reportRole(state string) (scheduler.Role, bool) {
@@ -38,7 +38,7 @@ func reportRole(state string) (scheduler.Role, bool) {
 	return 0, false
 }
 
-func (l linearTicketer) Report(ctx context.Context, inst jam.Instance, r jam.TicketReport) error {
+func (l trackerTicketer) Report(ctx context.Context, inst jam.Instance, r jam.TicketReport) error {
 	role, _ := reportRole(r.State) // validated by the handler
 	body := "**" + r.State + "** — " + r.Summary
 	if r.PR != "" {
@@ -47,14 +47,14 @@ func (l linearTicketer) Report(ctx context.Context, inst jam.Instance, r jam.Tic
 	return l.move(ctx, inst.Unit, role, body)
 }
 
-func (l linearTicketer) BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error {
+func (l trackerTicketer) BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error {
 	if inst.Unit == "" || (inst.Report != nil && inst.Report.Terminal()) {
 		return nil
 	}
 	return l.move(ctx, inst.Unit, scheduler.RoleBlocked, "**blocked** — session ended without a final report: "+reason)
 }
 
-func (l linearTicketer) move(ctx context.Context, unit string, role scheduler.Role, body string) error {
+func (l trackerTicketer) move(ctx context.Context, unit string, role scheduler.Role, body string) error {
 	id, err := l.t.IssueByIdentifier(ctx, unit)
 	if err != nil {
 		return err
@@ -70,16 +70,16 @@ func (l linearTicketer) move(ctx context.Context, unit string, role scheduler.Ro
 // report answers jam.ErrNoTracker and a block is a no-op.
 type ticketHolder struct {
 	mu sync.RWMutex
-	t  *linearTicketer
+	t  *trackerTicketer
 }
 
-func (h *ticketHolder) set(t linearTicketer) {
+func (h *ticketHolder) set(t trackerTicketer) {
 	h.mu.Lock()
 	h.t = &t
 	h.mu.Unlock()
 }
 
-func (h *ticketHolder) get() *linearTicketer {
+func (h *ticketHolder) get() *trackerTicketer {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.t

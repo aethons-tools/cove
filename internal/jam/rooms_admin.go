@@ -10,15 +10,17 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // Rooms in the admin plane (intercom slice 2a-3): `at-jam room` and
 // /admin/projects/{project}/rooms, replacing the roster-channel verbs. A
-// room's ref binds it on a connection (by name or id; default: the linear
-// one) — the surface it posts to and receives replies from.
+// room's ref binds it on a connection (by name, id or kind; default: the
+// tracker's, TrackerConnection) — the surface it posts to and receives
+// replies from.
 
 // RoomBody adds or updates a room: its name, the connection its ref is on (a
-// name, an id or a kind; "" = the linear connection), and the ref.
+// name, an id or a kind; "" = the tracker connection), and the ref.
 type RoomBody struct {
 	Name       string `json:"name"`
 	Connection string `json:"connection,omitempty"`
@@ -73,6 +75,12 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	if err != nil {
 		return RoomView{}, false, err
 	}
+	if b.Ref, err = bindingRef(conn.Kind, b.Ref); err != nil {
+		return RoomView{}, false, fmt.Errorf("room %q: %w", b.Name, err)
+	}
+	if conn.Kind == "github" && !onTrackerRepo(conn.ID, b.Ref) {
+		return RoomView{}, false, fmt.Errorf("room %q: %w", b.Name, ticketkey.ErrOtherRepo) // never delivered: refused
+	}
 	bind := Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindBoth}
 	if ch, ok := store.ChannelByKey(p.ID, SourceRoom, b.Name); ok {
 		holder, taken := store.ChannelByBinding(conn.ID, b.Ref)
@@ -95,10 +103,26 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	return NewRoomView(store, ch), true, nil
 }
 
+// bindingRef is ref as a binding on a connection of kind: on github a ticket
+// key (owner/repo#<n>), in its canonical spelling; refused when it is none.
+// Other services' refs are kept as given.
+func bindingRef(kind, ref string) (string, error) {
+	if kind != "github" {
+		return ref, nil
+	}
+	return ticketkey.Canonical(ref)
+}
+
 // roomConnection resolves a room's connection: a kind (in any case; its
 // connection of that kind, created when there is none, as roster channels
-// always were), "" (the linear kind), or a connection name or id.
+// always were), "" (the tracker connection; with none, the linear kind), or a
+// connection name or id.
 func roomConnection(store Store, ref string) (Connection, error) {
+	if strings.TrimSpace(ref) == "" {
+		if c, ok := TrackerConnection(store); ok {
+			return c, nil
+		}
+	}
 	if kind := strings.ToLower(strings.TrimSpace(cmp.Or(ref, "linear"))); slices.Contains(ConnectionKinds, kind) {
 		if c, ok := store.ConnectionOfKind(kind); ok {
 			return c, nil

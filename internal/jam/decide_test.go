@@ -102,7 +102,7 @@ func TestListTargets(t *testing.T) {
 	}
 	a := Actor{ID: "a", Grants: []Grant{{Project: "acme", Role: "impl"}}}
 	names := map[string]bool{}
-	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
+	for _, tg := range ListTargets(s, nil, a, time.Unix(1, 0)) {
 		names[tg.Kind+":"+tg.Name] = true
 	}
 	// Only people: the room isn't in the addressing (human: reads as user:).
@@ -111,7 +111,7 @@ func TestListTargets(t *testing.T) {
 	}
 	expired := a
 	expired.Expiry = time.Unix(0, 1)
-	if got := ListTargets(s, expired, time.Unix(1, 0)); got != nil {
+	if got := ListTargets(s, nil, expired, time.Unix(1, 0)); got != nil {
 		t.Fatalf("an expired actor has no targets: %+v", got)
 	}
 }
@@ -141,7 +141,7 @@ func TestListTargetsSessions(t *testing.T) {
 	}
 	a := Actor{ID: "me", Grants: []Grant{{Project: "acme", Role: "impl"}}}
 	var got []string
-	for _, tg := range ListTargets(s, a, time.Unix(1, 0)) {
+	for _, tg := range ListTargets(s, nil, a, time.Unix(1, 0)) {
 		got = append(got, tg.Kind+":"+tg.Name)
 	}
 	slices.Sort(got)

@@ -2,15 +2,17 @@ package relay
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // egressBatch caps the number of messages read per egressTick from
 // ListSince, bounding per-tick work; a backlog larger than this drains
-// across multiple ticks. A message near the head with a permanently-failing
-// surface holds LastSeq (head-of-line blocking); transient failures heal on
-// the next tick.
+// across multiple ticks. A message near the head with a failing surface holds
+// LastSeq until it heals (transient failures retry on the next tick); a
+// failure wrapping ErrPermanent is skipped with one warn instead.
 const egressBatch = 500
 
 // egressTick delivers every not-yet-delivered surface of each squawk above
@@ -26,7 +28,8 @@ func (e *Engine) egressTick(ctx context.Context) {
 	}
 	msgs := e.lg.ListSince(mark.LastSeq, egressBatch)
 
-	// Pass 1: deliver undelivered surfaces.
+	// Pass 1: deliver undelivered surfaces (none while a rate limit holds).
+deliver:
 	for _, m := range msgs {
 		surfaces := e.owned(service, m)
 		if len(surfaces) == 0 {
@@ -41,7 +44,20 @@ func (e *Engine) egressTick(ctx context.Context) {
 			if got[d.Address] {
 				continue
 			}
+			if e.backingOff(service) {
+				break deliver
+			}
 			if _, err := e.surf.Deliver(ctx, d, m); err != nil {
+				if e.backingOff(service) {
+					break deliver // this delivery hit the limit: retried once it ends
+				}
+				if errors.Is(err, ErrPermanent) {
+					// It can never land (say, a ticket on another repo): skip it
+					// once, so it holds neither LastSeq nor a retry every tick.
+					e.log.Warn("relay: egress deliver failed permanently; skipped", "service", service, "msg", m.ID, "surface", d.Address, "error", err.Error())
+					got[d.Address] = true
+					continue
+				}
 				e.log.Warn("relay: egress deliver failed", "service", service, "msg", m.ID, "surface", d.Address, "error", err.Error())
 				continue // leave unmarked → retried next tick
 			}
@@ -81,6 +97,24 @@ func (e *Engine) egressDone(service string, m intercom.Squawk, pending map[strin
 		if !got[d.Address] {
 			return false
 		}
+	}
+	return true
+}
+
+// backingOff reports whether the surface (a Backoff) is waiting out a rate
+// limit, logging each wait once.
+func (e *Engine) backingOff(service string) bool {
+	b, ok := e.surf.(Backoff)
+	if !ok {
+		return false
+	}
+	until := b.Until()
+	if !time.Now().Before(until) {
+		return false
+	}
+	if !until.Equal(e.waitLogged) {
+		e.waitLogged = until
+		e.log.Warn("relay: egress waiting out a rate limit", "service", service, "until", until.UTC().Format(time.RFC3339))
 	}
 	return true
 }

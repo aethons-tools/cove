@@ -40,22 +40,26 @@ func (m *memState) planRoom(plan *humanPlan, p Project, rc RosterChannel, demote
 	was := ch.Bindings
 	ch.Bindings = nil
 	if rc.Ref != "" {
+		ref, err := bindingRef(service, rc.Ref)
+		if err != nil {
+			return fmt.Errorf("channel %q: %w", rc.Name, err)
+		}
 		conn := m.planConnectionOfKind(plan, service)
-		b := Binding{ConnectionID: conn.ID, Ref: rc.Ref, Mode: BindBoth}
+		b := Binding{ConnectionID: conn.ID, Ref: ref, Mode: BindBoth}
 		holder, taken := m.ingressHolder(b)
 		if i := slices.IndexFunc(plan.channels, func(c Channel) bool { return slices.Contains(c.Bindings, b) }); i >= 0 {
 			holder, taken = plan.channels[i], true
 		}
 		if taken && holder.ID != ch.ID {
 			switch {
-			case slices.Contains(was, Binding{ConnectionID: conn.ID, Ref: rc.Ref, Mode: BindEgress}):
+			case slices.Contains(was, Binding{ConnectionID: conn.ID, Ref: ref, Mode: BindEgress}):
 				b.Mode = BindEgress // already demoted: re-saving it unchanged keeps it so
 			case demote:
 				b.Mode = BindEgress
 				plan.report.Notes = append(plan.report.Notes, fmt.Sprintf(
-					"project %s: channel %q shares %s %s with channel %q; it now only posts there (replies go to %q)", p.Name, rc.Name, service, rc.Ref, holder.Key, holder.Key))
+					"project %s: channel %q shares %s %s with channel %q; it now only posts there (replies go to %q)", p.Name, rc.Name, service, ref, holder.Key, holder.Key))
 			default:
-				return fmt.Errorf("%w: %s %s is %s %q's", ErrBindingTaken, service, rc.Ref, holder.Kind, holder.Key)
+				return fmt.Errorf("%w: %s %s is %s %q's", ErrBindingTaken, service, ref, holder.Kind, holder.Key)
 			}
 		}
 		ch.Bindings = []Binding{b}

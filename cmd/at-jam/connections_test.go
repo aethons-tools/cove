@@ -22,10 +22,17 @@ func TestResolveServeConnection(t *testing.T) {
 	if err != nil || c.Name != "linear-acme" || cred != "lin-tok" {
 		t.Fatalf("by name = %+v %q %v", c, cred, err)
 	}
+	if _, err := st.CreateConnection(jam.Connection{Kind: "github", Name: "gh-acme", CredName: "lin-tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _, err := resolveServeConnection(st, "runtime.requisitioner", "github", "gh-acme", "", demanded); err != nil || c.Kind != "github" {
+		t.Fatalf("github connection = %+v %v", c, err)
+	}
 	for name, tc := range map[string]struct{ kind, conn, want string }{
-		"unknown":       {"linear", "nope", "no connection"},
-		"wrong kind":    {"discord", "linear-acme", "is a linear connection"},
-		"no credential": {"discord", "nocred", "no credential"},
+		"linear as github": {"github", "linear-acme", "is a linear connection, want github"},
+		"unknown":          {"linear", "nope", "no connection"},
+		"wrong kind":       {"discord", "linear-acme", "is a linear connection"},
+		"no credential":    {"discord", "nocred", "no credential"},
 	} {
 		if _, _, err := resolveServeConnection(st, "runtime.x", tc.kind, tc.conn, "", demanded); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tc.want)

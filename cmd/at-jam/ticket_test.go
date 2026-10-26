@@ -41,7 +41,7 @@ func roleName(r scheduler.Role) string {
 
 func TestTicketerReport(t *testing.T) {
 	tr := &fakeTicketTracker{}
-	err := linearTicketer{tr}.Report(context.Background(), jam.Instance{Unit: "AET-1"},
+	err := trackerTicketer{tr}.Report(context.Background(), jam.Instance{Unit: "AET-1"},
 		jam.TicketReport{State: "in-review", Summary: "PR is up", PR: "https://github.com/o/r/pull/7"})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestTicketerBlockUnfinished(t *testing.T) {
 		{"no ticket", jam.Instance{}, 0},
 	} {
 		tr := &fakeTicketTracker{}
-		if err := (linearTicketer{tr}).BlockUnfinished(context.Background(), c.inst, "wrapped up"); err != nil {
+		if err := (trackerTicketer{tr}).BlockUnfinished(context.Background(), c.inst, "wrapped up"); err != nil {
 			t.Fatal(err)
 		}
 		if len(tr.calls) != c.calls {
@@ -91,7 +91,7 @@ func TestTicketerBlockUnfinished(t *testing.T) {
 
 func TestTicketerErrorsPropagate(t *testing.T) {
 	tr := &fakeTicketTracker{transErr: errors.New("boom")}
-	if err := (linearTicketer{tr}).Report(context.Background(), jam.Instance{Unit: "AET-1"}, jam.TicketReport{State: "done", Summary: "x"}); err == nil {
+	if err := (trackerTicketer{tr}).Report(context.Background(), jam.Instance{Unit: "AET-1"}, jam.TicketReport{State: "done", Summary: "x"}); err == nil {
 		t.Fatal("no error")
 	}
 	if len(tr.calls) != 2 {
@@ -108,7 +108,7 @@ func TestTicketHolder(t *testing.T) {
 		t.Fatalf("unset holder block: %v", err)
 	}
 	tr := &fakeTicketTracker{}
-	h.set(linearTicketer{tr})
+	h.set(trackerTicketer{tr})
 	_ = h.Report(context.Background(), jam.Instance{Unit: "AET-1"}, jam.TicketReport{State: "done", Summary: "x"})
 	if len(tr.calls) != 3 {
 		t.Fatalf("set holder calls = %q", tr.calls)
