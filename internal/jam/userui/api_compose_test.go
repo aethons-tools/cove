@@ -39,11 +39,14 @@ func TestAPISendMessage(t *testing.T) {
 	if _, c, _ := getConv(t, e, p, engID, ""); !c.Messages[len(c.Messages)-1].Plain {
 		t.Error("contentType text/plain wasn't kept")
 	}
-	for body, want := range map[string]string{
-		`{"to":"user:nobody","body":"x"}`:                                  `"code":"not_found"`,
-		`{"to":"user:alice"}`:                                              `"code":"bad_request"`,
-		`{"to":"user:alice","body":"` + strings.Repeat("x", 17<<10) + `"}`: `"code":"too_large"`,
+	// Cases as positional pairs: gofmt aligns map keys differently across
+	// Go versions (CI's 1.26 vs 1.27), never positional elements.
+	for _, tc := range []struct{ body, want string }{
+		{`{"to":"user:nobody","body":"x"}`, `"code":"not_found"`},
+		{`{"to":"user:alice"}`, `"code":"bad_request"`},
+		{`{"to":"user:alice","body":"` + strings.Repeat("x", 17<<10) + `"}`, `"code":"too_large"`},
 	} {
+		body, want := tc.body, tc.want
 		if rec := apiPost(t, h, p, "/app/user/api/messages", body); rec.Code < 400 || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("send %s = %d %s, want %s", body, rec.Code, rec.Body, want)
 		}
