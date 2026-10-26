@@ -11,7 +11,7 @@ func TestGroupRail(t *testing.T) {
 		{ID: "studio:u1", Kind: jam.ChannelStudio, Label: "cove-7f3a", NeedsYou: true, Unread: 2, LastSeq: 50},
 		{ID: "studio:u2", Kind: jam.ChannelStudio, Label: "cove-9e10", Phase: string(jam.PhaseLive), LastSeq: 70},
 		{ID: "named:eng", Kind: jam.ChannelNamed, Label: "#eng", LastSeq: 30},
-		{ID: "studio:u3", Kind: jam.ChannelStudio, Label: "cove-1c22", NeedsYou: true, LastSeq: 40},
+		{ID: "studio:u3", Kind: jam.ChannelStudio, Label: "cove-1c22", NeedsYou: true, Unread: 4, LastSeq: 40},
 	}
 
 	groups := groupRail(chs, "studio:u1")
@@ -38,8 +38,8 @@ func TestGroupRail(t *testing.T) {
 	if w.Rows[1].Selected {
 		t.Error("unselected channel (studio:u3) must not be Selected")
 	}
-	if w.Rows[0].Unread != 2 {
-		t.Errorf("unread carried = %d, want 2", w.Rows[0].Unread)
+	if w.Rows[1].Unread != 4 {
+		t.Errorf("unread carried = %d, want 4", w.Rows[1].Unread)
 	}
 
 	// Active group: the live studio.
@@ -62,5 +62,21 @@ func TestGroupRailDropsEmptyGroups(t *testing.T) {
 	}
 	if len(groups[0].Rows) != 1 || groups[0].Rows[0].Selected {
 		t.Errorf("row = %+v, want one unselected row", groups[0].Rows)
+	}
+}
+
+// The open conversation counts as read in the rail (and so the app badge) as
+// soon as it's shown, not after the page's mark-read lands and the user leaves.
+func TestGroupRailSelectedIsRead(t *testing.T) {
+	chs := []jam.ChannelView{
+		{ID: "named:eng", Kind: jam.ChannelNamed, Unread: 3, LastSeq: 30},
+		{ID: "named:ops", Kind: jam.ChannelNamed, Unread: 2, LastSeq: 20},
+	}
+	groups := groupRail(chs, "named:eng")
+	if n := unreadTotal(groups); n != 2 {
+		t.Fatalf("unread total = %d, want 2 (the open conversation is read)", n)
+	}
+	if chs[0].Unread != 3 {
+		t.Fatal("groupRail mutated its input")
 	}
 }

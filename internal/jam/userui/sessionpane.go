@@ -14,6 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // The session pane (docs/usage/jam/intercom-ui.md#the-session-view): the
@@ -227,9 +228,9 @@ func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 	if err != nil || t.Turns == 0 {
 		return
 	}
-	add("Turns", fmt.Sprintf("%d (%s)", t.Turns, plural(int(t.Episodes), "episode")))
-	add("Tool calls", fmt.Sprintf("%d (%s)", t.ToolCalls, plural(t.Errors, "error")))
-	add("Tokens", fmt.Sprintf("%d in / %d out", t.InputTokens, t.OutputTokens))
+	add("Turns", fmt.Sprintf("%s (%s)", numfmt.Int(t.Turns), plural(int(t.Episodes), "episode")))
+	add("Tool calls", fmt.Sprintf("%s (%s)", numfmt.Int(t.ToolCalls), plural(t.Errors, "error")))
+	add("Tokens", numfmt.Int(t.InputTokens)+" in / "+numfmt.Int(t.OutputTokens)+" out")
 	if _, exact := contextUse(t); exact != "" {
 		add("Context", strings.TrimPrefix(exact, "context: "))
 	}
@@ -248,5 +249,5 @@ func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
 	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return numfmt.Int(n) + " " + noun + "s"
 }

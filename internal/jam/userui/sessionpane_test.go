@@ -83,7 +83,7 @@ func TestSessionPanePreviewsAndStatus(t *testing.T) {
 		}
 	}
 	_, body = e.paneTab(t, p, personal.ActorID, "status", false)
-	for _, want := range []string{"is idle", "Turns", "1 (1 episode)", "$0.42", "1200 in / 300 out", "Up", "1h 30m"} {
+	for _, want := range []string{"is idle", "Turns", "1 (1 episode)", "$0.42", "1,200 in / 300 out", "Up", "1h 30m"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("status missing %q:\n%s", want, body)
 		}

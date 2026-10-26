@@ -145,6 +145,12 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
 	for _, ch := range chs {
+		if ch.ID == selectedID {
+			// The open conversation is being read: the page commits its
+			// cursor only after it loads (POST /app/user/read), so the stored
+			// count would otherwise linger in the rail and app badge.
+			ch.Unread = 0
+		}
 		b := ch.Bucket()
 		if strings.HasPrefix(ch.ID, legacyPrefix) {
 			b = bucketHistory

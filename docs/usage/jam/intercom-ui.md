@@ -152,8 +152,9 @@ reloads. The rules are the intercom's ([membership](intercom.md#channel-membersh
     conversations and reloads, and are never sent to Jam.
 - **Unread** is a per-(participant, channel) cursor. Opening a channel marks it
   read via `POST /app/user/read`, which advances the person's read cursor on it
-  (forward only) to its latest append sequence; the badge clears on the next
-  refresh. Unread is the person's deliveries above it.
+  (forward only) to its latest append sequence. Unread is the person's deliveries
+  above it. The rail (and the app badge) counts the open conversation as read
+  from the moment it's shown.
 - **Refresh is live:** the page holds an SSE stream (`GET /app/user/events`, behind
   the same gate). Each squawk Log append sends a payload-free `changed` event,
   and the rail and the open conversation's message list re-fetch their fragments

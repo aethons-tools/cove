@@ -19,7 +19,7 @@
 <section class="card full ctx-card"{{if .ID}} id="{{.ID}}"{{end}}>
   <header><h2>Agent context</h2><span class="sub">{{.Scope}} — what every agent is told when raised</span>{{if eq .Kind "jam-context"}}{{template "managed-badge" (managed .Kind .Name)}}{{end}}</header>
   <div class="body">
-    <p class="facts"><span class="chip{{if .Over}} bad{{end}}">{{.CoreBytes}} / {{.Budget}} bytes</span>{{if .Leaves}}<span class="chip">{{len .Leaves}} leaves</span>{{end}}{{if .Resources}}<span class="chip">{{len .Resources}} resources</span>{{end}}</p>
+    <p class="facts"><span class="chip{{if .Over}} bad{{end}}">{{num .CoreBytes}} / {{num .Budget}} bytes</span>{{if .Leaves}}<span class="chip">{{len .Leaves}} leaves</span>{{end}}{{if .Resources}}<span class="chip">{{len .Resources}} resources</span>{{end}}</p>
     {{if .Empty}}<span class="unset">None — agents get no {{.Scope}} section.</span>{{else}}
     {{if .Core}}<pre class="ctx-core">{{.Core}}</pre>{{end}}
     {{if .Leaves}}<ul class="ctx-leaves">{{range .Leaves}}<li><span class="mono">{{.Name}}</span> — read when {{.ReadWhen}}</li>{{end}}</ul>{{end}}

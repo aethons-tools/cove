@@ -64,7 +64,7 @@
   <div class="body">
     {{with .Reason}}<p class="unset">{{.}}</p>{{end}}
     {{if .Files}}<pre class="body">{{.Head}}</pre>
-      {{range .Files}}<details class="file"><summary><span class="mono">{{.Path}}</span> <span class="unset">{{.Bytes}} B</span></summary><pre class="body">{{.Body}}</pre></details>{{end}}
+      {{range .Files}}<details class="file"><summary><span class="mono">{{.Path}}</span> <span class="unset">{{num .Bytes}} B</span></summary><pre class="body">{{.Body}}</pre></details>{{end}}
     {{else if .Body}}<pre class="body">{{.Body}}</pre>{{end}}
     {{with .DiffNote}}<p class="unset">{{.}}</p>{{end}}
     {{if .Diffed}}

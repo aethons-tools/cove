@@ -13,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // The session view (docs/usage/jam/intercom-ui.md#the-session-view): a
@@ -110,7 +111,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 		if t, err := h.d.Totals.Of(inst.ActorID); err == nil {
 			if t.Turns > 0 {
 				hd.Cost, hd.TurnCost = usd(t.CostUSD), usd(t.TurnCostUSD)
-				hd.Tokens = fmt.Sprintf("%d in / %d out tokens", t.InputTokens, t.OutputTokens)
+				hd.Tokens = numfmt.Int(t.InputTokens) + " in / " + numfmt.Int(t.OutputTokens) + " out tokens"
 			}
 			hd.Context, hd.ContextTip = contextUse(t)
 		}
@@ -185,12 +186,7 @@ func since(now, t time.Time) string {
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
-func usd(v float64) string {
-	if v < 0.01 && v > 0 {
-		return fmt.Sprintf("$%.4f", v)
-	}
-	return fmt.Sprintf("$%.2f", v)
-}
+func usd(v float64) string { return numfmt.USD(v) }
 
 // contextUse is how full the main thread's context is, short ("ctx 84k /
 // 200k · 42%") and exact (for a tooltip); "" before the first model call.
@@ -199,9 +195,9 @@ func contextUse(t sessionevents.Totals) (short, exact string) {
 	case t.Context > 0 && t.ContextWindow > 0:
 		pct := t.Context * 100 / t.ContextWindow
 		return fmt.Sprintf("ctx %s / %s · %d%%", kTokens(t.Context), kTokens(t.ContextWindow), pct),
-			fmt.Sprintf("context: %d of %d tokens (%s)", t.Context, t.ContextWindow, t.ContextModel)
+			fmt.Sprintf("context: %s of %s tokens (%s)", numfmt.Int(t.Context), numfmt.Int(t.ContextWindow), t.ContextModel)
 	case t.Context > 0:
-		return "ctx " + kTokens(t.Context), fmt.Sprintf("context: %d tokens (%s; window not reported yet)", t.Context, t.ContextModel)
+		return "ctx " + kTokens(t.Context), fmt.Sprintf("context: %s tokens (%s; window not reported yet)", numfmt.Int(t.Context), t.ContextModel)
 	case !t.LastAt.IsZero() && t.ContextModel != "":
 		return "ctx —", "context reset (compacted or cleared); its size shows after the next model call"
 	}

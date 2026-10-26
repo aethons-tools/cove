@@ -21,6 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 //go:embed templates/*.html
@@ -105,6 +106,9 @@ func mustParse(meta pageMeta, names ...string) page {
 
 // funcs are the template helpers shared by every page.
 var funcs = template.FuncMap{
+	// num and usd render amounts with thousands separators.
+	"num": numfmt.Of,
+	"usd": numfmt.USD,
 	// ttl renders a role TTL compactly, or "—" when unset.
 	"ttl": func(d time.Duration) string {
 		if d <= 0 {

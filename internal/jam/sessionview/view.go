@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // Kind classifies an event for the member view.
@@ -215,7 +216,7 @@ func build(ev sessionevents.Event) EventView {
 				text := blockText(b.Content)
 				v.Kind = KindToolResult
 				v.Label, v.Detail = "tool_result", text
-				v.Summary = fmt.Sprintf("%d bytes", len(text))
+				v.Summary = numfmt.Int(len(text)) + " bytes"
 				v.IsError = v.IsError || b.IsError
 				v.ToolUseID, v.Tool = b.ToolUseID, ev.Index.ToolName
 				v.Narrative = Clip(firstLine(text), 160)
@@ -224,9 +225,9 @@ func build(ev sessionevents.Event) EventView {
 	case "result":
 		v.Kind = KindResult
 		v.Label = "result"
-		v.Summary = fmt.Sprintf("$%.4f session total · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
-			ev.Index.OutputTokens, time.Duration(ev.Index.DurationMS)*time.Millisecond)
-		v.Narrative = fmt.Sprintf("$%.4f · %s", ev.Index.CostUSD, time.Duration(ev.Index.DurationMS)*time.Millisecond)
+		v.Summary = fmt.Sprintf("$%s session total · in %s / out %s tokens · %s", numfmt.Float(ev.Index.CostUSD, 4), numfmt.Int(ev.Index.InputTokens),
+			numfmt.Int(ev.Index.OutputTokens), time.Duration(ev.Index.DurationMS)*time.Millisecond)
+		v.Narrative = fmt.Sprintf("$%s · %s", numfmt.Float(ev.Index.CostUSD, 4), time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Detail = env.Result
 	case "cove":
 		if env.Subtype == "command" && env.Command != "" {
