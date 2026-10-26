@@ -589,7 +589,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 
-	res, err := c.RequestPersonalSession("acme", "pair", "help me")
+	res, err := c.RequestPersonalSession(jam.PersonalSessionBody{Project: "acme", Role: "pair", Prompt: "help me"})
 	if err != nil {
 		t.Fatalf("RequestPersonalSession: %v", err)
 	}
@@ -877,5 +877,31 @@ func TestRaiseCoveDraftTimeout(t *testing.T) {
 	res, err := c.RaiseCove(CoveRaiseParams{ID: "w2", Role: "guest", KitDraft: "app"})
 	if err != nil || res.KitDraftTree != "app-tree" || c.httpc.Timeout != 50*time.Millisecond {
 		t.Fatalf("draft raise = %+v %v (client timeout now %v)", res, err, c.httpc.Timeout)
+	}
+}
+
+// A long placement timeout widens the client's timeout past its default, so a
+// slow-but-successful placement is not abandoned client-side.
+func TestPlacementTimeoutWidensClientTimeout(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"ses_1"}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL, "")
+	c.httpc.Timeout = 100 * time.Millisecond
+
+	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest"}); err == nil {
+		t.Fatal("without placement timeout: want the short default to trip")
+	}
+	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest", PlacementTimeout: "1s"}); err != nil {
+		t.Fatalf("raise with placement timeout: %v", err)
+	}
+	if _, err := c.RequestPersonalSession(jam.PersonalSessionBody{Role: "pair", PlacementTimeout: "1s"}); err != nil {
+		t.Fatalf("personal session with placement timeout: %v", err)
+	}
+	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest", PlacementTimeout: "soon"}); err == nil {
+		t.Fatal("unparsable placement timeout must leave the default")
 	}
 }

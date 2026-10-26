@@ -506,7 +506,7 @@ func (s *PostgresStore) PutStandingSession(project ident.ID, role, name, session
 		return err
 	}
 	if err := s.registryTx("PutStandingSession", func(ctx context.Context, tx pgx.Tx) error {
-		return putStandingSessionTx(ctx, tx, project, role, name, sessionID)
+		return putStandingSessionTx(ctx, tx, project, role, name, sessionID, "")
 	}); err != nil {
 		return err
 	}
@@ -514,12 +514,27 @@ func (s *PostgresStore) PutStandingSession(project ident.ID, role, name, session
 	return nil
 }
 
-func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role, name, sessionID string) error {
+func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role, name, sessionID, manager string) error {
+	// A re-put keeps the existing pin unless the entry brings one (an import).
 	_, err := tx.Exec(ctx,
-		`INSERT INTO standing_sessions (project_id, role, name, session_id) VALUES ($1,$2,$3,$4)
-		 ON CONFLICT (project_id, role, name) DO UPDATE SET session_id = EXCLUDED.session_id`,
-		project, role, name, sessionID)
+		`INSERT INTO standing_sessions (project_id, role, name, session_id, manager) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (project_id, role, name) DO UPDATE SET session_id = EXCLUDED.session_id,
+		   manager = CASE WHEN EXCLUDED.manager <> '' THEN EXCLUDED.manager ELSE standing_sessions.manager END`,
+		project, role, name, sessionID, manager)
 	return err
+}
+
+func (s *PostgresStore) SetStandingSessionManager(project ident.ID, role, name, manager string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("SetStandingSessionManager", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE standing_sessions SET manager = $4 WHERE project_id = $1 AND role = $2 AND name = $3`, project, role, name, manager)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applySetStandingSessionManager(project, role, name, manager)
+	return nil
 }
 
 func (s *PostgresStore) RemoveStandingSession(project ident.ID, role, name string) error {
@@ -537,17 +552,18 @@ func (s *PostgresStore) RemoveStandingSession(project ident.ID, role, name strin
 
 // loadStandingSessions fills the standing-session map. load's part; no lock.
 func (s *PostgresStore) loadStandingSessions(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT project_id, role, name, session_id FROM standing_sessions`)
+	rows, err := s.pool.Query(ctx, `SELECT project_id, role, name, session_id, manager FROM standing_sessions`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load standing_sessions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var project, role, name, id string
-		if err := rows.Scan(&project, &role, &name, &id); err != nil {
+		var project, role, name, id, manager string
+		if err := rows.Scan(&project, &role, &name, &id, &manager); err != nil {
 			return err
 		}
 		s.applyPutStandingSession(ident.ID(project), role, name, id)
+		s.applySetStandingSessionManager(ident.ID(project), role, name, manager)
 	}
 	return rows.Err()
 }

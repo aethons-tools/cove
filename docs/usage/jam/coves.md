@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `cove-master` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
 # Managed studios (the supervisor)
@@ -42,11 +42,41 @@ TTL; the owner renews it, and if it expires another process may take over
 (reconnect/failover). On restart, Jam re-adopts live Instances from the store
 instead of abandoning them — so in-progress work survives a restart.
 
+### Managers and placement
+
+Jam raises studios on named **managers**. Today the only manager is `local`: the
+[`runtime.launcher`](serve.md#the-launcher-runtimelauncher) block, which Jam
+registers under that name at start (no block, no manager, placeholder studios only).
+A raise may name where it may run, and how long to wait for a place:
+
+- `--manager <name>` (repeatable; the order is the preference) on `studio raise`
+  and [`session request`](personal-sessions.md#the-verbs), or `managers` in the
+  `POST /admin/coves` and `POST /admin/sessions/personal` bodies. Jam tries the
+  named managers in that order and raises on the first that is available.
+- With none named, Jam tries every manager in registration order, with `local`
+  last.
+- `--placement-timeout <duration>` (`placement_timeout`, a Go duration such as
+  `30s`) is how long to wait for a manager to become available. `0`, or leaving it
+  out, means do not wait: the raise fails at once if none is available.
+- An unknown manager name is refused; a named manager that is not connected is
+  skipped, and the raise fails once the timeout runs out.
+
+The manager a studio runs on is shown as `manager=<name>` in `studio list` and as
+`manager` in the cove summary.
+
+A [standing session](standing-sessions.md#state-across-restarts) is **pinned** to
+the manager holding its state and is only ever raised there. A
+[reset](standing-sessions.md#reset) clears the pin, so the next raise places it
+afresh; so does a pin to a manager that is no longer configured. Standing raises
+come from the reconciler, which names no managers today; when a caller does supply
+a `managers` list that excludes the pinned manager, the raise is refused with
+"standing session is pinned to a manager the request excludes".
+
 ## The `studio` verbs
 
 ```
-at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md] [--kit-draft app]
-at-jam studio list     # id  name  role  unit  phase  activity  lease-holder  connector  image
+at-jam studio raise    --id spider-42 --role guest [--project acme] [--unit AET-9] [--prompt-file task.md] [--kit-draft app] [--manager NAME ...] [--placement-timeout 30s]
+at-jam studio list     # id  name  role  unit  phase  activity  lease-holder  connector  image  manager=
 at-jam studio status   --id spider-42 --activity waiting
 at-jam studio teardown --id spider-42
 ```

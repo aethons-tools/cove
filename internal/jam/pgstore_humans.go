@@ -128,7 +128,7 @@ func writeHumanPlanTx(ctx context.Context, tx pgx.Tx, p humanPlan) error {
 		}
 	}
 	for _, s := range p.standing {
-		if err := putStandingSessionTx(ctx, tx, s.ProjectID, s.Role, s.Name, s.SessionID); err != nil {
+		if err := putStandingSessionTx(ctx, tx, s.ProjectID, s.Role, s.Name, s.SessionID, s.Manager); err != nil {
 			return err
 		}
 	}
