@@ -97,4 +97,31 @@ func runManagerConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 			t.Fatalf("second remove = %v, want ErrNotFound", err)
 		}
 	})
+
+	t.Run("manager_rejects_empty_and_colliding_hash", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.AddManager(mgr("a", "", 1)); err == nil {
+			t.Fatal("AddManager with empty hash must error")
+		}
+		_ = s.AddManager(mgr("a", "ha", 1))
+		if err := s.AddManager(mgr("b", "ha", 2)); err == nil || errors.Is(err, jam.ErrManagerExists) {
+			t.Fatalf("colliding AddManager = %v, want non-exists error", err)
+		}
+		_ = s.AddManager(mgr("b", "hb", 2))
+		if err := s.SetManagerToken("b", ""); err == nil {
+			t.Fatal("SetManagerToken with empty hash must error")
+		}
+		if err := s.SetManagerToken("b", "ha"); err == nil {
+			t.Fatal("SetManagerToken with colliding hash must error")
+		}
+		if got, ok := s.ManagerByTokenHash("ha"); !ok || got.Name != "a" {
+			t.Fatalf("ha = %+v, %v", got, ok)
+		}
+		if got, ok := s.ManagerByTokenHash("hb"); !ok || got.Name != "b" {
+			t.Fatalf("hb = %+v, %v", got, ok)
+		}
+		if len(s.ListManagers()) != 2 {
+			t.Fatalf("list = %+v", s.ListManagers())
+		}
+	})
 }

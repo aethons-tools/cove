@@ -35,14 +35,16 @@ type ManagerRecord struct {
 
 // ManagerStore is the Store's manager registry.
 type ManagerStore interface {
-	// AddManager registers m: ErrManagerExists when the name is taken, an
-	// error for an invalid name.
+	// AddManager registers m: ErrManagerExists when the name is taken; an
+	// error for an invalid name, an empty token hash, or a token hash another
+	// manager already holds.
 	AddManager(m ManagerRecord) error
 	// ListManagers lists registrations by CreatedAt, then Name.
 	ListManagers() []ManagerRecord
 	// ManagerByTokenHash finds the registration holding that token hash.
 	ManagerByTokenHash(hash string) (ManagerRecord, bool)
-	// SetManagerToken replaces name's token hash (wraps ErrNotFound).
+	// SetManagerToken replaces name's token hash (wraps ErrNotFound; errors on an
+	// empty hash or one another manager holds).
 	SetManagerToken(name, tokenHash string) error
 	// RemoveManager deletes name's registration (wraps ErrNotFound).
 	RemoveManager(name string) error
