@@ -32,8 +32,9 @@ header stays put when the list refreshes.
   in them), tickets and rooms — across their projects. Leaving a project takes
   its channels away at once. Each row shows the label, a presence pin, and an
   **unread** badge.
-  A row may also show the session's [mission](intercom.md#what-the-tools-do) as a muted second line under the label, truncated with an ellipsis. A session channel shows its own active session's mission; a ticket channel the most recently raised active session's; a chat only when exactly one session in it is active; rooms never. A session that is no longer active (ended or gone) shows none; an idle one still counts as active. It updates on the rail's next refresh (up to 30s). Last, **History (before the upgrade)**: the conversations of
+  Last, **History (before the upgrade)**: the conversations of
   the frozen legacy log, read-only (no composer, all read).
+  - **Mission:** A row may show the session's [mission](intercom.md#what-the-tools-do) as a muted second line under the label, truncated with an ellipsis. A session channel shows its own active session's mission; a ticket channel the most recently raised active session's; a chat only when exactly one session in it is active; rooms never. A session that is no longer active (ended or gone) shows none; an idle one still counts as active. It updates on the rail's next refresh (up to 30s).
 - **Right pane — the open conversation:** the selected channel's messages (the
   viewer's own on one side), a **"Needs you"** chip when a session in it
   asked for a person or is blocked, and a composer. Each message renders per its
