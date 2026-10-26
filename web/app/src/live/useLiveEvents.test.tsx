@@ -39,6 +39,16 @@ describe("useLiveEvents", () => {
     expect(es.closed).toBe(true);
   });
 
+  it("catches up after a reconnect (changes may have been missed), not on the first open", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const { spy } = mount();
+    const es = FakeEventSource.last!;
+    es.emit("open");
+    expect(spy).not.toHaveBeenCalled();
+    es.emit("open");
+    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"]]);
+  });
+
   it("does nothing without EventSource (the 30 s poll covers it)", () => {
     vi.stubGlobal("EventSource", undefined);
     expect(() => mount()).not.toThrow();

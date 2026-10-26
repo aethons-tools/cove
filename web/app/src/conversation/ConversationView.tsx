@@ -34,10 +34,12 @@ export function ConversationView({ id }: { id: string }) {
   }, [id, lastSeq, canRead, client]);
 
   if (q.isPending) return <Loader m="md" size="sm" />;
-  if (q.error) return <Problem error={q.error} here={here.pathname + here.search} />;
+  if (!q.data) return <Problem error={q.error!} here={here.pathname + here.search} />;
   return (
     <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
       <ConversationHeader c={q.data.pages[0]!} />
+      {/* A failed refresh keeps what's loaded (and the reader's place) on screen. */}
+      {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
       <MessageList messages={messagesOf(q.data.pages)} channel={id} earlier={q.hasNextPage}
         loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} />
       <PresenceStrip channel={id} />

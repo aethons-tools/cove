@@ -146,4 +146,40 @@ describe("the conversation view", () => {
     renderApp(boot, "/app/next/c/chn_gone");
     expect(await screen.findByText("no such conversation")).toBeInTheDocument();
   });
+
+  it("keeps the conversation on screen when a refresh fails", async () => {
+    serve(conv());
+    renderApp(boot, "/app/next/c/chn_a");
+    expect(await screen.findByText("m1")).toBeInTheDocument();
+    server.use(http.get("/app/user/api/conversations/:c", () => new HttpResponse("bad gateway", { status: 502, headers: { "Content-Type": "text/plain" } })));
+    act(() => { focusManager.setFocused(false); focusManager.setFocused(true); });
+    expect(await screen.findByText(/Jam answered 502/)).toBeInTheDocument();
+    expect(screen.getByText("m1")).toBeInTheDocument();
+  });
+
+  it("copies a message's text without the code button's icon", async () => {
+    serve(conv({ messages: [msg(1, { body: "<p>run</p><pre><code>go test\n</code></pre>" })] }));
+    renderApp(boot, "/app/next/c/chn_a");
+    const btn = await screen.findByRole("button", { name: "Copy code" });
+    expect(btn.textContent).toBe("");
+    expect(btn.closest(".jam-body")!.textContent).toBe("rungo test\n");
+  });
+
+  it("keeps the rail on screen while switching conversations", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const railRows: RailResponse = { unreadTotal: 0, groups: [{ bucket: "channels", title: "Channels", rows: [
+      { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "" },
+      { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "" },
+    ] }] };
+    serve(conv());
+    server.use(http.get("/app/user/api/rail", async ({ request }) => {
+      if (new URL(request.url).searchParams.get("c") === "chn_b") await gate;
+      return HttpResponse.json(railRows);
+    }));
+    renderApp(boot, "/app/next/c/chn_a");
+    await userEvent.click(await screen.findByRole("link", { name: /beta/ }));
+    expect(screen.getByRole("link", { name: /alpha/ })).toBeInTheDocument(); // still there while rail?c=chn_b loads
+    release();
+  });
 });

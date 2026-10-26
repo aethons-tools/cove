@@ -54,7 +54,7 @@ Rules:
 ## Adding an API route
 
 1. Add its response type to `apitypes.go`, then regenerate.
-2. Register `GET|POST /app/user/api/…` in `apiRoutes`. Writes are `POST` with JSON (`decodeJSON` answers 415 otherwise), and a resource the viewer may not see answers exactly like a missing one (404 `not_found`). Resolve the participant with `jam.ParticipantFrom`, reuse the HTML route's checks, and reply with `writeJSON` / `writeAPIError(status, code, msg)`.
+2. Register `GET|POST /app/user/api/…` in `apiRoutes`. Writes are `POST` with JSON (`decodeJSON` answers 415 otherwise), and a refusal never says whether the resource exists: a read of one the viewer may not see answers exactly like a missing one (404 `not_found`); a refused write answers one uniform error whatever the reason (join/leave/call-in: 403 `forbidden`). Resolve the participant with `jam.ParticipantFrom`, reuse the HTML route's checks, and reply with `writeJSON` / `writeAPIError(status, code, msg)`.
 3. Test its shape **and who may not see it** in `api_test.go`.
 4. Read it in the app with `useQuery` and `apiGet`.
 

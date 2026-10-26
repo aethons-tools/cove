@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet, POLL_MS, type ApiError } from "../api/client";
 import type { RailResponse } from "../api/types";
 
@@ -8,4 +8,7 @@ export const useRail = (selected?: string) => useQuery<RailResponse, ApiError>({
   queryKey: ["rail", selected ?? ""],
   queryFn: () => apiGet<RailResponse>(selected ? `rail?c=${encodeURIComponent(selected)}` : "rail"),
   refetchInterval: POLL_MS,
+  // A new selection is a new key: keep showing the last rail meanwhile, so
+  // the rail neither blinks to a spinner nor loses its scroll on a switch.
+  placeholderData: keepPreviousData,
 });

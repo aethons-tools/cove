@@ -10,10 +10,18 @@ export function useLiveEvents(): void {
   useEffect(() => {
     if (typeof EventSource === "undefined") return;
     const es = new EventSource("/app/user/events");
-    es.addEventListener("changed", () => {
+    const changed = () => {
       void client.invalidateQueries({ queryKey: ["rail"] });
       void client.invalidateQueries({ queryKey: ["conversation"] });
       void client.invalidateQueries({ queryKey: ["presence"] });
+    };
+    es.addEventListener("changed", changed);
+    // EventSource reconnects by itself; signals sent while it was down are
+    // lost, so each reconnect (every open after the first) catches up.
+    let opened = false;
+    es.addEventListener("open", () => {
+      if (opened) changed();
+      opened = true;
     });
     es.addEventListener("presence", () => void client.invalidateQueries({ queryKey: ["presence"] }));
     return () => es.close();

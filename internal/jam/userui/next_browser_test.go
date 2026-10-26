@@ -173,7 +173,8 @@ func TestBrowserNextConversation(t *testing.T) {
 		into(&codeButtons, chromedp.Evaluate[int](`document.querySelectorAll('button[aria-label="Copy code"]').length`)),
 		into(&pwned, chromedp.Evaluate[bool](`!!window.__pwned || !!document.querySelector('[data-seq] img[onerror], [data-seq] script')`)),
 		chromedp.Sleep(300*time.Millisecond), // layout settles, then the scroll pin
-		into(&atBottom, chromedp.Evaluate[bool](`(() => { const v = document.querySelector('.mantine-ScrollArea-viewport'); return !!v && v.scrollHeight - v.scrollTop - v.clientHeight < 40; })()`)),
+		// The messages' viewport (the rail's comes first in the DOM).
+		into(&atBottom, chromedp.Evaluate[bool](`(() => { const v = document.querySelector('[data-seq]')?.closest('.mantine-ScrollArea-viewport'); return !!v && v.scrollHeight - v.scrollTop - v.clientHeight < 40; })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
