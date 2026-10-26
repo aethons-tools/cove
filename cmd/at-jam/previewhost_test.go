@@ -414,3 +414,24 @@ func TestPaneFramingOn(t *testing.T) {
 		}
 	}
 }
+
+// The app page may frame exactly the preview hosts (any name and label
+// under the domain, on the admin port), and nothing when pane framing is off.
+func TestAppFrameSrc(t *testing.T) {
+	on := func(listen string) *serveConfig {
+		return &serveConfig{AdminListen: listen, Previews: &previewsConfig{Domain: "P.Example"}, UIOrigins: []string{"https://jam.example"}}
+	}
+	for _, tc := range []struct {
+		c    *serveConfig
+		want []string
+	}{
+		{on(":8443"), []string{"https://*.p.example:8443"}},
+		{on("0.0.0.0:443"), []string{"https://*.p.example"}},
+		{&serveConfig{AdminListen: ":8443", Previews: &previewsConfig{Domain: "p.example"}}, nil}, // no ui-origins
+		{&serveConfig{AdminListen: ":8443", UIOrigins: []string{"https://jam.example"}}, nil},     // no previews
+	} {
+		if got := appFrameSrc(tc.c); !slices.Equal(got, tc.want) {
+			t.Errorf("appFrameSrc(listen %q, previews %v) = %q, want %q", tc.c.AdminListen, tc.c.Previews != nil, got, tc.want)
+		}
+	}
+}
