@@ -15,17 +15,6 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
-# Install the embedded, version-locked at-task the orchestrating at-cove staged
-# into the build context (COV-34). Install only when non-empty: a plain
-# `go build` without scripts/build.sh stages a 0-byte placeholder, in which case
-# we keep the base image's at-task rather than clobbering it with a broken one.
-COPY attask/ /tmp/attask/
-RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/attask/at-task-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/attask/at-task-linux-${arch}" /usr/local/bin/at-task; \
-    fi \
- && rm -rf /tmp/attask
-
 # Install the embedded, version-locked cove-master the orchestrating at-cove
 # staged into the build context (COV-158). Install
 # only when the arch binary is non-empty; a plain `go build` stages a 0-byte

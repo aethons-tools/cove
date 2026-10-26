@@ -4,8 +4,8 @@
 # at-cove + at-mint + at-jam (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
 # env; the workflow then cuts the (private) GitHub release with `gh`. Snapshot mode
 # is used deliberately — it skips goreleaser's own publishing, so the non-SemVer
-# <N>-<MMDD> version needs no git tag to satisfy goreleaser. at-task is NOT shipped
-# standalone — it is embedded in at-cove (the before-hook stages the linux at-task
+# <N>-<MMDD> version needs no git tag to satisfy goreleaser. cove-master is NOT shipped
+# standalone — it is embedded (the before-hook stages the linux cove-master
 # binaries first). See COV-36 + docs/superpowers/specs/2026-07-17-at-cove-release-embed-design.md.
 #
 # Public phase (later): add a `brews:` block that installs at-cove, at-mint and
@@ -22,8 +22,8 @@ snapshot:
 
 before:
   hooks:
-    # Build the linux at-task binaries at-cove embeds, before goreleaser builds.
-    - bash scripts/stage-attask.sh
+    # Build the linux cove-master binaries at-jam embeds, before goreleaser builds.
+    - bash scripts/stage-covemaster.sh
     # Build the whiteboard editor bundle at-jam embeds (git-ignored output, so
     # the tree stays clean). Required here: a release ships the editor.
     - bash scripts/whiteboard.sh

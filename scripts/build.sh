@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# build.sh — build at-cove and at-task, host-sensitive by default.
+# build.sh — build the host binaries, host-sensitive by default.
 #
 # The binaries are pure Go (no cgo; at-cove shells out to ssh/docker), so
 # Go's built-in cross-compilation just works — no toolchain or framework
 # needed. Every binary lands in a directory keyed by its OS/arch:
 #
-#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{at-cove,at-task}
+#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{at-mint,at-jam}
 #
 # The DEFAULT build targets the current host (go env GOOS/GOARCH). That keeps a
 # mac and a linux box (e.g. the cove VM) that share the same output folder from
@@ -28,7 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-cove at-task at-mint at-jam)
+BINARIES=(at-cove at-mint at-jam)
 
 # Build the whiteboard editor bundle at-jam embeds (skipped, with a warning,
 # where npm is missing: at-jam then builds without the editor).
@@ -37,11 +37,10 @@ WHITEBOARD_OPTIONAL=1 ./scripts/whiteboard.sh
 # missing: /app/next/ then answers "not built").
 APP_OPTIONAL=1 ./scripts/app.sh
 
-# Stage the linux at-task and cove-master binaries the host binaries embed, before
-# at-cove is built — shared with the goreleaser before-hook, see
-# scripts/stage-attask.sh.
-echo "Staging embedded at-task + cove-master (linux amd64+arm64)"
-VERSION="$VERSION" ./scripts/stage-attask.sh
+# Stage the linux cove-master binaries at-jam embeds, before at-jam is built —
+# shared with the goreleaser before-hook, see scripts/stage-covemaster.sh.
+echo "Staging embedded cove-master (linux amd64+arm64)"
+VERSION="$VERSION" ./scripts/stage-covemaster.sh
 
 # Snapshot the blessed cove-base-image digests from the registry into the
 # embedded (gitignored) blessed/generated.txt, before at-cove is built (COV-44

@@ -60,7 +60,7 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.goreleaser.yaml'
-              - 'scripts/stage-attask.sh'
+              - 'scripts/stage-covemaster.sh'
               - 'scripts/whiteboard.sh'
               - 'web/whiteboard/**' # the editor bundle at-jam embeds
               - 'scripts/app.sh'
@@ -254,7 +254,7 @@ jobs:
           version: "~> v2"
           args: check
 
-      # PR: compile all binaries (+ run the stage-attask / gen-blessed before-hooks)
+      # PR: compile all binaries (+ run the stage-covemaster / gen-blessed before-hooks)
       # to prove the release builds; never publish.
       - name: Build at-cove (PR — no publish)
         if: github.event_name == 'pull_request'

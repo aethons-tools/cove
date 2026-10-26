@@ -83,21 +83,6 @@ func TestAssembleLayersAndKey(t *testing.T) {
 	}
 }
 
-// Assemble stages the at-task binaries into the build context (buildDir/attask/)
-// for the sealed layer to install. In hermetic tests the embed is unstaged, so
-// the placeholders are 0-byte — hardening then keeps the base image's at-task.
-func TestAssembleStagesAtTask(t *testing.T) {
-	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
-		t.Fatal(err)
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		if _, err := os.Stat(filepath.Join(buildDir, "attask", "at-task-linux-"+arch)); err != nil {
-			t.Fatalf("at-task-linux-%s not staged into the context: %v", arch, err)
-		}
-	}
-}
-
 func mustWrite(t *testing.T, p, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -469,7 +454,7 @@ func TestAssembleContextStagesOnlyCoveMaster(t *testing.T) {
 	if err := AssembleContext(buildDir, []byte("k\n"), Egress{Policy: []string{"pkg.go.dev"}}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
-	for _, gone := range []string{"switchboard"} {
+	for _, gone := range []string{"switchboard", "attask"} {
 		if _, err := os.Stat(filepath.Join(buildDir, gone)); !os.IsNotExist(err) {
 			t.Fatalf("build context still has %s/ (err=%v)", gone, err)
 		}
@@ -480,7 +465,7 @@ func TestAssembleContextStagesOnlyCoveMaster(t *testing.T) {
 		}
 	}
 	df := read(t, filepath.Join(buildDir, "Dockerfile"))
-	for _, gone := range []string{"at-switchboard", "/tmp/switchboard"} {
+	for _, gone := range []string{"at-switchboard", "/tmp/switchboard", "at-task", "/tmp/attask"} {
 		if strings.Contains(df, gone) {
 			t.Fatalf("assembled Dockerfile still mentions %q", gone)
 		}

@@ -13,7 +13,6 @@ import (
 	"sort"
 
 	"github.com/aethons-tools/cove/internal/assemble"
-	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 )
@@ -23,7 +22,7 @@ import (
 // digest so the combined CurrencyHash changes iff at least one input changed.
 type CurrencyInputs struct {
 	KitSourceTree       string // hash of config.yml + the kit's image/ tree (KitSourceTree)
-	AtCoveBuildIdentity string // hash of at-cove's embedded sealed layer + at-task binaries (AtCoveIdentity)
+	AtCoveBuildIdentity string // hash of the embedded sealed layer + cove-master binaries (AtCoveIdentity)
 	BaseRef             string // the configured base string, or the blessed default ref
 	Harness             string // the full kit's harness install (HarnessIdentity): claude-default's CLI version + plugins
 }
@@ -131,8 +130,7 @@ var harnessBaseline = harnessinstall.BaselineSettings
 // hardening layer, the harness layer's payload (its scripts and the managed
 // settings' sandbox policy) and its rendered baseline preferences — NOT any
 // install's version/plugins, which are per-image: the studio build-digest and
-// a full kit's CurrencyInputs.Harness — and the embedded at-task
-// and cove-master binaries. An at-cove upgrade that changes any
+// a full kit's CurrencyInputs.Harness — and the embedded cove-master binaries. An at-cove upgrade that changes any
 // of these flips the digest, invalidating every install. install (S2) and the
 // run commands both call this, so they agree on the identity by construction.
 func AtCoveIdentity() (string, error) {
@@ -155,13 +153,6 @@ func AtCoveIdentity() (string, error) {
 	writeField(h, []byte(hp))
 	writeField(h, []byte("harness-baseline"))
 	writeField(h, harnessBaseline())
-
-	at, err := HashTree(attask.BinFS())
-	if err != nil {
-		return "", err
-	}
-	writeField(h, []byte("attask"))
-	writeField(h, []byte(at))
 
 	cm, err := HashTree(covemasterbin.BinFS())
 	if err != nil {

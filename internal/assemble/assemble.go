@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
@@ -39,7 +38,7 @@ func HarnessFor(c kit.Config) harnessinstall.Install {
 }
 
 // Assemble builds the context in buildDir: the sealed hardening layer, the
-// injected at-task, the kit's egress lists, the per-kit GitLab gitconfig, and
+// injected cove-master, the kit's egress lists, the per-kit GitLab gitconfig, and
 // the managed public key. The kit's image/ is the Dockerfile build context
 // (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
 // source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
@@ -64,7 +63,7 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 // AssembleContext stages the docker build context into buildDir with NO source
 // kit directory: everything comes from resources compiled into this binary (the
 // sealed hardening layer + Dockerfile via the embedded FS, and the injected
-// at-task/cove-master binaries), plus data the caller supplies —
+// cove-master binaries), plus data the caller supplies —
 // the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
 // (kit.MCPServersImagePath), the public key baked into authorized_keys, and the
 // harness install (the model-spec's CLI version + plugins). Because it takes no directory, a Launcher can build a
@@ -88,16 +87,12 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
 	// not overlaid, and the overridable defaults ship in cove-base-image. So the
 	// build context is the harness layer, the sealed hardening layer, the
-	// injected at-task, the kit's egress lists, and the managed key.
+	// injected cove-master, the kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
 		return err
 	}
 
 	if err := writeDockerfile(buildDir, harness); err != nil {
-		return err
-	}
-
-	if err := writeAtTask(buildDir); err != nil {
 		return err
 	}
 
@@ -147,7 +142,9 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 // 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
 // 3: sshd trusts Jam's SSH user CA (cove.conf TrustedUserCAKeys) and ships
 // the sealed install-ssh-ca.sh helper.
-var Revision = "3"
+// 4: no attask/ or switchboard/ staging dirs (at-task and at-switchboard
+// deleted, jam-only slice 2).
+var Revision = "4"
 
 // writeDockerfile prepends the harness stage (staging its payload) to the
 // sealed hardening Dockerfile copyEmbed just wrote.
@@ -164,34 +161,10 @@ func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
 	return os.WriteFile(df, []byte(stage+"\n# --- sealed hardening layer (internal/assemble/hardening) ---\n"+string(sealed)), 0o644)
 }
 
-// writeAtTask stages the embedded linux at-task binaries into the build context
-// (buildDir/attask/at-task-linux-<arch>), so the sealed hardening layer can
-// install the arch-matching one — the at-cove that orchestrates a dispatch ships
-// the exact at-task it expects (COV-34/COV-36). When the embed was not staged (a
-// plain `go build` without scripts/build.sh — never the release path), a 0-byte
-// placeholder is written instead; hardening installs the binary only when it is
-// non-empty, so it falls back to the base image's at-task rather than a broken one.
-func writeAtTask(buildDir string) error {
-	dir := filepath.Join(buildDir, "attask")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		b, err := attask.Binary(arch)
-		if err != nil {
-			b = nil // not staged → placeholder; hardening keeps the base's at-task
-		}
-		if err := os.WriteFile(filepath.Join(dir, "at-task-linux-"+arch), b, 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // writeCoveMaster stages the embedded linux cove-master binaries into the build
 // context (buildDir/covemaster/cove-master-linux-<arch>), so the sealed hardening
-// layer can install the arch-matching one — mirrors writeAtTask (COV-158).
-// When the embed was not staged (a plain `go build` without scripts/stage-attask.sh),
+// layer can install the arch-matching one (COV-158).
+// When the embed was not staged (a plain `go build` without scripts/stage-covemaster.sh),
 // a 0-byte placeholder is written instead and hardening's install guard skips it;
 // a raised cove then has no cove-master and the launcher's start step fails clearly.
 func writeCoveMaster(buildDir string) error {
