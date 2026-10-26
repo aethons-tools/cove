@@ -2271,7 +2271,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var managerHub *managers.Hub
 	runSup := func() { go sup.Run(context.Background()) }
 	if cfg.Runtime.StudioManagers {
-		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, Log: log})
+		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log})
 		if err := startManagers(managerHub, runSup); err != nil {
 			fmt.Fprintln(stderr, "at-jam: studio managers:", err)
 			return 1

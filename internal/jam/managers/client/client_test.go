@@ -27,8 +27,9 @@ import (
 // fakeJam plays Jam: it records the Hello and auth, then hands the stream to fn.
 type fakeJam struct {
 	managerpb.UnimplementedStudioManagerServer
-	refuse error
-	fn     func(t *testing.T, s *session)
+	refuse  error
+	welcome *managerpb.Welcome // nil: empty
+	fn      func(t *testing.T, s *session)
 
 	t     *testing.T
 	hello chan *managerpb.Hello
@@ -85,7 +86,11 @@ func (f *fakeJam) Connect(srv managerpb.StudioManager_ConnectServer) error {
 		return f.refuse
 	}
 	s := &session{srv: srv, up: make(chan *managerpb.ManagerUp, 64), done: make(chan struct{})}
-	if err := srv.Send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: &managerpb.Welcome{}}}); err != nil {
+	w := f.welcome
+	if w == nil {
+		w = &managerpb.Welcome{}
+	}
+	if err := srv.Send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: w}}); err != nil {
 		return err
 	}
 	go func() {
@@ -208,6 +213,34 @@ func TestRunSendsHelloWithInventoryAndOwners(t *testing.T) {
 	}
 	if a := <-fj.auth; len(a) != 1 || a[0] != "Bearer tok" {
 		t.Fatalf("auth = %v", a)
+	}
+}
+
+func TestRunCallsOnWelcomeBeforeServing(t *testing.T) {
+	var mu sync.Mutex
+	var ca []byte
+	seen := make(chan []byte, 1)
+	l := &fakeLauncher{raiseFn: func(context.Context, jam.RaiseSpec, jam.LaunchCreds) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen <- ca
+		return "loc", nil
+	}}
+	fj := &fakeJam{
+		welcome: &managerpb.Welcome{SshUserCa: []byte("ssh-ed25519 AAAA ca")},
+		fn: func(t *testing.T, s *session) {
+			s.request(1, wire.OpRaise, wire.RaiseRequest{Spec: jam.RaiseSpec{ActorID: "a"}})
+			s.next(t)
+			<-s.srv.Context().Done()
+		},
+	}
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: l, OnWelcome: func(w *managerpb.Welcome) {
+		mu.Lock()
+		ca = w.GetSshUserCa()
+		mu.Unlock()
+	}})
+	if got := string(<-seen); got != "ssh-ed25519 AAAA ca" {
+		t.Fatalf("CA seen by first request = %q", got)
 	}
 }
 

@@ -31,6 +31,10 @@ type Config struct {
 	DeadAfter            time.Duration                                          // 0: wire.DeadAfter
 	Log                  *slog.Logger                                           // nil: discard
 
+	// OnWelcome, if set, is called synchronously with Jam's Welcome, before
+	// any request is served.
+	OnWelcome func(w *managerpb.Welcome)
+
 	maxMessage int // test override for wire.MaxMessageBytes
 }
 
@@ -126,6 +130,9 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 		if !welcomed {
 			if m.GetWelcome() == nil {
 				return errors.New("client: expected Welcome from Jam")
+			}
+			if cfg.OnWelcome != nil {
+				cfg.OnWelcome(m.GetWelcome())
 			}
 			welcomed = true
 			continue

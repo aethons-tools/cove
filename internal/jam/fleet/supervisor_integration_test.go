@@ -89,3 +89,33 @@ func TestSupervisorOverRouterPinsStandingSessionToLocal(t *testing.T) {
 		t.Fatalf("pin = %q, want %q", got, LocalName)
 	}
 }
+
+// A raise whose success lands after a forced revoke's ForgetManager leaves a
+// live instance on a manager the router no longer has. Reconcile must still
+// converge: tear down (no-op), revoke the identity, drop the record.
+func TestRaiseLandingAfterForcedRevokeConverges(t *testing.T) {
+	loc := newFake("x")
+	sup, store := routedSupervisor(t, loc)
+	ctx := context.Background()
+	inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst.Manager = "gone"
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := sup.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, ok := store.GetInstance("w1"); ok && got.Phase != jam.PhaseGone {
+		t.Fatalf("instance = %+v, want gone or dropped", got)
+	}
+	for _, a := range store.ListActors() {
+		if a.ID == "w1" {
+			t.Fatalf("actor %s still stored", a.ID)
+		}
+	}
+}

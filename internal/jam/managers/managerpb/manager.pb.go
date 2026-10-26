@@ -350,7 +350,9 @@ func (x *Studio) GetLocation() string {
 }
 
 type Welcome struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The OpenSSH user CA public key studios trust for SSH logins.
+	SshUserCa     []byte `protobuf:"bytes,1,opt,name=ssh_user_ca,json=sshUserCa,proto3" json:"ssh_user_ca,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -383,6 +385,13 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
 	return file_manager_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Welcome) GetSshUserCa() []byte {
+	if x != nil {
+		return x.SshUserCa
+	}
+	return nil
 }
 
 type Heartbeat struct {
@@ -512,8 +521,9 @@ const file_manager_proto_rawDesc = "" +
 	"\fstate_owners\x18\x05 \x03(\tR\vstateOwners\"?\n" +
 	"\x06Studio\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12\x1a\n" +
-	"\blocation\x18\x02 \x01(\tR\blocation\"\t\n" +
-	"\aWelcome\"\v\n" +
+	"\blocation\x18\x02 \x01(\tR\blocation\")\n" +
+	"\aWelcome\x12\x1e\n" +
+	"\vssh_user_ca\x18\x01 \x01(\fR\tsshUserCa\"\v\n" +
 	"\tHeartbeat\"O\n" +
 	"\x05Frame\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x0e\n" +

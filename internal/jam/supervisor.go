@@ -1618,6 +1618,17 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		if inst.Phase == PhaseGone {
 			continue
 		}
+		if s.managerGone(inst) {
+			// A raise that succeeded after its manager was force-revoked
+			// (ForgetManager ran first) leaves a Live record no manager will
+			// ever probe. Without this its own unexpired lease is renewed
+			// forever; declare it Lost so teardown revokes and drops it.
+			s.patchInstance(inst.ActorID, func(c *Instance) { c.Phase = PhaseLost })
+			if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
+				s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", inst.Manager, "err", err.Error())
+			}
+			continue
+		}
 		if inst.Phase == PhaseIdled {
 			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
 		}
@@ -1654,6 +1665,16 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		// LivenessUnknown: leave for the next tick.
 	}
 	return nil
+}
+
+// managerGone reports whether a Live or Idled inst is recorded on a named
+// manager the launcher no longer has (only a PlacingLauncher knows).
+func (s *Supervisor) managerGone(inst Instance) bool {
+	if inst.Manager == "" || (inst.Phase != PhaseLive && inst.Phase != PhaseIdled) {
+		return false
+	}
+	pl, ok := s.launcher.(PlacingLauncher)
+	return ok && !pl.HasManager(inst.Manager)
 }
 
 // egressMaxFailures is how many consecutive failed egress re-applies a Live cove

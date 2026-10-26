@@ -856,3 +856,56 @@ func TestHubReplaceDoesNotStallOnSlowLogSink(t *testing.T) {
 		t.Fatal("Statuses blocked while the replaced conn waits on its log sink")
 	}
 }
+
+func helloStream(t *testing.T, e *hubEnv, tok string) managerpb.StudioManager_ConnectClient {
+	t.Helper()
+	s := rawStream(t, e.cc, tok)
+	if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Hello{Hello: &managerpb.Hello{Name: "m1", Version: testVersion}}}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestHubWelcomeBeforeRoutable(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		e := newHubEnv(t, nil, nil)
+		tok := e.add(t, "m1")
+		s := helloStream(t, e, tok)
+		remote := func() *Remote {
+			e.hub.mu.Lock()
+			defer e.hub.mu.Unlock()
+			return e.hub.remotes["m1"]
+		}()
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			for !e.available("m1") {
+				if ctx.Err() != nil {
+					return
+				}
+				time.Sleep(50 * time.Microsecond)
+			}
+			_, _ = remote.Probe(ctx, jam.Instance{ActorID: "x", Manager: "m1"})
+		}()
+		m, err := s.Recv()
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.GetWelcome() == nil {
+			t.Fatalf("iteration %d: first message = %v, want Welcome", i, m)
+		}
+	}
+}
+
+func TestHubWelcomeCarriesSSHUserCA(t *testing.T) {
+	ca := []byte("ssh-ed25519 AAAA ca")
+	e := newHubEnv(t, func(c *Config) { c.SSHUserCA = ca }, nil)
+	s := helloStream(t, e, e.add(t, "m1"))
+	m, err := s.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(m.GetWelcome().GetSshUserCa()) != string(ca) {
+		t.Fatalf("welcome = %v", m)
+	}
+}

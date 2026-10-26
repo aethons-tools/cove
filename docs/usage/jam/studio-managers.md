@@ -20,7 +20,7 @@ It works with or without a `runtime.launcher` block; with neither, Jam keeps the
 The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays) and the studios table gains a Manager column.
 
 **Warning:** turning `runtime.studio-managers` off while remote studios exist makes Jam treat them as dead, because their manager is no longer registered.
-That is the same as a forced revoke (below).
+Jam then probes their studios as dead: each is torn down (a no-op, since no manager is registered to call), its identity revoked and its record dropped; the containers stay on the host.
 
 ## The verbs
 
