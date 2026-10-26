@@ -266,4 +266,28 @@ describe("the session pane", () => {
     expect(screen.queryByText("no such session")).toBeNull(); // a gone session is not an error
     expect(posts).toEqual(["release"]);
   });
+
+  it("keeps the conversation (composer, place) mounted when its session ends", async () => {
+    let live = true;
+    serve(() => (live ? head() : null));
+    server.use(http.get("/app/user/api/conversations/:c", () => HttpResponse.json({ ...conv, session: live ? "ses_1" : "" })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderApp(boot, "/app/next/c/chn_s", client);
+    await screen.findByRole("region", { name: "Session" });
+    const box = screen.getByRole("textbox");
+    live = false;
+    await client.invalidateQueries();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Session" })).toBeNull());
+    await waitFor(() => expect(client.getQueryState(["conversation", "chn_s"])?.fetchStatus).toBe("idle"));
+    expect(screen.getByRole("textbox")).toBe(box);
+  });
+
+  it("leaves the saved layouts alone in a conversation without a session", async () => {
+    serve(head());
+    server.use(http.get("/app/user/api/conversations/:c", () => HttpResponse.json({ ...conv, session: "" })));
+    renderApp(boot, "/app/next/c/chn_s?tab=status");
+    await screen.findByRole("heading", { name: "intercom-spider" });
+    expect(screen.queryByRole("region", { name: "Session" })).toBeNull();
+    expect(localStorage.length).toBe(0);
+  });
 });

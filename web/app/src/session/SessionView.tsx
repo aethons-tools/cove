@@ -9,16 +9,19 @@ import { PaneBody } from "./PaneTabs";
 const GROW: Record<string, number> = { ArrowLeft: 1, ArrowUp: 1, ArrowRight: -1, ArrowDown: -1 };
 const border = "1px solid var(--mantine-color-default-border)";
 
-// SessionView is a session's home channel: its header, then the
-// conversation (header, then messages) beside or above the session pane.
-// A session that's gone (its head 404s) shows as a plain conversation.
+// SessionView lays out a conversation: when it is a session's home (id),
+// the session's header, then the conversation (header, then messages)
+// beside or above the session pane. Without a session, or once it's gone
+// (its head 404s), it is the plain conversation. Its shape never changes
+// with id, so the conversation (composer, reading place) stays mounted
+// when a session ends or appears.
 export function SessionView({ id, channel, linked, onAsk, header, children }: {
-  id: string; channel: string; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode;
+  id: string | null; channel: string; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode;
 }) {
   const q = useSessionHead(id);
   // A failed refetch keeps the last data; a 404 means the session is gone.
-  const h = q.error?.code === "not_found" ? undefined : q.data;
-  const pane = usePaneLayout(id, { studio: !!h?.studio, linked });
+  const h = id && q.error?.code !== "not_found" ? q.data : undefined;
+  const pane = usePaneLayout(id ?? "", { studio: !!h?.studio, linked });
   const split = useRef<HTMLDivElement>(null);
   const right = pane.place === "right";
   const tab = h ? pane.tab : null;
@@ -58,7 +61,7 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
     : { flex: `0 0 ${pane.size}px`, minHeight: MIN_PANE, maxHeight: `calc(100% - ${MIN_MAIN}px)` };
   return (
     <>
-      {h && <SessionHeader head={h} tab={tab} onTab={pane.toggle} />}
+      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={pane.toggle} />}
       {header}
       <div ref={split} data-place={pane.place} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: right ? "row" : "column" }}>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>{children}</div>
@@ -75,7 +78,7 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
                 <ActionIcon variant="subtle" size="sm" aria-label="Close the pane" onClick={pane.close}>×</ActionIcon>
               </Group>
               <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
-                <PaneBody id={id} channel={channel} tab={tab} onAsk={onAsk} />
+                <PaneBody id={h!.id} channel={channel} tab={tab} onAsk={onAsk} />
               </div>
             </aside>
           </>

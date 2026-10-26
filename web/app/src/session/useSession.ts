@@ -5,10 +5,10 @@ import type { PaneTab } from "./layout";
 
 const base = (id: string) => `sessions/${encodeURIComponent(id)}`;
 
-// useSessionHead is a session's header, live (the events stream's changed
-// and presence) with the 30 s poll behind it.
-export const useSessionHead = (id: string) => useQuery<SessionHead, ApiError>({
-  queryKey: ["session", id], queryFn: () => apiGet<SessionHead>(base(id)), refetchInterval: POLL_MS,
+// useSessionHead is a session's header (none for null), live (the events
+// stream's changed and presence) with the 30 s poll behind it.
+export const useSessionHead = (id: string | null) => useQuery<SessionHead, ApiError>({
+  queryKey: ["session", id ?? ""], queryFn: () => apiGet<SessionHead>(base(id!)), refetchInterval: POLL_MS, enabled: !!id,
 });
 
 // usePaneTab is one tab of the session's pane (Previews, Artifacts, Status).
