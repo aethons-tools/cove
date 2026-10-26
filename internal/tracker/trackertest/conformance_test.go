@@ -73,8 +73,8 @@ func TestTrackersShareTheInterface(t *testing.T) {
 // TestFeedCursorBothPaths polls each tracker's feed the way the relay does:
 // through tracker.CursorFeed when the tracker offers it (GitHub), else with
 // a cursor derived from the comments returned (Linear). Either way a poll
-// picks up where the last left off — nothing lost across pages, nothing
-// read twice beyond the inclusive boundary — and the cursor never moves back.
+// picks up where the last left off — nothing lost across pages — and the
+// cursor never moves back (on GitHub, past the skipped pull request comment).
 func TestFeedCursorBothPaths(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range Both(t) {
@@ -83,11 +83,11 @@ func TestFeedCursorBothPaths(t *testing.T) {
 			if want := c.Kind == tracker.KindGitHub; isCursor != want {
 				t.Fatalf("%s implements tracker.CursorFeed = %v; want %v", c.Kind, isCursor, want)
 			}
+			prAt := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
 			if c.GitHub != nil {
 				c.GitHub.PerPage = 1 // every comment on its own page: the cursor must span them
 				// A pull request's conversation moves the cursor but never surfaces.
-				c.GitHub.AddComment(GHComment{Issue: 3, Body: "on the PR", Login: "brent", UserID: 7, OnPull: true,
-					CreatedAt: time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)})
+				c.GitHub.AddComment(GHComment{Issue: 3, Body: "on the PR", Login: "brent", UserID: 7, OnPull: true, CreatedAt: prAt})
 			}
 			base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 			poll := func(since time.Time, limit int) ([]tracker.FeedComment, time.Time) {
@@ -133,6 +133,9 @@ func TestFeedCursorBothPaths(t *testing.T) {
 			}
 			if want := []string{"one", "two", "three"}; !slices.Equal(seen, want) {
 				t.Fatalf("seen %q; want %q", seen, want)
+			}
+			if c.GitHub != nil && cursor.Before(prAt) {
+				t.Fatalf("cursor %v stopped before the pull request comment (%v): it was consumed", cursor, prAt)
 			}
 			// A comment after the cursor is picked up by the next poll.
 			c.Comment("brent", "four", time.Now().UTC().Truncate(time.Second))

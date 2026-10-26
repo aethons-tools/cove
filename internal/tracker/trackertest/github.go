@@ -36,6 +36,15 @@ type GHComment struct {
 	Bot       bool // user type "Bot"
 	OnPull    bool // a pull request's conversation (html_url …/pull/N)
 	CreatedAt time.Time
+	UpdatedAt time.Time // an edit's time; zero: never edited (CreatedAt)
+}
+
+// updated is c's updated_at: its edit, else its creation.
+func (c GHComment) updated() time.Time {
+	if c.UpdatedAt.IsZero() {
+		return c.CreatedAt
+	}
+	return c.UpdatedAt
 }
 
 // GitHub is a fake GitHub REST API for one repo. It covers search, issues,
@@ -194,8 +203,8 @@ func (g *GitHub) commentJSON(c GHComment) map[string]any {
 		typ = "Bot"
 	}
 	n, id := strconv.Itoa(c.Issue), strconv.FormatInt(c.ID, 10)
-	at := c.CreatedAt.UTC().Format(time.RFC3339)
-	return map[string]any{"id": c.ID, "body": c.Body, "created_at": at, "updated_at": at,
+	at, up := c.CreatedAt.UTC().Format(time.RFC3339), c.updated().UTC().Format(time.RFC3339)
+	return map[string]any{"id": c.ID, "body": c.Body, "created_at": at, "updated_at": up,
 		"html_url":  "https://github.com/" + g.Repo + "/" + kind + "/" + n + "#issuecomment-" + id,
 		"issue_url": api + "/repos/" + g.Repo + "/issues/" + n,
 		"user":      map[string]any{"login": c.Login, "id": c.UserID, "type": typ}}
@@ -259,8 +268,9 @@ func (g *GitHub) issue(w http.ResponseWriter, r *http.Request, seg []string) {
 	}
 }
 
-// feed serves GET /repos/{r}/issues/comments: created at or after since,
-// oldest first, paged with an absolute api.github.com Link rel="next".
+// feed serves GET /repos/{r}/issues/comments: updated at or after since (as
+// GitHub filters it: an old comment edited since comes back), oldest created
+// first, paged with an absolute api.github.com Link rel="next".
 func (g *GitHub) feed(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	since, _ := time.Parse(time.RFC3339, q.Get("since"))
@@ -275,7 +285,7 @@ func (g *GitHub) feed(w http.ResponseWriter, r *http.Request) {
 	page = max(page, 1)
 	var all []GHComment
 	for _, c := range g.comments {
-		if !c.CreatedAt.Before(since) {
+		if !c.updated().Before(since) {
 			all = append(all, c)
 		}
 	}
