@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -98,6 +100,51 @@ func TestSessionOpsCommandLive(t *testing.T) {
 	o := sessionOps{res: &stubResumer{}, cmd: &fakeCommander{connectAfter: 1 << 30}}
 	if err := o.Command(t.Context(), jam.Instance{ActorID: "w1", Phase: jam.PhaseLive}, jam.CmdInterrupt, "Bob"); err == nil {
 		t.Error("Command succeeded with no stream")
+	}
+}
+
+type stubMission struct {
+	calls []string
+	err   error
+}
+
+func (s *stubMission) SetMission(id, mission string) error {
+	s.calls = append(s.calls, id+"="+mission)
+	return s.err
+}
+
+func TestSessionOpsClearResetsMission(t *testing.T) {
+	inst := jam.Instance{ActorID: "w1", Phase: jam.PhaseLive}
+	tests := []struct {
+		name      string
+		cmd       jam.SessionCommand
+		connected bool
+		setErr    error
+		wantCalls []string
+		wantErr   bool
+	}{
+		{"clear sent", jam.CmdClear, true, nil, []string{"w1="}, false},
+		{"interrupt leaves it", jam.CmdInterrupt, true, nil, nil, false},
+		{"compact leaves it", jam.CmdCompact, true, nil, nil, false},
+		{"clear not sent", jam.CmdClear, false, nil, nil, true},
+		{"setter error is not fatal", jam.CmdClear, true, errors.New("boom"), []string{"w1="}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			connectAfter := 0
+			if !tt.connected {
+				connectAfter = 1 << 30
+			}
+			m := &stubMission{err: tt.setErr}
+			o := sessionOps{res: &stubResumer{}, cmd: &fakeCommander{connectAfter: connectAfter}, mission: m}
+			err := o.Command(t.Context(), inst, tt.cmd, "Bob")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Command err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !slices.Equal(m.calls, tt.wantCalls) {
+				t.Errorf("SetMission calls %v, want %v", m.calls, tt.wantCalls)
+			}
+		})
 	}
 }
 
