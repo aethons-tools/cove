@@ -20,7 +20,7 @@ var (
 // worker container (COV-117); docker:false is volume-less, exactly as before.
 // Each mount adds `-v <volume>:<target>`: named volumes survive the --rm
 // (which removes only anonymous ones), so a re-run re-attaches them (COV-249).
-func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
+func (c *Colima) RunEphemeral(image, digest, name string, labels []string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
 	if err := c.preflight(); err != nil {
 		return backend.Instance{}, err
 	}
@@ -36,7 +36,9 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts [
 	runArgs := []string{"run", "-d",
 		"--name", name,
 		"--rm",
-		"--label", label,
+	}
+	for _, l := range labels {
+		runArgs = append(runArgs, "--label", l)
 	}
 	runArgs = append(runArgs, initArgs(docker)...)
 	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
@@ -60,7 +62,33 @@ func (c *Colima) RemoveContainer(name string) error {
 	if err := c.preflight(); err != nil {
 		return err
 	}
-	return c.r.Run("docker", c.dargs("rm", "-f", name)...)
+	// An already-absent container is the state removal wants: success.
+	return c.dockerIdempotent("No such container", c.dargs("rm", "-f", name)...)
+}
+
+// ListContainers lists the containers (running or paused) carrying label key
+// (and every match label, "key=value"), name -> the key's value.
+func (c *Colima) ListContainers(key string, match ...string) (map[string]string, error) {
+	if err := c.preflight(); err != nil {
+		return nil, err
+	}
+	args := []string{"ps", "--filter", "label=" + key}
+	for _, m := range match {
+		args = append(args, "--filter", "label="+m)
+	}
+	args = append(args, "--format", "{{.Names}}\t{{.Label \""+key+"\"}}") // a real tab: no shell, no escape processing
+	out, err := c.r.Output("docker", c.dargs(args...)...)
+	if err != nil {
+		return nil, err
+	}
+	ctrs := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		name, val, _ := strings.Cut(strings.TrimSpace(line), "\t")
+		if name != "" {
+			ctrs[name] = val
+		}
+	}
+	return ctrs, nil
 }
 
 // RemoveVolumes deletes the named volumes (`docker volume rm -f`: an absent

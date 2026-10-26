@@ -86,7 +86,7 @@ type stageCall struct {
 	tar           []byte
 }
 
-func (f *fakeOps) RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
+func (f *fakeOps) RunEphemeral(image, digest, name string, labels []string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
 	f.ran, f.runName, f.runImage, f.runDigest, f.runAddHost, f.runMounts = true, name, image, digest, addHosts, mounts
 	if f.runErr != nil {
 		return backend.Instance{}, f.runErr
