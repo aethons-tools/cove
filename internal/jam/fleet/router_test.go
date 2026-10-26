@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"testing"
@@ -218,5 +219,37 @@ func TestRouterBuildKitDraftNoBuilder(t *testing.T) {
 	}
 	if _, err := r.HasKitDraftImage("id"); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+type factsFake struct {
+	*fakeManager
+	image string
+}
+
+func (f factsFake) ImageFacts(_ context.Context, image string) (jam.ImageFacts, error) {
+	return jam.ImageFacts{}, fmt.Errorf("facts from %s for %s", f.name, image)
+}
+
+func TestRouterImageFacts(t *testing.T) {
+	plain := newFake("plain")
+	down := newFake("down")
+	down.avail.Store(false)
+	ok := newFake("ok")
+	r := New(nil)
+	for _, m := range []Manager{plain, factsFake{fakeManager: down}, factsFake{fakeManager: ok}} {
+		if err := r.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := r.ImageFacts(context.Background(), "img")
+	if err == nil || err.Error() != "facts from ok for img" {
+		t.Fatalf("err %v", err)
+	}
+
+	r2 := New(nil)
+	_ = r2.Add(plain)
+	if _, err := r2.ImageFacts(context.Background(), "img"); !errors.Is(err, jam.ErrManagerUnavailable) {
+		t.Fatalf("err %v", err)
 	}
 }
