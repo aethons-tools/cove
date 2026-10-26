@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -302,5 +303,29 @@ func TestResumeEgressFailureTearsDown(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "torn down: egress re-apply failed") {
 		t.Fatalf("teardown must be logged: %s", logs.String())
+	}
+}
+
+// A manager that is away is not a failed re-apply: nothing is counted, the
+// cove is never torn down for it, and the drift is applied once it is back.
+func TestReconcileEgressManagerUnavailableNotCounted(t *testing.T) {
+	sup, store, f, _ := egressKit(t)
+	raiseOrFail(t, sup, "k1", "guest")
+	setRoleEgress(t, store, "guest", &EgressPolicy{Domains: []string{"x.org"}})
+	f.egressErr = fmt.Errorf("manager m1: %w", ErrManagerUnavailable)
+	for range egressMaxFailures + 2 {
+		reconcileOrFail(t, sup)
+	}
+	got, ok := store.GetInstance("k1")
+	if !ok || got.Phase != PhaseLive || got.EgressFailures != 0 {
+		t.Fatalf("present=%v phase=%s failures=%d, want live with 0", ok, got.Phase, got.EgressFailures)
+	}
+	if len(f.tornDown) != 0 {
+		t.Fatal("torn down while its manager was away")
+	}
+	f.egressErr = nil
+	reconcileOrFail(t, sup)
+	if got, _ := store.GetInstance("k1"); got.Egress != "d:x.org" {
+		t.Fatalf("egress after the manager is back = %q", got.Egress)
 	}
 }

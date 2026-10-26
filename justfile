@@ -60,7 +60,8 @@ buf-gen:
     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
     go install github.com/bufbuild/buf/cmd/buf@v1.45.0
-    cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
+    (cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate)
+    (cd internal/jam/managers && PATH="$PATH:$(go env GOPATH)/bin" buf generate)
 
 # raise the blessed watermark to a published, breaking base image: resolve <tag>
 # to its cove-base-image @sha256 index digest and rewrite

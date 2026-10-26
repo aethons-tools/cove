@@ -58,8 +58,11 @@ func (e *NoManagerError) Error() string {
 // Error variables for placement-related errors.
 var (
 	ErrManagerUnavailable = errors.New("manager unavailable")
-	ErrUnknownManager     = errors.New("unknown manager")
-	ErrPinExcluded        = errors.New("standing session is pinned to a manager the request excludes")
+	// ErrRaiseInterrupted: the manager connection dropped mid-raise, so whether
+	// the studio started is unknown; the raise is not retried elsewhere.
+	ErrRaiseInterrupted = errors.New("manager connection lost mid-raise; outcome unknown")
+	ErrUnknownManager   = errors.New("unknown manager")
+	ErrPinExcluded      = errors.New("standing session is pinned to a manager the request excludes")
 )
 
 // ParsePlacement builds a Placement from a request's managers and its
