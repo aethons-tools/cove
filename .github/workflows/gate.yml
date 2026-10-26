@@ -68,13 +68,14 @@ jobs:
             web/app/package-lock.json
       - name: whiteboard bundle
         run: ./scripts/whiteboard.sh
-      # The Jam app (web/app): API types current, typecheck, lint, unit
-      # tests, then the bundle (with its size budget) so the Go tests below
-      # serve the real app.
-      - name: app checks
-        run: ./scripts/app-types-check.sh && (cd web/app && npm ci --no-audit --no-fund && npm run check)
+      # The Jam app (web/app): the bundle (npm ci, build, size budget) so the
+      # Go tests below serve the real app, then API types current, typecheck,
+      # lint and unit tests on the same install (one npm ci: the job has a
+      # 10-minute limit).
       - name: app bundle
         run: ./scripts/app.sh
+      - name: app checks
+        run: ./scripts/app-types-check.sh && (cd web/app && npm run check)
 
       # Mirrors `just test` — hermetic, no docker/network/ssh.
       - name: test

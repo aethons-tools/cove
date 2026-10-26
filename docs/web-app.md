@@ -19,7 +19,8 @@ Until the cutover it is served at **`/app/next/`** beside the current inbox, beh
   - `src/api/client.ts` is the `/app/user/api/` client. Every failure is an `ApiError`, and a non-JSON refusal means `signed_out`.
   - `src/api/types.ts` is **generated**; don't edit it (see Types).
   - `src/theme.ts` is the Mantine theme (jam.css's accent and fonts). The colour scheme is light, dark or auto.
-  - `src/App.tsx` holds the client routes under `/app/next/`.
+  - `src/App.tsx` holds the client routes under `/app/next/`. `src/start.tsx` boots the app (bootstrap, then the router) and shows why when the bootstrap can't load.
+  - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
 - `internal/jam/webapp`: serves a built bundle.
   - Files under `assets/` are served immutable, and a missing one is a 404.
   - Every other path gets `index.html`, with the request's bootstrap replacing `<!--jam:bootstrap-->` and a strict CSP.

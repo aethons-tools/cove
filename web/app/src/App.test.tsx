@@ -36,7 +36,9 @@ describe("the app shell", () => {
     server.use(http.get("/app/user/api/rail", () => new HttpResponse("<html/>", { status: 403, headers: { "Content-Type": "text/html" } })));
     renderApp(boot);
     expect(await screen.findByText("Your sign-in has expired.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/app/auth/login");
+    // Back through the gate at the same page: it sends a login redirect with
+    // return_to, or its own "Sign in again" (via logout) when only one token expired.
+    expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/app/next/");
   });
 
   it("deep-links a conversation to the current Inbox until slice 2", async () => {

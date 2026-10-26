@@ -9,6 +9,13 @@ export class ApiError extends Error {
 
 export const API = "/app/user/api/";
 
+// shouldRetry is the queries' retry policy: an outage gets a few tries; an
+// expired sign-in or a refusal (any 4xx) is final, so it shows at once.
+export function shouldRetry(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && (error.code === "signed_out" || (error.status >= 300 && error.status < 500))) return false;
+  return failureCount < 3;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   let res: Response;
   try {
