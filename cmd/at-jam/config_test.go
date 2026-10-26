@@ -1393,3 +1393,76 @@ func TestDevSampleConfigValidates(t *testing.T) {
 		t.Fatalf("blobs: %+v %v", c.Blobs, err)
 	}
 }
+
+func ghBlock() *kit.GitHubTracker {
+	return &kit.GitHubTracker{Repo: "acme/board", States: kit.StateMap{Ready: "status:ready", InProgress: "status:in-progress",
+		InReview: "status:in-review", NeedsInput: "status:needs-input", Blocked: "status:blocked"}}
+}
+
+func TestValidateRequisitionerTrackerChoice(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate func(*requisitionerConfig)
+		want   string // "" = valid
+	}{
+		"github":          {func(d *requisitionerConfig) { d.GitHub = ghBlock() }, ""},
+		"linear":          {func(d *requisitionerConfig) { d.Linear = &kit.LinearTracker{Team: "T"} }, ""},
+		"neither":         {func(d *requisitionerConfig) {}, "requisitioner: set exactly one of linear or github"},
+		"both":            {func(d *requisitionerConfig) { d.Linear, d.GitHub = &kit.LinearTracker{Team: "T"}, ghBlock() }, "requisitioner: set exactly one of linear or github"},
+		"bad repo":        {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.Repo = "acme" }, "runtime.requisitioner.github.repo: github repo must be owner/name"},
+		"dot-dot repo":    {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.Repo = "acme/.." }, "github repo must be owner/name"},
+		"missing state":   {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.States.Blocked = "" }, "runtime.requisitioner.github.states.blocked is required"},
+		"github + legacy": {func(d *requisitionerConfig) { d.GitHub, d.Connection, d.TrackerTokenCred = ghBlock(), "", "gh-bot" }, "tracker-token-cred is Linear-only"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := serveConfig{Credentials: map[string]credSpec{"gh-bot": {}}}
+			c.Runtime.Requisitioner = &requisitionerConfig{Role: "w", MaxConcurrent: 1, Connection: "gh-acme"}
+			tc.mutate(c.Runtime.Requisitioner)
+			err := c.validateRequisitioner()
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("validate = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseRequisitionerGitHubBlock(t *testing.T) {
+	cfg, err := parseServeConfig([]byte(`
+runtime:
+  requisitioner:
+    role: worker
+    max-concurrent: 1
+    connection: gh-acme
+    github:
+      repo: acme/board
+      poll-interval: 2m
+      dispatch-label-prefix: "go:"
+      states: { ready: "status:ready", in-progress: "status:in-progress", in-review: "status:in-review", needs-input: "status:needs-input", blocked: "status:blocked" }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	d := cfg.Runtime.Requisitioner
+	if d.GitHub == nil || d.GitHub.Repo != "acme/board" || d.GitHub.DispatchLabelPrefix != "go:" || d.trackerKind() != "github" || d.pollInterval() != "2m" {
+		t.Fatalf("github block = %+v", d.GitHub)
+	}
+	if err := cfg.validateRequisitioner(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	d.PollInterval = "45s"
+	if d.pollInterval() != "45s" {
+		t.Fatal("requisitioner poll-interval wins over the tracker block's")
+	}
+}
+
+// F10: a Linear requisitioner keeps its effective poll interval — its own
+// poll-interval only; linear.poll-interval stays unhonoured.
+func TestPollIntervalLinearUnchanged(t *testing.T) {
+	d := &requisitionerConfig{Linear: &kit.LinearTracker{Team: "T", PollInterval: "5m"}}
+	if d.trackerKind() != "linear" || d.pollInterval() != "" {
+		t.Fatalf("linear: kind %q, poll %q; want linear and the Requisitioner default", d.trackerKind(), d.pollInterval())
+	}
+	d.PollInterval = "45s"
+	if d.pollInterval() != "45s" {
+		t.Fatalf("linear with its own poll-interval = %q", d.pollInterval())
+	}
+}

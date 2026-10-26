@@ -1,62 +1,110 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/dispatch/linear"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/tracker"
 )
 
-// commentFeeder is the narrow slice of *linear.Client that linearSurface
-// polls — kept as an interface so Poll is testable without a live client.
+// commentFeeder is the narrow slice of tracker.Tracker that trackerSurface
+// polls, kept as an interface so Poll is testable without a live client. A
+// feeder that also implements tracker.CursorFeed (GitHub) places the cursor.
 type commentFeeder interface {
-	CommentFeed(ctx context.Context, since time.Time, limit int) ([]linear.FeedComment, error)
+	CommentFeed(ctx context.Context, since time.Time, limit int) ([]tracker.FeedComment, error)
 }
 
-// commentPoster is the narrow slice of *linear.Client that linearSurface
+// commentPoster is the narrow slice of tracker.Tracker that trackerSurface
 // delivers through: identifier→id resolution plus the comment post.
 type commentPoster interface {
 	IssueByIdentifier(ctx context.Context, identifier string) (string, error)
 	PostComment(ctx context.Context, issueID, body string) error
 }
 
-// linearSurface is the concrete relay.Surface over Linear's team-scoped
-// comments feed. Egress delivery goes through poster; whether it's actually
-// reached is gated by relay.Config.EgressEnabled (off until Slice 3 cuts
-// egress over).
-type linearSurface struct {
+// trackerSurface is the relay.Surface over the Requisitioner's tracker's
+// comment feed (Linear's team feed, GitHub's repo feed). Egress delivery
+// goes through poster. After a rate limit (on a poll or a delivery: one
+// token, one limit) it makes no calls until the tracker's Retry-After has
+// passed.
+type trackerSurface struct {
+	service string // tracker kind; "" = linear
 	feed    commentFeeder
 	poster  commentPoster
-	started time.Time // baseline for an empty cursor (shadow forward, not all history)
+	started time.Time        // baseline for an empty cursor (shadow forward, not all history)
+	now     func() time.Time // nil: time.Now
+
+	mu        sync.Mutex // guards notBefore: Poll (ingress) and Deliver (egress) run on separate goroutines
+	notBefore time.Time  // a rate limit's end: no tracker calls until then
 }
 
-func (s *linearSurface) Service() string { return "linear" }
+func (s *trackerSurface) Service() string { return cmp.Or(s.service, tracker.KindLinear) }
 
-// Poll fetches comments created after `since` (or s.started when since is
-// empty/unset), mapping each linear.FeedComment into a relay.Event. next
-// is the max CreatedAt seen, formatted RFC3339Nano; when no comments are
-// returned, next is the incoming since unchanged.
-func (s *linearSurface) Poll(ctx context.Context, project, since string) (events []relay.Event, next string, err error) {
+func (s *trackerSurface) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// waiting reports the end of a rate limit still in force (ok=false: none).
+func (s *trackerSurface) waiting() (until time.Time, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notBefore, s.clock().Before(s.notBefore)
+}
+
+// limited records a rate limit in err, if any, and returns err.
+func (s *trackerSurface) limited(err error) error {
+	var rl *tracker.RateLimitError
+	if errors.As(err, &rl) {
+		s.mu.Lock()
+		s.notBefore = s.clock().Add(rl.RetryAfter)
+		s.mu.Unlock()
+	}
+	return err
+}
+
+// Poll fetches comments from `since` (or s.started when since is empty),
+// mapping each into a relay.Event. next is the feed's own cursor when it
+// places one (tracker.CursorFeed), else the latest CreatedAt seen; either
+// only when it is after the cursor, else the incoming since: the cursor
+// never moves back. Inside a rate limit's wait Poll is a quiet no-op.
+func (s *trackerSurface) Poll(ctx context.Context, project, since string) (events []relay.Event, next string, err error) {
+	if _, ok := s.waiting(); ok {
+		return nil, since, nil // waiting out a rate limit
+	}
 	from := s.started
 	if since != "" {
 		from, err = time.Parse(time.RFC3339Nano, since)
 		if err != nil {
-			return nil, since, fmt.Errorf("linear surface: parse cursor %q: %w", since, err)
+			return nil, since, fmt.Errorf("%s surface: parse cursor %q: %w", s.Service(), since, err)
 		}
 	}
-	cs, err := s.feed.CommentFeed(ctx, from, 100)
+	var cs []tracker.FeedComment
+	latest := from
+	if cf, ok := s.feed.(tracker.CursorFeed); ok {
+		cs, latest, err = cf.CommentFeedCursor(ctx, from, 100)
+	} else {
+		cs, err = s.feed.CommentFeed(ctx, from, 100)
+		for _, c := range cs {
+			if c.CreatedAt.After(latest) {
+				latest = c.CreatedAt
+			}
+		}
+	}
 	if err != nil {
-		return nil, since, err
+		return nil, since, s.limited(err)
 	}
 	next = since
-	var max time.Time
 	events = make([]relay.Event, 0, len(cs))
 	for _, c := range cs {
 		events = append(events, relay.Event{
@@ -64,17 +112,15 @@ func (s *linearSurface) Poll(ctx context.Context, project, since string) (events
 			Surface:        c.IssueIdentifier,
 			Author:         c.Author,
 			AuthorID:       c.AuthorID,
+			AuthorBot:      c.AuthorBot,
 			Body:           c.Body,
 			ReplyToForeign: c.ParentID,
 			At:             c.CreatedAt,
-			ContentType:    intercom.ContentMarkdown, // Linear comment bodies are markdown
+			ContentType:    intercom.ContentMarkdown, // Linear and GitHub comment bodies are markdown
 		})
-		if c.CreatedAt.After(max) {
-			max = c.CreatedAt
-		}
 	}
-	if !max.IsZero() {
-		next = max.Format(time.RFC3339Nano)
+	if latest.After(from) {
+		next = latest.Format(time.RFC3339Nano)
 	}
 	return events, next, nil
 }
@@ -90,24 +136,29 @@ func deliveredBody(m intercom.Squawk, f intercom.Flavor) string {
 }
 
 // Deliver resolves d.Address (a ticket identifier) to an internal id and posts
-// d.BodyPrefix+m.Body. Linear returns no comment id, so foreignID is ""; the
-// engine's EgressMark provides exactly-once (no idempotency footer — it would
-// break byte-parity with the pre-cutover direct-post path).
-func (s *linearSurface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squawk) (string, error) {
+// d.BodyPrefix+m.Body. The trackers return no comment id, so foreignID is "";
+// the engine's EgressMark provides exactly-once (no idempotency footer — it
+// would break byte-parity with the pre-cutover direct-post path). Inside a
+// rate limit's wait it makes no call and fails with a fixed error (the
+// engine retries next tick).
+func (s *trackerSurface) Deliver(ctx context.Context, d relay.Delivery, m intercom.Squawk) (string, error) {
 	if s.poster == nil {
-		return "", fmt.Errorf("linear deliver: no poster configured")
+		return "", fmt.Errorf("%s deliver: no poster configured", s.Service())
+	}
+	if until, ok := s.waiting(); ok {
+		return "", fmt.Errorf("%s deliver: rate limited until %s", s.Service(), until.UTC().Format(time.RFC3339))
 	}
 	issueID, err := s.poster.IssueByIdentifier(ctx, d.Address)
 	if err != nil {
-		return "", fmt.Errorf("linear deliver: resolve %q: %w", d.Address, err)
+		return "", fmt.Errorf("%s deliver: resolve %q: %w", s.Service(), d.Address, s.limited(err))
 	}
 	if err := s.poster.PostComment(ctx, issueID, d.BodyPrefix+deliveredBody(m, intercom.FlavorCommonMark)); err != nil {
-		return "", fmt.Errorf("linear deliver: post to %q: %w", d.Address, err)
+		return "", fmt.Errorf("%s deliver: post to %q: %w", s.Service(), d.Address, s.limited(err))
 	}
 	return "", nil
 }
 
-func (s *linearSurface) Close() error { return nil }
+func (s *trackerSurface) Close() error { return nil }
 
 // fileCursors is a small file-backed relay.Cursors: a JSON
 // map["service/<project id>"]→cursor, mutex-guarded, loaded at open, saved on

@@ -36,7 +36,7 @@ func TestLinearSurfacePollMapsFeed(t *testing.T) {
 		{ID: "c1", Body: "hold", CreatedAt: started.Add(time.Hour), Author: "Brent", IssueIdentifier: "ACME-42", ParentID: ""},
 		{ID: "c2", Body: "?", CreatedAt: started.Add(2 * time.Hour), Author: "Brent", IssueIdentifier: "ACME-42", ParentID: "c1"},
 	}}
-	s := &linearSurface{feed: ff, started: started}
+	s := &trackerSurface{feed: ff, started: started}
 	evs, next, err := s.Poll(context.Background(), "acme", "")
 	if err != nil || len(evs) != 2 {
 		t.Fatalf("poll: %v %+v", err, evs)
@@ -66,7 +66,7 @@ func TestLinearSurfacePollSetSinceParses(t *testing.T) {
 	started := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
 	since := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	ff := &fakeFeeder{}
-	s := &linearSurface{feed: ff, started: started}
+	s := &trackerSurface{feed: ff, started: started}
 	if _, _, err := s.Poll(context.Background(), "acme", since.Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("poll: %v", err)
 	}
@@ -109,12 +109,12 @@ func TestDeliverPropagatesErrors(t *testing.T) {
 	m := intercom.Squawk{Body: "x"}
 	d := relay.Delivery{Service: "linear", Address: "ACME-7"}
 	// resolve error
-	s1 := &linearSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
+	s1 := &trackerSurface{poster: &fakePoster{resolveErr: fmt.Errorf("boom")}}
 	if _, err := s1.Deliver(context.Background(), d, m); err == nil {
 		t.Fatal("expected resolve error")
 	}
 	// post error
-	s2 := &linearSurface{poster: &fakePoster{idByID: map[string]string{"ACME-7": "iss_7"}, postErr: fmt.Errorf("nope")}}
+	s2 := &trackerSurface{poster: &fakePoster{idByID: map[string]string{"ACME-7": "iss_7"}, postErr: fmt.Errorf("nope")}}
 	if _, err := s2.Deliver(context.Background(), d, m); err == nil {
 		t.Fatal("expected post error")
 	}
@@ -327,7 +327,7 @@ func TestDirectoryProjectsDiscordListsAllDiscordProjects(t *testing.T) {
 // prefix (@handle) is ours and never escaped.
 func TestLinearDeliverEscapesPlainText(t *testing.T) {
 	fp := &fakePoster{idByID: map[string]string{"ACME-1": "issue-1"}}
-	s := &linearSurface{poster: fp}
+	s := &trackerSurface{poster: fp}
 	d := relay.Delivery{Address: "ACME-1", BodyPrefix: "@alice "}
 	from := ident.ID("cove-1")
 	if _, err := s.Deliver(context.Background(), d, intercom.Squawk{From: from, Body: "**bold**", ContentType: intercom.ContentMarkdown}); err != nil {

@@ -30,7 +30,7 @@ type Engine struct {
 	dir  Directory
 	cfg  Config
 	log  *slog.Logger
-	seen map[string]bool // inbound ids already in the Log for surf.Service()
+	seen map[string]bool // inbound ids for surf.Service() already in the Log, dropped, or unrouted
 }
 
 // New constructs an Engine for surf, rebuilding seen from the Log's existing

@@ -25,7 +25,10 @@ func (e *Engine) ingressTick(ctx context.Context) {
 			}
 			r, ok := e.dir.Route(service, project, ev)
 			if !ok {
+				// Marked seen: a feed whose since is inclusive (GitHub) hands
+				// the event back next poll; it is not routed or warned again.
 				e.log.Warn("relay: unrouted ingress event", "service", service, "foreign", ev.ForeignID)
+				e.seen[id] = true
 				continue
 			}
 			m := intercom.Squawk{ID: id, From: r.From, Body: ev.Body, At: ev.At, ReplyTo: r.ReplyTo, ContentType: ev.ContentType,

@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the at-jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
 tier: section
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
 # `at-jam` — operating the central service
@@ -69,7 +69,7 @@ five pillars), see the design history:
 | [standing-state.md](standing-state.md) | You need to know what survives a standing session's restart or upgrade, where its conversation and workspace live (labeled volumes), why it did or didn't resume, or which volumes Jam may delete. |
 | [collaboration.md](collaboration.md) | You want to SSH or point an IDE at an agent's studio, share a studio with a teammate, set a role's `collaborate` policy or the `ssh:` serve config, or an `at-jam ssh` connection was refused or timed out. |
 | [previews.md](previews.md) | You want to open or script against a studio preview, set up previews on a Jam (`previews:`, DNS, wildcard cert), run a web IDE in a studio, or a preview link 404s, 403s, 502s or 504s. |
-| [requisitioner.md](requisitioner.md) | You are enabling Jam's always-on intake — polling a tracker (Linear) and raising a managed studio per ready ticket — or tuning its concurrency cap / poll interval. |
+| [requisitioner.md](requisitioner.md) | You are enabling Jam's always-on intake — polling a tracker (Linear or GitHub Issues) and raising a managed studio per ready ticket — or tuning its concurrency cap / poll interval. |
 | [ui.md](ui.md) | You want to use or expose Jam in a browser (`/app`) — who reaches /app/user vs /app/admin or why you got a 403; configure browser login (redirect URI, scopes, cookies); read the title bar; install the app; or follow an old /ui or /me link. To change something, see ui-editing.md. |
 | [ui-console.md](ui-console.md) | You want to find your way around the admin console — what each tab and list shows (Dashboard, Agents, Health, Users, Specs), the Projects rail, search, the Channel log, or an agent's session timeline. |
 | [ui-editing.md](ui-editing.md) | You want to change something from the admin UI instead of the CLI — enroll/revoke agents, grants, roles, raise/tear down a studio, Request a personal session, edit kits/destinations/model-specs — or a UI write was refused. |

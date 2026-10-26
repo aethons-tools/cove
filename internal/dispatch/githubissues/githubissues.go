@@ -127,9 +127,16 @@ func (c *Client) send(ctx context.Context, method, u string, payload []byte) (in
 	return resp.StatusCode, resp.Header, raw.Bytes(), nil
 }
 
-// do is send without the headers.
+// do is send without the headers. For Jam's client a rate limit is a
+// *tracker.RateLimitError (so a write waits it out as a read does);
+// at-cove's (New) keeps its plain http error.
 func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int, []byte, error) {
-	code, _, raw, err := c.send(ctx, method, u, payload)
+	code, h, raw, err := c.send(ctx, method, u, payload)
+	if err == nil && c.jam {
+		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
+			return code, raw, rl
+		}
+	}
 	return code, raw, err
 }
 

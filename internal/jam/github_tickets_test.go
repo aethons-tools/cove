@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -319,5 +320,38 @@ func TestPlanRoomGitHubRef(t *testing.T) {
 	}
 	if len(plan.report.Notes) != 1 || !strings.Contains(plan.report.Notes[0], ticketkey.ErrGitHub.Error()) {
 		t.Fatalf("notes = %q; want the bad ref refused", plan.report.Notes)
+	}
+}
+
+// GET /squawks/targets lists a ticket session's own ticket by its canonical
+// key on a github tracker, and no ticket: for a Unit that is no key there.
+func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
+	targets := func(f *sqFixture) []string {
+		rec := f.do(http.MethodGet, "/squawks/targets", f.ticket, "")
+		var r struct {
+			Targets []targetOut `json:"targets"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &r); rec.Code != http.StatusOK || err != nil {
+			t.Fatalf("targets = %d %v", rec.Code, err)
+		}
+		var out []string
+		for _, tg := range r.Targets {
+			if tg.Kind == "ticket" {
+				out = append(out, tg.Target)
+			}
+		}
+		return out
+	}
+	for unit, want := range map[string][]string{"Acme/Board#007": {"ticket:acme/board#7"}, "ACME-7": nil} {
+		f := newSqFixture(t, "user:*")
+		f.icFixture = newGitHubICFixtureFrom(t, f.icFixture)
+		f.ticket.Unit = unit
+		if err := f.store.PutInstance(f.ticket); err != nil {
+			t.Fatal(err)
+		}
+		f.h = NewSquawksHandler(f.store, f.ic, f.log, f.legacy, slog.New(slog.NewTextHandler(f.logbuf, nil)))
+		if got := targets(f); !slices.Equal(got, want) {
+			t.Errorf("unit %q: ticket targets = %q; want %q", unit, got, want)
+		}
 	}
 }

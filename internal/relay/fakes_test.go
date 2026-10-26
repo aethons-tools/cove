@@ -80,6 +80,7 @@ type fakeDirectory struct {
 	audience  []ident.ID
 	postErr   bool
 	permanent bool
+	routed    int // Route calls
 }
 
 func (f *fakeDirectory) Projects(service string) []string { return f.projects }
@@ -94,6 +95,7 @@ func (f *fakeDirectory) Surfaces(service string, m intercom.Squawk) []Delivery {
 	return out
 }
 func (f *fakeDirectory) Route(service, project string, e Event) (Routed, bool) {
+	f.routed++
 	r, ok := f.route[e.ForeignID]
 	return r, ok
 }

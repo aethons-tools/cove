@@ -1721,7 +1721,7 @@ func TestTick_BlockOnceAcrossFailedTeardowns(t *testing.T) {
 	}
 }
 
-// blockingTickets mirrors linearTicketer.BlockUnfinished's no-op for a
+// blockingTickets mirrors trackerTicketer.BlockUnfinished's no-op for a
 // terminally-reported session, and checks the call is time-bounded.
 type blockingTickets struct {
 	calls      int

@@ -24,6 +24,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
+	"github.com/aethons-tools/cove/internal/ticketkey"
+	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/wakeon"
 	"gopkg.in/yaml.v3"
 )
@@ -654,14 +656,18 @@ type requisitionerConfig struct {
 	Project       string `yaml:"project"`
 	MaxConcurrent int    `yaml:"max-concurrent"`
 	PollInterval  string `yaml:"poll-interval"` // optional; empty/invalid ⇒ the Requisitioner's 30s default
-	// Connection names the linear connection the Requisitioner, escalation and
-	// Linear relay use. Exclusive with the deprecated TrackerTokenCred, which
-	// binds the implicit connection named "linear".
+	// Connection names the tracker connection the Requisitioner, escalation
+	// and the tracker relay use: kind linear or github, matching the block
+	// set below. Exclusive with the deprecated TrackerTokenCred (Linear only),
+	// which binds the implicit connection named "linear".
 	Connection       string `yaml:"connection"`
 	TrackerTokenCred string `yaml:"tracker-token-cred"`
 	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
 	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
 	Linear                 *kit.LinearTracker `yaml:"linear"`
+	// GitHub dispatches from one repo's Issues instead (exactly one of
+	// linear or github): status labels for states, done = closed.
+	GitHub *kit.GitHubTracker `yaml:"github"`
 
 	// WakePollInterval, WaitMax, and WarmTimeout configure the resident wake-on
 	// engine (internal/wakeon), which watches Waiting instances' tickets and
@@ -675,6 +681,25 @@ type requisitionerConfig struct {
 	WaitMax                string `yaml:"wait-max"`
 	WarmTimeout            string `yaml:"warm-timeout"`
 	EscalationPollInterval string `yaml:"escalation-poll-interval"`
+}
+
+// trackerKind is the kind of the Requisitioner's tracker (and of its
+// connection and relay service).
+func (d *requisitionerConfig) trackerKind() string {
+	if d.GitHub != nil {
+		return tracker.KindGitHub
+	}
+	return tracker.KindLinear
+}
+
+// pollInterval is the Requisitioner's own poll-interval, else (GitHub only)
+// its tracker block's; "" ⇒ the Requisitioner's 30s default. A Linear
+// block's poll-interval stays unread, as before GitHub.
+func (d *requisitionerConfig) pollInterval() string {
+	if d.PollInterval == "" && d.GitHub != nil {
+		return d.GitHub.PollInterval
+	}
+	return d.PollInterval
 }
 
 const removedStorageHint = "Jam is Postgres-only: set store-postgres instead. To keep an existing file Jam's config, run `at-jam export` against it (on the old version) and `at-jam import` into the Postgres Jam (docs/usage/jam/backup.md); squawk history and session events in the old files are not migrated"
@@ -767,7 +792,7 @@ func (c serveConfig) validateStorePostgres() error {
 }
 
 // validateRequisitioner checks runtime.requisitioner when present (required fields:
-// role, max-concurrent > 0, linear). A no-op when runtime.requisitioner is unset —
+// role, max-concurrent > 0, exactly one of linear or github). A no-op when runtime.requisitioner is unset —
 // the Requisitioner stays disabled, unchanged from before this block existed.
 func (c serveConfig) validateRequisitioner() error {
 	d := c.Runtime.Requisitioner
@@ -780,11 +805,27 @@ func (c serveConfig) validateRequisitioner() error {
 	if d.MaxConcurrent <= 0 {
 		return fmt.Errorf("runtime.requisitioner.max-concurrent must be > 0")
 	}
-	if d.Linear == nil {
-		return fmt.Errorf("runtime.requisitioner.linear is required")
+	if (d.Linear == nil) == (d.GitHub == nil) {
+		return errors.New("requisitioner: set exactly one of linear or github")
 	}
 	if d.DeprecatedTrackerToken != nil {
 		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
+	}
+	if g := d.GitHub; g != nil {
+		if err := ticketkey.ValidRepo(g.Repo); err != nil {
+			return fmt.Errorf("runtime.requisitioner.github.repo: %w", err)
+		}
+		for _, s := range []struct{ name, label string }{
+			{"ready", g.States.Ready}, {"in-progress", g.States.InProgress}, {"in-review", g.States.InReview},
+			{"needs-input", g.States.NeedsInput}, {"blocked", g.States.Blocked},
+		} { // done = the issue is closed: no label
+			if strings.TrimSpace(s.label) == "" {
+				return fmt.Errorf("runtime.requisitioner.github.states.%s is required", s.name)
+			}
+		}
+		if d.TrackerTokenCred != "" {
+			return fmt.Errorf("runtime.requisitioner.tracker-token-cred is Linear-only; set runtime.requisitioner.connection to a github connection")
+		}
 	}
 	return checkConnectionOrCred(c, "runtime.requisitioner", d.Connection, "tracker-token-cred", d.TrackerTokenCred)
 }

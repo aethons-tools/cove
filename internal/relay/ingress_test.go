@@ -57,6 +57,18 @@ func TestIngressUnroutedSkipped(t *testing.T) {
 	}
 }
 
+// An unrouted event is marked seen: a feed whose since is inclusive (GitHub)
+// hands it back on the next poll, and it is neither routed nor warned again.
+func TestIngressUnroutedMarkedSeen(t *testing.T) {
+	surf := &fakeSurface{service: "github", events: []Event{{ForeignID: "own", Body: "r"}}, next: "cur2"}
+	e, dir, _ := newIngressEngine(t, surf, map[string]Routed{})
+	e.ingressTick(context.Background())
+	e.ingressTick(context.Background())
+	if dir.routed != 1 || !e.seen["in:github:own"] {
+		t.Fatalf("routed %d times, seen %v; want one route and the id marked", dir.routed, e.seen)
+	}
+}
+
 func TestIngressPostErrorHoldsCursor(t *testing.T) {
 	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "bad1", Body: "r", At: time.Unix(5, 0)}}, next: "cur3"}
 	e, dir, cur := newIngressEngine(t, surf, map[string]Routed{"bad1": routeTo(chOps)})

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/tracker"
 )
 
@@ -355,5 +356,43 @@ func TestCommentFeedCursorHoldsOnError(t *testing.T) {
 	var rl *tracker.RateLimitError
 	if !errors.As(err, &rl) || got != nil || !next.Equal(since) {
 		t.Fatalf("feed = %+v, next %v, %v; want a rate limit, no comments, cursor at since", got, next, err)
+	}
+}
+
+// F4: Jam's writes (do: comment, label, close) surface a rate limit as a
+// RateLimitError so the relay can wait it out; at-cove's New keeps its old
+// http error for the same answer.
+func TestWritesRateLimitedOnlyForJam(t *testing.T) {
+	mux := http.NewServeMux()
+	limited := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"message":"API rate limit exceeded"}`)
+	}
+	mux.HandleFunc("POST /repos/acme/board/issues/1/comments", limited)
+	mux.HandleFunc("POST /repos/acme/board/issues/1/labels", limited)
+	mux.HandleFunc("PATCH /repos/acme/board/issues/1", limited)
+	ctx := context.Background()
+	jc := newJamClient(t, mux)
+	for name, call := range map[string]func(*Client) error{
+		"comment": func(c *Client) error { return c.PostComment(ctx, "1", "hi") },
+		"label":   func(c *Client) error { return c.Transition(ctx, "1", scheduler.RoleInProgress) },
+		"close":   func(c *Client) error { return c.Transition(ctx, "1", scheduler.RoleDone) },
+	} {
+		var rl *tracker.RateLimitError
+		if err := call(jc); !errors.As(err, &rl) || rl.RetryAfter != 42*time.Second {
+			t.Errorf("Jam %s = %v; want RateLimitError 42s", name, err)
+		}
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	cove, err := New(testCfg(), "tok", &http.Client{Transport: serverTransport{u}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var rl *tracker.RateLimitError
+	if err := cove.PostComment(ctx, "1", "hi"); errors.As(err, &rl) || err == nil || !strings.Contains(err.Error(), `http 429: {"message":"API rate limit exceeded"}`) {
+		t.Fatalf("at-cove PostComment = %v; want its old http 429 error", err)
 	}
 }

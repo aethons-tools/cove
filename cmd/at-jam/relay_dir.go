@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/tracker"
 )
 
 // directory is the concrete relay.Directory over the channel registry
@@ -25,8 +27,9 @@ type directory struct {
 	store        jam.Store
 	ic           *jam.Intercom
 	project      string
-	selfIdentity string                  // Jam's Linear viewer displayName (self-post filter)
-	tracker      func() (ident.ID, bool) // the Linear connection ticket bindings are on
+	selfIdentity string                  // Jam's tracker identity (Linear displayName, GitHub login): the self-post filter
+	tracker      func() (ident.ID, bool) // the tracker connection ticket bindings are on
+	trackerKind  string                  // the tracker's kind (relay service); "" = linear
 	discord      ident.ID                // the Discord connection (Jam's bot); "" without one
 	receipts     *fileReceipts           // discord-msg-id → receipt (nil when discord unconfigured)
 	log          *slog.Logger            // optional: debug attribution notes
@@ -123,17 +126,17 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 				continue
 			}
 			bp := prefix(service)
-			if service == "linear" && len(escalated.handles) > 0 {
+			if service == d.trackerService() && len(escalated.handles) > 0 {
 				bp = strings.Join(escalated.handles, " ") + " " + bp // the tier's people, @-mentioned as before
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: bp})
 		}
 		// A ticket whose issue binding a room holds: its escalation still goes
 		// onto the issue (the old ping's place), by the ticket's key.
-		if service == "linear" && ch.Kind == jam.SourceTicket && len(escalated.handles) > 0 && len(out) == 0 {
+		if service == d.trackerService() && ch.Kind == jam.SourceTicket && len(escalated.handles) > 0 && len(out) == 0 {
 			if tracker, ok := d.tracker(); ok {
 				if conn, key, ok := strings.Cut(ch.Key, "/"); ok && conn == string(tracker) {
-					out = append(out, relay.Delivery{Service: "linear", Address: key, BodyPrefix: strings.Join(escalated.handles, " ") + " " + prefix("linear")})
+					out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(escalated.handles, " ") + " " + prefix(service)})
 				}
 			}
 		}
@@ -174,13 +177,13 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 				mentions = append(mentions, "@"+strings.TrimPrefix(mem.Handle, "@"))
 			}
 		}
-		// The Linear fallback carries a session's message to a person (the
+		// The tracker fallback carries a session's message to a person (the
 		// pre-channel "user:x from a ticket session"); a person's chat
 		// message is never made a public comment.
 		// A session channel has no such fallback: it is never rendered onto a
 		// ticket another session in it works on.
-		if tracker, ok := d.tracker(); service == "linear" && ch.Kind == jam.SourceChat && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
-			out = append(out, relay.Delivery{Service: "linear", Address: ticket, BodyPrefix: strings.Join(mentions, " ") + " " + prefix("linear")})
+		if tracker, ok := d.tracker(); service == d.trackerService() && ch.Kind == jam.SourceChat && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
+			out = append(out, relay.Delivery{Service: service, Address: ticket, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
 		}
 	}
 	return out
@@ -249,14 +252,27 @@ func (d *directory) Route(service, project string, e relay.Event) (relay.Routed,
 	case "discord":
 		return d.routeDiscord(e)
 	}
-	return d.routeLinear(e)
+	if service == d.trackerService() {
+		return d.routeTracker(service, e)
+	}
+	return relay.Routed{}, false
 }
 
-// routeLinear drops Jam's own comments (its posts, echoed back on the feed),
-// then maps the issue to the channel holding its binding — a ticket's, or a
+// trackerService is the relay service ticket bindings are delivered on.
+func (d *directory) trackerService() string { return cmp.Or(d.trackerKind, tracker.KindLinear) }
+
+// routeTracker drops Jam's own comments (its posts, echoed back on the feed),
+// then maps the issue to the channel holding its binding: a ticket's, or a
 // room bound to it. A comment on an issue no channel holds is unroutable.
-func (d *directory) routeLinear(e relay.Event) (relay.Routed, bool) {
-	if e.Author == d.selfIdentity {
+// On GitHub it also drops any Bot account's comment, and an unknown viewer
+// (an App token's ErrNoViewer) drops nobody by name; Linear's self filter is
+// as it always was (an author equal to the viewer, even an empty one).
+func (d *directory) routeTracker(service string, e relay.Event) (relay.Routed, bool) {
+	if service == tracker.KindGitHub {
+		if e.AuthorBot || (d.selfIdentity != "" && e.Author == d.selfIdentity) {
+			return relay.Routed{}, false
+		}
+	} else if e.Author == d.selfIdentity {
 		return relay.Routed{}, false
 	}
 	conn, ok := d.tracker()
@@ -267,13 +283,13 @@ func (d *directory) routeLinear(e relay.Event) (relay.Routed, bool) {
 	if !ok {
 		return relay.Routed{}, false
 	}
-	from, ok := d.author("linear", ch, e.Surface, e.AuthorID, e.Author)
+	from, ok := d.author(service, ch, e.Surface, e.AuthorID, e.Author)
 	if !ok {
 		return relay.Routed{}, false
 	}
 	r := relay.Routed{Channel: ch.ID, From: from, Origin: conn, OriginRef: e.Surface}
 	if e.ReplyToForeign != "" {
-		r.ReplyTo = "in:linear:" + e.ReplyToForeign
+		r.ReplyTo = "in:" + service + ":" + e.ReplyToForeign
 	}
 	return r, true
 }

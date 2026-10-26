@@ -272,8 +272,14 @@ func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, a
 	}
 	targets := ListTargets(h.store, tracker, actor, h.now())
 	out := make([]targetOut, 0, len(targets)+1)
-	if inst.Unit != "" {
-		out = append(out, targetOut{Target: "ticket:" + inst.Unit, Kind: "ticket", Name: inst.Unit})
+	// The session's own ticket, by its key on the tracker (canonical on
+	// github; a Unit that is no github key has no ticket there).
+	unit, onTicket := inst.Unit, inst.Unit != ""
+	if id, ok := trackerOrDefault(h.store, tracker); ok {
+		unit, onTicket = ticketUnit(h.store, id, inst.Unit)
+	}
+	if onTicket {
+		out = append(out, targetOut{Target: "ticket:" + unit, Kind: "ticket", Name: unit})
 	}
 	for _, t := range targets {
 		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})

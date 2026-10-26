@@ -1,6 +1,6 @@
 ---
-summary: The Requisitioner — Jam's always-on poll loop that turns ready tracker tickets into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.requisitioner` serve-config block, and the elastic-raise-under-a-cap model.
-read_when: You are enabling or operating Jam's automatic intake — having it poll a tracker (Linear) and raise a managed studio per ready ticket — or tuning its concurrency cap and poll interval.
+summary: The Requisitioner — Jam's always-on poll loop that turns ready tracker tickets (Linear or GitHub Issues) into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.requisitioner` serve-config block, and the elastic-raise-under-a-cap model.
+read_when: You are enabling or operating Jam's automatic intake — having it poll a tracker (Linear or GitHub Issues) and raise a managed studio per ready ticket — or tuning its concurrency cap and poll interval.
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
@@ -17,7 +17,8 @@ raise (run → report → teardown).
 
 ## The flow (per poll)
 
-1. **List ready** — poll the tracker for issues in its READY state.
+1. **List ready** — poll the tracker for issues in its READY state (GitHub: open
+   issues with the ready status label; pull requests never count).
 2. **Gate on the dispatch label** — skip any issue that does *not* carry a label
    matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
    explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
@@ -39,7 +40,8 @@ raise (run → report → teardown).
 6. **Raise** — set the session's starting [mission](intercom.md#what-the-tools-do) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
    branch and PR through merge, keep the ticket current with `report`, finish with
    `end` — see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
-   with `role`/`project` from config and `unit = <identifier>`. On a raise
+   with `role`/`project` from config and `unit = <ticket key>` (`AET-42`; GitHub
+   `owner/repo#<n>`). On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
 
 ## The model: elastic raise under a cap
@@ -64,7 +66,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    connection: linear-acme   # a linear connection (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
+    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -72,13 +74,44 @@ runtime:
       states: { ready: "Ready", in-progress: "In Progress", in-review: "In Review", done: "Done", needs-input: "Needs Input", blocked: "Blocked" }
 ```
 
+Set **exactly one** of `linear:` or `github:`; serve refuses to start otherwise
+(`requisitioner: set exactly one of linear or github`). `poll-interval` falls back
+to the tracker block's when unset (GitHub's; a Linear block's `poll-interval` is
+not read).
+
 The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
 wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 **fallback**: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
 wins when set — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) and
-[escalation.md](escalation.md). The Requisitioner also brings the Linear relay, which
+[escalation.md](escalation.md). The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
 needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
 relay) runs without a Requisitioner.
+
+### GitHub Issues (`github:`)
+
+```yaml
+runtime:
+  requisitioner:
+    role: worker
+    max-concurrent: 5
+    connection: gh-acme       # at-jam connection add --kind github --name gh-acme --cred github-bot
+    github:
+      repo: acme/board        # owner/name
+      class-label-prefix: "class:"
+      dispatch-label-prefix: "dispatch:"   # default dispatch:
+      states: { ready: "status:ready", in-progress: "status:in-progress", in-review: "status:in-review", needs-input: "status:needs-input", blocked: "status:blocked" }
+```
+
+- **States are status labels.** Jam keeps exactly one on an issue, and done
+  closes the issue (`states.done` is unused).
+- **Blockers.** Blockers are `Depends on #N` / `Blocked by #N` in the body, in the
+  same repo; a cross-repo blocker is ignored with a warning.
+- **Ticket keys and the token.** Ticket keys are `owner/repo#<n>`. The token needs
+  Issues read/write and Metadata read on the repo (a fine-grained PAT).
+  `tracker-token-cred` is Linear-only.
+- **The relay.** The relay reads the repo's issue comments: it drops Jam's own
+  login and any Bot account, skips pull-request comments, and waits out a rate
+  limit's `Retry-After`.
 
 The role must grant the `anthropic` and `git` destinations so the raised studio's
 agent can reach them ([roster.md](roster.md)).
@@ -99,5 +132,4 @@ presence-only (any `dispatch:<anything>` counts). It is distinct from
 - **Multiple Jam instances** — the Requisitioner is single-instance today (the
   tracker-transition claim + registry dedup); multi-instance ticket-leasing is
   deferred.
-- **Per-role/class caps** and the GitHub-issues tracker (the same `Tracker`
-  interface supports it) are not wired here.
+- **Per-role/class caps.**
