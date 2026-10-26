@@ -232,11 +232,11 @@ func trackerOrDefault(store Store, tracker func() (ident.ID, bool)) (ident.ID, b
 // the poster's own ticket, or a ticket: glob in any form resolveTicket takes
 // — the bare key, or scoped to the tracker connection by name or id.
 func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
-	unit, onTicket := ticketUnit(store, tracker, target.Unit)
+	unit, onTicket := TicketUnit(store, tracker, target.Unit)
 	if !onTicket { // no ticket on tracker: its home is its own session channel
 		return true
 	}
-	if own, ok := ticketUnit(store, tracker, poster.Unit); ok && own == unit {
+	if own, ok := TicketUnit(store, tracker, poster.Unit); ok && own == unit {
 		return true
 	}
 	forms := []string{"ticket:" + unit, "ticket:" + string(tracker) + "/" + unit}

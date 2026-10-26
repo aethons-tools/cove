@@ -182,8 +182,12 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		// message is never made a public comment.
 		// A session channel has no such fallback: it is never rendered onto a
 		// ticket another session in it works on.
-		if tracker, ok := d.tracker(); service == d.trackerService() && ch.Kind == jam.SourceChat && isSession(m.From) && ok && ticket != "" && len(mentions) > 0 && !cameFrom(tracker, ticket) {
-			out = append(out, relay.Delivery{Service: service, Address: ticket, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
+		// The session's unit must be a ticket on the tracker (canonical on
+		// github; another repo's would never land).
+		if tracker, ok := d.tracker(); service == d.trackerService() && ch.Kind == jam.SourceChat && isSession(m.From) && ok && len(mentions) > 0 {
+			if key, onTicket := jam.TicketUnit(d.store, tracker, ticket); onTicket && !cameFrom(tracker, key) {
+				out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
+			}
 		}
 	}
 	return out

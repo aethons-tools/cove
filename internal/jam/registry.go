@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // Status is a registry entity's lifecycle state. Removal is a tombstone: a
@@ -56,6 +58,33 @@ func TrackerConnection(store Store) (Connection, bool) {
 		}
 	}
 	return Connection{}, false
+}
+
+// trackerRepos holds the repo each github tracker connection serve
+// resolved is on (runtime.requisitioner.github.repo), by connection id.
+var trackerRepos sync.Map // ident.ID → string
+
+// SetTrackerRepo records that github tracker connection conn is on repo
+// ("owner/name"; "" forgets it). Serve sets it once it resolves the
+// Requisitioner's connection: only that repo's issues are deliverable, so
+// a binding to, or a ticket on, any other is refused (ticketkey.ErrOtherRepo).
+func SetTrackerRepo(conn ident.ID, repo string) {
+	if repo == "" {
+		trackerRepos.Delete(conn)
+		return
+	}
+	trackerRepos.Store(conn, strings.ToLower(repo))
+}
+
+// onTrackerRepo reports whether canonical github key is on conn's repo (true
+// when no repo is recorded for conn: nothing to scope by).
+func onTrackerRepo(conn ident.ID, key string) bool {
+	repo, ok := trackerRepos.Load(conn)
+	if !ok {
+		return true
+	}
+	r, _, err := ticketkey.ParseGitHub(key)
+	return err == nil && r == repo.(string)
 }
 
 // Account is an identity on a connection's service. ServiceUID is the

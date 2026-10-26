@@ -2522,6 +2522,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1
 		}
+		if dc.GitHub != nil { // only the tracker repo's issues are deliverable: other repos' are refused
+			jam.SetTrackerRepo(tconn.ID, strings.TrimSpace(dc.GitHub.Repo))
+		}
 		trackerConn.Store(tconn.ID)
 		tokEnv, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[tcred]})
 		if err != nil {

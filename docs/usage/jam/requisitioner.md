@@ -106,7 +106,9 @@ runtime:
   closes the issue (`states.done` is unused).
 - **Blockers.** Blockers are `Depends on #N` / `Blocked by #N` in the body, in the
   same repo; a cross-repo blocker is ignored with a warning.
-- **Ticket keys and the token.** Ticket keys are `owner/repo#<n>`. The token needs
+- **Ticket keys and the token.** Ticket keys are `owner/repo#<n>`, on the
+  tracker's repo: a session whose unit names another repo has no ticket (its
+  home is its own channel), and a delivery there is skipped. The token needs
   Issues read/write and Metadata read on the repo (a fine-grained PAT).
   `tracker-token-cred` is Linear-only.
 - **The relay.** The tracker relay carries the issue's comments both ways; what it

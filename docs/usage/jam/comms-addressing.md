@@ -110,7 +110,10 @@ personal session. The admin API behind these is `/admin/users`, `/admin/projects
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
 `discord`, `github`: that kind's connection, created if there is none); default `linear`.
-A `github` room's ref is a ticket key (`owner/repo#<n>`).
+A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub
+tracker's connection it must be on the tracker's repo (any case), else it is
+refused with "github ticket key is not on the tracker's repo" — nothing could
+be delivered there.
 A `<room>` is a name or a `chn_` id, and renaming one changes nothing but which `channel:`
 addressing globs match it. `room list` marks a room that only posts to its ref
 (another channel receives its replies) `post-only`. `--delivery` and `--oidc`

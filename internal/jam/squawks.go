@@ -276,7 +276,7 @@ func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, a
 	// github; a Unit that is no github key has no ticket there).
 	unit, onTicket := inst.Unit, inst.Unit != ""
 	if id, ok := trackerOrDefault(h.store, tracker); ok {
-		unit, onTicket = ticketUnit(h.store, id, inst.Unit)
+		unit, onTicket = TicketUnit(h.store, id, inst.Unit)
 	}
 	if onTicket {
 		out = append(out, targetOut{Target: "ticket:" + unit, Kind: "ticket", Name: unit})

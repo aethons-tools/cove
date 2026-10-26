@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // fakeFeeder is a fake commentFeeder recording the `since` it was called
@@ -449,5 +451,26 @@ func TestFileCursorsRecoveryAndPrecedence(t *testing.T) {
 	}
 	if again, _ := os.ReadFile(p + ".bak"); string(again) != string(first) {
 		t.Fatalf("the first .bak was overwritten: %s", again)
+	}
+}
+
+// Final fix 3: a delivery to a ticket the tracker can never take (on another
+// repo, or no ticket key at all) is permanent, so egress skips it; any other
+// resolve failure stays retryable.
+func TestDeliverUndeliverableTicketIsPermanent(t *testing.T) {
+	m := intercom.Squawk{Body: "x"}
+	d := relay.Delivery{Service: "github", Address: "other/repo#7"}
+	for _, err := range []error{
+		fmt.Errorf("githubissues: ticket other/repo#7: %w", ticketkey.ErrOtherRepo),
+		ticketkey.ErrGitHub,
+	} {
+		s := &trackerSurface{service: "github", poster: &fakePoster{resolveErr: err}}
+		if _, got := s.Deliver(context.Background(), d, m); !errors.Is(got, relay.ErrPermanent) {
+			t.Errorf("resolve error %v → %v; want ErrPermanent", err, got)
+		}
+	}
+	s := &trackerSurface{service: "github", poster: &fakePoster{resolveErr: errors.New("down")}}
+	if _, got := s.Deliver(context.Background(), d, m); got == nil || errors.Is(got, relay.ErrPermanent) {
+		t.Errorf("a transient resolve error → %v; want retryable", got)
 	}
 }

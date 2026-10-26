@@ -77,6 +77,9 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	if b.Ref, err = bindingRef(conn.Kind, b.Ref); err != nil {
 		return RoomView{}, false, fmt.Errorf("room %q: %w", b.Name, err)
 	}
+	if conn.Kind == "github" && !onTrackerRepo(conn.ID, b.Ref) {
+		return RoomView{}, false, fmt.Errorf("room %q: %w", b.Name, ticketkey.ErrOtherRepo) // never delivered: refused
+	}
 	bind := Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindBoth}
 	if ch, ok := store.ChannelByKey(p.ID, SourceRoom, b.Name); ok {
 		holder, taken := store.ChannelByBinding(conn.ID, b.Ref)

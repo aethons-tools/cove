@@ -553,8 +553,9 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 
 // IssueByIdentifier resolves a ticket key ("owner/repo#N") to the issue
 // number Transition, PostComment and Comments take. The key must name this
-// Client's repo; GitHub owner/name are case-insensitive. A missing issue, or a
-// key that names a pull request, is an error.
+// Client's repo (else ticketkey.ErrOtherRepo); GitHub owner/name are
+// case-insensitive. A missing issue, or a key that names a pull request, is
+// an error.
 func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
 	repo, n, err := ticketkey.ParseGitHub(identifier)
 	if err != nil {
@@ -562,7 +563,7 @@ func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (stri
 	}
 	key := ticketkey.GitHub(repo, n) // the canonical spelling, for messages
 	if !strings.EqualFold(repo, c.repo) {
-		return "", fmt.Errorf("githubissues: ticket %s is not on repo %s", key, c.repo)
+		return "", fmt.Errorf("githubissues: ticket %s: %w (%s)", key, ticketkey.ErrOtherRepo, c.repo)
 	}
 	num := strconv.Itoa(n)
 	code, raw, err := c.do(ctx, http.MethodGet, api+"/repos/"+c.repo+"/issues/"+num, nil)

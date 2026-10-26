@@ -16,6 +16,7 @@ type fakeSurface struct {
 	service       string
 	delivers      []deliverCall
 	deliverErrFor map[string]bool // Delivery.Address -> return an error on Deliver
+	permanentFor  map[string]bool // Delivery.Address -> return an ErrPermanent error on Deliver
 	events        []Event
 	pollErr       error
 	next          string
@@ -33,6 +34,9 @@ func (f *fakeSurface) Deliver(ctx context.Context, d Delivery, m intercom.Squawk
 	f.delivers = append(f.delivers, deliverCall{MsgID: m.ID, Address: d.Address, BodyPrefix: d.BodyPrefix})
 	if f.deliverErrFor[d.Address] {
 		return "", context.DeadlineExceeded
+	}
+	if f.permanentFor[d.Address] {
+		return "", fmt.Errorf("%w: not on the tracker's repo", ErrPermanent)
 	}
 	return "fid-" + m.ID, nil
 }

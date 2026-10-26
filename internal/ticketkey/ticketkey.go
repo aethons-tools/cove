@@ -20,6 +20,9 @@ var (
 	ErrGitHub = errors.New("github ticket key must be owner/repo#<n>")
 	// ErrRepo is the fixed refusal for a malformed GitHub repo.
 	ErrRepo = errors.New("github repo must be owner/name")
+	// ErrOtherRepo is the fixed refusal for a GitHub ticket key on a repo
+	// other than the tracker's: nothing can be delivered there.
+	ErrOtherRepo = errors.New("github ticket key is not on the tracker's repo")
 
 	githubKey = regexp.MustCompile(`^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)$`)
 	repoRE    = regexp.MustCompile(`^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$`)

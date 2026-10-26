@@ -355,3 +355,32 @@ func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 		}
 	}
 }
+
+// Final fix 3: with the tracker's repo known (serve's SetTrackerRepo), a
+// room can't be bound to another repo's issue on the tracker connection —
+// nothing could ever be delivered there — and another repo's key is no
+// ticket on the tracker.
+func TestTrackerRepoScopesBindingsAndTickets(t *testing.T) {
+	f := newGitHubICFixture(t)
+	SetTrackerRepo(f.tracker.ID, "Acme/Board")
+	t.Cleanup(func() { SetTrackerRepo(f.tracker.ID, "") })
+	_, _, err := PutRoom(f.store, "acme", RoomBody{Name: "eng", Connection: "gh-acme", Ref: "other/repo#3"})
+	if !errors.Is(err, ticketkey.ErrOtherRepo) || strings.Contains(err.Error(), "other/repo") {
+		t.Fatalf("room on another repo = %v; want the fixed ErrOtherRepo", err)
+	}
+	if _, _, err := PutRoom(f.store, "acme", RoomBody{Name: "eng", Connection: "gh-acme", Ref: "ACME/board#3"}); err != nil {
+		t.Fatalf("room on the tracker's repo (any case): %v", err)
+	}
+	if unit, ok := TicketUnit(f.store, f.tracker.ID, "other/repo#7"); ok {
+		t.Fatalf("TicketUnit(other/repo#7) = %q; want none on the acme/board tracker", unit)
+	}
+	if unit, ok := TicketUnit(f.store, f.tracker.ID, "Acme/BOARD#07"); !ok || unit != "acme/board#7" {
+		t.Fatalf("TicketUnit(Acme/BOARD#07) = %q, %v; want acme/board#7", unit, ok)
+	}
+	// Another repo's ticket session has no ticket channel: its own channel.
+	other := f.ticket
+	other.ActorID, other.Unit = string(ident.New(ident.Session)), "other/repo#7"
+	if home, err := f.ic.HomeChannel(other); err != nil || home.Kind != SourceSession {
+		t.Fatalf("HomeChannel(other/repo#7) = %+v, %v; want its session channel", home, err)
+	}
+}

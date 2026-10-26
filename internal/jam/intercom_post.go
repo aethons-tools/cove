@@ -339,7 +339,7 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 	if !ok {
 		return Channel{}, false, nil
 	}
-	unit, ok := ticketUnit(ic.store, conn, inst.Unit)
+	unit, ok := TicketUnit(ic.store, conn, inst.Unit)
 	if !ok {
 		return Channel{}, false, nil
 	}
@@ -375,10 +375,11 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 // serve resolved; ok=false: none).
 func (ic *Intercom) Tracker() (ident.ID, bool) { return ic.tracker() }
 
-// ticketUnit is unit as a ticket key on tracker: a github tracker's in its
-// canonical spelling, ok=false when unit is no owner/repo#<n>; any other
-// tracker's as given (ok=false only when empty).
-func ticketUnit(store Store, tracker ident.ID, unit string) (string, bool) {
+// TicketUnit is unit as a ticket key on tracker: a github tracker's in its
+// canonical spelling, ok=false when unit is no owner/repo#<n> or is on a
+// repo other than the tracker's (SetTrackerRepo); any other tracker's as
+// given (ok=false only when empty).
+func TicketUnit(store Store, tracker ident.ID, unit string) (string, bool) {
 	if unit == "" {
 		return "", false
 	}
@@ -386,7 +387,7 @@ func ticketUnit(store Store, tracker ident.ID, unit string) (string, bool) {
 		return unit, true
 	}
 	key, err := ticketkey.Canonical(unit)
-	return key, err == nil
+	return key, err == nil && onTrackerRepo(tracker, key)
 }
 
 // connKind is connection id's kind ("" when unknown).
@@ -776,7 +777,7 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	forms := []string{"ticket:" + key, "ticket:" + ref}
 	canon, isKey := key, true
 	if connOK {
-		canon, isKey = ticketUnit(ic.store, connID, key)
+		canon, isKey = TicketUnit(ic.store, connID, key)
 		if canon != key {
 			forms = append(forms, "ticket:"+canon)
 			if conn != "" {
@@ -786,7 +787,7 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	}
 	ownUnit, onTicket := "", false
 	if hasTracker {
-		ownUnit, onTicket = ticketUnit(ic.store, tracker, p.Session.Unit)
+		ownUnit, onTicket = TicketUnit(ic.store, tracker, p.Session.Unit)
 	}
 	own := isKey && onTicket && ownUnit == canon && connOK && connID == tracker
 	if !own && !anyAllowed(forms, globs) {

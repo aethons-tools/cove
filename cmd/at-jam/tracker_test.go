@@ -424,6 +424,8 @@ func newGitHubKit(t *testing.T) *githubKit {
 	if err := st.PutInstance(k.ticket); err != nil {
 		t.Fatal(err)
 	}
+	jam.SetTrackerRepo(k.conn.ID, "acme/board")
+	t.Cleanup(func() { jam.SetTrackerRepo(k.conn.ID, "") })
 	trackerFn := func() (ident.ID, bool) { return k.conn.ID, true }
 	k.lg = intercom.NewMemLog(nil)
 	k.ic = jam.NewIntercom(st, trackerFn, k.lg, nil, nil)
@@ -448,5 +450,35 @@ func TestSurfacesEscalationUsesTheTrackerKindsHandle(t *testing.T) {
 	got := addresses(k.dir.Surfaces("github", m[0]))
 	if want := "@carol-gh "; got["github:acme/board#1"] != want {
 		t.Fatalf("github surfaces = %v; want acme/board#1 prefixed %q", got, want)
+	}
+}
+
+// Final fix 3: the chat fallback @-mentions a person on the session's ticket
+// only when that is a ticket on the tracker — by its canonical key; another
+// repo's (undeliverable) is no fallback.
+func TestSurfacesChatFallbackOnTheTrackersTickets(t *testing.T) {
+	k := newGitHubKit(t)
+	actor := jam.Actor{ID: "a", Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}
+	send := func(unit string) intercom.Squawk {
+		t.Helper()
+		inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: unit, Phase: jam.PhaseLive}
+		if err := k.st.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		pl, err := k.ic.Plan(jam.Poster{ID: ident.ID(inst.ActorID), Session: &inst, Actor: &actor}, "user:carol", time.Now())
+		if err != nil {
+			t.Fatalf("Plan: %v", err)
+		}
+		m, err := k.ic.Post(pl, intercom.Squawk{From: ident.ID(inst.ActorID), Body: "look?"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	if got := addresses(k.dir.Surfaces("github", send("Acme/Board#02"))); len(got) != 1 || got["github:acme/board#2"] != "@carol-gh " {
+		t.Fatalf("fallback = %v; want acme/board#2 (canonical) @carol-gh", got)
+	}
+	if got := k.dir.Surfaces("github", send("other/repo#3")); len(got) != 0 {
+		t.Fatalf("fallback onto another repo's ticket = %v; want none", addresses(got))
 	}
 }

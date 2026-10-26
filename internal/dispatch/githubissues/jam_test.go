@@ -107,10 +107,13 @@ func TestIssueByIdentifier(t *testing.T) {
 			t.Fatalf("IssueByIdentifier(%q) = %q, %v", key, id, err)
 		}
 	}
+	if _, err := c.IssueByIdentifier(ctx, "other/repo#7"); !errors.Is(err, ticketkey.ErrOtherRepo) {
+		t.Errorf("IssueByIdentifier(other/repo#7) = %v; want ErrOtherRepo", err)
+	}
 	for key, want := range map[string]string{
 		"#7":              "github ticket key must be owner/repo#<n>",
 		"AET-7":           "github ticket key must be owner/repo#<n>",
-		"other/repo#7":    "is not on repo acme/board",
+		"other/repo#7":    "other/repo#7: github ticket key is not on the tracker's repo (acme/board)",
 		"acme/board#404":  "no issue acme/board#404",
 		"Acme/Board#0404": "no issue acme/board#404", // the canonical key, not the spelling
 		"Acme/Board#08":   "acme/board#8 is a pull request",

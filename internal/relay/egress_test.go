@@ -185,3 +185,29 @@ func TestEgressWaitsOutBackoffWarningOnce(t *testing.T) {
 		t.Fatalf("after the wait delivered %d; want 4", surf.deliverCount())
 	}
 }
+
+// Final fix 3: a delivery that fails permanently (ErrPermanent: the surface
+// can never take it) is skipped with one warn — it does not pin LastSeq and
+// is not retried every tick.
+func TestEgressPermanentDeliverErrorSkips(t *testing.T) {
+	surf := &fakeSurface{service: "github", permanentFor: map[string]bool{"other/repo#1": true}}
+	var buf bytes.Buffer
+	mk := &fakeMarkers{}
+	e := New(surf, openLog(t), mk, &fakeCursors{}, &fakeDirectory{surfaces: map[ident.ID][]Delivery{
+		chOps: {{Service: "github", Address: "other/repo#1"}, {Service: "github", Address: "acme/board#2"}},
+	}}, Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	post(t, e.lg, intercom.Squawk{})
+	last := post(t, e.lg, intercom.Squawk{})
+	for range 3 {
+		e.egressTick(context.Background())
+	}
+	if got := mk.Egress("github").LastSeq; got != last.Seq {
+		t.Fatalf("LastSeq = %d; want %d (past the permanently-failing surface)", got, last.Seq)
+	}
+	if surf.deliverCount() != 4 { // each message: one try at each surface
+		t.Fatalf("delivers = %d; want 4 (the permanent failure tried once per message)", surf.deliverCount())
+	}
+	if n := strings.Count(buf.String(), "level=WARN"); n != 2 {
+		t.Fatalf("%d warns; want one per skipped delivery:\n%s", n, buf.String())
+	}
+}

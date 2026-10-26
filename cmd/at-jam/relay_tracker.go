@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/relay"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 	"github.com/aethons-tools/cove/internal/tracker"
 )
 
@@ -161,6 +162,11 @@ func (s *trackerSurface) Deliver(ctx context.Context, d relay.Delivery, m interc
 		return "", fmt.Errorf("%s deliver: rate limited until %s", s.Service(), until.UTC().Format(time.RFC3339))
 	}
 	issueID, err := s.poster.IssueByIdentifier(ctx, d.Address)
+	if errors.Is(err, ticketkey.ErrOtherRepo) || errors.Is(err, ticketkey.ErrGitHub) {
+		// Never deliverable (another repo's ticket, or no ticket key): the
+		// engine skips it rather than holding egress behind it forever.
+		return "", fmt.Errorf("%s deliver: resolve %q: %w: %w", s.Service(), d.Address, relay.ErrPermanent, err)
+	}
 	if err != nil {
 		return "", fmt.Errorf("%s deliver: resolve %q: %w", s.Service(), d.Address, s.limited(err))
 	}
