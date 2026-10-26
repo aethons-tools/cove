@@ -295,19 +295,32 @@ func (c *conn) serve(ctx context.Context, id uint64, op string, data []byte) {
 		}
 		loc, err := l.Raise(ctx, r.Spec, r.Creds)
 		c.reply(id, wire.RaiseResult{Location: loc}, err)
-	case wire.OpTeardown, wire.OpPause, wire.OpUnpause:
+	case wire.OpTeardown:
+		var r wire.InstanceRequest
+		if err := decodeReq(data, &r); err != nil {
+			c.reply(id, nil, err)
+			return
+		}
+		var (
+			tail string
+			err  error
+		)
+		if tc, ok := l.(wire.TeardownCapturer); ok {
+			tail, err = tc.TeardownCapture(ctx, r.Instance)
+		} else {
+			err = l.Teardown(ctx, r.Instance)
+		}
+		c.reply(id, wire.TeardownResult{AgentLog: tail}, err)
+	case wire.OpPause, wire.OpUnpause:
 		var r wire.InstanceRequest
 		if err := decodeReq(data, &r); err != nil {
 			c.reply(id, nil, err)
 			return
 		}
 		var err error
-		switch op {
-		case wire.OpTeardown:
-			err = l.Teardown(ctx, r.Instance)
-		case wire.OpPause:
+		if op == wire.OpPause {
 			err = l.Pause(ctx, r.Instance)
-		default:
+		} else {
 			err = l.Unpause(ctx, r.Instance)
 		}
 		c.reply(id, wire.Empty{}, err)

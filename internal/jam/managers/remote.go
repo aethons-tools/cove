@@ -120,7 +120,12 @@ func (r *Remote) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Launch
 }
 
 func (r *Remote) Teardown(ctx context.Context, inst jam.Instance) error {
-	return r.do(ctx, wire.OpTeardown, wire.InstanceRequest{Instance: inst}, nil)
+	var res wire.TeardownResult
+	err := r.do(ctx, wire.OpTeardown, wire.InstanceRequest{Instance: inst}, &res)
+	if res.AgentLog != "" {
+		r.log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "manager", r.name, "log", res.AgentLog)
+	}
+	return err
 }
 
 func (r *Remote) Pause(ctx context.Context, inst jam.Instance) error {

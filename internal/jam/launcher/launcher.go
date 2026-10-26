@@ -355,6 +355,16 @@ func (l *Launcher) applyEgress(container, actorID, project, role string, p *jam.
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
+	tail, err := l.TeardownCapture(ctx, inst)
+	if tail != "" {
+		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
+	}
+	return err
+}
+
+// TeardownCapture does what Teardown does but returns the cove-master log tail
+// (possibly "") instead of logging it, so a remote manager can ship it to Jam.
+func (l *Launcher) TeardownCapture(ctx context.Context, inst jam.Instance) (string, error) {
 	// An idled cove is docker-paused; SSH into a frozen container hangs (so the
 	// log capture below blocks and the whole teardown stalls). Unpause first —
 	// best-effort, and Pause/Unpause are idempotent so this is a harmless no-op
@@ -369,11 +379,9 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
-	if tail := l.captureAgentLog(inst.Location); tail != "" {
-		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
-	}
+	tail := l.captureAgentLog(inst.Location)
 	if err := l.cfg.Ops.RemoveContainer(inst.Location); err != nil {
-		return err
+		return tail, err
 	}
 	// The -docker cache is the studio's: it goes with the container, so the
 	// session's next studio starts with a clean Docker store. Best-effort.
@@ -382,7 +390,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 			l.cfg.Log.Warn("teardown: removing the studio's docker cache failed", "id", inst.ActorID, "error", err.Error())
 		}
 	}
-	return nil
+	return tail, nil
 }
 
 // captureAgentLog returns the last few KB of cove-master's log from the cove, or

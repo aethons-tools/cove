@@ -406,3 +406,37 @@ func TestRunOversizeRequestEndsRun(t *testing.T) {
 		t.Fatalf("raise dispatched %d times from a dropped request", raised)
 	}
 }
+
+type capturingLauncher struct{ fakeLauncher }
+
+func (capturingLauncher) TeardownCapture(context.Context, jam.Instance) (string, error) {
+	return "why it died", nil
+}
+
+func serveTeardown(t *testing.T, l jam.Launcher) wire.TeardownResult {
+	t.Helper()
+	got := make(chan *managerpb.Frame, 1)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		s.request(1, wire.OpTeardown, wire.InstanceRequest{Instance: jam.Instance{Location: "loc"}})
+		got <- s.next(t)
+		<-s.srv.Context().Done()
+	}}
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: l})
+	var r wire.TeardownResult
+	if err := decode(t, <-got, &r); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestServeTeardownReturnsAgentLog(t *testing.T) {
+	if r := serveTeardown(t, &capturingLauncher{}); r.AgentLog != "why it died" {
+		t.Fatalf("AgentLog = %q", r.AgentLog)
+	}
+}
+
+func TestServeTeardownPlainLauncher(t *testing.T) {
+	if r := serveTeardown(t, &fakeLauncher{}); r.AgentLog != "" {
+		t.Fatalf("AgentLog = %q, want empty", r.AgentLog)
+	}
+}

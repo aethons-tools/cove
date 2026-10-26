@@ -928,3 +928,20 @@ func TestRaiseSSHUserCAInstallErrorWarnsAndContinues(t *testing.T) {
 		t.Fatalf("log = %s; want a WARN naming the studio and the error", out)
 	}
 }
+
+func TestTeardownCaptureReturnsTail(t *testing.T) {
+	ops := &fakeOps{}
+	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "boom\n"}}}
+	l := New(Config{Ops: ops, Runner: r, IdentityFile: "id", KnownHostsDir: "kh", Log: slog.New(slog.DiscardHandler)})
+
+	tail, err := l.TeardownCapture(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail != "boom" {
+		t.Fatalf("tail = %q, want boom", tail)
+	}
+	if ops.removed != "atcove-cove-w1" {
+		t.Fatalf("removed = %q, want atcove-cove-w1", ops.removed)
+	}
+}
