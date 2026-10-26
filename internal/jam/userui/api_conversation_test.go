@@ -2,8 +2,15 @@ package userui
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // The view models' JSON names are the app's contract (types.ts): pin them,
@@ -43,6 +50,191 @@ func TestConversationJSONShape(t *testing.T) {
 	for _, k := range []string{"Ask", "ask", "files", "reAsk", "Board", "board", "Channel", "channel"} {
 		if _, ok := m[k]; ok {
 			t.Errorf("message JSON carries %q (template-only, or omitempty when empty): %s", k, b)
+		}
+	}
+}
+func getConv(t *testing.T, e *env, p jam.Participant, id, query string) (int, Conversation, string) {
+	t.Helper()
+	rec := apiGet(t, Handler(e.Deps, nil), &p, "/app/user/api/conversations/"+url.PathEscape(id)+query)
+	var c Conversation
+	if rec.Code == 200 {
+		checkJSONHeaders(t, rec)
+		if err := json.Unmarshal(rec.Body.Bytes(), &c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return rec.Code, c, rec.Body.String()
+}
+
+func TestAPIConversation(t *testing.T) {
+	e, p := fixture()
+	code, c, body := getConv(t, e, p, engID, "")
+	if code != 200 {
+		t.Fatalf("code = %d: %s", code, body)
+	}
+	if c.Label != "eng" || c.SendTo != engID || len(c.Messages) != 1 || c.Messages[0].Raw != "hi from alice" || !c.Messages[0].Mine || c.Earlier {
+		t.Errorf("conversation = %+v", c)
+	}
+	if !strings.Contains(string(c.Messages[0].Body), "<p>hi from alice</p>") || c.Messages[0].Time.IsZero() {
+		t.Errorf("message = %+v", c.Messages[0])
+	}
+	if !c.CanLeave || c.CanJoin {
+		t.Errorf("member: canLeave=%v canJoin=%v", c.CanLeave, c.CanJoin)
+	}
+	for _, k := range []string{`"sessions":[]`, `"sessionIds":[]`} {
+		if !strings.Contains(body, k) {
+			t.Errorf("empty list not [] (%s): %s", k, body)
+		}
+	}
+}
+
+// Raw HTML in a body never reaches the app: squawkrender omits it.
+func TestAPIConversationBodyIsSanitized(t *testing.T) {
+	e, p := fixture()
+	e.post(p.UserID, "<script>alert(1)</script> <img src=x onerror=alert(2)> [x](javascript:alert(3))", "")
+	_, c, _ := getConv(t, e, p, engID, "")
+	b := string(c.Messages[len(c.Messages)-1].Body)
+	for _, bad := range []string{"<script", "onerror", "javascript:"} {
+		if strings.Contains(b, bad) {
+			t.Errorf("body carries %q: %s", bad, b)
+		}
+	}
+}
+
+// Not visible, missing and removed read the same: no label, no existence.
+func TestAPIConversationNotFoundIsUniform(t *testing.T) {
+	e, p := fixture()
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "carol"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	carol, _ := e.st.LookupName(ident.User, "carol")
+	pl, err := e.Intercom.PlanPersonChat(bob, carol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, id := range []string{string(m.Channel), "chn_01j9q3zzzzzzzzzzzzzzzzzz", "legacy:nope"} {
+		code, _, body := getConv(t, e, p, id, "")
+		if code != 404 {
+			t.Errorf("%s: code = %d, want 404", id, code)
+		}
+		bodies = append(bodies, body)
+	}
+	if bodies[0] != bodies[1] || bodies[1] != bodies[2] || strings.Contains(bodies[0], "secret") || !strings.Contains(bodies[0], `"code":"not_found"`) {
+		t.Errorf("404 bodies differ or leak: %q", bodies)
+	}
+}
+
+func TestAPIConversationPages(t *testing.T) {
+	e, p := fixture()
+	for i := 1; i <= 249; i++ { // + the fixture's message = 250
+		e.post(p.UserID, fmt.Sprintf("m%d", i), "")
+	}
+	_, first, _ := getConv(t, e, p, engID, "")
+	if len(first.Messages) != 200 || !first.Earlier || first.Messages[199].Raw != "m249" {
+		t.Fatalf("first page: %d messages, earlier=%v, last=%q", len(first.Messages), first.Earlier, first.Messages[len(first.Messages)-1].Raw)
+	}
+	before := first.Messages[0].Seq
+	_, older, _ := getConv(t, e, p, engID, fmt.Sprintf("?before=%d", before))
+	if len(older.Messages) != 50 || older.Earlier || older.Messages[49].Seq >= before || older.Messages[0].Raw != "hi from alice" {
+		t.Errorf("older page: %d messages, earlier=%v", len(older.Messages), older.Earlier)
+	}
+	_, small, _ := getConv(t, e, p, engID, "?limit=10")
+	if len(small.Messages) != 10 || !small.Earlier {
+		t.Errorf("limit=10: %d, earlier=%v", len(small.Messages), small.Earlier)
+	}
+	_, capped, _ := getConv(t, e, p, engID, "?limit=100000")
+	if len(capped.Messages) != 250 { // under the 500 cap: all of them
+		t.Errorf("limit cap: %d", len(capped.Messages))
+	}
+	if code, _, _ := getConv(t, e, p, engID, "?before=abc"); code != 400 {
+		t.Errorf("before=abc = %d, want 400", code)
+	}
+}
+
+func TestPageOf(t *testing.T) {
+	ms := []MessageRow{{Seq: 2}, {Seq: 5}, {Seq: 9}}
+	for _, tc := range []struct {
+		before    int64
+		limit     int
+		want      []int64
+		wantEarly bool
+	}{
+		{0, 10, []int64{2, 5, 9}, false},
+		{0, 2, []int64{5, 9}, true},
+		{9, 10, []int64{2, 5}, false},
+		{6, 1, []int64{5}, true},
+		{2, 10, nil, false},
+	} {
+		got, early := pageOf(ms, tc.before, tc.limit)
+		var seqs []int64
+		for _, m := range got {
+			seqs = append(seqs, m.Seq)
+		}
+		if fmt.Sprint(seqs) != fmt.Sprint(tc.want) || early != tc.wantEarly {
+			t.Errorf("pageOf(before=%d, limit=%d) = %v %v, want %v %v", tc.before, tc.limit, seqs, early, tc.want, tc.wantEarly)
+		}
+	}
+}
+
+// History: routable by its legacy: id, read-only.
+func TestAPIConversationHistory(t *testing.T) {
+	e, p := fixture()
+	legacy := intercom.NewLegacyMemLog()
+	if _, err := legacy.Append(intercom.LegacySquawk{From: intercom.Target{Kind: "actor", Ref: "old-cove"}, To: []intercom.Target{{Kind: "human", Ref: "alice"}}, Body: "from the old log", Project: "proj"}); err != nil {
+		t.Fatal(err)
+	}
+	e.Legacy = legacy
+	var id string
+	for _, g := range Rail(p, e.Deps, "") {
+		for _, r := range g.Rows {
+			if strings.HasPrefix(r.ID, legacyPrefix) {
+				id = r.ID
+			}
+		}
+	}
+	if id == "" {
+		t.Fatal("no History row")
+	}
+	code, c, body := getConv(t, e, p, id, "")
+	if code != 200 || len(c.Messages) != 1 || c.Messages[0].Raw != "from the old log" {
+		t.Fatalf("History = %d %s", code, body)
+	}
+	if c.SendTo != "" || c.CanJoin || c.CanLeave || len(c.CallIn) != 0 {
+		t.Errorf("History is not read-only: %+v", c)
+	}
+}
+
+func TestAPIPresenceAndRailSelection(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil)
+	rec := apiGet(t, h, &p, "/app/user/api/conversations/"+engID+"/presence")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"sessions":[]`) {
+		t.Errorf("presence = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiGet(t, h, &p, "/app/user/api/conversations/chn_01j9q3zzzzzzzzzzzzzzzzzz/presence"); rec.Code != 404 {
+		t.Errorf("presence of a missing channel = %d", rec.Code)
+	}
+	// bob's unread chat reads as read while it is the open conversation.
+	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	bob, _ := e.st.LookupName(ident.User, "bob")
+	pl, _ := e.Intercom.PlanPersonChat(bob, p.UserID)
+	m, _ := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "ping"})
+	for q, want := range map[string]int{"": 1, "?c=" + string(m.Channel): 0} {
+		var rr RailResponse
+		_ = json.Unmarshal(apiGet(t, h, &p, "/app/user/api/rail"+q).Body.Bytes(), &rr)
+		if rr.UnreadTotal != want {
+			t.Errorf("rail%s unreadTotal = %d, want %d", q, rr.UnreadTotal, want)
 		}
 	}
 }
