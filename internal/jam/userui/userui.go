@@ -48,29 +48,6 @@ type Deps struct {
 // legacyPrefix marks a History channel id (the legacy projection's ids).
 const legacyPrefix = "legacy:"
 
-// ChannelRow is one channel in the left rail, from the viewer's perspective.
-type ChannelRow struct {
-	ID       string
-	Label    string
-	Project  string
-	Kind     jam.ChannelKind
-	NeedsYou bool
-	Phase    string
-	Unread   int
-	OpenAsks int
-	LastSeq  int64
-	Selected bool
-	Mission  string // the backing session's one-line focus; "" = none
-}
-
-// RailGroup is one attention section of the rail (Needs you / Sessions /
-// Channels / History), non-empty.
-type RailGroup struct {
-	Bucket jam.AttentionBucket
-	Title  string
-	Rows   []ChannelRow
-}
-
 // bucketHistory groups the legacy log's conversations, read-only.
 const bucketHistory jam.AttentionBucket = "history"
 
