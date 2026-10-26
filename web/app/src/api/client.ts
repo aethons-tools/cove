@@ -16,13 +16,20 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 3;
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(API + path, { headers: { Accept: "application/json" }, credentials: "same-origin", redirect: "manual" });
+    res = await fetch(API + path, {
+      method,
+      headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "same-origin",
+      redirect: "manual",
+    });
   } catch {
     throw new ApiError(0, "unavailable", "Jam can't be reached. Check your connection.");
   }
+  if (res.status === 204) return undefined as T;
   const json = (res.headers.get("Content-Type") ?? "").startsWith("application/json");
   if (!json) {
     if (res.type === "opaqueredirect" || res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) {
@@ -30,10 +37,17 @@ export async function apiGet<T>(path: string): Promise<T> {
     }
     throw new ApiError(res.status, "unavailable", `Jam answered ${res.status}. Try again shortly.`);
   }
-  const body: unknown = await res.json();
+  const data: unknown = await res.json();
   if (!res.ok) {
-    const e = body as { error?: string; code?: string };
+    const e = data as { error?: string; code?: string };
     throw new ApiError(res.status, e.code ?? "error", e.error ?? res.statusText);
   }
-  return body as T;
+  return data as T;
 }
+
+export const apiGet = <T>(path: string) => request<T>("GET", path);
+export const apiPost = <T = void>(path: string, body: unknown) => request<T>("POST", path, body);
+
+// POLL_MS is the live queries' fallback refresh (the old Inbox's 30 s poll),
+// for when the event stream is down or absent.
+export const POLL_MS = 30_000;
