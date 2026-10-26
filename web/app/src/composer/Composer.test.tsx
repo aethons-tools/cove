@@ -104,3 +104,60 @@ describe("Composer", () => {
     expect(screen.queryByRole("button", { name: /stacked draft/ })).toBeNull();
   });
 });
+describe("Composer attachments", () => {
+  function mountWithFiles(onSent = vi.fn()) {
+    const client = new QueryClient();
+    render(
+      <MantineProvider theme={theme}><Notifications />
+        <QueryClientProvider client={client}><Composer to="chn_a" label="eng" attachMax={25 << 20} onSent={onSent} /></QueryClientProvider>
+      </MantineProvider>,
+    );
+    return { box: screen.getByRole("textbox") as HTMLTextAreaElement, input: screen.getByLabelText(/Attach files/) as HTMLInputElement, onSent };
+  }
+
+  it("uploads picked files and sends their refs, with no text needed", async () => {
+    let sent: { attachments?: string[]; body?: string } = {};
+    server.use(
+      http.post("/app/user/uploads", () => HttpResponse.json({ ref: "blb_9" }, { status: 201 })),
+      http.post("/app/user/api/messages", async ({ request }) => { sent = (await request.json()) as typeof sent; return HttpResponse.json({ channel: "chn_a", seq: 3 }, { status: 201 }); }),
+    );
+    const { input, onSent } = mountWithFiles();
+    await userEvent.upload(input, new File(["png"], "shot.png", { type: "image/png" }));
+    expect(await screen.findByText("shot.png")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Send/ })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: /Send/ }));
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    expect(sent).toEqual({ to: "chn_a", body: "", attachments: ["blb_9"] });
+    expect(screen.queryByText("shot.png")).toBeNull();
+  });
+
+  it("refuses to send while an upload is running; a failed chip is never sent", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let posts = 0;
+    server.use(
+      http.post("/app/user/uploads", async () => { await gate; return new HttpResponse("upload failed", { status: 502 }); }),
+      http.post("/app/user/api/messages", () => { posts++; return HttpResponse.json({ channel: "chn_a", seq: 3 }, { status: 201 }); }),
+    );
+    const { box, input } = mountWithFiles();
+    await userEvent.type(box, "with file");
+    await userEvent.upload(input, new File(["x"], "slow.txt"));
+    expect(screen.getByRole("button", { name: /Send/ })).toBeDisabled();
+    release();
+    expect(await screen.findByText(/slow\.txt — upload failed/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Send/ }));
+    await waitFor(() => expect(posts).toBe(1));
+  });
+
+  it("attaches a pasted file, but text on the clipboard wins", async () => {
+    let uploads = 0;
+    server.use(http.post("/app/user/uploads", () => { uploads++; return HttpResponse.json({ ref: "blb_p" }, { status: 201 }); }));
+    const { box } = mountWithFiles();
+    const file = new File(["png"], "paste.png", { type: "image/png" });
+    fireEvent.paste(box, { clipboardData: { getData: () => "words", files: [file] } });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(uploads).toBe(0);
+    fireEvent.paste(box, { clipboardData: { getData: () => "", files: [file] } });
+    expect(await screen.findByText("paste.png")).toBeInTheDocument();
+  });
+});
