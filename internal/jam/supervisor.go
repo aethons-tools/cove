@@ -80,6 +80,8 @@ type RaiseSpec struct {
 	// draft is the draft tree a draft studio runs (Raise and a context
 	// refresh set it), for the kit fact; nil for every other raise.
 	draft *KitDraftRef
+	// Placement is where a raise may land: managers in preference order, and how long to look.
+	Placement Placement
 }
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
