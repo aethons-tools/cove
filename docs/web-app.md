@@ -20,6 +20,8 @@ Until the cutover it is served at **`/app/next/`** beside the current inbox, beh
   - `src/api/types.ts` is **generated**; don't edit it (see Types).
   - `src/theme.ts` is the Mantine theme (jam.css's accent and fonts). The colour scheme is light, dark or auto.
   - `src/App.tsx` holds the client routes under `/app/next/`. `src/start.tsx` boots the app (bootstrap, then the router) and shows why when the bootstrap can't load.
+  - `src/conversation/` is the conversation pane: `useConversation` pages newest-first with `useInfiniteQuery` (a refetch refreshes every loaded page), and `MessageBody` is the one inner-HTML site.
+  - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`), with the 30 s `POLL_MS` as the fallback.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
 - `internal/jam/webapp`: serves a built bundle.
   - Files under `assets/` are served immutable, and a missing one is a 404.
@@ -52,7 +54,7 @@ Rules:
 ## Adding an API route
 
 1. Add its response type to `apitypes.go`, then regenerate.
-2. Register `GET|POST /app/user/api/…` in `apiRoutes`. Resolve the participant with `jam.ParticipantFrom`, reuse the HTML route's checks, and reply with `writeJSON` / `writeAPIError(status, code, msg)`.
+2. Register `GET|POST /app/user/api/…` in `apiRoutes`. Writes are `POST` with JSON (`decodeJSON` answers 415 otherwise), and a resource the viewer may not see answers exactly like a missing one (404 `not_found`). Resolve the participant with `jam.ParticipantFrom`, reuse the HTML route's checks, and reply with `writeJSON` / `writeAPIError(status, code, msg)`.
 3. Test its shape **and who may not see it** in `api_test.go`.
 4. Read it in the app with `useQuery` and `apiGet`.
 
