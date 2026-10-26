@@ -108,4 +108,11 @@ describe("ask cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "Deploy?" }));
     await waitFor(() => expect(scroll).toHaveBeenCalled());
   });
+
+  it("Discuss starts a reply about the ask in the composer", async () => {
+    serve(() => conv([card()]));
+    renderApp(boot, "/app/next/c/chn_a");
+    await userEvent.click(await screen.findByRole("button", { name: "Discuss" }));
+    expect(screen.getByRole("textbox", { name: "Message eng" })).toHaveValue("re: Merge PR #12?\n");
+  });
 });
