@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -40,18 +39,18 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 	var mounted bool
 	start := time.Now()
 	defer func() { t.Logf("took %v", time.Since(start)) }()
-	if err := chromedp.Run(ctx,
+	if err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(1400, 1000),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+engID+"&board="+string(b.ID)),
-		chromedp.WaitVisible(`.excalidraw canvas`, chromedp.ByQuery),
-		chromedp.Evaluate(`!!document.querySelector('.excalidraw')`, &mounted),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		into(&mounted, chromedp.Evaluate[bool](`!!document.querySelector('.excalidraw')`)),
 		// Draw a rectangle: the toolbar's rectangle tool, then drag on the canvas.
-		chromedp.Click(`[data-testid="toolbar-rectangle"]`, chromedp.ByQuery),
-		chromedp.MouseEvent(input.MouseMoved, 700, 450),
-		chromedp.MouseEvent(input.MousePressed, 700, 450, chromedp.ButtonLeft),
-		chromedp.MouseEvent(input.MouseMoved, 760, 500, chromedp.ButtonLeft),
-		chromedp.MouseEvent(input.MouseMoved, 820, 540, chromedp.ButtonLeft),
-		chromedp.MouseEvent(input.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +78,7 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 	// the editor, which refetches: poll until it shows the agent's shape.
 	var n int
 	for range 50 {
-		if err := chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('board-editor').jamElementCount()`, &n)); err != nil {
+		if err := chromedp.Do(ctx, into(&n, chromedp.Evaluate[int](`document.getElementById('board-editor').jamElementCount()`))); err != nil {
 			t.Fatal(err)
 		}
 		if n >= 3 {
@@ -92,7 +91,7 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 	}
 	if path := os.Getenv("COVE_BOARD_SCREENSHOT"); path != "" {
 		var png []byte
-		err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&png))
+		err := chromedp.Do(ctx, into(&png, chromedp.CaptureScreenshot()))
 		t.Logf("screenshot at %v: %v", time.Since(start), err)
 		if err == nil {
 			_ = os.WriteFile(path, png, 0o644)
