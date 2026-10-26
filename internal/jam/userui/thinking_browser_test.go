@@ -95,34 +95,34 @@ func TestBrowserThinking(t *testing.T) {
 	srv := httptest.NewServer(asWho(h, p))
 	defer func() { srv.CloseClientConnections(); srv.Close() }() // the open event stream
 	home := e.homeOf(t, personal)
-	poll := func(js string) chromedp.Action {
-		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	poll := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
 	eval := func(js string, out any) {
 		t.Helper()
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, out)); err != nil {
+		if err := chromedp.Do(ctx, evalInto(js, out)); err != nil {
 			t.Fatalf("%s: %v", js, err)
 		}
 	}
-	run := func(what string, acts ...chromedp.Action) {
+	run := func(what string, acts ...step) {
 		t.Helper()
-		if err := chromedp.Run(ctx, acts...); err != nil {
+		if err := chromedp.Do(ctx, acts...); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
 	}
 	const js = `var L=document.querySelector('#thinking .th-list');
 		function shown(el){ return !!el && getComputedStyle(el).display!=='none' && el.getClientRects().length>0; }
 		function line(k,tool){ return L.querySelector('.te[data-kind="'+k+'"]'+(tool?'[data-tool="'+tool+'"]':'')); }`
-	chip := func(f string) chromedp.Action {
-		return chromedp.Click(`#thinking .th-chips [data-f="`+f+`"]`, chromedp.ByQuery)
+	chip := func(f string) step {
+		return chromedp.Click(chromedp.CSS(`#thinking .th-chips [data-f="` + f + `"]`))
 	}
-	setSel := func(sel, val string) chromedp.Action {
-		return chromedp.Evaluate(`(function(){var s=document.querySelector('`+sel+`'); s.value='`+val+`'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`, nil)
+	setSel := func(sel, val string) step {
+		return chromedp.Evaluate[chromedp.Void](`(function(){var s=document.querySelector('` + sel + `'); s.value='` + val + `'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`)
 	}
-	open := chromedp.Tasks{
-		chromedp.Navigate(srv.URL + "/app/user/?c=" + home + "&tab=thinking"),
-		poll(`(function(){` + js + `var x=line('tool_call','Edit'); return !!x && x.querySelector('.te-status').textContent.includes('✗');})()`),
-	}
+	open := chromedp.Steps(
+		chromedp.Navigate(srv.URL+"/app/user/?c="+home+"&tab=thinking"),
+		poll(`(function(){`+js+`var x=line('tool_call','Edit'); return !!x && x.querySelector('.te-status').textContent.includes('✗');})()`),
+	)
 	run("open", chromedp.EmulateViewport(1400, 700), open)
 
 	// (a) Pairing.
@@ -168,7 +168,7 @@ func TestBrowserThinking(t *testing.T) {
 	run("tool all", setSel("#thinking .th-tool", ""))
 
 	// (d) Search.
-	run("search", chromedp.SendKeys(`#thinking .th-search`, "go test", chromedp.ByQuery))
+	run("search", chromedp.SendKeys(chromedp.CSS(`#thinking .th-search`), "go test"))
 	eval(`(function(){`+js+`return shown(line('tool_call','Bash')) && !shown(line('text'));})()`, &ok)
 	if !ok {
 		t.Fatal("(d) search 'go test'")
@@ -210,7 +210,7 @@ func TestBrowserThinking(t *testing.T) {
 	if !g.Bottom || !g.Overflow || g.NewShown {
 		t.Fatalf("(g) following at the bottom: %+v", g)
 	}
-	run("scroll up", chromedp.Evaluate(`document.querySelector('#thinking .th-list').scrollTop=0`, nil), chromedp.Sleep(100*time.Millisecond))
+	run("scroll up", chromedp.Evaluate[chromedp.Void](`document.querySelector('#thinking .th-list').scrollTop=0`), chromedp.Sleep(100*time.Millisecond))
 	publish(1)
 	run("new count", poll(`(function(){var b=document.querySelector('#thinking .th-new'); return !b.hidden && b.querySelector('span').textContent==='1';})()`))
 	eval(atBottom, &ok)
@@ -221,7 +221,7 @@ func TestBrowserThinking(t *testing.T) {
 	// (h) Load earlier, on the older stream.
 	run("older stream", setSel("#thinking .th-stream", old),
 		poll(`(function(){var L=document.querySelector('#thinking .th-list'); var m=L.querySelector('.te-more'); return !!m && m.dataset.before==='6' && L.querySelectorAll('.te').length===300;})()`))
-	run("load earlier", chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+	run("load earlier", chromedp.Click(chromedp.CSS(`#thinking .te-more`)),
 		poll(`document.querySelectorAll('#thinking .th-list .te').length===305`))
 	var h2 struct {
 		First  string
@@ -243,8 +243,8 @@ func TestBrowserThinking(t *testing.T) {
 	// pauses behind the pill, which reloads the live tail.
 	run("reload stream", setSel("#thinking .th-stream", old),
 		poll(`(function(){var L=document.querySelector('#thinking .th-list'); return !!L.querySelector('.te-more') && L.querySelectorAll('.te').length===300;})()`),
-		chromedp.Evaluate(`meThMax=302`, nil),
-		chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+		chromedp.Evaluate[chromedp.Void](`meThMax=302`),
+		chromedp.Click(chromedp.CSS(`#thinking .te-more`)),
 		poll(`!!document.querySelector('#thinking .th-list .te[data-seq="1"]')`))
 	var j struct {
 		Count       int
@@ -256,21 +256,21 @@ func TestBrowserThinking(t *testing.T) {
 	if j.Count > 302 || j.First != "1" || j.Last == "305" || !j.Pill {
 		t.Fatalf("(j) Load earlier past the cap: %+v", j)
 	}
-	run("pill reloads the tail", chromedp.Click(`#thinking .th-new`, chromedp.ByQuery),
+	run("pill reloads the tail", chromedp.Click(chromedp.CSS(`#thinking .th-new`)),
 		poll(`(function(){var L=document.querySelector('#thinking .th-list'), all=L.querySelectorAll('.te');
 			return all.length===300 && all[all.length-1].dataset.seq==='305' && document.querySelector('#thinking .th-new').hidden;})()`))
 
 	// (k) Raw's observer lets go of lines the caps remove (off-screen ones,
 	// not yet fetched): the oldest by meThCap, the newest by meThTrimNewest.
 	const leaked = `Array.from(window.__obs).filter(function(n){ return !n.isConnected; }).length`
-	run("spy", chromedp.Evaluate(`window.__obs=new Set(); (function(){var P=IntersectionObserver.prototype, o=P.observe, u=P.unobserve, d=P.disconnect;
+	run("spy", chromedp.Evaluate[chromedp.Void](`window.__obs=new Set(); (function(){var P=IntersectionObserver.prototype, o=P.observe, u=P.unobserve, d=P.disconnect;
 		P.observe=function(n){ __obs.add(n); return o.call(this, n); }; P.unobserve=function(n){ __obs.delete(n); return u.call(this, n); };
-		P.disconnect=function(){ __obs.clear(); return d.call(this); };})()`, nil),
+		P.disconnect=function(){ __obs.clear(); return d.call(this); };})()`),
 		setSel("#thinking .th-format", "raw"), chromedp.Sleep(200*time.Millisecond))
 	var k struct{ Observed, AfterCap, AfterTrim int }
 	eval(`window.__obs.size`, &k.Observed)
 	eval(`(function(){ meThMax=250; meThCap(); return `+leaked+`; })()`, &k.AfterCap)
-	run("scroll top", chromedp.Evaluate(`document.querySelector('#thinking .th-list').scrollTop=0`, nil), chromedp.Sleep(200*time.Millisecond))
+	run("scroll top", chromedp.Evaluate[chromedp.Void](`document.querySelector('#thinking .th-list').scrollTop=0`), chromedp.Sleep(200*time.Millisecond))
 	eval(`(function(){ meThMax=200; meThTrimNewest(); return `+leaked+`; })()`, &k.AfterTrim)
 	if k.Observed == 0 || k.AfterCap != 0 || k.AfterTrim != 0 {
 		t.Fatalf("(k) removed lines still observed: %+v", k)
@@ -317,12 +317,12 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 	srv := httptest.NewServer(asWho(h, p))
 	defer func() { srv.CloseClientConnections(); srv.Close() }()
 	home := e.homeOf(t, personal)
-	poll := func(js string) chromedp.Action {
-		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	poll := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
-	run := func(what string, acts ...chromedp.Action) {
+	run := func(what string, acts ...step) {
 		t.Helper()
-		if err := chromedp.Run(ctx, acts...); err != nil {
+		if err := chromedp.Do(ctx, acts...); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
 	}
@@ -338,25 +338,25 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 	get := func() state {
 		t.Helper()
 		var s state
-		run("state", chromedp.Evaluate(`(function(){var L=document.querySelector('#thinking .th-list'), d={};
+		run("state", into(&s, chromedp.Evaluate[state](`(function(){var L=document.querySelector('#thinking .th-list'), d={};
 			L.querySelectorAll('.te[data-kind="result"]').forEach(function(n){ d[n.dataset.seq]=n.querySelector('.te-text').textContent; });
 			var c=L.querySelector('.te[data-kind="tool_call"]'), m=L.querySelector('.te-more');
 			return {Errs:window.__errs, Seqs:Array.prototype.map.call(L.querySelectorAll('.te'), function(n){return n.dataset.seq;}), Dividers:d,
 				BashStatus:c ? c.querySelector('.te-status').textContent : '', Orphans:L.querySelectorAll('.te[data-kind="tool_result"]').length,
-				More:m ? m.dataset.before : '', MoreOff:!!m && m.disabled};})()`, &s))
+				More:m ? m.dataset.before : '', MoreOff:!!m && m.disabled};})()`)))
 		return s
 	}
 	run("open", chromedp.EmulateViewport(1400, 700),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+home+"&tab=thinking"),
-		chromedp.Evaluate(`window.__errs=[]; window.addEventListener('error', function(e){ __errs.push(e.message); });
-			window.addEventListener('unhandledrejection', function(e){ __errs.push(String(e.reason)); });`, nil),
+		chromedp.Evaluate[chromedp.Void](`window.__errs=[]; window.addEventListener('error', function(e){ __errs.push(e.message); });
+			window.addEventListener('unhandledrejection', function(e){ __errs.push(String(e.reason)); });`),
 		poll(`document.querySelectorAll('#thinking .th-list .te').length===2 && !!document.querySelector('#thinking .te-more')`))
 	s := get()
 	if s.Orphans != 1 || s.Dividers["7"] != "episode 1 · $0.45 session total · 3s" {
 		t.Fatalf("tail: %+v", s)
 	}
 	// Page 1 (seqs 3-5): the call (5) pairs the orphan result (6).
-	run("load earlier", chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+	run("load earlier", chromedp.Click(chromedp.CSS(`#thinking .te-more`)),
 		poll(`!!document.querySelector('#thinking .te[data-seq="3"]') && !!document.querySelector('#thinking .te-more:not([disabled])')`))
 	s = get()
 	if len(s.Errs) != 0 || strings.Join(s.Seqs, ",") != "3,4,5,7" || s.Orphans != 0 || !strings.Contains(s.BashStatus, "✓") ||
@@ -367,7 +367,7 @@ func TestBrowserThinkingEarlier(t *testing.T) {
 		t.Fatalf("dividers after page 1: %+v", s.Dividers)
 	}
 	// Page 2 (seqs 1-2): the button still works; every delta is recomputed.
-	run("load earlier again", chromedp.Click(`#thinking .te-more`, chromedp.ByQuery),
+	run("load earlier again", chromedp.Click(chromedp.CSS(`#thinking .te-more`)),
 		poll(`!!document.querySelector('#thinking .te[data-seq="1"]')`))
 	s = get()
 	if len(s.Errs) != 0 || strings.Join(s.Seqs, ",") != "1,2,3,4,5,7" || s.More != "" {
@@ -391,10 +391,10 @@ func thinkOpen(t *testing.T, ctx context.Context) (*env, jam.Participant, *httpt
 	srv := httptest.NewServer(asWho(withStatic(Handler(e.Deps, nil)), p))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
 	home := e.homeOf(t, personal)
-	if err := chromedp.Run(ctx, chromedp.EmulateViewport(1400, 700),
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+home+"&tab=thinking"),
-		chromedp.Poll(`document.querySelectorAll('#thinking .th-list .te').length===3`, nil, chromedp.WithPollingTimeout(5*time.Second)),
-		chromedp.Evaluate(`document.querySelector('#session-head .sh-state').classList.add('busy'); meThWorking();`, nil)); err != nil {
+		chromedp.Poll[chromedp.Void](`document.querySelectorAll('#thinking .th-list .te').length===3`, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Evaluate[chromedp.Void](`document.querySelector('#session-head .sh-state').classList.add('busy'); meThWorking();`)); err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	return e, p, srv, home, func(cls string) string {
@@ -402,7 +402,7 @@ func thinkOpen(t *testing.T, ctx context.Context) (*env, jam.Participant, *httpt
 		var out string
 		js := `(function(){var L=document.querySelector('#thinking .th-list'), m=L.querySelector('.` + cls + `');
 			return m ? m.textContent+(m.nextElementSibling && m.nextElementSibling.classList.contains('te-working') ? ' [before working]' : '') : '';})()`
-		if err := chromedp.Run(ctx, chromedp.Poll(js, &out, chromedp.WithPollingTimeout(10*time.Second))); err != nil {
+		if err := chromedp.Do(ctx, into(&out, chromedp.Poll[string](js, chromedp.WithPollingTimeout(10*time.Second)))); err != nil {
 			t.Fatalf("waiting for .%s: %v", cls, err)
 		}
 		return out
@@ -430,7 +430,7 @@ func TestBrowserThinkingTooMany(t *testing.T) {
 	ctx := browserCtx(t)
 	_, _, srv, _, msg := thinkOpen(t, ctx)
 	var id string
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`meTh.id`, &id)); err != nil {
+	if err := chromedp.Do(ctx, into(&id, chromedp.Evaluate[string](`meTh.id`))); err != nil {
 		t.Fatal(err)
 	}
 	// hold opens a feed of the same viewer, kept open until the test ends.
@@ -453,7 +453,7 @@ func TestBrowserThinkingTooMany(t *testing.T) {
 		}
 	}
 	// Free the page's slot and take it, then reconnect the page.
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`meThBackoff=[20, 20, 20]; meTh.es.close();`, nil)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](`meThBackoff=[20, 20, 20]; meTh.es.close();`)); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -463,7 +463,7 @@ func TestBrowserThinkingTooMany(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`meThConnect(meTh.pinned, false)`, nil)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](`meThConnect(meTh.pinned, false)`)); err != nil {
 		t.Fatal(err)
 	}
 	if got := msg("te-gone"); got != "Too many Thinking views open — close one, or reload [before working]" {
@@ -504,10 +504,10 @@ func TestBrowserThinkingKinds(t *testing.T) {
 		OtherDetail, Thinks                int
 		StatusInLine                       bool
 	}
-	if err := chromedp.Run(ctx,
+	if err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/?c="+e.homeOf(t, personal)+"&tab=thinking"),
-		chromedp.Poll(`!!document.querySelector('#thinking .te[data-kind="tool_call"][data-rseq]')`, nil, chromedp.WithPollingTimeout(5*time.Second)),
-		chromedp.Evaluate(`(function(){var L=document.querySelector('#thinking .th-list'), q=function(s){var x=L.querySelector(s); if(!x) throw new Error("missing "+s); return x};
+		chromedp.Poll[chromedp.Void](`!!document.querySelector('#thinking .te[data-kind="tool_call"][data-rseq]')`, chromedp.WithPollingTimeout(5*time.Second)),
+		evalInto(`(function(){var L=document.querySelector('#thinking .th-list'), q=function(s){var x=L.querySelector(s); if(!x) throw new Error("missing "+s); return x};
 			var call=q('.te[data-kind="tool_call"]');
 			return {Prompt:q('.k-prompt .te-text').textContent, Other:q('.k-other .te-text').textContent,
 				OtherDetail:L.querySelectorAll('.k-other .te-detail').length,
@@ -525,8 +525,8 @@ func TestBrowserThinkingKinds(t *testing.T) {
 	}
 	// Showing Progress puts the progress line between them: the run splits.
 	var split int
-	if err := chromedp.Run(ctx, chromedp.Click(`#thinking .th-chips [data-f="progress"]`, chromedp.ByQuery),
-		chromedp.Evaluate(`document.querySelectorAll('#thinking .k-thinking:not(.te-absorbed)').length`, &split)); err != nil || split != 2 {
+	if err := chromedp.Do(ctx, chromedp.Click(chromedp.CSS(`#thinking .th-chips [data-f="progress"]`)),
+		into(&split, chromedp.Evaluate[int](`document.querySelectorAll('#thinking .k-thinking:not(.te-absorbed)').length`))); err != nil || split != 2 {
 		t.Errorf("with Progress shown, %d thinking lines (%v); want 2", split, err)
 	}
 	if !strings.HasPrefix(got.Status, "✓") || got.StatusInLine {
