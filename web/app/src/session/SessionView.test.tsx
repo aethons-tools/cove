@@ -16,7 +16,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
-  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
+  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, studio: false, ideOpen: "", ...over,
 });
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",

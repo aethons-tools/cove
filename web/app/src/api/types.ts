@@ -313,6 +313,12 @@ export interface SessionPane {
   status: StatusRow[];
   streams: ThinkingStream[];
   eventsOff: boolean;
+  /**
+   * Studio: the Studio tab's IDE may be framed here (ssh and framing on);
+   * IDEOpen: its plain URL, for Open in new tab when a mint fails.
+   */
+  studio: boolean;
+  ideOpen: string;
 }
 /**
  * PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -404,4 +410,19 @@ export interface ThinkingPage {
 export interface ThinkingRaw {
   raw: string;
   truncated: number /* int */;
+}
+/**
+ * FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
+ * IDE ("ide") or an exposed preview's name.
+ */
+export interface FrameRequest {
+  name: string;
+}
+/**
+ * FrameURL is a minted frame URL (one-time: never cached) and the view's
+ * plain URL, for Open in new tab ("" = none).
+ */
+export interface FrameURL {
+  url: string;
+  open: string;
 }

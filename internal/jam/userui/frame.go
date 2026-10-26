@@ -82,35 +82,48 @@ func (h *handler) frameRoute(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	name := r.PostFormValue("name")
+	fu, status, _, msg := h.frameOutcome(r, p, inst, r.PostFormValue("name"))
+	switch status {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		http.NotFound(w, r)
+		return
+	default:
+		http.Error(w, msg, status)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store") // the URL carries a one-time ticket
+	_ = json.NewEncoder(w).Encode(map[string]string{"url": fu.URL, "open": fu.Open})
+}
+
+// frameOutcome mints a frame URL for one of inst's framed views: the IDE
+// (preview.IDEName) under the ssh right, else an exposed preview under the
+// preview right. It answers 200 with the URL, or a refusal's status, API
+// code and text (the HTML route writes the text, the API the envelope).
+func (h *handler) frameOutcome(r *http.Request, p jam.Participant, inst jam.Instance, name string) (FrameURL, int, string, string) {
 	right := collab.SSH
 	if name != preview.IDEName {
 		if !slices.ContainsFunc(inst.Exposures, func(e jam.Exposure) bool { return e.Name == name }) {
-			http.NotFound(w, r)
-			return
+			return FrameURL{}, http.StatusNotFound, "not_found", "no such session"
 		}
 		right = collab.Preview
 	}
 	cp := collabPrincipal(r, p)
 	if _, ok := collab.Decide(h.d.Store, time.Now(), cp, inst, right); !ok {
-		http.Error(w, "you may not open this here", http.StatusForbidden)
-		return
+		return FrameURL{}, http.StatusForbidden, "forbidden", "you may not open this here"
 	}
 	if !h.mints.allow(p.UserID) {
-		http.Error(w, "too many frames opened; wait a minute", http.StatusTooManyRequests)
-		return
+		return FrameURL{}, http.StatusTooManyRequests, "too_many", "too many frames opened; wait a minute"
 	}
 	u, err := h.d.Frames.FrameURL(cp, p.Name, inst.ActorID, name, right)
 	if err != nil {
 		h.lg.Error("frame mint failed", "session", inst.ActorID, "name", name, "error", err.Error())
-		http.Error(w, "couldn't open the frame", http.StatusInternalServerError)
-		return
+		return FrameURL{}, http.StatusInternalServerError, "internal", "couldn't open the frame"
 	}
-	var open string
+	out := FrameURL{URL: u}
 	if h.d.PreviewURL != nil {
-		open, _ = h.d.PreviewURL(inst.ActorID, name)
+		out.Open, _ = h.d.PreviewURL(inst.ActorID, name)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store") // the URL carries a one-time ticket
-	_ = json.NewEncoder(w).Encode(map[string]string{"url": u, "open": open})
+	return out, http.StatusOK, "", ""
 }
