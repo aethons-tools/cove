@@ -16,7 +16,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
-  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], ...over,
+  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
 });
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
@@ -204,8 +204,8 @@ describe("the session pane", () => {
     expect(saved("ses_1").place).toBe("right");
   });
 
-  it("lists previews, artifacts and status, and links Thinking to the current Inbox", async () => {
-    serve(head(), {
+  it("lists previews, artifacts and status, and links Studio to the current Inbox", async () => {
+    serve(head({ studio: true }), {
       previews: pane("previews", { previews: [{ name: "web", url: "https://web--ses_1.preview.test/", port: 5173, frame: true }] }),
       artifacts: pane("artifacts", {
         boards: [{ id: "brd_1", title: "Plan", channel: "chn_s" }],
@@ -233,8 +233,21 @@ describe("the session pane", () => {
     await user.click(screen.getByRole("button", { name: /Merge it\?/ }));
     expect(target.scrollIntoView).toHaveBeenCalled();
     target.remove();
-    await user.click(screen.getByRole("tab", { name: "Thinking" }));
-    expect(await screen.findByRole("link", { name: "Open it in the current Inbox" })).toHaveAttribute("href", "/app/user/?c=chn_s&tab=thinking");
+    // Studio links to the current Inbox until slice 6b.
+    await user.click(screen.getByRole("tab", { name: "Studio" }));
+    expect(await screen.findByRole("link", { name: "Open it in the current Inbox" })).toHaveAttribute("href", "/app/user/?c=chn_s&tab=studio");
+  });
+
+  it("opens the Thinking tab in the app (its own chunk), following the session's feed", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("EventSource", class { static CLOSED = 2; readyState = 1; constructor(u: string) { urls.push(u); } addEventListener() {} close() {} });
+    serve(head(), { thinking: pane("thinking", { streams: [] }) });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Thinking" }));
+    expect(await screen.findByRole("log", { name: "Session events" })).toBeInTheDocument();
+    expect(urls).toContain("/app/user/session/ses_1/thinking/events?format=json");
+    vi.unstubAllGlobals();
   });
 
   it("says when previews are off", async () => {

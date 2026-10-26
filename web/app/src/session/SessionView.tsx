@@ -77,8 +77,10 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
                 {!pane.narrow && <ActionIcon variant="subtle" size="sm" title="Move the pane right or below" aria-label="Move the pane right or below" onClick={pane.flip}>⇄</ActionIcon>}
                 <ActionIcon variant="subtle" size="sm" aria-label="Close the pane" onClick={pane.close}>×</ActionIcon>
               </Group>
-              <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
-                <PaneBody id={h!.id} channel={channel} tab={tab} onAsk={onAsk} />
+              {/* Thinking scrolls its own list. */}
+              <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]}
+                style={tab === "thinking" ? { flex: 1, minHeight: 0, overflow: "hidden" } : { flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
+                <PaneBody id={h!.id} channel={channel} tab={tab} busy={h!.state.class === "busy"} onAsk={onAsk} />
               </div>
             </aside>
           </>

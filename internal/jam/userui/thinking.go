@@ -2,6 +2,7 @@ package userui
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,9 +67,39 @@ func (h *handler) thinkingFragment(v sessionview.EventView) string {
 	return strings.ReplaceAll(b.String(), "\r", "&#13;")
 }
 
+// thinkingEventOf is v as the app's Thinking tab reads it: the
+// thinking-event template's fields (a gap shows its summary; kind other
+// keeps no detail).
+func thinkingEventOf(v sessionview.EventView) ThinkingEvent {
+	ev := ThinkingEvent{Stream: v.StreamID, Seq: v.Seq, Turn: v.Turn, Kind: string(v.Kind), Tool: v.Tool, ToolUseID: v.ToolUseID,
+		Text: v.Narrative, Detail: v.Detail, DetailTruncated: v.DetailTruncated, IsError: v.IsError, TruncatedBytes: v.TruncatedBytes,
+		CostUSD: v.CostUSD, DurationMS: v.DurationMS, ClaudeSession: v.ClaudeSession}
+	if !v.At.IsZero() {
+		ev.At = v.At.UnixMilli()
+	}
+	if v.Gap {
+		ev.Text = v.Summary
+	}
+	if v.Kind == sessionview.KindOther {
+		ev.Detail, ev.DetailTruncated = "", 0
+	}
+	return ev
+}
+
+// thinkingJSON is one event as the JSON feed's ev data (one line).
+func (h *handler) thinkingJSON(v sessionview.EventView) string {
+	b, err := json.Marshal(thinkingEventOf(v))
+	if err != nil {
+		h.lg.Error("userui thinking json failed", "error", err.Error())
+		return "{}"
+	}
+	return string(b)
+}
+
 // thinkingEvents is the session's live Thinking feed (sessionview.Serve,
 // following its newest stream), at most maxThinkingStreams per viewer; it
-// ends once the viewer loses access to the session.
+// ends once the viewer loses access to the session. ?format=json sends each
+// event as ThinkingEvent JSON (the app) rather than the HTML fragment.
 func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 	p, inst, ok := h.thinkingSession(w, r)
 	if !ok {
@@ -99,8 +130,12 @@ func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 		again, _, ok := h.sessionFor(p, id)
 		return ok && again.ActorID == inst.ActorID
 	}
+	event := h.thinkingFragment
+	if r.URL.Query().Get("format") == "json" {
+		event = h.thinkingJSON // the Jam app (spec §2)
+	}
 	sessionview.Serve(w, r, sessionview.Source{Store: h.d.Events, Hub: h.d.Hub, ActorID: inst.ActorID,
-		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingFragment, Allowed: allowed})
+		Tail: thinkingTail, FollowNewest: true, Event: event, Allowed: allowed})
 }
 
 // thinkingStream is the request's ?stream=, or a 400.
@@ -139,19 +174,13 @@ func (h *handler) thinkingPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: inst.ActorID, StreamID: stream, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
+	evs, below, err := h.thinkingPageOf(inst.ActorID, stream, before)
 	if err != nil {
 		h.lg.Error("thinking page: listing events failed", "session", inst.ActorID, "error", err.Error())
 		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
 		return
 	}
-	page := inboxPage{PaneEvents: make([]sessionview.EventView, 0, len(evs))}
-	for _, ev := range evs {
-		page.PaneEvents = append(page.PaneEvents, sessionview.View(ev))
-	}
-	if len(evs) > 0 && evs[0].Seq > 1 {
-		page.PaneBefore = evs[0].Seq
-	}
+	page := inboxPage{PaneEvents: evs, PaneBefore: below}
 	var b bytes.Buffer
 	if err := pages["inbox"].ExecuteTemplate(&b, "thinkingpage", page); err != nil {
 		h.lg.Error("userui render failed", "tmpl", "thinkingpage", "error", err.Error())
@@ -176,23 +205,52 @@ func (h *handler) thinkingRaw(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: inst.ActorID, StreamID: stream, AfterSeq: seq - 1, Limit: 1})
+	raw, cut, found, err := h.thinkingRawOf(inst.ActorID, stream, seq)
 	if err != nil {
 		h.lg.Error("thinking raw: listing events failed", "session", inst.ActorID, "error", err.Error())
 		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
 		return
 	}
-	if len(evs) == 0 || evs[0].Seq != seq {
+	if !found {
 		http.NotFound(w, r)
 		return
 	}
-	raw := sessionview.View(evs[0]).Raw
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if len(raw) > rawMax {
-		_, _ = io.WriteString(w, raw[:rawMax])
-		_, _ = fmt.Fprintf(w, "\n… truncated %d bytes", len(raw)-rawMax)
-		return
-	}
 	_, _ = io.WriteString(w, raw)
+	if cut > 0 {
+		_, _ = fmt.Fprintf(w, "\n… truncated %d bytes", cut)
+	}
+}
+
+// thinkingPageOf is the thinkingPageSize events of actor's stream below
+// before, in seq order, and the seq below which older ones exist (0 = none).
+func (h *handler) thinkingPageOf(actor, stream string, before uint64) ([]sessionview.EventView, uint64, error) {
+	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]sessionview.EventView, 0, len(evs))
+	for _, ev := range evs {
+		out = append(out, sessionview.View(ev))
+	}
+	var below uint64
+	if len(evs) > 0 && evs[0].Seq > 1 {
+		below = evs[0].Seq
+	}
+	return out, below, nil
+}
+
+// thinkingRawOf is one event's pretty JSON, capped at rawMax (truncated:
+// the bytes cut); found false when the stream has no such seq.
+func (h *handler) thinkingRawOf(actor, stream string, seq uint64) (string, int, bool, error) {
+	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, AfterSeq: seq - 1, Limit: 1})
+	if err != nil || len(evs) == 0 || evs[0].Seq != seq {
+		return "", 0, false, err
+	}
+	raw := sessionview.View(evs[0]).Raw
+	if len(raw) > rawMax {
+		return raw[:rawMax], len(raw) - rawMax, true, nil
+	}
+	return raw, 0, true, nil
 }

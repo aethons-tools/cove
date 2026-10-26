@@ -1,5 +1,5 @@
 import { Anchor, Badge, Image, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import type { SessionPane } from "../api/types";
 import type { PaneTab } from "./layout";
 import { usePaneTab } from "./useSession";
@@ -77,10 +77,14 @@ function Loaded({ id, channel, tab, onAsk }: { id: string; channel: string; tab:
   return <Status p={q.data} />;
 }
 
-// PaneBody is one tab of the session pane. Thinking and Studio come to the
-// app in slice 6; until then they link to the current Inbox, on that tab.
-export function PaneBody({ id, channel, tab, onAsk }: { id: string; channel: string; tab: PaneTab; onAsk: (id: string) => void }) {
-  if (tab === "thinking" || tab === "studio") {
+// ThinkingTab is its own chunk, loaded when the tab first opens.
+const ThinkingTab = lazy(() => import("./thinking/ThinkingTab"));
+
+// PaneBody is one tab of the session pane. Studio comes to the app in slice
+// 6b; until then it links to the current Inbox, on that tab.
+export function PaneBody({ id, channel, tab, busy, onAsk }: { id: string; channel: string; tab: PaneTab; busy: boolean; onAsk: (id: string) => void }) {
+  if (tab === "thinking") return <Suspense fallback={<Loader size="sm" m="sm" />}><ThinkingTab id={id} busy={busy} /></Suspense>;
+  if (tab === "studio") {
     return (
       <Text size="sm">This tab shows in the current Inbox for now.{" "}
         <Anchor href={`/app/user/?c=${enc(channel)}&tab=${tab}`}>Open it in the current Inbox</Anchor>
