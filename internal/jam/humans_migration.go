@@ -704,8 +704,8 @@ func (m *memState) planProjectRefs(plan *humanPlan) {
 // a session id.
 func (m *memState) planStandingSessions(plan *humanPlan) {
 	used := map[string]bool{}
-	for _, id := range m.standing {
-		used[id] = true
+	for _, e := range m.standing {
+		used[e.sessionID] = true
 	}
 	for _, pid := range slices.Sorted(maps.Keys(m.roles)) {
 		p, ok := m.projectByID(pid)

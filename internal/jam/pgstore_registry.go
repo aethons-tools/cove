@@ -522,6 +522,19 @@ func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role
 	return err
 }
 
+func (s *PostgresStore) SetStandingSessionManager(project ident.ID, role, name, manager string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.registryTx("SetStandingSessionManager", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE standing_sessions SET manager = $4 WHERE project_id = $1 AND role = $2 AND name = $3`, project, role, name, manager)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applySetStandingSessionManager(project, role, name, manager)
+	return nil
+}
+
 func (s *PostgresStore) RemoveStandingSession(project ident.ID, role, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -537,17 +550,18 @@ func (s *PostgresStore) RemoveStandingSession(project ident.ID, role, name strin
 
 // loadStandingSessions fills the standing-session map. load's part; no lock.
 func (s *PostgresStore) loadStandingSessions(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT project_id, role, name, session_id FROM standing_sessions`)
+	rows, err := s.pool.Query(ctx, `SELECT project_id, role, name, session_id, manager FROM standing_sessions`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load standing_sessions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var project, role, name, id string
-		if err := rows.Scan(&project, &role, &name, &id); err != nil {
+		var project, role, name, id, manager string
+		if err := rows.Scan(&project, &role, &name, &id, &manager); err != nil {
 			return err
 		}
 		s.applyPutStandingSession(ident.ID(project), role, name, id)
+		s.applySetStandingSessionManager(ident.ID(project), role, name, manager)
 	}
 	return rows.Err()
 }

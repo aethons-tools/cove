@@ -565,8 +565,8 @@ func (m *memState) exportRegistry(snap *ConfigSnapshot) {
 			snap.LegacyAliases = append(snap.LegacyAliases, LegacyAlias{Project: project, Name: name, UserID: m.aliases[project][name]})
 		}
 	}
-	for k, id := range m.standing {
-		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: id})
+	for k, e := range m.standing {
+		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: e.sessionID})
 	}
 	slices.SortFunc(snap.StandingSessions, func(a, b StandingSessionRef) int { return strings.Compare(a.SessionID, b.SessionID) })
 	for _, id := range slices.Sorted(maps.Keys(m.channels)) {

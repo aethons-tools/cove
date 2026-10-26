@@ -375,8 +375,15 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if spec.ActorID == "" {
 		return Instance{}, "", "", fmt.Errorf("actor id is required")
 	}
-	if id, ok := ProjectIDOf(s.store, spec.Project); ok {
-		spec.Project = string(id) // stored references name the project by id
+	projectID, projectOK := ProjectIDOf(s.store, spec.Project)
+	if projectOK {
+		spec.Project = string(projectID) // stored references name the project by id
+	}
+	// A standing session lives on one manager: pin it before enrolling, so a
+	// refusal leaves nothing to roll back.
+	pin, err := s.applyStandingPin(&spec, projectID, projectOK)
+	if err != nil {
+		return Instance{}, "", "", err
 	}
 	// A personal session's cove may message its owner and nobody else: the
 	// override REPLACES the role's addressing (least privilege).
@@ -514,6 +521,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	}
 	if draft != nil {
 		s.keepDraftTree(draft.objs)
+	}
+	if pin.track && pin.manager == "" && placed.Manager != "" {
+		if err := s.store.SetStandingSessionManager(projectID, spec.Role, spec.Name, placed.Manager); err != nil && s.log != nil {
+			s.log.Warn("raise: pinning the standing session to its manager failed (non-fatal)", "id", spec.ActorID, "manager", placed.Manager, "err", err.Error())
+		}
 	}
 	s.recordRaiseSetup(inst, spec, def)
 	if s.tunnels != nil {
@@ -734,6 +746,44 @@ func (c *kitRefCache) put(k kitRefKey, r KitRef) {
 	}
 	c.m[k] = r
 	c.misses++
+}
+
+// standingPin is a standing raise's pin state: track is set when the raise is
+// for a standing session on a placing launcher; manager is its pin ("" =
+// unpinned, so the placed manager becomes the pin).
+type standingPin struct {
+	track   bool
+	manager string
+}
+
+// applyStandingPin enforces a standing session's pin on spec's placement. Only
+// a standing, named raise through a PlacingLauncher is pinned; others pass
+// untouched. A pin the request excludes fails (ErrPinExcluded); a pin to a
+// manager that is no longer configured is cleared, so the session places fresh.
+func (s *Supervisor) applyStandingPin(spec *RaiseSpec, project ident.ID, projectOK bool) (standingPin, error) {
+	pl, ok := s.launcher.(PlacingLauncher)
+	if !ok || !projectOK || spec.SessionKind != SessionKindStanding || spec.Name == "" {
+		return standingPin{}, nil
+	}
+	pin := s.store.StandingSessionManager(project, spec.Role, spec.Name)
+	if pin != "" && !pl.HasManager(pin) {
+		if s.log != nil {
+			s.log.Warn("standing session's pinned manager is not configured; placing fresh, state not carried over",
+				"id", spec.ActorID, "project", spec.Project, "role", spec.Role, "name", spec.Name, "pin", pin)
+		}
+		if err := s.store.SetStandingSessionManager(project, spec.Role, spec.Name, ""); err != nil {
+			return standingPin{}, fmt.Errorf("raise: clear stale pin: %w", err)
+		}
+		pin = ""
+	}
+	if pin == "" {
+		return standingPin{track: true}, nil
+	}
+	if len(spec.Placement.Managers) > 0 && !slices.Contains(spec.Placement.Managers, pin) {
+		return standingPin{}, fmt.Errorf("raise: %w: %s", ErrPinExcluded, pin)
+	}
+	spec.Placement.Managers = []string{pin}
+	return standingPin{track: true, manager: pin}, nil
 }
 
 // raiseOn raises through the launcher, recording which manager hosts the cove
