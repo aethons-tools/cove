@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -57,6 +58,8 @@ func (hasStudiosError) Unwrap() error { return ErrManagerHasStudios }
 var (
 	errRotated = errors.New("manager token rotated")
 	errRevoked = errors.New("manager revoked")
+
+	errStreamEnded = errors.New("manager stream ended")
 )
 
 // Hub serves StudioManager.Connect: it authenticates manager streams and
@@ -67,6 +70,8 @@ type Hub struct {
 
 	cfg Config
 	log *slog.Logger
+
+	regMu sync.Mutex // serializes registry mutations: Add, Rotate, Revoke
 
 	mu      sync.Mutex
 	remotes map[string]*Remote
@@ -133,6 +138,8 @@ func (h *Hub) registerLocked(name string) (*Remote, error) {
 
 // Add registers a new manager and returns its token, shown only here.
 func (h *Hub) Add(name string) (jam.ManagerToken, error) {
+	h.regMu.Lock()
+	defer h.regMu.Unlock()
 	if err := jam.ValidManagerName(name); err != nil {
 		return jam.ManagerToken{}, err
 	}
@@ -155,6 +162,8 @@ func (h *Hub) Add(name string) (jam.ManagerToken, error) {
 // Rotate replaces name's token and drops its live stream; the manager must
 // reconnect with the new token, shown only here.
 func (h *Hub) Rotate(name string) (jam.ManagerToken, error) {
+	h.regMu.Lock()
+	defer h.regMu.Unlock()
 	tok, err := jam.MintToken()
 	if err != nil {
 		return jam.ManagerToken{}, err
@@ -177,6 +186,8 @@ func (h *Hub) Rotate(name string) (jam.ManagerToken, error) {
 // force the Router then probes those instances Dead, so the reconciler forgets
 // them.
 func (h *Hub) Revoke(name string, force bool) error {
+	h.regMu.Lock()
+	defer h.regMu.Unlock()
 	n := 0
 	for _, inst := range h.cfg.Instances() {
 		if inst.Manager == name && inst.Phase != jam.PhaseGone {
@@ -294,8 +305,11 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 	select {
 	case u := <-ups:
 		helloTimer.Stop()
+		if errors.Is(u.err, io.EOF) {
+			return status.Error(codes.InvalidArgument, "expected hello")
+		}
 		if u.err != nil {
-			return u.err
+			return streamStatus(u.err)
 		}
 		if hello = u.m.GetHello(); hello == nil {
 			return status.Error(codes.InvalidArgument, "expected hello")
@@ -323,11 +337,20 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 	}
 
 	// One mutex serializes every Send on this stream: frames, Welcome and
-	// heartbeats.
+	// heartbeats. Once the handler is returning, sends fail rather than
+	// touch a finished stream.
 	var sendMu sync.Mutex
+	var ended atomic.Bool
+	defer ended.Store(true)
 	send := func(m *managerpb.ManagerDown) error {
+		if ended.Load() {
+			return errStreamEnded
+		}
 		sendMu.Lock()
 		defer sendMu.Unlock()
+		if ended.Load() {
+			return errStreamEnded
+		}
 		return stream.Send(m)
 	}
 	c := newConn(send)
@@ -350,8 +373,11 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 		Name: name, Connected: true, Version: hello.GetVersion(), Capacity: int(hello.GetCapacity()),
 		ConnectedAt: now, LastSeen: now, Strays: rc.Strays,
 	}
-	h.mu.Unlock()
+	// Attach under h.mu so live[name] and the Remote's current conn always
+	// agree, and a rotate or revoke can only close a conn already attached.
+	// Lock order: h.mu, then the Remote's and conns' own locks.
 	remote.attach(c)
+	h.mu.Unlock()
 
 	cause := h.serve(stream, c, name, ups, send)
 

@@ -3,6 +3,7 @@ package managers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/managers/client"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
+	"github.com/aethons-tools/cove/internal/jam/managers/wire"
 )
 
 const testVersion = "v1"
@@ -289,10 +291,17 @@ func TestHubHelloTimeout(t *testing.T) {
 	e := newHubEnv(t, func(c *Config) { c.HelloTimeout = 50 * time.Millisecond }, nil)
 	tok := e.add(t, "m1")
 	s := rawStream(t, e.cc, tok)
-	err := recvUntilErr(t, s)
-	if err == io.EOF || status.Code(err) == codes.OK {
-		t.Fatalf("err = %v, want a non-OK status", err)
+	wantCode(t, recvUntilErr(t, s), codes.DeadlineExceeded)
+}
+
+func TestHubHelloStreamClosedIsInvalidArgument(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	s := rawStream(t, e.cc, tok)
+	if err := s.CloseSend(); err != nil {
+		t.Fatal(err)
 	}
+	wantCode(t, recvUntilErr(t, s), codes.InvalidArgument)
 }
 
 func TestHubFirstMessageNotHello(t *testing.T) {
@@ -552,5 +561,129 @@ func TestHubStatusesIncludeLocalAndStudioCounts(t *testing.T) {
 	}
 	if sts[1].Studios != 2 || !sts[1].Connected || !sts[1].Local {
 		t.Fatalf("local = %+v", sts[1])
+	}
+}
+
+func TestHubConcurrentConnectsOneServes(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	const n = 16
+	errcs := make([]chan error, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errcs[i], _ = runClient(t, e.cc, client.Config{Name: "m1", Token: tok, Launcher: &testLauncher{loc: fmt.Sprint("L", i)}})
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	// Every stream but one is replaced and ends; the survivor serves.
+	ended := map[int]bool{}
+	eventually(t, "all but one stream replaced", func() bool {
+		for i, c := range errcs {
+			select {
+			case <-c:
+				ended[i] = true
+			default:
+			}
+		}
+		return len(ended) == n-1
+	})
+	survivor := -1
+	for i := range n {
+		if !ended[i] {
+			survivor = i
+		}
+	}
+	eventually(t, "survivor available", func() bool { return e.available("m1") })
+	if st := e.status(t, "m1"); !st.Connected {
+		t.Fatalf("status = %+v", st)
+	}
+	p, err := e.router.RaiseOn(context.Background(), jam.RaiseSpec{ActorID: "w1", Placement: jam.Placement{Managers: []string{"m1"}, Timeout: 5 * time.Second}}, jam.LaunchCreds{})
+	if err != nil || p.Location != fmt.Sprint("L", survivor) {
+		t.Fatalf("RaiseOn = %+v, %v; survivor L%d", p, err, survivor)
+	}
+	e.hub.mu.Lock()
+	live, cur := e.hub.live["m1"], e.hub.remotes["m1"].conn()
+	e.hub.mu.Unlock()
+	if live == nil || live != cur {
+		t.Fatal("hub's live conn is not the Remote's current conn")
+	}
+
+	if _, err := e.hub.Rotate("m1"); err != nil {
+		t.Fatal(err)
+	}
+	runErr(t, errcs[survivor])
+	eventually(t, "unavailable after rotate", func() bool { return !e.available("m1") })
+}
+
+// TestHubLateResultOnReplacedStream (Review Focus 3): a result the replaced
+// stream sends for an id never resolves the new stream's call of that id.
+func TestHubLateResultOnReplacedStream(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	hello := func(s managerpb.StudioManager_ConnectClient) {
+		t.Helper()
+		if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Hello{Hello: &managerpb.Hello{Name: "m1", Version: testVersion}}}); err != nil {
+			t.Fatal(err)
+		}
+		if m, err := s.Recv(); err != nil || m.GetWelcome() == nil {
+			t.Fatalf("first message = %v, %v", m, err)
+		}
+	}
+	a := rawStream(t, e.cc, tok)
+	hello(a)
+	b := rawStream(t, e.cc, tok)
+	hello(b)
+
+	type res struct {
+		lv  jam.Liveness
+		err error
+	}
+	got := make(chan res, 1)
+	go func() {
+		lv, err := e.router.Probe(context.Background(), jam.Instance{ActorID: "x", Manager: "m1"})
+		got <- res{lv, err}
+	}()
+	var f *managerpb.Frame
+	for f == nil {
+		m, err := b.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		f = m.GetFrame()
+	}
+	if f.Op != wire.OpProbe {
+		t.Fatalf("op = %q", f.Op)
+	}
+
+	reply := func(s managerpb.StudioManager_ConnectClient, lv jam.Liveness) {
+		data, err := wire.EncodeResult(wire.ProbeResult{Liveness: lv}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fr := range wire.Split(f.Id, wire.OpResult, data) {
+			_ = s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Frame{Frame: fr}}) // A's may fail: it is closed
+		}
+	}
+	reply(a, jam.LivenessDead) // the late result on the replaced stream
+	select {
+	case r := <-got:
+		t.Fatalf("B's call resolved by A's result: %+v", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+	reply(b, jam.LivenessAlive)
+	select {
+	case r := <-got:
+		if r.err != nil || r.lv != jam.LivenessAlive {
+			t.Fatalf("Probe = %v, %v; want B's Alive", r.lv, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("B's own result did not resolve the call")
 	}
 }
