@@ -22,9 +22,11 @@ Thinking tab. It carries agent output by design (see [Sensitivity](#sensitivity)
   `/agent-data/agent-stream.jsonl` (append, 0600; never `cove-master.log`, which
   Jam reads on teardown) and to a line splitter; each line goes to `covemaster` as an event tagged with its
   **turn** (the episode — claude process — number, from 1; one episode can answer several prompts, see [coves.md](coves.md)).
-- **Cost is cumulative per episode.** A `result` line's `total_cost_usd` is the
-  process's running total, while `usage` is per result. Sum the *last*
-  `total_cost_usd` of each `turn`, not every result.
+- **Cost is cumulative per claude session.** A `result` line's `total_cost_usd`
+  (and `modelUsage`) is the running total of its `session_id`, carried across
+  `--continue` episodes; `usage` is per result. New spend is a result's increase
+  over the previous result of the same `session_id` (a Clear starts a new one).
+  Summing each episode's last total counts earlier episodes again.
 - **Truncation:** a line over 1 MiB is cut; `truncated_bytes` counts the rest.
   The full line stays in `/agent-data/agent-stream.jsonl`.
 - **Redaction:** exact occurrences of the cove's own identity token and launch

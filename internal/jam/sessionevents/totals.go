@@ -1,6 +1,7 @@
 package sessionevents
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +28,10 @@ type Totals struct {
 	ContextWindow int64
 	contextAt     time.Time
 	windows       map[string]int64
-	// episodeCost is the latest total_cost_usd per episode. claude
-	// reports it cumulatively per process, so only the last one counts.
-	episodeCost map[episode]float64
+	// sessionCost is the latest total_cost_usd per claude session. claude
+	// reports it cumulatively per session, carried across --continue, so
+	// only the growth since the previous result is new spend.
+	sessionCost map[string]float64
 	episodes    map[episode]bool
 	lastResult  time.Time
 }
@@ -69,12 +71,19 @@ func (t *Totals) Add(ev Event) {
 	}
 	t.InputTokens += ev.Index.InputTokens
 	t.OutputTokens += ev.Index.OutputTokens
-	if t.episodeCost == nil {
-		t.episodeCost = map[episode]float64{}
+	if t.sessionCost == nil {
+		t.sessionCost = map[string]float64{}
 	}
-	turn := ev.Index.CostUSD - t.episodeCost[ep] // a result's cost is cumulative over its episode
+	key := ev.Index.ClaudeSessionID
+	if key == "" { // no session id: assume cumulative over the episode only
+		key = ep.stream + "/" + strconv.FormatUint(uint64(ep.turn), 10)
+	}
+	turn := ev.Index.CostUSD - t.sessionCost[key]
+	if turn < 0 { // claude's total restarted (its saved state was lost)
+		turn = ev.Index.CostUSD
+	}
 	t.CostUSD += turn
-	t.episodeCost[ep] = ev.Index.CostUSD
+	t.sessionCost[key] = ev.Index.CostUSD
 	if !ev.ObservedAt.Before(t.lastResult) { // the latest turn
 		t.lastResult, t.TurnCostUSD = ev.ObservedAt, turn
 	}

@@ -58,8 +58,9 @@ type EventView struct {
 	Progress        bool // system/thinking_tokens — hidden unless toggled
 	Gap             bool
 	TruncatedBytes  uint64
-	CostUSD         float64 // result: the episode's cumulative cost (Index.CostUSD)
+	CostUSD         float64 // result: the claude session's cumulative cost (Index.CostUSD)
 	DurationMS      int64   // result
+	ClaudeSession   string  // result: the claude session CostUSD accumulates over
 }
 
 // Clip collapses whitespace and cuts s to n runes, appending "…" when cut.
@@ -156,7 +157,7 @@ func View(ev sessionevents.Event) EventView {
 func build(ev sessionevents.Event) EventView {
 	v := EventView{StreamID: ev.StreamID, Seq: ev.Seq, Turn: ev.Turn, At: ev.ObservedAt, Kind: KindOther,
 		Raw: pretty(ev.Raw), TruncatedBytes: ev.TruncatedBytes, IsError: ev.Index.IsError,
-		CostUSD: ev.Index.CostUSD, DurationMS: ev.Index.DurationMS}
+		CostUSD: ev.Index.CostUSD, DurationMS: ev.Index.DurationMS, ClaudeSession: ev.Index.ClaudeSessionID}
 	if ev.Kind == sessionevents.KindGap {
 		v.Kind, v.Gap, v.Label = KindGap, true, "gap"
 		v.Summary = fmt.Sprintf("⚠ %d events lost (seq %d–%d)", ev.GapTo-ev.GapFrom+1, ev.GapFrom, ev.GapTo)
@@ -223,7 +224,7 @@ func build(ev sessionevents.Event) EventView {
 	case "result":
 		v.Kind = KindResult
 		v.Label = "result"
-		v.Summary = fmt.Sprintf("$%.4f episode total · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
+		v.Summary = fmt.Sprintf("$%.4f session total · in %d / out %d tokens · %s", ev.Index.CostUSD, ev.Index.InputTokens,
 			ev.Index.OutputTokens, time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Narrative = fmt.Sprintf("$%.4f · %s", ev.Index.CostUSD, time.Duration(ev.Index.DurationMS)*time.Millisecond)
 		v.Detail = env.Result
