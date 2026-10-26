@@ -6,6 +6,7 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -68,4 +69,21 @@ type Tracker interface {
 // carries the per-task timeout; Run returns nil on exit 0, else an error.
 type Executor interface {
 	Run(ctx context.Context, argv []string, env []string) error
+}
+
+// ClassifyLabels derives an issue's handler class (the value after
+// classPrefix; the first match wins) and whether it is tagged for dispatch
+// (any label under dispatchPrefix; presence-only). An empty dispatchPrefix
+// means no gate: every issue is dispatchable.
+func ClassifyLabels(labels []string, classPrefix, dispatchPrefix string) (class string, dispatchLabeled bool) {
+	dispatchLabeled = dispatchPrefix == ""
+	for _, name := range labels {
+		if class == "" && strings.HasPrefix(name, classPrefix) {
+			class = strings.TrimPrefix(name, classPrefix)
+		}
+		if dispatchPrefix != "" && strings.HasPrefix(name, dispatchPrefix) {
+			dispatchLabeled = true
+		}
+	}
+	return class, dispatchLabeled
 }

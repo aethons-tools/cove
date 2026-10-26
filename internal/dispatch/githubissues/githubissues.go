@@ -1,5 +1,6 @@
-// Package githubissues is a second scheduler.Tracker backed by a GitHub repo's
-// Issues, at parity with internal/dispatch/linear. Lifecycle states are status
+// Package githubissues is a GitHub repo's Issues as a tracker: a
+// scheduler.Tracker (at-cove, via New) and Jam's tracker.Tracker (via NewJam),
+// at parity with internal/dispatch/linear. Lifecycle states are status
 // labels (status:ready, status:in-progress, …) and Done is an issue being closed;
 // blocker gating is a body convention (Depends on #N / Blocked by #N, same-repo).
 //
@@ -11,6 +12,7 @@ package githubissues
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +27,7 @@ import (
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 const api = "https://api.github.com"
@@ -32,11 +35,13 @@ const api = "https://api.github.com"
 // Client talks to one GitHub repo's Issues. When complete it will satisfy
 // scheduler.Tracker; this part implements the read methods.
 type Client struct {
-	http   *http.Client
-	token  string
-	repo   string                    // "owner/name"
-	prefix string                    // class label prefix, e.g. "class:"
-	labels map[scheduler.Role]string // role → status label
+	http           *http.Client
+	token          string
+	repo           string                    // "owner/name"
+	prefix         string                    // class label prefix, e.g. "class:"
+	dispatchPrefix string                    // dispatch label prefix (Jam only; at-cove has no gate)
+	jam            bool                      // Jam's client (NewJam): "owner/repo#N" keys, the dispatch gate, PRs and closed hits dropped
+	labels         map[scheduler.Role]string // role → status label
 }
 
 // New resolves the target repo (tracker.github.repo, else
@@ -79,6 +84,25 @@ func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
 			scheduler.RoleBlocked:    gt.States.Blocked,
 		},
 	}, nil
+}
+
+// NewJam builds the Client Jam uses. Ticket keys are "owner/repo#N", the
+// dispatch-label gate defaults to "dispatch:", and pull requests and
+// already-closed issues are dropped from search hits. The repo is required
+// (Jam has no source-control block to inherit it from). at-cove keeps New:
+// "#N" identifiers, no gate, unfiltered hits.
+func NewJam(gt kit.GitHubTracker, token string, httpc *http.Client) (*Client, error) {
+	gt.Repo = strings.TrimSpace(gt.Repo)
+	if err := ticketkey.ValidRepo(gt.Repo); err != nil {
+		return nil, fmt.Errorf("githubissues: %w", err)
+	}
+	c, err := New(kit.Config{Tracker: &kit.Tracker{GitHub: &gt}}, token, httpc)
+	if err != nil {
+		return nil, err
+	}
+	c.jam = true
+	c.dispatchPrefix = cmp.Or(gt.DispatchLabelPrefix, "dispatch:")
+	return c, nil
 }
 
 // do issues a REST call and returns the status, body, and any transport error.
@@ -124,27 +148,37 @@ func (c *Client) getJSON(ctx context.Context, u string, out any) error {
 
 // ghIssue is the shared projection of a search hit / issue payload.
 type ghIssue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
-	Labels []struct {
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	State       string    `json:"state"`
+	PullRequest *struct{} `json:"pull_request"` // set on a pull request: GitHub lists PRs as issues
+	Labels      []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 }
 
 func (c *Client) toIssue(n ghIssue) scheduler.Issue {
-	class := ""
-	for _, l := range n.Labels {
-		if strings.HasPrefix(l.Name, c.prefix) {
-			class = strings.TrimPrefix(l.Name, c.prefix)
-			break
-		}
+	names := make([]string, len(n.Labels))
+	for i, l := range n.Labels {
+		names[i] = l.Name
 	}
-	num := strconv.Itoa(n.Number)
+	class, dispatchLabeled := scheduler.ClassifyLabels(names, c.prefix, c.dispatchPrefix)
+	if !c.jam {
+		dispatchLabeled = false // at-cove has no dispatch gate and never set the flag
+	}
 	return scheduler.Issue{
-		ID: num, Identifier: "#" + num, Title: n.Title,
-		Description: n.Body, Class: class,
+		ID: strconv.Itoa(n.Number), Identifier: c.key(n.Number), Title: n.Title,
+		Description: n.Body, Class: class, DispatchLabeled: dispatchLabeled,
 	}
+}
+
+// key is issue n's identifier: "owner/repo#N" for Jam, "#N" for at-cove.
+func (c *Client) key(n int) string {
+	if c.jam {
+		return ticketkey.GitHub(c.repo, n)
+	}
+	return "#" + strconv.Itoa(n)
 }
 
 // search runs a GitHub issue search for the given status label in this repo,
@@ -158,7 +192,18 @@ func (c *Client) search(ctx context.Context, label string) ([]ghIssue, error) {
 	if err := c.getJSON(ctx, u, &out); err != nil {
 		return nil, err
 	}
-	return out.Items, nil
+	if !c.jam {
+		return out.Items, nil // at-cove's search results, unfiltered
+	}
+	// The search index lags: a just-closed issue can still match is:open,
+	// and a pull request is an issue to GitHub. Neither is work to dispatch.
+	items := out.Items[:0]
+	for _, n := range out.Items {
+		if n.PullRequest == nil && n.State != "closed" {
+			items = append(items, n)
+		}
+	}
+	return items, nil
 }
 
 // blockerRef matches a body blocker marker: "Depends on #N" / "Blocked by #N"
@@ -423,6 +468,39 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 		cs = append(cs, scheduler.Comment{Author: n.User.Login, Body: n.Body})
 	}
 	return cs, nil
+}
+
+// IssueByIdentifier resolves a ticket key ("owner/repo#N") to the issue
+// number Transition, PostComment and Comments take. The key must name this
+// Client's repo; GitHub owner/name are case-insensitive. A missing issue, or a
+// key that names a pull request, is an error.
+func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (string, error) {
+	repo, n, err := ticketkey.ParseGitHub(identifier)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(repo, c.repo) {
+		return "", fmt.Errorf("githubissues: ticket %s is not on repo %s", identifier, c.repo)
+	}
+	num := strconv.Itoa(n)
+	code, raw, err := c.do(ctx, http.MethodGet, api+"/repos/"+c.repo+"/issues/"+num, nil)
+	if err != nil {
+		return "", err
+	}
+	if code == http.StatusNotFound {
+		return "", fmt.Errorf("githubissues: no issue %s", identifier)
+	}
+	if code != http.StatusOK {
+		return "", fmt.Errorf("githubissues: get issue %s: http %d: %s", identifier, code, strings.TrimSpace(string(raw)))
+	}
+	var out ghIssue
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	if out.PullRequest != nil {
+		return "", fmt.Errorf("githubissues: %s is a pull request, not an issue", identifier)
+	}
+	return num, nil
 }
 
 // Compile-time proof the client satisfies the full tracker interface.

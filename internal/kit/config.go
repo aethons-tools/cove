@@ -270,11 +270,15 @@ type LinearTracker struct {
 // StateMap but only the five non-terminal roles (ready, in-progress, in-review,
 // needs-input, blocked) are required; States.Done is ignored.
 type GitHubTracker struct {
-	Repo             string                  `yaml:"repo,omitempty"` // "owner/name"; defaults to source-control.github.project when empty
-	PollInterval     string                  `yaml:"poll-interval"`
-	ClassLabelPrefix string                  `yaml:"class-label-prefix"`
-	States           StateMap                `yaml:"states"`
-	Secrets          map[string]SecretConfig `yaml:"secrets"`
+	Repo             string `yaml:"repo,omitempty"` // "owner/name"; defaults to source-control.github.project when empty
+	PollInterval     string `yaml:"poll-interval"`
+	ClassLabelPrefix string `yaml:"class-label-prefix"`
+	// DispatchLabelPrefix gates which ready issues Jam's Requisitioner raises
+	// a studio for (presence-only; default "dispatch:", applied by
+	// githubissues.NewJam). at-cove's scheduler ignores it.
+	DispatchLabelPrefix string                  `yaml:"dispatch-label-prefix"`
+	States              StateMap                `yaml:"states"`
+	Secrets             map[string]SecretConfig `yaml:"secrets"`
 }
 
 // StateMap binds the design's lifecycle roles to a team's real state names.
