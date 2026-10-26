@@ -144,9 +144,10 @@ func (c *Client) bodyText(raw []byte) string {
 }
 
 // rateLimit reads a GitHub rate-limit refusal: a 403 or 429 with Retry-After,
-// or with X-RateLimit-Remaining: 0 (wait until X-RateLimit-Reset), or any 429
-// (wait a minute). A 403 without those headers is a permissions error: nil.
-func rateLimit(code int, h http.Header, now time.Time) error {
+// or with X-RateLimit-Remaining: 0 (wait until X-RateLimit-Reset), a 403
+// whose body names a secondary rate limit, or any 429 (both: wait a
+// minute). Any other 403 is a permissions error: nil.
+func rateLimit(code int, h http.Header, body []byte, now time.Time) error {
 	if code != http.StatusForbidden && code != http.StatusTooManyRequests {
 		return nil
 	}
@@ -158,7 +159,7 @@ func rateLimit(code int, h http.Header, now time.Time) error {
 			return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: max(time.Unix(reset, 0).Sub(now), time.Second)}
 		}
 	}
-	if code == http.StatusTooManyRequests {
+	if code == http.StatusTooManyRequests || bytes.Contains(bytes.ToLower(body), []byte("secondary rate limit")) {
 		return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: time.Minute}
 	}
 	return nil
@@ -173,7 +174,7 @@ func (c *Client) getJSON(ctx context.Context, u string, out any) error {
 		return err
 	}
 	if c.jam {
-		if rl := rateLimit(code, h, time.Now()); rl != nil {
+		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
 			return rl
 		}
 	}
@@ -596,28 +597,31 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 // since. A comment read past the limit is not consumed, so it is read again.
 // (created_at, not updated_at: an edited comment's updated_at can be later
 // than an unread comment's created_at, and since=updated_at would lose it.)
-// A rate limit is a *tracker.RateLimitError.
+// On an error next is since. A rate limit is a *tracker.RateLimitError.
 func (c *Client) CommentFeedCursor(ctx context.Context, since time.Time, limit int) (out []tracker.FeedComment, next time.Time, err error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	next = since
+	next, from := since, since // from: an error's cursor (nothing consumed)
+	// GitHub's since is whole seconds: ask from, and keep, the whole second
+	// since falls in, or a comment earlier in that second would be dropped.
+	since = since.Truncate(time.Second)
 	q := url.Values{"since": {since.UTC().Format(time.RFC3339)}, "sort": {"created"}, "direction": {"asc"}, "per_page": {"100"}}
 	u := api + "/repos/" + c.repo + "/issues/comments?" + q.Encode()
 	for pages := 0; u != "" && pages < maxFeedPages && len(out) < limit; pages++ {
 		code, h, raw, err := c.send(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, since, err
+			return nil, from, err
 		}
-		if rl := rateLimit(code, h, time.Now()); rl != nil {
-			return nil, since, rl
+		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
+			return nil, from, rl
 		}
 		if code != http.StatusOK {
-			return nil, since, fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
+			return nil, from, fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
 		}
 		var page []ghComment
 		if err := json.Unmarshal(raw, &page); err != nil {
-			return nil, since, err
+			return nil, from, err
 		}
 		for _, n := range page {
 			if len(out) >= limit {
@@ -642,7 +646,7 @@ func (c *Client) CommentFeedCursor(ctx context.Context, since time.Time, limit i
 // feedComment maps a repo comment created at at, or reports false for one
 // the feed skips.
 func (c *Client) feedComment(n ghComment, at, since time.Time) (tracker.FeedComment, bool) {
-	if strings.Contains(n.HTMLURL, "/pull/") {
+	if onPullRequest(n.HTMLURL) {
 		return tracker.FeedComment{}, false // a pull request's conversation, not an issue's
 	}
 	if at.Before(since) {
@@ -659,14 +663,42 @@ func (c *Client) feedComment(n ghComment, at, since time.Time) (tracker.FeedComm
 	}, true
 }
 
+// onPullRequest reports whether a comment's html_url
+// (https://github.com/{owner}/{repo}/{issues|pull}/N#…) is on a pull request:
+// the path segment after owner/repo, so a repo or owner named "pull" is not
+// mistaken for one. An unparseable URL counts as a pull request (skipped).
+func onPullRequest(htmlURL string) bool {
+	u, err := url.Parse(htmlURL)
+	if err != nil {
+		return true
+	}
+	seg := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return len(seg) < 3 || seg[2] != "issues"
+}
+
 // Viewer returns the login the token authenticates as (GET /user) — the
-// relay's self-filter. A GitHub App installation token cannot call it; the
-// relay then relies on dropping Bot authors.
+// relay's self-filter. A GitHub App installation token cannot call it
+// (403 "Resource not accessible by integration"): that is
+// tracker.ErrNoViewer, and the relay then relies on dropping Bot authors.
 func (c *Client) Viewer(ctx context.Context) (string, error) {
+	u := api + "/user"
+	code, h, raw, err := c.send(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
+		return "", rl
+	}
+	if code == http.StatusForbidden && bytes.Contains(raw, []byte("Resource not accessible by integration")) {
+		return "", fmt.Errorf("githubissues: GET %s: %w", u, tracker.ErrNoViewer)
+	}
+	if code != http.StatusOK {
+		return "", fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
+	}
 	var out struct {
 		Login string `json:"login"`
 	}
-	if err := c.getJSON(ctx, api+"/user", &out); err != nil {
+	if err := json.Unmarshal(raw, &out); err != nil {
 		return "", err
 	}
 	return out.Login, nil

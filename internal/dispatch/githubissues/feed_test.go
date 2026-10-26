@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -168,6 +170,7 @@ func TestCommentFeedRateLimited(t *testing.T) {
 		"403 primary limit reset": {403, map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": strconv.FormatInt(reset, 10)}, 120 * time.Second},
 		"429 bare":                {429, nil, time.Minute},
 		"403 permissions":         {403, nil, 0},
+		"403 secondary limit":     {403, nil, time.Minute}, // body names it; no headers
 	} {
 		t.Run(name, func(t *testing.T) {
 			mux := http.NewServeMux()
@@ -176,7 +179,14 @@ func TestCommentFeedRateLimited(t *testing.T) {
 					w.Header().Set(k, v)
 				}
 				w.WriteHeader(tc.code)
-				io.WriteString(w, `{"message":"API rate limit exceeded"}`)
+				switch {
+				case name == "403 secondary limit":
+					io.WriteString(w, `{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`)
+				case tc.want == 0:
+					io.WriteString(w, `{"message":"Must have admin rights to Repository."}`)
+				default:
+					io.WriteString(w, `{"message":"API rate limit exceeded"}`)
+				}
 			})
 			_, err := newJamClient(t, mux).CommentFeed(context.Background(), time.Now(), 100)
 			var rl *tracker.RateLimitError
@@ -206,9 +216,14 @@ func TestRateLimitOnlyForJam(t *testing.T) {
 	if _, err := newJamClient(t, mux).ListReady(context.Background()); !errors.As(err, &rl) || rl.RetryAfter != 30*time.Second {
 		t.Fatalf("Jam ListReady = %v; want RateLimitError 30s", err)
 	}
-	cove := newJamClient(t, mux)
-	cove.jam = false // what New builds
-	_, err := cove.ListReady(context.Background())
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	cove, err := New(testCfg(), "tok", &http.Client{Transport: serverTransport{u}}) // at-cove's constructor
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = cove.ListReady(context.Background())
 	if errors.As(err, &rl) || err == nil || !strings.Contains(err.Error(), "githubissues: GET ") || !strings.Contains(err.Error(), `http 403: {"message":"secondary rate limit"}`) {
 		t.Fatalf("at-cove ListReady = %v; want its old http 403 error", err)
 	}
@@ -241,9 +256,104 @@ func TestErrorsNeverCarryTheToken(t *testing.T) {
 		"Transition":        func() error { return c.Transition(ctx, "1", 0) },
 		"CommentFeed":       func() error { _, err := c.CommentFeed(ctx, time.Now(), 10); return err },
 		"Viewer":            func() error { _, err := c.Viewer(ctx); return err },
+		"Comments":          func() error { _, err := c.Comments(ctx, "1"); return err },
 	} {
 		if err := call(); err == nil || strings.Contains(err.Error(), secret) {
 			t.Errorf("%s error = %v; want an error without the token", name, err)
 		}
+	}
+}
+
+// A repo or owner named "pull" must not make every issue comment look like
+// a PR conversation's: PR-ness is the path segment after owner/repo.
+func TestCommentFeedRepoNamedPull(t *testing.T) {
+	since := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	for _, repo := range []string{"acme/pull", "pull/board", "pull/pull"} {
+		t.Run(repo, func(t *testing.T) {
+			comment := func(id int, kind string, at string) string {
+				return fmt.Sprintf(`{"id":%d,"body":"b","created_at":%q,
+				 "html_url":"https://github.com/%s/%s/7#issuecomment-%d",
+				 "issue_url":"https://api.github.com/repos/%s/issues/7",
+				 "user":{"login":"a","id":1,"type":"User"}}`, id, at, repo, kind, id, repo)
+			}
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /repos/"+repo+"/issues/comments", func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, "["+comment(1, "issues", "2026-10-26T12:01:00Z")+","+comment(2, "pull", "2026-10-26T12:02:00Z")+"]")
+			})
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			u, _ := url.Parse(srv.URL)
+			gt := jamTracker()
+			gt.Repo = repo
+			c, err := NewJam(gt, "tok", &http.Client{Transport: serverTransport{u}})
+			if err != nil {
+				t.Fatalf("NewJam: %v", err)
+			}
+			got, err := c.CommentFeed(context.Background(), since, 100)
+			if err != nil || len(got) != 1 || got[0].ID != "1" || got[0].IssueIdentifier != repo+"#7" {
+				t.Fatalf("feed = %+v, %v; want only the issue comment 1", got, err)
+			}
+		})
+	}
+}
+
+// A sub-second since still asks GitHub (whole seconds) for, and keeps, a
+// comment created in the same second.
+func TestCommentFeedSubSecondSince(t *testing.T) {
+	since := time.Date(2026, 10, 26, 12, 0, 0, 500_000_000, time.UTC)
+	var asked string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/board/issues/comments", func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.Query().Get("since")
+		io.WriteString(w, "["+ghCommentJSON(1, "issues/7", "a", "User", "2026-10-26T12:00:00Z", "2026-10-26T12:00:00Z")+"]")
+	})
+	got, next, err := newJamClient(t, mux).CommentFeedCursor(context.Background(), since, 100)
+	if err != nil || asked != "2026-10-26T12:00:00Z" || len(got) != 1 || got[0].ID != "1" {
+		t.Fatalf("feed = %+v, since=%q, %v; want comment 1 kept", got, asked, err)
+	}
+	if next.Before(since) {
+		t.Fatalf("next = %v; moved back before since %v", next, since)
+	}
+}
+
+// A GitHub App installation token can't call GET /user: Viewer says so with
+// tracker.ErrNoViewer, which the relay tells apart from an outage.
+func TestViewerAppToken(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /user", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"message":"Resource not accessible by integration","status":"403"}`)
+	})
+	if _, err := newJamClient(t, mux).Viewer(context.Background()); !errors.Is(err, tracker.ErrNoViewer) {
+		t.Fatalf("Viewer with an App token = %v; want ErrNoViewer", err)
+	}
+	other := http.NewServeMux()
+	other.HandleFunc("GET /user", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"message":"Bad credentials"}`)
+	})
+	if _, err := newJamClient(t, other).Viewer(context.Background()); err == nil || errors.Is(err, tracker.ErrNoViewer) {
+		t.Fatalf("Viewer with a bad token = %v; want a plain error", err)
+	}
+}
+
+// An error after a page was read returns no comments, so the cursor must
+// stay at since: the comments read before the error are read again.
+func TestCommentFeedCursorHoldsOnError(t *testing.T) {
+	since := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos/acme/board/issues/comments", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			w.Header().Set("Retry-After", "30")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Link", `<https://api.github.com/repos/acme/board/issues/comments?page=2>; rel="next"`)
+		io.WriteString(w, "["+ghCommentJSON(1, "issues/7", "a", "User", "2026-10-26T12:05:00Z", "2026-10-26T12:05:00Z")+"]")
+	})
+	got, next, err := newJamClient(t, mux).CommentFeedCursor(context.Background(), since, 100)
+	var rl *tracker.RateLimitError
+	if !errors.As(err, &rl) || got != nil || !next.Equal(since) {
+		t.Fatalf("feed = %+v, next %v, %v; want a rate limit, no comments, cursor at since", got, next, err)
 	}
 }

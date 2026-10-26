@@ -6,6 +6,7 @@ package tracker
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
@@ -44,6 +45,11 @@ type FeedComment struct {
 	IssueIdentifier string // the ticket key
 	ParentID        string // the comment replied to ("" = top level; GitHub has none)
 }
+
+// ErrNoViewer is Viewer's answer when the token has no user to name (a
+// GitHub App installation token can't call GET /user). The relay then
+// relies on dropping bot authors rather than treating it as an outage.
+var ErrNoViewer = errors.New("tracker: the token has no viewer identity")
 
 // RateLimitError is a tracker's refusal to answer until RetryAfter has
 // passed. Callers back off rather than retry at once.
