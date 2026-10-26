@@ -460,14 +460,19 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	s.logContextWarnings(spec.ActorID, bundle)
 	spec.Context = &bundle
 	creds := LaunchCreds{IdentityToken: tok, LaunchSecret: secret}
-	loc, err := s.launcher.Raise(ctx, spec, creds)
+	placed, err := s.raiseOn(ctx, spec, creds)
 	if errors.Is(err, ErrKitNotReady) && draft == nil {
 		// The launcher lacks this kit: send it the full definition (from the
 		// registry, unless Raise resolved it) and retry once. A still-preparing
 		// build does not block — the raise fails and the caller's reconcile
 		// retries on a later tick.
 		var ran KitDefinition
-		if loc, ran, err = s.prepareKitAndRetry(ctx, &spec, actor, creds, def); err == nil {
+		var knr *KitNotReadyError
+		var manager string
+		if errors.As(err, &knr) {
+			manager = knr.Manager
+		}
+		if placed, ran, err = s.prepareKitAndRetry(ctx, manager, &spec, actor, creds, def); err == nil {
 			def = &ran // the definition prepared and run
 		}
 	}
@@ -482,7 +487,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
 		Mission:  NormalizeMission(spec.Mission),
-		Location: loc, Phase: PhaseLive, Activity: ActivityRunning,
+		Manager: placed.Manager, Location: placed.Location, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
 		RaisedAt:         now, LastSeen: now,
@@ -490,7 +495,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		CommitSeq: s.tailSeq(), // CommitCursor stays "" — the cove has read nothing yet, this is an ordering baseline, not an echoable id
 		Egress:    EgressFingerprint(spec.Egress),
 		Kit:       spec.Kit,
-		ImageTag:  s.imageTag(spec.Kit),
+		ImageTag:  s.imageTagOn(placed.Manager, spec.Kit),
 	}
 	if def != nil && def.Ref == spec.Kit {
 		inst.KitChain = chainRefs(def.Chain)
@@ -731,9 +736,28 @@ func (c *kitRefCache) put(k kitRefKey, r KitRef) {
 	c.misses++
 }
 
-// imageTag is the tag the launcher runs ref under; "" for no kit or a launcher
-// that cannot name its images (the one ImageTagger guard).
-func (s *Supervisor) imageTag(ref KitRef) string {
+// raiseOn raises through the launcher, recording which manager hosts the cove
+// when the launcher places raises; otherwise the Manager stays "".
+func (s *Supervisor) raiseOn(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (Placed, error) {
+	if pl, ok := s.launcher.(PlacingLauncher); ok {
+		return pl.RaiseOn(ctx, spec, creds)
+	}
+	loc, err := s.launcher.Raise(ctx, spec, creds)
+	return Placed{Location: loc}, err
+}
+
+// imageTag is the tag the launcher runs ref under on its default manager.
+func (s *Supervisor) imageTag(ref KitRef) string { return s.imageTagOn("", ref) }
+
+// imageTagOn is the tag manager runs ref under ("" = the default); "" for no kit
+// or a launcher that cannot name its images (the one ImageTagger guard).
+func (s *Supervisor) imageTagOn(manager string, ref KitRef) string {
+	if ref.ID == "" {
+		return ""
+	}
+	if pl, ok := s.launcher.(PlacingLauncher); ok && manager != "" {
+		return pl.ImageTagOn(manager, ref)
+	}
 	t, ok := s.launcher.(ImageTagger)
 	if !ok || ref.ID == "" {
 		return ""
@@ -799,17 +823,20 @@ func (s *Supervisor) logImageErr(project, role string, err error) {
 // caller's reconcile loop retries the raise on a later tick, by which point the
 // build may be done. The caller (Raise) rolls back the enrollment on any error
 // this returns.
-func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec *RaiseSpec, actor Actor, creds LaunchCreds, resolved *KitDefinition) (string, KitDefinition, error) {
+//
+// manager is the one that reported the kit missing ("" for a non-placing
+// launcher): the kit is prepared there and the retry is pinned to it.
+func (s *Supervisor) prepareKitAndRetry(ctx context.Context, manager string, spec *RaiseSpec, actor Actor, creds LaunchCreds, resolved *KitDefinition) (Placed, KitDefinition, error) {
 	var def KitDefinition
 	if resolved != nil && resolved.Ref == spec.Kit {
 		def = *resolved
 	} else {
 		d, ok, err := ResolveKitDefinition(s.store, spec.Kit, harnessFor(*spec))
 		if err != nil {
-			return "", KitDefinition{}, err
+			return Placed{}, KitDefinition{}, err
 		}
 		if !ok {
-			return "", KitDefinition{}, fmt.Errorf("kit %s not in registry", spec.Kit)
+			return Placed{}, KitDefinition{}, fmt.Errorf("kit %s not in registry", spec.Kit)
 		}
 		// The chain was re-resolved at the following parents' current versions.
 		// If a parent moved since spec.Kit was keyed, the digest differs: the
@@ -824,21 +851,32 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, spec *RaiseSpec, ac
 		}
 		def = d
 	}
-	status, err := s.launcher.PrepareKit(ctx, def)
+	var status KitStatus
+	var err error
+	pl, placing := s.launcher.(PlacingLauncher)
+	if placing && manager != "" {
+		status, err = pl.PrepareKitOn(ctx, manager, def)
+	} else {
+		status, err = s.launcher.PrepareKit(ctx, def)
+	}
 	if err != nil {
-		return "", KitDefinition{}, fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
+		return Placed{}, KitDefinition{}, fmt.Errorf("prepare kit %s: %w", spec.Kit, err)
 	}
 	if status.State != KitReady {
 		if s.log != nil {
 			s.log.Info("kit preparing; deferring raise to reconcile", "id", spec.ActorID, "kit", spec.Kit.String())
 		}
-		return "", KitDefinition{}, fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
+		return Placed{}, KitDefinition{}, fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
 	}
 	if s.log != nil {
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
 	}
-	loc, err := s.launcher.Raise(ctx, *spec, creds)
-	return loc, def, err
+	retry := *spec
+	if placing && manager != "" {
+		retry.Placement = Placement{Managers: []string{manager}}
+	}
+	placed, err := s.raiseOn(ctx, retry, creds)
+	return placed, def, err
 }
 
 // logContextWarnings logs a raise's session-context warnings — once, at raise,

@@ -152,7 +152,7 @@ func TestPrepareKitAndRetryAdoptsFreshChainDigest(t *testing.T) {
 	mustEnsure(t, store, "web-dev", web) // a following parent moves
 	staleCtx := &sessionctx.Bundle{Core: "STALE"}
 	spec := RaiseSpec{ActorID: "w1", Kit: stale.Ref, Context: staleCtx}
-	_, ran, err := sup.prepareKitAndRetry(context.Background(), &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
+	_, ran, err := sup.prepareKitAndRetry(context.Background(), "", &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestPrepareKitAndRetryUnchangedKeepsSpec(t *testing.T) {
 	}
 	ctxIn := &sessionctx.Bundle{Core: "AS RAISED"}
 	spec := RaiseSpec{ActorID: "w1", Kit: cur.Ref, Context: ctxIn}
-	_, ran, err := sup.prepareKitAndRetry(context.Background(), &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
+	_, ran, err := sup.prepareKitAndRetry(context.Background(), "", &spec, Actor{ID: "w1"}, LaunchCreds{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
