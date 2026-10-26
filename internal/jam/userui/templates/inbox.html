@@ -150,8 +150,8 @@
      attributes are the contract the pane's script reads. */}}
 {{define "thinking-event"}}{{with .PaneEvent}}<div class="te k-{{.Kind}}{{if .IsError}} err{{end}}" data-kind="{{.Kind}}" data-tool="{{.Tool}}" data-tid="{{.ToolUseID}}" data-seq="{{.Seq}}" data-turn="{{.Turn}}" data-stream="{{.StreamID}}" data-at="{{.At.UnixMilli}}" data-error="{{.IsError}}">
   <div class="te-line"><span class="te-icon"></span><b class="te-tool">{{.Tool}}</b> <span class="te-text">{{if .Gap}}{{.Summary}}{{else}}{{.Narrative}}{{end}}</span></div>
-  <div class="te-meta"><span class="te-time"></span><span class="te-status"></span>{{if .TruncatedBytes}}<span class="te-trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}</div>
-  {{if and .Detail (ne .Kind "other")}}<pre class="te-detail" hidden>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="te-note" hidden>… {{.DetailTruncated}} more bytes</div>{{end}}{{end}}
+  <div class="te-meta"><span class="te-time"></span><span class="te-status"></span>{{if .TruncatedBytes}}<span class="te-trunc">✂ {{num .TruncatedBytes}} bytes dropped</span>{{end}}</div>
+  {{if and .Detail (ne .Kind "other")}}<pre class="te-detail" hidden>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="te-note" hidden>… {{num .DetailTruncated}} more bytes</div>{{end}}{{end}}
   {{if eq .Kind "result"}}<span class="te-cost" data-cost="{{.CostUSD}}" data-ms="{{.DurationMS}}" data-session="{{.ClaudeSession}}" hidden></span>{{end}}
 </div>{{end}}{{end}}
 

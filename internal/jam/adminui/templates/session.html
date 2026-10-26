@@ -62,13 +62,13 @@
 {{end}}
 {{end}}
 
-{{define "session-totals"}}<div id="totals" class="facts"><span>turns <b>{{.Turns}}</b></span><span>episodes <b>{{.Episodes}}</b></span><span>tool calls <b>{{.ToolCalls}}</b></span><span>tokens <b>{{.InputTokens}}</b> in / <b>{{.OutputTokens}}</b> out</span><span class="chip">${{printf "%.4f" .CostUSD}}</span></div>{{end}}
+{{define "session-totals"}}<div id="totals" class="facts"><span>turns <b>{{num .Turns}}</b></span><span>episodes <b>{{num .Episodes}}</b></span><span>tool calls <b>{{num .ToolCalls}}</b></span><span>tokens <b>{{num .InputTokens}}</b> in / <b>{{num .OutputTokens}}</b> out</span><span class="chip">{{usd .CostUSD}}</span></div>{{end}}
 
 {{define "session-event"}}<div class="ev{{if .IsError}} error{{end}}{{if .Progress}} progress{{end}}{{if .Gap}} gap{{end}}">
   <span class="turn mono">t{{.Turn}}</span>
   <div class="head"><span class="label mono">{{.Label}}</span>{{if .IsError}}<span class="pill phase-lost">error</span>{{end}}
   <span class="summary">{{.Summary}}</span>
-  {{if .TruncatedBytes}}<span class="trunc">✂ {{.TruncatedBytes}} bytes dropped</span>{{end}}</div>
-  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="trunc">… {{.DetailTruncated}} more bytes (see raw JSON)</div>{{end}}</details>{{end}}
+  {{if .TruncatedBytes}}<span class="trunc">✂ {{num .TruncatedBytes}} bytes dropped</span>{{end}}</div>
+  {{if .Detail}}<details><summary>details</summary><pre>{{.Detail}}</pre>{{if .DetailTruncated}}<div class="trunc">… {{num .DetailTruncated}} more bytes (see raw JSON)</div>{{end}}</details>{{end}}
   {{if .Raw}}<details><summary>raw JSON</summary><pre>{{.Raw}}</pre></details>{{end}}
 </div>{{end}}

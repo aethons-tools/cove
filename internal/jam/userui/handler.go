@@ -18,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionview"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 //go:embed templates/*.html
@@ -35,6 +36,7 @@ func mustParse(names ...string) *template.Template {
 	}
 	t := template.Must(template.New("").Funcs(template.FuncMap{
 		"stylesheet": func() string { return uiassets.StylesheetHref("/app/static/") },
+		"num":        numfmt.Of, // an amount, with separators
 		"mb":         func(n int64) int64 { return n >> 20 },
 		// thinkingRow wraps one event for the thinking-event fragment.
 		"thinkingRow": func(v sessionview.EventView) inboxPage { return inboxPage{PaneEvent: &v} },
