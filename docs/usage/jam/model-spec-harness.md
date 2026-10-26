@@ -4,7 +4,7 @@ read_when: You are changing a model-spec's version or plugins and want to know w
 owns: the model-spec → image harness layer (install, plugin seed and enablement, managed settings, rebuild timing), the managed-settings vs. preference classification, and the one-time model-spec store migration (marker, steps, rules, warnings)
 prereqs: model-specs.md for the spec schema and validation
 tier: leaf
-updated: 2026-10-05
+updated: 2026-10-26
 ---
 
 # Model-spec harness layer and migration
@@ -21,9 +21,7 @@ CLI with the native installer at exactly `version` and pre-seeds the plugins
 raise resolves the role's spec **before** the kit image, whose build-digest
 includes them ([kits.md](kits.md)) — so changing `version` or `plugins` builds a
 new image at each role's next raise, and a running cove keeps its image. No
-spec delivered = claude-default's install. A plain at-cove kit's
-[`model-spec:`](../at-cove-config.md#model-spec) block drives the same layer at
-`at-cove install` (none = claude-default's install). **Enablement follows the spec, too:**
+spec delivered = claude-default's install. **Enablement follows the spec, too:**
 the seed enables exactly the installed plugins in the first-boot user settings
 (for interactive sessions), and each episode's `--settings` enables the spec's
 plugins ([model-specs.md](model-specs.md#what-a-cove-applies)); the managed settings enable none. `plugins: []`
@@ -44,7 +42,7 @@ sandbox-wide policy**, which outranks any `--settings` or user setting:
 | `disableRemoteControl: false`, `remoteControlAtStartup: true` | How sessions are reachable — a sandbox decision. |
 | `skipDangerousModePermissionPrompt`, `bypassPermissionsModeAccepted` | The one-time bypass acceptance, so no session stalls on the prompt. |
 | `disableAutoMode: "disable"` | Which permission modes exist is permission policy (`policy.mode` never offers auto). |
-| `permissions.defaultMode: bypassPermissions` | For **interactive** sessions (`at-cove connect`/`chat` run `claude` without the harness argv). A Jam episode's `--dangerously-skip-permissions` / `--permission-mode` flag outranks it ([model-spec-policy.md](model-spec-policy.md)). |
+| `permissions.defaultMode: bypassPermissions` | For **interactive** sessions (a `claude` run without the harness argv, e.g. over SSH into a studio). A Jam episode's `--dangerously-skip-permissions` / `--permission-mode` flag outranks it ([model-spec-policy.md](model-spec-policy.md)). |
 
 Model-specs may not set these keys ([validation](model-specs.md#validation)).
 
@@ -119,6 +117,3 @@ appended after its rules (the flag applied last), never duplicated; a spec
 already at 16 rules gets a WARN instead. (The scan doesn't know the pool's
 `cred-name`: a spec naming it literally gets a redundant rule — harmless.)
 
-**Plain at-cove kits** run no migration: a kit's
-[`model-spec:`](../at-cove-config.md#model-spec) block is read as written, and
-the removed `model-provider:` block is a load error with its replacement.

@@ -4,7 +4,7 @@ read_when: You want to watch, audit, or export what a managed studio's agent did
 owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the sensitivity stance (operator-only storage and export; content visible to a session's home-channel members in the Thinking tab)
 prereqs: coves.md for the Attach stream and managed studios; serve.md for the serve config and store-postgres; ui-console.md#session-timeline for the browser view
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-26
 ---
 
 # Session events
@@ -104,7 +104,5 @@ Events carry tool inputs and outputs: file contents, command output, possibly
 secrets the agent read. **For now**, anyone who can see a session's home channel sees
 them in `/app/user`'s Thinking tab ([session-view.md](session-view.md#thinking)). The admin timeline and the
 NDJSON export stay operator-only. cove-master's redaction applies (exact match of the
-cove's own secrets only). This is a
-deliberate exception to [observability rule 3](../observability.md) ("raw
-agent/VM output stays VM-local"), which governs the structured log sink, not
-this separate audit channel.
+cove's own secrets only). Raw agent output otherwise stays inside the
+studio; this audit channel is the deliberate exception.

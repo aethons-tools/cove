@@ -56,8 +56,8 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 
 ### The sandbox rules: context over `SANDBOX.md`
 
-A plain at-cove sandbox learns the sandbox rules from the image's `SANDBOX.md`,
-which the seeded `CLAUDE.md` imports ([OVERVIEW](../../OVERVIEW.md#workspace-and-state-volumes)).
+Outside a Jam session an agent learns the sandbox rules from the image's
+`SANDBOX.md`, which the seeded `CLAUDE.md` imports.
 In a Jam session the Boilerplate layer owns them (with the Jam path for changing the
 kit), and they take precedence: the base image's `SANDBOX.md` opens with a two-line
 guard — if `/agent-data/context/CORE.md` exists this is a Jam session, its context

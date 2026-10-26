@@ -32,7 +32,7 @@ import (
 var payloadFS embed.FS
 
 // PayloadFS returns the embedded harness payload (rooted at "payload"), hashed
-// into at-cove's build identity (internal/install.AtCoveIdentity).
+// into the assembly identity (internal/install.AtCoveIdentity).
 func PayloadFS() fs.FS { return payloadFS }
 
 // ContextDir is the build-context directory the harness payload is staged in.
@@ -48,9 +48,8 @@ type Install struct {
 	Plugins []string              `json:"plugins"`
 }
 
-// Default is the install of claude-default: the harness a full config.yml
-// kit without a model-spec: block gets (assemble.HarnessFor), and the one a
-// raise uses when its role delivers no spec.
+// Default is the install of claude-default: the one a raise uses when its
+// role delivers no spec.
 func Default() Install {
 	d := modelspec.Default("")
 	return FromSpec(&d)

@@ -1,9 +1,8 @@
-// Package covemasterbin embeds the linux cove-master binaries into at-cove, so
-// the at-cove that builds a cove image installs the *exact* matching cove-master
-// into the hardening layer — version lockstep, no coordination, no pin to drift
-// (mirrors internal/atswitchboard, COV-135, and internal/attask, COV-36). Both
-// linux arches are embedded regardless of at-cove's own host, since at-cove may
-// build a sandbox for either VM arch.
+// Package covemasterbin embeds the linux cove-master binaries into at-jam, so
+// the launcher that builds a studio image installs the *exact* matching
+// cove-master into the hardening layer — version lockstep, no coordination, no
+// pin to drift. Both linux arches are embedded regardless of the host, since a
+// studio may run on either VM arch.
 package covemasterbin
 
 import (
@@ -14,7 +13,7 @@ import (
 
 // binFS holds the linux cove-master binaries. Only bin/README + bin/.gitignore
 // are tracked; the binaries (bin/cove-master-linux-{amd64,arm64}) are gitignored
-// build artifacts, staged by scripts/stage-attask.sh before at-cove is built so
+// build artifacts, staged by scripts/stage-covemaster.sh before at-jam is built so
 // this embed picks them up. A fresh checkout embeds just the placeholder, so the
 // package still compiles — Binary then errors actionably at runtime.
 //
@@ -29,15 +28,15 @@ func Binary(goarch string) ([]byte, error) {
 }
 
 // BinFS returns the embedded cove-master binaries as a read-only FS (rooted at
-// "bin"). internal/install hashes it as part of at-cove's build identity for the
-// install currency check (COV-38), so a cove-master rebuild invalidates installs.
+// "bin"). internal/install hashes it as part of the assembly identity (AtCoveIdentity),
+// so a cove-master rebuild retags every studio image.
 func BinFS() fs.FS { return binFS }
 
 func lookup(fsys fs.FS, goarch string) ([]byte, error) {
 	name := "bin/cove-master-linux-" + goarch
 	b, err := fs.ReadFile(fsys, name)
 	if err != nil {
-		return nil, fmt.Errorf("embedded cove-master for linux/%s not staged — run scripts/stage-attask.sh (or use a release build): %w", goarch, err)
+		return nil, fmt.Errorf("embedded cove-master for linux/%s not staged — run scripts/stage-covemaster.sh (or use a release build): %w", goarch, err)
 	}
 	if len(b) == 0 {
 		return nil, fmt.Errorf("embedded cove-master for linux/%s is empty", goarch)

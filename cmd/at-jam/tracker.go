@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
 	"github.com/aethons-tools/cove/internal/dispatch/linear"
-	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/tracker"
 )
 
@@ -25,8 +25,10 @@ func openTracker(d *requisitionerConfig, token string, httpc *http.Client) (trac
 		}
 		return c, nil
 	}
-	// linear.New wants a full kit.Config; wrap the configured LinearTracker.
-	c, err := linear.New(kit.Config{Tracker: &kit.Tracker{Linear: d.Linear}}, token, httpc)
+	if d.Linear == nil {
+		return nil, fmt.Errorf("linear: no linear tracker configured")
+	}
+	c, err := linear.New(*d.Linear, token, httpc)
 	if err != nil {
 		return nil, err
 	}

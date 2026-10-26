@@ -4,7 +4,7 @@ read_when: You need to know what survives a standing session's restart or upgrad
 owns: a standing session's state volumes (names, mounts, labels, the per-Jam sweep scope), conversation resume on restart, and the rule that no teardown deletes state
 prereqs: standing-sessions.md for declarations, reset and dismissal
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-26
 ---
 
 # Standing session state
@@ -15,7 +15,7 @@ that outlive the container, so a restart (a crash, a Jam restart, an
 left off. Only the standing reconciler deletes them.
 
 A standing studio mounts two named Docker volumes, named after its container
-(`atcove-cove-<session id>`) like an `at-cove create` sandbox's:
+(`atcove-cove-<session id>`):
 `<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
 conversations, settings, logs) and `<container>-workspace` at the agent's working
 directory (`/home/agent/workspace` by default). They are the **session's**. A

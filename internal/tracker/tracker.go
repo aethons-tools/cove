@@ -22,6 +22,10 @@ const (
 // own (a Linear uuid, a GitHub issue number); identifiers are ticket keys
 // ("AET-42", "owner/repo#12").
 type Tracker interface {
+	// ListReady returns READY issues whose blockers are all done (or that
+	// have none). Blocked-ness lives in the issue's relations, not its
+	// state: nothing promotes BLOCKED to READY, and a READY issue still
+	// waiting on a blocker is simply not returned (COV-65).
 	ListReady(ctx context.Context) ([]scheduler.Issue, error)
 	Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error)
 	Transition(ctx context.Context, issueID string, role scheduler.Role) error

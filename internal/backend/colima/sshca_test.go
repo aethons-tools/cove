@@ -12,7 +12,7 @@ import (
 // with the public key on stdin — never on argv.
 func TestInstallSSHUserCAExecsHelperWithStdin(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
 
 	var ca backend.SSHCA = c
@@ -36,7 +36,7 @@ func TestInstallSSHUserCAExecsHelperWithStdin(t *testing.T) {
 // The helper's rejection message lands in the error.
 func TestInstallSSHUserCAErrorCarriesHelperOutput(t *testing.T) {
 	r := stderrRunner{Fake: &runner.Fake{}, stderr: "install-ssh-ca: stdin must be one ssh-ed25519 public key line\n"}
-	c := New(r).(*Colima)
+	c := NewWithContext(r, "")
 	err := c.InstallSSHUserCA("sbx-1", []byte("ssh-rsa AAAA\n"))
 	if err == nil || !strings.Contains(err.Error(), "install-ssh-ca: stdin must be one ssh-ed25519 public key line") {
 		t.Fatalf("err = %v; want the helper's message", err)

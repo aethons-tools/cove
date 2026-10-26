@@ -38,6 +38,15 @@ func TestOpenTrackerPicksTheBlock(t *testing.T) {
 	}
 }
 
+// F6: a requisitioner with neither block is a soft error, never a nil
+// dereference.
+func TestOpenTrackerNoBlockIsAnError(t *testing.T) {
+	trk, err := openTracker(&requisitionerConfig{}, "tok", nil)
+	if err == nil || trk != nil || !strings.Contains(err.Error(), "no linear tracker configured") {
+		t.Fatalf("openTracker(no block) = %v (%T); want a nil interface and the no-tracker error", err, trk)
+	}
+}
+
 func TestTicketerOnBothTrackers(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range trackertest.Both(t) {

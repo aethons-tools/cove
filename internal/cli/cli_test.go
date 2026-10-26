@@ -116,7 +116,7 @@ func TestGlobalsParseLogFlags(t *testing.T) {
 }
 
 // TestGlobalsLogLevelDefaultsEmpty guards the AT_LOG_LEVEL env fallback on the
-// dispatch path (cmd/at-cove's logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")): envOr only
+// dispatch path (logging.EnvOr(g.LogLevel, "AT_LOG_LEVEL")): envOr only
 // consults the environment when the flag is at its zero value, so
 // --log-level's flag.String default must be "" (not "info") or the env var
 // is silently ignored. logging.LevelFrom("") still maps to slog.LevelInfo, so the

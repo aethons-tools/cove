@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
-	"github.com/aethons-tools/cove/internal/switchboard"
 )
 
 // fakeDiscordClient is a fake discordClient: records PostID calls, returns a
@@ -24,7 +24,7 @@ type fakeDiscordClient struct {
 	posts      []struct{ channel, content string }
 	postID     string
 	postErr    error
-	pollMsgs   []switchboard.Message
+	pollMsgs   []discord.Message
 	pollNext   map[string]string
 	pollErr    error
 	gotCursors map[string]string
@@ -38,7 +38,7 @@ func (f *fakeDiscordClient) PostID(_ context.Context, ch, c string) (string, err
 	return f.postID, nil
 }
 
-func (f *fakeDiscordClient) Poll(_ context.Context, cur map[string]string) ([]switchboard.Message, map[string]string, error) {
+func (f *fakeDiscordClient) Poll(_ context.Context, cur map[string]string) ([]discord.Message, map[string]string, error) {
 	f.gotCursors = cur
 	return f.pollMsgs, f.pollNext, f.pollErr
 }
@@ -141,7 +141,7 @@ func TestDiscordDeliverSwallowsReceiptErrorNilLogger(t *testing.T) {
 
 func TestDiscordPollMapsReplies(t *testing.T) {
 	fc := &fakeDiscordClient{
-		pollMsgs: []switchboard.Message{{ID: "m2", Channel: "inbox-A", Author: "alice", Content: "re", ReferencedID: "D1"}},
+		pollMsgs: []discord.Message{{ID: "m2", Channel: "inbox-A", Author: "alice", Content: "re", ReferencedID: "D1"}},
 		pollNext: map[string]string{"inbox-A": "m2"},
 	}
 	s := &discordSurface{dial: func([]string) discordClient { return fc }, channelsFor: func(string) []string { return []string{"inbox-A"} }}
@@ -160,7 +160,7 @@ func TestDiscordPollMapsReplies(t *testing.T) {
 
 func TestDiscordPollCarriesAuthorIDAndBotFlag(t *testing.T) {
 	fc := &fakeDiscordClient{
-		pollMsgs: []switchboard.Message{
+		pollMsgs: []discord.Message{
 			{ID: "m1", Channel: "inbox-A", Author: "alice", AuthorID: "111", Content: "hi"},
 			{ID: "m2", Channel: "inbox-A", Author: "botty", AuthorID: "222", AuthorBot: true, Content: "beep"},
 		},

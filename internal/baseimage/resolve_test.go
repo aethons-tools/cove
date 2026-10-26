@@ -78,7 +78,7 @@ func TestResolveBaseTag(t *testing.T) {
 }
 
 func TestResolveDockerfile(t *testing.T) {
-	// A kit image/Dockerfile → at-cove builds it; the built ID is the base.
+	// A kit Dockerfile → the launcher builds it; the built ID is the base.
 	const builtID = "sha256:builtlocal"
 	d := &fakeDocker{
 		buildID: builtID,

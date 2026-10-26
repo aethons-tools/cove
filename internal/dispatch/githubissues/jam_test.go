@@ -27,7 +27,7 @@ func (s serverTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func jamTracker() kit.GitHubTracker {
-	return kit.GitHubTracker{Repo: "acme/board", ClassLabelPrefix: "class:", States: testCfg().Tracker.GitHub.States}
+	return kit.GitHubTracker{Repo: "acme/board", ClassLabelPrefix: "class:", States: testStates()}
 }
 
 func newJamClientToken(t *testing.T, h http.Handler, token string) *Client {
@@ -155,44 +155,6 @@ func TestRenamedRepoRedirects(t *testing.T) {
 	}
 	if auth != "Bearer tok" || !strings.Contains(body, `"body":"hi"`) {
 		t.Fatalf("redirected POST auth=%q body=%q", auth, body)
-	}
-}
-
-// F8: at-cove's New is unchanged by the Jam work — "#N" identifiers, no
-// dispatch gate (DispatchLabeled stays false, even with a prefix configured),
-// and the search hits are returned unfiltered.
-func TestNewKeepsAtCoveOutputs(t *testing.T) {
-	cfg := testCfg()
-	cfg.Tracker.GitHub.DispatchLabelPrefix = "dispatch:"
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"items":[
-		 {"number":7,"state":"open","labels":[{"name":"status:ready"},{"name":"dispatch:go"},{"name":"class:impl"}]},
-		 {"number":8,"state":"open","labels":[{"name":"status:ready"}],"pull_request":{"url":"x"}},
-		 {"number":9,"state":"closed","labels":[{"name":"status:ready"}]}]}`)
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	u, _ := url.Parse(srv.URL)
-	c, err := New(cfg, "tok", &http.Client{Transport: serverTransport{u}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	got, err := c.ListReady(context.Background())
-	if err != nil {
-		t.Fatalf("ListReady: %v", err)
-	}
-	want := []string{"#7", "#8", "#9"}
-	if len(got) != len(want) {
-		t.Fatalf("ListReady = %+v; want %v", got, want)
-	}
-	for i, iss := range got {
-		if iss.Identifier != want[i] || iss.DispatchLabeled {
-			t.Errorf("issue %d = %+v; want Identifier %q, DispatchLabeled false", i, iss, want[i])
-		}
-	}
-	if got[0].Class != "impl" {
-		t.Errorf("class = %q; want impl", got[0].Class)
 	}
 }
 

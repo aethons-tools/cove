@@ -1,24 +1,31 @@
 ---
-summary: What at-cove is and how it fits together — the kit format, the command surface, the security model, the architecture, and how to build/test/run.
-read_when: You need what at-cove is, the kit format, the `at-cove` command surface, the security model, or the architecture before changing or running it.
-owns: the project overview: kit format, at-cove command surface, security model, architecture, package map
+summary: What this repo builds and how it fits together — the studio image Jam assembles (harness + sealed hardening), its egress tiers and base gate, the package map, and how to build/test/run.
+read_when: You need what this repo builds, the studio image's security model, the package map, or how to build/test/run.
+owns: the project overview: studio image assembly, security model, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
-# at-cove — Project Overview
+# cove — Project Overview
 
-`at-cove` is a small, dependency-light Go CLI that runs **hardened Claude Code sandboxes**.
-You describe a sandbox once in a `.at-cove/` kit directory,
-and `at-cove` provisions a locked-down VM,
-SSHes into it,
-injects your secrets in memory only,
-and launches `claude` interactively.
+> **Interim (jam-only slice 2).** The standalone `at-cove` CLI, the in-sandbox
+> `at-task` worker and the `at-switchboard` Discord conductor are deleted; Jam
+> (`at-jam`) is the only way this repo runs agents. This overview keeps what is
+> still true — the image every studio is built from, its hardening and egress
+> tiers, the package map, building and testing — and still uses some
+> at-cove-era words (a kit's `config.yml`, `image.allowed-domains`) where a
+> studio kit now has `kit.yml` and `egress:`. Slice 4 of the
+> [jam-only design](superpowers/specs/2026-10-26-jam-only-design.md) rewrites it.
+
+This repo builds Jam and the **hardened Claude Code studios** it runs: Jam's
+launcher assembles each studio image (a kit base, the harness layer, then the
+sealed hardening layer), raises it in Colima, brokers its credentials, and
+starts `cove-master`, the in-studio agent supervisor.
 
 - **Module:** `github.com/aethons-tools/cove`
-- **Binary:** `at-cove`
-- **Dependencies:** standard library plus `gopkg.in/yaml.v3` (config parsing) — no CLI framework.
+- **Binaries:** `at-jam` (the service and its CLI), `at-mint` (host-side token minter), `cove-master` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
+- **Dependencies:** see `go.mod` — no CLI framework.
 
 ## Why it exists
 
@@ -26,24 +33,20 @@ Running an autonomous coding agent against your real machine is risky:
 it can exfiltrate secrets,
 reach arbitrary network destinations,
 or touch files it shouldn't.
-`at-cove` puts the agent inside a sandbox with three properties baked in:
+The launcher puts the agent inside a sandbox with three properties baked in:
 
 1. **Egress is locked down** —
    the VM can only reach an allow-listed set of domains (Anthropic, GitHub, PyPI, …)
    through an in-VM Squid proxy,
    with `nftables` dropping everything else.
-   The allow-list is **additive across three tiers** — a sealed base, the kit's
-   baked root list, and a per-session, per-class delta applied at session start
-   (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)) —
-   so a kit can *widen* egress for one worker or collaborator class without ever
-   weakening the sealed base. A user's own kit files can never weaken this.
+   The allow-list is **additive** — a sealed base, an always-on infra list and the
+   kit's list, which a Jam role's policy may replace within the kit's ceiling (see
+   [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)) —
+   so a kit can *widen* egress without ever weakening the sealed base. A user's own kit files can never weaken this.
 2. **Secrets never touch disk or the host process table** —
-   they are resolved on the host just-in-time at `chat`/`work`/`dispatch` time,
-   streamed into the VM over SSH stdin into a tmpfs file,
-   sourced,
-   and deleted.
-   Nothing is persisted,
-   nothing appears in `ps` or shell history.
+   Jam's broker holds the real credentials and a studio holds only a scoped identity
+   token ([connector](usage/jam/connector.md)); what a raise stages into the studio
+   (cove-master's env and prompt) goes over SSH stdin into tmpfs, never argv or disk.
 3. **The hardening is foolproof** —
    the security-critical files (egress rules, sshd config, entrypoint) ship embedded in the binary
    and are layered on *last*,
@@ -51,281 +54,14 @@ or touch files it shouldn't.
    Agent docs and skills are not security-critical:
    they ship in the kit base (`cove-base-image`), so a kit can override them.
 
-The governing design principle is **SSH as the universal interface**:
-backends differ only in how a VM is provisioned and how its `sshd` is reached.
-Once a backend hands `chat` a `host:port` and a key,
-everything downstream — host-key trust, secret injection, launching `claude` — is identical.
-
-## The kit: `.at-cove/`
-
-A kit is always a directory,
-by convention `.at-cove/` at a repo root.
-Commands with no explicit path **walk up from the cwd** to the nearest `.at-cove/` (git-style),
-so they work from subdirectories.
-
-```
-repo/
-  .at-cove/
-    config.yml        # the spec: name, secrets, workers, image
-    image/            # Docker build context for image/Dockerfile (selects/builds the base); not overlaid
-    .state/           # records the running instance (state.json) + lockfile (gitignored)
-    .build/           # assembled build context (gitignored)
-```
-
-at-cove keeps a managed `.gitignore` in the kit covering `.build/` and `.state/` — written whenever a build context is assembled (`install`) or instance/install state is saved (`create`/`recreate`), so no command can leak those artifacts into git.
-
-### `config.yml`
-
-Lean — identity and wiring only.
-No secret *values* and no hardening knobs (a collaborator may opt its VM into
-sharing the kit repo dir via [`share-repo-dir`](usage/at-cove-config.md#collaborators)).
-
-```yaml
-name: claude-on-myrepo          # sandbox/VM name; also keys the per-sandbox known_hosts
-source-control:                 # the target repo (required for `dispatch`)
-  github:
-    project: acme/myrepo
-    main-branch: main
-```
-
-`name` is the only always-required field;
-`source-control` (the target repo — a **GitHub or GitLab** union driving repo identity,
-the clone URL, and the PR/MR client; required for `dispatch`, the single source of the
-repo), `secrets`, `workers` (the classes `at-cove work` can launch), and `image`
-(the base to harden via `image.base` — mutually exclusive with an `image/Dockerfile` — plus additive build customization) are optional.
-The full field-by-field schema, validation, and a complete example live in
-[`docs/usage/at-cove-config.md`](usage/at-cove-config.md);
-the secret model — kits **demand** secrets by name only, the machine **supplies**
-values out of source control — lives in
-[`docs/usage/at-cove-secrets.md`](usage/at-cove-secrets.md).
-
-> **Trust boundary:** a kit's `secrets:` entries carry a name and a description
-> only — never a command, a value, or a machine-specific identifier. Every value
-> is supplied host-side, from `~/.config/at-cove/secrets.yml`/`secrets.local.yml`
-> (never committed), keyed explicitly per kit. A committed `config.yml` can never
-> smuggle in a resolver command of its own. See
-> [at-cove-secrets.md](usage/at-cove-secrets.md).
-
-## Command surface
-
-Every command takes an optional project root via the `--project-dir DIR` flag:
-the kit is `<DIR>/.at-cove`, so a project root **must** hold a `.at-cove/`
-(otherwise the command errors — `no .at-cove/ at project root <DIR>`). Omitted,
-the command walks up from the cwd to the nearest ancestor containing `.at-cove/`
-(run-from-anywhere). This encodes the "kit at the project root" convention as an
-invariant. There is no positional project-dir on any command — `chat`'s one
-positional is the optional collaborator (below), not the project dir. The
-flag-only commands (`install`/`uninstall`/`work`/`dispatch`) take **no** positional
-at all: a stray one is a usage error (exit 2, `takes no positional arguments (use
---project-dir)`), matching how the interactive verbs reject extra positionals
-(COV-73).
-
-**Usage errors are uniform (COV-94):** a bad argument — a stray positional, a
-too-many/unknown **collaborator**, or a `--project-dir` pointing at no kit — exits
-**2** on **stderr**; a subcommand's `-h`/`--help` prints its usage to **stdout** and
-exits **0** (matching the top-level `at-cove -h`). Runtime failures (a doomed run,
-a backend error) stay exit 1.
-
-**The install lifecycle** — `config.yml → install → install.json → run commands`.
-`config.yml` is *source*; [`at-cove install`](#how-the-build-context-is-assembled)
-compiles it once — resolve + **gate** the base, `docker build` + tag, freeze the
-resolved run-config — into `.state/install.json`, the *compiled manifest*. Every
-other command (`create`/`recreate`/`chat`, `work`/`dispatch`) reads `install.json`
-(never `config.yml`), verifies it is still **current** (a cheap, offline
-source-hash check), and **consumes the pre-built image** — a missing or stale
-install fails fast with `run at-cove install`. There is no separate `build`
-command, and no run command builds inline; the provenance gate and
-`--allow-unverified-base` live only on `install`, the one place a base is built.
-`at-cove uninstall` is its inverse — it removes the compiled artifact (image +
-`install.json`), returning the kit to "not installed". This is distinct from
-`destroy`, which tears down the running *instance* (container + volumes) but keeps
-the image; only `uninstall` removes the image.
-
-| Command | Behavior |
-|---|---|
-| `at-cove install [--project-dir DIR] [--allow-unverified-base] [--assemble-only] [--no-cache]` | Compile the kit: assemble `<kit>/.build/`, then **build + gate + tag** the hardened image via the backend and freeze the resolved result into `.state/install.json`. The single build+gate path and the **only** home of `--allow-unverified-base`. `--assemble-only` materializes `<kit>/.build/` for inspection and stops (no docker, no manifest — the old `build`'s assemble+inspect use). `--dry-run` is a pure preview: it assembles nothing and touches no docker/keys/manifest. `--no-cache` bypasses docker's layer cache for the build, forcing the build-time `claude`/plugin install to re-run (use it to pick up a newer Claude Code without other kit changes). |
-| `at-cove create [collaborator] [--project-dir DIR]` | Verify the install is current, then **run the pre-built image** from `.state/install.json` (no build — that is `install`'s job). Secret-free. Records the instance in its per-instance state file (image sourced from the manifest). The optional positional selects a `collaborators:` class, **keying the instance** (see [Per-collaborator instances](#per-collaborator-interactive-instances)); a no-collaborator kit uses the plain `Interactive` instance (`state.json`). A missing/stale install errors `run at-cove install`. The selected collaborator's [`share-repo-dir`](usage/at-cove-config.md#collaborators) picks Shared (bind-mount of the kit repo dir) vs Isolated — see [Workspace and state volumes](#workspace-and-state-volumes). |
-| `at-cove chat [collaborator] [--project-dir DIR] [--raw] [--no-auth] [--fresh]` | Resolve secrets, dial the backend, verify host key (TOFU), inject env + the selected collaborator's role, launch `claude`. Run every session. Reads its run-config (collaborators, secret demands) from the current `.state/install.json` — never `config.yml`. The optional leading positional selects a `collaborators:` class (sole/`default: true`/error-if-ambiguous; omitted with none defined launches a plain session — see [below](#the-chat-command-and-collaborator-sessions)), **keying the instance** it operates on (see [Per-collaborator instances](#per-collaborator-interactive-instances)). `--raw` drops to `bash`; `--no-auth` skips the login step; `--fresh` starts a new agent session. |
-| `at-cove recreate [collaborator] [--project-dir DIR]` | Destroy the resolved instance's container and **re-run the installed image** (no rebuild), **keeping the volumes** (saved login + workspace). The optional positional selects the collaborator instance, mirroring `chat`. The recorded workspace mount (shared repo dir vs isolated) is recovered from that instance's state, not re-read from config. Verifies currency first, so a stale/missing install fails before teardown. The UAT re-run loop. |
-| `at-cove destroy [collaborator] [--project-dir DIR] [--all]` | Force-remove the resolved instance's container **and its volumes**, then delete its state file — teardown of the running *instance*. The optional positional selects the collaborator instance (mirroring `chat`); `--all` removes **every** instance of the kit. Unlike `create`/`recreate`/`chat`, it tolerates a stale/absent install (you can always tear down what you created). The **installed image is kept** — it is an `install` artifact, not a per-create build (a re-`install` overwrites it); removing it would break `recreate` and leave `install.json` pointing at a deleted image. To tear down the *build artifact*, use `uninstall`. |
-| `at-cove uninstall [--project-dir DIR]` | The inverse of `install`: remove the compiled *build artifact* — `docker rmi` the image (via the backend) **and** delete `.state/install.json` — returning the kit to "not installed" (a later `create`/`chat` then reports `run at-cove install`). **Refuses while any created instance exists** (an instance — plain or per-collaborator — holds the image), pointing at `at-cove destroy --all` first. **Idempotent**: if `install.json` is present but the image is already gone, it still deletes the manifest (best-effort `rmi`); a not-installed kit is a friendly no-op. `--dry-run` reports the image + manifest it would remove without touching anything. It is the **only** command that removes the image (`destroy`/`recreate` never do — that was the COV-63 bug). |
-| `at-cove update [--version TAG] [--dry-run]` | Update the on-PATH `at-cove`/`at-mint`/`at-jam` binaries to a GitHub release by driving the **embedded** [`install.sh`](#installing-the-binaries) (resolve → download → **verify `checksums.txt`** → replace) — never reimplementing that flow, and never fetching the script over the network. Self-contained: works for a `curl \| bash`-installed user with no repo checkout. `--version TAG` (equivalently `COVE_VERSION`) pins a release; unset resolves the latest via the installer's own `resolve_version`. **No-ops** with "already up to date" when the running version already matches. Honors the installer's `BINDIR`/`COVE_SYSTEM`/`COVE_REPO` env knobs (inherited). `--dry-run` prints the intent and resolves/replaces nothing. Unlike the kit commands it takes no `--project-dir` — it updates the installation, not a kit. `at-jam update` is the same command (shared `internal/update`), so a Jam host updates itself without needing at-cove. |
-| `at-cove status [collaborator] [--project-dir DIR]` | With no positional, **list every instance** of the kit (class, running state, container, workspace mode). With a collaborator positional, show just that one instance's `running` / `stopped` / `absent`. Tolerates a stale/absent install. |
-| `at-cove view [collaborator] [--project-dir DIR] [--write]` | Print (or `--write` to `~/.ssh/config`) a VS Code Remote-SSH `Host` block plus a `git remote add` line for the resolved instance's workspace — connects over the same sandbox `sshd` `chat` uses, no new service or egress domain. See [workspace visibility](usage/workspace-visibility.md). |
-| `at-cove ssh-proxy [collaborator] [--project-dir DIR]` | The `ProxyCommand` transport the `view` config invokes: resolves the instance and relays stdio to its current (rotating) SSH port. Internal — not run directly. |
-| `at-cove teammate <class> [--project-dir DIR]` | Launch the standing Discord conductor (`at-switchboard`) into an already-created `teammates:` class instance: seed the saved OAuth login, stage the class's bot token + channels, apply its Discord egress (persists — no clear-on-exit), and start the conductor **detached** over a non-tty SSH. Fail-loud with no auto-restart — re-run to restart a dead conductor. See [discord-teammate.md](usage/discord-teammate.md). |
-| `at-cove version` | Print the build version. |
-| `at-cove work [--project-dir DIR] --in <f> --out <f> [--timeout] [--grace] [--reap]` | Run one unit of work in a fresh ephemeral hardened VM. Reads `.state/install.json`, **verifies the install is current** (fails fast with `run at-cove install` if missing/stale), then runs the **pre-built installed image** — it never builds. Injects `--in` as the task, runs the **at-task worker bracket** (`prepare` → agent → `complete`) for the task's `worker.class`, extracts the result to `--out`, destroys. Scavenges crashed dispatch orphans. |
-| `at-cove dispatch [--project-dir DIR]` | Poll the tracker and dispatch ready work via `at-cove work`. Reads its tracker/source-control/dispatch/workers run-config from `.state/install.json` (fails fast with `run at-cove install` if missing/stale); dispatched `work` units consume the one warm installed image — no per-unit build. |
-
-Global `--dry-run` (before the subcommand) prints the planned actions —
-exact backend/SSH argv included —
-without executing anything. It is uniformly **side-effect-free** across every
-command: no host secret resolver runs, no tracker connect, and nothing is written
-into the kit (`install --dry-run` assembles nothing — use `--assemble-only` for
-that; `chat`/`dispatch --dry-run` resolve no secrets and reach no tracker).
-Flags specific to a command (e.g. `--raw`, `--project-dir`) go *after* the
-command name; each command only accepts its own flags.
-
-Three more global flags (also before the subcommand) configure structured
-logging: `--log-mode attended|unattended` (default: auto-detect via TTY),
-`--log-level debug|info|warn|error` (default `info`), and `--no-log-file`
-(suppress the attended-mode log file). `dispatch` and `work` wire them into a
-per-run `internal/logging` logger: **attended** (TTY) mode writes human text to
-stderr plus a JSON debug file under `<kit>/.state/logs/`; **unattended**
-(headless — the normal way `dispatch` runs) writes JSON to stderr only, for the
-platform to capture. One dispatch is correlated end-to-end — host scheduler →
-`at-cove work` (via a `COVE_RUN_ID` handoff) → the VM's merged records — by a
-shared `run` id plus `issue`/`class`/`step` attrs. The output-mode model, the
-log-file locations, the correlation contract, and the secrets-never-in-logs
-invariant are the [observability reference](usage/observability.md); the full
-design is [the structured-logging design spec](superpowers/specs/2026-07-15-structured-logging-design.md).
-
-**VM output capture, demux, and merge.** Rather than let the VM's SSH channel
-spill raw and undemuxed to the host console, `dispatchrun` uses the runner's
-writer-injection seam to **capture** each bracket step's output. The two streams
-are **demuxed**: `at-task`'s structured JSONL arrives on **stderr** and is
-**merged** into the host stream — each record re-emitted through the host logger
-so it inherits the run/issue/class context, with the layer `step` grafted on; an
-unparseable line is not dropped but logged at **debug** as raw, scrubbed of any
-known secret value (the redaction backstop). The **agent's** raw output is
-demuxed the other way: teed to a **VM-local file** (`.at-task/agent.log`) and
-never shipped to the structured sink — it is only scanned in memory to classify
-the run. After the bracket, `dispatchrun` emits one self-attributing
-**agent-outcome** record — `ok` / `needs-input` / `error`, with `auth_failed` (a
-`401`) and egress-wall (a squid denial — the same signal the [egress-wall NEEDS
-INPUT detection](orchestration/at-cove-work-interface.md#egress-wall-denials-surface-as-needs-input)
-uses) classification hooks — so a bare agent `401` becomes a structured,
-correlated record instead of an opaque console line.
-`at-task` itself emits structured `slog` JSONL to its stderr, each record tagged
-with a `step` attr (`prepare`/`complete`) that self-identifies its layer and
-secret-free by construction (only self-owned fields; any error text is scrubbed of
-the code-host token before it enters a record), so those records merge cleanly
-rather than falling to the scrubbed debug path.
-
-### The `chat` command and collaborator sessions
-
-`chat` is the interactive command (a hard rename of the former `connect`, no
-alias). Unlike the other state-driven commands, `chat` also reads the resolved
-run-config from `.state/install.json` (never `config.yml`) and verifies the
-install is current — a missing or stale install is a hard error (`run at-cove
-install`), since a collaborator session is defined by that run-config — and uses
-its `collaborators:` tree (see
-[at-cove-config.md](usage/at-cove-config.md#collaborators)) to select a role:
-
-- an explicit `at-cove chat <collaborator>` positional must match a declared
-  class;
-- omitted, with one class defined, that one is used;
-- omitted, with several, the one marked `default: true` (error if none/several
-  are marked);
-- omitted, with none defined, `chat` launches a plain session — no role
-  injected, the exact behavior of the old `connect`.
-
-A collaborator's `prompt:` is injected as session context (not a headless
-`-p`) and states the session's **boundary**: a collaborator session plans and
-grooms the board — turning ideas into well-formed Linear issues, decomposed
-into dispatchable sub-issues — and lets **dispatched `at-cove work` runs do
-the implementation**. The one exception is **review or troubleshooting**,
-where the same session may make direct fixes in place. The session reaches
-GitHub and Linear through the human's own **claude.ai account connectors**
-(subscription OAuth) — never a minted token; token minting stays a `work`/
-`dispatch` concern only. (An isolated workspace is populated by a one-time
-repo clone on first session start — a `chat`-side step whose git token is kept
-out of the agent's session env; see
-[Workspace and state volumes](#workspace-and-state-volumes).) See
-[at-cove-config.md](usage/at-cove-config.md#collaborators) for the schema and
-[the orchestration work interface](orchestration/at-cove-work-interface.md)
-for the dispatched-worker side of that boundary.
-
-**Session-scoped egress.** On start — before the session is handed to the agent —
-`chat` scopes the container's egress to the selected collaborator: it resolves the
-class's `<common> ∪ class` allowed-domains delta from the current `install.json`
-(never `config.yml`) and applies it via `ApplySessionEgress`, so the collaborator
-reaches only its role's domains on top of the baked sealed + root lists. On exit it
-clears the session file (a deferred clear, so it runs on error paths too), reverting
-the idle persistent container to root-only rather than retaining a widened egress. A
-plain session (no collaborator) applies an empty delta — root only. Only one active
-class per persistent container at a time (a single interactive session) — a
-documented constraint, not enforced (COV-39 §5). See the
-[per-class egress design](superpowers/specs/2026-07-19-per-class-egress-design.md)
-and [at-cove-config.md](usage/at-cove-config.md#collaboratorsclassallowed-domains) for
-the config shape.
-
-### State vs. config
-
-`create` records the running instance in a per-instance state file under
-`.at-cove/.state/` (`state.json` for the plain instance, `<class>.json` per
-collaborator — see [Per-collaborator instances](#per-collaborator-interactive-instances));
-**`chat`, `destroy`, and `status` operate on that recorded state, not on `config.yml`**
-(all four additionally read the `.state/install.json` `collaborators:` tree to
-resolve *which* instance a positional selects — never `config.yml`; `chat`/`create`/
-`recreate` require a current install, `destroy`/`status` tolerate a stale/absent one).
-A lockfile guards concurrency, **per instance**:
-`chat` holds a *shared* lock on its instance for the whole session,
-and `destroy` takes an *exclusive* lock on the instance it removes —
-so a sandbox can't be torn down underneath a live connection, and one
-collaborator's session never blocks another's.
-
-The state file records the backend handles (container, image tag **and the
-built-image `imageDigest`** the run was pinned to — see [The base image and the
-provenance gate](#the-base-image-and-the-provenance-gate)), the workspace mount,
-the demanded secret **names** (never values), and the
-named **volumes** the backend created (so teardown removes exactly those rather than
-re-deriving them — see [Workspace and state volumes](#workspace-and-state-volumes)).
-Its `schemaVersion` is stamped on every write; older files load without error
-(version 2 added the `volumes` object, version 3 the `imageDigest`, and version 4
-dropped a never-written per-secret resolver `command`; each older file has a
-graceful fallback — reconstructing volume names from the container, running the
-mutable tag when no digest was recorded, and ignoring a stale `command` key).
-
-### Per-collaborator interactive instances
-
-When a kit defines `collaborators:`, each collaborator class is its **own
-interactive VM** — its own container, state file, and volumes — so a steward and
-a planner run side by side without colliding (COV-71). The five instance-aware
-verbs (`create`/`chat`/`recreate`/`destroy`/`status`) all resolve the same way,
-via the optional collaborator positional:
-
-- explicit `<class>` → that class;
-- omitted → the sole class, or the one marked `default: true` (error if several
-  are declared with no default);
-- a kit that defines **no** collaborators → the plain `Interactive` instance —
-  the exact single-VM behavior from before this change, unchanged.
-
-The resolved class keys the instance's identity (`<class>` → state file
-`<class>.json`, container `atcove-<kit>-<class>`, volumes
-`atcove-<kit>-<class>-workspace` and `atcove-<kit>-<class>-agent-data`; the plain
-instance uses `state.json` / container `atcove-<kit>` / volumes `atcove-<kit>-*`
-— see [Workspace and state volumes](#workspace-and-state-volumes)).
-Every runtime docker name is derived by one helper (`internal/naming`) under the
-consistent `atcove-{kit}-{class}-{type}` scheme; the state-file key and the
-session label are not docker names and keep the bare kit name (COV-77).
-Two verbs add multi-VM ergonomics on top of that positional: `status` with no
-positional **lists every instance** of the kit (rather than resolving a default),
-and `destroy --all` **removes every instance**. The saved OAuth login still
-propagates across a kit's VMs through the host `credentials.json` (see
-[Authentication](#authentication)), so per-class `-state` volumes don't force a
-re-login per collaborator. Each instance's workspace mount is decided per
-collaborator by [`share-repo-dir`](usage/at-cove-config.md#collaborators), and the
-[clone-on-first-session](#workspace-and-state-volumes) still populates an isolated
-one.
-
-The Claude Code **session name** is collaborator-aware for the same reason
-(COV-75): a collaborator instance launches as `-n "<kit> <collaborator> cove"`
-(e.g. `cove planner cove`), a plain no-collaborator instance stays exactly
-`-n "<kit> cove"` — so each collaborator carries a distinct session/tmux identity
-rather than every instance of the kit sharing one. The name is derived from the
-kit name plus the resolved class, deliberately **not** from `State.Name`: the bare
-kit name in `State.Name` is the shared secret-bucket lookup key that collaborators
-intentionally share, and must not be re-keyed to make the session name unique.
+The launcher reaches every studio over SSH (`internal/sshargs`) with a key it
+bakes into the image.
 
 ## How the build context is assembled
 
-`install` writes `<kit>/.build/` — the single build path. The run commands
-(`create`/`recreate`/`chat` and `work`/`dispatch`) never assemble; they consume
-the image `install` already built. The context
+Jam's launcher assembles each studio kit's context (`internal/assemble.AssembleContext`) when the kit's image is not yet built. The context
 is **the harness layer and the sealed layer** plus a few generated files — there
-is no kit overlay anymore. The image is layered
+is no kit overlay. The image is layered
 **`FROM ${BASE}` → harness → hardening**:
 
 0. **Harness layer** (generated, `internal/harnessinstall`) — a `FROM ${BASE} AS harness`
@@ -337,19 +73,17 @@ is no kit overlay anymore. The image is layered
    Claude Code's managed settings `/etc/claude-code/managed-settings.json` —
    sandbox-wide policy only, Claude-specific so not a hardening file; see
    [model-spec-harness.md](usage/jam/model-spec-harness.md#managed-settings-vs-preferences-cov-245). It is **model-spec-mediated, not
-   a hardening concern**: a full `config.yml` kit gets its
-   [`model-spec:`](usage/at-cove-config.md#model-spec) block's version and plugins,
-   or without one the default install — the one pinned
-   `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its plugins; a Jam
-   studio kit gets its raising role's spec ([model-spec-harness.md](usage/jam/model-spec-harness.md)).
+   a hardening concern**: a studio gets its raising role's spec's version and plugins
+   ([model-spec-harness.md](usage/jam/model-spec-harness.md)), or with none the
+   default install — the pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its plugins.
    Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
    layer cache). It needs no secret — the install is unauthenticated.
 1. **Non-overridable hardening** (embedded; `FROM harness`) —
-   `nftables.conf`, `squid.conf` (its three additive allow-list ACLs — base, root, session — and the empty per-session egress file the session ACL reads), sshd hardening, the entrypoint and its `/agent-data` seeding *mechanism* (`seed-agent-data.sh` — not the seeded content, see [the state volume](#workspace-and-state-volumes)), `sshd` `AcceptEnv` config, the git credential helper, the managed Claude settings, the sealed env (`CLAUDE_CONFIG_DIR=/agent-data`, the proxy vars), the version-locked `at-task` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
-2. **Generated** — the kit's egress lists (`config.yml image.allowed-domains`, baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound; provider/GitLab/Jam hosts into `allowed_domains.infra.txt`) and the managed public key. The per-session, per-class list is delivered later at session start, not baked here (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
+   `nftables.conf`, `squid.conf` (its four additive allow-list ACLs — base, infra, kit, session — and the empty session egress file the session ACL reads), sshd hardening, the entrypoint and its `/agent-data` seeding *mechanism* (`seed-agent-data.sh` — not the seeded content), `sshd` `AcceptEnv` config, the git credential helper, the managed Claude settings, the sealed env (`CLAUDE_CONFIG_DIR=/agent-data`, the proxy vars), the version-locked `cove-master` binary, and — for the opt-in `docker:true` boot path — the systemd egress unit (`cove-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the [Sysbox docker-in-sandbox design](superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle)).
+2. **Generated** — the kit's egress list (baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound), the Jam host into `allowed_domains.infra.txt`, the kit's MCP servers, and the managed public key (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
-for the kit's `image/Dockerfile`, which selects/builds the base at-cove hardens
+for the kit's `image/Dockerfile`, which selects/builds the base the launcher hardens
 (see the base-image section below). The **overridable agent defaults** — the
 startup settings (`settings.json`, `.claude.json`) and the agent docs and skills
 (`CLAUDE.md` and its imports, `reference/`, `skills/`) — ship in `cove-base-image`,
@@ -361,61 +95,39 @@ nothing a kit — or a model-spec's harness layer — provides can weaken the eg
 lock or sshd hardening; the harness stage only installs a CLI, plugins and Claude settings on the
 open-network builder, before any of the sealed steps run. Its managed settings
 sit above the kit base too, so a kit cannot override them either. The harness and its
-plugins are part of the image's identity: at-cove's build identity hashes only
+plugins are part of the image's identity: the assembly identity hashes only
 the harness layer's payload (its scripts and the managed settings' policy) and
 its rendered baseline preferences, while the install itself (type,
-version, plugins) is in a full kit's currency inputs (so a `model-spec:` edit,
-or a `DefaultClaudeVersion` bump for a kit without one, makes the install stale) and in a studio
-kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
+version, plugins) is in the studio kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
 doesn't retag every studio image.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
 After it,
-`install` writes the managed public key into the context's `authorized_keys` —
+the assembler writes the managed public key into the context's `authorized_keys` —
 an explicit assembly step,
 keeping overlay precedence pure.
 
 ### The base image and the provenance gate
 
 The assembled `Dockerfile` starts `FROM ${BASE}` (the harness stage; hardening then builds `FROM harness`) — a build arg the backend
-resolves when it builds the image (in `Backend.Install`, the single build+gate
-path):
+resolves when it builds the image (`ResolveKitBase*`, which the launcher calls before every kit build):
 
-1. the kit's `image/Dockerfile` if present (at-cove builds it; the built image is the base),
-2. else `config.yml image.base` (mutually exclusive with an `image/Dockerfile`),
+1. a `Dockerfile` next to the studio kit's `kit.yml` (the launcher builds it; the built image is the base),
+2. else the kit's `base:` — `kit:` a parent kit's image or `image:` a prebuilt ref (not with a `Dockerfile`; [kits.md](usage/jam/kits.md)),
 3. else the default: the newest **blessed** `cove-base-image`, pinned by digest.
 
-A **kit-chosen** base (1 or 2) must pass a **provenance gate**: at-cove reads the
+A **kit-chosen** base (1 or 2) must pass a **provenance gate**: the launcher reads the
 resolved image's OCI rootfs `diff_ids` and asserts some blessed
 `cove-base-image`'s layers are their exact prefix — i.e. it was really built
 *FROM* a blessed base, unforgeably (matching the prefix means those bottom layers
 *are* that image, byte-for-byte). The blessed digests are embedded
 (`internal/basedigest`, a rolling set); the default base (the head) is blessed by
 construction, so it skips the gate. A base that descends from no blessed image is
-**rejected**, unless `at-cove install --allow-unverified-base` downgrades the
-rejection to a loud warning — the gate and that flag live only on `install`, the
-one place a base is built. This lets hardening *trust* its prerequisites (the egress stack, the
+**rejected**, — there is no override. This lets hardening *trust* its prerequisites (the egress stack, the
 `agent` user, the expected layout) rather than probe for them. The gate lives in
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
 backend seam; the full model is in
 [the design spec](superpowers/specs/2026-07-16-kit-selectable-base-image-design.md).
-
-**Pinning the built image by digest (COV-78).** `install` records *two* distinct
-digests, and they must not be confused. `baseDigest` is the **FROM-base** digest —
-the base the hardening layer was applied *on top of*, the provenance-gate input
-above. `imageDigest` is the **built image's own** sha256 (its image ID), captured
-right after the build (`docker inspect --format '{{.Id}}'` on the just-tagged
-image) and frozen into `install.json` alongside the mutable `image` tag
-(`atcove-{kit}`). Every run path — `create`/`recreate` and the ephemeral
-`work`/`dispatch` container — then `docker run`s the **digest**, not the tag, so a
-rebuilt or moved tag can never make a run silently execute a different image than
-the one `install` gated. The tag is kept for display/diagnostics (and recorded in
-the instance's [state file](#state-vs-config) alongside the digest). A **legacy**
-manifest written before this field existed carries no `imageDigest`; those runs
-**fall back to the tag** (`schemaVersion` bumped to 2 for the manifest, 3 for
-state). The built-image digest is orthogonal to the currency gate, which still
-keys off `baseDigest` and the build inputs — see
-[the install lifecycle](#command-surface).
 
 **How the blessed set is maintained — low-watermark + registry snapshot.** The
 repo commits exactly one digest in `internal/basedigest/blessed/watermark.txt`:
@@ -436,7 +148,7 @@ defaults every sandbox needs in `/home/agent/.init-agent-data`: the startup
 settings (`settings.json`, `.claude.json`), the agent docs (`CLAUDE.md`,
 `PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, `reference/`), the
 generic board/docs `skills/`, and the `.refresh` manifest. It also installs `code-server` (a pinned, SHA-256-verified release `.deb`) for the built-in Studio IDE. The sealed layer then, last: installs the
-embedded version-locked `at-task`; populates `/etc/environment` (so `pam_env`
+embedded version-locked `cove-master`; populates `/etc/environment` (so `pam_env`
 exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
 egress/sshd hardening.
 
@@ -459,22 +171,17 @@ the sealed base or the `nftables` lock:
 | file | source | when | scope |
 |---|---|---|---|
 | `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
-| `allowed_domains.infra.txt` | provider, self-hosted GitLab and `jam.host` hosts, derived from `config.yml` | baked at `install` | every session; a role can't remove it |
-| `allowed_domains.kit.txt` | the **active policy list**: `config.yml image.allowed-domains` by default | baked at `install`; replaced at raise for a Jam role with a policy | every session |
-| `allowed_domains.session.txt` | `<common> ∪ class` **delta** | delivered per session | this session's handler class |
+| `allowed_domains.infra.txt` | the Jam host (the launcher's `jam-host`) | baked at build | every studio; a role can't remove it |
+| `allowed_domains.kit.txt` | the **active policy list**: the studio kit's `egress:` by default | baked at build; replaced at raise for a Jam role with a policy | every studio |
+| `allowed_domains.session.txt` | baked **empty** (its per-session tier went with at-cove) | baked | — |
 
 A fifth file, **`egress_ceiling.txt`**, is an immutable baked copy of
-`image.allowed-domains`. Squid never reads it; it is the bound a Jam role's list
+the kit's egress list. Squid never reads it; it is the bound a Jam role's list
 must fit inside (below). Every list and the ceiling are root-owned `0644`.
 
-So a class's effective egress is the union **`base ∪ infra ∪ root ∪ <common> ∪ class`**
-(`infra ∪ kit` is exactly the single kit list baked before the split, so a dev sandbox
-and `work`/`dispatch` are unchanged). Root is baked into *every* session, and only the
-per-class *delta* is delivered at session start, so no domain is written twice. The
-session file is **baked empty** (header-only) by the hardening layer, so the ACL never
-dangles and a no-class session (`create`) simply stays root-only. See
-[`at-cove-config.md`](usage/at-cove-config.md#imageallowed-domains) for the config
-shape and union semantics.
+So a studio's effective egress is **`base ∪ infra ∪ kit`** (the kit list being
+the role's policy when it has one). The session file stays empty, so its ACL never
+dangles.
 
 **A Jam role's egress replaces the policy list, within the ceiling, at raise.**
 When Jam raises a cove for a role with an egress policy
@@ -492,28 +199,6 @@ later changes, Jam re-applies it to the role's running coves the same way
 cleared; that mode takes no domains) —
 see [egress drift](usage/jam/coves.md#egress-drift).
 
-**Vertex kits auto-gain their GCP hosts.** A kit whose
-[`model-spec`](usage/at-cove-config.md#model-spec) has `claude.provider: vertex` has its
-GCP endpoints folded into `allowed_domains.infra.txt` at `install` time — derived
-from its `provider-env` `CLOUD_ML_REGION`, not hand-listed. The global inference host
-`aiplatform.googleapis.com` is always included, plus one region-specific host
-depending on `CLOUD_ML_REGION`: unset/`global` adds nothing more (the global
-host already covers it); the multi-region values `us`/`eu` add the distinct
-`aiplatform.us.rep.googleapis.com` / `aiplatform.eu.rep.googleapis.com` host;
-any other value is taken as a specific region and adds
-`<region>-aiplatform.googleapis.com`. Always added alongside: the auth hosts
-`oauth2.googleapis.com`/`sts.googleapis.com`/`iamcredentials.googleapis.com`.
-This only *widens* the always-on infra tier (a Jam role's policy can't remove
-it) — the sealed base and `nftables` are unchanged.
-
-**GitLab kits reach their host too.** `gitlab.com` is already in the sealed base
-(alongside `github.com`), so the common case needs no widening at all. A self-hosted
-[`source-control.gitlab.host`](usage/at-cove-config.md#source-controlgitlabhost) is
-folded into `allowed_domains.infra.txt` at `install` time — derived from the config, not
-hand-listed — the same auto-derivation pattern as the Vertex GCP hosts above (as is the
-kit's `jam.host`). This only *widens* the infra tier; the sealed base and `nftables`
-are unchanged.
-
 **Nested-container egress is contained too.** The `nftables` `output` chain locks the
 agent's *direct* egress (only the `proxy` user reaches the network); a `forward` chain
 extends the same lock to *forwarded* traffic. This matters for the opt-in
@@ -528,316 +213,6 @@ The `output` chain also accepts traffic onto the sandbox's own docker bridges
 (`docker0`, `br-*`), so host-run code reaches a nested container directly or via a
 published port; that traffic stays inside the sandbox.
 
-**Applied at session start, privileged — not baked.** Per-class egress is *not* baked
-into the image; the one warm image stays class-agnostic (COV-38). at-cove resolves the
-class's delta from the currency-pinned `install.json` (never a live `config.yml`) and
-applies it to the running container via the backend's `ApplySessionEgress` — a host
-`docker exec` (as root) of the sealed `apply-session-domains.sh`, which overwrites the
-session file from stdin and runs `squid -k reconfigure` (squid re-reads its ACL files
-without dropping the process). The non-root `agent` workload reaches the VM only over
-SSH and cannot run this, so it can never widen its own egress. The ephemeral
-(`work`/`dispatch`) path applies the worker class's delta **before the agent step**;
-the persistent (`chat`) path applies the collaborator's on start and **clears it on
-exit**, so an idle container reverts to root-only. Full model:
-[the per-class egress design](superpowers/specs/2026-07-19-per-class-egress-design.md);
-the per-command wiring is under [The `chat` command](#the-chat-command-and-collaborator-sessions),
-[Backends](#backends), and [the work interface](orchestration/at-cove-work-interface.md).
-
-## Workspace and state volumes
-
-The working directory is realized one of two ways, chosen per collaborator at
-`create` time by the selected class's
-[`share-repo-dir`](usage/at-cove-config.md#collaborators):
-
-- **Isolated (default — `share-repo-dir` absent/false)** —
-  a backend-managed volume; `chat` clones the repo's default branch into it on
-  the **first** collaborator session (see below), so the checkout is ready when
-  the chat opens.
-- **Shared (`share-repo-dir: true`)** —
-  a bind-mount of the **kit's repo dir** (the directory that contains `.at-cove/`),
-  so host and VM share the live `.git`. Only that dir is shareable — arbitrary host
-  paths are not mountable (the old `--workspace`/`--ws` flag is gone). Transient or
-  platform-specific subdirs that would otherwise collide across that shared bind
-  (`.venv`, `node_modules`) can be made VM-local with
-  [`shadow-dirs`](usage/at-cove-config.md#collaboratorsclassshadow-dirs).
-
-**Clone-on-first-session (isolated only).** An isolated `create` leaves the
-workspace volume empty, so the first `chat` populates it: it clones the target
-`source-control.github` repo (`https://github.com/<owner>/<name>.git`) on its
-`main-branch` into `/home/agent/workspace`, **once for the VM's lifetime**. A
-reconnect that finds an existing checkout reuses it verbatim (in-progress work is
-never re-cloned or clobbered) — the guard is a `.git` probe on session start.
-Auth reuses the worker path's git plumbing through a **single** git-with-token
-path: `chat` resolves the `source-control.github.secrets.AT_TASK_GIT_TOKEN` demand
-host-side (like `work` does), stages it into the VM's `at-task` process env in
-memory, and runs `at-task clone-workspace` — the task-less clone verb that clones
-with the same env-only askpass (`internal/dispatch/worker/git.go`) as `prepare`.
-`chat` implements no askpass of its own. The token is never on disk, argv, or in
-the **agent's session env** (the code-host air-gap: a collaborator reaches GitHub
-through the human's claude.ai connectors, not this token). If `source-control` (or the
-`AT_TASK_GIT_TOKEN` demand) is not configured, the clone is **skipped** and the
-session starts in an empty workspace (the prior behavior); if it *is* configured
-but the clone **fails**, session start is a **hard error** (fail closed). A
-`share-repo-dir` shared workspace is never cloned — the host checkout is shared live.
-
-The isolated volume mounts **agent-owned**: the hardening image ships an
-agent-owned `/home/agent/workspace` mountpoint, and the backend initializes the
-fresh named volume's ownership from it. Without that, the empty volume would come
-up root-owned and the first clone — which runs as the agent user — would fail with
-`Permission denied` (the `/agent-data` volume instead relies on the entrypoint
-chowning it at boot).
-
-A second volume, **`<instance>-agent-data`**, is always a persistent backend volume mounted at `/agent-data` (`CLAUDE_CONFIG_DIR`).
-It preserves Claude session history and the saved OAuth login across recreates.
-The suffix matches the mount (`-agent-data`, not the historical `-state`).
-The sealed entrypoint seeds it from whatever `/home/agent/.init-agent-data` the image
-provides (`seed-agent-data.sh`; it names no files): the full seed runs once
-(guarded by a `.seeded` marker), and on **every boot** it re-copies the top-level
-entries the seed's own **`.refresh`** manifest lists (image authoritative, prune
-semantics; none without a manifest; an entry must be a single safe name, so the
-manifest can't reach outside `/agent-data`). `cove-base-image` lists the
-image-owned **reference set** — `skills/`, `reference/`, `CLAUDE.md`,
-`PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md` — so a rebuilt image's updated
-skills/docs reach an existing sandbox, and leaves the **runtime-owned** set
-(`.claude.json`, `settings.json`, `plugins/`, `COLLABORATOR.md` — empty by default
-— and user state) seeded once. A kit changes either by overriding the seed.
-
-In a Jam session the session context, not the seeded `SANDBOX.md`, governs the sandbox rules — see [context over `SANDBOX.md`](usage/jam/session-context.md#the-sandbox-rules-context-over-sandboxmd).
-
-**Every runtime docker name comes from one helper (`internal/naming`, COV-77),**
-under the consistent `atcove-{kit}-{class}-{type}` scheme so an at-cove object
-never collides with an unrelated docker object:
-
-| Resource | Name | Notes |
-| --- | --- | --- |
-| Image | `atcove-{kit}` | kit-scoped — **no** class; all collaborators share one image |
-| Container | `atcove-{kit}-{class}` | plain (no-collaborator) instance: `atcove-{kit}` |
-| Workspace volume | `atcove-{kit}-{class}-workspace` | omitted for a shared (bind-mount) workspace |
-| `/agent-data` volume | `atcove-{kit}-{class}-agent-data` | |
-| Ephemeral worker | `atcove-work-{kit}-{pid}-{nanotime}` | pid+nanotime keep concurrent dispatches distinct |
-
-The saved login still crosses a kit's VMs via the host `credentials.json`, so a
-per-class `-agent-data` volume is not a per-class re-login. The state-file key and
-the interactive session label are **not** docker names and keep the bare kit name.
-
-**A named volume's identity *is* its name — there is no separate volume ID**
-(grounded finding, COV-74). Docker assigns a named volume only a name (unlike an
-image, which has both a mutable tag and an immutable content digest, or a
-container, which has both a name and an ID). So there is nothing to pin a volume
-*by* beyond the name the create path already records, and no volume-ID field is
-added — the digest-pinning that `imageDigest` gives the image (above) has no
-volume analogue. This is why teardown removing volumes *by recorded name* is the
-whole of the identity story for volumes.
-
-**The create path names the volumes once; state records them; destroy reads them
-back (COV-76).** `create` records the actual volume names in the state file's
-`volumes` object (`state`, and `workspace` — omitted for a shared workspace, which
-has no volume), and `destroy` removes exactly those. There is no second derivation
-site, so a future change to the name shape can't leak or wrong-delete volumes by
-touching only one end. A **legacy** state file (schema version 1, written before
-this field existed) carries no `volumes` object; teardown falls back to the
-historical `<container>-state` / `<container>-workspace` reconstruction, so old
-sandboxes still tear down cleanly under their own (pre-rename) names.
-
-> **⚠️ Breaking: the resource rename (COV-77) orphans existing instances.** Every
-> runtime name gained the `atcove-` prefix and the `/agent-data` volume's suffix
-> changed `-state` → `-agent-data`, so any VM/volumes/image created under the old
-> scheme (`<kit>` / `at-cove-for-<kit>` / `<kit>-state`) are **orphaned** — nothing
-> renames them in place (deliberately no live-resource migration). An instance
-> predating this change must be **`destroy`ed under its old names, then `recreate`d**
-> (a plain `recreate` across the rename would re-run under the new names but mount
-> fresh empty volumes, losing the old `/agent-data`). *Deferred (out of scope,
-> tracked separately):* referring to images by sha vs tag, and whether volumes need
-> addressable IDs.
-
-> **No migration when adopting collaborators.** A kit that previously ran as a
-> plain single VM recorded its state in `state.json` (container = the bare kit
-> name). Once you add `collaborators:` and re-`install`, `create`/`chat` target
-> the class-keyed instances instead, leaving that pre-existing VM **orphaned**
-> (its `state.json` is never touched by the class verbs; only `destroy --all`,
-> which enumerates state files, still reaches it). There is deliberately **no
-> migration code** — `destroy` (or `destroy --all`) the old instance **before**
-> upgrading, then `create` the collaborator instances fresh.
-
-The seed also carries the Claude Code **plugins** the harness layer installs —
-the model-spec's `claude.plugins` (`claude-default`: `superpowers` from the
-`claude-plugins-official` marketplace), enabled in the seed's `settings.json`
-(the harness layer's managed settings enable no plugin) —
-pre-installed into the image at build time by the harness layer's `seed-plugins.sh`
-rather than left to Claude Code's boot-time auto-installer.
-That installer would clone the marketplace and each plugin through the egress proxy at runtime,
-where two installs racing into the same directory can leave it half-written
-(`could not lock config file .git/config`) —
-so the plugin never appears.
-Provisioning at build (open network, like the Claude Code binary itself),
-rewriting the recorded absolute paths to `/agent-data`,
-and folding the result into the seed
-sidesteps both the proxy round-trip and the race.
-
-## Secret injection (the `chat` data flow)
-
-Backend-agnostic, in `internal/connect`:
-
-1. **Resolve secrets** on the host: for each name the kit demands (the root
-   `secrets` bucket, plus a `chat` session's selected `collaborators.*.secrets`),
-   look up its supply (`~/.config/at-cove/secrets.yml`/`secrets.local.yml`) and
-   run it — see [at-cove-secrets.md](usage/at-cove-secrets.md) for the
-   demand/supply model. Held in memory only;
-   an unresolved *required* secret (the git or tracker token) aborts before
-   SSH — a general demand instead warns and is left unset.
-2. **Dial** the backend for an `Endpoint` (+ cleanup).
-   If the VM isn't running,
-   return an actionable error.
-3. **Verify host key (TOFU)** against a per-sandbox `known_hosts.d/<name>` file with `accept-new`.
-   First connection pins the key;
-   later mismatches fail loudly.
-   `destroy` **reaps** that per-container pin (COV-100): a sandbox's host key is
-   regenerated on each boot into an ephemeral `/etc/ssh`, so the pin is stale
-   after teardown — removing it keeps pins from accumulating and lets the next
-   create re-pin cleanly (scoped to the destroyed instance only, best-effort).
-   **TOFU strength is currently loopback-scoped:** with a local Docker/Colima
-   backend the endpoint is a loopback port on the operator's own host, so the pin
-   guards a boundary an attacker off-host cannot reach. This must be revisited
-   before any **routable** backend (e.g. Fly/Firecracker), where a stable,
-   persisted host key and a real changed-key alarm become load-bearing.
-4. **Inject env + launch.**
-   The primary transport writes `export NAME=…` lines over SSH **stdin** into a tmpfs file (`/dev/shm/cove-env-*`, mode 600);
-   a second interactive `ssh -tt` sources it,
-   removes it,
-   and `exec`s `claude` (named `-n "<kit> cove"` — or `"<kit> <collaborator> cove"` for a collaborator instance, see [Per-collaborator interactive instances](#per-collaborator-interactive-instances) — so a cove session is easy to tell apart from a remote-control one, and per-collaborator sessions don't collide on session identity).
-   A `SendEnv`/`AcceptEnv` transport is the proven fallback.
-   Both keep values off every command line and off disk.
-
-## Authentication
-
-Claude Code picks its credential by env-driven precedence — an injected
-`ANTHROPIC_AUTH_TOKEN` wins over a subscription OAuth login — and the managed
-settings no longer force a login method, so the two agent paths differ
-deliberately:
-
-**Interactive `chat` → subscription OAuth.**
-On the first session `chat` probes `claude auth status` over SSH
-and runs interactive `claude auth login --claudeai` only when needed;
-the credentials persist on the `/agent-data` volume, so later sessions skip it.
-To make one login reusable across sandboxes (and across recreates),
-`chat` keeps a host-side copy at `~/.config/at-cove/credentials.json` (mode `0600`):
-it **seeds** that file into the VM (`/agent-data/.credentials.json`) *before* the auth probe,
-so a login obtained on any sandbox validates the next one without re-prompting,
-and it **saves** the VM's copy back to the host after a fresh login
-or whenever a session rotates the token —
-keeping the shared copy current as the OAuth refresh token rolls over.
-When the credentials finally expire, the probe fails and the login flow re-mints them.
-`--no-auth` skips this entirely.
-
-> **Note:** this writes your subscription credentials to the host disk
-> (distinct from injected *secrets*, which stay memory-only) —
-> the user's own OAuth tokens, in the user-owned config dir at `0600`,
-> the same trust boundary as the saved login already on the VM volume.
-
-**Dispatched `work` → short-lived bearer.**
-A worker runs unattended, where a personal subscription is neither permitted nor
-practical, so its agent authenticates with a short-lived bearer —
-**`ANTHROPIC_AUTH_TOKEN`** or **`ANTHROPIC_API_KEY`** — declared under the
-dispatched class's `workers.<class>.secrets` (or `workers.<common>.secrets`)
-*demand* and supplied machine-side (memory-only, like any secret; see
-[at-cove-secrets.md](usage/at-cove-secrets.md)). It may **not** be declared at
-the kit root: the root `secrets` bucket is injected into `chat` too, where the
-env key would outrank the subscription OAuth login and disable the session's
-connectors, so `config.yml` rejects it there as a hard error — see
-[Migrating the worker bearer off the root bucket](usage/at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket).
-Because the worker bucket is resolved only on the `work`/`dispatch` path
-(agent-step only — see the [bucket-visibility
-table](usage/at-cove-config.md#secret-buckets)), this bearer never reaches a
-`chat` session by declaration alone, whatever else that kit's root `secrets`
-demands. Unlike a general secret demand, a worker with *neither* bearer
-declared-and-resolved is not a warn-and-continue: `at-cove work` **fails closed
-on the host**, before launching a VM, naming the bearer names it
-looked for and the kit — a keyless worker is a guaranteed 401, so at-cove
-refuses to launch a doomed container. The gate accepts
-either well-known name, so a class declaring only `ANTHROPIC_API_KEY` clears it.
-As a second, independent layer, at-cove also deliberately
-does **not** seed the OAuth `credentials.json` on the work path: with no OAuth
-token below the bearer in the precedence chain, a worker that somehow still
-launched keyless would fail closed *inside* the VM too, instead of silently
-falling back to — and burning — a subscription.
-
-### Authentication: Claude on Vertex
-
-A kit whose [`model-spec`](usage/at-cove-config.md#model-spec) has
-`claude.provider: vertex` branches `chat`'s auth step instead of using either path above: it
-authenticates via a **seeded GCP Application Default Credentials (ADC) file**
-(`GOOGLE_APPLICATION_CREDENTIALS` → `/agent-data/.gcp-adc.json`), and **skips
-subscription OAuth entirely** — no `claude auth status` probe, no `claude auth
-login --claudeai`, no `credentials.json` seed, for a Vertex session.
-
-The ADC is supplied **host-side**, through the ordinary demand/supply model,
-under the well-known demand `GOOGLE_APPLICATION_CREDENTIALS_JSON` (see
-[at-cove-secrets.md](usage/at-cove-secrets.md#the-vertex-credential-demand-google_application_credentials_json))
-— typically the `authorized_user` ADC that `gcloud auth application-default
-login` already produced on the operator's machine. `chat` **seeds** it onto the
-persistent `/agent-data` volume before launch; unlike the Anthropic
-`credentials.json` above, it is never **saved back**: a `gcloud`
-`authorized_user` ADC is static (a long-lived refresh token), so google-auth
-mints access tokens **in-VM, in memory**, over `oauth2.googleapis.com`, without
-rewriting the file — seeding is the whole of the flow. This is `chat`-only
-today; the dispatched-worker path is designed but not yet built (see the
-[Vertex design spec](superpowers/specs/2026-07-21-vertex-model-provider-design.md)).
-
-`--no-auth` on a Vertex kit means the same thing it means on the Anthropic path
-above ("I manage auth myself"): the ADC file is **not** seeded and
-`GOOGLE_APPLICATION_CREDENTIALS` is **not** set in the launch env, and `chat`
-does not even resolve the credential host-side, so an unsupplied `secrets.yml`
-entry is not an error under `--no-auth`. The non-secret provider env
-(`CLAUDE_CODE_USE_VERTEX`, `CLOUD_ML_REGION`, …) is still applied regardless of
-`--no-auth` — only the credential pointer is suppressed, since a set-but-unseeded
-path would be worse than an unset one.
-
-Private-repo git uses the code-host token, not SSH:
-the egress lock blocks port 22, `/etc/gitconfig` rewrites the source-control host's
-remotes to HTTPS, and a credential helper feeds the token from the session env
-(memory-only). The helper is provider-aware — `github.com` reads `GITHUB_TOKEN`; the
-kit's GitLab host (baked per kit at assemble time, since a self-hosted host is not
-fixed like `github.com`) reads `GITLAB_TOKEN` — so an **interactive collaborator**
-authenticates git to whichever host the kit targets. For **dispatched work** the
-token is instead `source-control.<provider>.secrets.AT_TASK_GIT_TOKEN`, minted per
-git step, supplied via `GIT_ASKPASS`, and withheld from the agent — it never enters
-the session env, so the credential helper is not the path there.
-
-## Backends
-
-A `Backend` knows how to provision a VM from a build context,
-report a reachable SSH endpoint,
-query its state,
-and destroy it.
-Backends self-register into a registry keyed by name (at-cove defaults to `colima`).
-
-- **Colima** — the only implemented backend.
-  Native Docker via Colima (no `sbx`):
-  `Install` resolves + gates the base and `docker build`s the assembled context (the single build site);
-  `Create` is **run-only** — `docker run -d` the pre-built image with `NET_ADMIN`,
-  the state + workspace volumes,
-  and a published `localhost:<port>` mapped to the in-VM `sshd`.
-  `Dial` returns that port;
-  `Destroy` is `docker rm -f` (volumes retained).
-  Also implements `backend.DispatchOps` (ephemeral labeled runs + scavenge) for `dispatch`,
-  and `backend.SessionEgress` — `ApplySessionEgress` `docker exec`s the sealed
-  `apply-session-domains.sh` (as root, domains piped on stdin) to apply a session's
-  per-class egress delta + `squid -k reconfigure` (COV-39 §5). The ephemeral
-  (`work`/`dispatch`) path wires it in before the agent step (see
-  [the work interface](orchestration/at-cove-work-interface.md)); the persistent
-  (`chat`) path applies the selected collaborator's delta on start and clears it
-  on exit (see [The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)).
-  It also implements `backend.RoleEgress` — `ApplyRoleEgress` `docker exec`s the sealed
-  `apply-role-egress.sh` the same way, for Jam's launcher to apply a role's egress
-  at raise (see [the egress model](#egress-four-additive-allow-lists-and-a-ceiling)).
-  And `backend.SSHCA` — `InstallSSHUserCA` `docker exec`s the sealed
-  `install-ssh-ca.sh` (as root, key on stdin) to install Jam's SSH user-CA public
-  key as `/etc/ssh/jam_user_ca.pub`, which the hardening layer's sshd trusts via
-  `TrustedUserCAKeys` (absent ⇒ no cert logins; see [serve.md](usage/jam/serve.md)'s `ssh` key).
-- **Firecracker / Fly** — designed-for but not built.
-  Each is "provision + reach `sshd`";
-  `Dial` returns a `cleanup func()` so tunnel-based backends (e.g. a `fly proxy` child) fit the same interface.
-
 ## Architecture
 
 A pure **plan** (what to do) is separated from **execution** (doing it),
@@ -847,109 +222,46 @@ the OS implementation streams stdio and propagates exit codes;
 a `Fake` records calls for tests.
 
 ```
-cmd/at-cove/                  at-cove entry: parse argv, discover kit, select backend + work + dispatch
-internal/dispatchrun/         `at-cove work` orchestration (scavenge → run → inject → exec → extract → destroy) + VM output capture/demux/merge (below)
-internal/dispatch/            dispatcher control plane, live and wired into `at-cove dispatch` (owned by docs/orchestration/)
-internal/dispatch/scheduler/  scheduler engine (poll → claim → dispatch via at-cove → broker) + Tracker/Executor interfaces
-internal/dispatch/linear/     real Tracker: Linear GraphQL client (live calls behind the integration tag)
-internal/dispatch/githubissues/ real Tracker: GitHub Issues REST client — status labels + closed=Done, body-convention blocker gating (read methods live; writes/wiring in progress)
-internal/dispatch/exec/       real Executor: headless command run with injected env + timeout
-cmd/at-task/                  at-task entry: prepare / complete (git/PR worker)
-cmd/at-switchboard/           at-switchboard entry: in-sandbox Discord conductor (Component A), launched by `at-cove teammate` — see [remote-teammate design §A](superpowers/specs/2026-08-26-remote-teammate-design.md#component-a--discord-teammate-loop)
-cmd/at-jam/                at-jam entry: the standalone credential-broker + control-plane host service — `serve` runs the broker (TLS) plus a loopback admin API; `enroll`/`revoke`/`destination`/`model-spec`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are admin-API clients (config + servers over internal/jam)
-internal/jam/              jam broker + control plane: actor/role/grant store (RBAC — a grant's scope is the role's, resolved additively per-grant across an actor's grants) + destination table (v3 file format, live, migrates legacy identities), hashed tokens, three-question decision, credential resolver, credential-injecting reverse-proxy handler (matches the live store), loopback admin API + operator-auth seam, enrollment (host service — not embedded in the sandbox image); also the intercom on the channel log: the channel registry (channel_registry.go: chat / ticket / room channels, bindings, members, read cursors; rooms.go: roster channels as rooms), the posting rules and writes (intercom_post.go: address → channel, the addressing ceiling, per-source CanPost/CanSee, audience recorded at post; sessions join their ticket's channel at setup), a session's inbox across the channel and legacy logs (session_inbox.go), and the `/app/user` read-model (channel_views.go; channels.go keeps the legacy log's projection for History)
-internal/dispatch/worker/     at-task orchestration: Prepare + Complete, Git/CodeHost interfaces
-internal/dispatch/github/     at-task's real CodeHost: GitHub PR client (live calls behind the integration tag)
-internal/kit/                 locate kit (cwd walk-up); load + validate config.yml
-internal/assemble/            layered .build assembly from embed.FS; key injection
-internal/harnessinstall/      the harness layer: a model-spec's CLI install (exact version) + plugin seed as a Dockerfile stage between the kit base and hardening
-internal/backend/             Backend interface + registry
-internal/backend/colima/      Colima impl: Install (build+gate+tag) / run / inspect / rm
-internal/naming/              pure derivation of every runtime docker resource name (image/container/volumes/worker) — the sole `atcove-{kit}-{class}-{type}` source
-internal/connect/             backend-agnostic: resolve → dial → TOFU → launch
-internal/secret/              run each host command, capture value
-internal/sshargs/             pure argv builders for the ssh client
-internal/keys/                managed SSH keypair (~/.config/at-cove/id_ed25519)
-internal/state/               per-kit state file + shared/exclusive locking
-internal/install/             install.json manifest: Compile + currency hash + read/write (pure); written by `at-cove install`
-internal/runner/              Runner interface (OS impl + Fake)
+cmd/at-jam/                    at-jam: `serve` (broker + control plane + launcher + Requisitioner) and the admin-API client verbs
+cmd/at-mint/                   host-side token minter (github / anthropic)
+cmd/cove-master/               the in-studio agent supervisor (embedded in every studio image)
+cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
+internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher raises studios
+internal/dispatcher/           the Requisitioner's poll → claim → raise loop
+internal/dispatch/{linear,githubissues}/  Jam's trackers (Linear GraphQL, GitHub Issues REST) behind internal/tracker.Tracker
+internal/dispatch/scheduler/   tracker vocabulary: Role, Issue, Comment, ClassifyLabels, AssembleBrief
+internal/assemble/             the studio build context: harness stage + embedded sealed hardening layer + egress lists + key
+internal/harnessinstall/       the harness layer: a model-spec's CLI install (exact version) + plugin seed
+internal/install/              the assembly identity (AtCoveIdentity) that keys studio image tags
+internal/covemasterbin/        the embedded linux cove-master binaries
+internal/backend/{,colima/}    the docker surfaces the launcher drives (run/dial/pause/remove, volumes, egress, SSH CA, kit builds) and their Colima implementation
+internal/{baseimage,basedigest}/  base resolution + the blessed-prefix provenance gate
+internal/connect/              LaunchCoveMaster: stage cove-master's env/prompt into tmpfs over ssh and start it
+internal/kit/                  shared kit types: secret demands, MCP servers, tracker blocks
+internal/studio/               the StudioKit definition
+internal/discord/              Discord REST client for Jam's relay
+internal/keys/                 the launcher's SSH keypair (generated on first use)
+internal/naming/               studio container and volume names
+internal/{usersecret,mint,secret}/  Jam's credentials file, mint: expansion, host-side resolution
+internal/sshargs/              pure argv builders for the ssh client
+internal/runner/               Runner interface (OS impl + Fake)
 ```
 
-This module builds **five binaries**: `at-cove` (the sandbox substrate, which
-also hosts the `dispatch` scheduler and the one-shot `work` runner), `at-task`
-(the git/PR worker), `at-mint` (a host-side token minter invoked either as
-a secret's bare `command:` or assembled by at-cove from a `minters:` profile
-via `{ mint: <name> }`; see [at-mint.md](usage/at-mint.md)), `at-switchboard`
-(the in-sandbox Discord conductor — embedded into the hardening layer the same
-way as at-task, see [Building, testing, running](#building-testing-running)),
-and `at-jam` (a standalone **host** credential-broker + control-plane service —
-`serve` runs a client-addressed-TLS reverse proxy that swaps an enrolled actor's
-identity token for Jam's real Anthropic/git credentials, plus a loopback admin
-API; `enroll`/`revoke`/`destination`/`model-spec`/`role`/`grant`/`ungrant`/`roster`/`kit`/`export`/`import` are
-admin-API clients that manage actors, roles, grants, destinations, and kits (pushed from a file or
-imported and synced from git — [kits-git.md](usage/jam/kits-git.md)) at
-runtime against one live Postgres store — no restart (Jam is Postgres-only; `store-postgres` is required). An actor is granted
-roles within projects, a role owns the security scope (`destinations` and the credential injected for each, `ttl`)
-and, optionally, a named kit (resolved to that kit's current version); the broker
-authorizes each request additively across the actor's grants (conflicting
-credentials across grants deny); `enroll` is role-required, with scope
-coming from the role rather than inline flags. See the
-[Jam actor roster + role model spec](superpowers/specs/2026-09-12-harbor-actor-roster.md)
-and the [Jam kit registry spec](superpowers/specs/2026-09-12-harbor-kit-registry.md).
-The `jam.yaml` serve config is now bootstrap-only (`listen`, `admin-listen`, `tls`,
-`admin-tls`, `store-postgres`, `state-dir`, `credentials`, optional `operator-auth`); destinations and
-enrollments are managed via the API/CLI. `serve` **warns** on any unrecognized
-top-level key (e.g. a stray `destinations:` block, which it points at `at-jam
-destination import`) so a silently-ignored key isn't a debugging trap. The admin API's operator auth defaults to loopback-only,
-or validates an OIDC/Auth0 bearer when `operator-auth.oidc` (issuer/audience/optional
-`require-scope`) is set. Operators sign in with `at-jam login` — an OIDC device
-flow that self-configures from Jam's auth-exempt `GET /admin/login-config` (fed by
-`operator-auth.oidc.device-client-id`) and caches the token per app profile at
-`~/.config/at-jam/{app}-admin-token.json` (0600); `logout`/`whoami` manage it and
-every verb falls back to it, so `--token` / `AT_JAM_ADMIN_TOKEN` become optional.
-Client endpoint defaults live in `~/.config/at-jam/settings.yml` as named **app
-profiles** (`{admin-url, base-url}` per app); every verb takes `--app` (default
-`default`), and `login --admin-url` persists the url into that profile. The admin API
-serves **TLS** (cert from an optional `admin-tls`, else the broker's `tls:`) and
-**refuses to bind off-loopback** unless both TLS and `operator-auth.oidc` are set — a
-loopback listener stays plain HTTP, so remote/multi-operator use is safe by construction.
-Built by `just build` but **not** embedded in the sandbox image — see the
-[Jam broker + enrollment (Guest MVP) spec](superpowers/specs/2026-09-10-harbor-broker-guest-mvp-design.md),
-the [Jam control-plane MVP spec](superpowers/specs/2026-09-11-harbor-control-plane-mvp-design.md),
-the [Jam operator OIDC spec](superpowers/specs/2026-09-11-harbor-operator-oidc-design.md),
-the [Jam operator login spec](superpowers/specs/2026-09-11-harbor-operator-login-design.md),
-and the [Jam admin-API TLS spec](superpowers/specs/2026-09-11-harbor-admin-tls-design.md)).
-Jam was renamed this release (the historical specs keep its old name):
-[renamed-from-harbor.md](usage/jam/renamed-from-harbor.md) lists every old name — binary,
-config keys, environment variables — its new name, and which old names still work.
-People can SSH (or point an IDE) into a running studio through Jam alone — Jam-issued
-short-lived certs over a tunnel the studio dials back — and open the web apps its agent
-exposes as HTTPS previews over the same tunnels — see [collaboration.md](usage/jam/collaboration.md)
-and [previews.md](usage/jam/previews.md).
-A hardened cove can route its **own** Anthropic + git through a Jam broker (over TLS
-on :443, through squid) by setting a [`jam:` block](usage/at-cove-config.md#jam) in
-its kit — the cove then holds only its identity token, superseding OAuth/Vertex; see the
-[cove→Jam networking spec](superpowers/specs/2026-09-11-harbor-cove-networking-design.md).
-With `jam.identity` omitted, at-cove **auto-enrolls** the cove (mint on start, revoke
-on exit, via a sibling `at-jam`) — see the
-[cove auto-enrollment spec](superpowers/specs/2026-09-12-harbor-cove-autoenroll-design.md).
-The scheduler drives work by shelling `at-cove work` — it never imports at-cove's
-internals. See the [orchestration design](orchestration/INDEX.md).
-
-A reference dispatch worker implementation lives at `kits/reference-worker/`; see `RUNBOOK.md` for the end-to-end run with `just e2e`.
-
-An example collaborator kit that reaches a customer's external Postgres by tunneling it over WSS/443 with `wstunnel` — no hardening change — lives at `kits/pg-tunnel-collab/`; see its `RUNBOOK.md`.
+Jam itself — `serve`, the broker, the roster, kits, studios, the Requisitioner,
+the intercom — is documented under [usage/jam/](usage/jam/INDEX.md);
+[renamed-from-harbor.md](usage/jam/renamed-from-harbor.md) lists its Harbor-era names.
 
 ## Building, testing, running
 
 ### Installing the binaries
 
 The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
-fastest way to get `at-cove`, `at-mint` and `at-jam`: it pulls the prebuilt archive from the
-latest release the [release pipeline](DEVELOPMENT.md#ci--the-release-pipeline) cuts
+fastest way to get `at-jam` and `at-mint`: it pulls the prebuilt archive from the
+latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs all three binaries (a pinned release cut before `at-jam` shipped installs just the first two). `at-task` and `at-switchboard` ship **embedded** in
-`at-cove`, so neither is installed separately.
+and installs both (the archive also holds an `at-cove` tombstone, kept only so an
+older `at-jam update` can install it; this installer skips it). `cove-master`
+ships **embedded** in `at-jam`.
 
 The repo is **private** today, so the installer authenticates through your GitHub
 CLI login (`gh auth login`):
@@ -979,13 +291,17 @@ Optional knobs:
 | `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
 | `COVE_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
 
-**Updating in place.** Once installed, [`at-cove update`](#command-surface) (or the
-identical `at-jam update`) upgrades all the binaries to the latest release without re-running the `curl | bash` line: it
+**Updating in place.** Once installed, `at-jam update` upgrades both binaries to the latest release without re-running the `curl | bash` line: it
 drives a copy of this same `install.sh` **embedded** in the binary (so it needs no
 repo checkout and never re-fetches the script over the network), reusing its
 resolve → download → verify → replace flow — including the `checksums.txt`
 verification — untouched. It reads the same `COVE_VERSION`/`BINDIR`/`COVE_SYSTEM`/`COVE_REPO`
 knobs, no-ops when already current, and takes `--version TAG` (pin) and `--dry-run`.
+
+**Upgrading from a release that shipped at-cove.** An `at-cove` already on your
+PATH can be deleted. An older `at-jam update` (or the old at-cove's own
+self-update) run against a current release replaces it with the tombstone,
+which does nothing but say at-cove was removed.
 
 To **build from source instead** (the contributor path), use `just install` below,
 which compiles the binaries and installs them onto your PATH.
@@ -994,12 +310,13 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build both binaries into dist/<os>-<arch>/{at-cove,at-task}
+just build           # build at-mint + at-jam into dist/<os>-<arch>/
 just build-all       # cross-compile every supported target
-just run <args>      # build the host binary, then run it with <args>
-just install         # install the host binary onto your PATH (no sudo by default)
+just jam <args>      # run the last-built at-jam with <args>
+just install         # install the host binaries onto your PATH (no sudo by default)
 just test            # hermetic unit tests — no docker/network/ssh
-just integration     # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
+just integration     # real-ssh tests of the ssh argv builders (needs ssh/sshd/ssh-keygen)
+just integration-jam # jam's integration-tagged tests (real TLS, sshd, git)
 just lint            # go vet + gofmt check + shellcheck/hadolint (if present)
 just setup           # install dev/test tooling (podman, shellcheck, hadolint, jq)
 ```
@@ -1007,79 +324,20 @@ just setup           # install dev/test tooling (podman, shellcheck, hadolint, j
 Default `go test ./...` is **hermetic** —
 every test drives the `Fake` runner,
 so no Docker, network, or live VM is required.
-The real-ssh integration suite (build tag `integration`) boots a throwaway `sshd` on loopback with a fake `claude`
-and exercises the transports and TOFU end-to-end without Docker.
+The real-ssh suite (build tag `integration`) boots a throwaway `sshd` on loopback
+and exercises the ssh argv builders and TOFU end-to-end without Docker.
 
 The sandbox images are built from a shared, pinned, multi-arch **image tree**
 (`cove-base-image` → `cove-image`) published to GHCR and consumed by both CI and
 the sandboxes — see [DEVELOPMENT.md](DEVELOPMENT.md#the-image-tree). The images,
-the blessed-base snapshot, and the at-cove binaries are all built by **one
+the blessed-base snapshot, and the host binaries are all built by **one
 monolithic continuous-delivery pipeline** on every push to `main`, which decides
 from the repo diff what to rebuild and tags everything `<N>-<MMDD>` — see
-[the release pipeline](DEVELOPMENT.md#ci--the-release-pipeline).
-
-## Status and roadmap
-
-Implemented and on `main`:
-the full `install`/`uninstall`/`create`/`chat`/`recreate`/`destroy`/`status`/`work`/`dispatch` surface
-(every command's project root is a uniform `--project-dir` flag, not a positional),
-the Colima backend,
-layered assembly with embedded hardening,
-managed keypair + TOFU,
-both secret transports,
-the demand/supply secret model (kit `secrets:` demand-only; machine-side
-`~/.config/at-cove/secrets.yml`/`secrets.local.yml` supply — see
-[at-cove-secrets.md](usage/at-cove-secrets.md)),
-per-kit state + locking,
-subscription OAuth login,
-git-over-HTTPS with a PAT,
-the `at-mint` binary (`github`/`anthropic` token minting via a secret's
-`command:` — see [at-mint.md](usage/at-mint.md)),
-the `mint:` supply expansion — a `minters:` profile resolved through
-`at-mint` by name, end to end (see
-[at-cove-secrets.md](usage/at-cove-secrets.md#the-four-supply-sources)),
-`chat` collaborator sessions — a `collaborators:` class selected by an
-optional positional, its `prompt:` injected as role context and its
-`secrets:` resolved like the agent bucket (see
-[The `chat` command and collaborator sessions](#the-chat-command-and-collaborator-sessions)),
-per-collaborator interactive instances — each class its own VM/state/volumes,
-with `status` listing all and `destroy --all` removing all (see
-[Per-collaborator instances](#per-collaborator-interactive-instances)),
-and worker/collaborator secret segregation — a `workers.<class>.secrets`
-bucket (`<common>`-merged, work-only, resolved lazily right before the agent
-step) that a dispatched worker's Anthropic bearer must live in instead of the
-kit root, which `config.yml` now rejects as a hard error (see
-[Migrating the worker bearer off the root bucket](usage/at-cove-secrets.md#migrating-the-worker-bearer-off-the-root-bucket)).
-
-Designed but deferred (see the specs):
-the `.local/image/` override layer,
-the Firecracker and Fly backends,
-and fully declarative (config-driven, multi-repo) cloning — the isolated
-workspace is already auto-cloned on the first collaborator session (see
-[Workspace and state volumes](#workspace-and-state-volumes)).
-Further out, the [agent-orchestration design](orchestration/INDEX.md) proposes turning at-cove into a **dispatch substrate** for autonomous workers —
-non-interactive `run --detach`, per-run lifecycle verbs, and per-task scoped-token minting —
-a net-new direction beyond the deferred items above.
+[the release pipeline](DEVELOPMENT.md#ci-the-release-pipeline).
 
 ## Further reading
 
-The authoritative design history lives under `docs/superpowers/`:
-
-- `specs/2026-06-26-cove-sandboxes-design.md` —
-  the current design (multi-backend, YAML-driven).
-  Read this first.
-- `specs/2026-06-22-cove-design.md` —
-  the original `sbx`-wrapper design (superseded).
-- `plans/` — the implementation plans.
-- `CHECKPOINT-cove-sandboxes.md` —
-  a detailed running log of implementation decisions and environment notes.
-
-Usage/reference (how to run the binaries):
-
-- [`usage/INDEX.md`](usage/INDEX.md) —
-  per-binary command surface, environment, and I/O contracts (with JSON Schemas).
-
-Forward-looking design (layers *on* at-cove, not yet built):
-
-- [`orchestration/INDEX.md`](orchestration/INDEX.md) —
-  the Linear-driven agent workflow and the at-cove work interface it needs.
+- [`usage/INDEX.md`](usage/INDEX.md) — running the binaries (Jam, `at-mint`, docker-in-sandbox).
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — the dev sandbox, CI and the release pipeline.
+- `superpowers/` — the design history (dated specs and plans); the
+  [jam-only design](superpowers/specs/2026-10-26-jam-only-design.md) is the current direction.

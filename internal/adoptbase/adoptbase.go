@@ -1,7 +1,7 @@
-// Package adoptbase holds the pure file transforms that adopt a new base image:
-// pinning .at-cove/config.yml's image.base and raising the blessed watermark.
-// All functions operate on file *contents* (no I/O) so they are hermetically
-// testable; the cmd/adopt-base shell reads/writes the files.
+// Package adoptbase holds the pure file transform that adopts a breaking base
+// image: raising the blessed watermark. It operates on file *contents* (no
+// I/O) so it is hermetically testable; the cmd/adopt-base shell reads/writes
+// the file.
 package adoptbase
 
 import (
@@ -9,9 +9,6 @@ import (
 	"regexp"
 	"strings"
 )
-
-// CoveImageRepo is the toolchain-image repository that image.base names.
-const CoveImageRepo = "ghcr.io/aethons-tools/cove-image"
 
 const defaultReason = "breaking base change"
 
@@ -22,35 +19,6 @@ func validateDigest(d string) error {
 		return fmt.Errorf("adoptbase: %q is not a sha256:<64-hex> digest", d)
 	}
 	return nil
-}
-
-// leadingWhitespace returns the indentation prefix of a line.
-func leadingWhitespace(line string) string {
-	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-}
-
-// RewriteImageBase returns configYAML with the image.base value set to
-// CoveImageRepo@digest, preserving indentation and surrounding comments. It
-// errors unless exactly one image.base line for CoveImageRepo is present.
-func RewriteImageBase(configYAML, digest string) (string, error) {
-	if err := validateDigest(digest); err != nil {
-		return "", err
-	}
-	lines := strings.Split(configYAML, "\n")
-	matches := 0
-	for i, ln := range lines {
-		trimmed := strings.TrimSpace(ln)
-		if !strings.HasPrefix(trimmed, "base:") ||
-			(!strings.Contains(trimmed, CoveImageRepo+"@") && !strings.Contains(trimmed, CoveImageRepo+":")) {
-			continue
-		}
-		lines[i] = leadingWhitespace(ln) + "base: " + CoveImageRepo + "@" + digest
-		matches++
-	}
-	if matches != 1 {
-		return "", fmt.Errorf("adoptbase: expected exactly 1 image.base line for %s, found %d", CoveImageRepo, matches)
-	}
-	return strings.Join(lines, "\n"), nil
 }
 
 // RewriteWatermark returns watermarkTxt with its single digest line set to digest

@@ -12,6 +12,10 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
+// credsVMPath is claude's subscription OAuth credentials file inside a studio
+// (CLAUDE_CONFIG_DIR=/agent-data); LaunchCoveMaster must never write it.
+const credsVMPath = "/agent-data/.credentials.json"
+
 func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	fake := &runner.Fake{}
 	tgt := sshargs.Target{Host: "h", User: "agent", Port: 2222, IdentityFile: "k", KnownHostsFile: "kh"}

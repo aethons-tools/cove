@@ -1,21 +1,18 @@
 ---
 summary: The protected Jam credentials file (`~/.config/at-jam/credentials.yml`) that supplies the real secrets a Jam brokers/uses, and the demand/supply split between it and the serve config's name-only `credentials:` list.
 read_when: You are supplying the real secrets a Jam brokers or uses — writing ~/.config/at-jam/credentials.yml, choosing value/command/global/mint per credential, wiring `credentials-file`, or migrating an inline `credentials:`/`bot-token`/`tracker-token` strategy out of a serve config.
-owns: the at-jam credentials-file format and location, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
-prereqs: serve.md for the serve config that demands credentials; ../at-cove-secrets.md for the shared Source/minters vocabulary
+owns: the at-jam credentials-file format and location, the value/command/global/mint source vocabulary and the minters: library, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
+prereqs: serve.md for the serve config that demands credentials
 tier: leaf
-updated: 2026-10-20
+updated: 2026-10-26
 ---
 
 # The Jam credentials file
 
 Jam's real secrets live in one **protected file**, never in the serve config:
 the serve config only **demands** credentials by name, and this file **supplies**
-them. The strategy vocabulary (`value` / `command` / `global` / `mint`, the
-`minters:` library, and how each resolves) is shared with at-cove and owned by
-[at-cove-secrets.md](../at-cove-secrets.md) — this doc points there rather than
-re-explaining it. Unlike at-cove's, Jam's file is **flat** (no `kits:`; Jam is a
-single service).
+them, each from one of four [sources](#sources) — optionally through a
+[minter](#minters).
 
 ## Location
 
@@ -31,7 +28,13 @@ every demand then fails closed (below).
 minters:                       # inert library; reached only via a mint: reference
   anthropic-fed:
     anthropic:
-      audience: "https://jam.example.com/anthropic"
+      oidc:
+        auth0:
+          tenant: tenant.us.auth0.com
+          client-id: jam-minter
+          audience: "https://jam.example.com/anthropic"
+          client-secret: { command: ["cat", "/run/secrets/auth0-client-secret"] }
+      federation: { org: "<org-id>", rule: fdrl_example, service-account: svac_example }
 global:                        # optional inert library; reached only via a global: reference
   gh-token: { command: ["gh", "auth", "token"] }
 credentials:                   # name -> source: exactly one of value | command | global | mint
@@ -46,6 +49,40 @@ Each `credentials:` entry sets **exactly one** source, validated on load.
 `minters:` and `global:` are **inert** — reached only through an explicit
 `mint:`/`global:` reference, and an entry supplies nothing until the serve
 config demands its name.
+
+## Sources
+
+| Source | Form | Resolves to |
+|---|---|---|
+| `value:` | a literal string | that string, verbatim |
+| `command:` | a host **argv array** | stdout of running it on the host, trailing newline trimmed |
+| `global: <name>` | a name | `global[<name>]`, which must itself be a `value` or `command` (a chain is an error) |
+| `mint: <name>` | a name | a token minted by `at-mint`, built from `minters[<name>]` ([below](#minters)) |
+
+A `command:` runs on the Jam host — only supply commands you trust.
+
+`global:` and `minters:` are **never matched by demand name**: a demand called
+`anthropic-key` does not pick up a library entry of the same name — only a
+`credentials:` entry you wrote reaches one.
+
+## Minters
+
+A `minters:` profile is a structured identity for [`at-mint`](../at-mint.md),
+exactly one of:
+
+- `github:` — `app-id`, `install-id`, `app-key` (a `value:` is a **path** to the
+  PEM, passed as `--app-key-file`; a `command:`/`global:` supplies the key
+  **contents**, passed as `AT_MINT_GITHUB_APP_KEY`).
+- `anthropic:` — `oidc.auth0` (`tenant`, `client-id`, `audience`,
+  `client-secret` — a source, passed as `AT_MINT_AUTH0_CLIENT_SECRET`) and
+  `federation` (`org`, `rule`, `service-account`, optional `workspace`).
+
+Resolving `{ mint: <profile> }` runs `at-mint <provider>` with the non-secret
+fields as flags and the secret ones resolved on the host and passed as env —
+never argv. Jam passes no `--repo`, which `at-mint github` requires, so a
+`github` profile cannot mint through `mint:`: write the invocation as a
+`command:` instead (`["at-mint", "github", "--app-id", "…", "--install-id", "…",
+"--app-key-file", "/path/key.pem", "--repo", "owner/name"]`).
 
 ## Demand and supply
 

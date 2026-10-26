@@ -4,16 +4,15 @@ read_when: You are registering a kit in Jam, pushing a kit directory or a new ve
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
 # The kit registry
 
 Jam stores **studio kits** — the small, directly-authored definition a brokered
 studio is built and raised from — so a kit lives in Jam's data store and a role
-references it by name. The registry is **studio-only**: it is not a place for a
-full at-cove `config.yml` (those stay repo-committed `.at-cove/` kits; see
-[migration note](studio-kit-migration.md)).
+references it by name. The registry is **studio-only**
+([migration note](studio-kit-migration.md)).
 
 ## The StudioKit
 
@@ -97,7 +96,7 @@ secrets-only edit reuses the cached image (the build context is the
 [kit directory](kits-directory.md#the-directory)), while the same kit version raised by roles on different model-specs
 builds one image per harness. Adding the harness (COV-242) changed every kit's
 digest once, so each kit rebuilds on its next raise. (The digest `kit show` and
-the admin UI print is the one under `claude-default`'s harness.) The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, at-task / at-switchboard / cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `cove-kit:*` images are not yet garbage-collected.
+the admin UI print is the one under `claude-default`'s harness.) The tag also carries the launcher's **assembly fingerprint** — at-jam's embedded payload (hardening layer, cove-master), the blessed default base, the Jam host and the launcher key — so upgrading Jam (or moving it, or rotating its key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Removing at-task and at-switchboard from that payload (jam-only slice 2) changed every fingerprint once, so each kit rebuilds on its next raise after that upgrade. Superseded `cove-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
 

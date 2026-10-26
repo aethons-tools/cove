@@ -1,7 +1,6 @@
 // Package studio defines the StudioKit — the small, directly-authored kit a
-// brokered ("studio") cove is built and raised from. It deliberately does NOT
-// reuse kit.Config: a studio kit carries only a base, egress, secret demands,
-// build args, and an orienting prompt.
+// brokered ("studio") cove is built and raised from. A studio kit carries only
+// a base, egress, secret demands, build args, and an orienting prompt.
 package studio
 
 import (
@@ -15,7 +14,7 @@ import (
 )
 
 // Kind is the discriminator stored with every studio kit, distinguishing it
-// from a full kit.Config entry sharing the jam kit registry.
+// in the jam kit registry.
 const Kind = "studio"
 
 // StudioKit is the parsed contents of a studio kit's config. Build-affecting

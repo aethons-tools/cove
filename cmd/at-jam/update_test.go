@@ -38,7 +38,7 @@ func TestUpdatePinnedRunsEmbeddedInstallScript(t *testing.T) {
 }
 
 // TestUpdateHonorsCoveVersionEnv: with no flag, COVE_VERSION (read via getenv)
-// pins the release — the same knob install.sh and `at-cove update` honor.
+// pins the release — the same knob install.sh honors.
 func TestUpdateHonorsCoveVersionEnv(t *testing.T) {
 	f := &runner.Fake{}
 	withUpdateRunner(t, f)

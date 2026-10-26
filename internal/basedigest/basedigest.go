@@ -1,7 +1,7 @@
 // Package basedigest holds the blessed cove-base-image manifest digests that a
 // kit's resolved base must descend from — COV-34's provenance gate compares the
 // base's OCI layer diff_ids against the blessed image's. The digests are embedded
-// into at-cove (go:embed), so the gate runs fully offline at create time.
+// into at-jam (go:embed), so the gate runs fully offline at build time.
 //
 // The set is generated at build time from the registry, bounded by a committed
 // low-watermark — see internal/blessgen and cmd/gen-blessed (COV-44). The embed
@@ -44,7 +44,7 @@ func Blessed() []string {
 	return parse(string(b))
 }
 
-// DefaultRef is the base at-cove hardens when a kit selects none: the newest
+// DefaultRef is the base Jam's launcher hardens when a kit selects none: the newest
 // blessed cove-base-image, pinned by digest.
 func DefaultRef() string {
 	return Image + "@" + Blessed()[0]
