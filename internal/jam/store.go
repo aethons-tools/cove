@@ -18,6 +18,7 @@ type Store interface {
 	ChannelStore
 	ShareGrantStore
 	PushSubscriptionStore
+	ManagerStore
 	SetupSnapshotStore
 
 	AddActor(a Actor) error // error if the id already exists or a grant names an unknown project
