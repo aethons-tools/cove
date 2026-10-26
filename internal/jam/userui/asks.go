@@ -101,26 +101,40 @@ func (h *handler) answerAsk(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	version, _ := strconv.Atoi(r.FormValue("version"))
 	_, err := h.d.Intercom.AnswerAsk(p.UserID, id, version, r.FormValue("choice"), r.FormValue("comment"))
+	status, _, msg := answerOutcome(h.d, id, err)
 	switch {
-	case err == nil:
+	case status == http.StatusNoContent:
 		w.Header().Set("HX-Trigger", "meChanged")
 		w.WriteHeader(http.StatusNoContent)
+	case status == http.StatusInternalServerError:
+		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
+		http.Error(w, msg, status)
+	default:
+		http.Error(w, msg, status)
+	}
+}
+
+// answerOutcome maps an AnswerAsk result to the HTTP status, API code and
+// message both answer routes give (the HTML route writes msg as text).
+func answerOutcome(d Deps, id string, err error) (int, string, string) {
+	switch {
+	case err == nil:
+		return http.StatusNoContent, "", ""
 	case errors.Is(err, intercom.ErrAskChanged):
-		http.Error(w, "this ask changed — review the new version", http.StatusConflict)
+		return http.StatusConflict, "ask_changed", "this ask changed — review the new version"
 	case errors.Is(err, intercom.ErrAskClosed):
 		msg := "this ask is closed"
-		if a, ok := h.d.Intercom.GetAsk(id); ok && a.Answer != nil {
-			msg = "already answered by " + h.d.Intercom.PartyOf(a.Answer.By).Label + ": " + a.ChoiceLabel(a.Answer.Choice)
+		if a, ok := d.Intercom.GetAsk(id); ok && a.Answer != nil {
+			msg = "already answered by " + d.Intercom.PartyOf(a.Answer.By).Label + ": " + a.ChoiceLabel(a.Answer.Choice)
 		}
-		http.Error(w, msg, http.StatusConflict)
+		return http.StatusConflict, "ask_closed", msg
 	case errors.Is(err, intercom.ErrInvalid):
-		http.Error(w, strings.TrimPrefix(err.Error(), "intercom: invalid squawk: "), http.StatusBadRequest)
+		return http.StatusBadRequest, "bad_request", strings.TrimPrefix(err.Error(), "intercom: invalid squawk: ")
 	case errors.Is(err, intercom.ErrAskNotFound):
-		http.Error(w, "not found", http.StatusNotFound)
+		return http.StatusNotFound, "not_found", "not found"
 	case errors.Is(err, jam.ErrSendDenied), errors.Is(err, intercom.ErrAskForbidden):
-		http.Error(w, "not allowed", http.StatusForbidden)
+		return http.StatusForbidden, "forbidden", "not allowed"
 	default:
-		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
-		http.Error(w, "failed", http.StatusInternalServerError)
+		return http.StatusInternalServerError, "internal", "failed"
 	}
 }
