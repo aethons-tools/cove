@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
+	github.com/chromedp/cdproto v0.158.5
 	github.com/chromedp/chromedp v0.16.0
 	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-git/go-git/v5 v5.19.3
