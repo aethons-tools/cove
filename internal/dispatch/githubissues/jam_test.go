@@ -3,6 +3,7 @@ package githubissues
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -64,14 +65,11 @@ func TestNewJamQualifiesKeysAndGatesOnDispatchLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReady: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("ListReady = %+v", got)
+	if len(got) != 1 { // #6 carries no dispatch label: gated out
+		t.Fatalf("ListReady = %+v; want only acme/board#5", got)
 	}
 	if got[0].ID != "5" || got[0].Identifier != "acme/board#5" || got[0].Class != "impl" || !got[0].DispatchLabeled {
 		t.Fatalf("labeled issue = %+v", got[0])
-	}
-	if got[1].Identifier != "acme/board#6" || got[1].DispatchLabeled {
-		t.Fatalf("unlabeled issue = %+v", got[1])
 	}
 }
 
@@ -192,5 +190,83 @@ func TestNewKeepsAtCoveOutputs(t *testing.T) {
 	}
 	if got[0].Class != "impl" {
 		t.Errorf("class = %q; want impl", got[0].Class)
+	}
+}
+
+// Final fix 1: the ready search is paged (per_page=100, Link rel="next" on
+// the API host), and the dispatch gate runs before blockers are resolved —
+// 40 ready, the 10 dispatchable all on page 2, and no blocker GET for a
+// gated-out issue.
+func TestListReadyPagesAndGatesBeforeBlockers(t *testing.T) {
+	var perPage string
+	var blockerGETs []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
+		var items []string
+		if r.URL.Query().Get("page") == "2" {
+			for n := 31; n <= 40; n++ { // the dispatchable ten
+				items = append(items, fmt.Sprintf(`{"number":%d,"state":"open","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}`, n))
+			}
+		} else {
+			perPage = r.URL.Query().Get("per_page")
+			for n := 1; n <= 30; n++ { // ready, but not tagged for dispatch; each names a blocker
+				items = append(items, fmt.Sprintf(`{"number":%d,"state":"open","body":"Depends on #%d","labels":[{"name":"status:ready"}]}`, n, 100+n))
+			}
+			w.Header().Set("Link", `<https://api.github.com/search/issues?page=2>; rel="next"`)
+		}
+		io.WriteString(w, `{"items":[`+strings.Join(items, ",")+`]}`)
+	})
+	mux.HandleFunc("GET /repos/acme/board/issues/{n}", func(w http.ResponseWriter, r *http.Request) {
+		blockerGETs = append(blockerGETs, r.PathValue("n"))
+		io.WriteString(w, `{"state":"open"}`)
+	})
+	got, err := newJamClient(t, mux).ListReady(context.Background())
+	if err != nil {
+		t.Fatalf("ListReady: %v", err)
+	}
+	if perPage != "100" {
+		t.Errorf("per_page = %q; want 100", perPage)
+	}
+	if len(got) != 10 {
+		t.Fatalf("ListReady = %d issues; want the 10 dispatchable on page 2", len(got))
+	}
+	for i, iss := range got {
+		if want := fmt.Sprintf("acme/board#%d", 31+i); iss.Identifier != want || !iss.DispatchLabeled {
+			t.Errorf("issue %d = %+v; want %s, dispatch-labeled", i, iss, want)
+		}
+	}
+	if len(blockerGETs) != 0 {
+		t.Errorf("blocker GETs = %v; want none for gated-out issues", blockerGETs)
+	}
+}
+
+// The ready search follows at most maxFeedPages pages, and never a next
+// link off the API host.
+func TestListReadyPagingIsBounded(t *testing.T) {
+	served := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
+		served++
+		w.Header().Set("Link", fmt.Sprintf(`<https://api.github.com/search/issues?page=%d>; rel="next"`, served+1))
+		io.WriteString(w, `{"items":[]}`)
+	})
+	if _, err := newJamClient(t, mux).ListReady(context.Background()); err != nil {
+		t.Fatalf("ListReady: %v", err)
+	}
+	if served != maxFeedPages {
+		t.Errorf("pages = %d; want the cap %d", served, maxFeedPages)
+	}
+	served = 0
+	off := http.NewServeMux()
+	off.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
+		served++
+		w.Header().Set("Link", `<https://evil.example/search/issues?page=2>; rel="next"`)
+		io.WriteString(w, `{"items":[]}`)
+	})
+	if _, err := newJamClient(t, off).ListReady(context.Background()); err != nil {
+		t.Fatalf("ListReady: %v", err)
+	}
+	if served != 1 {
+		t.Errorf("pages = %d; want 1 (an off-host next is not followed)", served)
 	}
 }

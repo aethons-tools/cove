@@ -150,8 +150,9 @@ func (c *Client) bodyText(raw []byte) string {
 	return strings.ReplaceAll(text, c.token, "[redacted]")
 }
 
-// rateLimit reads a GitHub rate-limit refusal: a 403 or 429 with Retry-After,
-// or with X-RateLimit-Remaining: 0 (wait until X-RateLimit-Reset), a 403
+// rateLimit reads a GitHub rate-limit refusal: a 403 or 429 with Retry-After
+// (at least a second: Retry-After: 0 is not a busy retry), or with
+// X-RateLimit-Remaining: 0 (wait until X-RateLimit-Reset), a 403
 // whose body names a secondary rate limit, or any 429 (both: wait a
 // minute). Any other 403 is a permissions error: nil.
 func rateLimit(code int, h http.Header, body []byte, now time.Time) error {
@@ -159,7 +160,7 @@ func rateLimit(code int, h http.Header, body []byte, now time.Time) error {
 		return nil
 	}
 	if s, err := strconv.Atoi(h.Get("Retry-After")); err == nil && s >= 0 {
-		return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: time.Duration(s) * time.Second}
+		return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: max(time.Duration(s)*time.Second, time.Second)}
 	}
 	if h.Get("X-RateLimit-Remaining") == "0" {
 		if reset, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil {
@@ -176,22 +177,28 @@ func rateLimit(code int, h http.Header, body []byte, now time.Time) error {
 // otherwise. For Jam's client a rate limit is a *tracker.RateLimitError;
 // at-cove's (New) keeps its plain http error.
 func (c *Client) getJSON(ctx context.Context, u string, out any) error {
+	_, err := c.getJSONLink(ctx, u, out)
+	return err
+}
+
+// getJSONLink is getJSON that also returns the response's Link header.
+func (c *Client) getJSONLink(ctx context.Context, u string, out any) (string, error) {
 	code, h, raw, err := c.send(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if c.jam {
 		if rl := rateLimit(code, h, raw, time.Now()); rl != nil {
-			return rl
+			return "", rl
 		}
 	}
 	if code != http.StatusOK {
-		return fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
+		return "", fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
 	}
 	if out != nil {
-		return json.Unmarshal(raw, out)
+		return h.Get("Link"), json.Unmarshal(raw, out)
 	}
-	return nil
+	return h.Get("Link"), nil
 }
 
 // ghIssue is the shared projection of a search hit / issue payload.
@@ -230,26 +237,40 @@ func (c *Client) key(n int) string {
 }
 
 // search runs a GitHub issue search for the given status label in this repo,
-// scoped to open issues.
+// scoped to open issues. at-cove's (New) reads the first page as it always
+// has; Jam's reads 100 a page and follows Link rel="next" (on the API host
+// only) for at most maxFeedPages pages, then drops pull requests and
+// already-closed hits.
 func (c *Client) search(ctx context.Context, label string) ([]ghIssue, error) {
-	q := fmt.Sprintf("repo:%s is:issue is:open label:%q", c.repo, label)
-	u := api + "/search/issues?" + url.Values{"q": {q}}.Encode()
-	var out struct {
-		Items []ghIssue `json:"items"`
-	}
-	if err := c.getJSON(ctx, u, &out); err != nil {
-		return nil, err
-	}
+	q := url.Values{"q": {fmt.Sprintf("repo:%s is:issue is:open label:%q", c.repo, label)}}
 	if !c.jam {
+		var out struct {
+			Items []ghIssue `json:"items"`
+		}
+		if err := c.getJSON(ctx, api+"/search/issues?"+q.Encode(), &out); err != nil {
+			return nil, err
+		}
 		return out.Items, nil // at-cove's search results, unfiltered
 	}
-	// The search index lags: a just-closed issue can still match is:open,
-	// and a pull request is an issue to GitHub. Neither is work to dispatch.
-	items := out.Items[:0]
-	for _, n := range out.Items {
-		if n.PullRequest == nil && n.State != "closed" {
-			items = append(items, n)
+	q.Set("per_page", "100")
+	var items []ghIssue
+	u := api + "/search/issues?" + q.Encode()
+	for pages := 0; u != "" && pages < maxFeedPages; pages++ {
+		var out struct {
+			Items []ghIssue `json:"items"`
 		}
+		link, err := c.getJSONLink(ctx, u, &out)
+		if err != nil {
+			return nil, err
+		}
+		// The search index lags: a just-closed issue can still match is:open,
+		// and a pull request is an issue to GitHub. Neither is work to dispatch.
+		for _, n := range out.Items {
+			if n.PullRequest == nil && n.State != "closed" {
+				items = append(items, n)
+			}
+		}
+		u = nextPage(link)
 	}
 	return items, nil
 }
@@ -308,15 +329,27 @@ func (c *Client) closedBlockers(ctx context.Context, nums map[int]struct{}) (map
 	return closed, nil
 }
 
-// ListReady returns open issues carrying the READY status label whose same-repo
-// blockers (Depends on #N / Blocked by #N in the body) are all closed, or which
-// have none. Blocker doneness is resolved by a separate authoritative lookup over
+// ListReady returns open issues carrying the READY status label (for Jam's
+// client, only those carrying a dispatch label too) whose same-repo blockers
+// (Depends on #N / Blocked by #N in the body) are all closed, or which have
+// none. Blocker doneness is resolved by a separate authoritative lookup over
 // the deduped union of referenced numbers — the same discipline as Linear's
 // doneBlockers (COV-56): the search projection is never trusted for it.
 func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
 	items, err := c.search(ctx, c.labels[scheduler.RoleReady])
 	if err != nil {
 		return nil, err
+	}
+	if c.jam {
+		// Jam's dispatch gate first: an issue not tagged for dispatch is never
+		// raised, so its blockers are not worth a GET each.
+		gated := items[:0]
+		for _, n := range items {
+			if c.toIssue(n).DispatchLabeled {
+				gated = append(gated, n)
+			}
+		}
+		items = gated
 	}
 	blockersOf := make(map[int][]int, len(items))
 	union := map[int]struct{}{}
@@ -566,9 +599,9 @@ type ghComment struct {
 	} `json:"user"`
 }
 
-// maxFeedPages caps the pages one CommentFeed call reads, so a repo busy
-// with PR conversations (read, then skipped) can't drain the rate budget in
-// one poll. The cursor (CommentFeedCursor) carries the next poll on.
+// maxFeedPages caps the pages one CommentFeed call (or one Jam ready
+// search) reads, so a repo busy with PR conversations (read, then skipped)
+// can't drain the rate budget in one poll. The cursor (CommentFeedCursor) carries the next poll on.
 const maxFeedPages = 10
 
 // linkNext matches a Link header's rel="next" target.

@@ -396,3 +396,13 @@ func TestWritesRateLimitedOnlyForJam(t *testing.T) {
 		t.Fatalf("at-cove PostComment = %v; want its old http 429 error", err)
 	}
 }
+
+// Final fix 5: Retry-After: 0 is clamped to a second — never an immediate
+// (busy) retry.
+func TestRateLimitRetryAfterZeroClamped(t *testing.T) {
+	h := http.Header{"Retry-After": {"0"}}
+	var rl *tracker.RateLimitError
+	if err := rateLimit(http.StatusTooManyRequests, h, nil, time.Now()); !errors.As(err, &rl) || rl.RetryAfter != time.Second {
+		t.Fatalf("rateLimit(Retry-After: 0) = %v; want RetryAfter 1s", err)
+	}
+}
