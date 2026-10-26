@@ -6,7 +6,7 @@ import (
 )
 
 func TestVolumes(t *testing.T) {
-	c := CoveContainer("abc")
+	c := StudioContainer("abc")
 	if got := WorkspaceVolume(c); got != "atcove-cove-abc-workspace" {
 		t.Fatalf("WorkspaceVolume = %q, want atcove-cove-abc-workspace", got)
 	}
@@ -18,19 +18,19 @@ func TestVolumes(t *testing.T) {
 // DockerVolume backs the inner /var/lib/docker cache for a docker:true instance;
 // it hangs off the container base like the other volumes, with a -docker suffix.
 func TestDockerVolume(t *testing.T) {
-	if got := DockerVolume(CoveContainer("abc")); got != "atcove-cove-abc-docker" {
+	if got := DockerVolume(StudioContainer("abc")); got != "atcove-cove-abc-docker" {
 		t.Fatalf("DockerVolume = %q, want atcove-cove-abc-docker", got)
 	}
 }
 
-// CoveContainer names a managed cove's container from its actor id, sanitizing
+// StudioContainer names a managed cove's container from its actor id, sanitizing
 // any docker-unsafe characters so the name is always valid.
-func TestCoveContainer(t *testing.T) {
-	if got := CoveContainer("w1"); got != "atcove-cove-w1" {
-		t.Fatalf("CoveContainer = %q, want atcove-cove-w1", got)
+func TestStudioContainer(t *testing.T) {
+	if got := StudioContainer("w1"); got != "atcove-cove-w1" {
+		t.Fatalf("StudioContainer = %q, want atcove-cove-w1", got)
 	}
 	// Unsafe chars are sanitized to a docker-safe name.
-	if got := CoveContainer("proj/worker@1"); strings.ContainsAny(got, "/@") {
-		t.Fatalf("CoveContainer left unsafe chars: %q", got)
+	if got := StudioContainer("proj/worker@1"); strings.ContainsAny(got, "/@") {
+		t.Fatalf("StudioContainer left unsafe chars: %q", got)
 	}
 }

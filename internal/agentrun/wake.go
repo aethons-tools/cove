@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // wakeBox holds the reasons of Wakes not yet delivered to the agent. Wakes
@@ -16,21 +16,21 @@ import (
 // signal was already answered.
 type wakeBox struct {
 	mu       sync.Mutex
-	pending  []covemaster.WakeReason
-	inflight []covemaster.WakeReason // the last take, until restored or replaced
-	sig      chan struct{}           // cap 1
+	pending  []studioagent.WakeReason
+	inflight []studioagent.WakeReason // the last take, until restored or replaced
+	sig      chan struct{}            // cap 1
 }
 
 // legacyWake stands in for a Wake that carried no reasons; it renders as the
 // session kind's usual prompt.
-var legacyWake = covemaster.WakeReason{}
+var legacyWake = studioagent.WakeReason{}
 
 func newWakeBox() *wakeBox { return &wakeBox{sig: make(chan struct{}, 1)} }
 
 // post merges rs (dropping exact duplicates) and signals.
-func (b *wakeBox) post(rs []covemaster.WakeReason) {
+func (b *wakeBox) post(rs []studioagent.WakeReason) {
 	if len(rs) == 0 {
-		rs = []covemaster.WakeReason{legacyWake}
+		rs = []studioagent.WakeReason{legacyWake}
 	}
 	b.mu.Lock()
 	b.merge(rs)
@@ -39,7 +39,7 @@ func (b *wakeBox) post(rs []covemaster.WakeReason) {
 }
 
 // merge appends rs to pending, dropping exact duplicates. Caller holds mu.
-func (b *wakeBox) merge(rs []covemaster.WakeReason) {
+func (b *wakeBox) merge(rs []studioagent.WakeReason) {
 	for _, r := range rs {
 		if !slices.Contains(b.pending, r) {
 			b.pending = append(b.pending, r)
@@ -68,7 +68,7 @@ func (b *wakeBox) has() bool {
 
 // take drains the pending reasons, remembering them as in flight until the
 // next take (or restore).
-func (b *wakeBox) take() []covemaster.WakeReason {
+func (b *wakeBox) take() []studioagent.WakeReason {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	rs := b.pending
@@ -94,7 +94,7 @@ func (b *wakeBox) restore() {
 // rs, or when rs is empty (a bare Wake from an older Jam). Every other reason
 // gets a line of its own ahead of it; context-changed is skipped because the
 // context notice is appended separately.
-func renderWake(base string, rs []covemaster.WakeReason) string {
+func renderWake(base string, rs []studioagent.WakeReason) string {
 	var lines []string
 	squawk := len(rs) == 0
 	for _, r := range rs {
@@ -116,7 +116,7 @@ func renderWake(base string, rs []covemaster.WakeReason) string {
 // wakeLine is the line a reason gets in a prompt answering it; ok is false
 // for a squawk (the base prompt answers it), a bare Wake and context-changed
 // (the context notice is appended separately).
-func wakeLine(r covemaster.WakeReason) (line string, ok bool) {
+func wakeLine(r studioagent.WakeReason) (line string, ok bool) {
 	switch r.Kind {
 	case "squawk", legacyWake.Kind, "context-changed":
 		return "", false

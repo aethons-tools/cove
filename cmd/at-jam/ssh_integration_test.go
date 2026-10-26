@@ -27,7 +27,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/attach"
@@ -35,6 +34,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // TestStudioSSHEndToEnd drives studio collaboration through every real piece
@@ -89,7 +89,7 @@ func TestStudioSSHEndToEnd(t *testing.T) {
 	// The studio: cove-master attached over bufconn; its dial-back for the
 	// studio's :2222 lands on the test sshd.
 	dialed := make(chan string, 4)
-	cm := covemaster.New(covemaster.Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
+	cm := studioagent.New(studioagent.Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.DialContext(context.Background()) }),
@@ -187,12 +187,12 @@ func TestStudioSSHEndToEnd(t *testing.T) {
 
 type waitingWorkload struct{}
 
-func (waitingWorkload) Run(ctx context.Context, h covemaster.Handle) error {
-	h.Report(covemaster.Waiting)
+func (waitingWorkload) Run(ctx context.Context, h studioagent.Handle) error {
+	h.Report(studioagent.Waiting)
 	<-ctx.Done()
 	return ctx.Err()
 }
-func (waitingWorkload) Control(covemaster.Control) {}
+func (waitingWorkload) Control(studioagent.Control) {}
 
 // startCollabSSHD runs an unprivileged sshd on a free loopback port that
 // accepts only certs signed by caPub carrying principal "agent" (the studio's

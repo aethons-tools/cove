@@ -93,7 +93,7 @@ const baselineFile = "baseline-settings.json"
 // BaselineSettings is the harness layer's baseline Claude preferences file,
 // rendered from modelspec.DefaultClaudeSettings (the one source). It is
 // generated, not embedded payload, so the assembly identity hashes it
-// explicitly (internal/install.AtCoveIdentity).
+// explicitly (internal/install.AssemblyIdentity).
 func BaselineSettings() []byte {
 	b, _ := json.MarshalIndent(modelspec.DefaultClaudeSettings(), "", "  ") // bools and strings; never errors
 	return append(b, '\n')

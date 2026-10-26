@@ -17,7 +17,7 @@ const tagHalf = 32
 // asmDigest is the launcher's assembly fingerprint: everything a studio-kit
 // build bakes in that is NOT in the kit's own BuildDigest — at-jam's embedded
 // payload (the sealed hardening layer, harness payload and cove-master, hashed
-// by install.AtCoveIdentity), the blessed default base (an omitted base builds FROM it; a context base
+// by install.AssemblyIdentity), the blessed default base (an omitted base builds FROM it; a context base
 // descends from it), the Jam host (baked into the infra egress list) and the
 // launcher's public key (baked into authorized_keys). Length-prefixed fields.
 func asmDigest(identity, defaultRef, jamHost string, pub []byte) string {
@@ -35,7 +35,7 @@ func asmDigest(identity, defaultRef, jamHost string, pub []byte) string {
 // (an unreadable embed — never expected) degrades to an empty identity: the tag
 // still varies with the other inputs, and the error is logged by the caller.
 func currentAsmDigest(cfg Config) (string, error) {
-	id, err := install.AtCoveIdentity()
+	id, err := install.AssemblyIdentity()
 	return asmDigest(id, basedigest.DefaultRef(), cfg.JamHost, cfg.PublicKey), err
 }
 

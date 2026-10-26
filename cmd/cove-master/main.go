@@ -35,9 +35,9 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/aethons-tools/cove/internal/agentrun"
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // clientTransportCreds dials Jam over TLS, validating against the system trust
@@ -57,22 +57,22 @@ func jamEnv(getenv func(string) string, suffix string) string {
 	return getenv("AT_HARBOR_" + suffix)
 }
 
-func buildConfig(getenv func(string) string, log *slog.Logger) (covemaster.Config, error) {
+func buildConfig(getenv func(string) string, log *slog.Logger) (studioagent.Config, error) {
 	addr := jamEnv(getenv, "RUNTIME_ADDR")
 	token := jamEnv(getenv, "IDENTITY_TOKEN")
 	secret := jamEnv(getenv, "LAUNCH_SECRET")
 	switch {
 	case addr == "":
-		return covemaster.Config{}, fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
+		return studioagent.Config{}, fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
 	case token == "":
-		return covemaster.Config{}, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
+		return studioagent.Config{}, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
 	case secret == "":
-		return covemaster.Config{}, fmt.Errorf("AT_JAM_LAUNCH_SECRET is required")
+		return studioagent.Config{}, fmt.Errorf("AT_JAM_LAUNCH_SECRET is required")
 	}
-	return covemaster.Config{
+	return studioagent.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(clientTransportCreds())},
-		IDE:         covemaster.NewIDE(covemaster.IDEConfig{}, log),
+		IDE:         studioagent.NewIDE(studioagent.IDEConfig{}, log),
 	}, nil
 }
 
@@ -134,7 +134,7 @@ func run(getenv func(string) string, stderr *os.File) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := covemaster.New(cfg, log).Run(ctx, agentrun.New(agentCfg, log)); err != nil {
+	if err := studioagent.New(cfg, log).Run(ctx, agentrun.New(agentCfg, log)); err != nil {
 		fmt.Fprintln(stderr, "cove-master:", err)
 		return 1
 	}

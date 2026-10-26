@@ -32,7 +32,7 @@ import (
 var payloadFS embed.FS
 
 // PayloadFS returns the embedded harness payload (rooted at "payload"), hashed
-// into the assembly identity (internal/install.AtCoveIdentity).
+// into the assembly identity (internal/install.AssemblyIdentity).
 func PayloadFS() fs.FS { return payloadFS }
 
 // ContextDir is the build-context directory the harness payload is staged in.

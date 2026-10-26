@@ -1,5 +1,5 @@
 // Package connect launches cove-master inside a raised studio over ssh
-// (LaunchCoveMaster), staging its prompt, context and env into tmpfs.
+// (LaunchStudioAgent), staging its prompt, context and env into tmpfs.
 package connect
 
 import (

@@ -3,20 +3,20 @@ package agentrun
 import (
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 func TestRenderWakeNoReasonsIsLegacyPrompt(t *testing.T) {
 	if got := renderWake(standingResumePrompt, nil); got != standingResumePrompt {
 		t.Fatalf("got %q", got)
 	}
-	if got := renderWake(residentResumePrompt, []covemaster.WakeReason{{Kind: "squawk"}}); got != residentResumePrompt {
+	if got := renderWake(residentResumePrompt, []studioagent.WakeReason{{Kind: "squawk"}}); got != residentResumePrompt {
 		t.Fatalf("squawk-only got %q", got)
 	}
 }
 
 func TestRenderWakeAlarmAndSquawk(t *testing.T) {
-	got := renderWake(standingResumePrompt, []covemaster.WakeReason{
+	got := renderWake(standingResumePrompt, []studioagent.WakeReason{
 		{Kind: "alarm", Alarm: "pr-watch", Note: "check the PR", Detail: "CI red"},
 		{Kind: "squawk"},
 	})
@@ -27,7 +27,7 @@ func TestRenderWakeAlarmAndSquawk(t *testing.T) {
 }
 
 func TestRenderWakeWithoutSquawk(t *testing.T) {
-	got := renderWake(standingResumePrompt, []covemaster.WakeReason{{Kind: "idle"}, {Kind: "mystery", Detail: "x"}})
+	got := renderWake(standingResumePrompt, []studioagent.WakeReason{{Kind: "idle"}, {Kind: "mystery", Detail: "x"}})
 	want := "Idle timeout: no other wake arrived.\nWoken (mystery): x\nContinue."
 	if got != want {
 		t.Fatalf("got %q", got)
@@ -36,8 +36,8 @@ func TestRenderWakeWithoutSquawk(t *testing.T) {
 
 func TestWakeBoxMergesAndDedups(t *testing.T) {
 	b := newWakeBox()
-	b.post([]covemaster.WakeReason{{Kind: "squawk"}})
-	b.post([]covemaster.WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "a"}})
+	b.post([]studioagent.WakeReason{{Kind: "squawk"}})
+	b.post([]studioagent.WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "a"}})
 	b.post(nil) // a bare Wake from an older Jam: the legacy marker
 	select {
 	case <-b.signal():
@@ -70,7 +70,7 @@ func TestWakeBoxBareWakeIsLegacyMarker(t *testing.T) {
 // restore puts the reasons of a delivered-but-unanswered prompt back.
 func TestWakeBoxRestore(t *testing.T) {
 	b := newWakeBox()
-	b.post([]covemaster.WakeReason{{Kind: "alarm", Alarm: "nightly"}})
+	b.post([]studioagent.WakeReason{{Kind: "alarm", Alarm: "nightly"}})
 	b.take()
 	b.restore()
 	if rs := b.take(); len(rs) != 1 || rs[0].Alarm != "nightly" {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // conversationWL is a Workload of kind whose conversation marker lives at
@@ -99,7 +99,7 @@ func TestStandingResumeFailureFallsBackFresh(t *testing.T) {
 	if got := f.calls[1].in.next(t); got != "p" {
 		t.Fatalf("retry prompt = %q; want the raise prompt", got)
 	}
-	if h.count(covemaster.Waiting) != 1 {
+	if h.count(studioagent.Waiting) != 1 {
 		t.Fatalf("the failed resume must not report Waiting; got %v", h.got)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -210,8 +210,8 @@ func TestStandingResumedThenWakes(t *testing.T) {
 	w := conversationWL(t, dir, "standing", marker, f)
 	h := &recordHandle{}
 	done := runAsyncEpisodes(w, h, 2)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
 	select {
 	case err := <-done:
 		if err != nil {

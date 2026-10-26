@@ -26,7 +26,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/attach"
@@ -34,6 +33,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/preview"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // TestStudioPreviewEndToEnd drives a studio preview through every real piece
@@ -131,7 +131,7 @@ func TestStudioPreviewEndToEnd(t *testing.T) {
 	var dialMu sync.Mutex
 	var dialed []string
 	var cmLog syncBuffer
-	cm := covemaster.New(covemaster.Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
+	cm := studioagent.New(studioagent.Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.DialContext(context.Background()) }),

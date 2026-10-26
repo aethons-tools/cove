@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // pipeInput records stream-json user messages (msgs) and control requests
@@ -237,7 +237,7 @@ func TestEpisodeCoalescesWakesDuringTurn(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit)
 	for i := 0; i < 3; i++ {
-		w.Control(covemaster.Control{Kind: covemaster.Wake})
+		w.Control(studioagent.Control{Kind: studioagent.Wake})
 		time.Sleep(5 * time.Millisecond)
 	}
 	p.in.noMessage(t, 50*time.Millisecond) // mid-turn: held
@@ -271,7 +271,7 @@ func TestEpisodeWakeDuringHoldDeliveredNow(t *testing.T) {
 			p.in.next(t)
 			p.emit(lnInit, lnTasks1, lnResult)
 			p.in.staysOpen(t, 30*time.Millisecond)
-			w.Control(covemaster.Control{Kind: covemaster.Wake})
+			w.Control(studioagent.Control{Kind: studioagent.Wake})
 			if got := p.in.next(t); got != tc.want {
 				t.Fatalf("delivered %q, want %q", got, tc.want)
 			}
@@ -307,7 +307,7 @@ func TestEpisodePendingWakeSurvivesExit(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit)
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
 	p.in.noMessage(t, 30*time.Millisecond)
 	p.exit <- nil // crashed mid-turn, wake undelivered
 	p2 := s.next(t)
@@ -345,7 +345,7 @@ func TestEpisodeUnansweredWakeSurvivesExit(t *testing.T) {
 			if tc.writeFails {
 				p.in.broken.Store(true)
 			}
-			w.Control(covemaster.Control{Kind: covemaster.Wake})
+			w.Control(studioagent.Control{Kind: studioagent.Wake})
 			if tc.writeFails {
 				p.in.waitClosed(t) // the failed write closes stdin
 			} else if got := p.in.next(t); got != resumePrompt {
@@ -416,8 +416,8 @@ func TestEpisodeMergesWakeReasons(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit)
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "run the backup check"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "run the backup check"}}})
 	p.in.noMessage(t, 50*time.Millisecond) // mid-turn: held
 	p.emit(lnResult)
 	want := "Alarm \"nightly\" fired: run the backup check\n" + standingResumePrompt
@@ -441,14 +441,14 @@ func TestEpisodeReportsHoldingThenRunning(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnResult) // turn ends with a background task outstanding
-	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
-		t.Fatalf("Holding not reported on hold; holding=%d", h.count(covemaster.Holding))
+	if !eventually(func() bool { return h.count(studioagent.Holding) == 1 }) {
+		t.Fatalf("Holding not reported on hold; holding=%d", h.count(studioagent.Holding))
 	}
-	runningBefore := h.count(covemaster.Running)
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	runningBefore := h.count(studioagent.Running)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	p.in.next(t) // the resume prompt starts a turn
-	if !eventually(func() bool { return h.count(covemaster.Running) == runningBefore+1 }) {
-		t.Fatalf("Running not reported when the held episode resumed; running=%d (before %d)", h.count(covemaster.Running), runningBefore)
+	if !eventually(func() bool { return h.count(studioagent.Running) == runningBefore+1 }) {
+		t.Fatalf("Running not reported when the held episode resumed; running=%d (before %d)", h.count(studioagent.Running), runningBefore)
 	}
 	cancel()
 	<-done
@@ -469,7 +469,7 @@ func TestEpisodeUnansweredWakeKeepsReasons(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnResult) // turn over, holding for the task
 	p.in.staysOpen(t, 30*time.Millisecond)
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "check"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "nightly", Note: "check"}}})
 	want := "Alarm \"nightly\" fired: check\nContinue."
 	if got := p.in.next(t); got != want {
 		t.Fatalf("delivered %q, want %q", got, want)
@@ -513,14 +513,14 @@ func TestEpisodeBackgroundSelfTurnReportsRunning(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnStarted, lnResult)
-	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Holding) == 1 }) {
 		t.Fatal("no Holding")
 	}
-	before := h.count(covemaster.Running)
+	before := h.count(studioagent.Running)
 	p.emit(lnTasks0, lnUpdated)
 	p.emit(lnNotify) // the completion starts a self-turn
-	if !eventually(func() bool { return h.count(covemaster.Running) == before+1 }) {
-		t.Fatalf("self-turn did not report Running (running=%d, before=%d)", h.count(covemaster.Running), before)
+	if !eventually(func() bool { return h.count(studioagent.Running) == before+1 }) {
+		t.Fatalf("self-turn did not report Running (running=%d, before=%d)", h.count(studioagent.Running), before)
 	}
 	cancel()
 	<-done
@@ -540,8 +540,8 @@ func TestEpisodeBackgroundWaitCapLeavesHolding(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit, lnTasks1, lnResult)
 	p.in.waitClosed(t) // the cap closed stdin
-	if !eventually(func() bool { return h.count(covemaster.Running) >= 2 }) {
-		t.Fatalf("cap did not report Running (running=%d)", h.count(covemaster.Running))
+	if !eventually(func() bool { return h.count(studioagent.Running) >= 2 }) {
+		t.Fatalf("cap did not report Running (running=%d)", h.count(studioagent.Running))
 	}
 	cancel()
 	<-done
@@ -562,7 +562,7 @@ func TestControlRunGateReportsResult(t *testing.T) {
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
 	p.exit <- nil // episode over: waiting
-	w.Control(covemaster.Control{Kind: covemaster.RunGate, Gate: &covemaster.GateRequest{RunID: "r1", Alarm: "ci", Command: "echo ok", Timeout: 5 * time.Second}})
+	w.Control(studioagent.Control{Kind: studioagent.RunGate, Gate: &studioagent.GateRequest{RunID: "r1", Alarm: "ci", Command: "echo ok", Timeout: 5 * time.Second}})
 	if !eventually(func() bool { return len(h.gateResults()) == 1 }) {
 		t.Fatal("no gate result")
 	}

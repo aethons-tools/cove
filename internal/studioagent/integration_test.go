@@ -1,6 +1,6 @@
 //go:build integration
 
-package covemaster
+package studioagent
 
 import (
 	"context"

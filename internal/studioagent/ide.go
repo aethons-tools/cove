@@ -1,4 +1,4 @@
-package covemaster
+package studioagent
 
 import (
 	"bytes"

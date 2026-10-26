@@ -504,12 +504,12 @@ func TestTeardownCapturesAgentLog(t *testing.T) {
 	// It read the cove-master log over ssh before removal.
 	var sawTail bool
 	for _, c := range r.Calls {
-		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.CoveMasterLogVMPath) {
+		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.StudioAgentLogVMPath) {
 			sawTail = true
 		}
 	}
 	if !sawTail {
-		t.Errorf("expected an ssh tail of %s; calls: %+v", connect.CoveMasterLogVMPath, r.Calls)
+		t.Errorf("expected an ssh tail of %s; calls: %+v", connect.StudioAgentLogVMPath, r.Calls)
 	}
 }
 
@@ -624,16 +624,16 @@ func newEgressLauncher(ops Backend, r *runner.Fake, logw io.Writer) *Launcher {
 	})
 }
 
-// isCoveMasterLaunch reports whether a runner call is part of the cove-master
+// isStudioAgentLaunch reports whether a runner call is part of the cove-master
 // bootstrap (staging its env/prompt on stdin, or starting it), not the sshd probe.
-func isCoveMasterLaunch(c runner.Call) bool {
+func isStudioAgentLaunch(c runner.Call) bool {
 	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "cove-master")
 }
 
 // A role's policy is applied in-box after sshd answers and before cove-master
 // (and so the agent) starts; the domains reach the op unchanged; the info log
 // carries the count, never the list.
-func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
+func TestRaiseAppliesRoleEgressBeforeStudioAgent(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	var logs bytes.Buffer
@@ -650,13 +650,13 @@ func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
 		t.Fatal("egress applied before sshd answered")
 	}
 	for _, c := range r.Calls[:ops.callsAtApp] {
-		if isCoveMasterLaunch(c) {
+		if isStudioAgentLaunch(c) {
 			t.Fatal("cove-master launched before the role egress was applied")
 		}
 	}
 	launched := false
 	for _, c := range r.Calls[ops.callsAtApp:] {
-		launched = launched || isCoveMasterLaunch(c)
+		launched = launched || isStudioAgentLaunch(c)
 	}
 	if !launched {
 		t.Fatal("cove-master never launched after the egress apply")
@@ -710,7 +710,7 @@ func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 		t.Fatalf("container not removed on egress failure: removed=%q", ops.removed)
 	}
 	for _, c := range r.Calls {
-		if isCoveMasterLaunch(c) {
+		if isStudioAgentLaunch(c) {
 			t.Fatal("cove-master launched despite the egress failure")
 		}
 	}
@@ -730,7 +730,7 @@ func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
 		t.Fatalf("container not removed: removed=%q", ops.removed)
 	}
 	for _, c := range r.Calls {
-		if isCoveMasterLaunch(c) {
+		if isStudioAgentLaunch(c) {
 			t.Fatal("cove-master launched without the role egress")
 		}
 	}
@@ -858,7 +858,7 @@ func newSSHCALauncher(ops Backend, r *runner.Fake, logw io.Writer, ca []byte) *L
 
 // The CA key is installed after sshd answers and the role egress lands, and
 // before cove-master (and so the agent) starts.
-func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
+func TestRaiseInstallsSSHUserCABeforeStudioAgent(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}}
 	l := newSSHCALauncher(ops, r, io.Discard, []byte(testSSHUserCA))
@@ -876,7 +876,7 @@ func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
 		t.Fatal("CA installed before the role egress was applied")
 	}
 	for _, c := range r.Calls[:ops.callsAtInstall] {
-		if isCoveMasterLaunch(c) {
+		if isStudioAgentLaunch(c) {
 			t.Fatal("cove-master launched before the CA was installed")
 		}
 	}

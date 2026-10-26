@@ -15,7 +15,7 @@ var hardeningFS embed.FS
 
 // HardeningFS returns the embedded sealed hardening layer (Dockerfile +
 // image-files) as a read-only FS rooted at "hardening". internal/install hashes
-// it into the assembly identity (AtCoveIdentity) that keys every studio image
+// it into the assembly identity (AssemblyIdentity) that keys every studio image
 // tag; assembly itself copies it via copyEmbed.
 func HardeningFS() fs.FS { return hardeningFS }
 

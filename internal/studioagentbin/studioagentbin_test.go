@@ -1,4 +1,4 @@
-package covemasterbin
+package studioagentbin
 
 import (
 	"strings"

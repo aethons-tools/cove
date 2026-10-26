@@ -1,6 +1,6 @@
 // Package naming is the single source of truth for the runtime docker
 // resource names Jam's launcher derives: a studio's container
-// (atcove-cove-<id>, CoveContainer) and the volumes named after it. Every name
+// (atcove-cove-<id>, StudioContainer) and the volumes named after it. Every name
 // shares the product prefix `atcove-`, so it never collides with an unrelated
 // docker object and every resource of one studio sorts together. Pure (no
 // os/time), so it is hermetically testable.
@@ -29,10 +29,9 @@ func AgentDataVolume(container string) string { return container + "-agent-data"
 // removed on destroy alongside them.
 func DockerVolume(container string) string { return container + "-docker" }
 
-// CoveContainer names a managed cove's container from its actor id: atcove-cove-<id>,
-// with any docker-unsafe characters replaced by '-' so the name is always valid.
-func CoveContainer(actorID string) string {
-	safe := strings.Map(func(r rune) rune {
+// SafeID is actorID with every docker-unsafe character replaced by '-'.
+func SafeID(actorID string) string {
+	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
 			return r
@@ -40,5 +39,8 @@ func CoveContainer(actorID string) string {
 			return '-'
 		}
 	}, actorID)
-	return prefix + "-cove-" + safe
 }
+
+// StudioContainer names a managed studio's container from its actor id,
+// docker-safe (SafeID).
+func StudioContainer(actorID string) string { return prefix + "-cove-" + SafeID(actorID) }

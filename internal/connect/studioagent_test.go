@@ -13,13 +13,13 @@ import (
 )
 
 // credsVMPath is claude's subscription OAuth credentials file inside a studio
-// (CLAUDE_CONFIG_DIR=/agent-data); LaunchCoveMaster must never write it.
+// (CLAUDE_CONFIG_DIR=/agent-data); LaunchStudioAgent must never write it.
 const credsVMPath = "/agent-data/.credentials.json"
 
-func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
+func TestLaunchStudioAgentInjectsAndLaunches(t *testing.T) {
 	fake := &runner.Fake{}
 	tgt := sshargs.Target{Host: "h", User: "agent", Port: 2222, IdentityFile: "k", KnownHostsFile: "kh"}
-	err := LaunchCoveMaster(fake, CoveMasterOptions{
+	err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target:        tgt,
 		JamHost:       "jam.example.com",
 		RuntimeAddr:   "jam.example.com:443",
@@ -45,17 +45,17 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	}
 
 	// The prompt is written to a tmpfs file via ssh stdin (never argv).
-	if got := stdinTo(coveMasterPromptVMPath); got != "do the task" {
+	if got := stdinTo(studioAgentPromptVMPath); got != "do the task" {
 		t.Fatalf("prompt stdin = %q, want %q", got, "do the task")
 	}
 
 	// The env script is written to a tmpfs file and contains the connector + cove-master vars.
-	envWrite := stdinTo(coveMasterEnvVMPath)
+	envWrite := stdinTo(studioAgentEnvVMPath)
 	for _, want := range []string{
 		"AT_JAM_RUNTIME_ADDR=", "jam.example.com:443",
 		"AT_JAM_LAUNCH_SECRET=", "sec-456",
 		"AT_COVE_WORKDIR=", "/home/agent/workspace",
-		"AT_COVE_AGENT_PROMPT_FILE=", coveMasterPromptVMPath,
+		"AT_COVE_AGENT_PROMPT_FILE=", studioAgentPromptVMPath,
 		"AT_JAM_IDENTITY_TOKEN=tok-123",
 		// The deprecated names are still set for older images, each exported
 		// from its new variable so no secret is written twice.
@@ -93,12 +93,12 @@ func TestLaunchCoveMasterInjectsAndLaunches(t *testing.T) {
 	}
 }
 
-// TestLaunchCoveMasterSubscription: with Subscription set, a dummy claudeAiOauth
+// TestLaunchStudioAgentSubscription: with Subscription set, a dummy claudeAiOauth
 // credentials file (accessToken = the identity token) is staged over ssh stdin,
 // and the env script uses the subscription render (no ANTHROPIC_API_KEY).
-func TestLaunchCoveMasterSubscription(t *testing.T) {
+func TestLaunchStudioAgentSubscription(t *testing.T) {
 	fake := &runner.Fake{}
-	err := LaunchCoveMaster(fake, CoveMasterOptions{
+	err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "jam.example.com",
 		RuntimeAddr: "jam.example.com:443", IdentityToken: "cove-identity", LaunchSecret: "s",
 		WorkDir: "/w", Prompt: "p", Subscription: true,
@@ -122,7 +122,7 @@ func TestLaunchCoveMasterSubscription(t *testing.T) {
 			t.Fatalf("subscription launch must NOT write a credentials file (%s)", credsVMPath)
 		}
 	}
-	env := stdinTo(coveMasterEnvVMPath)
+	env := stdinTo(studioAgentEnvVMPath)
 	if strings.Contains(env, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription env must NOT set ANTHROPIC_API_KEY:\n%s", env)
 	}
@@ -143,11 +143,11 @@ func TestLaunchCoveMasterSubscription(t *testing.T) {
 	}
 }
 
-// TestLaunchCoveMasterNonSubscriptionKeepsAPIKey: the default path still uses the
+// TestLaunchStudioAgentNonSubscriptionKeepsAPIKey: the default path still uses the
 // API-key render (ANTHROPIC_API_KEY set) and writes no credentials file.
-func TestLaunchCoveMasterNonSubscriptionKeepsAPIKey(t *testing.T) {
+func TestLaunchStudioAgentNonSubscriptionKeepsAPIKey(t *testing.T) {
 	fake := &runner.Fake{}
-	if err := LaunchCoveMaster(fake, CoveMasterOptions{
+	if err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "j", RuntimeAddr: "j:443",
 		IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p",
 	}); err != nil {
@@ -160,7 +160,7 @@ func TestLaunchCoveMasterNonSubscriptionKeepsAPIKey(t *testing.T) {
 	}
 	var env string
 	for _, c := range fake.Calls {
-		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+coveMasterEnvVMPath) {
+		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+studioAgentEnvVMPath) {
 			env = c.Stdin
 		}
 	}
@@ -169,12 +169,12 @@ func TestLaunchCoveMasterNonSubscriptionKeepsAPIKey(t *testing.T) {
 	}
 }
 
-// TestLaunchCoveMasterResident: AT_COVE_RESIDENT=1 is exported only when the
+// TestLaunchStudioAgentResident: AT_COVE_RESIDENT=1 is exported only when the
 // options ask for a resident (personal-session) cove.
-func TestLaunchCoveMasterResident(t *testing.T) {
+func TestLaunchStudioAgentResident(t *testing.T) {
 	for _, resident := range []bool{false, true} {
 		fake := &runner.Fake{}
-		err := LaunchCoveMaster(fake, CoveMasterOptions{
+		err := LaunchStudioAgent(fake, StudioAgentOptions{
 			Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "hh", RuntimeAddr: "hh:443",
 			IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", Resident: resident,
 		})
@@ -183,7 +183,7 @@ func TestLaunchCoveMasterResident(t *testing.T) {
 		}
 		var env string
 		for _, c := range fake.Calls {
-			if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+coveMasterEnvVMPath) {
+			if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), "cat > "+studioAgentEnvVMPath) {
 				env = c.Stdin
 			}
 		}
@@ -193,10 +193,10 @@ func TestLaunchCoveMasterResident(t *testing.T) {
 	}
 }
 
-func TestLaunchCoveMasterUsesConnector(t *testing.T) {
+func TestLaunchStudioAgentUsesConnector(t *testing.T) {
 	fake := &runner.Fake{}
 	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}}
-	if err := LaunchCoveMaster(fake, CoveMasterOptions{
+	if err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target: sshargs.Target{Host: "h"}, JamHost: "jam.example.com", IdentityToken: "tok-123",
 		Connector: &c, Subscription: true, // the connector wins over the legacy subscription render
 	}); err != nil {
@@ -204,7 +204,7 @@ func TestLaunchCoveMasterUsesConnector(t *testing.T) {
 	}
 	var env string
 	for _, call := range fake.Calls {
-		if strings.Contains(strings.Join(call.Args, " "), "cat > "+coveMasterEnvVMPath) {
+		if strings.Contains(strings.Join(call.Args, " "), "cat > "+studioAgentEnvVMPath) {
 			env = call.Stdin
 		}
 	}
@@ -219,17 +219,17 @@ func TestLaunchCoveMasterUsesConnector(t *testing.T) {
 	}
 }
 
-func TestLaunchCoveMasterHandsOffConnector(t *testing.T) {
+func TestLaunchStudioAgentHandsOffConnector(t *testing.T) {
 	fake := &runner.Fake{}
 	c := snippet.Connector{Env: map[string]string{"GH_HOST": "{host}", "ANTHROPIC_API_KEY": "{token}"}, GitRoute: "/git/"}
-	if err := LaunchCoveMaster(fake, CoveMasterOptions{
+	if err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target: sshargs.Target{Host: "h"}, JamHost: "jam.example.com", IdentityToken: "tok-123", Connector: &c,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	var env string
 	for _, call := range fake.Calls {
-		if strings.Contains(strings.Join(call.Args, " "), "cat > "+coveMasterEnvVMPath) {
+		if strings.Contains(strings.Join(call.Args, " "), "cat > "+studioAgentEnvVMPath) {
 			env = call.Stdin
 		}
 	}
@@ -247,7 +247,7 @@ func TestLaunchCoveMasterHandsOffConnector(t *testing.T) {
 func launchWith(t *testing.T, b *sessionctx.Bundle) *runner.Fake {
 	t.Helper()
 	fake := &runner.Fake{}
-	err := LaunchCoveMaster(fake, CoveMasterOptions{
+	err := LaunchStudioAgent(fake, StudioAgentOptions{
 		Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "jam.example.com",
 		RuntimeAddr: "jam.example.com:443", IdentityToken: "tok", LaunchSecret: "s",
 		WorkDir: "/w", Prompt: "p", Context: b,
@@ -270,42 +270,42 @@ func stdinWrites(f *runner.Fake) map[string]string {
 	return out
 }
 
-func TestLaunchCoveMasterStagesContext(t *testing.T) {
+func TestLaunchStudioAgentStagesContext(t *testing.T) {
 	b := &sessionctx.Bundle{Core: "# Session context\n", Files: map[string]string{"INDEX.md": "x"}, Fingerprint: "fp", Layers: map[string]string{}}
 	w := stdinWrites(launchWith(t, b))
-	raw, ok := w[coveMasterContextVMPath]
+	raw, ok := w[studioAgentContextVMPath]
 	if !ok {
-		t.Fatalf("no write to %s; writes=%v", coveMasterContextVMPath, w)
+		t.Fatalf("no write to %s; writes=%v", studioAgentContextVMPath, w)
 	}
 	var got sessionctx.Bundle
 	if err := json.Unmarshal([]byte(raw), &got); err != nil || !reflect.DeepEqual(&got, b) {
 		t.Fatalf("staged bundle = %+v (%v), want %+v", got, err, b)
 	}
-	if env := w[coveMasterEnvVMPath]; !strings.Contains(env, "export AT_COVE_AGENT_CONTEXT_FILE='"+coveMasterContextVMPath+"'") {
+	if env := w[studioAgentEnvVMPath]; !strings.Contains(env, "export AT_COVE_AGENT_CONTEXT_FILE='"+studioAgentContextVMPath+"'") {
 		t.Fatalf("env missing AT_COVE_AGENT_CONTEXT_FILE:\n%s", env)
 	}
 }
 
-func TestLaunchCoveMasterNoContextNoEnv(t *testing.T) {
+func TestLaunchStudioAgentNoContextNoEnv(t *testing.T) {
 	w := stdinWrites(launchWith(t, nil))
-	if _, ok := w[coveMasterContextVMPath]; ok {
+	if _, ok := w[studioAgentContextVMPath]; ok {
 		t.Fatal("nil context must stage nothing")
 	}
-	if strings.Contains(w[coveMasterEnvVMPath], "AT_COVE_AGENT_CONTEXT_FILE") {
+	if strings.Contains(w[studioAgentEnvVMPath], "AT_COVE_AGENT_CONTEXT_FILE") {
 		t.Fatal("nil context must not export AT_COVE_AGENT_CONTEXT_FILE")
 	}
 }
 
-func TestLaunchCoveMasterExportsSessionKind(t *testing.T) {
+func TestLaunchStudioAgentExportsSessionKind(t *testing.T) {
 	fake := &runner.Fake{}
-	if err := LaunchCoveMaster(fake, CoveMasterOptions{Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "j", RuntimeAddr: "j:443",
+	if err := LaunchStudioAgent(fake, StudioAgentOptions{Target: sshargs.Target{Host: "h", User: "agent", Port: 2222}, JamHost: "j", RuntimeAddr: "j:443",
 		IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
-	if env := stdinWrites(fake)[coveMasterEnvVMPath]; !strings.Contains(env, "export AT_COVE_SESSION_KIND='standing'") {
+	if env := stdinWrites(fake)[studioAgentEnvVMPath]; !strings.Contains(env, "export AT_COVE_SESSION_KIND='standing'") {
 		t.Fatalf("env missing the session kind:\n%s", env)
 	}
-	if env := stdinWrites(launchWith(t, nil))[coveMasterEnvVMPath]; strings.Contains(env, "AT_COVE_SESSION_KIND") {
+	if env := stdinWrites(launchWith(t, nil))[studioAgentEnvVMPath]; strings.Contains(env, "AT_COVE_SESSION_KIND") {
 		t.Fatal("no kind → no export")
 	}
 }

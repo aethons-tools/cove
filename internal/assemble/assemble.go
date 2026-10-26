@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/studioagentbin"
 )
 
 // Egress is the kit's baked egress beyond the sealed base, split by purpose.
@@ -60,7 +60,7 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 		return err
 	}
 
-	if err := writeCoveMaster(buildDir); err != nil {
+	if err := writeStudioAgent(buildDir); err != nil {
 		return err
 	}
 
@@ -100,7 +100,7 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 
 // Revision versions what AssembleContext's own Go code writes into a build
 // context beyond the embedded trees (generated files, staged modes). The
-// embedded trees are hashed by content into install.AtCoveIdentity, but this
+// embedded trees are hashed by content into install.AssemblyIdentity, but this
 // code is not — so bump Revision whenever a change here alters the assembled
 // context, or a stale image cached under an unchanged tag is reused.
 // 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
@@ -125,19 +125,19 @@ func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
 	return os.WriteFile(df, []byte(stage+"\n# --- sealed hardening layer (internal/assemble/hardening) ---\n"+string(sealed)), 0o644)
 }
 
-// writeCoveMaster stages the embedded linux cove-master binaries into the build
+// writeStudioAgent stages the embedded linux cove-master binaries into the build
 // context (buildDir/covemaster/cove-master-linux-<arch>), so the sealed hardening
 // layer can install the arch-matching one (COV-158).
 // When the embed was not staged (a plain `go build` without scripts/stage-covemaster.sh),
 // a 0-byte placeholder is written instead and hardening's install guard skips it;
 // a raised cove then has no cove-master and the launcher's start step fails clearly.
-func writeCoveMaster(buildDir string) error {
+func writeStudioAgent(buildDir string) error {
 	dir := filepath.Join(buildDir, "covemaster")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
-		b, err := covemasterbin.Binary(arch)
+		b, err := studioagentbin.Binary(arch)
 		if err != nil {
 			b = nil // not staged → placeholder; caught at launch, not build
 		}

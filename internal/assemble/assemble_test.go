@@ -40,9 +40,9 @@ func TestAssembleContextNeedsNoKitDir(t *testing.T) {
 	}
 }
 
-func TestWriteCoveMaster_WritesArchFiles(t *testing.T) {
+func TestWriteStudioAgent_WritesArchFiles(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeCoveMaster(dir); err != nil {
+	if err := writeStudioAgent(dir); err != nil {
 		t.Fatal(err)
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
@@ -332,7 +332,7 @@ func TestAssembleContextHomeDirModes(t *testing.T) {
 // Dockerfile stanza installing them may survive. cove-master is still staged,
 // and every sealed hardening step is still there, in order — only the two
 // stanzas are gone (the hardening layer is not weakened).
-func TestAssembleContextStagesOnlyCoveMaster(t *testing.T) {
+func TestAssembleContextStagesOnlyStudioAgent(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	if err := AssembleContext(buildDir, []byte("k\n"), Egress{Policy: []string{"pkg.go.dev"}}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)

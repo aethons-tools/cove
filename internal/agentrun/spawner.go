@@ -1,9 +1,9 @@
-// Package agentrun is cove-master's agent wrapper: a covemaster.Workload that
+// Package agentrun is cove-master's agent wrapper: a studioagent.Workload that
 // runs the agent headless through a Harness (the agent-CLI seam; default
 // Claude) as a sequence of episodes and maps its lifecycle onto the Attach
 // Activity stream.
 // An episode stays open while the agent works or has background tasks, and
-// takes Wakes as stdin messages. It depends on internal/covemaster (the
+// takes Wakes as stdin messages. It depends on internal/studioagent (the
 // Workload seam); it never imports internal/jam.
 package agentrun
 

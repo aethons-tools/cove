@@ -644,7 +644,7 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 // telling a Jam session (CORE.md present) to ignore the rest; nothing in the
 // sealed layer rewrites this kit-overridable file (COV-246). The body after the
 // guard carries only the local kit path.
-func TestSandboxMDIsPlainAtCoveWithJamGuard(t *testing.T) {
+func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	b, err := os.ReadFile(baseInitAgentData("SANDBOX.md"))
 	if err != nil {
 		t.Fatal(err)

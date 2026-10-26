@@ -4,7 +4,7 @@
 // secret, reports activity up and reacts to control down, reconnecting across
 // transient drops. It depends only on the generated attachpb types + grpc, never
 // on internal/jam.
-package covemaster
+package studioagent
 
 import (
 	"context"

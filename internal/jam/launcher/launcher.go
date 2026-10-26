@@ -131,7 +131,7 @@ func New(cfg Config) *Launcher {
 }
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
-	name := naming.CoveContainer(spec.ActorID)
+	name := naming.StudioContainer(spec.ActorID)
 	// A studio raise always carries a kit: its image is cove-kit:<build-digest>-<asm>. A
 	// launcher without that kit in its inventory returns ErrKitNotReady and creates
 	// NO container, so the supervisor prepares the kit and retries.
@@ -193,7 +193,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 			return err
 		}
 		l.installSSHUserCA(name, spec.ActorID)
-		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
+		return connect.LaunchStudioAgent(l.cfg.Runner, connect.StudioAgentOptions{
 			Target: tgt, JamHost: l.cfg.JamHost, RuntimeAddr: l.cfg.RuntimeAddr,
 			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
 			WorkDir: l.cfg.WorkDir, Prompt: spec.Prompt,
@@ -264,7 +264,7 @@ func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount
 // starts fresh. A volume still in use by a container errors (the caller
 // retries later); an absent one is fine.
 func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
-	name := naming.CoveContainer(actorID)
+	name := naming.StudioContainer(actorID)
 	if err := l.cfg.Ops.RemoveVolumes(append(stateVolumes(name), naming.DockerVolume(name))...); err != nil {
 		return fmt.Errorf("purge %s state: %w", name, err)
 	}
@@ -398,7 +398,7 @@ func (l *Launcher) captureAgentLog(container string) string {
 		IdentityFile:   l.cfg.IdentityFile,
 		KnownHostsFile: filepath.Join(l.cfg.KnownHostsDir, container),
 	}
-	out, err := l.cfg.Runner.Output("ssh", append(sshargs.Base(tgt), "tail -c 4096 "+connect.CoveMasterLogVMPath+" 2>/dev/null")...)
+	out, err := l.cfg.Runner.Output("ssh", append(sshargs.Base(tgt), "tail -c 4096 "+connect.StudioAgentLogVMPath+" 2>/dev/null")...)
 	if err != nil {
 		return ""
 	}

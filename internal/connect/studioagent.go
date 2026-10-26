@@ -11,24 +11,24 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
-// coveMasterPromptVMPath / coveMasterEnvVMPath are tmpfs files the prompt and env
+// studioAgentPromptVMPath / studioAgentEnvVMPath are tmpfs files the prompt and env
 // are staged into over ssh stdin (never argv, never persistent disk), sourced and
 // (env) removed by the detached launch — mirrors the teammate env path.
 const (
-	coveMasterPromptVMPath = "/dev/shm/cove-agent-prompt"
-	coveMasterEnvVMPath    = "/dev/shm/cove-master-env"
-	// coveMasterContextVMPath is the compiled session context
+	studioAgentPromptVMPath = "/dev/shm/cove-agent-prompt"
+	studioAgentEnvVMPath    = "/dev/shm/cove-master-env"
+	// studioAgentContextVMPath is the compiled session context
 	// (sessionctx.Bundle JSON), staged like the prompt.
-	coveMasterContextVMPath = "/dev/shm/cove-agent-context"
-	// CoveMasterLogVMPath is where cove-master's detached launch appends its
+	studioAgentContextVMPath = "/dev/shm/cove-agent-context"
+	// StudioAgentLogVMPath is where cove-master's detached launch appends its
 	// combined stdout+stderr inside the cove. Exported so the launcher can grab
 	// its tail on teardown (a post-mortem for a cove that died). Single source
 	// of truth for the path.
-	CoveMasterLogVMPath = "/agent-data/cove-master.log"
+	StudioAgentLogVMPath = "/agent-data/cove-master.log"
 )
 
-// CoveMasterOptions carries what LaunchCoveMaster injects into a raised cove.
-type CoveMasterOptions struct {
+// StudioAgentOptions carries what LaunchStudioAgent injects into a raised cove.
+type StudioAgentOptions struct {
 	Target        sshargs.Target
 	JamHost       string // jam.host — connector base is https://<JamHost>
 	RuntimeAddr   string // AT_JAM_RUNTIME_ADDR (jam.host:443)
@@ -50,12 +50,12 @@ type CoveMasterOptions struct {
 	SessionKind string
 }
 
-// LaunchCoveMaster stages the agent connector (Anthropic + git through Jam)
+// LaunchStudioAgent stages the agent connector (Anthropic + git through Jam)
 // plus the cove-master env and the prompt into tmpfs over ssh stdin, then starts
 // cove-master detached over a non-tty ssh (fire-and-forget), so it survives the
 // ssh channel closing. Secrets never touch argv or persistent disk.
-func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
-	if err := writeVM(r, o.Target, o.Prompt, coveMasterPromptVMPath); err != nil {
+func LaunchStudioAgent(r runner.Runner, o StudioAgentOptions) error {
+	if err := writeVM(r, o.Target, o.Prompt, studioAgentPromptVMPath); err != nil {
 		return fmt.Errorf("cove-master prompt: %w", err)
 	}
 	if o.Context != nil {
@@ -63,7 +63,7 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 		if err != nil {
 			return fmt.Errorf("cove-master context: %w", err)
 		}
-		if err := writeVM(r, o.Target, string(cj), coveMasterContextVMPath); err != nil {
+		if err := writeVM(r, o.Target, string(cj), studioAgentContextVMPath); err != nil {
 			return fmt.Errorf("cove-master context: %w", err)
 		}
 	}
@@ -89,9 +89,9 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	script.WriteString("export AT_HARBOR_RUNTIME_ADDR=\"$AT_JAM_RUNTIME_ADDR\"\n")
 	script.WriteString("export AT_HARBOR_LAUNCH_SECRET=\"$AT_JAM_LAUNCH_SECRET\"\n")
 	fmt.Fprintf(&script, "export AT_COVE_WORKDIR=%s\n", shellQuote(o.WorkDir))
-	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(coveMasterPromptVMPath))
+	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(studioAgentPromptVMPath))
 	if o.Context != nil {
-		fmt.Fprintf(&script, "export AT_COVE_AGENT_CONTEXT_FILE=%s\n", shellQuote(coveMasterContextVMPath))
+		fmt.Fprintf(&script, "export AT_COVE_AGENT_CONTEXT_FILE=%s\n", shellQuote(studioAgentContextVMPath))
 	}
 	// Per-turn connector refresh handoff (cove-master re-fetches GET /connector
 	// before every agent spawn): the Jam base, and the raise-time connector as
@@ -110,11 +110,11 @@ func LaunchCoveMaster(r runner.Runner, o CoveMasterOptions) error {
 	if o.SessionKind != "" {
 		fmt.Fprintf(&script, "export AT_COVE_SESSION_KIND=%s\n", shellQuote(o.SessionKind))
 	}
-	if err := writeVM(r, o.Target, script.String(), coveMasterEnvVMPath); err != nil {
+	if err := writeVM(r, o.Target, script.String(), studioAgentEnvVMPath); err != nil {
 		return fmt.Errorf("cove-master env: %w", err)
 	}
-	cmd := "set -a; . " + coveMasterEnvVMPath + "; set +a; rm -f " + coveMasterEnvVMPath + "; " +
-		"setsid nohup cove-master </dev/null >>" + CoveMasterLogVMPath + " 2>&1 &"
+	cmd := "set -a; . " + studioAgentEnvVMPath + "; set +a; rm -f " + studioAgentEnvVMPath + "; " +
+		"setsid nohup cove-master </dev/null >>" + StudioAgentLogVMPath + " 2>&1 &"
 	if err := r.Run("ssh", append(sshargs.Base(o.Target), cmd)...); err != nil {
 		return fmt.Errorf("cove-master launch: %w", err)
 	}
