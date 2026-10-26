@@ -59,6 +59,8 @@ config demands its name.
 | `global: <name>` | a name | `global[<name>]`, which must itself be a `value` or `command` (a chain is an error) |
 | `mint: <name>` | a name | a token minted by `at-mint`, built from `minters[<name>]` ([below](#minters)) |
 
+A `command:` runs on the Jam host — only supply commands you trust.
+
 `global:` and `minters:` are **never matched by demand name**: a demand called
 `anthropic-key` does not pick up a library entry of the same name — only a
 `credentials:` entry you wrote reaches one.

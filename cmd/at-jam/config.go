@@ -22,10 +22,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
-	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
-	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -871,13 +869,6 @@ func atCoveConfigDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-cove")
-}
-
-// launcherPublicKey returns the public half of the launcher's SSH identity
-// (runtime.launcher.identity-file), which serve bakes into every studio image's
-// authorized_keys, generating the keypair on first use.
-func launcherPublicKey(identityFile string) ([]byte, error) {
-	return keys.EnsureFile(runner.OS{}, identityFile)
 }
 
 // operatorLoginConfig builds the public device-flow client config Jam

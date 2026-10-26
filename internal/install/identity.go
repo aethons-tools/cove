@@ -63,6 +63,10 @@ func HashTree(fsys fs.FS) (string, error) {
 // var so a test can swap it).
 var harnessBaseline = harnessinstall.BaselineSettings
 
+// coveMasterFS is the embedded cove-master binaries (a var so a test can swap
+// them).
+var coveMasterFS = covemasterbin.BinFS
+
 // AtCoveIdentity hashes the binary's embedded build contributions: the sealed
 // hardening layer (and assemble.Revision), the harness layer's payload (its
 // scripts and the managed settings' sandbox policy) and its rendered baseline
@@ -91,7 +95,7 @@ func AtCoveIdentity() (string, error) {
 	writeField(h, []byte("harness-baseline"))
 	writeField(h, harnessBaseline())
 
-	cm, err := HashTree(covemasterbin.BinFS())
+	cm, err := HashTree(coveMasterFS())
 	if err != nil {
 		return "", err
 	}

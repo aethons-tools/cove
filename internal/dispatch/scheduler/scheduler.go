@@ -28,7 +28,8 @@ type Issue struct {
 	Class       string // parsed from the class label; "" if none
 	// DispatchLabeled is true when the issue carries a label matching the
 	// tracker's dispatch-label prefix (default "dispatch:"). Jam's resident
-	// dispatcher raises a cove only for labeled issues. Presence-only — the value after the prefix is unused.
+	// dispatcher raises a cove only for labeled issues. Presence-only — the
+	// value after the prefix is unused.
 	DispatchLabeled bool
 }
 

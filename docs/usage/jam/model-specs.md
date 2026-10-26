@@ -105,7 +105,7 @@ no separate constraint, plugins `[superpowers@claude-plugins-official]`, the cla
 settings, [model-spec-harness.md](model-spec-harness.md#managed-settings-vs-preferences-cov-245)),
 no model/effort — exactly how coves ran before model-specs.
 `DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
-seeds, the harness of every full `config.yml` kit without a `model-spec:`, and raises that deliver no spec —
+seeds and raises that deliver no spec —
 **not** a `claude-default` already stored. Bump that one yourself
 (`at-jam model-spec show claude-default > s.yaml`, edit `version`,
 `at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a

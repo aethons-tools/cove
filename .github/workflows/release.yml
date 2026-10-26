@@ -7,7 +7,7 @@ name: release
 #   cove-base-image ──publish──► digest D ──► (registry) ──► blessed-list snapshot
 #         │                                                        │
 #         ▼                                                        ▼
-#   cove-image (FROM cove-base-image:ci)                  at-jam + at-mint (embed cove-master + list)
+#   cove-image (FROM cove-base-image:ci)                  at-jam (embeds cove-master + list), at-mint
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes

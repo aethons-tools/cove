@@ -52,8 +52,8 @@ func TestAssembleContextHarnessStageBetweenBaseAndHardening(t *testing.T) {
 	}
 }
 
-// Full config.yml kits (plain Assemble) get claude-default's harness: the one
-// pinned version constant and its plugins.
+// harnessinstall.Default() is claude-default's harness: the one pinned version
+// constant and its plugins.
 func TestAssembleUsesDefaultHarness(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
@@ -61,7 +61,7 @@ func TestAssembleUsesDefaultHarness(t *testing.T) {
 	}
 	df := read(t, filepath.Join(buildDir, "Dockerfile"))
 	if !strings.Contains(df, "bash -s "+modelspec.DefaultClaudeVersion+"'") || !strings.Contains(df, "-p 'superpowers@claude-plugins-official'") {
-		t.Fatalf("full kit must install claude-default's harness:\n%s", df)
+		t.Fatalf("the default install must be claude-default's harness:\n%s", df)
 	}
 }
 

@@ -124,6 +124,21 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	}
 }
 
+// noCache=true rebuilds every layer (--no-cache); the default build reuses the
+// cache.
+func TestBuildKitImageNoCache(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
+		if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, noCache); err != nil {
+			t.Fatal(err)
+		}
+		build := dockerCall(f.Calls, "build")
+		if build == nil || contains(build, "--no-cache") != noCache {
+			t.Fatalf("noCache=%v: build call = %+v", noCache, f.Calls)
+		}
+	}
+}
+
 // ResolveKitBase with no declared base resolves to the substrate's blessed
 // default (no gate inspect needed for the default), so a role-named kit that
 // doesn't pin its own base still builds.

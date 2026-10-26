@@ -140,7 +140,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   podman covers the SSH/lifecycle mechanics,
   but the in-container `nftables`/Squid egress lockdown under rootless is the part to watch.
 
-## CI — the merge gate
+## CI: the merge gate
 
 [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
 to `main`, and on `main` itself. It runs the two hermetic checks —

@@ -218,9 +218,9 @@ func domainLines(s string) []string {
 	return out
 }
 
-// Assemble splits the kit's egress into the active policy list (kit.txt =
-// image.allowed-domains), the always-on infra list (provider, GitLab, Jam), and
-// the immutable ceiling a Jam role's list must fit inside (= image.allowed-domains).
+// Assemble splits the kit's egress into the active policy list (kit.txt = the
+// studio kit's egress list), the always-on infra list (provider, GitLab, Jam),
+// and the immutable ceiling a Jam role's list must fit inside (= that list).
 func TestAssembleSplitsEgressLists(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(kitDir, ".build")

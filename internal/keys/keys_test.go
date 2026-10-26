@@ -1,8 +1,10 @@
 package keys
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/runner"
@@ -54,6 +56,32 @@ func TestEnsureFileGeneratesWhenMissing(t *testing.T) {
 	}
 	if args := f.Calls[0].Args; len(args) == 0 || args[len(args)-1] != priv {
 		t.Fatalf("ssh-keygen must write %s, args = %q", priv, args)
+	}
+}
+
+// stdinRunner fails a plain Run: ssh-keygen must get an explicit (empty) stdin,
+// never the process's, so an overwrite prompt can't hang serve.
+type stdinRunner struct{ *runner.Fake }
+
+func (stdinRunner) Run(name string, _ ...string) error {
+	return fmt.Errorf("%s run with the process's stdin", name)
+}
+
+// ssh-keygen runs quietly (-q: no randomart on serve's stdout) with an empty
+// stdin, so an overwrite prompt reads EOF and fails instead of waiting on a
+// terminal.
+func TestEnsureFileRunsKeygenQuietWithEmptyStdin(t *testing.T) {
+	dir := t.TempDir()
+	priv := filepath.Join(dir, "id_ed25519")
+	if err := os.WriteFile(priv+".pub", []byte("ssh-ed25519 AAAA gen\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &runner.Fake{}
+	if _, err := EnsureFile(stdinRunner{f}, priv); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Calls) != 1 || !slices.Contains(f.Calls[0].Args, "-q") || f.Calls[0].Stdin != "" {
+		t.Fatalf("want one quiet ssh-keygen call with empty stdin, got %+v", f.Calls)
 	}
 }
 

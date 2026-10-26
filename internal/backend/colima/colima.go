@@ -182,9 +182,9 @@ func startHint(context string) string {
 
 // buildFromBase is the actual `docker build` — assemble context in, tagged image
 // out — FROM an already-resolved base passed as the Dockerfile's BASE arg. It is
-// the shared body of dockerBuild (which resolves+gates the base first) and
-// BuildKitImage (which reuses a base the caller already gated). Context-pinned via
-// dargs, so the build and any later RunEphemeral share the colima daemon.
+// BuildKitImage's body (the caller resolved and gated the base already).
+// Context-pinned via dargs, so the build and any later RunEphemeral share the
+// colima daemon.
 func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, kitArgs map[string]string, noCache bool) (digest string, err error) {
 	// --progress=plain: line-by-line build output (BuildKit's TTY renderer can
 	// overflow the terminal by a column). --no-cache: rebuild every layer so the
@@ -219,8 +219,8 @@ func (c *Colima) buildFromBase(buildDir, tag, resolvedBase string, kitArgs map[s
 }
 
 // BuildKitImage builds a studio kit's assembled context into the tagged image on
-// the colima daemon, FROM the base already resolved+gated by ResolveKitBase. It is the Jam launcher's build step — see
-// backend.KitImageBuilder. Context-pinned, so the image lands in the same daemon
+// the colima daemon, FROM the base already resolved+gated by ResolveKitBase. It
+// is the Jam launcher's build step — see backend.KitImageBuilder. Context-pinned, so the image lands in the same daemon
 // RunEphemeral runs it from.
 func (c *Colima) BuildKitImage(buildDir, tag, base string, buildArgs map[string]string, noCache bool) (digest string, err error) {
 	if err := c.preflight(); err != nil {

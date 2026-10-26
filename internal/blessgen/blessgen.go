@@ -1,5 +1,5 @@
 // Package blessgen generates the blessed cove-base-image list at build time from
-// the container registry, so at-cove's provenance gate (COV-34) trusts every
+// the container registry, so the launcher's provenance gate (COV-34) trusts every
 // current cove-base-image without a hand-maintained list.
 //
 // The repo commits exactly one digest — the low-watermark, the oldest base still

@@ -107,4 +107,4 @@ Normally you don't invoke `at-mint` yourself: Jam's
 a `{ mint: <profile> }` credential runs `at-mint` from it on every resolve, or a
 `command:` spells the invocation out. `AT_MINT_GITHUB_APP_KEY` /
 `AT_MINT_AUTH0_CLIENT_SECRET` come from the resolving process's own environment
-or from the profile's `command:`/`global:` field — never from argv.
+or from the profile's source field — never from argv.

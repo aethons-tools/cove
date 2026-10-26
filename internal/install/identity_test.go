@@ -1,6 +1,7 @@
 package install
 
 import (
+	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -47,13 +48,21 @@ func TestHashTreeDeterministicAndContentSensitive(t *testing.T) {
 	}
 }
 
-// TestAtCoveIdentityIncludesCoveMaster is a smoke check that AtCoveIdentity
-// computes cleanly now that it also hashes covemasterbin.BinFS() as a fourth
-// field (COV-158).
+// The embedded cove-master binaries (COV-158) are hashed into the identity: a
+// cove-master rebuild must flip it, so every studio image is retagged.
 func TestAtCoveIdentityIncludesCoveMaster(t *testing.T) {
 	id, err := AtCoveIdentity()
-	if err != nil || id == "" {
-		t.Fatalf("AtCoveIdentity: %q err=%v", id, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := coveMasterFS
+	t.Cleanup(func() { coveMasterFS = orig })
+	coveMasterFS = func() fs.FS {
+		return fstest.MapFS{"bin/cove-master-linux-amd64": {Data: []byte("rebuilt")}}
+	}
+	other, err := AtCoveIdentity()
+	if err != nil || other == id {
+		t.Fatalf("a cove-master change must change the identity (err %v)", err)
 	}
 }
 

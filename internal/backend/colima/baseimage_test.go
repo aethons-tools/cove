@@ -116,7 +116,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
 	}
-	// at-cove injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
+	// The launcher injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
 	// build arg so a kit's own image/Dockerfile builds on the blessed base
 	// (its ARG default is only for a bare manual `docker build`).
 	if !contains(build, "--build-arg") || !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {

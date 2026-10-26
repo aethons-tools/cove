@@ -112,8 +112,8 @@ keeping overlay precedence pure.
 The assembled `Dockerfile` starts `FROM ${BASE}` (the harness stage; hardening then builds `FROM harness`) — a build arg the backend
 resolves when it builds the image (`ResolveKitBase*`, which the launcher calls before every kit build):
 
-1. the kit's `image/Dockerfile` if present (the launcher builds it; the built image is the base),
-2. else `config.yml image.base` (mutually exclusive with an `image/Dockerfile`),
+1. a `Dockerfile` next to the studio kit's `kit.yml` (the launcher builds it; the built image is the base),
+2. else the kit's `base:` — `kit:` a parent kit's image or `image:` a prebuilt ref (not with a `Dockerfile`; [kits.md](usage/jam/kits.md)),
 3. else the default: the newest **blessed** `cove-base-image`, pinned by digest.
 
 A **kit-chosen** base (1 or 2) must pass a **provenance gate**: the launcher reads the
@@ -298,10 +298,10 @@ resolve → download → verify → replace flow — including the `checksums.tx
 verification — untouched. It reads the same `COVE_VERSION`/`BINDIR`/`COVE_SYSTEM`/`COVE_REPO`
 knobs, no-ops when already current, and takes `--version TAG` (pin) and `--dry-run`.
 
-**Upgrading from an at-cove install.** An `at-cove` already on your PATH can be
-deleted. An older `at-jam update` (or `at-cove update`) run against a current
-release replaces it with the tombstone, which does nothing but say at-cove was
-removed.
+**Upgrading from a release that shipped at-cove.** An `at-cove` already on your
+PATH can be deleted. An older `at-jam update` (or the old at-cove's own
+self-update) run against a current release replaces it with the tombstone,
+which does nothing but say at-cove was removed.
 
 To **build from source instead** (the contributor path), use `just install` below,
 which compiles the binaries and installs them onto your PATH.

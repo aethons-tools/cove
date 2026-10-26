@@ -122,10 +122,9 @@ func doAnthropic(args []string, env func(string) (string, bool), httpc *http.Cli
 		refresh = "present"
 	}
 	fmt.Fprintf(stderr, "at-mint: anthropic token minted (expires_in=%ds, refresh_token=%s)\n", resp.ExpiresIn, refresh)
-	// Fail closed when the token would expire before the run finishes: at-cove work
-	// passes COVE_RUN_TIMEOUT to the resolver, and a bearer whose TTL is below that
-	// is guaranteed to 401 mid-run (build/prepare overhead makes it worse). Catch it
-	// here, before any VM is built, instead of burning a run on a doomed token.
+	// Fail closed when the token would expire before the run finishes: a caller
+	// that sets COVE_RUN_TIMEOUT (nothing in Jam does) declares how long the
+	// bearer must live, and one whose TTL is below that would 401 mid-run.
 	if to := getenv(env, "COVE_RUN_TIMEOUT"); to != "" && resp.ExpiresIn > 0 {
 		if d, perr := time.ParseDuration(to); perr == nil && time.Duration(resp.ExpiresIn)*time.Second < d {
 			fmt.Fprintf(stderr, "at-mint: minted token TTL %ds is shorter than the run timeout %s; it would expire mid-run — raise the Auth0 API token expiration or the federation rule token lifetime\n", resp.ExpiresIn, d)

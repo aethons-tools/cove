@@ -228,7 +228,10 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 // (kit.txt), the always-on infra list (infra.txt), and the ceiling a Jam role's
 // policy must fit inside (egress_ceiling.txt — read only by the sealed
 // apply-role-egress.sh, never by squid). Each is always written (empty → header
-// only) so the sealed squid.conf never references a missing ACL file.
+// only) so the sealed squid.conf never references a missing ACL file. The
+// headers' "image.allowed-domains" is the deleted kit config.yml's name for the
+// studio kit's egress list; the text is baked into every image, so rewording it
+// is an image change (slice 3), not a comment fix.
 func writeEgressLists(buildDir string, e Egress) error {
 	policy := sortedUnique(e.Policy)
 	files := []struct {
