@@ -41,7 +41,22 @@ type Connection struct {
 }
 
 // ConnectionKinds are the services a connection may be.
-var ConnectionKinds = []string{"linear", "discord"}
+var ConnectionKinds = []string{"linear", "discord", "github"}
+
+// TrackerKinds are the connection kinds a Requisitioner's tracker may be.
+var TrackerKinds = []string{"linear", "github"}
+
+// TrackerConnection is the tracker connection ticket bindings default to
+// when serve has not resolved the Requisitioner's: the linear one, else the
+// github one.
+func TrackerConnection(store Store) (Connection, bool) {
+	for _, k := range TrackerKinds {
+		if c, ok := store.ConnectionOfKind(k); ok {
+			return c, true
+		}
+	}
+	return Connection{}, false
+}
 
 // Account is an identity on a connection's service. ServiceUID is the
 // service's immutable user id; Handle its mention handle; either may be

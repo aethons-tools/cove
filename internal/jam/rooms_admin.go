@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // Rooms in the admin plane (intercom slice 2a-3): `at-jam room` and
@@ -73,6 +74,9 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 	if err != nil {
 		return RoomView{}, false, err
 	}
+	if b.Ref, err = bindingRef(conn.Kind, b.Ref); err != nil {
+		return RoomView{}, false, fmt.Errorf("room %q: %w", b.Name, err)
+	}
 	bind := Binding{ConnectionID: conn.ID, Ref: b.Ref, Mode: BindBoth}
 	if ch, ok := store.ChannelByKey(p.ID, SourceRoom, b.Name); ok {
 		holder, taken := store.ChannelByBinding(conn.ID, b.Ref)
@@ -93,6 +97,16 @@ func PutRoom(store Store, project string, b RoomBody) (RoomView, bool, error) {
 		return RoomView{}, false, err
 	}
 	return NewRoomView(store, ch), true, nil
+}
+
+// bindingRef is ref as a binding on a connection of kind: on github a ticket
+// key (owner/repo#<n>), in its canonical spelling; refused when it is none.
+// Other services' refs are kept as given.
+func bindingRef(kind, ref string) (string, error) {
+	if kind != "github" {
+		return ref, nil
+	}
+	return ticketkey.Canonical(ref)
 }
 
 // roomConnection resolves a room's connection: a kind (in any case; its

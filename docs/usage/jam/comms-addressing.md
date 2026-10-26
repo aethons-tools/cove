@@ -4,7 +4,7 @@ read_when: You want a studio's agent to send to someone other than its own ticke
 owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
 prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Comms addressing (target space & access-graph)
@@ -24,7 +24,7 @@ A target is **kind-prefixed**, and names a channel:
 | `user:<name>` / `user:<usr_id>` | a chat between the session and that person — or, from a session without a ticket, its own channel when that person is already in it |
 | `chat:user:<a>,user:<b>…` | a chat between the session and those people |
 | `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
-| `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only) |
+| `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only). A GitHub key is `owner/repo#<n>` (`ticket:acme/board#7`, or scoped `ticket:<connection>/acme/board#7`), any case or leading zeros naming one ticket; a malformed one is refused with "github ticket key must be owner/repo#<n>". |
 | `session:<label>` / `session:<ses_id>` | that session's home channel (its ticket's, else its own channel); the sender joins it by posting, so replies come back. A ticket session's also needs `ticket:` addressing; a label two live sessions share names neither. |
 
 A person must be a member of the session's project. The same members are the
@@ -40,6 +40,7 @@ what Jam itself writes, e.g. a personal session's grant and migrated policy) or
 by name. An id is matched only by that exact id, `user:*` or `*` — a name
 pattern like `user:a*` never matches an id — so ids never widen a name glob. Globs match only within
 their kind (`user:`, `channel:`, `ticket:`, `session:`); write each prefix you mean.
+For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach every ticket, `ticket:acme/*` every ticket of acme's repos.
 
 ## Project members and rooms
 
@@ -49,7 +50,8 @@ has two kinds of addressable things:
 - **Members** — users in the Jam-wide [identity registry](roster.md) with a
   membership in the project. A member is addressed by their user name or id
   (`user:<name|usr_id>`). Their tracker `@`-handle is the **account** linked to
-  them on the `linear` connection, and their Discord user id is the account on
+  them on the `linear` connection, or, on a GitHub-tracked Jam, their login on
+  the `github` connection; and their Discord user id is the account on
   the `discord` connection. Their per-project **delivery** addresses (e.g. a
   Discord inbox) live on the membership. A user's **logins** link them to
   their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
@@ -92,7 +94,7 @@ at-jam project member add  <project> <user> [--delivery discord:<inbox-channel>]
 at-jam project member list <project> | rm <project> <user>
 at-jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
 at-jam account list [--connection c] | link <account> <user> | unlink <account>
-at-jam connection add --kind linear|discord --name <n> [--cred <credential>]
+at-jam connection add --kind linear|discord|github --name <n> [--cred <credential>]
 at-jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
 at-jam room add <project> <name> --ref ACME-1 [--connection <name|id|kind>]   # adds, or rebinds
 at-jam room list <project> | rename <project> <room> <new> | rm <project> <room>
@@ -106,7 +108,8 @@ personal session. The admin API behind these is `/admin/users`, `/admin/projects
 `/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
-`discord`: that kind's connection, created if there is none); default `linear`.
+`discord`, `github`: that kind's connection, created if there is none); default `linear`.
+A `github` room's ref is a ticket key (`owner/repo#<n>`).
 A `<room>` is a name or a `chn_` id, and renaming one changes nothing but which `channel:`
 addressing globs match it. `room list` marks a room that only posts to its ref
 (another channel receives its replies) `post-only`. `--delivery` and `--oidc`

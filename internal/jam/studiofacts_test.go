@@ -23,7 +23,7 @@ func TestStudioFactsFromScope(t *testing.T) {
 	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{Destinations: []string{"github-api", "git", "ghost"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	f := studioFacts(store, a, "", nil, []string{"github.com", "api.anthropic.com"}, true, time.Now())
+	f := studioFacts(store, nil, a, "", nil, []string{"github.com", "api.anthropic.com"}, true, time.Now())
 	if len(f.Destinations) != 2 || f.Destinations[0].Name != "git" || f.Destinations[1].Name != "github-api" {
 		t.Fatalf("destinations = %+v (sorted, unknown 'ghost' skipped)", f.Destinations)
 	}
@@ -49,13 +49,13 @@ func TestStudioFactsFromScope(t *testing.T) {
 func TestStudioFactsEgressSources(t *testing.T) {
 	_, store, _ := supTestKit(t, &fakeLauncher{})
 	a := Actor{ID: "w1"}
-	if f := studioFacts(store, a, "", &EgressPolicy{Domains: []string{"b.com", "a.com"}}, []string{"x.com"}, true, time.Now()); strings.Join(f.Egress, ",") != "a.com,b.com" || !f.EgressKnown {
+	if f := studioFacts(store, nil, a, "", &EgressPolicy{Domains: []string{"b.com", "a.com"}}, []string{"x.com"}, true, time.Now()); strings.Join(f.Egress, ",") != "a.com,b.com" || !f.EgressKnown {
 		t.Errorf("role policy wins, sorted: %v", f.Egress)
 	}
-	if f := studioFacts(store, a, "", &EgressPolicy{Domains: []string{}}, []string{"x.com"}, true, time.Now()); len(f.Egress) != 0 || !f.EgressKnown {
+	if f := studioFacts(store, nil, a, "", &EgressPolicy{Domains: []string{}}, []string{"x.com"}, true, time.Now()); len(f.Egress) != 0 || !f.EgressKnown {
 		t.Errorf("empty policy = known, no hosts: %+v", f)
 	}
-	if f := studioFacts(store, a, "", nil, nil, false, time.Now()); f.EgressKnown {
+	if f := studioFacts(store, nil, a, "", nil, nil, false, time.Now()); f.EgressKnown {
 		t.Errorf("no policy and no kit = unknown: %+v", f)
 	}
 }
@@ -70,7 +70,7 @@ func TestStudioFactsOmitHandles(t *testing.T) {
 	if err := store.PutRole("default", Role{Name: "dev", Scope: Scope{Addressing: []string{"human:*"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	f := studioFacts(store, Actor{ID: "w1", Grants: []Grant{{Project: "default", Role: "dev"}}}, "", nil, nil, false, time.Now())
+	f := studioFacts(store, nil, Actor{ID: "w1", Grants: []Grant{{Project: "default", Role: "dev"}}}, "", nil, nil, false, time.Now())
 	if len(f.Targets) != 1 || f.Targets[0].Target != "user:bob" || strings.Contains(f.Targets[0].Who, "bob-gh") {
 		t.Fatalf("targets = %+v; want user:bob without its handle", f.Targets)
 	}

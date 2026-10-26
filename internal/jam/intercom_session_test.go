@@ -316,7 +316,7 @@ func TestIntercomSessionTicketFormsAndTargets(t *testing.T) {
 	}
 	g := newICFixture(t, "session:*")
 	a := Actor{ID: g.standing.ActorID, Grants: g.actor.Grants}
-	for _, tg := range ListTargets(g.store, a, g.now) {
+	for _, tg := range ListTargets(g.store, nil, a, g.now) {
 		if tg.Kind == "session" && (tg.Name == g.ticket.ActorID || tg.Name == sessionLabel(g.ticket)) {
 			t.Fatalf("list_targets offers a ticket session a send would refuse: %+v", tg)
 		}

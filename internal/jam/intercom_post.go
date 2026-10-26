@@ -10,6 +10,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
 // The intercom's posting rules (intercom slice 2a-2): which channel an
@@ -329,9 +330,16 @@ func (ic *Intercom) TicketChannelOf(inst Instance) (Channel, bool) {
 // ticketChannel finds (or, with create, creates) the channel of inst's
 // ticket: keyed "<tracker connection>/<issue key>" in its project, bound to
 // the issue for ingress — unless a room already holds that binding, which
-// keeps it. ok=false when there is no tracker connection.
+// keeps it. ok=false when there is no tracker connection, or inst's unit is
+// no ticket key on it (a github tracker's unit must be owner/repo#<n>; any
+// other, say a manual raise's free text, leaves the session on its own
+// channel).
 func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, error) {
 	conn, ok := ic.tracker()
+	if !ok {
+		return Channel{}, false, nil
+	}
+	unit, ok := ticketUnit(ic.store, conn, inst.Unit)
 	if !ok {
 		return Channel{}, false, nil
 	}
@@ -339,17 +347,17 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 	if !ok {
 		return Channel{}, false, fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
 	}
-	key := string(conn) + "/" + inst.Unit
+	key := string(conn) + "/" + unit
 	if ch, ok := ic.store.ChannelByKey(p.ID, SourceTicket, key); ok || !create {
 		return ch, ok, nil
 	}
-	ch := Channel{ProjectID: p.ID, Kind: SourceTicket, Key: key, Label: inst.Unit}
-	b := Binding{ConnectionID: conn, Ref: inst.Unit, Mode: BindBoth}
-	if holder, taken := ic.store.ChannelByBinding(conn, inst.Unit); !taken {
+	ch := Channel{ProjectID: p.ID, Kind: SourceTicket, Key: key, Label: unit}
+	b := Binding{ConnectionID: conn, Ref: unit, Mode: BindBoth}
+	if holder, taken := ic.store.ChannelByBinding(conn, unit); !taken {
 		ch.Bindings = []Binding{b}
 	} else if ic.log != nil {
 		ic.log.Warn("intercom: ticket channel left unbound; another channel receives the issue's replies",
-			"ticket", inst.Unit, "holder", string(holder.ID))
+			"ticket", unit, "holder", string(holder.ID))
 	}
 	created, err := ic.store.CreateChannel(ch)
 	if errors.Is(err, ErrBindingTaken) { // a room took the issue meanwhile: it keeps it
@@ -361,6 +369,30 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 		return created, ok, nil
 	}
 	return created, err == nil, err
+}
+
+// Tracker is the tracker connection ticket channels are keyed on (the one
+// serve resolved; ok=false: none).
+func (ic *Intercom) Tracker() (ident.ID, bool) { return ic.tracker() }
+
+// ticketUnit is unit as a ticket key on tracker: a github tracker's in its
+// canonical spelling, ok=false when unit is no owner/repo#<n>; any other
+// tracker's as given (ok=false only when empty).
+func ticketUnit(store Store, tracker ident.ID, unit string) (string, bool) {
+	if unit == "" {
+		return "", false
+	}
+	if connKind(store, tracker) != "github" {
+		return unit, true
+	}
+	key, err := ticketkey.Canonical(unit)
+	return key, err == nil
+}
+
+// connKind is connection id's kind ("" when unknown).
+func connKind(store Store, id ident.ID) string {
+	c, _ := store.GetConnection(id)
+	return c.Kind
 }
 
 // ---- planning a post ----
@@ -717,24 +749,47 @@ func (ic *Intercom) resolveRoom(project Project, name string, globs []string) (C
 }
 
 // resolveTicket finds a ticket's channel: "<key>" on the tracker connection,
-// or "<connection name|id>/<key>". A session's own ticket needs no
-// addressing; any other needs ticket:<glob>.
+// or "<connection name|id>/<key>". A GitHub key (owner/repo#<n>) is itself
+// split by '/', so it is matched whole first, and is looked up in its
+// canonical spelling. A session's own ticket needs no addressing; any other
+// needs ticket:<glob> — checked before a malformed GitHub key is refused
+// (403 before 404), and the refusal never echoes the key.
 func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs []string) (Channel, error) {
 	tracker, hasTracker := ic.tracker()
 	conn, key, scoped := strings.Cut(ref, "/")
+	if ticketkey.IsGitHub(ref) {
+		conn, key, scoped = "", ref, false
+	}
 	connID, connOK := tracker, hasTracker
 	if !scoped {
 		key = ref
 	} else if id, err := ResolveRegistryRef(ic.store, ident.Connection, conn); err == nil {
 		connID, connOK = id, true
+	} else if hasTracker && connKind(ic.store, tracker) == "github" {
+		conn, key = "", ref // owner/repo#… on the tracker, malformed: refused below
 	} else {
 		connOK = false
 	}
 	if key == "" {
 		return Channel{}, ErrSendDenied
 	}
-	own := p.Session.Unit == key && connOK && hasTracker && connID == tracker
-	if !own && !anyAllowed([]string{"ticket:" + key, "ticket:" + ref}, globs) {
+	forms := []string{"ticket:" + key, "ticket:" + ref}
+	canon, isKey := key, true
+	if connOK {
+		canon, isKey = ticketUnit(ic.store, connID, key)
+		if canon != key {
+			forms = append(forms, "ticket:"+canon)
+			if conn != "" {
+				forms = append(forms, "ticket:"+conn+"/"+canon)
+			}
+		}
+	}
+	ownUnit, onTicket := "", false
+	if hasTracker {
+		ownUnit, onTicket = ticketUnit(ic.store, tracker, p.Session.Unit)
+	}
+	own := isKey && onTicket && ownUnit == canon && connOK && connID == tracker
+	if !own && !anyAllowed(forms, globs) {
 		return Channel{}, ErrSendDenied
 	}
 	switch {
@@ -742,8 +797,10 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 		return ic.HomeChannel(*p.Session)
 	case !connOK:
 		return Channel{}, ErrSendUnresolved
+	case !isKey:
+		return Channel{}, fmt.Errorf("%w: %w", ErrSendUnresolved, ticketkey.ErrGitHub)
 	}
-	ch, ok := ic.store.ChannelByKey(project.ID, SourceTicket, string(connID)+"/"+key)
+	ch, ok := ic.store.ChannelByKey(project.ID, SourceTicket, string(connID)+"/"+canon)
 	if !ok {
 		return Channel{}, ErrSendUnresolved
 	}

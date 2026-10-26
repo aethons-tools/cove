@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/studio"
 )
@@ -15,7 +16,7 @@ import (
 // the kit's ceiling, else unknown), and its message targets (by name — handles
 // stay out, as GET /squawks/targets omits them). Only names, upstreams, env KEYS
 // and notes leave here — never credentials or env values.
-func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, kitEgress []string, haveKit bool, now time.Time) sessionctx.StudioFacts {
+func studioFacts(store Store, tracker func() (ident.ID, bool), a Actor, owner string, roleEgress *EgressPolicy, kitEgress []string, haveKit bool, now time.Time) sessionctx.StudioFacts {
 	var f sessionctx.StudioFacts
 	byName := map[string]Destination{}
 	for _, d := range store.ListDestinations() {
@@ -43,7 +44,7 @@ func studioFacts(store Store, a Actor, owner string, roleEgress *EgressPolicy, k
 		f.Egress, _ = studio.Ceiling(kitEgress)
 		f.EgressKnown = true
 	}
-	for _, t := range ListTargets(store, a, now) {
+	for _, t := range ListTargets(store, tracker, a, now) {
 		who := "project contact"
 		switch {
 		case t.Kind == "channel":

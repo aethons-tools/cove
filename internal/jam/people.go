@@ -58,8 +58,11 @@ func MemberOf(store Store, project, user ident.ID) (Member, bool) {
 	}
 	ms, _ := store.GetMembership(project, user)
 	m := Member{User: u, Delivery: slices.Clone(ms.Delivery)}
-	if a, ok := linkedAccount(store, "linear", user, func(a Account) bool { return a.Handle != "" }); ok {
-		m.Handle = a.Handle
+	for _, kind := range TrackerKinds { // the tracker @-handle: linear's, else github's (a login)
+		if a, ok := linkedAccount(store, kind, user, func(a Account) bool { return a.Handle != "" }); ok {
+			m.Handle = a.Handle
+			break
+		}
 	}
 	if a, ok := linkedAccount(store, "discord", user, func(a Account) bool { return a.ServiceUID != "" }); ok {
 		m.DiscordUID = a.ServiceUID

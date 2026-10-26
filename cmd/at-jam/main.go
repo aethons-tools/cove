@@ -2233,13 +2233,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup.SetTailReader(chlog) // seqs run on across the cutover: the tail is the channel log's, else the legacy log's
 	// Sessions follow their tickets' channels (intercom slice 2a); ticket
 	// channels key on the requisitioner's tracker connection, resolved below
-	// (until then, or with no requisitioner, the linear connection if any).
+	// (until then, or with no requisitioner, jam.TrackerConnection: the
+	// linear connection, else the github one).
 	var trackerConn atomic.Value // ident.ID
 	icTracker := func() (ident.ID, bool) {
 		if id, ok := trackerConn.Load().(ident.ID); ok {
 			return id, true
 		}
-		c, ok := st.ConnectionOfKind("linear")
+		c, ok := jam.TrackerConnection(st)
 		return c.ID, ok
 	}
 	ic := jam.NewIntercom(st, icTracker, chlog, nil, log)

@@ -337,6 +337,15 @@ type SessionChannels interface {
 // and never fails the setup or teardown. Call before serving.
 func (s *Supervisor) SetSessionChannels(c SessionChannels) { s.channels = c }
 
+// trackerOf is the tracker connection the session channels key tickets on
+// (the one serve resolved), nil when they don't say: TrackerConnection then.
+func (s *Supervisor) trackerOf() func() (ident.ID, bool) {
+	if t, ok := s.channels.(interface{ Tracker() (ident.ID, bool) }); ok {
+		return t.Tracker
+	}
+	return nil
+}
+
 // SetDefaultStudioKit wires the studio kit a raise runs from when its role names
 // no kit — its light reference, recorded in the registry by EnsureDefaultStudioKit
 // at wiring. With it set, a role without a kit stamps this ref on the launch spec
@@ -1766,7 +1775,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 			}
 		}
 	}
-	in.Studio = studioFacts(s.store, actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
+	in.Studio = studioFacts(s.store, s.trackerOf(), actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
 	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok {
 		in.Role = role.Context
 	}
