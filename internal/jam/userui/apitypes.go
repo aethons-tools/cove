@@ -287,11 +287,12 @@ type SessionPane struct {
 	Asks        []PaneAsk   `json:"asks"`
 	Links       []PaneLink  `json:"links"`
 	Status      []StatusRow `json:"status"`
-	// Streams are the session's recorded event streams (Thinking tab);
-	// EventsOff: this jam records no session events. The app's Thinking
-	// tab comes in slice 6.
-	Streams   []sessionevents.StreamInfo `json:"-"`
-	EventsOff bool                       `json:"-"`
+	// Streams are the session's recorded event streams (the template's
+	// Thinking tab); ThinkingStreams the same for the app; EventsOff: this
+	// jam records no session events.
+	Streams         []sessionevents.StreamInfo `json:"-"`
+	ThinkingStreams []ThinkingStream           `json:"streams"`
+	EventsOff       bool                       `json:"eventsOff"`
 	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
 	// IDEOpen: its plain URL, for Open in new tab when a mint fails (slice 6).
 	Studio  bool   `json:"-"`
@@ -354,4 +355,26 @@ type ThinkingEvent struct {
 	CostUSD         float64 `json:"costUsd"`        // result: the claude session's cumulative cost
 	DurationMS      int64   `json:"durationMs"`     // result
 	ClaudeSession   string  `json:"claudeSession"`  // result: the claude session CostUSD accumulates over
+}
+
+// ThinkingStream is one recorded event stream of a session (the Thinking
+// tab's stream selector), newest first.
+type ThinkingStream struct {
+	ID      string    `json:"id"`
+	FirstAt time.Time `json:"firstAt"`
+	Events  int       `json:"events"`
+}
+
+// ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
+// ?before=, in seq order; Before > 0: older ones exist below it.
+type ThinkingPage struct {
+	Events []ThinkingEvent `json:"events"`
+	Before uint64          `json:"before"`
+}
+
+// ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
+// capped; Truncated is the bytes cut.
+type ThinkingRaw struct {
+	Raw       string `json:"raw"`
+	Truncated int    `json:"truncated"`
 }

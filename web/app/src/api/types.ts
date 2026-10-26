@@ -311,6 +311,8 @@ export interface SessionPane {
   asks: PaneAsk[];
   links: PaneLink[];
   status: StatusRow[];
+  streams: ThinkingStream[];
+  eventsOff: boolean;
 }
 /**
  * PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -377,4 +379,29 @@ export interface ThinkingEvent {
   costUsd: number /* float64 */; // result: the claude session's cumulative cost
   durationMs: number /* int64 */; // result
   claudeSession: string; // result: the claude session CostUSD accumulates over
+}
+/**
+ * ThinkingStream is one recorded event stream of a session (the Thinking
+ * tab's stream selector), newest first.
+ */
+export interface ThinkingStream {
+  id: string;
+  firstAt: string;
+  events: number /* int */;
+}
+/**
+ * ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
+ * ?before=, in seq order; Before > 0: older ones exist below it.
+ */
+export interface ThinkingPage {
+  events: ThinkingEvent[];
+  before: number /* uint64 */;
+}
+/**
+ * ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
+ * capped; Truncated is the bytes cut.
+ */
+export interface ThinkingRaw {
+  raw: string;
+  truncated: number /* int */;
 }

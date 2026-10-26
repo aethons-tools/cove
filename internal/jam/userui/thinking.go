@@ -174,19 +174,13 @@ func (h *handler) thinkingPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: inst.ActorID, StreamID: stream, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
+	evs, below, err := h.thinkingPageOf(inst.ActorID, stream, before)
 	if err != nil {
 		h.lg.Error("thinking page: listing events failed", "session", inst.ActorID, "error", err.Error())
 		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
 		return
 	}
-	page := inboxPage{PaneEvents: make([]sessionview.EventView, 0, len(evs))}
-	for _, ev := range evs {
-		page.PaneEvents = append(page.PaneEvents, sessionview.View(ev))
-	}
-	if len(evs) > 0 && evs[0].Seq > 1 {
-		page.PaneBefore = evs[0].Seq
-	}
+	page := inboxPage{PaneEvents: evs, PaneBefore: below}
 	var b bytes.Buffer
 	if err := pages["inbox"].ExecuteTemplate(&b, "thinkingpage", page); err != nil {
 		h.lg.Error("userui render failed", "tmpl", "thinkingpage", "error", err.Error())
@@ -211,23 +205,52 @@ func (h *handler) thinkingRaw(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: inst.ActorID, StreamID: stream, AfterSeq: seq - 1, Limit: 1})
+	raw, cut, found, err := h.thinkingRawOf(inst.ActorID, stream, seq)
 	if err != nil {
 		h.lg.Error("thinking raw: listing events failed", "session", inst.ActorID, "error", err.Error())
 		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
 		return
 	}
-	if len(evs) == 0 || evs[0].Seq != seq {
+	if !found {
 		http.NotFound(w, r)
 		return
 	}
-	raw := sessionview.View(evs[0]).Raw
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if len(raw) > rawMax {
-		_, _ = io.WriteString(w, raw[:rawMax])
-		_, _ = fmt.Fprintf(w, "\n… truncated %d bytes", len(raw)-rawMax)
-		return
-	}
 	_, _ = io.WriteString(w, raw)
+	if cut > 0 {
+		_, _ = fmt.Fprintf(w, "\n… truncated %d bytes", cut)
+	}
+}
+
+// thinkingPageOf is the thinkingPageSize events of actor's stream below
+// before, in seq order, and the seq below which older ones exist (0 = none).
+func (h *handler) thinkingPageOf(actor, stream string, before uint64) ([]sessionview.EventView, uint64, error) {
+	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]sessionview.EventView, 0, len(evs))
+	for _, ev := range evs {
+		out = append(out, sessionview.View(ev))
+	}
+	var below uint64
+	if len(evs) > 0 && evs[0].Seq > 1 {
+		below = evs[0].Seq
+	}
+	return out, below, nil
+}
+
+// thinkingRawOf is one event's pretty JSON, capped at rawMax (truncated:
+// the bytes cut); found false when the stream has no such seq.
+func (h *handler) thinkingRawOf(actor, stream string, seq uint64) (string, int, bool, error) {
+	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, AfterSeq: seq - 1, Limit: 1})
+	if err != nil || len(evs) == 0 || evs[0].Seq != seq {
+		return "", 0, false, err
+	}
+	raw := sessionview.View(evs[0]).Raw
+	if len(raw) > rawMax {
+		return raw[:rawMax], len(raw) - rawMax, true, nil
+	}
+	return raw, 0, true, nil
 }
