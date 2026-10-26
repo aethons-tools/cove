@@ -187,9 +187,8 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 
 // ListReady returns issues in the READY state that are dispatchable now: every
 // "blocks" blocker has reached the Done (completed) state, or the issue has no
-// blockers. Blocked-ness lives in the relationships, not the state — the
-// scheduler no longer promotes BLOCKED→READY and never touches the backlog
-// (COV-65). A READY issue still waiting on a blocker is simply not returned; it
+// blockers. Blocked-ness lives in the relationships, not the state — nothing
+// promotes BLOCKED→READY or touches the backlog (COV-65). A READY issue still waiting on a blocker is simply not returned; it
 // waits in READY until its blockers finish.
 //
 // A dependency is satisfied ONLY at Done — In Progress / In Review / Backlog do

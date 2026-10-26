@@ -269,8 +269,8 @@ func (c *Client) closedBlockers(ctx context.Context, nums map[int]struct{}) (map
 	return closed, nil
 }
 
-// ListReady returns open issues carrying the READY status label (for Jam's
-// client, only those carrying a dispatch label too) whose same-repo blockers
+// ListReady returns open issues carrying the READY status label and a
+// dispatch label whose same-repo blockers
 // (Depends on #N / Blocked by #N in the body) are all closed, or which have
 // none. Blocker doneness is resolved by a separate authoritative lookup over
 // the deduped union of referenced numbers — the same discipline as Linear's
