@@ -21,7 +21,7 @@ seen from the human's side. It is served by `internal/jam/userui` (mirroring
 
 A new single-page version of this inbox is being built at **`/app/next/`**, behind the same sign-in
 ([design](../../superpowers/specs/2026-10-26-jam-spa-design.md), [dev doc](../../web-app.md)).
-So far it shows the title bar, the rail and conversations (messages, Join/Leave/Call in, presence; live). You can reply, start new messages and attach files there too; and answer asks there; whiteboards still happen here. Its JSON API lives
+So far it shows the title bar, the rail and conversations (messages, Join/Leave/Call in, presence; live). You can reply, start new messages, attach files and answer asks there; whiteboards still happen here. Its JSON API lives
 under `/app/user/api/`. This page stays the inbox until the cutover.
 
 ## What it shows

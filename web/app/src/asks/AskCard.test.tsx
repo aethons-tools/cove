@@ -115,4 +115,23 @@ describe("ask cards", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Discuss" }));
     expect(screen.getByRole("textbox", { name: "Message eng" })).toHaveValue("re: Merge PR #12?\n");
   });
+
+  it("takes one answer: the other choices wait while it's sent, and the rail refreshes", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let posts = 0, railGets = 0;
+    serve(() => conv([card()]), () => { posts++; return new HttpResponse(null, { status: 204 }); });
+    server.use(
+      http.post("/app/user/api/asks/:id/answer", async () => { posts++; await gate; return new HttpResponse(null, { status: 204 }); }),
+      http.get("/app/user/api/rail", () => { railGets++; return HttpResponse.json({ groups: [], unreadTotal: 0 }); }),
+    );
+    renderApp(boot, "/app/next/c/chn_a");
+    await userEvent.click(await screen.findByRole("button", { name: /Hold/ }));
+    expect(screen.getByRole("button", { name: /Ship it/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Other…" })).toBeDisabled();
+    const before = railGets;
+    release();
+    await waitFor(() => expect(railGets).toBeGreaterThan(before));
+    expect(posts).toBe(1);
+  });
 });

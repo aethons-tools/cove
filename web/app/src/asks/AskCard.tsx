@@ -15,8 +15,12 @@ export function AskCardView({ card, channel, onDiscuss }: { card: AskCard; chann
     mutationFn: (req) => apiPost(`asks/${encodeURIComponent(card.id)}/answer`, req),
     onSuccess: () => setComment(""),
     onError: (e) => notifications.show({ color: e.code === "ask_changed" || e.code === "ask_closed" ? "yellow" : "red", message: e.message }),
-    // Either way the card's state moved on (answered, changed, closed): refetch.
-    onSettled: () => void client.invalidateQueries({ queryKey: ["conversation", channel] }),
+    // Either way the card's state moved on (answered, changed, closed): refetch
+    // it, and the rail (its Needs you), as the old route's meChanged did.
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["conversation", channel] });
+      void client.invalidateQueries({ queryKey: ["rail"] });
+    },
   });
   const choose = (choice: string) => {
     if (choice === "other" && !comment.trim()) {
@@ -40,13 +44,13 @@ export function AskCardView({ card, channel, onDiscuss }: { card: AskCard; chann
         <Stack gap={6}>
           <Group gap={6}>
             {card.options.map((o) => (
-              <Button key={o.id} variant="default" size="xs" loading={answer.isPending && answer.variables?.choice === o.id} onClick={() => choose(o.id)}
+              <Button key={o.id} variant="default" size="xs" loading={answer.isPending && answer.variables?.choice === o.id} disabled={answer.isPending && answer.variables?.choice !== o.id} onClick={() => choose(o.id)}
                 styles={{ label: { flexDirection: "column", alignItems: "flex-start" } }} h="auto" py={4}>
                 <span>{o.label}</span>
                 {o.detail && <Text span size="xs" c="dimmed">{o.detail}</Text>}
               </Button>
             ))}
-            <Button variant="subtle" size="xs" onClick={() => choose("other")}>Other…</Button>
+            <Button variant="subtle" size="xs" loading={answer.isPending && answer.variables?.choice === "other"} disabled={answer.isPending && answer.variables?.choice !== "other"} onClick={() => choose("other")}>Other…</Button>
           </Group>
           <Textarea size="xs" autosize minRows={1} maxRows={4} aria-label={`Comment on ${card.question}`}
             placeholder="Comment (needed for Other…)" value={comment} onChange={(e) => setComment(e.currentTarget.value)} />
