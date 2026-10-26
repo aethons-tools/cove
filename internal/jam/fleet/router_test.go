@@ -224,7 +224,6 @@ func TestRouterBuildKitDraftNoBuilder(t *testing.T) {
 
 type factsFake struct {
 	*fakeManager
-	image string
 }
 
 func (f factsFake) ImageFacts(_ context.Context, image string) (jam.ImageFacts, error) {
@@ -248,7 +247,9 @@ func TestRouterImageFacts(t *testing.T) {
 	}
 
 	r2 := New(nil)
-	_ = r2.Add(plain)
+	if err := r2.Add(plain); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := r2.ImageFacts(context.Background(), "img"); !errors.Is(err, jam.ErrManagerUnavailable) {
 		t.Fatalf("err %v", err)
 	}

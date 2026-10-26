@@ -16,7 +16,7 @@ type fakeManager struct {
 	avail      atomic.Bool
 	raiseErr   error
 	raiseCalls atomic.Int32
-	facts      *jam.ImageFacts
+	availCalls atomic.Int32
 	owners     []string
 	asm        string // ImageTag result
 
@@ -38,8 +38,11 @@ func newFake(name string) *fakeManager {
 	return f
 }
 
-func (f *fakeManager) Name() string    { return f.name }
-func (f *fakeManager) Available() bool { return f.avail.Load() }
+func (f *fakeManager) Name() string { return f.name }
+func (f *fakeManager) Available() bool {
+	f.availCalls.Add(1)
+	return f.avail.Load()
+}
 
 func (f *fakeManager) rec(dst *[]string, s string) {
 	f.mu.Lock()

@@ -16,11 +16,13 @@ const maxDeclineBackoff = 30 * time.Second
 type declineState struct {
 	delay time.Duration // doubles on each further decline, starting at poll
 	next  time.Time     // not tried again before this
+	last  string        // the decline's error text
 }
 
 // RaiseOn places the raise on the first manager that accepts it, trying the
 // spec's candidates in order. A manager that is unavailable or declines is
-// skipped (a decliner is retried after a doubling backoff, and a Kick resets it);
+// skipped (a decliner is retried after a doubling backoff, and a Kick makes it
+// eligible at once);
 // a raise interrupted mid-call fails at once with jam.ErrRaiseInterrupted, as
 // its outcome is unknown. If none accepts, it waits (until a Kick, the poll tick, the
 // placement timeout or ctx) and tries again. An unregistered candidate fails
@@ -51,7 +53,7 @@ func (r *Router) RaiseOn(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 				continue
 			}
 			if st := backoff[name]; st != nil && r.now().Before(st.next) {
-				reasons = append(reasons, name+": backing off after decline")
+				reasons = append(reasons, name+": "+st.last+" (backing off)")
 				continue
 			}
 			loc, err := m.Raise(ctx, spec, creds)
@@ -71,6 +73,7 @@ func (r *Router) RaiseOn(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 					st.delay = min(st.delay*2, maxDeclineBackoff)
 				}
 				st.next = r.now().Add(st.delay)
+				st.last = err.Error()
 				reasons = append(reasons, name+": "+err.Error())
 			}
 		}
