@@ -70,6 +70,7 @@ type SessionHead struct {
 	Cost, TurnCost, Tokens                        string
 	Context, ContextTip                           string // the context window's use; "" = no model call yet
 	Uptime                                        string
+	Mission                                       string // the agent's one-line focus; "" = none
 	SSH                                           string // the copyable command; "" = not allowed
 	Studio                                        bool   // the Studio tab: ssh allowed and framing on
 	CanRelease, CanRestart, CanUpgrade            bool
@@ -96,7 +97,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	pr, _ := appui.PrincipalFrom(r)
 	op := pr.Admin
 	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
-		Ticket: inst.Unit, OpenAsks: inst.OpenAsks, Uptime: since(now, inst.RaisedAt)}
+		Ticket: inst.Unit, OpenAsks: inst.OpenAsks, Uptime: since(now, inst.RaisedAt), Mission: inst.Mission}
 	if hd.Label == "" {
 		hd.Label = inst.ActorID
 	}

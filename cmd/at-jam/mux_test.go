@@ -50,7 +50,10 @@ func TestSquawksMuxRouting(t *testing.T) {
 	reportH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "report")
 	})
-	mux := squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, broker)
+	missionH := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "mission")
+	})
+	mux := squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, missionH, broker)
 
 	for _, tc := range []struct {
 		path string
@@ -78,6 +81,7 @@ func TestSquawksMuxRouting(t *testing.T) {
 		{"/end/extra", "broker"},
 		{"/alarms", "alarms"},
 		{"/report", "report"},
+		{"/mission", "mission"},
 		{"/alarms/pr-watch", "alarms"},
 		{"/alarmsx", "broker"},
 		{"/exposures", "exposures"},
@@ -225,7 +229,7 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := coveHTTPHandler(broker, st, sup, tc.msg, tc.requisitioner, nil, nil, log)
-			for _, p := range []string{"/squawks", "/escalate"} {
+			for _, p := range []string{"/squawks", "/escalate", "/mission"} {
 				if got := get(h, p) != http.StatusTeapot; got != tc.mounted {
 					t.Fatalf("%s mounted = %v, want %v", p, got, tc.mounted)
 				}

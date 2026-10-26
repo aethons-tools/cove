@@ -2,6 +2,7 @@ package jam
 
 import (
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
@@ -103,6 +104,12 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 		v.LastSeq = last[0].Seq
 	}
 	var others []string
+	// The mission shown is the channel's own session's (SourceSession), the
+	// latest-raised active session's (SourceTicket), or a chat's only active
+	// session's; rooms show none.
+	var active int
+	var latest time.Time
+	var chatMission string
 	for _, m := range store.ChannelMembers(ch.ID) {
 		if m.ParticipantID == u {
 			continue
@@ -112,6 +119,19 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 			if inst, ok := store.GetInstance(string(m.ParticipantID)); ok && instanceActive(inst) {
 				if v.Phase == "" || NeedsPerson(inst) {
 					v.Phase, v.NeedsYou = string(inst.Phase), v.NeedsYou || NeedsPerson(inst)
+				}
+				active++
+				switch ch.Kind {
+				case SourceSession:
+					if inst.ActorID == ch.Key {
+						v.Mission = inst.Mission
+					}
+				case SourceTicket:
+					if active == 1 || inst.RaisedAt.After(latest) {
+						v.Mission, latest = inst.Mission, inst.RaisedAt
+					}
+				case SourceChat:
+					chatMission = inst.Mission
 				}
 			}
 		}
@@ -124,6 +144,9 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 		if !v.NeedsYou && ic.MayAnswer(u, a) {
 			v.NeedsYou = true
 		}
+	}
+	if ch.Kind == SourceChat && active == 1 {
+		v.Mission = chatMission
 	}
 	if ch.Kind == SourceChat && len(others) > 0 {
 		v.Label = strings.Join(others, ", ")

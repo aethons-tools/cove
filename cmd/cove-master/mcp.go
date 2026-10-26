@@ -135,6 +135,11 @@ type endIn struct {
 	Reason string `json:"reason" jsonschema:"why the session is ending (shown to its owner); the session is torn down after this turn ends and is never woken again"`
 }
 
+// missionIn is the "mission" tool's typed input.
+type missionIn struct {
+	Text string `json:"text" jsonschema:"one line: what you are focused on now; empty clears it"`
+}
+
 // idleTimeoutIn is the "idle_timeout" tool's typed input.
 type idleTimeoutIn struct {
 	Duration string `json:"duration" jsonschema:"how long after this turn ends to apply the role's on-idle action if nothing else wakes you, e.g. 45m or 2h; or off"`
@@ -470,6 +475,18 @@ func (c *messagingClient) end(ctx context.Context, reason string) error {
 	return err
 }
 
+// mission sets the cove's current mission via Jam's PUT /mission.
+func (c *messagingClient) mission(ctx context.Context, text string) error {
+	payload, err := json.Marshal(struct {
+		Text string `json:"text"`
+	}{Text: text})
+	if err != nil {
+		return fmt.Errorf("encoding mission payload: %w", err)
+	}
+	_, err = c.do(ctx, http.MethodPut, "/mission", payload)
+	return err
+}
+
 // idleTimeout overrides the cove's idle timeout (PUT /idle).
 func (c *messagingClient) idleTimeout(ctx context.Context, duration, scope string) error {
 	payload, err := json.Marshal(struct {
@@ -721,6 +738,16 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 			return nil, nil, cfgErr
 		}
 		return nil, nil, client.end(ctx, in.Reason)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "mission",
+		Description: "Set your current mission: one line saying what you are focused on now, shown beside your name in people's inbox. Set it when your focus changes (a new task, a ticket picked up); empty text clears it.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in missionIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.mission(ctx, in.Text)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
