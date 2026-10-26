@@ -14,6 +14,10 @@ func TestNormalizeMission(t *testing.T) {
 		{"collapses whitespace", "  fix  the\n\ttests ", "fix the tests"},
 		{"empty", "", ""},
 		{"only whitespace", " \n ", ""},
+		{"drops NUL", "a\x00b", "ab"},
+		{"drops bidi override", "a\u202eb", "ab"},
+		{"newline still a space", "a\nb", "a b"},
+		{"control-only", "\x00\x07\x1b", ""},
 		{"truncates with ellipsis", strings.Repeat("é", 130), strings.Repeat("é", 119) + "…"},
 		{"exactly the cap is unchanged", exact, exact},
 	}

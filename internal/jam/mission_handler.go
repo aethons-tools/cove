@@ -5,18 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 )
 
 // maxMissionBodyBytes caps the /mission PUT body (a mission is one short line).
 const maxMissionBodyBytes = 2048
-
-// missionStore is the narrow slice of Store the /mission handler needs.
-// jam.Store satisfies it.
-type missionStore interface {
-	Lookup(tokenHash string) (Actor, bool)
-	GetInstance(actorID string) (Instance, bool)
-}
 
 // missionSetter is the narrow slice of *Supervisor the /mission handler needs.
 type missionSetter interface {
@@ -28,13 +20,13 @@ type missionSetter interface {
 // caller's OWN instance — self-scoped by construction, no target parameter.
 // Implements http.Handler.
 type MissionHandler struct {
-	store  missionStore
+	store  escalateStore
 	setter missionSetter
 	log    *slog.Logger
 }
 
 // NewMissionHandler constructs a MissionHandler.
-func NewMissionHandler(store missionStore, setter missionSetter, log *slog.Logger) *MissionHandler {
+func NewMissionHandler(store escalateStore, setter missionSetter, log *slog.Logger) *MissionHandler {
 	return &MissionHandler{store: store, setter: setter, log: log}
 }
 
@@ -44,20 +36,8 @@ func (h *MissionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || tok == "" {
-		http.Error(w, "missing identity", http.StatusUnauthorized)
-		return
-	}
-	// Fail closed: an unrecognized token hash denies (hash-map lookup, never a
-	// manual token comparison), as in /escalate.
-	actor, ok := h.store.Lookup(HashToken(tok))
+	actor, ok := authenticateCove(w, r, h.store)
 	if !ok {
-		http.Error(w, "unknown identity", http.StatusUnauthorized)
-		return
-	}
-	if _, ok := h.store.GetInstance(actor.ID); !ok {
-		http.Error(w, "no instance", http.StatusForbidden)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxMissionBodyBytes)
