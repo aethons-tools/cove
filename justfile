@@ -170,12 +170,10 @@ integration-docker:
 integration-jam:
     go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
 
-# switchboard live checks: a real headless `claude` turn (SWITCHBOARD_IT=1, needs a
-# signed-in claude; run in a sandbox) and/or a real Discord round-trip
-# (SWITCHBOARD_IT_DISCORD_TOKEN + SWITCHBOARD_IT_CHANNEL). Each subtest skips if its
-# prerequisites are unset.
-integration-switchboard:
-    go test -tags integration ./internal/switchboard/ -run 'TestClaudeAgentLive|TestDiscordRoundTripLive' -v -timeout 5m
+# Discord live check: a real Discord REST round-trip through internal/discord
+# (DISCORD_IT_TOKEN + DISCORD_IT_CHANNEL); skips if they are unset.
+integration-discord:
+    go test -tags integration ./internal/discord/ -run TestDiscordRoundTripLive -v -timeout 5m
 
 # go vet + gofmt check + shell/Dockerfile lint (linters skipped if absent; STRICT=1 to require them)
 lint:

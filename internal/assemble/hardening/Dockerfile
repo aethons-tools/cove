@@ -26,21 +26,8 @@ RUN arch="$(dpkg --print-architecture)" \
     fi \
  && rm -rf /tmp/attask
 
-# Install the embedded, version-locked at-switchboard the orchestrating at-cove
-# staged into the build context (mirrors at-task above, COV-135). Install only
-# when non-empty: a plain `go build` without scripts/build.sh stages a 0-byte
-# placeholder, in which case at-switchboard is simply absent — there is no
-# base-image fallback (unlike at-task), so `at-cove teammate` errors clearly at
-# launch rather than the build silently installing a broken binary.
-COPY switchboard/ /tmp/switchboard/
-RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/switchboard/at-switchboard-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/switchboard/at-switchboard-linux-${arch}" /usr/local/bin/at-switchboard; \
-    fi \
- && rm -rf /tmp/switchboard
-
 # Install the embedded, version-locked cove-master the orchestrating at-cove
-# staged into the build context (mirrors at-switchboard above, COV-158). Install
+# staged into the build context (COV-158). Install
 # only when the arch binary is non-empty; a plain `go build` stages a 0-byte
 # placeholder, in which case cove-master is simply absent and a managed raise
 # fails clearly at launch — there is no base-image fallback.

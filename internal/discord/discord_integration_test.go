@@ -1,6 +1,6 @@
 //go:build integration
 
-package switchboard
+package discord
 
 import (
 	"context"
@@ -19,13 +19,13 @@ import (
 // Requires a bot token with access to the channel (View Channel, Send Messages,
 // Read Message History, Message Content intent) and the channel id.
 //
-//	Run: SWITCHBOARD_IT_DISCORD_TOKEN=… SWITCHBOARD_IT_CHANNEL=… \
-//	       go test -tags integration ./internal/switchboard/ -run TestDiscordRoundTripLive -v
+//	Run: DISCORD_IT_TOKEN=… DISCORD_IT_CHANNEL=… \
+//	       go test -tags integration ./internal/discord/ -run TestDiscordRoundTripLive -v
 func TestDiscordRoundTripLive(t *testing.T) {
-	token := os.Getenv("SWITCHBOARD_IT_DISCORD_TOKEN")
-	channel := os.Getenv("SWITCHBOARD_IT_CHANNEL")
+	token := os.Getenv("DISCORD_IT_TOKEN")
+	channel := os.Getenv("DISCORD_IT_CHANNEL")
 	if token == "" || channel == "" {
-		t.Skip("set SWITCHBOARD_IT_DISCORD_TOKEN and SWITCHBOARD_IT_CHANNEL to run the live Discord round-trip")
+		t.Skip("set DISCORD_IT_TOKEN and DISCORD_IT_CHANNEL to run the live Discord round-trip")
 	}
 
 	c := NewRESTClient(token, []string{channel})
@@ -38,7 +38,7 @@ func TestDiscordRoundTripLive(t *testing.T) {
 		t.Fatalf("Seed: %v", err)
 	}
 
-	marker := fmt.Sprintf("at-switchboard integration round-trip %d", time.Now().UnixNano())
+	marker := fmt.Sprintf("jam discord integration round-trip %d", time.Now().UnixNano())
 	if err := c.Post(ctx, channel, marker); err != nil {
 		t.Fatalf("Post: %v", err)
 	}

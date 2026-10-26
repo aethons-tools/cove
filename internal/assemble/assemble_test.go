@@ -53,19 +53,6 @@ func TestAssembleContextNeedsNoKitDir(t *testing.T) {
 	}
 }
 
-func TestWriteSwitchboard_WritesArchFiles(t *testing.T) {
-	dir := t.TempDir()
-	if err := writeSwitchboard(dir); err != nil {
-		t.Fatal(err)
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		p := filepath.Join(dir, "switchboard", "at-switchboard-linux-"+arch)
-		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("missing %s: %v", p, err)
-		}
-	}
-}
-
 func TestWriteCoveMaster_WritesArchFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeCoveMaster(dir); err != nil {
@@ -468,6 +455,56 @@ func TestAssembleContextHomeDirModes(t *testing.T) {
 		}
 		if got := fi.Mode().Perm(); got != want {
 			t.Errorf("%s mode = %#o, want %#o", rel, got, want)
+		}
+	}
+}
+
+// The build context carries no at-switchboard or at-task: those binaries were
+// deleted with at-cove (jam-only slice 2), so neither their staging dirs nor any
+// Dockerfile stanza installing them may survive. cove-master is still staged,
+// and every sealed hardening step is still there, in order — only the two
+// stanzas are gone (the hardening layer is not weakened).
+func TestAssembleContextStagesOnlyCoveMaster(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{Policy: []string{"pkg.go.dev"}}, "", nil, harnessinstall.Default()); err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"switchboard"} {
+		if _, err := os.Stat(filepath.Join(buildDir, gone)); !os.IsNotExist(err) {
+			t.Fatalf("build context still has %s/ (err=%v)", gone, err)
+		}
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		if _, err := os.Stat(filepath.Join(buildDir, "covemaster", "cove-master-linux-"+arch)); err != nil {
+			t.Fatalf("cove-master %s not staged: %v", arch, err)
+		}
+	}
+	df := read(t, filepath.Join(buildDir, "Dockerfile"))
+	for _, gone := range []string{"at-switchboard", "/tmp/switchboard"} {
+		if strings.Contains(df, gone) {
+			t.Fatalf("assembled Dockerfile still mentions %q", gone)
+		}
+	}
+	at := 0
+	for _, sealed := range []string{
+		"FROM harness",
+		"PermitRootLogin no",
+		"COPY covemaster/ /tmp/covemaster/",
+		"COPY image-files/. /.",
+		"systemctl enable cove-egress.service squid.service",
+		"/usr/local/lib/cove/apply-sshenv.sh",
+		"RUN rm -rf /.cove",
+		`ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]`,
+	} {
+		i := strings.Index(df[at:], sealed)
+		if i < 0 {
+			t.Fatalf("sealed step %q missing or out of order in the assembled Dockerfile", sealed)
+		}
+		at += i + len(sealed)
+	}
+	for _, f := range []string{"allowed_domains.txt", "allowed_domains.kit.txt", "allowed_domains.infra.txt", "allowed_domains.session.txt", "egress_ceiling.txt", "squid.conf"} {
+		if _, err := os.Stat(filepath.Join(buildDir, "image-files/etc/squid", f)); err != nil {
+			t.Fatalf("sealed/baked egress file %s missing: %v", f, err)
 		}
 	}
 }

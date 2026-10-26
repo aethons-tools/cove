@@ -7,7 +7,6 @@
 /dev/tls/
 /dev/pool.dev.json
 /dev/jam.dev.yml
-/.switchboard/
 /.air/
 
 # `go build ./cmd/<name>` output at the repo root
@@ -15,7 +14,6 @@
 /at-cove
 /at-jam
 /at-mint
-/at-switchboard
 /at-task
 /cove-master
 /gen-blessed

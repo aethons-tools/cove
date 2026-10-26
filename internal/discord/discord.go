@@ -1,4 +1,4 @@
-package switchboard
+package discord
 
 import (
 	"bytes"
@@ -157,16 +157,16 @@ func (c *RESTClient) Poll(ctx context.Context, cursors map[string]string) ([]Mes
 			return req, nil
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("switchboard: poll %s: %w", ch, err)
+			return nil, nil, fmt.Errorf("discord: poll %s: %w", ch, err)
 		}
 		var page []discordMessage
 		derr := json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, nil, fmt.Errorf("switchboard: poll %s: status %d", ch, resp.StatusCode)
+			return nil, nil, fmt.Errorf("discord: poll %s: status %d", ch, resp.StatusCode)
 		}
 		if derr != nil {
-			return nil, nil, fmt.Errorf("switchboard: poll %s decode: %w", ch, derr)
+			return nil, nil, fmt.Errorf("discord: poll %s decode: %w", ch, derr)
 		}
 		// Discord returns newest-first; walk in reverse for chronological order.
 		for i := len(page) - 1; i >= 0; i-- {
@@ -202,16 +202,16 @@ func (c *RESTClient) Seed(ctx context.Context) (map[string]string, error) {
 			return req, nil
 		})
 		if err != nil {
-			return nil, fmt.Errorf("switchboard: seed %s: %w", ch, err)
+			return nil, fmt.Errorf("discord: seed %s: %w", ch, err)
 		}
 		var page []discordMessage
 		derr := json.NewDecoder(resp.Body).Decode(&page)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("switchboard: seed %s: status %d", ch, resp.StatusCode)
+			return nil, fmt.Errorf("discord: seed %s: status %d", ch, resp.StatusCode)
 		}
 		if derr != nil {
-			return nil, fmt.Errorf("switchboard: seed %s decode: %w", ch, derr)
+			return nil, fmt.Errorf("discord: seed %s decode: %w", ch, derr)
 		}
 		if len(page) > 0 {
 			cursors[ch] = page[0].ID // newest-first, so [0] is the latest
@@ -245,11 +245,11 @@ func (c *RESTClient) PostID(ctx context.Context, channel, content string) (strin
 		return req, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("switchboard: post %s: %w", channel, err)
+		return "", fmt.Errorf("discord: post %s: %w", channel, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("switchboard: post %s: status %d", channel, resp.StatusCode)
+		return "", fmt.Errorf("discord: post %s: status %d", channel, resp.StatusCode)
 	}
 	var created struct {
 		ID string `json:"id"`

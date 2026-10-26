@@ -1,4 +1,4 @@
-package switchboard
+package discord
 
 import (
 	"context"

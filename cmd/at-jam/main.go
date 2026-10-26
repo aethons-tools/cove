@@ -38,6 +38,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -73,7 +74,6 @@ import (
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/studio"
-	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/textesc"
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/usersecret"
@@ -2624,7 +2624,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {
-				return switchboard.NewRESTClient(discordTok, channels)
+				return discord.NewRESTClient(discordTok, channels)
 			},
 			channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
 			receipts:    discordReceipts,

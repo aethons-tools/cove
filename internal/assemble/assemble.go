@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/atswitchboard"
 	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
@@ -65,7 +64,7 @@ func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost str
 // AssembleContext stages the docker build context into buildDir with NO source
 // kit directory: everything comes from resources compiled into this binary (the
 // sealed hardening layer + Dockerfile via the embedded FS, and the injected
-// at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
+// at-task/cove-master binaries), plus data the caller supplies —
 // the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
 // (kit.MCPServersImagePath), the public key baked into authorized_keys, and the
 // harness install (the model-spec's CLI version + plugins). Because it takes no directory, a Launcher can build a
@@ -99,10 +98,6 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	}
 
 	if err := writeAtTask(buildDir); err != nil {
-		return err
-	}
-
-	if err := writeSwitchboard(buildDir); err != nil {
 		return err
 	}
 
@@ -193,33 +188,9 @@ func writeAtTask(buildDir string) error {
 	return nil
 }
 
-// writeSwitchboard stages the embedded linux at-switchboard binaries into the
-// build context (buildDir/switchboard/at-switchboard-linux-<arch>), so the
-// sealed hardening layer can install the arch-matching one — mirrors
-// writeAtTask. Unlike at-task there is no base-image fallback binary to keep:
-// when the embed was not staged (a plain `go build` without scripts/build.sh),
-// a 0-byte placeholder is written instead, and hardening's install guard skips
-// it; `at-cove teammate` then errors clearly at launch if the binary is absent.
-func writeSwitchboard(buildDir string) error {
-	dir := filepath.Join(buildDir, "switchboard")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		b, err := atswitchboard.Binary(arch)
-		if err != nil {
-			b = nil // not staged → placeholder; caught at launch, not build
-		}
-		if err := os.WriteFile(filepath.Join(dir, "at-switchboard-linux-"+arch), b, 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // writeCoveMaster stages the embedded linux cove-master binaries into the build
 // context (buildDir/covemaster/cove-master-linux-<arch>), so the sealed hardening
-// layer can install the arch-matching one — mirrors writeSwitchboard (COV-158).
+// layer can install the arch-matching one — mirrors writeAtTask (COV-158).
 // When the embed was not staged (a plain `go build` without scripts/stage-attask.sh),
 // a 0-byte placeholder is written instead and hardening's install guard skips it;
 // a raised cove then has no cove-master and the launcher's start step fails clearly.
