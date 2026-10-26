@@ -621,3 +621,67 @@ func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
 		t.Fatalf("row 301 was %dpx from the top before Load earlier, %dpx after (want its place kept)", before, after)
 	}
 }
+
+// The app frames the Studio's IDE and a preview's View here from the frame
+// route, under a CSP whose frame-src is the preview origin: the frame loads
+// (status clears), a forged message from the page itself changes nothing,
+// and a real frame-error from the frame is shown.
+func TestBrowserNextStudio(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p, personal, _, _ := frameEnv(t)
+	pv := httptest.NewServer(http.HandlerFunc(framePage))
+	t.Cleanup(pv.Close)
+	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
+	e.Deps.Frames = ff
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, []string{pv.URL})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	st := `(document.querySelector('#studio .st-status')||{textContent:'?'}).textContent`
+	var problems pageProblems
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 900),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)),
+		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="studio"]`)),
+		has(`!!document.querySelector('#studio iframe.st-iframe') && `+st+`===''`), // loaded
+		chromedp.Evaluate[chromedp.Void](`window.postMessage({jam:'frame-error',status:403},'*')`),
+		chromedp.Sleep(300*time.Millisecond),
+		has(st+`===''`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := ff.mints("ide"); n != 1 {
+		t.Fatalf("ide mints = %d, want 1", n)
+	}
+	// A real refusal from the frame itself; then View here frames a preview.
+	ff.queue("ide", "post=403")
+	if err := chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
+		has(st+`==='No longer shared with you.'`),
+		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="previews"]`)),
+		chromedp.Click(chromedp.CSS(`.pv-here`)),
+		has(`!!document.querySelector('.pv-framed iframe.st-iframe') && document.querySelector('.pv-framed .st-status').textContent===''`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}

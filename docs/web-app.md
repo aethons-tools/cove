@@ -25,6 +25,7 @@ Until the cutover it is served at **`/app/next/`** beside the current inbox, beh
   - `src/asks/` holds the ask cards (`AskCardView`: answer with an option, or Other… plus a comment; Discuss) and the open-asks panel. `POST /app/user/api/asks/{id}/answer` shares `answerOutcome` with the HTML route.
   - `src/session/` is the session view: `SessionHeader` (actions go to `POST /app/user/api/sessions/{id}/{action}`, sharing `sessionOutcome` with the HTML route), and `SessionView`'s resizable pane with its tabs (`PaneTabs`). `layout.ts` reads and writes the old Inbox's `jam-pane:<session>` / `jam-pane:last` localStorage, so both UIs share a layout.
   - `src/session/thinking/` is the Thinking tab, a lazily loaded chunk. `feed.ts` reduces the live JSON feed (`…/thinking/events?format=json`) and pages into items and owns the 2000-row cap; `rows.ts` derives the display rows (pairing, cost dividers, thinking runs, filters); `useThinkingFeed` holds the EventSource and its refusal backoff; `ThinkingTab` renders with `@tanstack/react-virtual`. Its preferences keep the old Inbox's `jam-thinking` localStorage.
+  - `src/session/frames/` holds the framed views. `useFrame` mints with `POST /app/user/api/sessions/{id}/frame` (sharing `frameOutcome` with the form route), heeds a `frame-error` only from its own current frame, and re-mints at most once per signin/cookies per user action. `StudioTab` (a lazy chunk) is kept mounted across tabs by `SessionView`; Previews' View here uses the same `FrameView`.
   - `src/sounds/` ports `sounds.js`, keeping its localStorage (`jam-sounds`) and IndexedDB (`jam`/`prefs`) contract with the service worker.
   - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`, `session`), with the 30 s `POLL_MS` as the fallback.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
@@ -68,10 +69,11 @@ Rules:
 
 - **Go:** `api_test.go` and `webapp_test.go` (plain `go test`).
 - **App:** `npm run check` in `web/app` (typecheck, ESLint, Vitest with Testing Library and MSW). Mock the API with MSW handlers typed from `types.ts`. `renderApp` (`src/test/render.tsx`) mounts the whole app with Mantine's `env="test"`: jsdom has no layout, and without it Mantine hides menus and popovers whose anchor looks detached.
-- **Browser:** `just test-browser` includes the `TestBrowserNext*` tests (rail, conversation, composer, asks, session pane, Thinking). It needs the bundle (`just app`) and a headless Chrome, and skips without either.
+- **Browser:** `just test-browser` includes the `TestBrowserNext*` tests (rail, conversation, composer, asks, session pane, Thinking, Studio). It needs the bundle (`just app`) and a headless Chrome, and skips without either.
 
 ## Security
 
 - The app page's CSP allows only same-origin scripts. `style-src` permits inline styles for Mantine.
+- Its `frame-src` is the preview hosts (`https://*.<previews domain>[:admin port]`, `appFrameSrc`) when pane framing is on (previews and `ui-origins` set), else `'none'`; the frame boundary itself is [previews.md](usage/jam/previews.md)'s.
 - `dangerouslySetInnerHTML` is banned by ESLint except for the squawkrender message body.
 - The bootstrap is a JSON data block (`json.Marshal` escapes `<`), never script.

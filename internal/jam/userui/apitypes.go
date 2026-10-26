@@ -294,9 +294,9 @@ type SessionPane struct {
 	ThinkingStreams []ThinkingStream           `json:"streams"`
 	EventsOff       bool                       `json:"eventsOff"`
 	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
-	// IDEOpen: its plain URL, for Open in new tab when a mint fails (slice 6).
-	Studio  bool   `json:"-"`
-	IDEOpen string `json:"-"`
+	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
+	Studio  bool   `json:"studio"`
+	IDEOpen string `json:"ideOpen"`
 }
 
 // PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -377,4 +377,17 @@ type ThinkingPage struct {
 type ThinkingRaw struct {
 	Raw       string `json:"raw"`
 	Truncated int    `json:"truncated"`
+}
+
+// FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
+// IDE ("ide") or an exposed preview's name.
+type FrameRequest struct {
+	Name string `json:"name"`
+}
+
+// FrameURL is a minted frame URL (one-time: never cached) and the view's
+// plain URL, for Open in new tab ("" = none).
+type FrameURL struct {
+	URL  string `json:"url"`
+	Open string `json:"open"`
 }

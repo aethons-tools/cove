@@ -1,8 +1,9 @@
-import { Anchor, Badge, Image, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
-import { lazy, Suspense, type ReactNode } from "react";
+import { Anchor, Badge, Button, Group, Image, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { SessionPane } from "../api/types";
 import type { PaneTab } from "./layout";
 import { usePaneTab } from "./useSession";
+import { FrameView } from "./frames/FrameView";
 
 const ASK_COLOR: Record<string, string> = { open: "yellow", answered: "green", withdrawn: "gray" };
 const enc = encodeURIComponent;
@@ -11,13 +12,27 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   return <Stack gap={4}><Title order={4} size="xs" tt="uppercase" c="dimmed" mt="sm">{title}</Title>{children}</Stack>;
 }
 
+// Previews lists the session's previews; View here frames one in place of
+// the list (until All previews, or leaving the tab).
 function Previews({ p }: { p: SessionPane }) {
+  const [framed, setFramed] = useState<string | null>(null);
   if (p.previewsOff) return <Text size="sm" c="dimmed">Previews aren't available to you here.</Text>;
+  if (framed) {
+    return (
+      <div className="pv-framed" style={{ display: "flex", flexDirection: "column", height: "calc(100% + 22px)", margin: "-8px -12px -14px" }}>
+        <FrameView sid={p.id} name={framed} kind="preview"
+          lead={<><button type="button" className="pv-back" onClick={() => setFramed(null)}>← All previews</button><b className="pv-name">{framed}</b></>} />
+      </div>
+    );
+  }
   if (p.previews.length === 0) return <Text size="sm" c="dimmed">No previews exposed. A session exposes one with its <code>expose</code> tool.</Text>;
   return (
     <Stack gap={4}>
       {p.previews.map((v) => (
-        <Anchor key={v.name} href={v.url} target="_blank" rel="noopener" size="sm">{v.name} <Text span size="xs" c="dimmed">port {v.port} ↗</Text></Anchor>
+        <Group key={v.name} gap="xs" wrap="nowrap" justify="space-between">
+          <Anchor href={v.url} target="_blank" rel="noopener" size="sm">{v.name} <Text span size="xs" c="dimmed">port {v.port} ↗</Text></Anchor>
+          {v.frame && <Button size="compact-xs" variant="default" className="pv-here" onClick={() => setFramed(v.name)}>View here</Button>}
+        </Group>
       ))}
     </Stack>
   );
@@ -80,16 +95,9 @@ function Loaded({ id, channel, tab, onAsk }: { id: string; channel: string; tab:
 // ThinkingTab is its own chunk, loaded when the tab first opens.
 const ThinkingTab = lazy(() => import("./thinking/ThinkingTab"));
 
-// PaneBody is one tab of the session pane. Studio comes to the app in slice
-// 6b; until then it links to the current Inbox, on that tab.
-export function PaneBody({ id, channel, tab, busy, onAsk }: { id: string; channel: string; tab: PaneTab; busy: boolean; onAsk: (id: string) => void }) {
+// PaneBody is one tab of the session pane (Studio lives in SessionView's
+// keep, so it outlives tab switches).
+export function PaneBody({ id, channel, tab, busy, onAsk }: { id: string; channel: string; tab: Exclude<PaneTab, "studio">; busy: boolean; onAsk: (id: string) => void }) {
   if (tab === "thinking") return <Suspense fallback={<Loader size="sm" m="sm" />}><ThinkingTab id={id} busy={busy} /></Suspense>;
-  if (tab === "studio") {
-    return (
-      <Text size="sm">This tab shows in the current Inbox for now.{" "}
-        <Anchor href={`/app/user/?c=${enc(channel)}&tab=${tab}`}>Open it in the current Inbox</Anchor>
-      </Text>
-    );
-  }
   return <Loaded id={id} channel={channel} tab={tab} onAsk={onAsk} />;
 }

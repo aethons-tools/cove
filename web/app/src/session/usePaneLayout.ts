@@ -38,7 +38,10 @@ export function usePaneLayout(id: string, opts: { studio: boolean; linked: strin
   return {
     tab, place, narrow,
     size: layout[key] ?? DEFAULT_SIZE[place],
-    toggle: (t: PaneTab) => update({ ...layout, tab: tab === t ? null : t }),
+    hasSize: layout[key] !== undefined,
+    toggle: (t: PaneTab, size?: number) => update({
+      ...layout, tab: tab === t ? null : t, ...(size && tab !== t && layout[key] === undefined ? { [key]: Math.round(size) } : {}),
+    }),
     close: () => update({ ...layout, tab: null }),
     flip: () => update({ ...layout, place: layout.place === "right" ? "below" : "right" }),
     resize: (px: number, save = false) => update({ ...layout, [key]: Math.round(px) }, save),

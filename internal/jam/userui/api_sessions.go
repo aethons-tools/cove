@@ -9,12 +9,10 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
-// apiPaneTabs are the pane tabs the app reads so far (Studio comes in 6b).
-var apiPaneTabs = []string{"thinking", "previews", "artifacts", "status"}
-
 func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/sessions/{id}", h.apiSessionHead)
 	mux.HandleFunc("GET /app/user/api/sessions/{id}/pane/{tab}", h.apiSessionPane)
+	mux.HandleFunc("POST /app/user/api/sessions/{id}/frame", h.apiFrame) // more specific than {action}
 	mux.HandleFunc("POST /app/user/api/sessions/{id}/{action}", h.apiSessionAction)
 	mux.HandleFunc("GET /app/user/api/sessions/{id}/thinking", h.apiThinkingPage)
 	mux.HandleFunc("GET /app/user/api/sessions/{id}/thinking/raw", h.apiThinkingRaw)
@@ -56,7 +54,7 @@ func (h *handler) apiSessionPane(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !slices.Contains(apiPaneTabs, tab) {
+	if !slices.Contains(paneTabs, tab) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such tab")
 		return
 	}
@@ -159,4 +157,28 @@ func (h *handler) apiThinkingRaw(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, ThinkingRaw{Raw: raw, Truncated: cut})
 	}
+}
+
+// apiFrame mints a frame URL for the Studio tab or a preview's View here
+// (see frameOutcome); a view the viewer can't have, like framing off,
+// answers as a missing session.
+func (h *handler) apiFrame(w http.ResponseWriter, r *http.Request) {
+	var req FrameRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	p, inst, _, ok := h.openSession(w, r)
+	if !ok {
+		return
+	}
+	if h.d.Frames == nil {
+		noSession(w)
+		return
+	}
+	fu, status, code, msg := h.frameOutcome(r, p, inst, req.Name)
+	if status != http.StatusOK {
+		writeAPIError(w, status, code, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, fu)
 }

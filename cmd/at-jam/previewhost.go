@@ -315,6 +315,16 @@ func paneFramingOn(c *serveConfig) bool {
 	return c.Previews != nil && len(c.UIOrigins) > 0
 }
 
+// appFrameSrc is the Jam app page's CSP frame-src (userui.Next): the preview
+// hosts, any name under the domain on the admin port, when the pane may
+// frame them; none otherwise.
+func appFrameSrc(c *serveConfig) []string {
+	if !paneFramingOn(c) {
+		return nil
+	}
+	return []string{previewOrigin("*."+strings.ToLower(c.Previews.Domain), c.AdminListen)}
+}
+
 // previewUIOriginsWarning is serve's startup warning when previews are on but
 // ui-origins is empty ("" otherwise): no page may then frame a preview.
 func previewUIOriginsWarning(c *serveConfig) string {

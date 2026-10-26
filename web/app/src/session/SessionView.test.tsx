@@ -16,7 +16,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
-  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
+  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, studio: false, ideOpen: "", ...over,
 });
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
@@ -204,8 +204,8 @@ describe("the session pane", () => {
     expect(saved("ses_1").place).toBe("right");
   });
 
-  it("lists previews, artifacts and status, and links Studio to the current Inbox", async () => {
-    serve(head({ studio: true }), {
+  it("lists previews, artifacts and status", async () => {
+    serve(head(), {
       previews: pane("previews", { previews: [{ name: "web", url: "https://web--ses_1.preview.test/", port: 5173, frame: true }] }),
       artifacts: pane("artifacts", {
         boards: [{ id: "brd_1", title: "Plan", channel: "chn_s" }],
@@ -233,9 +233,72 @@ describe("the session pane", () => {
     await user.click(screen.getByRole("button", { name: /Merge it\?/ }));
     expect(target.scrollIntoView).toHaveBeenCalled();
     target.remove();
-    // Studio links to the current Inbox until slice 6b.
+  });
+
+  it("opens Studio framed (its own chunk), widening to 60% on a first open, and keeps it across tabs", async () => {
+    let mints = 0;
+    serve(head({ studio: true }), { studio: pane("studio", { studio: true, ideOpen: "https://ide--s.p.example/" }) });
+    // After serve: MSW prefers the newest handler, and serve's :action catches /frame.
+    server.use(http.post("/app/user/api/sessions/:id/frame", () => { mints++; return HttpResponse.json({ url: `https://ide--s.p.example/__jam/frame?t=${mints}`, open: "https://ide--s.p.example/" }); }));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1000, height: 800 } as DOMRect);
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Studio" }));
+    await waitFor(() => expect(document.querySelector("#studio iframe.st-iframe")).not.toBeNull());
+    expect(saved("ses_1")).toEqual({ tab: "studio", place: "right", w: 600 });
+    const f = document.querySelector("#studio iframe.st-iframe");
+    await user.click(screen.getByRole("tab", { name: "Status" }));
+    expect(document.querySelector<HTMLElement>("#studio")!.closest<HTMLElement>("[data-keep]")!.style.display).toBe("none");
     await user.click(screen.getByRole("tab", { name: "Studio" }));
-    expect(await screen.findByRole("link", { name: "Open it in the current Inbox" })).toHaveAttribute("href", "/app/user/?c=chn_s&tab=studio");
+    expect(document.querySelector("#studio iframe.st-iframe")).toBe(f); // the same frame
+    expect(mints).toBe(1);
+    // Closing the pane tears it down; the next open mints afresh.
+    await user.click(screen.getByRole("button", { name: "Close the pane" }));
+    expect(document.querySelector("#studio")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Studio" }));
+    await waitFor(() => expect(mints).toBe(2));
+    expect(saved("ses_1").w).toBe(600); // a saved size isn't widened again
+  });
+
+  it("frames a preview with View here, keeps it across a refresh, and goes back", async () => {
+    let mints = 0;
+    serve(head(), { previews: pane("previews", { previews: [{ name: "web", url: "https://web--s.p.example/", port: 5173, frame: true }, { name: "api", url: "https://api--s.p.example/", port: 8080, frame: false }] }) });
+    server.use(http.post("/app/user/api/sessions/:id/frame", async ({ request }) => {
+      mints++;
+      const { name } = (await request.json()) as { name: string };
+      return HttpResponse.json({ url: `https://${name}--s.p.example/__jam/frame?t=${mints}`, open: `https://${name}--s.p.example/` });
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s", client);
+    await user.click(await screen.findByRole("tab", { name: "Previews" }));
+    expect(await screen.findAllByRole("button", { name: "View here" })).toHaveLength(1); // api can't be framed
+    await user.click(screen.getByRole("button", { name: "View here" }));
+    await waitFor(() => expect(document.querySelector(".pv-framed iframe.st-iframe")).not.toBeNull());
+    const f = document.querySelector(".pv-framed iframe.st-iframe")!;
+    expect(f.getAttribute("title")).toBe("web");
+    await client.invalidateQueries({ queryKey: ["session"] });
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    expect(document.querySelector(".pv-framed iframe.st-iframe")).toBe(f);
+    expect(mints).toBe(1);
+    await user.click(screen.getByRole("button", { name: "← All previews" }));
+    expect(await screen.findByRole("link", { name: /web.*port 5173/ })).toBeInTheDocument();
+    expect(document.querySelector(".pv-framed")).toBeNull();
+    // Leaving the tab closes a framed preview.
+    await user.click(screen.getByRole("button", { name: "View here" }));
+    await waitFor(() => expect(document.querySelector(".pv-framed")).not.toBeNull());
+    await user.click(screen.getByRole("tab", { name: "Status" }));
+    await user.click(screen.getByRole("tab", { name: "Previews" }));
+    expect(await screen.findByRole("button", { name: "View here" })).toBeInTheDocument();
+    expect(document.querySelector(".pv-framed")).toBeNull();
+  });
+
+  it("says the studio isn't available when the pane says so", async () => {
+    serve(head({ studio: true }), { studio: pane("studio", { studio: false, ideOpen: "" }) });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Studio" }));
+    expect(await screen.findByText("The studio isn't available to you here.")).toBeInTheDocument();
   });
 
   it("opens the Thinking tab in the app (its own chunk), following the session's feed", async () => {
