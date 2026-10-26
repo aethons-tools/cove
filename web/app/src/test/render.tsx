@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { Bootstrap } from "../api/types";
@@ -17,6 +18,7 @@ export function renderApp(b: Bootstrap, path = "/app/next/") {
   const router = createMemoryRouter(routes(b), { initialEntries: [path] });
   return render(
     <MantineProvider theme={theme}>
+      <Notifications />
       <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>

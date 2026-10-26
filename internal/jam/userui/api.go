@@ -22,6 +22,7 @@ import (
 func (h *handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("GET /app/user/api/rail", h.apiRail)
+	h.conversationRoutes(mux)
 	mux.HandleFunc("/app/user/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
@@ -93,7 +94,8 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
 		return
 	}
-	groups := Rail(p, h.d, "")
+	// ?c= is the open conversation, counted as read (it is being read).
+	groups := Rail(p, h.d, r.URL.Query().Get("c"))
 	if groups == nil {
 		groups = []RailGroup{}
 	}

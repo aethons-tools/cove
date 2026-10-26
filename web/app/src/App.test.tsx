@@ -41,12 +41,6 @@ describe("the app shell", () => {
     expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/app/next/");
   });
 
-  it("deep-links a conversation to the current Inbox until slice 2", async () => {
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json(rail)));
-    renderApp(boot, "/app/next/c/chn_b");
-    expect(await screen.findByRole("link", { name: /Open in the current Inbox/ })).toHaveAttribute("href", "/app/user/?c=chn_b");
-  });
-
   it("offers admin tabs and sign out from the bootstrap", async () => {
     server.use(http.get("/app/user/api/rail", () => HttpResponse.json(rail)));
     renderApp({ ...boot, admin: true, roles: "member · admin", tabs: [...boot.tabs, { key: "projects", label: "Projects", href: "/app/admin/projects", badge: 3, badgeRed: true, badgeTitle: "3 need attention" }] });

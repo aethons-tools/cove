@@ -4,8 +4,8 @@ import { useRail } from "./useRail";
 import { Problem } from "../Problem";
 
 export function Rail() {
-  const { data, error, isPending } = useRail();
   const { channel } = useParams();
+  const { data, error, isPending } = useRail(channel);
   const here = useLocation();
   if (isPending) return <Loader m="md" size="sm" />;
   if (error) return <Problem error={error} here={here.pathname + here.search} />;

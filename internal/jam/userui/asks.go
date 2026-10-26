@@ -72,9 +72,6 @@ func decorateAsk(row *MessageRow, p jam.Participant, d Deps, m intercom.Squawk) 
 	}
 }
 
-// AskRef points a reply at the ask it discusses.
-type AskRef struct{ ID, Question string }
-
 func openAskCards(p jam.Participant, d Deps, ch ident.ID) []AskCard {
 	var out []AskCard
 	for _, a := range d.Intercom.OpenAsksIn(ch) {

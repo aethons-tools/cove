@@ -21,12 +21,6 @@ func WithPresence(p Presence) Option {
 	return func(h *handler) { h.presence = p }
 }
 
-// SessionRow is one session's line in the presence strip: "<Label> is <Text>
-// <Tool>". Class is busy (animated dots), wait (needs a human), or dim.
-type SessionRow struct {
-	Label, Text, Tool, Class string
-}
-
 // sessionRows builds the strip for a conversation's session actors, in order.
 // A session with no Instance, or one that is ending or gone, is left out.
 func sessionRows(actors []string, instances []jam.Instance, pr Presence) []SessionRow {
