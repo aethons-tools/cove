@@ -119,3 +119,60 @@ func TestRaiseLandingAfterForcedRevokeConverges(t *testing.T) {
 		}
 	}
 }
+
+func TestReconcileKeepsStudioOnDisconnectedManager(t *testing.T) {
+	loc := newFake("x")
+	sup, store := routedSupervisor(t, loc)
+	// routedSupervisor's router is private; build one with a disconnected m1.
+	r := newRouter()
+	mustAdd(t, r, Local(loc))
+	m1 := newFake("m1")
+	m1.avail.Store(false) // registered but disconnected
+	mustAdd(t, r, m1)
+	clk := time.Unix(1000, 0).UTC()
+	sup = jam.NewSupervisor(store, r, "holder-A", time.Minute, 30*time.Second,
+		func() time.Time { return clk }, slog.New(slog.DiscardHandler))
+	ctx := context.Background()
+	inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst.Manager = "m1"
+	inst.Lease.Expiry = clk.Add(-time.Hour) // expired: Reconcile probes
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	if m1.Available() {
+		t.Fatal("m1 should be disconnected")
+	}
+	for i := 0; i < 2; i++ {
+		if err := sup.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, ok := store.GetInstance("w1")
+	if !ok || got.Phase != jam.PhaseLive {
+		t.Fatalf("instance = %+v ok=%v, want still live", got, ok)
+	}
+}
+
+func TestReconcileLeavesOtherHoldersLeaseOnMissingManager(t *testing.T) {
+	loc := newFake("x")
+	sup, store := routedSupervisor(t, loc)
+	ctx := context.Background()
+	inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst.Manager = "gone"
+	inst.Lease.Holder = "holder-B"
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := store.GetInstance("w1"); !ok || got.Phase != jam.PhaseLive {
+		t.Fatalf("instance = %+v ok=%v, want untouched", got, ok)
+	}
+}

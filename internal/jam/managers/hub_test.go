@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -869,6 +870,7 @@ func helloStream(t *testing.T, e *hubEnv, tok string) managerpb.StudioManager_Co
 func TestHubWelcomeBeforeRoutable(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		e := newHubEnv(t, nil, nil)
+		e.hub.afterAdmit = func() { time.Sleep(2 * time.Millisecond) } // widen the attach-to-serve window
 		tok := e.add(t, "m1")
 		s := helloStream(t, e, tok)
 		remote := func() *Remote {
@@ -878,11 +880,11 @@ func TestHubWelcomeBeforeRoutable(t *testing.T) {
 		}()
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			for !e.available("m1") {
+			for !remote.Available() {
 				if ctx.Err() != nil {
 					return
 				}
-				time.Sleep(50 * time.Microsecond)
+				runtime.Gosched()
 			}
 			_, _ = remote.Probe(ctx, jam.Instance{ActorID: "x", Manager: "m1"})
 		}()

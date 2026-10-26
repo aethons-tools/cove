@@ -1618,18 +1618,10 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		if inst.Phase == PhaseGone {
 			continue
 		}
-		if s.managerGone(inst) {
-			// A raise that succeeded after its manager was force-revoked
-			// (ForgetManager ran first) leaves a Live record no manager will
-			// ever probe. Without this its own unexpired lease is renewed
-			// forever; declare it Lost so teardown revokes and drops it.
-			s.patchInstance(inst.ActorID, func(c *Instance) { c.Phase = PhaseLost })
-			if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
-				s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", inst.Manager, "err", err.Error())
-			}
-			continue
-		}
 		if inst.Phase == PhaseIdled {
+			if s.ownsDecision(inst, now) && s.reapIfManagerGone(ctx, inst) {
+				continue
+			}
 			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
 		}
 		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
@@ -1643,6 +1635,9 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		}
 		if inst.Lease.Expiry.After(now) {
 			if inst.Lease.Holder == s.holder {
+				if s.reapIfManagerGone(ctx, inst) {
+					continue
+				}
 				// Renew our own lease. Only the lease holder re-applies egress, so
 				// two Jams never both exec in.
 				if cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) { c.Lease.Expiry = now.Add(s.ttl) }); ok {
@@ -1667,14 +1662,38 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// managerGone reports whether a Live or Idled inst is recorded on a named
-// manager the launcher no longer has (only a PlacingLauncher knows).
-func (s *Supervisor) managerGone(inst Instance) bool {
-	if inst.Manager == "" || (inst.Phase != PhaseLive && inst.Phase != PhaseIdled) {
+// ownsDecision reports whether this Jam may act on inst: it holds the lease,
+// or the lease has expired. Another holder's live lease is not ours to touch.
+func (s *Supervisor) ownsDecision(inst Instance, now time.Time) bool {
+	return !inst.Lease.Expiry.After(now) || inst.Lease.Holder == s.holder
+}
+
+// reapIfManagerGone declares a Live or Idled inst Lost and tears it down when
+// it is recorded on a named manager the launcher no longer has (only a
+// PlacingLauncher knows). A raise that succeeded after its manager was
+// force-revoked (ForgetManager ran first) leaves such a record, which no
+// manager will ever probe and whose own lease would be renewed forever.
+// Reports whether it reaped.
+func (s *Supervisor) reapIfManagerGone(ctx context.Context, inst Instance) bool {
+	if inst.Manager == "" {
 		return false
 	}
 	pl, ok := s.launcher.(PlacingLauncher)
-	return ok && !pl.HasManager(inst.Manager)
+	if !ok || pl.HasManager(inst.Manager) {
+		return false
+	}
+	cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) {
+		if c.Manager == inst.Manager && (c.Phase == PhaseLive || c.Phase == PhaseIdled) {
+			c.Phase = PhaseLost
+		}
+	})
+	if !ok || cur.Phase != PhaseLost {
+		return false
+	}
+	if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
+		s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", inst.Manager, "err", err.Error())
+	}
+	return true
 }
 
 // egressMaxFailures is how many consecutive failed egress re-applies a Live cove

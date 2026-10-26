@@ -91,6 +91,8 @@ type Hub struct {
 	remotes map[string]*Remote
 	live    map[string]*conn // the current conn per name
 	status  map[string]*jam.ManagerStatus
+
+	afterAdmit func() // test seam: runs between admit and serve, widening that window
 }
 
 func NewHub(cfg Config) *Hub {
@@ -369,6 +371,9 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 	if err != nil {
 		return err
 	}
+	if h.afterAdmit != nil {
+		h.afterAdmit()
+	}
 	// Outside every hub lock: closing waits out a log write in progress on
 	// the old conn, and a slow log sink must not stall the hub.
 	if old != nil {
@@ -413,6 +418,7 @@ func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn, send fun
 		rc = h.cfg.Reconciler.ReconcileManager(name, inv)
 	}
 
+	// regMu is held across this single Welcome send.
 	// Welcome goes out before the conn is attached: once attached the manager
 	// is routable, and a request frame must never precede Welcome (the client
 	// expects Welcome first). A send error attaches nothing.
