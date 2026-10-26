@@ -75,7 +75,7 @@ func (h *ParticipantSendHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "no participant", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	var req SendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError

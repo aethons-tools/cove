@@ -2760,7 +2760,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userDeps := userui.Deps{Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, mission: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, mission: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
 		// Never a typed nil: a nil Frames hides Studio and View here, as it must
 		// without ui-origins (previews then refuse every framer).
 		if frames != nil && paneFramingOn(&cfg) {

@@ -62,7 +62,7 @@ func (h *SquawksHandler) askError(w http.ResponseWriter, p Poster, err error) bo
 }
 
 func decodeAsk(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return false

@@ -186,3 +186,26 @@ type ReadRequest struct {
 type CallInRequest struct {
 	Who string `json:"who"`
 }
+
+// SendMessageRequest is POST api/messages: to a channel id, user:<id>, or
+// session:<actor> (a NewMessageOption's "to").
+type SendMessageRequest struct {
+	To          string   `json:"to"`
+	Body        string   `json:"body"`
+	ContentType string   `json:"contentType,omitempty"` // "" = markdown; "text/plain" shown literally
+	ReplyTo     string   `json:"replyTo,omitempty"`     // an ask in the same channel (Discuss)
+	Attachments []string `json:"attachments,omitempty"` // refs from POST /app/user/uploads
+}
+
+// MessageSent is POST api/messages's answer: where the message went (a new
+// message's new conversation) and its seq.
+type MessageSent struct {
+	Channel string `json:"channel"`
+	Seq     int64  `json:"seq"`
+}
+
+// RecipientsResponse is GET api/recipients: whom the viewer may start a
+// conversation with (the New message picker).
+type RecipientsResponse struct {
+	Options []NewMessageOption `json:"options"`
+}
