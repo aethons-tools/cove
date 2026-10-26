@@ -63,6 +63,9 @@ type PersonalSessionBody struct {
 	Project string `json:"project,omitempty"`
 	Role    string `json:"role"`
 	Prompt  string `json:"prompt,omitempty"`
+	// Managers and PlacementTimeout place the raise as on CoveRaiseBody.
+	Managers         []string `json:"managers,omitempty"`
+	PlacementTimeout string   `json:"placement_timeout,omitempty"`
 }
 
 // PersonalSessionResult is the POST /admin/sessions/personal response. Unlike
@@ -184,6 +187,10 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	if b.Role == "" {
 		return refuse(http.StatusBadRequest, "role is required")
 	}
+	placement, err := ParsePlacement(b.Managers, b.PlacementTimeout)
+	if err != nil {
+		return refuse(http.StatusBadRequest, "%s", err.Error())
+	}
 	project := orDefaultProject(b.Project)
 	human, ok := MemberByLogin(store, project, login)
 	if !ok {
@@ -214,7 +221,7 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 	defer release()
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
 		ActorID: id, Name: name, Project: project, Role: b.Role, Prompt: b.Prompt,
-		Owner: human.User.Name, OwnerID: human.User.ID, SessionKind: SessionKindPersonal,
+		Owner: human.User.Name, OwnerID: human.User.ID, SessionKind: SessionKindPersonal, Placement: placement,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.

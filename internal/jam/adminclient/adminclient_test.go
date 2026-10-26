@@ -589,7 +589,7 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	t.Cleanup(ts.Close)
 	c := New(ts.URL, "")
 
-	res, err := c.RequestPersonalSession("acme", "pair", "help me")
+	res, err := c.RequestPersonalSession(jam.PersonalSessionBody{Project: "acme", Role: "pair", Prompt: "help me"})
 	if err != nil {
 		t.Fatalf("RequestPersonalSession: %v", err)
 	}

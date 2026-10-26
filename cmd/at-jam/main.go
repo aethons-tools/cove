@@ -844,6 +844,15 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// managerCol is a studio list line's trailing "\tmanager=<name>", empty for a
+// studio raised before managers existed (its line keeps its old shape).
+func managerCol(m string) string {
+	if m == "" {
+		return ""
+	}
+	return "\tmanager=" + m
+}
+
 // multiFlag collects repeatable string flag values (e.g. --delivery
 // service:address, repeatable).
 type multiFlag []string
@@ -1259,6 +1268,9 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
 	kitDraft := fs.String("kit-draft", "", "raise only: run this kit's draft instead of the role's kit (its test build is built first when needed)")
 	activity := fs.String("activity", "", "reported activity: running|holding|waiting|blocked|done (status only)")
+	var managers multiFlag
+	fs.Var(&managers, "manager", "raise only: a manager the studio may land on, in preference order (repeatable; default any)")
+	placementTimeout := fs.String("placement-timeout", "", "raise only: how long to look for a manager that accepts, e.g. 2m (default: do not wait)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1284,7 +1296,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			prompt = string(b)
 		}
-		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft})
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft, Managers: managers, PlacementTimeout: *placementTimeout})
 		if err != nil {
 			// Escaped: a draft studio's problems quote kit.yml values.
 			fmt.Fprintln(stderr, "at-jam:", textesc.Escape(err.Error(), false))
@@ -1302,8 +1314,8 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, cv := range coves {
-			fmt.Fprintf(stdout, "%s\tname=%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s\n",
-				cv.ID, cv.Name, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image))
+			fmt.Fprintf(stdout, "%s\tname=%s\trole=%s\tunit=%s\tphase=%s\tactivity=%s\tholder=%s\tconnector=%s\timage=%s%s\n",
+				cv.ID, cv.Name, cv.Role, cv.Unit, cv.Phase, cv.Activity, cv.LeaseHolder, cv.Connector, imageOrUnknown(cv.Image), managerCol(cv.Manager))
 		}
 	case "status":
 		if *id == "" || *activity == "" {
@@ -1352,6 +1364,9 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role to request a personal session of (request only)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (request only; read host-side, never passed on argv)")
+	var managers multiFlag
+	fs.Var(&managers, "manager", "request only: a manager the session may land on, in preference order (repeatable; default any)")
+	placementTimeout := fs.String("placement-timeout", "", "request only: how long to look for a manager that accepts, e.g. 2m (default: do not wait)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1377,7 +1392,7 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			prompt = string(b)
 		}
-		res, err := c.RequestPersonalSession(*project, *role, prompt)
+		res, err := c.RequestPersonalSession(jam.PersonalSessionBody{Project: *project, Role: *role, Prompt: prompt, Managers: managers, PlacementTimeout: *placementTimeout})
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam:", err)
 			return 1

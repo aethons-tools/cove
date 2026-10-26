@@ -3,6 +3,7 @@ package jam
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -60,3 +61,22 @@ var (
 	ErrUnknownManager     = errors.New("unknown manager")
 	ErrPinExcluded        = errors.New("standing session is pinned to a manager the request excludes")
 )
+
+// ParsePlacement builds a Placement from a request's managers and its
+// placement_timeout, a Go duration string ("" = 0, do not wait). A timeout that
+// does not parse or is negative is an error.
+func ParsePlacement(managers []string, timeout string) (Placement, error) {
+	p := Placement{Managers: managers}
+	if timeout == "" {
+		return p, nil
+	}
+	d, err := time.ParseDuration(timeout)
+	if err != nil {
+		return Placement{}, fmt.Errorf("placement_timeout: %w", err)
+	}
+	if d < 0 {
+		return Placement{}, fmt.Errorf("placement_timeout: %q is negative", timeout)
+	}
+	p.Timeout = d
+	return p, nil
+}

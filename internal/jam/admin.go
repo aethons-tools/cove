@@ -235,6 +235,11 @@ type CoveRaiseBody struct {
 	// KitDraft runs this kit's draft instead of the role's kit (a draft
 	// studio, docs/usage/jam/kits-drafts.md#draft-studio).
 	KitDraft string `json:"kit_draft,omitempty"`
+	// Managers, in preference order, are where the raise may land (empty = any);
+	// PlacementTimeout is a Go duration for how long to look for one that
+	// accepts ("" = do not wait).
+	Managers         []string `json:"managers,omitempty"`
+	PlacementTimeout string   `json:"placement_timeout,omitempty"`
 }
 
 // CoveRaiseResult is the POST /admin/coves response — the identity token is
@@ -267,6 +272,8 @@ type CoveSummary struct {
 	// raise for its role would run now (kit, harness, Jam build); "-" for a
 	// terminating, lost or gone cove.
 	Image string `json:"image"`
+	// Manager is the manager the cove was raised on ("" = raised before managers).
+	Manager string `json:"manager,omitempty"`
 }
 
 // ImageResolver resolves what a raise for a role would run now. A nil resolver
@@ -310,6 +317,7 @@ func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []C
 			LeaseHolder: i.Lease.Holder, RaisedAt: i.RaisedAt, LastSeen: i.LastSeen,
 			Connector: connectorStatus(store, actors, i),
 			Image:     imageStatus(img, current, i),
+			Manager:   i.Manager,
 		})
 	}
 	return out
@@ -999,7 +1007,12 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, "id and role are required", http.StatusBadRequest)
 			return
 		}
-		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft})
+		placement, err := ParsePlacement(b.Managers, b.PlacementTimeout)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft, Placement: placement})
 		if err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
