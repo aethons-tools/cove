@@ -301,3 +301,34 @@ func TestUnavailableNotBackedOff(t *testing.T) {
 		t.Fatal("not placed after the manager became available")
 	}
 }
+
+// cancelingManager cancels the caller's ctx during Raise, as a caller giving
+// up mid-call would, and fails with the ctx's error.
+type cancelingManager struct {
+	*fakeManager
+	cancel context.CancelFunc
+}
+
+func (m cancelingManager) Raise(ctx context.Context, _ jam.RaiseSpec, _ jam.LaunchCreds) (string, error) {
+	m.raiseCalls.Add(1)
+	m.cancel()
+	<-ctx.Done()
+	return "", fmt.Errorf("raise: %w", ctx.Err())
+}
+
+// A raise cut short by the caller's ctx is not a decline: no other manager is
+// tried, and the ctx's error is returned.
+func TestRaiseOnCtxCancelledDuringRaiseStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := cancelingManager{fakeManager: newFake("a"), cancel: cancel}
+	b := newFake("b")
+	r := placeRouter(t, a, b)
+	_, err := r.RaiseOn(ctx, spec(5*time.Second, "a", "b"), jam.LaunchCreds{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if n := b.raiseCalls.Load(); n != 0 {
+		t.Fatalf("b saw %d raises after the caller gave up", n)
+	}
+}

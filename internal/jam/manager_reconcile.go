@@ -77,3 +77,34 @@ func (s *Supervisor) ReconcileManager(name string, inv ManagerInventory) Manager
 	slices.Sort(out.MissingState)
 	return out
 }
+
+// ForgetManager marks every Live, Idled or Raising instance on name Lost and
+// returns their ids, sorted. It is for a manager revoked with its studios
+// still recorded: the next Reconcile tears each one down, which with the
+// manager unregistered only revokes its identity and removes its record. The
+// containers themselves, if any, are left to the operator.
+func (s *Supervisor) ForgetManager(name string) []string {
+	var lost []string
+	for _, inst := range s.store.ListInstances() {
+		if inst.Manager != name || name == "" {
+			continue
+		}
+		switch inst.Phase {
+		case PhaseLive, PhaseIdled, PhaseRaising:
+		default:
+			continue
+		}
+		cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) {
+			if c.Manager == name && (c.Phase == PhaseLive || c.Phase == PhaseIdled || c.Phase == PhaseRaising) {
+				c.Phase = PhaseLost
+			}
+		})
+		if !ok || cur.Phase != PhaseLost {
+			continue
+		}
+		lost = append(lost, inst.ActorID)
+		s.warn("studio forgotten with its revoked manager; marked lost", "id", inst.ActorID, "manager", name)
+	}
+	slices.Sort(lost)
+	return lost
+}

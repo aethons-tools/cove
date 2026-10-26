@@ -22,10 +22,10 @@ type declineState struct {
 // RaiseOn places the raise on the first manager that accepts it, trying the
 // spec's candidates in order. A manager that is unavailable or declines is
 // skipped (a decliner is retried after a doubling backoff, and a Kick makes it
-// eligible at once);
-// a raise interrupted mid-call fails at once with jam.ErrRaiseInterrupted, as
-// its outcome is unknown. If none accepts, it waits (until a Kick, the poll tick, the
-// placement timeout or ctx) and tries again. An unregistered candidate fails
+// eligible at once); a raise interrupted mid-call fails at once with
+// jam.ErrRaiseInterrupted, as its outcome is unknown, and one cut short by ctx
+// returns ctx's error. If none accepts, it waits (until a Kick, the poll tick,
+// the placement timeout or ctx) and tries again. An unregistered candidate fails
 // at once; a manager needing its kit prepared fails with KitNotReadyError.
 func (r *Router) RaiseOn(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (jam.Placed, error) {
 	names := spec.Placement.Managers
@@ -64,6 +64,8 @@ func (r *Router) RaiseOn(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 				return jam.Placed{}, &jam.KitNotReadyError{Manager: name}
 			case errors.Is(err, jam.ErrRaiseInterrupted):
 				return jam.Placed{}, fmt.Errorf("manager %s: %w", name, err)
+			case ctx.Err() != nil: // the caller gave up mid-call: not a decline
+				return jam.Placed{}, ctx.Err()
 			default:
 				st := backoff[name]
 				if st == nil {

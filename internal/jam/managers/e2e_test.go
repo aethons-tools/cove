@@ -168,3 +168,80 @@ func TestE2EReconnectReconciles(t *testing.T) {
 		t.Fatalf("w2 phase = %s, want live", got.Phase)
 	}
 }
+
+// TestE2EForcedRevokeForgetsStudios: a forced revoke marks the manager's
+// studios Lost, so one Reconcile removes their records and revokes their
+// identities (the Router has no manager to tear them down on).
+func TestE2EForcedRevokeForgetsStudios(t *testing.T) {
+	e := newE2E(t, nil)
+	e.connect(t, &testLauncher{loc: "box-7"}, nil)
+	if _, _, _, err := e.sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasActor(e.store, "w1") {
+		t.Fatal("w1 has no identity after raise")
+	}
+	if err := e.hub.Revoke("m1", true); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := e.store.GetInstance("w1"); !ok || got.Phase != jam.PhaseLost {
+		t.Fatalf("after forced revoke: present=%v phase=%s, want lost", ok, got.Phase)
+	}
+	if err := e.sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := e.store.GetInstance("w1"); ok {
+		t.Fatalf("w1 still recorded after a reconcile: phase=%s manager=%s", got.Phase, got.Manager)
+	}
+	if hasActor(e.store, "w1") {
+		t.Fatal("w1's identity survived the forced revoke")
+	}
+}
+
+// TestE2EEgressChangeWhileDisconnected: an egress edit while the manager is
+// away is not a failed re-apply; the studio survives and gets the new policy
+// once the manager is back.
+func TestE2EEgressChangeWhileDisconnected(t *testing.T) {
+	e := newE2E(t, nil)
+	_, stop := e.connect(t, &testLauncher{loc: "box-7"}, nil)
+	if _, _, _, err := e.sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	eventually(t, "m1 disconnected", func() bool { return !e.available("m1") })
+	if err := e.store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour, Egress: &jam.EgressPolicy{Domains: []string{"example.com"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		*e.clock = e.clock.Add(30 * time.Second)
+		if err := e.sup.Reconcile(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, ok := e.store.GetInstance("w1")
+	if !ok || got.Phase != jam.PhaseLive || got.EgressFailures != 0 {
+		t.Fatalf("after 5 disconnected ticks: present=%v phase=%s failures=%d, want live with 0", ok, got.Phase, got.EgressFailures)
+	}
+
+	l2 := &testLauncher{loc: "box-7"}
+	e.connect(t, l2, []jam.ManagedStudio{{ActorID: "w1", Location: "box-7"}})
+	*e.clock = e.clock.Add(30 * time.Second)
+	if err := e.sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ps := l2.gotEgress(); len(ps) != 1 || ps[0] == nil || len(ps[0].Domains) != 1 || ps[0].Domains[0] != "example.com" {
+		t.Fatalf("egress applied after reconnect = %v", ps)
+	}
+	if got, _ := e.store.GetInstance("w1"); got.Phase != jam.PhaseLive || got.Egress != jam.EgressFingerprint(&jam.EgressPolicy{Domains: []string{"example.com"}}) {
+		t.Fatalf("after reconnect: phase=%s egress=%q", got.Phase, got.Egress)
+	}
+}
+
+func hasActor(s jam.Store, id string) bool {
+	for _, a := range s.ListActors() {
+		if a.ID == id {
+			return true
+		}
+	}
+	return false
+}

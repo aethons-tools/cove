@@ -119,3 +119,23 @@ func TestReconcileManagerMissingState(t *testing.T) {
 		t.Fatalf("MissingState = %v", got.MissingState)
 	}
 }
+
+func TestForgetManagerMarksItsStudiosLost(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{})
+	putMgrInst(t, store, "a", "m", "L", PhaseLive)
+	putMgrInst(t, store, "b", "m", "L", PhaseIdled)
+	putMgrInst(t, store, "c", "m", "L", PhaseRaising)
+	putMgrInst(t, store, "d", "m", "L", PhaseTerminating)
+	putMgrInst(t, store, "e", "m", "L", PhaseGone)
+	putMgrInst(t, store, "f", "n", "L", PhaseLive)
+	putMgrInst(t, store, "g", "", "L", PhaseLive)
+	got := sup.ForgetManager("m")
+	if !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Fatalf("ForgetManager = %v, want [a b c]", got)
+	}
+	for id, want := range map[string]Phase{"a": PhaseLost, "b": PhaseLost, "c": PhaseLost, "d": PhaseTerminating, "e": PhaseGone, "f": PhaseLive, "g": PhaseLive} {
+		if p := phaseOf(t, store, id); p != want {
+			t.Errorf("%s phase = %s, want %s", id, p, want)
+		}
+	}
+}

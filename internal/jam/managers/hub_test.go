@@ -194,9 +194,10 @@ func wantCode(t *testing.T, err error, code codes.Code) {
 type testLauncher struct {
 	loc string
 
-	mu    sync.Mutex
-	creds []jam.LaunchCreds
-	torn  []string
+	mu     sync.Mutex
+	creds  []jam.LaunchCreds
+	torn   []string
+	egress []*jam.EgressPolicy
 }
 
 func (l *testLauncher) Raise(_ context.Context, spec jam.RaiseSpec, c jam.LaunchCreds) (string, error) {
@@ -218,7 +219,10 @@ func (l *testLauncher) Probe(context.Context, jam.Instance) (jam.Liveness, error
 }
 func (l *testLauncher) Pause(context.Context, jam.Instance) error   { return nil }
 func (l *testLauncher) Unpause(context.Context, jam.Instance) error { return nil }
-func (l *testLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
+func (l *testLauncher) ApplyEgress(_ context.Context, _ jam.Instance, p *jam.EgressPolicy) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.egress = append(l.egress, p)
 	return nil
 }
 func (l *testLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
@@ -235,6 +239,12 @@ func (l *testLauncher) gotCreds() []jam.LaunchCreds {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return slices.Clone(l.creds)
+}
+
+func (l *testLauncher) gotEgress() []*jam.EgressPolicy {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.egress)
 }
 
 func (l *testLauncher) gotTorn() []string {
@@ -255,6 +265,48 @@ func (f *fakeReconciler) ReconcileManager(name string, inv jam.ManagerInventory)
 	defer f.mu.Unlock()
 	f.name, f.inv = name, inv
 	return f.out
+}
+
+// forgetter is a Reconciler that also records ForgetManager calls, and
+// whether the Router still had the manager at the time.
+type forgetter struct {
+	fakeReconciler
+	router    *fleet.Router
+	forgot    []string
+	hadRouter bool
+}
+
+func (f *forgetter) ForgetManager(name string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forgot = append(f.forgot, name)
+	f.hadRouter = f.router.HasManager(name)
+	return nil
+}
+
+func TestHubForcedRevokeForgetsStudios(t *testing.T) {
+	fg := &forgetter{}
+	e := newHubEnv(t, func(c *Config) { fg.router = c.Router; c.Reconciler = fg }, nil)
+	e.add(t, "m1")
+	e.add(t, "m2")
+	if err := e.store.PutInstance(jam.Instance{ActorID: "w1", Role: "guest", Manager: "m1", Location: "l", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.hub.Revoke("m1", false); !errors.Is(err, ErrManagerHasStudios) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := e.hub.Revoke("m2", false); err != nil { // no studios: nothing to forget
+		t.Fatal(err)
+	}
+	if len(fg.forgot) != 0 {
+		t.Fatalf("forgot = %v before a forced revoke", fg.forgot)
+	}
+	if err := e.hub.Revoke("m1", true); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(fg.forgot, []string{"m1"}) || fg.hadRouter {
+		t.Fatalf("forgot = %v (router still had it: %v), want [m1] after the router dropped it", fg.forgot, fg.hadRouter)
+	}
 }
 
 func TestHubRejectsBadToken(t *testing.T) {
@@ -685,5 +737,122 @@ func TestHubLateResultOnReplacedStream(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("B's own result did not resolve the call")
+	}
+}
+
+// authSignalStore signals each ManagerByTokenHash lookup, so a test knows the
+// hub has authenticated a stream.
+type authSignalStore struct {
+	jam.Store
+	looked chan struct{}
+}
+
+func (s authSignalStore) ManagerByTokenHash(h string) (jam.ManagerRecord, bool) {
+	select {
+	case s.looked <- struct{}{}:
+	default:
+	}
+	return s.Store.ManagerByTokenHash(h)
+}
+
+// TestHubRefusedAtRecheckDoesNotReconcile: a stream authenticated with a token
+// rotated before its Hello is refused, and its inventory never reconciled (it
+// would mark Jam's studios Lost on a stream Jam does not accept).
+func TestHubRefusedAtRecheckDoesNotReconcile(t *testing.T) {
+	rec := &fakeReconciler{}
+	looked := make(chan struct{}, 1)
+	e := newHubEnv(t, func(c *Config) {
+		c.Reconciler = rec
+		c.Store = authSignalStore{Store: c.Store, looked: looked}
+	}, nil)
+	tok := e.add(t, "m1")
+	select { // drop any lookup made before the stream
+	case <-looked:
+	default:
+	}
+	s := rawStream(t, e.cc, tok)
+	select {
+	case <-looked: // authenticated, now awaiting Hello
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream never authenticated")
+	}
+	if _, err := e.hub.Rotate("m1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Hello{Hello: &managerpb.Hello{Name: "m1", Version: testVersion}}}); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, recvUntilErr(t, s), codes.Unauthenticated)
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if rec.name != "" {
+		t.Fatalf("reconciled %q for a refused stream", rec.name)
+	}
+}
+
+// blockingWriter signals its first Write, then blocks it until release.
+type blockingWriter struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+	return len(p), nil
+}
+
+// TestHubReplaceDoesNotStallOnSlowLogSink: replacing a stream whose call is
+// mid log write must not hold the hub's lock while the old conn closes.
+func TestHubReplaceDoesNotStallOnSlowLogSink(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	hello := func(s managerpb.StudioManager_ConnectClient) {
+		t.Helper()
+		if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Hello{Hello: &managerpb.Hello{Name: "m1", Version: testVersion}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := rawStream(t, e.cc, tok)
+	hello(a)
+	if m, err := a.Recv(); err != nil || m.GetWelcome() == nil {
+		t.Fatalf("first message = %v, %v", m, err)
+	}
+	e.hub.mu.Lock()
+	remote := e.hub.remotes["m1"]
+	e.hub.mu.Unlock()
+	connA := remote.conn()
+
+	w := &blockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() { close(w.release) })
+	go func() {
+		_, _ = e.router.BuildKitDraft(context.Background(), jam.KitDefinition{Ref: jam.KitRef{ID: "k"}}, "t", w)
+	}()
+	var f *managerpb.Frame
+	for f == nil {
+		m, err := a.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		f = m.GetFrame()
+	}
+	if err := a.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Frame{Frame: &managerpb.Frame{Id: f.Id, Op: wire.OpLog, Data: []byte("x")}}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-w.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("log write never started")
+	}
+
+	hello(rawStream(t, e.cc, tok))
+	eventually(t, "replacement attached", func() bool { return remote.conn() != connA })
+	done := make(chan struct{})
+	go func() { e.hub.Statuses(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Statuses blocked while the replaced conn waits on its log sink")
 	}
 }

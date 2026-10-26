@@ -246,6 +246,8 @@ func TestRemoteImageTagFailureNotCached(t *testing.T) {
 	}
 }
 
+// attach returns the replaced conn; closing it (the hub does, outside its
+// locks) fails the old conn's calls.
 func TestRemoteAttachReplacesAndFailsOld(t *testing.T) {
 	r, a := newRemote(t)
 	errc := make(chan error, 1)
@@ -253,7 +255,14 @@ func TestRemoteAttachReplacesAndFailsOld(t *testing.T) {
 	ra := a.next(t)
 
 	b := newFakeStream()
-	r.attach(b.c)
+	old := r.attach(b.c)
+	if old != a.c {
+		t.Fatal("attach did not return the replaced conn")
+	}
+	if r.attach(b.c) != nil {
+		t.Fatal("re-attaching the current conn returned a conn to close")
+	}
+	old.close(errReplaced)
 	err := <-errc
 	if !errors.Is(err, jam.ErrManagerUnavailable) || errors.Is(err, jam.ErrRaiseInterrupted) {
 		t.Fatalf("old call err = %v", err)

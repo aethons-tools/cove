@@ -340,3 +340,36 @@ func TestRunHeartbeatTimeout(t *testing.T) {
 		t.Fatal("no timeout")
 	}
 }
+
+// A request over the size cap ends Run with the error; a tail frame of the
+// dropped id that was already buffered is never dispatched truncated.
+func TestRunOversizeRequestEndsRun(t *testing.T) {
+	var mu sync.Mutex
+	raised := 0
+	l := &fakeLauncher{raiseFn: func(context.Context, jam.RaiseSpec, jam.LaunchCreds) (string, error) {
+		mu.Lock()
+		raised++
+		mu.Unlock()
+		return "loc", nil
+	}}
+	body, _ := json.Marshal(wire.RaiseRequest{Spec: jam.RaiseSpec{ActorID: "a"}})
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		s.send(&managerpb.Frame{Id: 1, Op: wire.OpRaise, Data: make([]byte, len(body)+1), More: true})
+		s.send(&managerpb.Frame{Id: 1, Op: wire.OpRaise, Data: body})
+		<-s.srv.Context().Done()
+	}}
+	out := runAsync(t, start(t, fj), Config{Name: "m", Launcher: l, maxMessage: len(body)})
+	select {
+	case err := <-out:
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not end")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if raised != 0 {
+		t.Fatalf("raise dispatched %d times from a dropped request", raised)
+	}
+}

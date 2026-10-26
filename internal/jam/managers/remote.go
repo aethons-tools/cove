@@ -51,16 +51,18 @@ func (r *Remote) Available() bool {
 	return r.cur != nil
 }
 
-// attach makes c current, closes the previous conn and clears the tag cache.
-func (r *Remote) attach(c *conn) {
+// attach makes c current and clears the tag cache. It returns the conn c
+// replaced (nil if none), for the caller to close outside its own locks.
+func (r *Remote) attach(c *conn) *conn {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	old := r.cur
 	r.cur = c
 	r.tags = map[jam.KitRef]string{}
-	r.mu.Unlock()
-	if old != nil && old != c {
-		old.close(errors.New("replaced by a newer stream"))
+	if old == c {
+		return nil
 	}
+	return old
 }
 
 // detach clears the current conn only if it is c.

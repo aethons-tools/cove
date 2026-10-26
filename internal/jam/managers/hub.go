@@ -26,6 +26,18 @@ type Reconciler interface {
 	ReconcileManager(name string, inv jam.ManagerInventory) jam.ManagerReconcile
 }
 
+var (
+	_ Reconciler = (*jam.Supervisor)(nil)
+	_ Forgetter  = (*jam.Supervisor)(nil)
+)
+
+// Forgetter is the optional part of a Reconciler a forced revoke uses: it
+// marks the revoked manager's studios Lost, so the next reconcile pass revokes
+// their identities and drops their records. (*jam.Supervisor) satisfies it.
+type Forgetter interface {
+	ForgetManager(name string) []string
+}
+
 // Config configures a Hub.
 type Config struct {
 	Store      jam.Store
@@ -56,8 +68,9 @@ func (hasStudiosError) Unwrap() error { return ErrManagerHasStudios }
 
 // Causes recorded on a conn the hub closes itself.
 var (
-	errRotated = errors.New("manager token rotated")
-	errRevoked = errors.New("manager revoked")
+	errRotated  = errors.New("manager token rotated")
+	errRevoked  = errors.New("manager revoked")
+	errReplaced = errors.New("replaced by a newer stream")
 
 	errStreamEnded = errors.New("manager stream ended")
 )
@@ -183,8 +196,9 @@ func (h *Hub) Rotate(name string) (jam.ManagerToken, error) {
 
 // Revoke forgets name: its registration, its live stream and its Router
 // entry. While non-Gone instances run there it refuses unless force; with
-// force the Router then probes those instances Dead, so the reconciler forgets
-// them.
+// force it then marks them Lost (when the Reconciler is a Forgetter), so the
+// next reconcile pass revokes their identities and drops their records.
+// Containers still on the manager's host are left to the operator.
 func (h *Hub) Revoke(name string, force bool) error {
 	h.regMu.Lock()
 	defer h.regMu.Unlock()
@@ -211,6 +225,10 @@ func (h *Hub) Revoke(name string, force bool) error {
 	}
 	h.cfg.Router.Remove(name)
 	if n > 0 {
+		// After Router.Remove, so their teardown finds no manager to call.
+		if f, ok := h.cfg.Reconciler.(Forgetter); ok {
+			f.ForgetManager(name)
+		}
 		h.log.Warn("manager revoked with studios; they will be forgotten", "manager", name, "studios", n)
 	} else {
 		h.log.Info("manager revoked", "manager", name)
@@ -327,15 +345,6 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 		return status.Errorf(codes.FailedPrecondition, "version mismatch: jam %s, manager %s", h.cfg.Version, hello.GetVersion())
 	}
 
-	inv := jam.ManagerInventory{StateOwners: hello.GetStateOwners()}
-	for _, s := range hello.GetStudios() {
-		inv.Studios = append(inv.Studios, jam.ManagedStudio{ActorID: s.GetActorId(), Location: s.GetLocation()})
-	}
-	var rc jam.ManagerReconcile
-	if h.cfg.Reconciler != nil {
-		rc = h.cfg.Reconciler.ReconcileManager(name, inv)
-	}
-
 	// One mutex serializes every Send on this stream: frames, Welcome and
 	// heartbeats. Once the handler is returning, sends fail rather than
 	// touch a finished stream.
@@ -354,30 +363,16 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 		return stream.Send(m)
 	}
 	c := newConn(send)
-	now := h.cfg.Now()
 
-	// Become current, unless a rotate or revoke since auth invalidated the
-	// token; both change the store before taking h.mu.
-	h.mu.Lock()
-	if cur, ok := h.cfg.Store.ManagerByTokenHash(hash); !ok || cur.Name != name {
-		h.mu.Unlock()
-		return status.Error(codes.Unauthenticated, "unknown manager token")
-	}
-	remote, err := h.registerLocked(name)
+	remote, old, err := h.admit(name, hash, hello, c)
 	if err != nil {
-		h.mu.Unlock()
-		return status.Error(codes.Internal, "register manager")
+		return err
 	}
-	h.live[name] = c
-	h.status[name] = &jam.ManagerStatus{
-		Name: name, Connected: true, Version: hello.GetVersion(), Capacity: int(hello.GetCapacity()),
-		ConnectedAt: now, LastSeen: now, Strays: rc.Strays,
+	// Outside every hub lock: closing waits out a log write in progress on
+	// the old conn, and a slow log sink must not stall the hub.
+	if old != nil {
+		old.close(errReplaced)
 	}
-	// Attach under h.mu so live[name] and the Remote's current conn always
-	// agree, and a rotate or revoke can only close a conn already attached.
-	// Lock order: h.mu, then the Remote's and conns' own locks.
-	remote.attach(c)
-	h.mu.Unlock()
 
 	cause := h.serve(stream, c, name, ups, send)
 
@@ -394,6 +389,44 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 	h.mu.Unlock()
 	h.log.Info("manager disconnected", "manager", name, "err", errText(cause))
 	return streamStatus(cause)
+}
+
+// admit makes c name's current conn, unless a rotate or revoke since auth
+// invalidated the token. Holding regMu, no rotate or revoke can land between
+// that check, the inventory reconcile and the attach, so a refused stream
+// never marks studios Lost. It returns the Remote and the conn c replaced
+// (nil if none), which the caller closes.
+func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn) (*Remote, *conn, error) {
+	h.regMu.Lock()
+	defer h.regMu.Unlock()
+	if cur, ok := h.cfg.Store.ManagerByTokenHash(hash); !ok || cur.Name != name {
+		return nil, nil, status.Error(codes.Unauthenticated, "unknown manager token")
+	}
+
+	inv := jam.ManagerInventory{StateOwners: hello.GetStateOwners()}
+	for _, s := range hello.GetStudios() {
+		inv.Studios = append(inv.Studios, jam.ManagedStudio{ActorID: s.GetActorId(), Location: s.GetLocation()})
+	}
+	var rc jam.ManagerReconcile
+	if h.cfg.Reconciler != nil {
+		rc = h.cfg.Reconciler.ReconcileManager(name, inv)
+	}
+
+	now := h.cfg.Now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	remote, err := h.registerLocked(name)
+	if err != nil {
+		return nil, nil, status.Error(codes.Internal, "register manager")
+	}
+	h.live[name] = c
+	h.status[name] = &jam.ManagerStatus{
+		Name: name, Connected: true, Version: hello.GetVersion(), Capacity: int(hello.GetCapacity()),
+		ConnectedAt: now, LastSeen: now, Strays: rc.Strays,
+	}
+	// Attach under h.mu so live[name] and the Remote's current conn always
+	// agree. Lock order: regMu, h.mu, then the Remote's and conns' own locks.
+	return remote, remote.attach(c), nil
 }
 
 // serve sends Welcome and runs the stream until it ends, returning why.

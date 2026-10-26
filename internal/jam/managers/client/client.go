@@ -30,6 +30,8 @@ type Config struct {
 	HeartbeatEvery       time.Duration                                          // 0: wire.HeartbeatEvery
 	DeadAfter            time.Duration                                          // 0: wire.DeadAfter
 	Log                  *slog.Logger                                           // nil: discard
+
+	maxMessage int // test override for wire.MaxMessageBytes
 }
 
 // Run opens one Connect stream on cc, sends Hello and waits for Welcome, then
@@ -101,7 +103,7 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 		}
 	}()
 
-	var asm wire.Assembler
+	asm := wire.Assembler{Max: cfg.maxMessage}
 	welcomed := false
 	for {
 		m, rerr := stream.Recv()
@@ -138,8 +140,9 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 		}
 		data, done, aerr := asm.Add(f)
 		if aerr != nil {
-			setFatal(aerr)
-			continue
+			// Fatal at once: a buffered later frame of the dropped id must
+			// never be served as a truncated request.
+			return aerr
 		}
 		if !done {
 			continue

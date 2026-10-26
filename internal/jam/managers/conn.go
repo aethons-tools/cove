@@ -135,12 +135,14 @@ func (cl *call) end() {
 	cl.mu.Unlock()
 }
 
-// remove takes id out of pending; nil if it was already gone.
+// remove takes id out of pending, with any partial result; nil if it was
+// already gone.
 func (c *conn) remove(id uint64) *call {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cl := c.pending[id]
 	delete(c.pending, id)
+	c.asm.Drop(id)
 	return cl
 }
 
@@ -152,8 +154,9 @@ func (c *conn) finish(id uint64, r result) {
 	}
 }
 
-// deliver handles one frame from the manager. Unknown ids are dropped. An
-// error is fatal for the stream: the caller ends it.
+// deliver handles one frame from the manager. Frames for ids with no call in
+// flight are dropped, never buffered. An error is fatal for the stream: the
+// caller ends it.
 func (c *conn) deliver(f *managerpb.Frame) error {
 	switch f.Op {
 	case wire.OpLog:
@@ -172,6 +175,10 @@ func (c *conn) deliver(f *managerpb.Frame) error {
 		return nil
 	case wire.OpResult:
 		c.mu.Lock()
+		if c.pending[f.Id] == nil {
+			c.mu.Unlock()
+			return nil
+		}
 		data, done, err := c.asm.Add(f)
 		c.mu.Unlock()
 		if err != nil {
@@ -200,6 +207,7 @@ func (c *conn) close(err error) {
 	c.cause = err
 	pend := c.pending
 	c.pending = map[uint64]*call{}
+	c.asm = wire.Assembler{}
 	close(c.done)
 	failure := fmt.Errorf("%w: %w: %w", jam.ErrManagerUnavailable, errInterrupted, err)
 	c.mu.Unlock()

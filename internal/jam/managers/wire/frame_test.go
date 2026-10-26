@@ -72,11 +72,30 @@ func TestAssemblerLogFramePassthrough(t *testing.T) {
 }
 
 func TestAssemblerCap(t *testing.T) {
-	a := Assembler{max: 10}
+	a := Assembler{Max: 10}
 	if _, _, err := a.Add(&managerpb.Frame{Id: 1, Op: OpRaise, Data: make([]byte, 6), More: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := a.Add(&managerpb.Frame{Id: 1, Op: OpRaise, Data: make([]byte, 6), More: true}); err == nil {
 		t.Fatal("expected cap error")
+	}
+}
+
+func TestAssemblerDrop(t *testing.T) {
+	var a Assembler
+	a.Drop(7) // nothing buffered: a no-op
+	if _, _, err := a.Add(&managerpb.Frame{Id: 7, Op: OpResult, Data: []byte("stale"), More: true}); err != nil {
+		t.Fatal(err)
+	}
+	if n := a.Buffered(); n != 1 {
+		t.Fatalf("Buffered = %d, want 1", n)
+	}
+	a.Drop(7)
+	if n := a.Buffered(); n != 0 {
+		t.Fatalf("Buffered after Drop = %d, want 0", n)
+	}
+	d, done, err := a.Add(&managerpb.Frame{Id: 7, Op: OpResult, Data: []byte("fresh")})
+	if err != nil || !done || string(d) != "fresh" {
+		t.Fatalf("after Drop: %q %v %v", d, done, err)
 	}
 }

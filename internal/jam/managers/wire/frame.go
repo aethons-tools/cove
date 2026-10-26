@@ -25,9 +25,15 @@ func Split(id uint64, op string, data []byte) []*managerpb.Frame {
 // Assembler reassembles chunked frames, keyed by id. The zero value is usable.
 // It is not safe for concurrent use.
 type Assembler struct {
-	max  int // test override for MaxMessageBytes
+	Max  int // caps one message's size; 0 means MaxMessageBytes
 	bufs map[uint64][]byte
 }
+
+// Drop forgets id's partial data, if any.
+func (a *Assembler) Drop(id uint64) { delete(a.bufs, id) }
+
+// Buffered is how many ids have partial data held.
+func (a *Assembler) Buffered() int { return len(a.bufs) }
 
 // Add feeds one frame. When it completes a message, done is true and data is
 // the whole payload. An OpLog frame is returned as is. Exceeding the size cap
@@ -36,7 +42,7 @@ func (a *Assembler) Add(f *managerpb.Frame) (data []byte, done bool, err error) 
 	if f.Op == OpLog {
 		return f.Data, true, nil
 	}
-	limit := a.max
+	limit := a.Max
 	if limit == 0 {
 		limit = MaxMessageBytes
 	}
