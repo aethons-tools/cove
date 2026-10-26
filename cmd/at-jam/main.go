@@ -316,7 +316,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if *jsonOut {
-		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
+		// Machine-readable output for scripted enrollment (COV-141). The token
 		// is on stdout only — the caller captures it in memory, never argv/logs.
 		_ = json.NewEncoder(stdout).Encode(struct {
 			ID        string             `json:"id"`
@@ -2139,6 +2139,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		pub, err := launcherPublicKey(lc.IdentityFile)
 		if err != nil {
 			fmt.Fprintln(stderr, "at-jam: launcher identity public key ("+lc.IdentityFile+".pub):", err)
+			return 1
+		}
+		if err := ensureKnownHostsDir(lc.KnownHostsDir); err != nil {
+			fmt.Fprintln(stderr, "at-jam: launcher known-hosts dir ("+lc.KnownHostsDir+"):", err)
 			return 1
 		}
 		lch = launcher.New(launcher.Config{

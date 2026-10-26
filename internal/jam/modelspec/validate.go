@@ -74,7 +74,7 @@ var claudeNonPreferenceSettings = append([]string{
 // loaders: Jam's write path (internal/jam.ValidateModelSpec) and a kit's
 // model-spec: block (internal/kit). The two differ only in what a principal
 // means, so checkPrincipal decides that part: Jam resolves the credential
-// name (or the pool keyword) and checks the header rules; a plain at-cove kit
+// name (or the pool keyword) and checks the header rules; a kit
 // has no broker, so it refuses any principal. checkPrincipal's error is
 // returned as is; every other refusal is a plain error that never echoes a
 // provider-env value.

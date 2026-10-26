@@ -8,5 +8,5 @@ if [ "${1:-}" = version ]; then
   echo "at-cove (removed; use at-jam)"
   exit 0
 fi
-echo "at-cove was removed: Jam (at-jam) is the only runtime — see docs/usage/jam/INDEX.md" >&2
+echo "at-cove was removed: Jam (at-jam) is the only runtime; run \`at-jam --help\` (docs: https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/INDEX.md)" >&2
 exit 1

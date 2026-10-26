@@ -30,7 +30,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 2. **`at-jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
    `credentials` (anthropic + git + the DB password), and a `runtime.launcher`
-   pointed at your `install.json`. Start it (`:443` needs privilege). Full schema:
+   whose studios are built from the role's studio kit (see [the launcher](serve.md#the-launcher-runtimelauncher)). Start it (`:443` needs privilege). Full schema:
    [serve.md](serve.md).
 3. **Destinations** — `at-jam destination add` for `anthropic` and `git`. Each `--cred-name` must resolve to a `credentials:`
    entry, **validated at add time** — so add the credential to the serve config
@@ -45,7 +45,7 @@ doc that owns the detail; this runbook only owns the **order** and the
    the cap. [requisitioner.md](requisitioner.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
    watch `at-jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
-   required — the launcher raises from `install.json`, not a registered kit.
+   required — the launcher builds from the role's studio kit ([serve.md](serve.md#the-launcher-runtimelauncher)).
 
 ## Gotchas (each one cost a real debugging loop)
 

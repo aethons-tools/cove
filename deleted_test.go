@@ -40,6 +40,7 @@ func mentionExempt(rel string) bool {
 		"images/cove-base-image/image-files/home/agent/.init-agent-data/",
 		"testdata/install-legacy.sh",
 		"deleted_test.go",
+		".gitignore", // names the stale staged dirs so they are never committed
 	} {
 		if strings.HasPrefix(rel, p) {
 			return true

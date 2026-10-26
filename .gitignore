@@ -19,6 +19,10 @@
 # Per-command build outputs in cmd/*/
 /cmd/*/at-*
 
+# Stale staged binaries from the removed at-task / at-switchboard
+/internal/attask/
+/internal/atswitchboard/
+
 # local monitoring secrets
 /deploy/monitoring/.local/
 

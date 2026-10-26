@@ -71,3 +71,27 @@ func TestLauncherPublicKeyKeepsExistingKey(t *testing.T) {
 		t.Fatalf("private key rewritten: %q", b)
 	}
 }
+
+// The launcher's ssh uses StrictHostKeyChecking=accept-new with a per-studio
+// file under known-hosts-dir; ssh will not create the dir, so serve must.
+func TestEnsureKnownHostsDir(t *testing.T) {
+	fresh := filepath.Join(t.TempDir(), "a", "known_hosts.d")
+	if err := ensureKnownHostsDir(fresh); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(fresh)
+	if err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
+		t.Fatalf("fresh dir: %v, %v", st, err)
+	}
+	existing := t.TempDir()
+	if err := os.Chmod(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureKnownHostsDir(existing); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = os.Stat(existing)
+	if st.Mode().Perm() != 0o755 {
+		t.Errorf("existing dir mode changed to %v", st.Mode().Perm())
+	}
+}
