@@ -152,8 +152,8 @@ admin UI if prompted.
 
 ## 5. Errors
 
-Fixed texts, never echoing tokens: `requisitioner: set exactly one of linear or
-github`, `github ticket key must be owner/repo#<n>`, `migration: volume <old>
+Fixed texts, never echoing tokens: `runtime.requisitioner: set exactly one of
+linear or github`, `github ticket key must be owner/repo#<n>`, `migration: volume <old>
 could not be copied to <new>; left in place`, and the existing `kit.migrate`
 condition for kits.
 

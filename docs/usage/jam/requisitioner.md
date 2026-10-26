@@ -75,7 +75,7 @@ runtime:
 ```
 
 Set **exactly one** of `linear:` or `github:`; serve refuses to start otherwise
-(`requisitioner: set exactly one of linear or github`). `poll-interval` falls back
+(`runtime.requisitioner: set exactly one of linear or github`). `poll-interval` falls back
 to the tracker block's when unset (GitHub's; a Linear block's `poll-interval` is
 not read).
 

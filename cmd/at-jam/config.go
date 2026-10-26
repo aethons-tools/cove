@@ -806,13 +806,13 @@ func (c serveConfig) validateRequisitioner() error {
 		return fmt.Errorf("runtime.requisitioner.max-concurrent must be > 0")
 	}
 	if (d.Linear == nil) == (d.GitHub == nil) {
-		return errors.New("requisitioner: set exactly one of linear or github")
+		return errors.New("runtime.requisitioner: set exactly one of linear or github")
 	}
 	if d.DeprecatedTrackerToken != nil {
 		return fmt.Errorf("runtime.requisitioner.tracker-token is no longer inline — set runtime.requisitioner.tracker-token-cred: <name> and %s", credentialsFileHint)
 	}
 	if g := d.GitHub; g != nil {
-		if err := ticketkey.ValidRepo(g.Repo); err != nil {
+		if err := ticketkey.ValidRepo(strings.TrimSpace(g.Repo)); err != nil { // as NewJam uses it
 			return fmt.Errorf("runtime.requisitioner.github.repo: %w", err)
 		}
 		for _, s := range []struct{ name, label string }{

@@ -1406,8 +1406,9 @@ func TestValidateRequisitionerTrackerChoice(t *testing.T) {
 	}{
 		"github":          {func(d *requisitionerConfig) { d.GitHub = ghBlock() }, ""},
 		"linear":          {func(d *requisitionerConfig) { d.Linear = &kit.LinearTracker{Team: "T"} }, ""},
-		"neither":         {func(d *requisitionerConfig) {}, "requisitioner: set exactly one of linear or github"},
-		"both":            {func(d *requisitionerConfig) { d.Linear, d.GitHub = &kit.LinearTracker{Team: "T"}, ghBlock() }, "requisitioner: set exactly one of linear or github"},
+		"neither":         {func(d *requisitionerConfig) {}, "runtime.requisitioner: set exactly one of linear or github"},
+		"both":            {func(d *requisitionerConfig) { d.Linear, d.GitHub = &kit.LinearTracker{Team: "T"}, ghBlock() }, "runtime.requisitioner: set exactly one of linear or github"},
+		"padded repo":     {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.Repo = " acme/board " }, ""}, // checked trimmed, as NewJam uses it
 		"bad repo":        {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.Repo = "acme" }, "runtime.requisitioner.github.repo: github repo must be owner/name"},
 		"dot-dot repo":    {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.Repo = "acme/.." }, "github repo must be owner/name"},
 		"missing state":   {func(d *requisitionerConfig) { d.GitHub = ghBlock(); d.GitHub.States.Blocked = "" }, "runtime.requisitioner.github.states.blocked is required"},
@@ -1420,6 +1421,9 @@ func TestValidateRequisitionerTrackerChoice(t *testing.T) {
 			err := c.validateRequisitioner()
 			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
 				t.Fatalf("validate = %v; want %q", err, tc.want)
+			}
+			if strings.HasPrefix(tc.want, "runtime.requisitioner: ") && err.Error() != tc.want {
+				t.Fatalf("validate = %q; want exactly %q", err, tc.want)
 			}
 		})
 	}
