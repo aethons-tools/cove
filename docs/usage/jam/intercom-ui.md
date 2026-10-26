@@ -1,6 +1,6 @@
 ---
 summary: The participant intercom inbox — a two-pane, server-rendered (html/template + htmx) web UI under `/app/user` where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with a New Message picker, per-(participant,channel) unread, and a live status strip for the sessions in each conversation. It reads the channel read-model and writes through the `/app/user/send` endpoint; it refreshes live over an SSE push (`GET /app/user/events`), with a 30s poll as fallback.
-read_when: You want a project member to read/reply to their studios and channels in a browser (not via Discord/Linear relays), or you're operating/extending the `/app/user` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
+read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating/extending the `/app/user` inbox — its routes, the live push and fallback poll, the mark-read cursor, the session status strip, the composer and copy controls, or its wiring to the send path.
 owns: the `/app/user` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /app/user/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /app/user/read`), the membership controls (`POST /app/user/join|leave|call-in`), the live push (`GET /app/user/events`) and fallback poll, and how it wires to the channel read-model and `/app/user/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
@@ -10,7 +10,7 @@ updated: 2026-10-26
 # The participant intercom inbox (`/app/user`)
 
 A **project member** reads and replies to their intercom channels in a two-pane web
-inbox served under `/app/user`, rather than through the Discord/Linear relays. It is the
+inbox served under `/app/user`, rather than through the Discord/tracker relays. It is the
 human analog of a studio agent's `/squawks` tools: the same durable squawk Log,
 seen from the human's side. It is served by `internal/jam/userui` (mirroring
 `adminui`'s embedded-`html/template` + htmx mechanism) and mounted behind the

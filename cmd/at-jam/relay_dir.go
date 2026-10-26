@@ -21,7 +21,7 @@ import (
 // ticket and room bindings, a chat's members' inboxes — and a foreign event
 // is routed by its surface (a ticket's binding, a room's channel) or by the
 // receipt of the post it replies to (Discord). project and selfIdentity are
-// the Requisitioner's (Linear ingress only runs with one). The push service
+// the Requisitioner's (tracker ingress only runs with one). The push service
 // is egress only: a squawk's notified people's devices.
 type directory struct {
 	store        jam.Store
@@ -45,7 +45,8 @@ func (d *directory) debug(msg string, args ...any) {
 
 // Projects lists the projects a relay engine polls, by id. Discord covers every
 // project whose chat service is discord, plus the Requisitioner's project;
-// Linear's feed is team-wide, polled once under the Requisitioner's project.
+// The tracker's feed (Linear's team, GitHub's repo) is polled once under the
+// Requisitioner's project.
 // Push polls nothing (no ingress).
 func (d *directory) Projects(service string) []string {
 	if service == push.Service {
@@ -89,10 +90,10 @@ func isSession(id ident.ID) bool {
 //   - A ticket or room: each of its bindings on a connection of service.
 //   - A chat: each person in it (but the author) on their Discord inbox when
 //     the project chats over Discord; anyone without one is @-mentioned on
-//     the Linear ticket of a session in the chat (the pre-channel "user:x
+//     the tracker ticket of a session in the chat (the pre-channel "user:x
 //     from a ticket session" delivery).
 //
-// Discord shows "<author>: " before every body; Linear before a person's
+// Discord shows "<author>: " before every body; the tracker before a person's
 // (Jam posts as itself), never before a session's. Push: see pushSurfaces.
 func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery {
 	if service == push.Service {

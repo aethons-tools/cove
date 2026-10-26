@@ -2381,7 +2381,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// The intercom — the /squawks + /escalate endpoints, the wake-on engine and
 	// the Discord relay — runs always (message log via Postgres is always present):
 	// a personal session converses with its owner over it. The tracker, the
-	// Requisitioner, the escalation engine and the Linear relay need the tracker, so
+	// Requisitioner, the escalation engine and the tracker relay need the tracker, so
 	// they stay in the Requisitioner block below.
 	dc := cfg.Runtime.Requisitioner
 
@@ -2615,12 +2615,12 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	log.Info("Jam escalation engine: resident", "poll-interval", epoll)
 
 	// relay discord engine: a resident engine over the same Log, markers file,
-	// cursors, and directory as the Linear one — delivers outbound Log messages
+	// cursors, and directory as the tracker one — delivers outbound Log messages
 	// to Discord (egress) AND polls every discord project's inbox channels for
 	// human replies, routing a reply back to the cove it answers via the receipt
-	// store (ingress). The engine keys EgressMark by Service(), so "linear" and
-	// "discord" marks live side by side in the one markers file. Gated on
-	// runtime.discord; no Requisitioner needed.
+	// store (ingress). The engine keys EgressMark by Service(), so the tracker's
+	// ("linear" or "github") and "discord" marks live side by side in the one
+	// markers file. Gated on runtime.discord; no Requisitioner needed.
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {
