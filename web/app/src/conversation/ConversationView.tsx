@@ -10,6 +10,7 @@ import { messagesOf, useConversation } from "./useConversation";
 import { useLocation } from "react-router";
 import { useBoot } from "../BootContext";
 import { Composer } from "../composer/Composer";
+import { OpenAsks } from "../asks/OpenAsks";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
@@ -42,6 +43,7 @@ export function ConversationView({ id }: { id: string }) {
   return (
     <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
       <ConversationHeader c={q.data.pages[0]!} />
+      <OpenAsks asks={q.data.pages[0]!.openAsks} onJump={(id) => document.getElementById(`ask-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })} />
       {/* A failed refresh keeps what's loaded (and the reader's place) on screen. */}
       {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
       <MessageList messages={messagesOf(q.data.pages)} channel={id} earlier={q.hasNextPage}
