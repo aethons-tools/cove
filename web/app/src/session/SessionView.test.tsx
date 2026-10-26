@@ -21,7 +21,7 @@ const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
   messages: [], lastSeq: 0, earlier: false, sessionIds: ["ses_1"], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [],
-  session: "ses_1",
+  session: "ses_1", newBoard: false,
 };
 
 // serve answers the conversation, its session head (null = 404) and pane

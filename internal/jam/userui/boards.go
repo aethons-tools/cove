@@ -17,12 +17,6 @@ import (
 // var, so tests can toggle it).
 var whiteboardBuilt = uiassets.WhiteboardBuilt
 
-// BoardCard is a board's card in its conversation.
-type BoardCard struct {
-	ID, Title string
-	Built     bool
-}
-
 // BoardEditor is the open board.
 type BoardEditor struct {
 	ID, Title, Script, Styles, AssetBase string

@@ -77,6 +77,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 	if inst, ok := h.headSession(p, conv.ChannelID); ok {
 		conv.Session = inst.ActorID
 	}
+	conv.NewBoard = h.d.Boards != nil && conv.SendTo != "" && h.d.Boards.MayCreateIn(p.UserID, ident.ID(conv.ChannelID))
 	writeJSON(w, http.StatusOK, lists(conv))
 }
 

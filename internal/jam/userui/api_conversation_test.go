@@ -21,7 +21,8 @@ import (
 func TestConversationJSONShape(t *testing.T) {
 	at := time.Date(2026, 10, 26, 9, 5, 0, 0, time.UTC)
 	c := Conversation{ChannelID: "chn_x", Label: "eng", SendTo: "chn_x", LastSeq: 3, Earlier: true,
-		Messages:   []MessageRow{{From: "bob", Body: "<p>hi</p>", Raw: "hi", At: "09:05", Time: at, Seq: 3, Card: "ask", Ask: &AskCard{ID: "a1"}}},
+		Messages: []MessageRow{{From: "bob", Body: "<p>hi</p>", Raw: "hi", At: "09:05", Time: at, Seq: 3, Card: "ask", Ask: &AskCard{ID: "a1"}},
+			{From: "bob", Time: at, Seq: 4, Card: "board", Board: &BoardCard{ID: "brd_1", Title: "Plan", Built: true}}},
 		Sessions:   []SessionRow{{Label: "spider", Text: "is running", Tool: "Bash", Class: "busy"}},
 		CallIn:     []NewMessageOption{{To: "user:usr_1", Label: "bob", Kind: "person"}},
 		SessionIDs: []string{"ses_1"}, HasMessages: true,
@@ -34,12 +35,12 @@ func TestConversationJSONShape(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn", "openAsks", "session"} {
+	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn", "openAsks", "session", "newBoard"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("conversation JSON lacks %q: %s", k, b)
 		}
 	}
-	for _, k := range []string{"HasMessages", "hasMessages", "OpenAsks", "Board", "board", "Head", "head", "NewBoard", "newBoard"} {
+	for _, k := range []string{"HasMessages", "hasMessages", "OpenAsks", "Board", "board", "Head", "head", "NewBoard"} {
 		if _, ok := got[k]; ok {
 			t.Errorf("conversation JSON carries template-only %q", k)
 		}
@@ -52,6 +53,10 @@ func TestConversationJSONShape(t *testing.T) {
 	}
 	if a, ok := m["ask"].(map[string]any); !ok || a["id"] != "a1" {
 		t.Errorf("message ask = %v, want the card", m["ask"])
+	}
+	m2 := got["messages"].([]any)[1].(map[string]any)
+	if bd, ok := m2["board"].(map[string]any); !ok || bd["id"] != "brd_1" || bd["title"] != "Plan" || bd["built"] != nil || bd["Built"] != nil {
+		t.Errorf("message board = %v, want {id, title}", m2["board"])
 	}
 	for _, k := range []string{"Ask", "files", "reAsk", "Board", "board", "Channel", "channel"} {
 		if _, ok := m[k]; ok {
