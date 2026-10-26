@@ -127,6 +127,21 @@ test:
 whiteboard:
     ./scripts/whiteboard.sh
 
+# build the Jam app bundle at-jam embeds at /app/next/ (needs Node/npm; see
+# scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
+app:
+    ./scripts/app.sh
+
+# the Jam app's dev server (hot reload) proxying the API to a running
+# `at-jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/next/
+app-dev:
+    cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
+
+# the Jam app's checks: API types current, typecheck, lint, unit tests
+app-check:
+    ./scripts/app-types-check.sh
+    cd web/app && npm ci --no-audit --no-fund --loglevel=error && npm run check
+
 # headless-Chrome tests of the /app/user UI's JS (needs chrome-headless-shell on PATH or
 # COVE_BROWSER; each test skips without one)
 test-browser:

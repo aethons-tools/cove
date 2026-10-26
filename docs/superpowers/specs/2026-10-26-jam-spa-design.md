@@ -1,18 +1,18 @@
 # Jam UI as a single-page app — design
 
-**Status:** approved in brainstorming (2026-10-26); not built.
+**Status:** approved (#496); slice 1 in progress ([plan](../plans/2026-10-26-jam-spa-1-foundation.md)).
 **Context:** `/app/user` (package `userui`) is server-rendered Go `html/template` plus htmx and inline JS. Its `layout.html` alone is about 1,300 lines, and the session view, inbox and live panes are hard to grow that way. This spec moves `/app/user` to a React single-page app (SPA) built on off-the-shelf components and themes. `/app/admin` (`adminui`) follows later as its own sub-project, on the same foundation.
 
 ## Decisions (2026-10-26)
 
 - **Goal:** all three, roughly equally: a consistent look from an off-the-shelf theme, client-side state and routing for the interactive screens, and developer velocity (typed components, hot reload, a real test story).
 - **Scope:** the user UI first. The admin UI is a later sub-project and keeps its current look until then.
-- **Stack:** React 19 + TypeScript + Vite + **Mantine v8**, with React Router and TanStack Query. Mantine was chosen over shadcn/ui + Tailwind (less built in, and we would own copied code) and MUI (runtime CSS-in-JS needs CSP nonces, heavy, looks like Material).
+- **Stack:** React 19 + TypeScript + Vite + **Mantine v9** (v9 has been current since 2026-03; corrected in the slice 1 plan), with React Router and TanStack Query. Mantine was chosen over shadcn/ui + Tailwind (less built in, and we would own copied code) and MUI (runtime CSS-in-JS needs CSP nonces, heavy, looks like Material).
 - **Migration:** a **parallel SPA, then one cutover**. The SPA grows at `/app/next/` while `/app/user/` stays the default. Screens are ported slice by slice to parity, then one PR flips `/app/user/` and deletes the old UI. Rejected alternatives: an in-place strangler (React and htmx sharing the DOM and the SSE stream) and islands (no client-side routing or shared state).
 
 ## 1. Architecture, build and serving
 
-- **Source:** `web/app/` (Vite, React 19, TypeScript, Mantine v8, React Router, TanStack Query). There's no other global state library. The whiteboard (Excalidraw) becomes a lazily loaded route chunk, and `web/whiteboard/` is deleted at cutover.
+- **Source:** `web/app/` (Vite, React 19, TypeScript, Mantine v9, React Router, TanStack Query). There's no other global state library. The whiteboard (Excalidraw) becomes a lazily loaded route chunk, and `web/whiteboard/` is deleted at cutover.
 - **Build:** `just app` runs Vite into `internal/jam/uiassets/app/`. The output is git-ignored and embedded with a `.keep` placeholder. It builds into a scratch directory and swaps in only on success, as `scripts/whiteboard.sh` does. CI and goreleaser already run setup-node. A Go build without Node still succeeds, and `/app/next/` then answers with a plain "the app bundle wasn't built (run `just app`)" page.
 - **Serving:** a Go handler for `/app/next/`:
   - It serves hashed assets with `Cache-Control: immutable`.

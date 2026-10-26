@@ -17,6 +17,13 @@ seen from the human's side. It is served by `internal/jam/userui` (mirroring
 `/app` gate, which admits a roster member — see
 [ui.md](ui.md#signing-in-one-login-one-principal) for the login and who counts as a user.
 
+## Preview: the Jam app at `/app/next/`
+
+A new single-page version of this inbox is being built at **`/app/next/`**, behind the same sign-in
+([design](../../superpowers/specs/2026-10-26-jam-spa-design.md), [dev doc](../../web-app.md)).
+So far it shows the title bar and the rail; opening a conversation links back here. Its JSON API lives
+under `/app/user/api/`. This page stays the inbox until the cutover.
+
 ## What it shows
 
 The page carries the shared app title bar (logo, `{display name} Jam`, tabs, principal
