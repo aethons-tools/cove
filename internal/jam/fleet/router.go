@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -31,6 +32,8 @@ var (
 type Router struct {
 	log  *slog.Logger
 	wake chan struct{} // 1-buffered; Kick wakes raises waiting for a manager
+	now  func() time.Time
+	poll time.Duration // how often a waiting raise re-checks without a Kick
 
 	mu      sync.RWMutex
 	members []Manager // registration order
@@ -38,7 +41,7 @@ type Router struct {
 
 // New returns an empty Router.
 func New(log *slog.Logger) *Router {
-	return &Router{log: log, wake: make(chan struct{}, 1)}
+	return &Router{log: log, wake: make(chan struct{}, 1), now: time.Now, poll: time.Second}
 }
 
 // Add registers m. It errors on a duplicate name, and on a non-Local manager
@@ -216,11 +219,6 @@ func (r *Router) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Launch
 	return p.Location, err
 }
 
-// RaiseOn is implemented in Task 3.
-func (r *Router) RaiseOn(context.Context, jam.RaiseSpec, jam.LaunchCreds) (jam.Placed, error) {
-	return jam.Placed{}, errors.New("not implemented")
-}
-
 // PrepareKit prepares def on the first available manager.
 func (r *Router) PrepareKit(ctx context.Context, def jam.KitDefinition) (jam.KitStatus, error) {
 	av := r.available()
@@ -230,25 +228,14 @@ func (r *Router) PrepareKit(ctx context.Context, def jam.KitDefinition) (jam.Kit
 	return av[0].PrepareKit(ctx, def)
 }
 
-// PrepareKitOn is implemented in Task 3.
-func (r *Router) PrepareKitOn(context.Context, string, jam.KitDefinition) (jam.KitStatus, error) {
-	return jam.KitStatus{}, errors.New("not implemented")
-}
-
 // ImageTag names the image on the first available manager; "" if none.
 func (r *Router) ImageTag(ref jam.KitRef) string {
 	av := r.available()
 	if len(av) == 0 {
 		return ""
 	}
-	if t, ok := optional(av[0]).(jam.ImageTagger); ok {
-		return t.ImageTag(ref)
-	}
-	return ""
+	return r.ImageTagOn(av[0].Name(), ref)
 }
-
-// ImageTagOn is implemented in Task 3.
-func (r *Router) ImageTagOn(string, jam.KitRef) string { return "" }
 
 // StateOwners is the sorted union over available managers that keep state.
 func (r *Router) StateOwners(ctx context.Context) ([]string, error) {
