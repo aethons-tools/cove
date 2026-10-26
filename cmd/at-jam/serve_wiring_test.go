@@ -78,7 +78,7 @@ func TestServeWiresRouterWithLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cfg serveConfig
-	cfg.Runtime.Launcher = &launcherConfig{IdentityFile: id, DockerContext: "colima-jam"}
+	cfg.Runtime.Launcher = &launcherConfig{IdentityFile: id, KnownHostsDir: filepath.Join(t.TempDir(), "known_hosts.d"), DockerContext: "colima-jam"}
 	got, err = buildLauncher(cfg, st, nil, log)
 	if err != nil {
 		t.Fatal(err)
