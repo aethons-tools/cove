@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
+	"github.com/aethons-tools/cove/internal/jam/managers"
 )
 
 func TestPlanCredentials_FailsClosedOnUnsupplied(t *testing.T) {
@@ -97,3 +98,66 @@ func TestServeWiresRouterWithLocal(t *testing.T) {
 		t.Errorf("want images and default kit set, got %+v", got)
 	}
 }
+
+func TestBuildLauncherStudioManagersOnly(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var cfg serveConfig
+	cfg.Runtime.StudioManagers = true
+	got, err := buildLauncher(cfg, jam.NewMemStore(), nil, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, ok := got.launcher.(*fleet.Router)
+	if !ok {
+		t.Fatalf("want *fleet.Router, got %T", got.launcher)
+	}
+	if names := router.Names(); len(names) != 0 {
+		t.Errorf("Names() = %v, want none", names)
+	}
+	if got.router != router {
+		t.Errorf("router field = %p, want the launcher router %p", got.router, router)
+	}
+	if got.images == nil || !got.haveDefaultKit {
+		t.Errorf("want images and default kit set, got %+v", got)
+	}
+}
+
+func TestStartManagersBeforeRun(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	st := jam.NewMemStore()
+	if err := st.AddManager(jam.ManagerRecord{Name: "m1", TokenHash: "h1"}); err != nil {
+		t.Fatal(err)
+	}
+	router := fleet.New(log)
+	hub := managers.NewHub(managers.Config{Store: st, Router: router, Version: "dev", Log: log})
+	ran := false
+	err := startManagers(hub, func() {
+		ran = true
+		if !router.HasManager("m1") {
+			t.Error("run called before the stored manager m1 was registered")
+		}
+	})
+	if err != nil || !ran {
+		t.Fatalf("err=%v ran=%v", err, ran)
+	}
+
+	// A failing Start (m1 already taken in the router) returns its error and
+	// never calls run.
+	bad := fleet.New(log)
+	if err := bad.Add(namedManager{placeholderLauncher{}, "m1"}); err != nil {
+		t.Fatal(err)
+	}
+	hub2 := managers.NewHub(managers.Config{Store: st, Router: bad, Log: log})
+	ran = false
+	if err := startManagers(hub2, func() { ran = true }); err == nil || ran {
+		t.Fatalf("want error and no run, got err=%v ran=%v", err, ran)
+	}
+}
+
+type namedManager struct {
+	placeholderLauncher
+	name string
+}
+
+func (m namedManager) Name() string  { return m.name }
+func (namedManager) Available() bool { return true }
