@@ -36,3 +36,5 @@
 /internal/jam/uiassets/app.old/
 !/internal/jam/uiassets/app/.keep
 /web/whiteboard/node_modules/
+/web/app/node_modules/
+/web/app/dist/
