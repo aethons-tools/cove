@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
@@ -209,5 +209,44 @@ describe("Composer drafts during a send", () => {
     release();
     await waitFor(() => expect(box.value).toBe("two")); // the top pops back
     expect(JSON.parse(sessionStorage.getItem("me-drafts:chn_a")!)).toEqual([{ text: "one", sel: 3 }]);
+  });
+});
+describe("Composer discuss", () => {
+  function mountWithRef() {
+    const client = new QueryClient();
+    const ref: { current: import("./Composer").ComposerHandle | null } = { current: null };
+    render(
+      <MantineProvider theme={theme}><Notifications />
+        <QueryClientProvider client={client}><Composer ref={ref} to="chn_a" label="eng" attachMax={0} /></QueryClientProvider>
+      </MantineProvider>,
+    );
+    return { ref, box: screen.getByRole("textbox", { name: "Message eng" }) as HTMLTextAreaElement };
+  }
+
+  it("prefills an empty box, carries replyTo once, then clears it", async () => {
+    const bodies: unknown[] = [];
+    server.use(http.post("/app/user/api/messages", async ({ request }) => { bodies.push(await request.json()); return HttpResponse.json({ channel: "chn_a", seq: 1 }, { status: 201 }); }));
+    const { ref, box } = mountWithRef();
+    act(() => ref.current!.discuss("ask_1", "Merge PR #12?"));
+    expect(box.value).toBe("re: Merge PR #12?\n");
+    expect(screen.getByText(/Replying about: Merge PR #12\?/)).toBeInTheDocument();
+    await userEvent.type(box, "not yet");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({ to: "chn_a", body: "re: Merge PR #12?\nnot yet", replyTo: "ask_1" });
+    await waitFor(() => expect(screen.queryByText(/Replying about/)).toBeNull());
+    await userEvent.type(box, "next");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toEqual({ to: "chn_a", body: "next" });
+  });
+
+  it("never overwrites text already in the box, and ✕ drops the reply", async () => {
+    const { ref, box } = mountWithRef();
+    await userEvent.type(box, "my own words");
+    act(() => ref.current!.discuss("ask_1", "Merge?"));
+    expect(box.value).toBe("my own words");
+    await userEvent.click(screen.getByRole("button", { name: "Stop replying about Merge?" }));
+    expect(screen.queryByText(/Replying about/)).toBeNull();
   });
 });

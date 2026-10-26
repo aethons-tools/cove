@@ -1,14 +1,14 @@
 import { Button, Center, Divider, ScrollArea, Text } from "@mantine/core";
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react";
-import type { MessageRow } from "../api/types";
+import type { AskCard, MessageRow } from "../api/types";
 import { Message } from "./Message";
 import { dayLabel, sameDay } from "./days";
 
 // MessageList shows the messages oldest-first with day dividers. It opens
 // at the newest, stays pinned there while new ones arrive (unless the reader
 // scrolled up), and keeps position when older ones load above.
-export function MessageList({ messages, channel, earlier, loadingEarlier, onEarlier, stickToEnd }: {
-  messages: MessageRow[]; channel: string; earlier: boolean; loadingEarlier: boolean; onEarlier: () => void; stickToEnd?: number;
+export function MessageList({ messages, channel, earlier, loadingEarlier, onEarlier, stickToEnd, onDiscuss }: {
+  messages: MessageRow[]; channel: string; earlier: boolean; loadingEarlier: boolean; onEarlier: () => void; stickToEnd?: number; onDiscuss?: (c: AskCard) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -39,7 +39,7 @@ export function MessageList({ messages, channel, earlier, loadingEarlier, onEarl
       {messages.map((m, i) => (
         <Fragment key={m.seq}>
           {(i === 0 || !sameDay(messages[i - 1]!.time, m.time)) && <Divider my="xs" label={dayLabel(m.time)} labelPosition="center" />}
-          <Message m={m} channel={channel} />
+          <Message m={m} channel={channel} onDiscuss={onDiscuss} />
         </Fragment>
       ))}
     </ScrollArea>

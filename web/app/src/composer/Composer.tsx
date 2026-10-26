@@ -1,7 +1,7 @@
-import { ActionIcon, Button, Checkbox, Group, Paper, Textarea } from "@mantine/core";
+import { ActionIcon, Button, Checkbox, CloseButton, Group, Paper, Text, Textarea } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { apiPost, ApiError } from "../api/client";
 import type { MessageSent, SendMessageRequest } from "../api/types";
 import { asCodeBlock } from "./fence";
@@ -13,7 +13,10 @@ import { upload } from "./upload";
 // Composer is the reply box for `to` (a channel id, or user:/session: for a
 // new message). Text is kept per recipient (drafts.ts); a failed send keeps
 // everything and says why.
-export function Composer({ to, label, attachMax, onSent }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void }) {
+// ComposerHandle lets the conversation start a reply about an ask (Discuss).
+export type ComposerHandle = { discuss(id: string, question: string): void };
+
+export function Composer({ to, label, attachMax, onSent, ref }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void; ref?: Ref<ComposerHandle> }) {
   const mac = keys.isMac();
   const client = useQueryClient();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -22,6 +25,7 @@ export function Composer({ to, label, attachMax, onSent }: { to: string; label: 
   const [plain, setPlain] = useState(false);
   const [drafts, setDraftsState] = useState(() => loadDrafts(to));
   const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState<{ id: string; question: string } | null>(null);
   const [files, setFiles] = useState<Pending[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
@@ -56,6 +60,20 @@ export function Composer({ to, label, attachMax, onSent }: { to: string; label: 
   const draftsRef = useRef(drafts);
   const setDrafts = (d: typeof drafts) => { draftsRef.current = d; setDraftsState(d); saveDrafts(to, d); };
 
+  // discuss starts a reply about an ask: it carries replyTo, and an empty
+  // box gets a "re:" line (as the old Inbox's meDiscuss); text already
+  // there is never overwritten.
+  useImperativeHandle(ref, () => ({
+    discuss(id: string, question: string) {
+      setReplyTo({ id, question });
+      if (!box.current?.value.trim()) setText(`re: ${question}\n`);
+      requestAnimationFrame(() => {
+        const b = box.current;
+        if (b) { b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
+      });
+    },
+  }));
+
   const push = () => {
     if (!text.trim()) return false;
     setDrafts([...draftsRef.current, { text, sel: box.current?.selectionStart ?? text.length }]);
@@ -78,12 +96,13 @@ export function Composer({ to, label, attachMax, onSent }: { to: string; label: 
     const refs = files.flatMap((f) => (f.ref ? [f.ref] : []));
     if ((!body && refs.length === 0) || sending) return;
     setSending(true);
-    const req: SendMessageRequest = { to, body, ...(plain ? { contentType: "text/plain" } : {}), ...(refs.length ? { attachments: refs } : {}) };
+    const req: SendMessageRequest = { to, body, ...(plain ? { contentType: "text/plain" } : {}), ...(refs.length ? { attachments: refs } : {}), ...(replyTo ? { replyTo: replyTo.id } : {}) };
     try {
       const sent = await apiPost<MessageSent>("messages", req);
       setText("");
       setPlain(false);
       setFiles([]);
+      setReplyTo(null);
       pop("");
       void client.invalidateQueries({ queryKey: ["conversation", sent.channel] });
       void client.invalidateQueries({ queryKey: ["rail"] });
@@ -102,6 +121,12 @@ export function Composer({ to, label, attachMax, onSent }: { to: string; label: 
         if (attachMax > 0 && e.dataTransfer.files.length) { e.preventDefault(); attach(e.dataTransfer.files); }
       }}>
       <AttachmentChips items={files} onRemove={remove} />
+      {replyTo && (
+        <Group gap={4} mb={4}>
+          <Text size="xs" c="dimmed">Replying about: {replyTo.question}</Text>
+          <CloseButton size="xs" aria-label={`Stop replying about ${replyTo.question}`} onClick={() => setReplyTo(null)} />
+        </Group>
+      )}
       {drafts.length > 0 && (
         <Button size="compact-xs" variant="light" mb={4} title={`Restore the top stacked draft (${mac ? "⌘↑" : "Ctrl+↑"}) — the box must be empty`} onClick={() => pop()}>
           ↩ {drafts.length} stacked draft{drafts.length === 1 ? "" : "s"}

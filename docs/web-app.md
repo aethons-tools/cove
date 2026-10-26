@@ -22,6 +22,7 @@ Until the cutover it is served at **`/app/next/`** beside the current inbox, beh
   - `src/App.tsx` holds the client routes under `/app/next/`. `src/start.tsx` boots the app (bootstrap, then the router) and shows why when the bootstrap can't load.
   - `src/conversation/` is the conversation pane: `useConversation` pages newest-first with `useInfiniteQuery` (a refetch refreshes every loaded page), and `MessageBody` is the one inner-HTML site.
   - `src/composer/` is the reply box: pure `fence`, `drafts` (the old Inbox's sessionStorage keys, `me-reply:`/`me-drafts:`), `keys` and `upload` (XHR to `/app/user/uploads`) modules under `Composer`. `src/compose/` is New message. `POST /app/user/api/messages` shares `jam.ParticipantSendHandler.Send` with `/app/user/send`, and answers where the message went.
+  - `src/asks/` holds the ask cards (`AskCardView`: answer with an option, or Other… plus a comment; Discuss) and the open-asks panel. `POST /app/user/api/asks/{id}/answer` shares `answerOutcome` with the HTML route.
   - `src/sounds/` ports `sounds.js`, keeping its localStorage (`jam-sounds`) and IndexedDB (`jam`/`prefs`) contract with the service worker.
   - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`), with the 30 s `POLL_MS` as the fallback.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).

@@ -124,6 +124,9 @@ func lists(conv Conversation) Conversation {
 	if conv.CallIn == nil {
 		conv.CallIn = []NewMessageOption{}
 	}
+	if conv.OpenAsks == nil {
+		conv.OpenAsks = []AskCard{}
+	}
 	return conv
 }
 

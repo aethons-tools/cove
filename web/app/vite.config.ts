@@ -26,5 +26,7 @@ export default defineConfig({
   server: {
     proxy: { "/app/user": toJam, "/app/auth": toJam, "/app/static": toJam },
   },
-  test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"], css: false },
+  // Full-app renders (Mantine + router + MSW) run seconds each under a
+  // parallel run: a 15 s ceiling instead of the 5 s default.
+  test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"], css: false, testTimeout: 15_000 },
 });
