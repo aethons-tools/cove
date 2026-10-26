@@ -474,18 +474,34 @@ type CoveRaiseParams struct {
 // draft's test build first.
 const draftRaiseTimeout = 30 * time.Minute
 
+// placementMargin is the time a request keeps beyond its placement timeout for
+// the rest of the raise (launch, enrollment, the answer).
+const placementMargin = 30 * time.Second
+
+// withPlacementWait returns a client whose timeout is the larger of floor and
+// the placement timeout plus placementMargin, so the client does not give up on
+// a raise Jam is still placing. An unparsable timeout leaves floor (Jam answers
+// 400).
+func (c *Client) withPlacementWait(floor time.Duration, placementTimeout string) *http.Client {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = floor
+	if d, err := time.ParseDuration(placementTimeout); err == nil && d > 0 && d+placementMargin > floor {
+		hc.Timeout = d + placementMargin
+	}
+	return &hc
+}
+
 // RaiseCove raises a managed cove for a role and returns its runtime result
 // (including the identity token, once). A draft studio's raise (KitDraft)
 // may build its image first, so it waits up to draftRaiseTimeout.
 func (c *Client) RaiseCove(p CoveRaiseParams) (jam.CoveRaiseResult, error) {
 	var res jam.CoveRaiseResult
 	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, KitDraft: p.KitDraft, Managers: p.Managers, PlacementTimeout: p.PlacementTimeout}
-	httpc := c.httpc
+	floor := c.httpc.Timeout
 	if p.KitDraft != "" {
-		hc := *c.httpc // keeps the Transport
-		hc.Timeout = draftRaiseTimeout
-		httpc = &hc
+		floor = draftRaiseTimeout
 	}
+	httpc := c.withPlacementWait(floor, p.PlacementTimeout)
 	err := c.doWith(httpc, "POST", "/admin/coves", body, &res)
 	return res, err
 }
@@ -522,7 +538,7 @@ func (c *Client) TeardownCove(id string) error {
 // login. The prompt travels in the request body, never on argv.
 func (c *Client) RequestPersonalSession(b jam.PersonalSessionBody) (jam.PersonalSessionResult, error) {
 	var res jam.PersonalSessionResult
-	err := c.do("POST", "/admin/sessions/personal", b, &res)
+	err := c.doWith(c.withPlacementWait(c.httpc.Timeout, b.PlacementTimeout), "POST", "/admin/sessions/personal", b, &res)
 	return res, err
 }
 
