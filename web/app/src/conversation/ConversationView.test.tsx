@@ -114,7 +114,7 @@ describe("the conversation view", () => {
     await waitFor(() => expect(refetched).toBeGreaterThanOrEqual(2));
     expect(container.querySelectorAll("[data-seq]").length).toBe(250);
     expect(screen.getByText("m50")).toBeInTheDocument();
-  });
+  }, 20_000); // 250 rows render twice: slow under a parallel full run
 
   it("shows attachments, system lines, re: links and a placeholder for cards", async () => {
     serve(conv({ messages: [

@@ -2,6 +2,7 @@ import { Badge, Button, Loader, NavLink, ScrollArea, Stack, Text } from "@mantin
 import { useDisclosure } from "@mantine/hooks";
 import type { ReactNode } from "react";
 import { RecipientPicker } from "../compose/RecipientPicker";
+import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
 import { Problem } from "../Problem";
@@ -11,6 +12,7 @@ export function Rail() {
   const { data, error, isPending } = useRail(channel);
   const here = useLocation();
   const [picking, picker] = useDisclosure(false);
+  useChimes(data, channel);
   // The New message button heads every state of the rail, so a member with
   // no conversations yet can start one.
   const frame = (body: ReactNode) => (
