@@ -117,3 +117,153 @@ describe("the session header", () => {
     expect(screen.getByRole("menuitem", { name: "Upgrade" })).toBeInTheDocument();
   });
 });
+
+const mockNarrow = (narrow: boolean) =>
+  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+    matches: narrow && query === "(max-width: 900px)", media: query, onchange: null,
+    addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
+  }) as unknown as MediaQueryList);
+const saved = (key: string) => JSON.parse(localStorage.getItem("jam-pane:" + key)!) as Record<string, unknown>;
+
+describe("the session pane", () => {
+  it("opens from a tab, toggles closed, moves below, and is remembered per session", async () => {
+    serve(head(), { status: pane("status", { status: [{ name: "Turns", value: "12 (3 episodes)" }] }) });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Status" }));
+    const aside = await screen.findByRole("complementary", { name: "Session pane" });
+    expect(await within(aside).findByText("12 (3 episodes)")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Status" })).toHaveAttribute("aria-selected", "true");
+    expect(saved("ses_1")).toEqual({ tab: "status", place: "right" });
+    await user.click(within(aside).getByRole("button", { name: "Move the pane right or below" }));
+    expect(aside.closest("[data-place]")).toHaveAttribute("data-place", "below");
+    expect(screen.getByRole("separator")).toHaveAttribute("aria-orientation", "horizontal");
+    await user.click(screen.getByRole("tab", { name: "Status" }));
+    expect(screen.queryByRole("complementary", { name: "Session pane" })).toBeNull();
+    expect(saved("last")).toEqual({ tab: null, place: "below" });
+  });
+
+  it("resizes from the keyboard, 24px a step, and keeps the size", async () => {
+    localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "status", place: "right", w: 400 }));
+    serve(head());
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    const div = await screen.findByRole("separator", { name: "Resize the session pane" });
+    expect(div).toHaveAttribute("aria-orientation", "vertical");
+    // jsdom lays nothing out: clamp against a stubbed rect.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1200, height: 800 } as DOMRect);
+    div.focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(saved("ses_1").w).toBe(424);
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(saved("ses_1").w).toBe(376);
+    expect(screen.getByRole("complementary", { name: "Session pane" }).style.flexBasis).toBe("376px");
+  });
+
+  it("saves a drag's final size on release", async () => {
+    localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "status", place: "right", w: 400 }));
+    serve(head());
+    renderApp(boot, "/app/next/c/chn_s");
+    const div = await screen.findByRole("separator", { name: "Resize the session pane" });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1200, height: 800, right: 1200, bottom: 800 } as DOMRect);
+    div.setPointerCapture = () => {};
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.pointerDown(div, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(div, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(div, { clientX: 650, pointerId: 1 });
+    fireEvent.pointerUp(div, { pointerId: 1 });
+    expect(saved("ses_1").w).toBe(550);
+  });
+
+  it("starts a session never opened from the last layout; ?tab= opens a tab and is kept", async () => {
+    localStorage.setItem("jam-pane:last", JSON.stringify({ tab: "previews", place: "below" }));
+    serve(head());
+    renderApp(boot, "/app/next/c/chn_s?tab=artifacts");
+    const aside = await screen.findByRole("complementary", { name: "Session pane" });
+    expect(await within(aside).findByText("Nothing shared here yet.")).toBeInTheDocument();
+    expect(saved("ses_1")).toEqual({ tab: "artifacts", place: "below" });
+  });
+
+  it("keeps a remembered Studio closed without the Studio tab, and its layout unchanged", async () => {
+    localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "studio", place: "right", w: 700 }));
+    serve(head({ studio: false }));
+    renderApp(boot, "/app/next/c/chn_s?tab=studio");
+    await screen.findByRole("region", { name: "Session" });
+    expect(screen.queryByRole("complementary", { name: "Session pane" })).toBeNull();
+    expect(saved("ses_1")).toEqual({ tab: "studio", place: "right", w: 700 });
+  });
+
+  it("puts the pane below in a narrow window, without the ⇄ button or changing the saved place", async () => {
+    mockNarrow(true);
+    localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "status", place: "right" }));
+    serve(head());
+    renderApp(boot, "/app/next/c/chn_s");
+    const aside = await screen.findByRole("complementary", { name: "Session pane" });
+    expect(aside.closest("[data-place]")).toHaveAttribute("data-place", "below");
+    expect(within(aside).queryByRole("button", { name: "Move the pane right or below" })).toBeNull();
+    expect(saved("ses_1").place).toBe("right");
+  });
+
+  it("lists previews, artifacts and status, and links Thinking to the current Inbox", async () => {
+    serve(head(), {
+      previews: pane("previews", { previews: [{ name: "web", url: "https://web--ses_1.preview.test/", port: 5173, frame: true }] }),
+      artifacts: pane("artifacts", {
+        boards: [{ id: "brd_1", title: "Plan", channel: "chn_s" }],
+        files: [{ id: "blb_1", name: "shot.png", size: "12 KB", image: true }, { id: "blb_2", name: "log.txt", size: "3 KB", image: false }],
+        asks: [{ id: "ask_1", question: "Merge it?", state: "open" }],
+        links: [{ url: "https://github.com/aethons-tools/cove/pull/472", label: "cove PR #472" }],
+      }),
+    });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Previews" }));
+    const web = await screen.findByRole("link", { name: /web.*port 5173/ });
+    expect(web).toHaveAttribute("href", "https://web--ses_1.preview.test/");
+    expect(web).toHaveAttribute("target", "_blank");
+    expect(web).toHaveAttribute("rel", "noopener");
+    await user.click(screen.getByRole("tab", { name: "Artifacts" }));
+    expect(await screen.findByRole("link", { name: /Plan/ })).toHaveAttribute("href", "/app/user/?c=chn_s&board=brd_1");
+    expect(screen.getByRole("img", { name: "shot.png" })).toHaveAttribute("src", "/app/user/blobs/blb_1");
+    expect(screen.getByRole("link", { name: /log\.txt/ })).toHaveAttribute("download");
+    expect(screen.getByRole("link", { name: "cove PR #472" })).toHaveAttribute("title", "https://github.com/aethons-tools/cove/pull/472");
+    const target = document.createElement("div");
+    target.id = "ask-ask_1";
+    target.scrollIntoView = vi.fn();
+    document.body.append(target);
+    await user.click(screen.getByRole("button", { name: /Merge it\?/ }));
+    expect(target.scrollIntoView).toHaveBeenCalled();
+    target.remove();
+    await user.click(screen.getByRole("tab", { name: "Thinking" }));
+    expect(await screen.findByRole("link", { name: "Open it in the current Inbox" })).toHaveAttribute("href", "/app/user/?c=chn_s&tab=thinking");
+  });
+
+  it("says when previews are off", async () => {
+    serve(head(), { previews: pane("previews", { previewsOff: true }) });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await user.click(await screen.findByRole("tab", { name: "Previews" }));
+    expect(await screen.findByText("Previews aren't available to you here.")).toBeInTheDocument();
+  });
+
+  it("drops the header and pane once the session is gone, keeping the conversation", async () => {
+    let live = true;
+    localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "status", place: "right" }));
+    const posts = serve(() => (live ? head({ canRelease: true }) : null));
+    server.use(http.post("/app/user/api/sessions/:id/:action", ({ params }) => {
+      posts.push(params.action as string);
+      live = false;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s");
+    await screen.findByRole("complementary", { name: "Session pane" });
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Release" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Release" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Session" })).toBeNull());
+    expect(screen.queryByRole("complementary", { name: "Session pane" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "intercom-spider" })).toBeInTheDocument(); // the conversation stays
+    expect(screen.queryByText("no such session")).toBeNull(); // a gone session is not an error
+    expect(posts).toEqual(["release"]);
+  });
+});
