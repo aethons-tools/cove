@@ -17,15 +17,19 @@ func TestTrackersShareTheInterface(t *testing.T) {
 	for _, c := range Both(t) {
 		t.Run(c.Kind, func(t *testing.T) {
 			ready, err := c.Tracker.ListReady(ctx)
-			if err != nil || len(ready) != 2 { // GitHub's PR #3 is never listed
-				t.Fatalf("ListReady = %+v, %v; want the two open ready issues", ready, err)
+			// Linear lists the unlabeled ready issue too (flagged); GitHub
+			// gates on the dispatch label before resolving blockers, so it
+			// lists only the labeled one. GitHub's PR #3 is never listed.
+			want := map[string]int{tracker.KindLinear: 2, tracker.KindGitHub: 1}[c.Kind]
+			if err != nil || len(ready) != want {
+				t.Fatalf("ListReady = %+v, %v; want %d open ready issues", ready, err, want)
 			}
 			i := slices.IndexFunc(ready, func(is scheduler.Issue) bool { return is.Identifier == c.Key })
 			if i < 0 || !ready[i].DispatchLabeled || ready[i].Class != "impl" || ready[i].Title != "Fix the build" {
 				t.Fatalf("ready = %+v; want %s dispatch-labeled, class impl", ready, c.Key)
 			}
-			if other := ready[1-i]; other.DispatchLabeled {
-				t.Fatalf("unlabeled issue = %+v", other)
+			if len(ready) == 2 && ready[1-i].DispatchLabeled {
+				t.Fatalf("unlabeled issue = %+v", ready[1-i])
 			}
 			id, err := c.Tracker.IssueByIdentifier(ctx, c.Key)
 			if err != nil || id != ready[i].ID {
