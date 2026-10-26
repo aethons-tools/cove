@@ -175,6 +175,11 @@ func TestGlobMatchGitHubTickets(t *testing.T) {
 		{"ticket:acme/board#007", "ticket:acme/board#7", true},
 		{"ticket:acme/board#??", "ticket:acme/board#7", false},
 		{"ticket:GH-Acme/*", "ticket:GH-Acme/acme/board#7", true},
+		// Connection names are case-sensitive: canonicalising a glob never
+		// widens it onto a connection whose name differs only in case.
+		{"ticket:gh/*", "ticket:GH/acme/board#7", false},
+		{"ticket:GH/*", "ticket:gh/acme/board#7", false},
+		{"ticket:GH/*", "ticket:GH/acme/board#7", true},
 	} {
 		if got := globMatch(c.glob, c.form); got != c.want {
 			t.Errorf("globMatch(%q, %q) = %v; want %v", c.glob, c.form, got, c.want)

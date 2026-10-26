@@ -139,12 +139,28 @@ func globMatch(g, f string) bool {
 	if !isGitHubTicketForm(f) {
 		return false
 	}
-	g, f = canonicalGlob(g), strings.ToLower(f)
-	if ok, _ := path.Match(g, f); ok {
-		return true
+	// The form's key is already canonical; a connection name is
+	// case-sensitive. A bare form (ticket:owner/repo#n) is matched by the
+	// canonical glob; a scoped one (ticket:<conn>/owner/repo#n) by the glob
+	// with its first segment (the connection) kept as written.
+	gg := canonicalGlob(g)
+	if rest, ok := strings.CutPrefix(f, "ticket:"); ok && strings.Count(rest, "/") > 1 {
+		if gr, ok := strings.CutPrefix(g, "ticket:"); ok {
+			conn, tail, _ := strings.Cut(gr, "/")
+			gg = "ticket:" + conn + "/" + strings.TrimPrefix(canonicalGlob("ticket:"+tail), "ticket:")
+		} else {
+			gg = g
+		}
 	}
-	ok, _ := path.Match(strings.ReplaceAll(g, "/", "\x00"), strings.ReplaceAll(f, "/", "\x00"))
-	return ok
+	for _, x := range []string{g, gg} {
+		if ok, _ := path.Match(x, f); ok {
+			return true
+		}
+		if ok, _ := path.Match(strings.ReplaceAll(x, "/", "\x00"), strings.ReplaceAll(f, "/", "\x00")); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // leadingZeros matches a #<n>'s leading zeros (not a lone #0).
