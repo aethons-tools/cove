@@ -12,11 +12,13 @@ import (
 // fakeManager is a Manager (and jam.StateKeeper) that records what reaches it.
 // Shared by the router tests.
 type fakeManager struct {
-	name     string
-	avail    atomic.Bool
-	raiseErr error
-	owners   []string
-	asm      string // ImageTag result
+	name       string
+	avail      atomic.Bool
+	raiseErr   error
+	raiseCalls atomic.Int32
+	availCalls atomic.Int32
+	owners     []string
+	asm        string // ImageTag result
 
 	notReadyOnce atomic.Bool  // the next Raise reports jam.ErrKitNotReady
 	prepareState jam.KitState // what PrepareKit reports
@@ -36,8 +38,11 @@ func newFake(name string) *fakeManager {
 	return f
 }
 
-func (f *fakeManager) Name() string    { return f.name }
-func (f *fakeManager) Available() bool { return f.avail.Load() }
+func (f *fakeManager) Name() string { return f.name }
+func (f *fakeManager) Available() bool {
+	f.availCalls.Add(1)
+	return f.avail.Load()
+}
 
 func (f *fakeManager) rec(dst *[]string, s string) {
 	f.mu.Lock()
@@ -52,6 +57,7 @@ func (f *fakeManager) get(src *[]string) []string {
 }
 
 func (f *fakeManager) Raise(_ context.Context, spec jam.RaiseSpec, _ jam.LaunchCreds) (string, error) {
+	f.raiseCalls.Add(1)
 	if f.raiseErr != nil {
 		return "", f.raiseErr
 	}

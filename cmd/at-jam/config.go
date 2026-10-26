@@ -140,6 +140,7 @@ type serveConfig struct {
 		LeaseTTL          string               `yaml:"lease-ttl"`
 		ReconcileInterval string               `yaml:"reconcile-interval"`
 		Launcher          *launcherConfig      `yaml:"launcher"`
+		StudioManagers    bool                 `yaml:"studio-managers"` // accept remote Studio Manager connections
 		Requisitioner     *requisitionerConfig `yaml:"requisitioner"`
 		// DeprecatedDispatcher is runtime.requisitioner's pre-rename name,
 		// accepted for one release with a warning (both set is an error);

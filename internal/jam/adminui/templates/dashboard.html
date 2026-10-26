@@ -24,6 +24,26 @@
 {{end}}
 {{template "attention-card" frame.Items}}
 {{template "context-panel" .JamContext}}
+{{if .HasManagers}}
+<h2>Managers</h2>
+<div class="card" id="managers">
+<table>
+  <thead><tr><th>Manager</th><th>Status</th><th>Version</th><th>Studios</th><th>Last seen</th><th>Strays</th></tr></thead>
+  <tbody>
+    {{range .Managers}}
+    <tr data-manager="{{.Name}}">
+      <td><b class="mono">{{.Name}}</b>{{if .Local}} <span class="sub">in-process</span>{{end}}</td>
+      <td>{{if .Connected}}<span class="pill phase-live">connected</span>{{else}}<span class="pill phase-lost">disconnected</span>{{end}}</td>
+      <td>{{if .Version}}<span class="mono">{{.Version}}</span>{{else}}<span class="none">—</span>{{end}}</td>
+      <td>{{.Studios}}{{if .Capacity}}/{{.Capacity}}{{end}}</td>
+      <td>{{if .LastSeen.IsZero}}<span class="none">—</span>{{else}}<time title="{{.LastSeen.Format "2006-01-02 15:04:05 MST"}}">{{.LastSeen.Format "15:04:05"}}</time>{{end}}</td>
+      <td>{{if .Strays}}<span title="{{range $i, $s := .Strays}}{{if $i}}, {{end}}{{$s.ActorID}}{{end}}">{{len .Strays}}</span>{{else}}<span class="none">0</span>{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
 <h2>Running agents</h2>
 {{template "coves-table" .}}
 {{end}}

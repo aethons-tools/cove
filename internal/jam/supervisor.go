@@ -1677,7 +1677,8 @@ func (s *Supervisor) roleEgress(inst Instance) (*EgressPolicy, bool) {
 
 // reconcileEgress re-applies inst's role egress policy when it has drifted from
 // the one the cove is running under (inst.Egress). Success records the new
-// fingerprint; a failure is counted and retried next pass, and the
+// fingerprint; an unavailable manager is retried next pass without counting;
+// any other failure is counted and retried next pass, and the
 // egressMaxFailures-th consecutive one tears the cove down (fail closed — a
 // standing session is raised again under the new policy by its reconciler).
 //
@@ -1701,6 +1702,14 @@ func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
 		s.patchEgress(inst.ActorID, func(cur *Instance) { cur.Egress, cur.EgressFailures = fp, 0 })
 		s.logEgressApplied(inst, want)
 		s.recordEgress(inst, want)
+		return
+	}
+	if errors.Is(err, ErrManagerUnavailable) {
+		// The manager is away, which says nothing about the policy: the stale
+		// fingerprint makes the first pass after it reconnects re-apply.
+		if s.log != nil {
+			s.log.Debug("egress re-apply deferred: manager unavailable", "id", inst.ActorID, "manager", inst.Manager)
+		}
 		return
 	}
 	failures := 0
