@@ -97,7 +97,7 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["expose"] || !names["unexpose"] || !names["exposures"] || !names["report"] || !names["call_in"] || !names["leave"] {
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["expose"] || !names["unexpose"] || !names["exposures"] || !names["report"] || !names["call_in"] || !names["leave"] || !names["mission"] {
 		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
@@ -735,5 +735,16 @@ func TestIntercomToolsMatchJam(t *testing.T) {
 	slices.Sort(got)
 	if !slices.Equal(got, jam.IntercomTools) {
 		t.Fatalf("cove-master mcp tools = %v\njam.IntercomTools  = %v", got, jam.IntercomTools)
+	}
+}
+
+func TestMCPMissionForwardsText(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.mission(context.Background(), "fixing login"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/mission" || !strings.Contains(b, `"text":"fixing login"`) {
+		t.Fatalf("%s %s %s", m, p, b)
 	}
 }
