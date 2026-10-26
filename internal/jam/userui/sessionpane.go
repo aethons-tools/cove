@@ -37,6 +37,13 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	pane := h.buildPane(r, p, inst, home, tab)
+	h.render(w, "sessionpane", inboxPage{Pane: &pane})
+}
+
+// buildPane is tab of inst's pane for p (tab one of paneTabs; home is
+// inst's home channel), shared by the HTML and API routes.
+func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, home, tab string) SessionPane {
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
 	case "studio":
@@ -58,7 +65,30 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 	case "status":
 		h.paneStatus(inst, &pane)
 	}
-	h.render(w, "sessionpane", inboxPage{Pane: &pane})
+	return pane
+}
+
+// paneLists makes pane's lists [] where empty (types.ts says T[], never null).
+func paneLists(p SessionPane) SessionPane {
+	if p.Previews == nil {
+		p.Previews = []PreviewLink{}
+	}
+	if p.Boards == nil {
+		p.Boards = []PaneBoard{}
+	}
+	if p.Files == nil {
+		p.Files = []FileChip{}
+	}
+	if p.Asks == nil {
+		p.Asks = []PaneAsk{}
+	}
+	if p.Links == nil {
+		p.Links = []PaneLink{}
+	}
+	if p.Status == nil {
+		p.Status = []StatusRow{}
+	}
+	return p
 }
 
 func (h *handler) panePreviews(r *http.Request, p jam.Participant, inst jam.Instance, pane *SessionPane) {
