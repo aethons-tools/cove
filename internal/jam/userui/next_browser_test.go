@@ -21,6 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
@@ -407,6 +408,83 @@ func TestBrowserNextSessionPane(t *testing.T) {
 	}
 	if !l.Open || l.Place != "below" {
 		t.Fatalf("new session: %+v", l)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// The app's Thinking tab: the backfill (agent markup inert), a tool call with
+// its result folded in, a live event, and Load earlier — under the CSP.
+func TestBrowserNextThinking(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p, personal, store, hub := thinkEnv(t)
+	old := thinkingTail
+	thinkingTail = 5
+	t.Cleanup(func() { thinkingTail = old })
+	actor, cur := personal.ActorID, strings.Repeat("c", 32)
+	t0 := time.Now().Add(-time.Minute)
+	add := func(seq uint64, raw []byte, ix sessionevents.Index, at time.Duration) {
+		t.Helper()
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: seq, Turn: 1, Kind: sessionevents.KindEvent, ObservedAt: t0.Add(at), ReceivedAt: t0.Add(at), Raw: raw, Index: ix}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for s := uint64(1); s <= 4; s++ {
+		add(s, assistantBlock(map[string]any{"type": "text", "text": fmt.Sprintf("early %d", s)}), sessionevents.Index{Type: "assistant"}, time.Duration(s)*time.Millisecond)
+	}
+	add(5, assistantBlock(map[string]any{"type": "text", "text": `<img src=x onerror="document.title='pwned'">`}), sessionevents.Index{Type: "assistant"}, time.Second)
+	add(6, assistantBlock(map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "go test ./..."}}), sessionevents.Index{Type: "assistant", ToolName: "Bash"}, 2*time.Second)
+	add(7, toolResultBlock("tu1", "ok  \tpkg\t0.1s", false), sessionevents.Index{Type: "user", ToolName: "Bash"}, 5100*time.Millisecond)
+
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	text := `document.querySelector('[role="log"][aria-label="Session events"]').textContent`
+	var problems pageProblems
+	var title, status string
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 900),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)+"?tab=thinking"),
+		has(`!!document.querySelector('[role="log"][aria-label="Session events"]') && `+text+`.includes('go test')`),
+		into(&status, chromedp.Text(chromedp.CSS(`[data-kind="tool_call"] .te-status`))),
+		into(&title, chromedp.Evaluate[string](`document.title`)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(status, "✓ 3.1s") || title == "pwned" {
+		t.Fatalf("status %q, title %q", status, title)
+	}
+	// A live event, then the page below the tail.
+	live := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: 8, Turn: 2, Kind: sessionevents.KindEvent, ObservedAt: time.Now(), ReceivedAt: time.Now(),
+		Raw: assistantBlock(map[string]any{"type": "text", "text": "live 8"}), Index: sessionevents.Index{Type: "assistant"}}
+	if err := store.Append(live); err != nil {
+		t.Fatal(err)
+	}
+	hub.Publish(live)
+	if err := chromedp.Do(ctx,
+		has(text+`.includes('live 8')`),
+		chromedp.Click(chromedp.CSS(`.te-more`)),
+		has(text+`.includes('early 2')`),
+	); err != nil {
+		t.Fatal(err)
 	}
 	for _, pr := range problems.all() {
 		t.Errorf("page problem: %s", pr)
