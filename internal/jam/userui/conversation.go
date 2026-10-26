@@ -2,7 +2,6 @@ package userui
 
 import (
 	"fmt"
-	"html/template"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -10,36 +9,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/squawkrender"
 )
-
-// MessageRow is one squawk in the conversation pane, from the viewer's side.
-type MessageRow struct {
-	From string
-	Body template.HTML // rendered per the squawk's content type (squawkrender)
-	Raw  string        // the body as sent, for the Markdown copy (escaped by the template)
-	// Plain marks a text/plain squawk, shown literally with its whitespace.
-	Plain bool
-	At    string
-	Mine  bool
-	Seq   int64
-	// Ask is the card of an ask's own squawk; System marks an ask's later
-	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
-	Ask     *AskCard
-	System  bool
-	SysText string // a System row's line
-	ReAsk   *AskRef
-	// Files are the message's attachments.
-	Files []FileChip
-	// Board is a board's card (the squawk that started it).
-	Board *BoardCard
-	// Channel is the conversation's id (a board card links into it).
-	Channel string
-}
-
-// FileChip is one attachment of a message: an inline image or a download.
-type FileChip struct {
-	ID, Name, Size string
-	Image          bool
-}
 
 // fileChips are m's attachments; files-only reports whether m's text is
 // just their names (the fallback body), which then isn't shown again.
@@ -66,35 +35,6 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
-// Conversation is the right-pane view of one open channel.
-type Conversation struct {
-	ChannelID   string
-	Label       string
-	Kind        jam.ChannelKind
-	Project     string
-	Phase       string
-	NeedsYou    bool
-	SendTo      string // what the composer POSTs to /app/user/send ("" = read-only History)
-	Messages    []MessageRow
-	HasMessages bool
-	LastSeq     int64
-	// SessionIDs are the sessions taking part; Sessions is their presence
-	// strip (filled by the handler, which holds the Presence source).
-	SessionIDs []string
-	Sessions   []SessionRow
-	OpenAsks   []AskCard // the channel's open asks (the panel above the stream)
-	// Membership controls: Join (a channel they can see but aren't in),
-	// Leave (one they're in; never a chat), and who they may call in.
-	CanJoin, CanLeave bool
-	CallIn            []NewMessageOption
-	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
-	// and the editor is built); Board is the board ?board= opened.
-	NewBoard bool
-	Board    *BoardEditor
-	// Head is the session header when this is a session's home channel.
-	Head *SessionHead
-}
-
 func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
 	return MessageRow{
 		From:  from,
@@ -102,6 +42,7 @@ func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
 		Raw:   m.Body,
 		Plain: squawkrender.IsPlain(m.ContentType),
 		At:    m.At.Format("15:04"),
+		Time:  m.At,
 		Mine:  mine,
 		Seq:   m.Seq,
 	}
@@ -130,6 +71,12 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		decorateAsk(&row, p, d, m)
 		if card := boardCard(d, m); card != nil {
 			row.Board, row.Channel = card, channelID
+		}
+		switch {
+		case row.Board != nil:
+			row.Card = "board"
+		case row.Ask != nil:
+			row.Card = "ask"
 		}
 		if chips, filesOnly := fileChips(m); len(chips) > 0 {
 			row.Files = chips
@@ -209,14 +156,6 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 	}
 	conv.HasMessages = len(conv.Messages) > 0
 	return conv, true
-}
-
-// NewMessageOption is one recipient offered in the New Message picker.
-type NewMessageOption struct {
-	To      string // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
-	Label   string
-	Kind    string
-	Project string
 }
 
 // newMessageOptions lists who the participant can start a conversation

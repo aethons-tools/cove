@@ -1,6 +1,11 @@
 package userui
 
-import "github.com/aethons-tools/cove/internal/jam"
+import (
+	"html/template"
+	"time"
+
+	"github.com/aethons-tools/cove/internal/jam"
+)
 
 // This file holds every type the /app/user/api JSON carries. tygo reads only
 // this file (tygo.yaml) to generate web/app/src/api/types.ts: keep JSON types
@@ -72,4 +77,112 @@ type RailGroup struct {
 	Bucket jam.AttentionBucket `json:"bucket"`
 	Title  string              `json:"title"`
 	Rows   []ChannelRow        `json:"rows"`
+}
+
+// MessageRow is one squawk in the conversation pane, from the viewer's side.
+type MessageRow struct {
+	From string        `json:"from"`
+	Body template.HTML `json:"body"` // rendered per the squawk's content type (squawkrender): the app inserts it as HTML
+	Raw  string        `json:"raw"`  // the body as sent, for the Markdown copy (escaped by the template)
+	// Plain marks a text/plain squawk, shown literally with its whitespace.
+	Plain bool      `json:"plain"`
+	At    string    `json:"at"`   // server-local "15:04" (the templates)
+	Time  time.Time `json:"time"` // when it was sent (the app's day dividers and local times)
+	Mine  bool      `json:"mine"`
+	Seq   int64     `json:"seq"`
+	// Ask is the card of an ask's own squawk; System marks an ask's later
+	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
+	Ask     *AskCard `json:"-"` // the app shows asks from slice 4 (Card says which rows)
+	System  bool     `json:"system"`
+	SysText string   `json:"sysText"` // a System row's line
+	ReAsk   *AskRef  `json:"reAsk,omitempty"`
+	// Files are the message's attachments.
+	Files []FileChip `json:"files,omitempty"`
+	// Board is a board's card (the squawk that started it).
+	Board *BoardCard `json:"-"` // the app shows boards from slice 7 (Card says which rows)
+	// Channel is the conversation's id (a board card links into it).
+	Channel string `json:"-"`
+	// Card names the card this row is ("ask" or "board"; "" = none), so the
+	// app can place what it doesn't render yet.
+	Card string `json:"card"`
+}
+
+// FileChip is one attachment of a message: an inline image or a download.
+type FileChip struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Size  string `json:"size"`
+	Image bool   `json:"image"`
+}
+
+// AskRef points a reply at the ask it discusses.
+type AskRef struct {
+	ID       string `json:"id"`
+	Question string `json:"question"`
+}
+
+// Conversation is the right-pane view of one open channel.
+type Conversation struct {
+	ChannelID   string          `json:"channelId"`
+	Label       string          `json:"label"`
+	Kind        jam.ChannelKind `json:"kind"`
+	Project     string          `json:"project"`
+	Phase       string          `json:"phase"`
+	NeedsYou    bool            `json:"needsYou"`
+	SendTo      string          `json:"sendTo"` // what the composer POSTs to /app/user/send ("" = read-only History)
+	Messages    []MessageRow    `json:"messages"`
+	HasMessages bool            `json:"-"`
+	LastSeq     int64           `json:"lastSeq"`
+	// Earlier: the API page has older messages before its first (GET
+	// api/conversations/{c}?before=<first seq>).
+	Earlier bool `json:"earlier"`
+	// SessionIDs are the sessions taking part; Sessions is their presence
+	// strip (filled by the handler, which holds the Presence source).
+	SessionIDs []string     `json:"sessionIds"`
+	Sessions   []SessionRow `json:"sessions"`
+	OpenAsks   []AskCard    `json:"-"` // the channel's open asks (the panel above the stream)
+	// Membership controls: Join (a channel they can see but aren't in),
+	// Leave (one they're in; never a chat), and who they may call in.
+	CanJoin  bool               `json:"canJoin"`
+	CanLeave bool               `json:"canLeave"`
+	CallIn   []NewMessageOption `json:"callIn"`
+	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
+	// and the editor is built); Board is the board ?board= opened.
+	NewBoard bool         `json:"-"`
+	Board    *BoardEditor `json:"-"`
+	// Head is the session header when this is a session's home channel.
+	Head *SessionHead `json:"-"`
+}
+
+// NewMessageOption is one recipient offered in the New Message picker.
+type NewMessageOption struct {
+	To      string `json:"to"` // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
+	Label   string `json:"label"`
+	Kind    string `json:"kind"`
+	Project string `json:"project"`
+}
+
+// SessionRow is one session's line in the presence strip: "<Label> is <Text>
+// <Tool>". Class is busy (animated dots), wait (needs a human), or dim.
+type SessionRow struct {
+	Label string `json:"label"`
+	Text  string `json:"text"`
+	Tool  string `json:"tool"`
+	Class string `json:"class"`
+}
+
+// PresenceResponse is GET api/conversations/{c}/presence.
+type PresenceResponse struct {
+	Sessions []SessionRow `json:"sessions"`
+}
+
+// ReadRequest is POST api/conversations/{c}/read: the newest seq seen.
+type ReadRequest struct {
+	Seq int64 `json:"seq"`
+}
+
+// CallInRequest is POST api/conversations/{c}/call-in: whom (user:<id> or
+// session:<actor>, one of Conversation.callIn's "to").
+type CallInRequest struct {
+	Who string `json:"who"`
 }
