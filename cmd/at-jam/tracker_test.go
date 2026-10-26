@@ -374,3 +374,79 @@ func TestRouteRecordsAuthorOnTheTrackerConnection(t *testing.T) {
 		t.Fatal("the author is recorded on the other github connection")
 	}
 }
+
+// githubKit is project acme on a GitHub-tracked Jam (gh-acme, repo
+// acme/board) that also has a linear connection: carol holds a linear
+// handle (carol.lin) and a github login (carol-gh); a ticket session on
+// acme/board#1.
+type githubKit struct {
+	st     *jam.MemStore
+	lg     *intercom.Log
+	ic     *jam.Intercom
+	dir    *directory
+	conn   jam.Connection
+	carol  jam.Member
+	ticket jam.Instance
+}
+
+func newGitHubKit(t *testing.T) *githubKit {
+	t.Helper()
+	k := &githubKit{st: jam.NewMemStore()}
+	st := k.st
+	mustCreateProject(t, st, "acme")
+	var err error
+	if k.conn, err = st.CreateConnection(jam.Connection{Kind: "github", Name: "gh-acme"}); err != nil {
+		t.Fatal(err)
+	}
+	lin, err := st.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jam.AddPerson(st, "acme", jam.Human{Name: "carol"}); err != nil {
+		t.Fatal(err)
+	}
+	uid, _ := st.LookupName(ident.User, "carol")
+	for conn, handle := range map[ident.ID]string{lin.ID: "carol.lin", k.conn.ID: "carol-gh"} {
+		a, err := st.UpsertAccount(jam.Account{ConnectionID: conn, Handle: handle})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.LinkAccount(a.ID, uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, _ := st.GetProject("acme")
+	k.carol, _ = jam.MemberOf(st, p.ID, uid)
+	if err := st.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"user:*", "channel:*"}}}); err != nil {
+		t.Fatal(err)
+	}
+	k.ticket = jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: "acme/board#1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting}
+	if err := st.PutInstance(k.ticket); err != nil {
+		t.Fatal(err)
+	}
+	trackerFn := func() (ident.ID, bool) { return k.conn.ID, true }
+	k.lg = intercom.NewMemLog(nil)
+	k.ic = jam.NewIntercom(st, trackerFn, k.lg, nil, nil)
+	if err := k.ic.SetUp(k.ticket); err != nil {
+		t.Fatal(err)
+	}
+	k.dir = &directory{store: st, ic: k.ic, project: "acme", selfIdentity: "jam-bot", tracker: trackerFn, trackerKind: "github"}
+	return k
+}
+
+// Final fix 2: on a GitHub-tracked Jam an escalation @-mentions a member by
+// their github login, not their linear handle.
+func TestSurfacesEscalationUsesTheTrackerKindsHandle(t *testing.T) {
+	k := newGitHubKit(t)
+	if err := k.ic.Escalate(context.Background(), k.ticket, 0, "", []jam.Member{k.carol}); err != nil {
+		t.Fatal(err)
+	}
+	m := k.lg.InboxSince(k.carol.User.ID, 0, 0)
+	if len(m) != 1 {
+		t.Fatalf("carol's inbox = %+v", m)
+	}
+	got := addresses(k.dir.Surfaces("github", m[0]))
+	if want := "@carol-gh "; got["github:acme/board#1"] != want {
+		t.Fatalf("github surfaces = %v; want acme/board#1 prefixed %q", got, want)
+	}
+}

@@ -173,8 +173,8 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 				}
 				continue
 			}
-			if mem.Handle != "" {
-				mentions = append(mentions, "@"+strings.TrimPrefix(mem.Handle, "@"))
+			if h := mem.HandleOn(d.trackerService()); h != "" {
+				mentions = append(mentions, "@"+strings.TrimPrefix(h, "@"))
 			}
 		}
 		// The tracker fallback carries a session's message to a person (the
@@ -234,8 +234,8 @@ func escalationTargets(d *directory, ch jam.Channel, id string) escalated {
 		if !ok {
 			continue
 		}
-		if mem.Handle != "" {
-			out.handles = append(out.handles, "@"+strings.TrimPrefix(mem.Handle, "@"))
+		if h := mem.HandleOn(d.trackerService()); h != "" {
+			out.handles = append(out.handles, "@"+strings.TrimPrefix(h, "@"))
 		}
 		if inbox, ok := mem.Inbox("discord"); ok && discordChat && !slices.Contains(out.inboxes, inbox) {
 			out.inboxes = append(out.inboxes, inbox)

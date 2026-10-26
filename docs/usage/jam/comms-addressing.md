@@ -50,9 +50,10 @@ has two kinds of addressable things:
 - **Members** — users in the Jam-wide [identity registry](roster.md) with a
   membership in the project. A member is addressed by their user name or id
   (`user:<name|usr_id>`). Their tracker `@`-handle is the **account** linked to
-  them on the `linear` connection, or, on a GitHub-tracked Jam, their login on
-  the `github` connection; and their Discord user id is the account on
-  the `discord` connection. Their per-project **delivery** addresses (e.g. a
+  them on the connection of the tracker's kind — their handle on `linear`
+  for a Linear-tracked Jam, their login on `github` for a GitHub-tracked one
+  (whatever handle they hold on the other); and their Discord user id is the
+  account on the `discord` connection. Their per-project **delivery** addresses (e.g. a
   Discord inbox) live on the membership. A user's **logins** link them to
   their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
   behind an admin request, e.g. to own a

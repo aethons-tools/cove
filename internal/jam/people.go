@@ -13,14 +13,21 @@ import (
 // of "humans" (intercom 1a-3e).
 
 // Member is a live user who is a member of a project: their per-project
-// delivery addresses, and the @-handle and Discord user id of the accounts
-// linked to them (on the linear and discord connections).
+// delivery addresses, the @-handles of their accounts on the tracker
+// connections, and the Discord user id of their discord account.
 type Member struct {
 	User       User
 	Delivery   []DeliveryProfile
-	Handle     string // their linear account's @-handle; "" = none
-	DiscordUID string // their discord account's user id; "" = unbound
+	Handle     string            // their @-handle on the store's TrackerConnection; "" = none
+	Handles    map[string]string // tracker kind → their @-handle on that kind's connection
+	DiscordUID string            // their discord account's user id; "" = unbound
 }
+
+// HandleOn is the member's @-handle on the tracker of kind ("" = none).
+// The relay mentions people on the tracker serve resolved with it: a
+// GitHub-tracked Jam's mention is the github login, whatever linear handle
+// the member also holds.
+func (m Member) HandleOn(kind string) string { return m.Handles[kind] }
 
 // Inbox is the member's address on service (for "discord", the inbox channel
 // Jam posts their chats to).
@@ -58,11 +65,16 @@ func MemberOf(store Store, project, user ident.ID) (Member, bool) {
 	}
 	ms, _ := store.GetMembership(project, user)
 	m := Member{User: u, Delivery: slices.Clone(ms.Delivery)}
-	for _, kind := range TrackerKinds { // the tracker @-handle: linear's, else github's (a login)
+	for _, kind := range TrackerKinds { // a github handle is a login
 		if a, ok := linkedAccount(store, kind, user, func(a Account) bool { return a.Handle != "" }); ok {
-			m.Handle = a.Handle
-			break
+			if m.Handles == nil {
+				m.Handles = map[string]string{}
+			}
+			m.Handles[kind] = a.Handle
 		}
+	}
+	if c, ok := TrackerConnection(store); ok {
+		m.Handle = m.HandleOn(c.Kind)
 	}
 	if a, ok := linkedAccount(store, "discord", user, func(a Account) bool { return a.ServiceUID != "" }); ok {
 		m.DiscordUID = a.ServiceUID
@@ -235,8 +247,12 @@ func AddPerson(store Store, project string, h Human) error {
 	if err := store.PutMembership(ms); err != nil {
 		return err
 	}
-	if h.Handle != "" {
-		if err := linkPersonAccount(store, "linear", u.ID, Account{Handle: h.Handle}); err != nil {
+	if h.Handle != "" { // on the tracker's kind; with no tracker connection yet, linear's (created)
+		kind := "linear"
+		if c, ok := TrackerConnection(store); ok {
+			kind = c.Kind
+		}
+		if err := linkPersonAccount(store, kind, u.ID, Account{Handle: h.Handle}); err != nil {
 			return err
 		}
 	}
