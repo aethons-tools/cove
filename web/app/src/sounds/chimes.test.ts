@@ -22,3 +22,21 @@ describe("chimeFor", () => {
     expect(chimeFor(prev, [row("c", 1)], "a", true)).toBe("messages"); // a new conversation
   });
 });
+
+describe("useChimes", () => {
+  it("never re-chimes for a stale cached rail shown on switching back", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const sounds = await import("./sounds");
+    const { vi } = await import("vitest");
+    const play = vi.spyOn(sounds, "play").mockReturnValue(true);
+    const { useChimes } = await import("./chimes");
+    const rail = (u: number) => ({ unreadTotal: u, groups: [{ bucket: "channels", title: "Channels", rows: [row("c", u)] }] });
+    const { rerender } = renderHook(({ r, at }) => useChimes(r, at, undefined), { initialProps: { r: rail(0), at: 2 } });
+    rerender({ r: rail(1), at: 3 }); // a new message: chime
+    expect(play).toHaveBeenCalledTimes(1);
+    rerender({ r: rail(0), at: 1 }); // a stale cache (older): ignored
+    rerender({ r: rail(1), at: 4 }); // its refetch: nothing new
+    expect(play).toHaveBeenCalledTimes(1);
+    play.mockRestore();
+  });
+});

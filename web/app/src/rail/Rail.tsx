@@ -9,10 +9,10 @@ import { Problem } from "../Problem";
 
 export function Rail() {
   const { channel } = useParams();
-  const { data, error, isPending } = useRail(channel);
+  const { data, error, isPending, dataUpdatedAt } = useRail(channel);
   const here = useLocation();
   const [picking, picker] = useDisclosure(false);
-  useChimes(data, channel);
+  useChimes(data, dataUpdatedAt, channel);
   // The New message button heads every state of the rail, so a member with
   // no conversations yet can start one.
   const frame = (body: ReactNode) => (

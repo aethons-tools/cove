@@ -20,15 +20,20 @@ export function chimeFor(prev: Snap | null, rows: ChannelRow[], open: string | u
   return kind;
 }
 
-// useChimes plays chimeFor's sound on each new rail.
-export function useChimes(rail: RailResponse | undefined, open: string | undefined): void {
+// useChimes plays chimeFor's sound on each new rail. updatedAt is when the
+// rail was fetched: a rail no newer than the last one seen (another
+// selection's cached rail, shown on switching back) is skipped, so its
+// refetch can't chime again for what already chimed.
+export function useChimes(rail: RailResponse | undefined, updatedAt: number, open: string | undefined): void {
   const prev = useRef<Snap | null>(null);
+  const last = useRef(0);
   useEffect(() => {
-    if (!rail) return;
+    if (!rail || updatedAt <= last.current) return;
+    last.current = updatedAt;
     const rows = rail.groups.flatMap((g) => g.rows);
     const looking = document.visibilityState === "visible" && document.hasFocus();
     const kind = chimeFor(prev.current, rows, open, looking);
     prev.current = snapshot(rows);
     if (kind) play(kind);
-  }, [rail, open]);
+  }, [rail, updatedAt, open]);
 }

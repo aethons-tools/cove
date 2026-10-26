@@ -52,18 +52,21 @@ export function Composer({ to, label, attachMax, onSent }: { to: string; label: 
 
   // State is read once per recipient: callers key the composer by `to`.
   const setText = (t: string) => { setTextState(t); saveReply(to, t); };
-  const setDrafts = (d: typeof drafts) => { setDraftsState(d); saveDrafts(to, d); };
+  // draftsRef is the stack now, for a send that lands after more pushes.
+  const draftsRef = useRef(drafts);
+  const setDrafts = (d: typeof drafts) => { draftsRef.current = d; setDraftsState(d); saveDrafts(to, d); };
 
   const push = () => {
     if (!text.trim()) return false;
-    setDrafts([...drafts, { text, sel: box.current?.selectionStart ?? text.length }]);
+    setDrafts([...draftsRef.current, { text, sel: box.current?.selectionStart ?? text.length }]);
     setText("");
     return true;
   };
   const pop = (current = text) => {
-    if (current.trim() || drafts.length === 0) return false;
-    const top = drafts[drafts.length - 1]!;
-    setDrafts(drafts.slice(0, -1));
+    const stack = draftsRef.current;
+    if (current.trim() || stack.length === 0) return false;
+    const top = stack[stack.length - 1]!;
+    setDrafts(stack.slice(0, -1));
     setText(top.text);
     requestAnimationFrame(() => { const s = Math.min(top.sel, top.text.length); box.current?.setSelectionRange(s, s); box.current?.focus(); });
     return true;

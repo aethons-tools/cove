@@ -160,4 +160,54 @@ describe("Composer attachments", () => {
     fireEvent.paste(box, { clipboardData: { getData: () => "", files: [file] } });
     expect(await screen.findByText("paste.png")).toBeInTheDocument();
   });
+
+  it("keeps the chips when a send fails", async () => {
+    server.use(
+      http.post("/app/user/uploads", () => HttpResponse.json({ ref: "blb_k" }, { status: 201 })),
+      http.post("/app/user/api/messages", () => HttpResponse.error()),
+    );
+    const { box, input, onSent } = mountWithFiles();
+    await userEvent.type(box, "with a file");
+    await userEvent.upload(input, new File(["x"], "keep.txt"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Send/ })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: /Send/ }));
+    expect(await screen.findByText(/can't be reached/)).toBeInTheDocument();
+    expect(screen.getByText("keep.txt")).toBeInTheDocument();
+    expect(box.value).toBe("with a file");
+    expect(onSent).not.toHaveBeenCalled();
+  });
+
+  it("aborts an upload when its chip is removed, and refuses Ctrl+Enter while one runs", async () => {
+    let aborted = false;
+    server.use(http.post("/app/user/uploads", ({ request }) => new Promise<Response>((_, reject) => {
+      request.signal.addEventListener("abort", () => { aborted = true; reject(new DOMException("aborted", "AbortError")); });
+    })));
+    const { box, input } = mountWithFiles();
+    await userEvent.type(box, "x");
+    await userEvent.upload(input, new File(["x"], "slow.bin"));
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(await screen.findByText("Still uploading…")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove slow.bin" }));
+    await waitFor(() => expect(screen.queryByText("slow.bin")).toBeNull());
+    expect(aborted).toBe(true);
+  });
+});
+
+describe("Composer drafts during a send", () => {
+  it("keeps a draft stacked while a send is in flight", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    server.use(http.post("/app/user/api/messages", async () => { await gate; return HttpResponse.json({ channel: "chn_a", seq: 1 }, { status: 201 }); }));
+    const { box } = mount();
+    await userEvent.type(box, "one");
+    fireEvent.keyDown(box, { key: "ArrowDown", ctrlKey: true }); // stack [one]
+    await userEvent.type(box, "sending");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await userEvent.clear(box); // (the box keeps its text until the send lands)
+    await userEvent.type(box, "two");
+    fireEvent.keyDown(box, { key: "ArrowDown", ctrlKey: true }); // stack [one, two] mid-send
+    release();
+    await waitFor(() => expect(box.value).toBe("two")); // the top pops back
+    expect(JSON.parse(sessionStorage.getItem("me-drafts:chn_a")!)).toEqual([{ text: "one", sel: 3 }]);
+  });
 });
