@@ -20,8 +20,8 @@ type Docker interface {
 }
 
 // Spec is the base-selection input for one build. Exactly the first non-empty of
-// DockerfileDir / Base / DefaultRef is used (mutual exclusion of the first two is
-// enforced earlier, in kit.ValidateImageSource).
+// DockerfileDir / Base / DefaultRef is used (the caller keeps the first two
+// mutually exclusive).
 type Spec struct {
 	DockerfileDir   string // kit image/ dir to build as the base; wins if set
 	Base            string // config.yml image.base; used if DockerfileDir == ""

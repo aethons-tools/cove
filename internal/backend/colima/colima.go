@@ -1,4 +1,6 @@
-// Package colima implements the Backend interface over local Docker (Colima).
+// Package colima implements the backend surfaces Jam's launcher drives
+// (DispatchOps, VolumeOps, RoleEgress, SSHCA, KitImageBuilder) over local
+// Docker (Colima).
 package colima
 
 import (
@@ -11,13 +13,8 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
-	"github.com/aethons-tools/cove/internal/naming"
 	"github.com/aethons-tools/cove/internal/runner"
 )
-
-func init() {
-	backend.Register("colima", func(r runner.Runner) backend.Backend { return New(r) })
-}
 
 // dockerContext is the docker context colima creates for its default profile.
 // Every docker invocation is pinned to it so cove never silently talks to a
@@ -43,9 +40,7 @@ func (c *Colima) quietRunner() runner.Runner {
 	return c.r
 }
 
-func New(r runner.Runner) backend.Backend { return &Colima{r: r} }
-
-// NewWithContext is New pinned to another docker context — typically
+// NewWithContext returns a Colima backend pinned to a docker context — typically
 // colima-<profile>, the context `colima start --profile <profile>` creates — so
 // a caller (e.g. a Jam's runtime.launcher.docker-context) can target a specific
 // colima instance. Empty keeps the default colima context.
@@ -113,24 +108,6 @@ func dockerArgs(docker bool, volume string) []string {
 	}
 }
 
-// shadowArgs emits, for a shared workspace's declared shadow-dirs, one -v
-// overmount per dir (a per-sandbox volume named via naming.ShadowVolume) plus a
-// single -e COVE_SHADOW_DIRS the entrypoint reads to chown the fresh mountpoints.
-// It returns the volume names used so Create can record them for teardown. Empty
-// for a non-shared mount or when no shadow-dirs are declared (COV-132).
-func shadowArgs(container string, ws backend.WorkspaceMount) (args, names []string) {
-	if ws.Mode != backend.Shared || len(ws.ShadowDirs) == 0 {
-		return nil, nil
-	}
-	for _, d := range ws.ShadowDirs {
-		name := naming.ShadowVolume(container, d)
-		args = append(args, "-v", name+":/home/agent/workspace/"+d)
-		names = append(names, name)
-	}
-	args = append(args, "-e", "COVE_SHADOW_DIRS="+strings.Join(ws.ShadowDirs, " "))
-	return args, names
-}
-
 // initArgs renders the tini flag (--init). A non-docker sandbox uses tini as PID 1
 // (reaps zombies for the sshd process tree). A docker:true sandbox instead boots
 // systemd as PID 1 — the entrypoint execs /sbin/init under Sysbox (COV-118), and
@@ -148,7 +125,7 @@ func initArgs(docker bool) []string {
 // registers the sysbox-runc runtime a docker:true instance needs (COV-117). It
 // parses `docker info -f '{{json .Runtimes}}'`, a map of runtime name → config.
 // An unreachable daemon or unparseable output is an error. Shared by the
-// at-cove preflight and `at-jam colima check-docker`, so the two can't drift.
+// the launcher's preflight and `at-jam colima check-docker`, so the two can't drift.
 func (c *Colima) HasSysboxRuntime() (bool, error) {
 	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
@@ -163,7 +140,7 @@ func (c *Colima) HasSysboxRuntime() (bool, error) {
 }
 
 // requireSysboxRuntime fails fast with an actionable message when the colima VM
-// lacks the sysbox-runc runtime. at-cove detects but never installs Sysbox — the
+// lacks the sysbox-runc runtime. The launcher detects but never installs Sysbox — the
 // message points at the VM-side prerequisite. Preflight has already confirmed
 // the daemon is reachable.
 func (c *Colima) requireSysboxRuntime() error {
@@ -172,7 +149,7 @@ func (c *Colima) requireSysboxRuntime() error {
 		return fmt.Errorf("docker:true preflight: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. at-cove detects but does not install it — run `at-jam colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `at-jam colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
 	}
 	return nil
 }
@@ -201,23 +178,6 @@ func startHint(context string) string {
 		return "colima start --profile " + p
 	}
 	return "colima start"
-}
-
-// dockerBuild is the single docker-build site (COV-38): it resolves + gates the
-// base, then builds buildDir FROM it and tags the result. Only Install routes its
-// build through here, so `docker build` appears in exactly one place and the gate
-// can never be bypassed. The run paths never build — create/recreate, chat, and
-// work/dispatch all run the image Install already produced.
-func (c *Colima) dockerBuild(buildDir, tag string, base backend.BaseSpec, noCache bool) (resolvedBase, digest string, err error) {
-	if err := c.preflight(); err != nil {
-		return "", "", err
-	}
-	resolvedBase, err = c.resolveBase(base)
-	if err != nil {
-		return "", "", err
-	}
-	digest, err = c.buildFromBase(buildDir, tag, resolvedBase, nil, noCache)
-	return resolvedBase, digest, err
 }
 
 // buildFromBase is the actual `docker build` — assemble context in, tagged image
@@ -330,94 +290,6 @@ func runImage(tag, digest string) string {
 	return tag
 }
 
-// Install builds + gates + tags a kit's hardened image and reports the result —
-// the only build path (COV-38). Run commands consume the tagged image; the base
-// is resolved and the provenance gate runs exactly here.
-func (c *Colima) Install(ctx backend.InstallContext) (backend.InstalledImage, error) {
-	img := naming.Image(ctx.Kit)
-	base, digest, err := c.dockerBuild(ctx.BuildDir, img, ctx.Base, ctx.NoCache)
-	if err != nil {
-		return backend.InstalledImage{}, err
-	}
-	return backend.InstalledImage{Ref: img, Digest: digest, BaseDigest: base}, nil
-}
-
-// Create runs a pre-built image (COV-38): `docker run` only. The image comes
-// from install.json (via ctx.Image) — Create never builds, resolves a base, or
-// runs the gate; those live in Install.
-func (c *Colima) Create(ctx backend.CreateContext) (backend.Instance, error) {
-	if err := c.preflight(); err != nil {
-		return backend.Instance{}, err
-	}
-	// docker:true needs the Sysbox runtime in the VM; detect + guide before we run
-	// (at-cove does not install it) — COV-117.
-	if ctx.Docker {
-		if err := c.requireSysboxRuntime(); err != nil {
-			return backend.Instance{}, err
-		}
-	}
-	// Pin the run to the built-image digest install captured (COV-78); a legacy
-	// manifest without one falls back to the mutable tag. The tag is still recorded
-	// on the Instance (below) for display/diagnostics.
-	img := runImage(ctx.Image, ctx.Digest)
-	// Name the volumes once here — via the naming helper, the single source of
-	// the name format (COV-77) — and record them once on the returned Instance
-	// (into state), so Destroy consumes them from there rather than re-deriving
-	// (COV-76). ctx.Name is the instance's atcove-{kit}-{class} base. A shared
-	// workspace is a host bind-mount, so it records no workspace volume.
-	vols := backend.VolumeSet{State: naming.AgentDataVolume(ctx.Name)}
-	ws := ctx.Workspace.HostPath + ":/home/agent/workspace"
-	if ctx.Workspace.Mode != backend.Shared {
-		vols.Workspace = naming.WorkspaceVolume(ctx.Name)
-		ws = vols.Workspace + ":/home/agent/workspace"
-	}
-	// docker:true records a persistent /var/lib/docker cache volume, so Destroy
-	// removes exactly it (COV-117) — named once here via the naming helper.
-	if ctx.Docker {
-		vols.Docker = naming.DockerVolume(ctx.Name)
-	}
-	shadowRun, shadowVols := shadowArgs(ctx.Name, ctx.Workspace)
-	vols.Shadow = shadowVols
-	runArgs := []string{"run", "-d",
-		"--name", ctx.Name,
-	}
-	runArgs = append(runArgs, initArgs(ctx.Docker)...)
-	runArgs = append(runArgs, "--cap-add=NET_ADMIN")
-	runArgs = append(runArgs, dnsArgs(ctx.DNS)...)
-	runArgs = append(runArgs, addHostArgs(ctx.ExtraHosts)...)
-	runArgs = append(runArgs, dockerArgs(ctx.Docker, vols.Docker)...)
-	runArgs = append(runArgs,
-		"-p", "127.0.0.1::2222",
-		"-v", vols.State+":/agent-data",
-		"-v", ws,
-	)
-	runArgs = append(runArgs, shadowRun...)
-	runArgs = append(runArgs, img)
-	if err := c.r.Run("docker", c.dargs(runArgs...)...); err != nil {
-		return backend.Instance{}, err
-	}
-	return backend.Instance{
-		Backend:     "colima",
-		Container:   ctx.Name,
-		Image:       ctx.Image, // the tag, for display; the run above pinned img (digest when present)
-		ImageDigest: ctx.Digest,
-		Workspace:   ctx.Workspace,
-		Volumes:     vols,
-	}, nil
-}
-
-// nonEmpty returns the non-empty entries of ss, preserving order — used to drop
-// an absent workspace volume from the `docker volume rm` argv.
-func nonEmpty(ss []string) []string {
-	out := ss[:0:0]
-	for _, s := range ss {
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
 	if err := c.preflight(); err != nil {
 		return backend.Endpoint{}, func() {}, err
@@ -436,53 +308,6 @@ func (c *Colima) Dial(name string) (backend.Endpoint, func(), error) {
 		return backend.Endpoint{}, func() {}, fmt.Errorf("colima: bad port in %q: %w", hostport, err)
 	}
 	return backend.Endpoint{Host: hostport[:i], Port: port, User: "agent"}, func() {}, nil
-}
-
-func (c *Colima) Destroy(inst backend.Instance, keepVolumes bool) error {
-	if err := c.preflight(); err != nil {
-		return err
-	}
-	// Force-remove the container (the rm itself never carries -v; volumes are
-	// named, not anonymous, so -v wouldn't touch them anyway). recreate passes
-	// keepVolumes=true so /agent-data (saved login) and the workspace survive.
-	if err := c.r.Run("docker", c.dargs("rm", "-f", inst.Container)...); err != nil {
-		return err
-	}
-	// A real destroy purges the instance's named volumes now that the container
-	// (their only user) is gone. The names come from the recorded Instance
-	// (COV-76) — Create named them (via naming), so there is no second derivation
-	// site. A legacy instance (state written before volumes were recorded) has no
-	// State name; fall back to the historical <container>-state/-workspace shape
-	// so pre-rename sandboxes still tear down under their own (old) names — this
-	// is deliberately NOT the naming helper's -agent-data, which would miss the
-	// old -state volume. Best-effort: a missing volume (e.g. a shared workspace
-	// records no workspace volume) must not fail the teardown.
-	if !keepVolumes {
-		vols := append([]string{inst.Volumes.State, inst.Volumes.Workspace, inst.Volumes.Docker}, inst.Volumes.Shadow...)
-		if inst.Volumes.State == "" {
-			vols = []string{inst.Container + "-state", inst.Container + "-workspace"}
-		}
-		_ = c.RemoveVolumes(nonEmpty(vols)...)
-	}
-	// The image is deliberately NOT removed: it is an `install` artifact (COV-38),
-	// not a per-create build. create/recreate/work consume it without rebuilding,
-	// so removing it here would break `recreate` (destroy→create finds no image)
-	// and leave a still-present install.json pointing at a deleted image (COV-63).
-	// Image lifecycle belongs to `install` (a re-install overwrites the tag).
-	return nil
-}
-
-// RemoveImage removes a kit's compiled image (`docker rmi`) — the inverse of
-// Install and the sole image-teardown path (COV-64). It is invoked only by
-// `at-cove uninstall`; the container lifecycle (Destroy/recreate) never removes
-// the image, which is an `install` artifact (COV-63). The command layer treats a
-// failure here as best-effort (the image may already be gone), so RemoveImage
-// simply reports what `docker rmi` did.
-func (c *Colima) RemoveImage(image string) error {
-	if err := c.preflight(); err != nil {
-		return err
-	}
-	return c.r.Run("docker", c.dargs("rmi", image)...)
 }
 
 func (c *Colima) GetStatus(name string) (backend.State, error) {

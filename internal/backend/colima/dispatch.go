@@ -3,7 +3,6 @@ package colima
 import (
 	"bytes"
 	"strings"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/naming"
@@ -26,7 +25,7 @@ func (c *Colima) RunEphemeral(image, digest, name, label string, dns, addHosts [
 		return backend.Instance{}, err
 	}
 	// docker:true needs the Sysbox runtime in the VM; detect + guide before we run
-	// (at-cove does not install it) — COV-117.
+	// (Jam does not install it) — COV-117.
 	if docker {
 		if err := c.requireSysboxRuntime(); err != nil {
 			return backend.Instance{}, err
@@ -148,33 +147,4 @@ func (c *Colima) dockerIdempotent(benign string, args ...string) error {
 		return err
 	}
 	return nil
-}
-
-// ScavengeLabeled removes labeled containers older than olderThan. It never removes
-// the image (shared across dispatches) or a volume (there are none).
-func (c *Colima) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {
-	if err := c.preflight(); err != nil {
-		return 0, err
-	}
-	out, err := c.r.Output("docker", c.dargs("ps", "-aq", "--filter", "label="+label)...)
-	if err != nil {
-		return 0, err
-	}
-	removed := 0
-	for _, id := range strings.Fields(out) {
-		created, err := c.r.Output("docker", c.dargs("inspect", "-f", "{{.Created}}", id)...)
-		if err != nil {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(created))
-		if err != nil {
-			continue
-		}
-		if now.Sub(t) > olderThan {
-			if err := c.r.Run("docker", c.dargs("rm", "-f", id)...); err == nil {
-				removed++
-			}
-		}
-	}
-	return removed, nil
 }

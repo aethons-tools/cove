@@ -14,50 +14,14 @@ import (
 )
 
 // Egress is the kit's baked egress beyond the sealed base, split by purpose.
-// Policy is image.allowed-domains: baked as the active policy list
+// Policy is the kit's egress list: baked as the active policy list
 // (allowed_domains.kit.txt, which a Jam role's list replaces at raise) and as
 // the immutable ceiling that role list must fit inside (egress_ceiling.txt).
-// Infra is kit.InfraDomains (provider, self-hosted GitLab, Jam hosts): always
-// on, baked into allowed_domains.infra.txt.
+// Infra is the always-on infrastructure list (Jam's launcher passes its
+// jam-host), baked into allowed_domains.infra.txt.
 type Egress struct {
 	Policy []string
 	Infra  []string
-}
-
-// EgressFor derives a kit config's baked Egress.
-func EgressFor(c kit.Config) Egress {
-	return Egress{Policy: c.Image.AllowedDomains, Infra: kit.InfraDomains(c)}
-}
-
-// HarnessFor derives a kit config's harness install: the harness layer of its
-// model-spec: block (version + plugins), or claude-default's when it has none
-// (kit.Config.EffectiveModelSpec).
-func HarnessFor(c kit.Config) harnessinstall.Install {
-	s := c.EffectiveModelSpec()
-	return harnessinstall.FromSpec(&s)
-}
-
-// Assemble builds the context in buildDir: the sealed hardening layer, the
-// injected cove-master, the kit's egress lists, the per-kit GitLab gitconfig, and
-// the managed public key. The kit's image/ is the Dockerfile build context
-// (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
-// source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
-//
-// Assemble keeps the kit's .gitignore current (a dev-repo housekeeping side
-// effect on kitDir) and then assembles the build context. The build context
-// itself needs no kitDir — see AssembleContext, which the managed-cove launcher
-// uses to build from a kit communicated as data, with no host directory.
-func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string, harness harnessinstall.Install) error {
-	// Any path that assembles a build context (build/create/work) keeps the kit's
-	// .gitignore current, so generated .build/.state artifacts never leak into git.
-	if err := kit.EnsureGitignore(kitDir); err != nil {
-		return err
-	}
-	// A full kit's agent never runs cove-master (only Jam-raised studio coves
-	// do), so it bakes no MCP servers — just the empty file. Its harness is
-	// the caller's — HarnessFor: the kit's model-spec: block, else
-	// claude-default's install (COV-241).
-	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harness)
 }
 
 // AssembleContext stages the docker build context into buildDir with NO source

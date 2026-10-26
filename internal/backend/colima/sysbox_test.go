@@ -8,7 +8,7 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-// TestHasSysboxRuntime pins the shared probe at-cove's preflight and
+// TestHasSysboxRuntime pins the shared probe the launcher's preflight and
 // `at-jam colima check-docker` both use: present, absent, unreachable, garbage.
 func TestHasSysboxRuntime(t *testing.T) {
 	for _, tc := range []struct {

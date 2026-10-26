@@ -36,8 +36,7 @@ type Spec struct {
 	Type HarnessType `json:"type"                yaml:"type"`
 	// Version is the exact harness CLI release X.Y.Z (ParseExactVersion) the
 	// cove's image installs — the build pins it (COV-242).
-	// A plain at-cove kit may omit it (kit.Config.EffectiveModelSpec defaults
-	// it to DefaultClaudeVersion); Jam requires it.
+	// Jam requires it.
 	Version string `json:"version" yaml:"version,omitempty"`
 	// VersionConstraint is the runtime check the harness's Validate applies to
 	// the installed CLI (ParseConstraint grammar). Empty means "== Version"

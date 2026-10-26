@@ -24,28 +24,3 @@ func Base(t Target) []string {
 		t.User + "@" + t.Host,
 	}
 }
-
-// Interactive builds an interactive (pty) ssh argv that runs remoteCmd with no
-// environment forwarding — used for flows like `claude auth login`.
-func Interactive(t Target, remoteCmd string) []string {
-	args := []string{"-tt"}
-	args = append(args, Base(t)...)
-	if remoteCmd != "" {
-		args = append(args, remoteCmd)
-	}
-	return args
-}
-
-// InteractiveSendEnv builds an interactive (pty) ssh argv that forwards the
-// named environment variables and runs remoteCmd.
-func InteractiveSendEnv(t Target, envNames []string, remoteCmd string) []string {
-	args := []string{"-tt"}
-	for _, n := range envNames {
-		args = append(args, "-o", "SendEnv="+n)
-	}
-	args = append(args, Base(t)...)
-	if remoteCmd != "" {
-		args = append(args, remoteCmd)
-	}
-	return args
-}

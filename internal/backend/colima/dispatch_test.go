@@ -3,7 +3,6 @@ package colima
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -11,7 +10,7 @@ import (
 
 func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
 	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, false)
 	if err != nil {
@@ -40,10 +39,10 @@ func TestRunEphemeralArgs(t *testing.T) {
 // one --dns pair per IP, on the ephemeral dispatch run (COV-106).
 func TestRunEphemeralDNS(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	// Jam add-hosts render as --add-host h:host-gateway (COV-138)
 	fh := &runner.Fake{}
-	if _, err := New(fh).(*Colima).RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, []string{"jam.local"}, false); err != nil {
+	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, []string{"jam.local"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local:host-gateway") {
@@ -66,7 +65,7 @@ func TestRunEphemeralDNS(t *testing.T) {
 // instead of the mutable tag while still recording the tag for display (COV-78).
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work", nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
@@ -86,7 +85,7 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 // (COV-117). docker:false is byte-for-byte the pre-COV-117 argv (asserted above).
 func TestRunEphemeralDocker(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, true); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -111,7 +110,7 @@ func TestRunEphemeralDocker(t *testing.T) {
 // actionable message when the VM daemon lacks the sysbox-runc runtime (COV-117).
 func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	_, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, true)
 	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") {
 		t.Fatalf("docker:true dispatch must fail actionably without sysbox-runc; err=%v", err)
@@ -125,7 +124,7 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 // --rm run — named volumes survive --rm, so a re-run re-attaches them (COV-249).
 func TestRunEphemeralMounts(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	if _, err := c.RunEphemeral("img:tag", "", "atcove-cove-s1", "harbor.cove", nil, nil, false,
 		backend.Mount{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
 		backend.Mount{Volume: "atcove-cove-s1-workspace", Target: "/home/agent/workspace"},
@@ -147,7 +146,7 @@ func TestRunEphemeralMounts(t *testing.T) {
 // names runs nothing.
 func TestRemoveVolumes(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	if err := c.RemoveVolumes(); err != nil || len(f.Calls) != 0 {
 		t.Fatalf("no names: err=%v calls=%v; want a no-op", err, f.Calls)
 	}
@@ -163,7 +162,7 @@ func TestRemoveVolumes(t *testing.T) {
 // state volume carries its owner from the moment it exists (COV-249).
 func TestCreateVolumeLabels(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	if err := c.CreateVolume("v1", "harbor.cove.state=standing-a-b-c"); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +175,7 @@ func TestCreateVolumeLabels(t *testing.T) {
 // label=value), name → the key's value.
 func TestListVolumes(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	got, err := c.ListVolumes("harbor.cove.state", "harbor.cove.jam=j1")
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +194,7 @@ func TestListVolumes(t *testing.T) {
 // dargs shape (COV-162).
 func TestPauseUnpauseArgs(t *testing.T) {
 	f := &runner.Fake{}
-	c := New(f).(*Colima)
+	c := NewWithContext(f, "")
 	if err := c.Pause("cove-1"); err != nil {
 		t.Fatalf("Pause: %v", err)
 	}
@@ -210,53 +209,23 @@ func TestPauseUnpauseArgs(t *testing.T) {
 	}
 }
 
-func TestScavengeLabeledRemovesOldOnly(t *testing.T) {
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
-	// runner.Fake.Outputs is a slice consumed in call order (not keyed by
-	// command), so results must be queued in the exact sequence Output is
-	// invoked: first `ps -aq --filter label=...`, then one `inspect` per id in
-	// the order strings.Fields yields them ("old" then "fresh").
-	f := &runner.Fake{
-		Outputs: []runner.FakeResult{
-			{Stdout: "old\nfresh\n"},
-			{Stdout: now.Add(-2 * time.Hour).Format(time.RFC3339Nano)},
-			{Stdout: now.Add(-1 * time.Minute).Format(time.RFC3339Nano)},
-		},
-	}
-	c := New(f).(*Colima)
-	n, err := c.ScavengeLabeled("at-cove.work", 30*time.Minute, now)
-	if err != nil {
-		t.Fatalf("ScavengeLabeled: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("removed %d; want 1 (only the 2h-old one)", n)
-	}
-	joined := ""
-	for _, c := range f.Calls {
-		joined += strings.Join(c.Args, " ") + "\n"
-	}
-	if !strings.Contains(joined, "rm -f old") || strings.Contains(joined, "rm -f fresh") {
-		t.Fatalf("should rm old, not fresh:\n%s", joined)
-	}
-}
-
 func TestPauseIdempotentWhenAlreadyPaused(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: container abc is already paused", Err: &runner.ExitError{Code: 1}}}}
-	if err := New(f).(*Colima).Pause("abc"); err != nil {
+	if err := NewWithContext(f, "").Pause("abc"); err != nil {
 		t.Fatalf("Pause of an already-paused container must be a no-op success, got %v", err)
 	}
 }
 
 func TestPausePropagatesRealError(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: No such container: abc", Err: &runner.ExitError{Code: 1}}}}
-	if err := New(f).(*Colima).Pause("abc"); err == nil {
+	if err := NewWithContext(f, "").Pause("abc"); err == nil {
 		t.Fatal("Pause must propagate a non-benign docker error")
 	}
 }
 
 func TestUnpauseIdempotentWhenNotPaused(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: container abc is not paused", Err: &runner.ExitError{Code: 1}}}}
-	if err := New(f).(*Colima).Unpause("abc"); err != nil {
+	if err := NewWithContext(f, "").Unpause("abc"); err != nil {
 		t.Fatalf("Unpause of a non-paused container must be a no-op success, got %v", err)
 	}
 }

@@ -3,9 +3,8 @@ package modelspec
 import "encoding/json"
 
 // The claude-harness runtime renderings of a spec, shared by every claude
-// launcher — Jam's headless harness (internal/agentrun), plain at-cove's
-// interactive chat (internal/connect) and its dispatched workers
-// (internal/dispatchrun) — so a spec means the same flags everywhere.
+// launcher (today Jam's headless harness, internal/agentrun) — so a spec
+// means the same flags everywhere.
 
 // ClaudeModelArgs renders model.id / model.effort as --model ID / --effort
 // LEVEL; nil when neither is set (or no spec).

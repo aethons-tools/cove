@@ -48,9 +48,8 @@ type Install struct {
 	Plugins []string              `json:"plugins"`
 }
 
-// Default is the install of claude-default: the harness a full config.yml
-// kit without a model-spec: block gets (assemble.HarnessFor), and the one a
-// raise uses when its role delivers no spec.
+// Default is the install of claude-default: the one a raise uses when its
+// role delivers no spec.
 func Default() Install {
 	d := modelspec.Default("")
 	return FromSpec(&d)

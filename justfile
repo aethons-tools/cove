@@ -141,9 +141,9 @@ test-browser:
 test-install:
     bash install.test.sh
 
-# real-ssh integration tests (needs ssh/sshd/ssh-keygen)
+# real-ssh integration tests of the ssh argv builders (needs ssh/sshd/ssh-keygen)
 integration:
-    go test -tags integration ./internal/connect/ -v
+    go test -tags integration ./internal/sshargs/ -v
 
 # jam integration: real-TLS broker round-trip, real-sshd studio SSH end to end
 # (skips without sshd), kit git sources end to end (skips without git), + the

@@ -9,205 +9,6 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-// TestInstallBuildsGatesTags: Install is the sole docker-build path — it resolves
-// the base, builds the assembled context FROM it, tags atcove-<kit>, and does
-// NOT run a container. With no kit base, the base resolves to the blessed default
-// (no gate inspect needed), which Install records as the InstalledImage.BaseDigest.
-func TestInstallBuildsGatesTags(t *testing.T) {
-	f := &runner.Fake{}
-	installed, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "--build-arg") || !contains(build, "-t") ||
-		!contains(build, "atcove-box") || !contains(build, "/b") {
-		t.Fatalf("build call = %+v", f.Calls)
-	}
-	// Plain progress: BuildKit's TTY progress renderer right-aligns each step's
-	// duration and can overflow the terminal by a column (a stray wrapped "s").
-	// Plain output is line-by-line and never wraps that way.
-	if !contains(build, "--progress=plain") {
-		t.Fatalf("build must pass --progress=plain: %v", build)
-	}
-	if dockerCall(f.Calls, "run") != nil {
-		t.Fatalf("Install must not run a container: %+v", f.Calls)
-	}
-	if !allPinned(f.Calls) {
-		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
-	}
-	if installed.Ref != "atcove-box" || installed.BaseDigest == "" {
-		t.Fatalf("installed = %+v", installed)
-	}
-	// The BASE build-arg carries the resolved base Install reports.
-	if !contains(build, "BASE="+installed.BaseDigest) {
-		t.Fatalf("build must pass the resolved base as BASE=; build=%v base=%q", build, installed.BaseDigest)
-	}
-}
-
-// --no-cache: Install threads InstallContext.NoCache into the build argv, and
-// omits it by default (guards against an always-on flag).
-func TestInstallNoCacheThreadsToBuildArgv(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b", NoCache: true}); err != nil {
-		t.Fatal(err)
-	}
-	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "--no-cache") {
-		t.Fatalf("NoCache:true must add --no-cache to the build; build=%+v", f.Calls)
-	}
-
-	f2 := &runner.Fake{}
-	if _, err := New(f2).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"}); err != nil {
-		t.Fatal(err)
-	}
-	build2 := dockerCall(f2.Calls, "build")
-	if build2 == nil || contains(build2, "--no-cache") {
-		t.Fatalf("default install must NOT pass --no-cache; build=%+v", f2.Calls)
-	}
-}
-
-// TestInstallCapturesBuiltImageDigest: after building + tagging, Install inspects
-// the built tag for its own image ID and reports it as InstalledImage.Digest, so a
-// run can pin the exact built image rather than the mutable tag (COV-78). This is
-// the built-image digest, distinct from BaseDigest (the FROM-base digest).
-func TestInstallCapturesBuiltImageDigest(t *testing.T) {
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:cafe\n"}}}
-	installed, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if installed.Digest != "sha256:cafe" {
-		t.Fatalf("Install must capture the built image digest; got %q", installed.Digest)
-	}
-	insp := dockerCall(f.Calls, "inspect")
-	if insp == nil || !contains(insp, "{{.Id}}") || !contains(insp, "atcove-box") {
-		t.Fatalf("Install must inspect the built tag for its image ID: %+v", f.Calls)
-	}
-	if !allPinned(f.Calls) {
-		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
-	}
-}
-
-// TestCreatePinsDigest: when Install captured a built-image digest, Create runs
-// that digest (the immutable pin) instead of the mutable tag, while still
-// recording the human-readable tag on the instance for display/diagnostics
-// (COV-78). A create with no digest (legacy manifest) falls back to the tag —
-// covered by TestCreateIsolated.
-func TestCreatePinsDigest(t *testing.T) {
-	f := &runner.Fake{}
-	inst, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box", Digest: "sha256:cafe",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "sha256:cafe") {
-		t.Fatalf("Create must run the digest-pinned image: %+v", f.Calls)
-	}
-	if contains(run, "atcove-box") {
-		t.Fatalf("Create must run the digest, not the mutable tag: %v", run)
-	}
-	if inst.Image != "atcove-box" || inst.ImageDigest != "sha256:cafe" {
-		t.Fatalf("instance must keep the tag for display and record the digest: %+v", inst)
-	}
-}
-
-// TestInstallPreflightFailsActionably: an unreachable colima surfaces the
-// `colima start` guidance from Install, like every other op.
-func TestInstallPreflightFailsActionably(t *testing.T) {
-	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if _, err := New(f).Install(backend.InstallContext{Kit: "box", BuildDir: "/b"}); err == nil ||
-		!strings.Contains(err.Error(), "colima start") {
-		t.Fatalf("Install should fail actionably; err=%v", err)
-	}
-}
-
-// TestCreateIsolated: Create is run-only (COV-38) — it runs the pre-built image
-// (ctx.Image) with the state + isolated-workspace volumes and does NOT build.
-func TestCreateIsolated(t *testing.T) {
-	f := &runner.Fake{}
-	b := New(f)
-	inst, err := b.Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dockerCall(f.Calls, "build") != nil {
-		t.Fatalf("Create must not build (run-only): %+v", f.Calls)
-	}
-	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "atcove-box") || !contains(run, "box-workspace:/home/agent/workspace") || !contains(run, "box-agent-data:/agent-data") {
-		t.Fatalf("isolated run call = %+v", f.Calls)
-	}
-	if !allPinned(f.Calls) {
-		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
-	}
-	if inst.Container != "box" || inst.Image != "atcove-box" || inst.Backend != "colima" {
-		t.Fatalf("instance = %+v", inst)
-	}
-}
-
-// TestCreateDNS: a configured image.dns pins the container's resolvers on the
-// persistent create path, one --dns pair per IP; an empty image.dns emits no
-// --dns flag so the container inherits Docker's default resolver (COV-106).
-func TestCreateDNS(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-		DNS:       []string{"10.0.0.53"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	run := dockerCall(f.Calls, "run")
-	if got := strings.Join(run, " "); !strings.Contains(got, "--dns 10.0.0.53") {
-		t.Fatalf("create run must pin the configured resolver:\n%s", got)
-	}
-
-	f2 := &runner.Fake{}
-	if _, err := New(f2).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if contains(dockerCall(f2.Calls, "run"), "--dns") {
-		t.Fatalf("create run with no image.dns must not pin a resolver: %+v", f2.Calls)
-	}
-}
-
-// COV-138: ExtraHosts render as --add-host <h>:host-gateway so the container can
-// reach a host-run Jam by name; empty adds nothing.
-func TestCreateExtraHosts(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace:  backend.WorkspaceMount{Mode: backend.Isolated},
-		ExtraHosts: []string{"jam.local.aethons.tools"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local.aethons.tools:host-gateway") {
-		t.Fatalf("create run must map the Jam host to the gateway:\n%s", got)
-	}
-
-	f2 := &runner.Fake{}
-	if _, err := New(f2).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if contains(dockerCall(f2.Calls, "run"), "--add-host") {
-		t.Fatalf("create run with no ExtraHosts must not add --add-host: %+v", f2.Calls)
-	}
-}
-
 func TestAddHostArgs(t *testing.T) {
 	if a := addHostArgs(nil); a != nil {
 		t.Fatalf("addHostArgs(nil) = %v, want nil", a)
@@ -221,108 +22,6 @@ func TestAddHostArgs(t *testing.T) {
 // sysboxRuntimesOutput is a `docker info -f '{{json .Runtimes}}'` payload that
 // registers the sysbox-runc runtime, so a docker:true preflight passes.
 const sysboxRuntimesOutput = `{"runc":{"path":"runc"},"sysbox-runc":{"path":"/usr/bin/sysbox-runc"}}`
-
-// TestCreateDocker: a docker:true kit runs the sandbox container under Sysbox —
-// --runtime=sysbox-runc, -e COVE_DOCKER=1, and a persistent -docker cache volume
-// mounted at the inner /var/lib/docker — recorded on the instance so destroy
-// removes it (COV-117). No --privileged/socket/--device/--security-opt, ever.
-func TestCreateDocker(t *testing.T) {
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
-	inst, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box", Docker: true,
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := dockerCall(f.Calls, "run")
-	got := strings.Join(run, " ")
-	for _, want := range []string{"--runtime=sysbox-runc", "-e COVE_DOCKER=1", "-v box-docker:/var/lib/docker"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("docker:true create must emit %q:\n%s", want, got)
-		}
-	}
-	for _, banned := range []string{"--privileged", "docker.sock", "--device", "--security-opt"} {
-		if strings.Contains(got, banned) {
-			t.Fatalf("docker:true create must never emit %q:\n%s", banned, got)
-		}
-	}
-	// docker:true boots systemd as PID 1 (the entrypoint execs /sbin/init under
-	// Sysbox — COV-118), so tini (--init) must be omitted; running systemd under
-	// tini would make it a non-PID-1 child and break it.
-	if strings.Contains(got, "--init") {
-		t.Fatalf("docker:true create must omit --init (systemd is PID 1):\n%s", got)
-	}
-	if inst.Volumes.Docker != "box-docker" {
-		t.Fatalf("docker:true create must record the -docker volume; got %+v", inst.Volumes)
-	}
-}
-
-// TestCreateNoDockerByteForByte: with docker unset the run argv is byte-for-byte
-// what it was before COV-117 — no --runtime, no COVE_DOCKER, no -docker volume,
-// and no docker-info runtimes probe.
-func TestCreateNoDockerByteForByte(t *testing.T) {
-	f := &runner.Fake{}
-	inst, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := strings.Join(dockerCall(f.Calls, "run"), " ")
-	for _, banned := range []string{"--runtime", "COVE_DOCKER", "-docker"} {
-		if strings.Contains(got, banned) {
-			t.Fatalf("a non-docker create must not emit %q:\n%s", banned, got)
-		}
-	}
-	// A non-docker sandbox keeps tini as PID 1 (only docker:true swaps to systemd).
-	if !strings.Contains(got, "--init") {
-		t.Fatalf("a non-docker create must keep --init (tini as PID 1):\n%s", got)
-	}
-	if inst.Volumes.Docker != "" {
-		t.Fatalf("a non-docker create must record no -docker volume; got %+v", inst.Volumes)
-	}
-	// The Runtimes probe (an Output-consuming `docker info -f …`) only runs for
-	// docker:true; a non-docker create consumes no queued Output.
-	if f.Outputs != nil {
-		t.Fatalf("test setup: this case queues no Outputs")
-	}
-}
-
-// TestCreateDockerPreflightRequiresSysbox: docker:true fails fast with an
-// actionable message when the colima VM's docker daemon does not register the
-// sysbox-runc runtime — at-cove detects but does not install (COV-117).
-func TestCreateDockerPreflightRequiresSysbox(t *testing.T) {
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
-	_, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box", Docker: true,
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") || !strings.Contains(err.Error(), "Sysbox") {
-		t.Fatalf("docker:true must fail actionably when sysbox-runc is absent; err=%v", err)
-	}
-	if dockerCall(f.Calls, "run") != nil {
-		t.Fatalf("preflight must fail before running the container: %+v", f.Calls)
-	}
-}
-
-// TestDestroyPurgesDockerVolume: a real destroy removes the recorded -docker
-// volume alongside -agent-data/-workspace (COV-117).
-func TestDestroyPurgesDockerVolume(t *testing.T) {
-	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{
-		Container: "box",
-		Volumes:   backend.VolumeSet{State: "box-agent-data", Workspace: "box-workspace", Docker: "box-docker"},
-	}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vol := dockerCall(f.Calls, "volume")
-	if vol == nil || !contains(vol, "box-docker") {
-		t.Fatalf("destroy must remove the recorded -docker volume: %+v", f.Calls)
-	}
-}
 
 // TestDockerArgs pins the pure arg-builder: the three Sysbox flags when on,
 // nothing at all when off (so the run argv stays byte-for-byte unchanged).
@@ -347,148 +46,10 @@ func TestDNSArgs(t *testing.T) {
 	}
 }
 
-func TestCreateShared(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "/host/repo:/home/agent/workspace") {
-		t.Fatalf("shared bind missing: %+v", f.Calls)
-	}
-}
-
-// TestCreateRecordsVolumeNames: Create reports the named volumes it actually
-// created, so teardown removes exactly those rather than re-deriving them from
-// the container name (COV-76). An isolated workspace records both -agent-data and
-// -workspace; a shared (bind-mount) workspace records only -agent-data.
-func TestCreateRecordsVolumeNames(t *testing.T) {
-	inst, err := New(&runner.Fake{}).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "box-workspace" {
-		t.Fatalf("isolated create must record both volume names; got %+v", inst.Volumes)
-	}
-
-	inst, err = New(&runner.Fake{}).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if inst.Volumes.State != "box-agent-data" || inst.Volumes.Workspace != "" {
-		t.Fatalf("shared create records only the -agent-data volume (no workspace volume); got %+v", inst.Volumes)
-	}
-}
-
-// A shared workspace with shadow-dirs overmounts each dir with its own volume and
-// signals the list to the entrypoint via COVE_SHADOW_DIRS (COV-132).
-func TestCreateSharedShadowDirs(t *testing.T) {
-	f := &runner.Fake{}
-	inst, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{
-			Mode: backend.Shared, HostPath: "/host/repo",
-			ShadowDirs: []string{".venv", "node_modules"},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := dockerCall(f.Calls, "run")
-	for _, want := range []string{
-		"box-shadow-venv:/home/agent/workspace/.venv",
-		"box-shadow-node_modules:/home/agent/workspace/node_modules",
-		"COVE_SHADOW_DIRS=.venv node_modules",
-	} {
-		if !contains(run, want) {
-			t.Errorf("run argv missing %q: %+v", want, run)
-		}
-	}
-	if len(inst.Volumes.Shadow) != 2 || inst.Volumes.Shadow[0] != "box-shadow-venv" {
-		t.Fatalf("shadow volume names not recorded: %+v", inst.Volumes.Shadow)
-	}
-}
-
-// A shared workspace with no shadow-dirs emits no shadow flags (unchanged path).
-func TestCreateSharedNoShadowDirs(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{
-		Name: "box", Image: "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Shared, HostPath: "/host/repo"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if contains(dockerCall(f.Calls, "run"), "COVE_SHADOW_DIRS=") {
-		t.Fatal("no shadow-dirs must emit no COVE_SHADOW_DIRS")
-	}
-}
-
-// Destroy removes the recorded shadow volumes alongside the others (COV-132).
-func TestDestroyRemovesShadowVolumes(t *testing.T) {
-	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{
-		Backend: "colima", Container: "box",
-		Volumes: backend.VolumeSet{State: "box-agent-data", Shadow: []string{"box-shadow-venv"}},
-	}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rm := dockerCall(f.Calls, "volume")
-	if !contains(rm, "box-shadow-venv") {
-		t.Fatalf("destroy must rm shadow volume: %+v", rm)
-	}
-}
-
-// TestDestroyUsesRecordedVolumeNames: a real destroy removes the volume names
-// recorded on the instance, not names re-derived from the container (COV-76) —
-// the single-source-of-truth invariant. Only -state is removed when no workspace
-// volume was recorded (a shared workspace).
-func TestDestroyUsesRecordedVolumeNames(t *testing.T) {
-	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{
-		Container: "box",
-		Volumes:   backend.VolumeSet{State: "recorded-state", Workspace: "recorded-workspace"},
-	}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vol := dockerCall(f.Calls, "volume")
-	if vol == nil || !contains(vol, "recorded-state") || !contains(vol, "recorded-workspace") {
-		t.Fatalf("destroy must remove the recorded volume names: %+v", f.Calls)
-	}
-	if contains(vol, "box-state") || contains(vol, "box-workspace") {
-		t.Fatalf("destroy must not re-derive volume names from the container: %v", vol)
-	}
-}
-
-// TestDestroyFallsBackToContainerDerivedVolumes: a legacy instance that recorded
-// no volume names (Volumes zero) falls back to the historical
-// <container>-state/-workspace reconstruction, so sandboxes created before COV-76
-// still tear down cleanly.
-func TestDestroyFallsBackToContainerDerivedVolumes(t *testing.T) {
-	f := &runner.Fake{}
-	if err := New(f).Destroy(backend.Instance{Container: "box"}, false); err != nil {
-		t.Fatal(err)
-	}
-	vol := dockerCall(f.Calls, "volume")
-	if vol == nil || !contains(vol, "box-state") || !contains(vol, "box-workspace") {
-		t.Fatalf("legacy destroy must fall back to container-derived volume names: %+v", f.Calls)
-	}
-}
-
 func TestDialParsesDockerPort(t *testing.T) {
 	// preflight `info` is a Probe (no Output consumed); `port` is the only Output.
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
-	ep, cleanup, err := New(f).Dial("box")
+	ep, cleanup, err := NewWithContext(f, "").Dial("box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,163 +59,11 @@ func TestDialParsesDockerPort(t *testing.T) {
 	}
 }
 
-func TestGetStatus(t *testing.T) {
-	cases := []struct {
-		out  string
-		err  error
-		want backend.State
-	}{
-		{out: "true\n", want: backend.StateRunning},
-		{out: "false\n", want: backend.StateStopped},
-		{out: "", err: &runner.ExitError{Code: 1}, want: backend.StateAbsent},
-	}
-	for _, c := range cases {
-		// preflight `info` is a Probe (no Output consumed); `inspect` is the Output.
-		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: c.out, Err: c.err}}}
-		got, err := New(f).GetStatus("box")
-		if err != nil {
-			t.Fatalf("status(%q,%v) errored: %v", c.out, c.err, err)
-		}
-		if got != c.want {
-			t.Fatalf("status(%q,%v) = %v want %v", c.out, c.err, got, c.want)
-		}
-	}
-}
-
-func TestRegistered(t *testing.T) {
-	if _, err := backend.Get("colima"); err != nil {
-		t.Fatalf("colima not registered: %v", err)
-	}
-}
-
-// TestDestroyKeepsVolumes guards the invariant that `recreate` relies on: with
-// keepVolumes=true, Destroy force-removes the container but never its named
-// volumes (no -v/--volumes, no `volume rm`), so /agent-data (saved login) and the
-// workspace survive a recreate. It must also NOT remove the image: the image is
-// an `install` artifact (COV-38), and recreate re-runs it without rebuilding —
-// deleting it would leave `docker run` with no image to run (COV-63).
-func TestDestroyKeepsVolumes(t *testing.T) {
-	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{Container: "box", Image: "atcove-box"}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rm := dockerCall(f.Calls, "rm")
-	if rm == nil || !contains(rm, "-f") || !contains(rm, "box") {
-		t.Fatalf("destroy should force-remove the container: %+v", f.Calls)
-	}
-	for _, a := range rm {
-		if a == "-v" || a == "--volumes" {
-			t.Fatalf("destroy must not remove volumes: %v", rm)
-		}
-	}
-	if vol := dockerCall(f.Calls, "volume"); vol != nil {
-		t.Fatalf("keepVolumes must not issue `docker volume rm`: %v", vol)
-	}
-	if rmi := dockerCall(f.Calls, "rmi"); rmi != nil {
-		t.Fatalf("destroy must NOT remove the image (it belongs to install; recreate re-runs it): %+v", f.Calls)
-	}
-}
-
-// TestDestroyPurgesVolumes: a real `destroy` (keepVolumes=false) removes the
-// instance's named volumes — `<container>-state` (/agent-data, the saved login)
-// and `<container>-workspace` — so nothing lingers. The container is still
-// force-removed first (volumes can't be removed while in use).
-func TestDestroyPurgesVolumes(t *testing.T) {
-	f := &runner.Fake{}
-	err := New(f).Destroy(backend.Instance{Container: "box", Image: "atcove-box"}, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rmIdx, volIdx := -1, -1
-	for i, c := range f.Calls {
-		if c.Name != "docker" {
-			continue
-		}
-		a := c.Args[2:] // skip --context colima
-		if a[0] == "rm" {
-			rmIdx = i
-		}
-		if a[0] == "volume" {
-			volIdx = i
-		}
-	}
-	vol := dockerCall(f.Calls, "volume")
-	if vol == nil || !contains(vol, "rm") || !contains(vol, "box-state") || !contains(vol, "box-workspace") {
-		t.Fatalf("destroy must remove the -state and -workspace volumes: %+v", f.Calls)
-	}
-	if rmIdx == -1 || volIdx == -1 || rmIdx > volIdx {
-		t.Fatalf("container rm must precede volume rm: %+v", f.Calls)
-	}
-	// A full destroy tears down the instance (container + volumes), but the image
-	// is an install artifact — leave it, so install.json stays consistent and a
-	// later create can re-run it without a rebuild (COV-63).
-	if rmi := dockerCall(f.Calls, "rmi"); rmi != nil {
-		t.Fatalf("destroy must NOT remove the image: %+v", f.Calls)
-	}
-	if !allPinned(f.Calls) {
-		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
-	}
-}
-
-// TestRemoveImage: RemoveImage is the inverse of Install — it `docker rmi`s the
-// kit's compiled image (pinned to the colima context) and nothing else. It is the
-// sole image-teardown path (COV-64); Destroy never touches the image (COV-63).
-func TestRemoveImage(t *testing.T) {
-	f := &runner.Fake{}
-	if err := New(f).RemoveImage("atcove-box"); err != nil {
-		t.Fatal(err)
-	}
-	rmi := dockerCall(f.Calls, "rmi")
-	if rmi == nil || !contains(rmi, "atcove-box") {
-		t.Fatalf("RemoveImage must docker rmi the image: %+v", f.Calls)
-	}
-	if dockerCall(f.Calls, "rm") != nil || dockerCall(f.Calls, "volume") != nil {
-		t.Fatalf("RemoveImage must not touch containers or volumes: %+v", f.Calls)
-	}
-	if !allPinned(f.Calls) {
-		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
-	}
-}
-
-// TestRemoveImagePreflightFailsActionably: an unreachable colima surfaces the
-// `colima start` guidance from RemoveImage, like every other op.
-func TestRemoveImagePreflightFailsActionably(t *testing.T) {
-	f := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if err := New(f).RemoveImage("atcove-box"); err == nil || !strings.Contains(err.Error(), "colima start") {
-		t.Fatalf("RemoveImage should fail actionably; err=%v", err)
-	}
-}
-
-// TestCreateRunsGivenImageContainerFromName: Create runs the pre-built image it
-// is handed (ctx.Image), while the container and its volumes still derive from
-// Name — so one installed kit image can back several distinct instances.
-func TestCreateRunsGivenImageContainerFromName(t *testing.T) {
-	f := &runner.Fake{}
-	c := New(f)
-	_, err := c.Create(backend.CreateContext{
-		Name:      "box-loop-foo",
-		Image:     "atcove-box",
-		Workspace: backend.WorkspaceMount{Mode: backend.Isolated},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dockerCall(f.Calls, "build") != nil {
-		t.Fatalf("Create must not build (run-only): %+v", f.Calls)
-	}
-	// run uses the shared kit image, while container + volumes derive from Name.
-	run := dockerCall(f.Calls, "run")
-	if run == nil || !contains(run, "atcove-box") || !contains(run, "box-loop-foo") || !contains(run, "box-loop-foo-agent-data:/agent-data") {
-		t.Fatalf("container/volumes must derive from Name over the given image: %+v", f.Calls)
-	}
-}
-
 // TestPinsContext: every docker call carries --context colima, so cove never
 // uses a different daemon than colima.
 func TestPinsContext(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := New(f).Create(backend.CreateContext{Name: "box", Image: "atcove-box"}); err != nil {
+	if _, err := NewWithContext(f, "").RunEphemeral("img:tag", "", "box", "harbor.cove", nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Calls) == 0 || !allPinned(f.Calls) {
@@ -674,20 +83,20 @@ func TestPreflightFailsActionably(t *testing.T) {
 	mkFail := func() *runner.Fake {
 		return &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	}
-	// Create
-	if _, err := New(mkFail()).Create(backend.CreateContext{Name: "box", Image: "atcove-box"}); err == nil || !strings.Contains(err.Error(), "colima start") {
-		t.Fatalf("Create should fail actionably; err=%v", err)
+	// RunEphemeral
+	if _, err := NewWithContext(mkFail(), "").RunEphemeral("img:tag", "", "box", "harbor.cove", nil, nil, false); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("RunEphemeral should fail actionably; err=%v", err)
 	}
 	// Dial
-	if _, _, err := New(mkFail()).Dial("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if _, _, err := NewWithContext(mkFail(), "").Dial("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("Dial should fail actionably; err=%v", err)
 	}
-	// Destroy
-	if err := New(mkFail()).Destroy(backend.Instance{Container: "box"}, false); err == nil || !strings.Contains(err.Error(), "colima start") {
-		t.Fatalf("Destroy should fail actionably; err=%v", err)
+	// RemoveContainer
+	if err := NewWithContext(mkFail(), "").RemoveContainer("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+		t.Fatalf("RemoveContainer should fail actionably; err=%v", err)
 	}
 	// GetStatus now surfaces the unreachable error instead of a misleading "absent".
-	if _, err := New(mkFail()).GetStatus("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if _, err := NewWithContext(mkFail(), "").GetStatus("box"); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("GetStatus should fail actionably; err=%v", err)
 	}
 }
@@ -697,7 +106,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 // the bare-runner build in T2/T3 got wrong (COV-217).
 func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}} // the post-build inspect .Id
-	digest, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, false)
+	digest, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +129,7 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 // doesn't pin its own base still builds.
 func TestResolveKitBaseDefaultsToBlessed(t *testing.T) {
 	f := &runner.Fake{}
-	got, err := New(f).(backend.KitImageBuilder).ResolveKitBase("")
+	got, err := NewWithContext(f, "").ResolveKitBase("")
 	if err != nil || got == "" {
 		t.Fatalf("ResolveKitBase(\"\") = %q, %v; want the blessed default", got, err)
 	}
@@ -729,7 +138,7 @@ func TestResolveKitBaseDefaultsToBlessed(t *testing.T) {
 // The Dockerfile is FROM ${BASE}; a blank base can't build.
 func TestBuildKitImageRequiresBase(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:managed-v1", "", nil, false); err == nil {
+	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "", nil, false); err == nil {
 		t.Fatal("BuildKitImage must require a non-empty base")
 	}
 }
@@ -738,7 +147,7 @@ func TestBuildKitImageRequiresBase(t *testing.T) {
 // alongside the required BASE arg.
 func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
-	if _, err := New(f).(backend.KitImageBuilder).BuildKitImage("/b", "cove-kit:deadbeef", "cove-base@sha256:base",
+	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:deadbeef", "cove-base@sha256:base",
 		map[string]string{"NODE_VERSION": "20"}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +164,7 @@ func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 // (absent image) is a (false, nil) miss, not an error.
 func TestHasKitImage(t *testing.T) {
 	f := &runner.Fake{}
-	ok, err := New(f).(backend.KitImageBuilder).HasKitImage("cove-kit:managed-v2")
+	ok, err := NewWithContext(f, "").HasKitImage("cove-kit:managed-v2")
 	if err != nil || !ok {
 		t.Fatalf("present: Has = %v, %v", ok, err)
 	}
@@ -768,7 +177,7 @@ func TestHasKitImage(t *testing.T) {
 	}
 
 	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if ok, _ := New(f2).(backend.KitImageBuilder).HasKitImage("cove-kit:missing-v9"); ok {
+	if ok, _ := NewWithContext(f2, "").HasKitImage("cove-kit:missing-v9"); ok {
 		t.Fatal("HasKitImage must be false when the image is absent")
 	}
 }
@@ -900,5 +309,28 @@ func TestDockerArgsPinsTheContext(t *testing.T) {
 	}
 	if got := NewWithContext(&runner.Fake{}, "").DockerArgs("ps"); strings.Join(got, " ") != "--context colima ps" {
 		t.Fatalf("default context = %v", got)
+	}
+}
+
+func TestGetStatus(t *testing.T) {
+	cases := []struct {
+		out  string
+		err  error
+		want backend.State
+	}{
+		{out: "true\n", want: backend.StateRunning},
+		{out: "false\n", want: backend.StateStopped},
+		{out: "", err: &runner.ExitError{Code: 1}, want: backend.StateAbsent},
+	}
+	for _, c := range cases {
+		// preflight `info` is a Probe (no Output consumed); `inspect` is the Output.
+		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: c.out, Err: c.err}}}
+		got, err := NewWithContext(f, "").GetStatus("box")
+		if err != nil {
+			t.Fatalf("status(%q,%v) errored: %v", c.out, c.err, err)
+		}
+		if got != c.want {
+			t.Fatalf("status(%q,%v) = %v want %v", c.out, c.err, got, c.want)
+		}
 	}
 }

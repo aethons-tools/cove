@@ -20,19 +20,6 @@ func read(t *testing.T, p string) string {
 	return string(b)
 }
 
-// Assemble must write the kit's managed .gitignore, so a kit built by any path
-// (build/create/work) never leaks its .build/.state artifacts into git.
-func TestAssembleEnsuresGitignore(t *testing.T) {
-	kitDir := t.TempDir()
-	if err := Assemble(kitDir, filepath.Join(kitDir, ".build"), []byte("ssh-ed25519 AAAA"), Egress{}, "", harnessinstall.Default()); err != nil {
-		t.Fatalf("Assemble: %v", err)
-	}
-	gi := read(t, filepath.Join(kitDir, ".gitignore"))
-	if !strings.Contains(gi, ".build/") || !strings.Contains(gi, ".state/") {
-		t.Fatalf(".gitignore missing managed entries:\n%s", gi)
-	}
-}
-
 // AssembleContext builds the whole context from in-binary resources + supplied
 // data, with NO source kit directory — the property that lets a Launcher build a
 // managed cove from a kit communicated as data. It must produce the Dockerfile
@@ -69,7 +56,7 @@ func TestWriteCoveMaster_WritesArchFiles(t *testing.T) {
 func TestAssembleLayersAndKey(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
 
-	if err := Assemble(t.TempDir(), buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("ssh-ed25519 AAAA k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,10 +81,8 @@ func mustWrite(t *testing.T, p, content string) {
 }
 
 func TestAssembleAllowedDomains(t *testing.T) {
-	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	img := kit.ImageConfig{AllowedDomains: []string{".example.com", "pkg.go.dev"}}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), Egress{Policy: img.AllowedDomains}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{Policy: []string{".example.com", "pkg.go.dev"}}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.kit.txt"))
@@ -107,9 +92,8 @@ func TestAssembleAllowedDomains(t *testing.T) {
 }
 
 func TestAssembleAllowedDomainsAlwaysWritten(t *testing.T) {
-	kitDir := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	// File must exist even with no domains, so squid.conf never references a missing file.
@@ -162,48 +146,13 @@ func TestCollaboratorRoleFileSeeded(t *testing.T) {
 	}
 }
 
-// Assemble must bake the Vertex model-spec provider's derived GCP egress domains into the
-// always-on infra allow-list, not just the kit's own image.allowed-domains, so a
-// Vertex kit can reach aiplatform + the ADC auth endpoints without a manual
-// allowed-domains entry (COV egress task 2).
-func TestAssemble_VertexDomainsBaked(t *testing.T) {
-	kitDir := t.TempDir()
-	buildDir := filepath.Join(kitDir, ".build")
-	cfg, err := kit.ParseConfig([]byte(`
-name: k
-model-spec:
-  name: vertex
-  type: claude
-  version: 2.1.287
-  claude:
-    provider: vertex
-    provider-env:
-      ANTHROPIC_VERTEX_PROJECT_ID: p
-      CLOUD_ML_REGION: us-east5
-`))
-	if err != nil {
-		t.Fatalf("ParseConfig: %v", err)
-	}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), Egress{Policy: cfg.Image.AllowedDomains, Infra: kit.InfraDomains(cfg)}, "", harnessinstall.Default()); err != nil {
-		t.Fatalf("Assemble: %v", err)
-	}
-	b, err := os.ReadFile(filepath.Join(buildDir, "image-files/etc/squid/allowed_domains.infra.txt"))
-	if err != nil {
-		t.Fatalf("read baked domains: %v", err)
-	}
-	if !strings.Contains(string(b), "us-east5-aiplatform.googleapis.com") ||
-		!strings.Contains(string(b), "oauth2.googleapis.com") {
-		t.Fatalf("baked kit domains missing vertex hosts:\n%s", b)
-	}
-}
-
 // A GitLab kit must get a generated gitconfig include baking the host's ssh/git→
 // https insteadOf rewrites and scoping the credential helper to that host, so an
 // interactive collaborator git over HTTPS authenticates with GITLAB_TOKEN — the
 // GitHub-only static gitconfig cannot do this for a (possibly self-hosted) host.
 func TestAssembleGeneratesGitLabGitConfig(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "gitlab.example.com", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "gitlab.example.com", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc"))
@@ -225,7 +174,7 @@ func TestAssembleGeneratesGitLabGitConfig(t *testing.T) {
 // is a well-formed no-op rather than a dangling include.
 func TestAssembleGitLabGitConfigHeaderOnlyForGitHub(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(buildDir, "image-files/etc/gitconfig-gitlab.inc"))
@@ -276,7 +225,7 @@ func TestAssembleSplitsEgressLists(t *testing.T) {
 	kitDir := t.TempDir()
 	buildDir := filepath.Join(kitDir, ".build")
 	eg := Egress{Policy: []string{"pkg.go.dev", ".example.com"}, Infra: []string{"jam.example"}}
-	if err := Assemble(kitDir, buildDir, []byte("k\n"), eg, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), eg, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	squidDir := filepath.Join(buildDir, "image-files/etc/squid")
@@ -299,7 +248,7 @@ func TestAssembleSplitsEgressLists(t *testing.T) {
 // missing ACL file and the helper always finds a ceiling.
 func TestAssembleEgressListsAlwaysWritten(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	for _, file := range []string{"allowed_domains.kit.txt", "allowed_domains.infra.txt", "egress_ceiling.txt"} {
@@ -307,72 +256,6 @@ func TestAssembleEgressListsAlwaysWritten(t *testing.T) {
 		if !strings.HasPrefix(got, "#") || len(domainLines(got)) != 0 {
 			t.Errorf("%s must be header-only when empty:\n%s", file, got)
 		}
-	}
-}
-
-// The split must not change what a dev sandbox can reach: kit.txt ∪ infra.txt is
-// exactly the old single kit list (kit.RootDomains).
-func TestAssembleEgressUnionUnchanged(t *testing.T) {
-	// Jam and model-spec are mutually exclusive, so cover a provider +
-	// GitLab kit and a Jam + GitLab kit.
-	for name, yml := range map[string]string{
-		"provider+gitlab": `
-name: k
-image:
-  allowed-domains: [pkg.go.dev, .example.com]
-model-spec:
-  name: vertex
-  type: claude
-  version: 2.1.287
-  claude:
-    provider: vertex
-    provider-env:
-      ANTHROPIC_VERTEX_PROJECT_ID: p
-      CLOUD_ML_REGION: us-east5
-source-control:
-  gitlab:
-    host: gitlab.example.com
-    project: g/app
-`,
-		"jam+gitlab": `
-name: k
-image:
-  allowed-domains: [pkg.go.dev, .example.com]
-source-control:
-  gitlab:
-    host: gitlab.example.com
-    project: g/app
-jam:
-  host: jam.example
-`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			cfg, err := kit.ParseConfig([]byte(yml))
-			if err != nil {
-				t.Fatalf("ParseConfig: %v", err)
-			}
-			kitDir := t.TempDir()
-			buildDir := filepath.Join(kitDir, ".build")
-			if err := Assemble(kitDir, buildDir, []byte("k\n"), EgressFor(cfg), "", harnessinstall.Default()); err != nil {
-				t.Fatal(err)
-			}
-			squidDir := filepath.Join(buildDir, "image-files/etc/squid")
-			union := map[string]bool{}
-			for _, f := range []string{"allowed_domains.kit.txt", "allowed_domains.infra.txt"} {
-				for _, d := range domainLines(read(t, filepath.Join(squidDir, f))) {
-					union[d] = true
-				}
-			}
-			root := kit.RootDomains(cfg)
-			if len(union) != len(root) {
-				t.Fatalf("kit ∪ infra = %v, want RootDomains %v", union, root)
-			}
-			for _, d := range root {
-				if !union[d] {
-					t.Fatalf("kit ∪ infra missing %q (RootDomains %v)", d, root)
-				}
-			}
-		})
 	}
 }
 
@@ -411,7 +294,7 @@ func TestAssembleContextBakesMCPServers(t *testing.T) {
 // lists, so the harness can tell "no kit servers" from a stale image.
 func TestAssembleContextBakesEmptyMCPServers(t *testing.T) {
 	buildDir := filepath.Join(t.TempDir(), ".build")
-	if err := Assemble(t.TempDir(), buildDir, []byte("k\n"), Egress{}, "", harnessinstall.Default()); err != nil {
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{}, "", nil, harnessinstall.Default()); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, filepath.Join(buildDir, "image-files", kit.MCPServersImagePath)); got != "{}\n" {
