@@ -78,7 +78,7 @@ func TestBoilerplateTicketTurnContract(t *testing.T) {
 // session's own channel.
 func TestBoilerplateEphemeralWithoutUnitHasOwnChannel(t *testing.T) {
 	c := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r"}).Core
-	if strings.Contains(c, "ticket") || !strings.Contains(c, "posts to your own channel") {
+	if strings.Contains(c, "posts to your ticket") || !strings.Contains(c, "posts to your own channel") {
 		t.Fatalf("unit-less ephemeral must be told about its own channel:\n%s", c)
 	}
 }
@@ -128,6 +128,24 @@ func TestBoilerplatePreviewsLine(t *testing.T) {
 		b := Compile(Inputs{Session: SessionFacts{Kind: k, Name: strings.Repeat("n", 64), Owner: strings.Repeat("o", 64), Project: strings.Repeat("p", 64), Role: strings.Repeat("r", 64), Previews: true}})
 		if len(b.Warnings) != 0 {
 			t.Errorf("%s: %v", k, b.Warnings)
+		}
+	}
+}
+
+func TestBoilerplateMissionLine(t *testing.T) {
+	const line = "- Mission: when your focus changes (a new task, a ticket picked up), set a one-line `mission` saying what you are on — people see it beside your name."
+	for _, f := range []SessionFacts{
+		{Kind: KindStanding, Name: "bot", Project: "acme", Role: "reviewer", Previews: true},
+		{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "pair", Previews: true},
+		{Kind: "", Project: "acme", Role: "worker", Unit: "AET-9", Previews: true},
+		{Kind: "", Project: "acme", Role: "worker", Previews: true},
+	} {
+		l := Boilerplate(f)
+		if !strings.Contains(l.Core, line) {
+			t.Errorf("%s (unit %q): missing mission line in\n%s", f.Kind, f.Unit, l.Core)
+		}
+		if len(l.Core) > BudgetBoilerplate {
+			t.Errorf("%s: boilerplate %d bytes > budget %d", f.Kind, len(l.Core), BudgetBoilerplate)
 		}
 	}
 }

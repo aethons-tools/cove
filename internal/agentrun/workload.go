@@ -49,7 +49,8 @@ const standingResumePrompt = "A message may have arrived — use the intercom `r
 // restart): it replaces the raise prompt, which the conversation already holds.
 const standingRestartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
-	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else."
+	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else. " +
+	"Set your `mission` again once you know your current focus."
 
 // resumeFailWindow bounds the resume fallback: a resumed episode that exits
 // non-zero within it, the agent never having replied, is retried fresh.

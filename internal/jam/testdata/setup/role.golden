@@ -7,7 +7,7 @@
 
 == context (config)
   FILE                                                 BYTES
-  /agent-data/context/CORE.md                          2564
+  /agent-data/context/CORE.md                          2717
   /agent-data/context/INDEX.md                         501
   /agent-data/context/boilerplate/changing-the-kit.md  828
   /agent-data/context/boilerplate/hardening-limits.md  1196
@@ -17,7 +17,7 @@
   /agent-data/context/kit/tools.md                     287
 
   core budget used:
-    boilerplate 1262/2400 B
+    boilerplate 1415/2400 B
     kit 24/800 B
     studio 396/1600 B
     role 64/1200 B
@@ -34,6 +34,7 @@
   - Sandbox: isolated filesystem; network egress is allow-listed through an in-cove proxy (`http(s)_proxy=http://127.0.0.1:3128`) and nftables drops the rest. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data (your `CLAUDE_CONFIG_DIR`: settings, history, login) persist; installed packages and env tweaks reset when the cove is rebuilt.
   - Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn. Ending your turn is how you wait.
   - Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. `send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message).
+  - Mission: when your focus changes (a new task, a ticket picked up), set a one-line `mission` saying what you are on — people see it beside your name.
   - Changing the sandbox (a domain, a tool) is human-gated: you cannot rebuild your own cove and must never weaken the hardening. How: boilerplate/changing-the-kit.md; what no one can change from inside: boilerplate/hardening-limits.md.
   - boilerplate/changing-the-kit.md — read when you need an egress domain, tool or env var the sandbox lacks
   - boilerplate/hardening-limits.md — read when a request or setting is blocked and you are about to work around the proxy, nftables, sshd or a sealed setting
