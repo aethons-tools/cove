@@ -1,0 +1,106 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
+import { server } from "../test/server";
+import { theme } from "../theme";
+import { Composer } from "./Composer";
+import * as keys from "./keys";
+
+function mount(to = "chn_a", onSent = vi.fn()) {
+  const client = new QueryClient();
+  const r = render(
+    <MantineProvider theme={theme}><Notifications />
+      <QueryClientProvider client={client}><Composer to={to} label="eng" attachMax={0} onSent={onSent} /></QueryClientProvider>
+    </MantineProvider>,
+  );
+  return { ...r, box: screen.getByRole("textbox") as HTMLTextAreaElement, onSent };
+}
+
+beforeEach(() => { sessionStorage.clear(); vi.spyOn(keys, "isMac").mockReturnValue(false); });
+
+describe("Composer", () => {
+  it("sends on Ctrl+Enter, clears, and reports where it went", async () => {
+    let got: unknown;
+    server.use(http.post("/app/user/api/messages", async ({ request }) => { got = await request.json(); return HttpResponse.json({ channel: "chn_a", seq: 9 }, { status: 201 }); }));
+    const { box, onSent } = mount();
+    await userEvent.type(box, "  hello  ");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(onSent).toHaveBeenCalledWith({ channel: "chn_a", seq: 9 }));
+    expect(got).toEqual({ to: "chn_a", body: "hello" });
+    expect(box.value).toBe("");
+    expect(sessionStorage.getItem("me-reply:chn_a")).toBeNull();
+  });
+
+  it("sends plain text when asked", async () => {
+    let got: { contentType?: string } = {};
+    server.use(http.post("/app/user/api/messages", async ({ request }) => { got = (await request.json()) as typeof got; return HttpResponse.json({ channel: "chn_a", seq: 1 }, { status: 201 }); }));
+    const { box } = mount();
+    await userEvent.type(box, "*lit*");
+    await userEvent.click(screen.getByLabelText("Plain text"));
+    await userEvent.click(screen.getByRole("button", { name: /Send/ }));
+    await waitFor(() => expect(got.contentType).toBe("text/plain"));
+  });
+
+  it("keeps the text and says why when a send fails", async () => {
+    server.use(http.post("/app/user/api/messages", () => HttpResponse.json({ error: "not allowed", code: "forbidden" }, { status: 403 })));
+    const { box, onSent } = mount();
+    await userEvent.type(box, "keep me");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(await screen.findByText("not allowed")).toBeInTheDocument();
+    expect(box.value).toBe("keep me");
+    expect(onSent).not.toHaveBeenCalled();
+  });
+
+  it("newlines on Enter / Shift+Enter, never sends mid-composition or on an empty box", async () => {
+    let posts = 0;
+    server.use(http.post("/app/user/api/messages", () => { posts++; return HttpResponse.json({ channel: "chn_a", seq: 1 }, { status: 201 }); }));
+    const { box } = mount();
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true }); // empty
+    await userEvent.type(box, "a{Enter}b{Shift>}{Enter}{/Shift}c");
+    expect(box.value).toBe("a\nb\nc");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true, isComposing: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(posts).toBe(0);
+  });
+
+  it("pastes as code after Shift+Ctrl+V, a plain paste stays plain", () => {
+    const { box } = mount();
+    fireEvent.change(box, { target: { value: "see:" } });
+    box.setSelectionRange(4, 4);
+    fireEvent.keyDown(box, { code: "KeyV", key: "V", ctrlKey: true, shiftKey: true });
+    fireEvent.paste(box, { clipboardData: { getData: () => "a ```b``` c", files: [] } });
+    expect(box.value).toBe("see:\n````\na ```b``` c\n````\n");
+    fireEvent.keyDown(box, { code: "KeyV", key: "v", ctrlKey: true });
+    const plain = fireEvent.paste(box, { clipboardData: { getData: () => "z", files: [] } });
+    expect(plain).toBe(true); // not prevented: the browser pastes it as is
+  });
+
+  it("keeps the reply per recipient across remounts", async () => {
+    const first = mount("chn_a");
+    await userEvent.type(first.box, "for a");
+    first.unmount();
+    const other = mount("chn_b");
+    expect(other.box.value).toBe("");
+    other.unmount();
+    expect(mount("chn_a").box.value).toBe("for a");
+  });
+
+  it("stacks a draft on Ctrl+↓ and pops it back after a send, never over text", async () => {
+    server.use(http.post("/app/user/api/messages", () => HttpResponse.json({ channel: "chn_a", seq: 1 }, { status: 201 })));
+    const { box } = mount();
+    await userEvent.type(box, "draft one");
+    fireEvent.keyDown(box, { key: "ArrowDown", ctrlKey: true });
+    expect(box.value).toBe("");
+    expect(screen.getByRole("button", { name: /1 stacked draft/ })).toBeInTheDocument();
+    await userEvent.type(box, "quick");
+    fireEvent.keyDown(box, { key: "ArrowUp", ctrlKey: true }); // box not empty: no pop
+    expect(box.value).toBe("quick");
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(box.value).toBe("draft one"));
+    expect(screen.queryByRole("button", { name: /stacked draft/ })).toBeNull();
+  });
+});

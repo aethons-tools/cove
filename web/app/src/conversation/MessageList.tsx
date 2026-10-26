@@ -7,8 +7,8 @@ import { dayLabel, sameDay } from "./days";
 // MessageList shows the messages oldest-first with day dividers. It opens
 // at the newest, stays pinned there while new ones arrive (unless the reader
 // scrolled up), and keeps position when older ones load above.
-export function MessageList({ messages, channel, earlier, loadingEarlier, onEarlier }: {
-  messages: MessageRow[]; channel: string; earlier: boolean; loadingEarlier: boolean; onEarlier: () => void;
+export function MessageList({ messages, channel, earlier, loadingEarlier, onEarlier, stickToEnd }: {
+  messages: MessageRow[]; channel: string; earlier: boolean; loadingEarlier: boolean; onEarlier: () => void; stickToEnd?: number;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -27,6 +27,7 @@ export function MessageList({ messages, channel, earlier, loadingEarlier, onEarl
   }, [messages]);
 
   useEffect(() => { pinned.current = true; }, [channel]);
+  useEffect(() => { pinned.current = true; }, [stickToEnd]); // a send ends at the bottom
 
   if (messages.length === 0) return <Center flex={1}><Text c="dimmed">No messages yet.</Text></Center>;
   return (
