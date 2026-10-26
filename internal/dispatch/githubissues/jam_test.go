@@ -104,17 +104,19 @@ func TestIssueByIdentifier(t *testing.T) {
 	})
 	c := newJamClient(t, mux)
 	ctx := context.Background()
-	for _, key := range []string{"acme/board#7", "Acme/Board#7"} { // GitHub owner/name are case-insensitive
+	for _, key := range []string{"acme/board#7", "Acme/Board#7", "acme/board#007"} { // GitHub owner/name are case-insensitive
 		if id, err := c.IssueByIdentifier(ctx, key); err != nil || id != "7" {
 			t.Fatalf("IssueByIdentifier(%q) = %q, %v", key, id, err)
 		}
 	}
 	for key, want := range map[string]string{
-		"#7":             "github ticket key must be owner/repo#<n>",
-		"AET-7":          "github ticket key must be owner/repo#<n>",
-		"other/repo#7":   "is not on repo acme/board",
-		"acme/board#404": "no issue acme/board#404",
-		"acme/board#8":   "is a pull request",
+		"#7":              "github ticket key must be owner/repo#<n>",
+		"AET-7":           "github ticket key must be owner/repo#<n>",
+		"other/repo#7":    "is not on repo acme/board",
+		"acme/board#404":  "no issue acme/board#404",
+		"Acme/Board#0404": "no issue acme/board#404", // the canonical key, not the spelling
+		"Acme/Board#08":   "acme/board#8 is a pull request",
+		"acme/board#8":    "is a pull request",
 	} {
 		if _, err := c.IssueByIdentifier(ctx, key); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("IssueByIdentifier(%q) = %v; want %q", key, err, want)

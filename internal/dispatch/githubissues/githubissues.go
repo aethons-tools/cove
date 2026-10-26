@@ -28,6 +28,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/ticketkey"
+	"github.com/aethons-tools/cove/internal/tracker"
 )
 
 const api = "https://api.github.com"
@@ -105,40 +106,79 @@ func NewJam(gt kit.GitHubTracker, token string, httpc *http.Client) (*Client, er
 	return c, nil
 }
 
-// do issues a REST call and returns the status, body, and any transport error.
-// It mirrors internal/dispatch/github's helper: Bearer auth, GitHub media type.
-func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int, []byte, error) {
-	var body *bytes.Reader
-	if payload != nil {
-		body = bytes.NewReader(payload)
-	} else {
-		body = bytes.NewReader(nil)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
+// send issues a REST call and returns the status, headers, body and any
+// transport error: Bearer auth, GitHub media type. It mirrors
+// internal/dispatch/github's helper.
+func (c *Client) send(ctx context.Context, method, u string, payload []byte) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(payload))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
 	raw := new(bytes.Buffer)
 	_, _ = raw.ReadFrom(resp.Body)
-	return resp.StatusCode, raw.Bytes(), nil
+	return resp.StatusCode, resp.Header, raw.Bytes(), nil
 }
 
-// getJSON performs a GET and unmarshals a 200 body into out, erroring otherwise.
+// do is send without the headers.
+func (c *Client) do(ctx context.Context, method, u string, payload []byte) (int, []byte, error) {
+	code, _, raw, err := c.send(ctx, method, u, payload)
+	return code, raw, err
+}
+
+// bodyText is an error body for a message: trimmed, with the token
+// redacted should a proxy have echoed the request.
+func (c *Client) bodyText(raw []byte) string {
+	text := strings.TrimSpace(string(raw))
+	if c.token == "" {
+		return text // New refuses an empty token; never ReplaceAll("")
+	}
+	return strings.ReplaceAll(text, c.token, "[redacted]")
+}
+
+// rateLimit reads a GitHub rate-limit refusal: a 403 or 429 with Retry-After,
+// or with X-RateLimit-Remaining: 0 (wait until X-RateLimit-Reset), or any 429
+// (wait a minute). A 403 without those headers is a permissions error: nil.
+func rateLimit(code int, h http.Header, now time.Time) error {
+	if code != http.StatusForbidden && code != http.StatusTooManyRequests {
+		return nil
+	}
+	if s, err := strconv.Atoi(h.Get("Retry-After")); err == nil && s >= 0 {
+		return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: time.Duration(s) * time.Second}
+	}
+	if h.Get("X-RateLimit-Remaining") == "0" {
+		if reset, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+			return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: max(time.Unix(reset, 0).Sub(now), time.Second)}
+		}
+	}
+	if code == http.StatusTooManyRequests {
+		return &tracker.RateLimitError{Service: tracker.KindGitHub, RetryAfter: time.Minute}
+	}
+	return nil
+}
+
+// getJSON performs a GET and unmarshals a 200 body into out, erroring
+// otherwise. For Jam's client a rate limit is a *tracker.RateLimitError;
+// at-cove's (New) keeps its plain http error.
 func (c *Client) getJSON(ctx context.Context, u string, out any) error {
-	code, raw, err := c.do(ctx, http.MethodGet, u, nil)
+	code, h, raw, err := c.send(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err
 	}
+	if c.jam {
+		if rl := rateLimit(code, h, time.Now()); rl != nil {
+			return rl
+		}
+	}
 	if code != http.StatusOK {
-		return fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+		return fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
 	}
 	if out != nil {
 		return json.Unmarshal(raw, out)
@@ -245,7 +285,7 @@ func (c *Client) closedBlockers(ctx context.Context, nums map[int]struct{}) (map
 			continue // unresolved blocker → treated as still blocking
 		}
 		if code != http.StatusOK {
-			return nil, fmt.Errorf("githubissues: get issue #%d: http %d: %s", n, code, strings.TrimSpace(string(raw)))
+			return nil, fmt.Errorf("githubissues: get issue #%d: http %d: %s", n, code, c.bodyText(raw))
 		}
 		var out struct {
 			State string `json:"state"`
@@ -395,7 +435,7 @@ func (c *Client) setState(ctx context.Context, issueID, state string) error {
 		return err
 	}
 	if code != http.StatusOK {
-		return fmt.Errorf("githubissues: PATCH %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+		return fmt.Errorf("githubissues: PATCH %s: http %d: %s", u, code, c.bodyText(raw))
 	}
 	return nil
 }
@@ -413,7 +453,7 @@ func (c *Client) addLabel(ctx context.Context, issueID, label string) error {
 		return err
 	}
 	if code != http.StatusOK {
-		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, c.bodyText(raw))
 	}
 	return nil
 }
@@ -430,7 +470,7 @@ func (c *Client) removeLabel(ctx context.Context, issueID, label string) error {
 	if code == http.StatusOK || code == http.StatusNotFound {
 		return nil
 	}
-	return fmt.Errorf("githubissues: DELETE %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+	return fmt.Errorf("githubissues: DELETE %s: http %d: %s", u, code, c.bodyText(raw))
 }
 
 // PostComment creates an issue comment. issueID is the numeric issue number.
@@ -445,7 +485,7 @@ func (c *Client) PostComment(ctx context.Context, issueID, body string) error {
 		return err
 	}
 	if code != http.StatusCreated && code != http.StatusOK {
-		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, strings.TrimSpace(string(raw)))
+		return fmt.Errorf("githubissues: POST %s: http %d: %s", u, code, c.bodyText(raw))
 	}
 	return nil
 }
@@ -479,8 +519,9 @@ func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (stri
 	if err != nil {
 		return "", err
 	}
+	key := ticketkey.GitHub(repo, n) // the canonical spelling, for messages
 	if !strings.EqualFold(repo, c.repo) {
-		return "", fmt.Errorf("githubissues: ticket %s is not on repo %s", identifier, c.repo)
+		return "", fmt.Errorf("githubissues: ticket %s is not on repo %s", key, c.repo)
 	}
 	num := strconv.Itoa(n)
 	code, raw, err := c.do(ctx, http.MethodGet, api+"/repos/"+c.repo+"/issues/"+num, nil)
@@ -488,20 +529,151 @@ func (c *Client) IssueByIdentifier(ctx context.Context, identifier string) (stri
 		return "", err
 	}
 	if code == http.StatusNotFound {
-		return "", fmt.Errorf("githubissues: no issue %s", identifier)
+		return "", fmt.Errorf("githubissues: no issue %s", key)
 	}
 	if code != http.StatusOK {
-		return "", fmt.Errorf("githubissues: get issue %s: http %d: %s", identifier, code, strings.TrimSpace(string(raw)))
+		return "", fmt.Errorf("githubissues: get issue %s: http %d: %s", key, code, c.bodyText(raw))
 	}
 	var out ghIssue
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return "", err
 	}
 	if out.PullRequest != nil {
-		return "", fmt.Errorf("githubissues: %s is a pull request, not an issue", identifier)
+		return "", fmt.Errorf("githubissues: %s is a pull request, not an issue", key)
 	}
 	return num, nil
 }
 
+// ghComment is the projection of a repo issue comment.
+type ghComment struct {
+	ID        int64  `json:"id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+	HTMLURL   string `json:"html_url"`  // …/issues/N#… or …/pull/N#…
+	IssueURL  string `json:"issue_url"` // …/repos/{r}/issues/N (also for a PR)
+	User      struct {
+		Login string `json:"login"`
+		ID    int64  `json:"id"`
+		Type  string `json:"type"` // "User" | "Bot" | "Organization"
+	} `json:"user"`
+}
+
+// maxFeedPages caps the pages one CommentFeed call reads, so a repo busy
+// with PR conversations (read, then skipped) can't drain the rate budget in
+// one poll. The cursor (CommentFeedCursor) carries the next poll on.
+const maxFeedPages = 10
+
+// linkNext matches a Link header's rel="next" target.
+var linkNext = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
+
+// nextPage is the Link header's next page, if it is on the API host. A
+// next link anywhere else is not followed (the token goes with it).
+func nextPage(link string) string {
+	m := linkNext.FindStringSubmatch(link)
+	if m == nil || !strings.HasPrefix(m[1], api+"/") {
+		return ""
+	}
+	return m[1]
+}
+
+// CommentFeed returns the repo's issue comments created at or after since,
+// oldest first, at most limit (100 when limit <= 0). It is CommentFeedCursor
+// without the cursor.
+func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([]tracker.FeedComment, error) {
+	out, _, err := c.CommentFeedCursor(ctx, since, limit)
+	return out, err
+}
+
+// CommentFeedCursor calls GET /repos/{r}/issues/comments?since=&sort=created
+// &direction=asc, follows Link rel="next" for at most maxFeedPages pages, and
+// returns the issue comments created at or after since, at most limit.
+// GitHub's since filters by update time, so an edited old comment comes back:
+// one created before since is dropped. One created exactly at since is kept
+// (the relay dedups by id). Comments on pull requests are skipped.
+//
+// next is where the following poll should start: the latest created_at of
+// every comment this call consumed — returned or skipped — and never before
+// since. A comment read past the limit is not consumed, so it is read again.
+// (created_at, not updated_at: an edited comment's updated_at can be later
+// than an unread comment's created_at, and since=updated_at would lose it.)
+// A rate limit is a *tracker.RateLimitError.
+func (c *Client) CommentFeedCursor(ctx context.Context, since time.Time, limit int) (out []tracker.FeedComment, next time.Time, err error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	next = since
+	q := url.Values{"since": {since.UTC().Format(time.RFC3339)}, "sort": {"created"}, "direction": {"asc"}, "per_page": {"100"}}
+	u := api + "/repos/" + c.repo + "/issues/comments?" + q.Encode()
+	for pages := 0; u != "" && pages < maxFeedPages && len(out) < limit; pages++ {
+		code, h, raw, err := c.send(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, since, err
+		}
+		if rl := rateLimit(code, h, time.Now()); rl != nil {
+			return nil, since, rl
+		}
+		if code != http.StatusOK {
+			return nil, since, fmt.Errorf("githubissues: GET %s: http %d: %s", u, code, c.bodyText(raw))
+		}
+		var page []ghComment
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return nil, since, err
+		}
+		for _, n := range page {
+			if len(out) >= limit {
+				break // unconsumed: the cursor stays before it
+			}
+			at, err := time.Parse(time.RFC3339, n.CreatedAt)
+			if err != nil {
+				continue
+			}
+			if at.After(next) {
+				next = at
+			}
+			if fc, ok := c.feedComment(n, at, since); ok {
+				out = append(out, fc)
+			}
+		}
+		u = nextPage(h.Get("Link"))
+	}
+	return out, next, nil
+}
+
+// feedComment maps a repo comment created at at, or reports false for one
+// the feed skips.
+func (c *Client) feedComment(n ghComment, at, since time.Time) (tracker.FeedComment, bool) {
+	if strings.Contains(n.HTMLURL, "/pull/") {
+		return tracker.FeedComment{}, false // a pull request's conversation, not an issue's
+	}
+	if at.Before(since) {
+		return tracker.FeedComment{}, false // an old comment, edited since
+	}
+	num, err := strconv.Atoi(n.IssueURL[strings.LastIndex(n.IssueURL, "/")+1:])
+	if err != nil || num < 1 {
+		return tracker.FeedComment{}, false
+	}
+	return tracker.FeedComment{
+		ID: strconv.FormatInt(n.ID, 10), Body: n.Body, CreatedAt: at,
+		Author: n.User.Login, AuthorID: strconv.FormatInt(n.User.ID, 10), AuthorBot: n.User.Type == "Bot",
+		IssueIdentifier: c.key(num),
+	}, true
+}
+
+// Viewer returns the login the token authenticates as (GET /user) — the
+// relay's self-filter. A GitHub App installation token cannot call it; the
+// relay then relies on dropping Bot authors.
+func (c *Client) Viewer(ctx context.Context) (string, error) {
+	var out struct {
+		Login string `json:"login"`
+	}
+	if err := c.getJSON(ctx, api+"/user", &out); err != nil {
+		return "", err
+	}
+	return out.Login, nil
+}
+
 // Compile-time proof the client satisfies the full tracker interface.
 var _ scheduler.Tracker = (*Client)(nil)
+
+// Jam's contract (via NewJam; at-cove's New satisfies it too, with "#N" keys).
+var _ tracker.Tracker = (*Client)(nil)
