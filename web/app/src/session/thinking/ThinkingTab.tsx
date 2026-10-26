@@ -82,9 +82,15 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const list = useRef<HTMLDivElement>(null);
-  const atBottom = useRef(true);
-  const anchor = useRef<{ top: number; total: number } | null>(null);
-  const t = useThinkingFeed(id, { max, backoff, following: () => atBottom.current });
+  // follow: the reader is at the end, so new rows keep the end in view. Only
+  // the reader turns it off (scrolling up); the list re-pins the end as rows
+  // are measured taller than estimated.
+  const follow = useRef(true);
+  const lastTop = useRef(0);
+  // anchor: the row (and its offset in the view) a Load earlier keeps in
+  // place while the rows above it arrive and are measured (until: ms).
+  const anchor = useRef<{ key: string; offset: number; until: number } | null>(null);
+  const t = useThinkingFeed(id, { max, backoff, following: () => follow.current });
   const rows = useMemo(() => deriveRows(t.feed.items, prefs, q), [t.feed.items, prefs, q]);
   const tools = useMemo(() => {
     const x = toolsIn(t.feed.items);
@@ -98,29 +104,37 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
   // useVirtualizer returns functions the React Compiler can't memoize; this
   // component stays uncompiled (react-hooks' incompatible-library notice).
   // eslint-disable-next-line react-hooks/incompatible-library
-  const v = useVirtualizer({ count, getScrollElement: () => list.current, estimateSize: () => 22, overscan: 20,
+  const v = useVirtualizer({ count, getScrollElement: () => list.current, estimateSize: () => 36, overscan: 20,
     initialRect: { width: 600, height: 800 }, getItemKey: keyOf });
   const update = (p: ThinkingPrefs) => { setPrefs(p); savePrefs(p); };
 
-  // Follow the end while at the bottom; keep the reader's place when a page
-  // is inserted above.
+  // Keep the anchored row in place, else follow the end; re-applied on each
+  // render (new rows, or rows measured), as sizes settle.
   useLayoutEffect(() => {
     const el = list.current;
     if (!el) return;
+    const a = anchor.current;
+    if (a && Date.now() > a.until) anchor.current = null;
     if (anchor.current) {
-      el.scrollTop = anchor.current.top + (v.getTotalSize() - anchor.current.total);
-      anchor.current = null;
-    } else if (atBottom.current && count > 0) {
-      v.scrollToIndex(count - 1, { align: "end" });
+      const i = Array.from({ length: count }, (_, j) => keyOf(j)).indexOf(anchor.current.key);
+      const m = i >= 0 ? v.measurementsCache[i] : undefined;
+      if (m) el.scrollTop = m.start - anchor.current.offset;
+    } else if (follow.current && count > 0) {
+      el.scrollTop = el.scrollHeight;
     }
-  }, [count, rows, v]);
+    lastTop.current = el.scrollTop;
+  });
 
   if (pane.data?.eventsOff) return <Text size="sm" c="dimmed" p="sm">Session events aren't recorded on this jam.</Text>;
   const keepPlace = (fn: () => Promise<void>) => () => {
     const el = list.current;
-    if (el) anchor.current = { top: el.scrollTop, total: v.getTotalSize() };
+    const first = el && v.getVirtualItems().find((vi) => vi.index >= extra && vi.end > el.scrollTop);
+    if (el && first) anchor.current = { key: String(first.key), offset: first.start - el.scrollTop, until: Date.now() + 1500 };
+    follow.current = false;
     void fn().catch(() => { anchor.current = null; });
   };
+  // The reader's own scrolling ends an anchor.
+  const letGo = () => { anchor.current = null; };
   const toggle = (k: string) => setOpen((s) => {
     const n = new Set(s);
     if (n.has(k)) n.delete(k); else n.add(k);
@@ -158,10 +172,16 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
           data={[{ value: "", label: "Current" }, ...(pane.data?.streams ?? []).map((s) => ({ value: s.id, label: streamLabel(s.firstAt, s.events) }))]} />
       </div>
       <div ref={list} className="th-list" role="log" aria-live="polite" aria-label="Session events"
+        onWheel={letGo} onTouchStart={letGo} onKeyDown={letGo}
         onScroll={(e) => {
           const el = e.currentTarget;
-          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16;
-          if (atBottom.current) t.seen();
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 16) {
+            follow.current = true;
+            t.seen();
+          } else if (el.scrollTop < lastTop.current - 1 && !anchor.current) {
+            follow.current = false; // the reader scrolled up
+          }
+          lastTop.current = el.scrollTop;
         }}>
         <div style={{ height: v.getTotalSize(), position: "relative" }}>
           {v.getVirtualItems().map((vi) => (
@@ -176,8 +196,10 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
         <button type="button" className="th-new" aria-label="Show new events"
           onClick={() => {
             if (t.feed.paused) { t.connect(t.pinned); return; }
-            atBottom.current = true;
-            v.scrollToIndex(count - 1, { align: "end" });
+            follow.current = true;
+            anchor.current = null;
+            const el = list.current;
+            if (el) el.scrollTop = el.scrollHeight;
             t.seen();
           }}>↓ <span>{t.feed.unseen}</span> new</button>
       )}

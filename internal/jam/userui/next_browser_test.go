@@ -490,3 +490,134 @@ func TestBrowserNextThinking(t *testing.T) {
 		t.Errorf("page problem: %s", pr)
 	}
 }
+
+// thinkingApp serves the app and its API for a Thinking scroll test: the
+// session's stream holds n text events of lines lines each.
+func thinkingApp(t *testing.T, n, lines int) (*env, string, *httptest.Server, func(seq uint64)) {
+	t.Helper()
+	e, p, personal, store, hub := thinkEnv(t)
+	actor, cur := personal.ActorID, strings.Repeat("c", 32)
+	t0 := time.Now().Add(-time.Hour)
+	text := func(seq uint64) []byte {
+		ls := make([]string, lines)
+		for i := range ls {
+			ls[i] = fmt.Sprintf("event %d line %d", seq, i)
+		}
+		return assistantBlock(map[string]any{"type": "text", "text": strings.Join(ls, "\n")})
+	}
+	for s := uint64(1); s <= uint64(n); s++ {
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: s, Turn: 1, Kind: sessionevents.KindEvent, ObservedAt: t0.Add(time.Duration(s) * time.Second),
+			ReceivedAt: t0.Add(time.Duration(s) * time.Second), Raw: text(s), Index: sessionevents.Index{Type: "assistant"}}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish := func(seq uint64) {
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: seq, Turn: 2, Kind: sessionevents.KindEvent, ObservedAt: time.Now(), ReceivedAt: time.Now(),
+			Raw: text(seq), Index: sessionevents.Index{Type: "assistant"}}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+		hub.Publish(ev)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	return e, e.homeOf(t, personal), srv, publish
+}
+
+const thinkingListJS = `document.querySelector('[role="log"][aria-label="Session events"]')`
+
+// A burst of live events, with the reader at the bottom, stays followed:
+// rows measured taller than estimated mustn't strand the reader above them.
+func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	_, home, srv, publish := thinkingApp(t, 60, 1)
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+home+"?tab=thinking"),
+		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 60 line 0')`),
+		chromedp.Sleep(300*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	for s := uint64(61); s <= 100; s++ {
+		publish(s)
+	}
+	var gap int
+	var pill bool
+	if err := chromedp.Do(ctx,
+		has(thinkingListJS+`.textContent.includes('event 100 line 0')`),
+		chromedp.Sleep(500*time.Millisecond),
+		into(&gap, chromedp.Evaluate[int](`(function(){var L=`+thinkingListJS+`; return Math.round(L.scrollHeight-L.scrollTop-L.clientHeight);})()`)),
+		into(&pill, chromedp.Evaluate[bool](`!!document.querySelector('[aria-label="Show new events"]')`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if gap > 16 || pill {
+		t.Fatalf("after a burst: %dpx from the bottom, pill %v (want followed)", gap, pill)
+	}
+	// A reader who scrolled up stays where they are, told of what's new.
+	var top int
+	if err := chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](thinkingListJS+`.scrollTop=0`),
+		chromedp.Sleep(200*time.Millisecond),
+	); err != nil {
+		t.Fatal(err)
+	}
+	publish(101)
+	if err := chromedp.Do(ctx,
+		has(`(function(){var b=document.querySelector('[aria-label="Show new events"]'); return !!b && b.textContent.includes('1');})()`),
+		into(&top, chromedp.Evaluate[int](`Math.round(`+thinkingListJS+`.scrollTop)`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if top > 50 {
+		t.Fatalf("a reader scrolled to the top was moved to %dpx", top)
+	}
+}
+
+// Load earlier keeps the reader's place in Detailed format, where rows are
+// much taller than the virtualizer's estimate.
+func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	_, home, srv, _ := thinkingApp(t, 600, 6) // the real tail and page: 300 each
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	url := srv.URL + "/app/next/c/" + home + "?tab=thinking"
+	// The row's offset from the top of the list.
+	at := func(seq int) string {
+		return fmt.Sprintf(`(function(){var L=%s, r=L.querySelector('[data-testid="te"][data-seq="%d"]'); return r ? Math.round(r.getBoundingClientRect().top-L.getBoundingClientRect().top) : -9999;})()`, thinkingListJS, seq)
+	}
+	var before, after int
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(url),
+		chromedp.Evaluate[chromedp.Void](`localStorage.setItem('jam-thinking', JSON.stringify({format:'detailed'}))`),
+		chromedp.Navigate(url),
+		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 600 line 0')`),
+		chromedp.Evaluate[chromedp.Void](thinkingListJS+`.scrollTop=0`),
+		has(`!!document.querySelector('.te-more')`), // a virtual row: rendered near the top only
+		chromedp.Sleep(300*time.Millisecond),
+		into(&before, chromedp.Evaluate[int](at(301))),
+		chromedp.Click(chromedp.CSS(`.te-more`)),
+		has(`!!`+thinkingListJS+`.querySelector('[data-testid="te"][data-seq="300"]') || `+at(301)+`!==`+fmt.Sprint(-9999)),
+		chromedp.Sleep(500*time.Millisecond),
+		into(&after, chromedp.Evaluate[int](at(301))),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if before < 0 || after-before > 30 || before-after > 30 {
+		t.Fatalf("row 301 was %dpx from the top before Load earlier, %dpx after (want its place kept)", before, after)
+	}
+}
