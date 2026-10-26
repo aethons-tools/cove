@@ -332,3 +332,26 @@ type StatusRow struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
+
+// ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
+// of the feed with ?format=json, and a row of a page. Every string is agent
+// text, shown as text, never as markup.
+type ThinkingEvent struct {
+	Stream    string `json:"stream"`
+	Seq       uint64 `json:"seq"`
+	Turn      uint32 `json:"turn"`
+	At        int64  `json:"at"`   // unix ms; 0 = unknown
+	Kind      string `json:"kind"` // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+	Tool      string `json:"tool"`
+	ToolUseID string `json:"toolUseId"`
+	// Text is the one line (a gap's summary); Detail the expanded body ("" for
+	// kind other), DetailTruncated the bytes cut from it.
+	Text            string  `json:"text"`
+	Detail          string  `json:"detail"`
+	DetailTruncated int     `json:"detailTruncated"`
+	IsError         bool    `json:"isError"`
+	TruncatedBytes  uint64  `json:"truncatedBytes"` // dropped by the recorder
+	CostUSD         float64 `json:"costUsd"`        // result: the claude session's cumulative cost
+	DurationMS      int64   `json:"durationMs"`     // result
+	ClaudeSession   string  `json:"claudeSession"`  // result: the claude session CostUSD accumulates over
+}

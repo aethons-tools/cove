@@ -352,3 +352,29 @@ export interface StatusRow {
   name: string;
   value: string;
 }
+/**
+ * ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
+ * of the feed with ?format=json, and a row of a page. Every string is agent
+ * text, shown as text, never as markup.
+ */
+export interface ThinkingEvent {
+  stream: string;
+  seq: number /* uint64 */;
+  turn: number /* uint32 */;
+  at: number /* int64 */; // unix ms; 0 = unknown
+  kind: string; // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+  tool: string;
+  toolUseId: string;
+  /**
+   * Text is the one line (a gap's summary); Detail the expanded body ("" for
+   * kind other), DetailTruncated the bytes cut from it.
+   */
+  text: string;
+  detail: string;
+  detailTruncated: number /* int */;
+  isError: boolean;
+  truncatedBytes: number /* uint64 */; // dropped by the recorder
+  costUsd: number /* float64 */; // result: the claude session's cumulative cost
+  durationMs: number /* int64 */; // result
+  claudeSession: string; // result: the claude session CostUSD accumulates over
+}

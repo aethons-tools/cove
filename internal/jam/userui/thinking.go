@@ -2,6 +2,7 @@ package userui
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,9 +67,39 @@ func (h *handler) thinkingFragment(v sessionview.EventView) string {
 	return strings.ReplaceAll(b.String(), "\r", "&#13;")
 }
 
+// thinkingEventOf is v as the app's Thinking tab reads it: the
+// thinking-event template's fields (a gap shows its summary; kind other
+// keeps no detail).
+func thinkingEventOf(v sessionview.EventView) ThinkingEvent {
+	ev := ThinkingEvent{Stream: v.StreamID, Seq: v.Seq, Turn: v.Turn, Kind: string(v.Kind), Tool: v.Tool, ToolUseID: v.ToolUseID,
+		Text: v.Narrative, Detail: v.Detail, DetailTruncated: v.DetailTruncated, IsError: v.IsError, TruncatedBytes: v.TruncatedBytes,
+		CostUSD: v.CostUSD, DurationMS: v.DurationMS, ClaudeSession: v.ClaudeSession}
+	if !v.At.IsZero() {
+		ev.At = v.At.UnixMilli()
+	}
+	if v.Gap {
+		ev.Text = v.Summary
+	}
+	if v.Kind == sessionview.KindOther {
+		ev.Detail, ev.DetailTruncated = "", 0
+	}
+	return ev
+}
+
+// thinkingJSON is one event as the JSON feed's ev data (one line).
+func (h *handler) thinkingJSON(v sessionview.EventView) string {
+	b, err := json.Marshal(thinkingEventOf(v))
+	if err != nil {
+		h.lg.Error("userui thinking json failed", "error", err.Error())
+		return "{}"
+	}
+	return string(b)
+}
+
 // thinkingEvents is the session's live Thinking feed (sessionview.Serve,
 // following its newest stream), at most maxThinkingStreams per viewer; it
-// ends once the viewer loses access to the session.
+// ends once the viewer loses access to the session. ?format=json sends each
+// event as ThinkingEvent JSON (the app) rather than the HTML fragment.
 func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 	p, inst, ok := h.thinkingSession(w, r)
 	if !ok {
@@ -99,8 +130,12 @@ func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 		again, _, ok := h.sessionFor(p, id)
 		return ok && again.ActorID == inst.ActorID
 	}
+	event := h.thinkingFragment
+	if r.URL.Query().Get("format") == "json" {
+		event = h.thinkingJSON // the Jam app (spec §2)
+	}
 	sessionview.Serve(w, r, sessionview.Source{Store: h.d.Events, Hub: h.d.Hub, ActorID: inst.ActorID,
-		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingFragment, Allowed: allowed})
+		Tail: thinkingTail, FollowNewest: true, Event: event, Allowed: allowed})
 }
 
 // thinkingStream is the request's ?stream=, or a 400.
