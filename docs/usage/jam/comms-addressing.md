@@ -40,9 +40,7 @@ what Jam itself writes, e.g. a personal session's grant and migrated policy) or
 by name. An id is matched only by that exact id, `user:*` or `*` — a name
 pattern like `user:a*` never matches an id — so ids never widen a name glob. Globs match only within
 their kind (`user:`, `channel:`, `ticket:`, `session:`); write each prefix you mean.
-For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach every ticket, and `ticket:x/*` every ticket of owner `x`'s repos *or* every ticket scoped to a connection named `x` (`ticket:x/<key>`).
-A GitHub ticket is matched by its canonical key only, and a glob's GitHub-shaped parts are canonical too (lowercased, `#<n>` without leading zeros): `ticket:Acme/*` reaches `acme/board#7`, while `ticket:acme/board#??` does not reach `acme/board#07` (that is `#7`). So the spelling never changes the answer, and `ticket:` and `session:` agree.
-A malformed key with no `#` (`ticket:acme/board`) is no GitHub form, so `*` does not cross its `/`: it is denied (403) unless a glob covers it as written (`ticket:acme/*`), and only then refused as malformed (404).
+For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach every ticket, and `ticket:x/*` every ticket of owner `x`'s repos *or* every ticket scoped to a connection named `x` (`ticket:x/<key>`). A GitHub ticket is matched by its canonical key only, and a glob's GitHub-shaped parts are canonical too (lowercased, `#<n>` without leading zeros): `ticket:Acme/*` reaches `acme/board#7`, while `ticket:acme/board#??` does not reach `acme/board#07` (that is `#7`) — so the spelling never changes the answer, and `ticket:` and `session:` agree. A malformed key with no `#` (`ticket:acme/board`) is no GitHub form, so `*` does not cross its `/`: it is denied (403) unless a glob covers it as written (`ticket:acme/*`), and only then refused as malformed (404).
 
 ## Project members and rooms
 
@@ -52,11 +50,10 @@ has two kinds of addressable things:
 - **Members** — users in the Jam-wide [identity registry](roster.md) with a
   membership in the project. A member is addressed by their user name or id
   (`user:<name|usr_id>`). Their tracker `@`-handle is the **account** linked to
-  them on the connection of the tracker's kind — their handle on `linear`
-  for a Linear-tracked Jam, their login on `github` for a GitHub-tracked one
-  (whatever handle they hold on the other); and their Discord user id is the
-  account on the `discord` connection. Their per-project **delivery** addresses (e.g. a
-  Discord inbox) live on the membership. A user's **logins** link them to
+  them on the connection of the tracker's kind (`linear`, or their login on
+  `github` for a GitHub-tracked Jam, whatever handle they hold on the other);
+  their Discord user id is the account on the `discord` connection. Their
+  per-project **delivery** addresses (e.g. a Discord inbox) live on the membership. A user's **logins** link them to
   their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
   behind an admin request, e.g. to own a
   [personal session](personal-sessions.md). Their **OIDC identity bindings**
@@ -111,12 +108,8 @@ personal session. The admin API behind these is `/admin/users`, `/admin/projects
 `/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
-`discord`, `github`: that kind's connection, created if there is none); default
-the tracker's connection (the Requisitioner's; with none, `linear`).
-A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub
-tracker's connection it must be on the tracker's repo (any case), else it is
-refused with "github ticket key is not on the tracker's repo" — nothing could
-be delivered there.
+`discord`, `github`: that kind's connection, created if there is none); default the tracker's connection (the Requisitioner's; with none, `linear`).
+A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub tracker's connection it must be on the tracker's repo (any case), else it is refused with "github ticket key is not on the tracker's repo" — nothing could be delivered there.
 A `<room>` is a name or a `chn_` id, and renaming one changes nothing but which `channel:`
 addressing globs match it. `room list` marks a room that only posts to its ref
 (another channel receives its replies) `post-only`. `--delivery` and `--oidc`
