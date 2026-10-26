@@ -1,16 +1,31 @@
-import { Badge, Loader, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
+import { Badge, Button, Loader, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
+import type { ReactNode } from "react";
+import { RecipientPicker } from "../compose/RecipientPicker";
+import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
 import { Problem } from "../Problem";
 
 export function Rail() {
   const { channel } = useParams();
-  const { data, error, isPending } = useRail(channel);
+  const { data, error, isPending, dataUpdatedAt } = useRail(channel);
   const here = useLocation();
-  if (isPending) return <Loader m="md" size="sm" />;
-  if (error) return <Problem error={error} here={here.pathname + here.search} />;
-  if (data.groups.length === 0) return <Text c="dimmed" size="sm" m="md">No conversations yet. When someone messages you, it shows here.</Text>;
-  return (
+  const [picking, picker] = useDisclosure(false);
+  useChimes(data, dataUpdatedAt, channel);
+  // The New message button heads every state of the rail, so a member with
+  // no conversations yet can start one.
+  const frame = (body: ReactNode) => (
+    <>
+      <Button size="xs" variant="light" m="xs" onClick={picker.open}>New message</Button>
+      <RecipientPicker opened={picking} onClose={picker.close} />
+      {body}
+    </>
+  );
+  if (isPending) return frame(<Loader m="md" size="sm" />);
+  if (error) return frame(<Problem error={error} here={here.pathname + here.search} />);
+  if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
+  return frame(
     <ScrollArea>
       <Stack gap="xs" p="xs">
         {data.groups.map((g) => (
@@ -30,6 +45,6 @@ export function Rail() {
           </div>
         ))}
       </Stack>
-    </ScrollArea>
+    </ScrollArea>,
   );
 }

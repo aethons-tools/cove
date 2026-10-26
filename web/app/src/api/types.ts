@@ -191,3 +191,29 @@ export interface ReadRequest {
 export interface CallInRequest {
   who: string;
 }
+/**
+ * SendMessageRequest is POST api/messages: to a channel id, user:<id>, or
+ * session:<actor> (a NewMessageOption's "to").
+ */
+export interface SendMessageRequest {
+  to: string;
+  body: string;
+  contentType?: string; // "" = markdown; "text/plain" shown literally
+  replyTo?: string; // an ask in the same channel (Discuss)
+  attachments?: string[]; // refs from POST /app/user/uploads
+}
+/**
+ * MessageSent is POST api/messages's answer: where the message went (a new
+ * message's new conversation) and its seq.
+ */
+export interface MessageSent {
+  channel: string;
+  seq: number /* int64 */;
+}
+/**
+ * RecipientsResponse is GET api/recipients: whom the viewer may start a
+ * conversation with (the New message picker).
+ */
+export interface RecipientsResponse {
+  options: NewMessageOption[];
+}

@@ -1,6 +1,6 @@
-import { Loader, Stack } from "@mantine/core";
+import { Loader, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { apiPost } from "../api/client";
 import { Problem } from "../Problem";
 import { ConversationHeader } from "./ConversationHeader";
@@ -8,6 +8,8 @@ import { MessageList } from "./MessageList";
 import { PresenceStrip } from "./PresenceStrip";
 import { messagesOf, useConversation } from "./useConversation";
 import { useLocation } from "react-router";
+import { useBoot } from "../BootContext";
+import { Composer } from "../composer/Composer";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
@@ -16,6 +18,8 @@ export function ConversationView({ id }: { id: string }) {
   const q = useConversation(id);
   const client = useQueryClient();
   const here = useLocation();
+  const boot = useBoot();
+  const [stick, setStick] = useState(0);
   const head = q.data?.pages[0];
   const lastSeq = head?.lastSeq ?? 0;
   const canRead = !!head?.sendTo;
@@ -41,8 +45,12 @@ export function ConversationView({ id }: { id: string }) {
       {/* A failed refresh keeps what's loaded (and the reader's place) on screen. */}
       {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
       <MessageList messages={messagesOf(q.data.pages)} channel={id} earlier={q.hasNextPage}
-        loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} />
+        loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} stickToEnd={stick} />
       <PresenceStrip channel={id} />
+      {q.data.pages[0]!.sendTo
+        ? <Composer key={q.data.pages[0]!.sendTo} to={q.data.pages[0]!.sendTo} label={q.data.pages[0]!.label} attachMax={boot.attachMax}
+            onSent={() => setStick((n) => n + 1)} />
+        : <Text size="sm" c="dimmed" p="xs">From before the upgrade: read-only.</Text>}
     </Stack>
   );
 }

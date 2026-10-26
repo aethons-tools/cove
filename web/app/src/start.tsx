@@ -9,10 +9,12 @@ import { routes } from "./App";
 import { loadBootstrap } from "./bootstrap";
 import { ApiError, shouldRetry } from "./api/client";
 import { Problem } from "./Problem";
+import { initSounds } from "./sounds/sounds";
 
 // start renders the app into el once the bootstrap is in hand.
 export async function start(el: HTMLElement): Promise<void> {
   const root = createRoot(el);
+  initSounds();
   let boot;
   try {
     boot = await loadBootstrap();

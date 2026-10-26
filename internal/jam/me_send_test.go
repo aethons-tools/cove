@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,4 +130,41 @@ func TestParticipantSendReplyToAsk(t *testing.T) {
 	if w := meSend(t, h, f.bob, `{"to":"`+string(f.room.ID)+`","body":"x","reply_to":"`+a.ID+`"}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("reply_to an ask in another channel = %d", w.Code)
 	}
+}
+
+// Send is the handler's logic without HTTP: the posted squawk (its channel
+// and seq) or a *SendError carrying the old route's status and text.
+func TestParticipantSendDirect(t *testing.T) {
+	f := newICFixture(t)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	p := Participant{UserID: f.bob.ID, Name: f.bob.Name, Projects: []string{"acme"}}
+	m, err := h.Send(p, SendRequest{To: "user:" + string(f.alice.ID), Body: "hello"})
+	if err != nil || m.Channel == "" || m.Seq == 0 || m.From != f.bob.ID || m.Body != "hello" {
+		t.Fatalf("Send = %+v, %v", m, err)
+	}
+	for _, tc := range []struct {
+		req    SendRequest
+		status int
+		code   string
+	}{
+		{SendRequest{To: "user:alice"}, 400, "bad_request"},
+		{SendRequest{Body: "x"}, 400, "bad_request"},
+		{SendRequest{To: "user:alice", Body: "x", ContentType: "text/html"}, 400, "bad_request"},
+		{SendRequest{To: "user:nobody", Body: "x"}, 404, "not_found"},
+		{SendRequest{To: "user:alice", Body: "x", Attachments: []string{"blb_x"}}, 400, "bad_request"}, // attachments off
+	} {
+		_, err := h.Send(p, tc.req)
+		var se *SendError
+		if !errors.As(err, &se) || se.Status != tc.status || se.Code != tc.code || se.Msg == "" {
+			t.Errorf("Send(%+v) = %v, want %d %s", tc.req, err, tc.status, tc.code)
+		}
+	}
+	if _, err := NewParticipantSendHandler(f.store, nil, nil).Send(p, SendRequest{To: "user:alice", Body: "x"}); !isSendStatus(err, 503) {
+		t.Errorf("no intercom: %v, want 503", err)
+	}
+}
+
+func isSendStatus(err error, status int) bool {
+	var se *SendError
+	return errors.As(err, &se) && se.Status == status
 }

@@ -23,6 +23,7 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("GET /app/user/api/rail", h.apiRail)
 	h.conversationRoutes(mux)
+	h.composeRoutes(mux)
 	mux.HandleFunc("/app/user/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
