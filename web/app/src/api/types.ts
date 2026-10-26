@@ -92,6 +92,11 @@ export interface MessageRow {
   time: string; // when it was sent (the app's day dividers and local times)
   mine: boolean;
   seq: number /* int64 */;
+  /**
+   * Ask is the card of an ask's own squawk; System marks an ask's later
+   * event (a one-line note, not a bubble); ReAsk a reply about an ask.
+   */
+  ask?: AskCard; // the ask's card (Card == "ask")
   system: boolean;
   sysText: string; // a System row's line
   reAsk?: AskRef;
@@ -145,6 +150,7 @@ export interface Conversation {
    */
   sessionIds: string[];
   sessions: SessionRow[];
+  openAsks: AskCard[]; // the channel's open asks (the panel above the stream)
   /**
    * Membership controls: Join (a channel they can see but aren't in),
    * Leave (one they're in; never a chat), and who they may call in.
@@ -152,6 +158,12 @@ export interface Conversation {
   canJoin: boolean;
   canLeave: boolean;
   callIn: NewMessageOption[];
+  /**
+   * Session is the actor id of the session whose home this channel is,
+   * when the viewer may see it ("" = none): the app's session header and
+   * pane read api/sessions/{session}.
+   */
+  session: string;
 }
 /**
  * NewMessageOption is one recipient offered in the New Message picker.
@@ -190,4 +202,153 @@ export interface ReadRequest {
  */
 export interface CallInRequest {
   who: string;
+}
+/**
+ * SendMessageRequest is POST api/messages: to a channel id, user:<id>, or
+ * session:<actor> (a NewMessageOption's "to").
+ */
+export interface SendMessageRequest {
+  to: string;
+  body: string;
+  contentType?: string; // "" = markdown; "text/plain" shown literally
+  replyTo?: string; // an ask in the same channel (Discuss)
+  attachments?: string[]; // refs from POST /app/user/uploads
+}
+/**
+ * MessageSent is POST api/messages's answer: where the message went (a new
+ * message's new conversation) and its seq.
+ */
+export interface MessageSent {
+  channel: string;
+  seq: number /* int64 */;
+}
+/**
+ * RecipientsResponse is GET api/recipients: whom the viewer may start a
+ * conversation with (the New message picker).
+ */
+export interface RecipientsResponse {
+  options: NewMessageOption[];
+}
+/**
+ * AskCard is one ask as the viewer sees it.
+ */
+export interface AskCard {
+  id: string;
+  question: string;
+  options: { id: string; label: string; detail?: string }[];
+  version: number /* int */;
+  state: string; // open | answered | withdrawn
+  answeredBy: string;
+  choice: string; // the chosen option's label ("other" for Other)
+  comment: string;
+  reason: string;
+  edited: boolean;
+  canAnswer: boolean;
+  for: string; // who it is for, when Of names others than the viewer
+}
+/**
+ * AnswerRequest is POST api/asks/{id}/answer: the version answered (a
+ * stale one is refused), an option id or "other", and a comment (needed
+ * for "other").
+ */
+export interface AnswerRequest {
+  version: number /* int */;
+  choice: string;
+  comment?: string;
+}
+/**
+ * SessionHead is a session's header (GET api/sessions/{id}).
+ */
+export interface SessionHead {
+  id: string;
+  label: string;
+  kind: string; // standing | personal | ticket | session
+  ticket: string;
+  role: string;
+  project: string;
+  owner: string;
+  state: SessionRow;
+  since: string; // time in the current state
+  openAsks: number /* int */;
+  cost: string; // "" = no turn yet
+  turnCost: string;
+  tokens: string;
+  /**
+   * Context is the context window's use, short; ContextTip exact; "" = no model call yet.
+   */
+  context: string;
+  contextTip: string;
+  uptime: string;
+  mission: string; // the agent's one-line focus; "" = none
+  ssh: string; // the copyable command; "" = not allowed
+  studio: boolean; // the Studio tab: ssh allowed and framing on
+  canRelease: boolean;
+  canRestart: boolean;
+  canUpgrade: boolean;
+  ops: boolean; // the session actions are wired
+  /**
+   * CanInterrupt, CanCompact, CanClear: shown whenever Ops is set; disabled when false.
+   */
+  canInterrupt: boolean;
+  canCompact: boolean;
+  canClear: boolean;
+  restartLabel: string; // Restart (standing) or End
+  upgradeState: string;
+}
+/**
+ * SessionPane is one tab of a session's pane (GET api/sessions/{id}/pane/{tab}).
+ */
+export interface SessionPane {
+  id: string;
+  tab: string;
+  previews: PreviewLink[];
+  /**
+   * PreviewsOff: this jam serves no previews (or the viewer may not open them).
+   */
+  previewsOff: boolean;
+  boards: PaneBoard[];
+  files: FileChip[];
+  asks: PaneAsk[];
+  links: PaneLink[];
+  status: StatusRow[];
+}
+/**
+ * PreviewLink is one exposed port, opened in a new tab; Frame: View here
+ * (framed in the pane) is offered too.
+ */
+export interface PreviewLink {
+  name: string;
+  url: string;
+  port: number /* int */;
+  frame: boolean;
+}
+/**
+ * PaneBoard is a whiteboard started in the session's home channel.
+ */
+export interface PaneBoard {
+  id: string;
+  title: string;
+  channel: string;
+}
+/**
+ * PaneAsk is an ask posted in the home channel, with its state.
+ */
+export interface PaneAsk {
+  id: string;
+  question: string;
+  state: string; // open | answered | withdrawn
+}
+/**
+ * PaneLink is a URL from the home channel's messages.
+ */
+export interface PaneLink {
+  url: string;
+  label: string;
+}
+/**
+ * StatusRow is one line of the Status tab.
+ */
+export interface StatusRow {
+  name: string;
+  value: string;
 }

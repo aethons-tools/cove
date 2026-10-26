@@ -41,7 +41,7 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.accounts = map[ident.ID]Account{}
 	s.members = map[ident.ID]map[ident.ID]Membership{}
 	s.aliases = map[string]map[string]ident.ID{}
-	s.standing = map[standingKey]string{}
+	s.standing = map[standingKey]standingEntry{}
 	s.grants = map[string]map[ident.ID]ShareGrant{}
 	s.pushSubs = map[string]PushSubscription{}
 	s.setup = map[string]map[string]SetupSnapshot{}

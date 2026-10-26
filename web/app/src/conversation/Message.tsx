@@ -1,6 +1,7 @@
 import { Anchor, Group, Image, Paper, Text, UnstyledButton } from "@mantine/core";
 import { useRef } from "react";
-import type { MessageRow } from "../api/types";
+import type { AskCard, MessageRow } from "../api/types";
+import { AskCardView } from "../asks/AskCard";
 import { MessageBody } from "./MessageBody";
 import { copyText } from "./copy";
 import { timeOf } from "./days";
@@ -8,10 +9,13 @@ import { timeOf } from "./days";
 const CARD_NAME: Record<string, string> = { ask: "ask", board: "whiteboard" };
 
 // Message is one row: a system line, a card placeholder, or a bubble.
-export function Message({ m, channel }: { m: MessageRow; channel: string }) {
+export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: string; onDiscuss?: (c: AskCard) => void }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   if (m.system) {
     return <Text data-seq={m.seq} size="xs" c="dimmed" ta="center" my={4}>{m.sysText} <Text span inherit>· {timeOf(m.time)}</Text></Text>;
+  }
+  if (m.card === "ask" && m.ask) {
+    return <div data-seq={m.seq}><AskCardView card={m.ask} channel={channel} onDiscuss={onDiscuss} /></div>;
   }
   if (m.card) {
     return (

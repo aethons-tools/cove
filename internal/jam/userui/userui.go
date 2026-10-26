@@ -43,6 +43,14 @@ type Deps struct {
 	// Events and Hub serve the Thinking tab (nil Events: not recorded).
 	Events sessionevents.Store
 	Hub    *sessionevents.Hub
+	// Send posts the viewer's messages (POST api/messages): the same
+	// *jam.ParticipantSendHandler as /app/user/send (nil: 503).
+	Send Sender
+}
+
+// Sender posts a participant's message: *jam.ParticipantSendHandler.
+type Sender interface {
+	Send(p jam.Participant, req jam.SendRequest) (intercom.Squawk, error)
 }
 
 // legacyPrefix marks a History channel id (the legacy projection's ids).

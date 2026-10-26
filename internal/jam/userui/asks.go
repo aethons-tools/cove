@@ -15,21 +15,6 @@ import (
 // was asked, showing its current state; its later events are system lines;
 // open asks also list in a panel above the stream.
 
-// AskCard is one ask as the viewer sees it.
-type AskCard struct {
-	ID, Question string
-	Options      []intercom.AskOption
-	Version      int
-	State        string // open | answered | withdrawn
-	AnsweredBy   string
-	Choice       string // the chosen option's label ("other" for Other)
-	Comment      string
-	Reason       string
-	Edited       bool
-	CanAnswer    bool
-	For          string // who it is for, when Of names others than the viewer
-}
-
 func askCard(p jam.Participant, d Deps, a intercom.Ask) AskCard {
 	c := AskCard{ID: a.ID, Question: a.Question, Options: a.Options, Version: a.Version, State: string(a.State),
 		Reason: a.Reason, Edited: a.Version > 1, CanAnswer: d.Intercom.MayAnswer(p.UserID, a)}
@@ -42,6 +27,9 @@ func askCard(p jam.Participant, d Deps, a intercom.Ask) AskCard {
 			names[i] = d.Intercom.PartyOf(id).Label
 		}
 		c.For = strings.Join(names, ", ")
+	}
+	if c.Options == nil {
+		c.Options = []intercom.AskOption{} // types.ts says options: [...]
 	}
 	return c
 }
@@ -113,26 +101,40 @@ func (h *handler) answerAsk(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	version, _ := strconv.Atoi(r.FormValue("version"))
 	_, err := h.d.Intercom.AnswerAsk(p.UserID, id, version, r.FormValue("choice"), r.FormValue("comment"))
+	status, _, msg := answerOutcome(h.d, id, err)
 	switch {
-	case err == nil:
+	case status == http.StatusNoContent:
 		w.Header().Set("HX-Trigger", "meChanged")
 		w.WriteHeader(http.StatusNoContent)
+	case status == http.StatusInternalServerError:
+		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
+		http.Error(w, msg, status)
+	default:
+		http.Error(w, msg, status)
+	}
+}
+
+// answerOutcome maps an AnswerAsk result to the HTTP status, API code and
+// message both answer routes give (the HTML route writes msg as text).
+func answerOutcome(d Deps, id string, err error) (int, string, string) {
+	switch {
+	case err == nil:
+		return http.StatusNoContent, "", ""
 	case errors.Is(err, intercom.ErrAskChanged):
-		http.Error(w, "this ask changed — review the new version", http.StatusConflict)
+		return http.StatusConflict, "ask_changed", "this ask changed — review the new version"
 	case errors.Is(err, intercom.ErrAskClosed):
 		msg := "this ask is closed"
-		if a, ok := h.d.Intercom.GetAsk(id); ok && a.Answer != nil {
-			msg = "already answered by " + h.d.Intercom.PartyOf(a.Answer.By).Label + ": " + a.ChoiceLabel(a.Answer.Choice)
+		if a, ok := d.Intercom.GetAsk(id); ok && a.Answer != nil {
+			msg = "already answered by " + d.Intercom.PartyOf(a.Answer.By).Label + ": " + a.ChoiceLabel(a.Answer.Choice)
 		}
-		http.Error(w, msg, http.StatusConflict)
+		return http.StatusConflict, "ask_closed", msg
 	case errors.Is(err, intercom.ErrInvalid):
-		http.Error(w, strings.TrimPrefix(err.Error(), "intercom: invalid squawk: "), http.StatusBadRequest)
+		return http.StatusBadRequest, "bad_request", strings.TrimPrefix(err.Error(), "intercom: invalid squawk: ")
 	case errors.Is(err, intercom.ErrAskNotFound):
-		http.Error(w, "not found", http.StatusNotFound)
+		return http.StatusNotFound, "not_found", "not found"
 	case errors.Is(err, jam.ErrSendDenied), errors.Is(err, intercom.ErrAskForbidden):
-		http.Error(w, "not allowed", http.StatusForbidden)
+		return http.StatusForbidden, "forbidden", "not allowed"
 	default:
-		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
-		http.Error(w, "failed", http.StatusInternalServerError)
+		return http.StatusInternalServerError, "internal", "failed"
 	}
 }

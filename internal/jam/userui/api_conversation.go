@@ -62,7 +62,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "bad_request", "limit: not a number")
 		return
 	}
-	_, conv, ok := h.openConversation(w, r)
+	p, conv, ok := h.openConversation(w, r)
 	if !ok {
 		return
 	}
@@ -74,6 +74,9 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	conv.Messages, conv.Earlier = pageOf(conv.Messages, before, int(limit))
 	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
+	if inst, ok := h.headSession(p, conv.ChannelID); ok {
+		conv.Session = inst.ActorID
+	}
 	writeJSON(w, http.StatusOK, lists(conv))
 }
 
@@ -124,17 +127,31 @@ func lists(conv Conversation) Conversation {
 	if conv.CallIn == nil {
 		conv.CallIn = []NewMessageOption{}
 	}
+	if conv.OpenAsks == nil {
+		conv.OpenAsks = []AskCard{}
+	}
 	return conv
 }
 
-// decodeJSON reads r's JSON body into v, or answers 415 (not JSON: a
-// cross-site form can't send application/json without a preflight) or 400.
+// decodeJSON reads r's JSON body (up to 64 KiB) into v; see decodeJSONMax.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeJSONMax(w, r, v, 64<<10)
+}
+
+// decodeJSONMax reads r's JSON body into v, or answers 415 (not JSON: a
+// cross-site form can't send application/json without a preflight), 413
+// (over max) or 400.
+func decodeJSONMax(w http.ResponseWriter, r *http.Request, v any, max int64) bool {
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
 		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "send application/json")
 		return false
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(v); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, max)).Decode(v); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeAPIError(w, http.StatusRequestEntityTooLarge, "too_large", "body too large")
+			return false
+		}
 		writeAPIError(w, http.StatusBadRequest, "bad_request", "bad JSON body")
 		return false
 	}

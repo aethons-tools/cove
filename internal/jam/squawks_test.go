@@ -133,7 +133,7 @@ func TestSquawksSendValidation(t *testing.T) {
 		`{"body":""}`: http.StatusBadRequest,
 		`not json`:    http.StatusBadRequest,
 		`{"body":"x","content_type":"text/html"}`:                    http.StatusBadRequest,
-		`{"body":"` + strings.Repeat("x", maxSquawkBodyBytes) + `"}`: http.StatusRequestEntityTooLarge,
+		`{"body":"` + strings.Repeat("x", MaxSquawkBodyBytes) + `"}`: http.StatusRequestEntityTooLarge,
 	} {
 		if code, _ := f.send(f.ticket, body); code != want {
 			t.Errorf("send %.40q = %d, want %d", body, code, want)

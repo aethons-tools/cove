@@ -13,53 +13,11 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/preview"
-	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // The session pane (docs/usage/jam/intercom-ui.md#the-session-view): the
 // tabbed pane beside a session's messages. Each tab is an htmx fragment.
-
-// SessionPane is one tab of a session's pane.
-type SessionPane struct {
-	ID, Tab  string
-	Previews []PreviewLink
-	// PreviewsOff: this jam serves no previews (or the viewer may not open them).
-	PreviewsOff bool
-	Boards      []PaneBoard
-	Files       []FileChip
-	Asks        []PaneAsk
-	Links       []PaneLink
-	Status      []StatusRow
-	// Streams are the session's recorded event streams (Thinking tab);
-	// EventsOff: this jam records no session events.
-	Streams   []sessionevents.StreamInfo
-	EventsOff bool
-	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
-	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
-	Studio  bool
-	IDEOpen string
-}
-
-// PreviewLink is one exposed port, opened in a new tab; Frame: View here
-// (framed in the pane) is offered too.
-type PreviewLink struct {
-	Name, URL string
-	Port      int
-	Frame     bool
-}
-
-// PaneBoard is a whiteboard started in the session's home channel.
-type PaneBoard struct{ ID, Title, Channel string }
-
-// PaneAsk is an ask posted in the home channel, with its state.
-type PaneAsk struct{ ID, Question, State string }
-
-// PaneLink is a URL from the home channel's messages.
-type PaneLink struct{ URL, Label string }
-
-// StatusRow is one line of the Status tab.
-type StatusRow struct{ Name, Value string }
 
 // paneTabs are the tabs a session's pane has.
 var paneTabs = []string{"studio", "thinking", "previews", "artifacts", "status"}
@@ -79,6 +37,13 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	pane := h.buildPane(r, p, inst, home, tab)
+	h.render(w, "sessionpane", inboxPage{Pane: &pane})
+}
+
+// buildPane is tab of inst's pane for p (tab one of paneTabs; home is
+// inst's home channel), shared by the HTML and API routes.
+func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, home, tab string) SessionPane {
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
 	case "studio":
@@ -100,7 +65,30 @@ func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
 	case "status":
 		h.paneStatus(inst, &pane)
 	}
-	h.render(w, "sessionpane", inboxPage{Pane: &pane})
+	return pane
+}
+
+// paneLists makes pane's lists [] where empty (types.ts says T[], never null).
+func paneLists(p SessionPane) SessionPane {
+	if p.Previews == nil {
+		p.Previews = []PreviewLink{}
+	}
+	if p.Boards == nil {
+		p.Boards = []PaneBoard{}
+	}
+	if p.Files == nil {
+		p.Files = []FileChip{}
+	}
+	if p.Asks == nil {
+		p.Asks = []PaneAsk{}
+	}
+	if p.Links == nil {
+		p.Links = []PaneLink{}
+	}
+	if p.Status == nil {
+		p.Status = []StatusRow{}
+	}
+	return p
 }
 
 func (h *handler) panePreviews(r *http.Request, p jam.Participant, inst jam.Instance, pane *SessionPane) {

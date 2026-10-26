@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -1644,4 +1645,28 @@ func TestUserMemberAccountCommands(t *testing.T) {
 	exec(2, "project", "member", "add", "--delivery", "discord:chan:123", "acme", "david")
 	exec(2, "account", "add", "--connection", "discord")
 	exec(1, "user", "add", "david")
+}
+
+// `studio raise --manager … --placement-timeout …` posts the managers in flag
+// order and the timeout verbatim.
+func TestStudioRaiseManagerFlagsOrdered(t *testing.T) {
+	var got jam.CoveRaiseBody
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(jam.CoveRaiseResult{ID: "ses_1", Label: got.ID, Phase: "live"})
+	}))
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "w1", "--role", "guest",
+		"--manager", "b", "--manager", "a", "--placement-timeout", "30s"}, func(string) string { return "" }, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
+	}
+	if !reflect.DeepEqual(got.Managers, []string{"b", "a"}) || got.PlacementTimeout != "30s" {
+		t.Fatalf("posted managers=%v timeout=%q", got.Managers, got.PlacementTimeout)
+	}
 }

@@ -13,11 +13,10 @@ export const boot: Bootstrap = {
   attachMax: 0, pushKey: "", boards: false,
 };
 
-export function renderApp(b: Bootstrap, path = "/app/next/") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+export function renderApp(b: Bootstrap, path = "/app/next/", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const router = createMemoryRouter(routes(b), { initialEntries: [path] });
   return render(
-    <MantineProvider theme={theme}>
+    <MantineProvider theme={theme} env="test">
       <Notifications />
       <QueryClientProvider client={client}>
         <RouterProvider router={router} />

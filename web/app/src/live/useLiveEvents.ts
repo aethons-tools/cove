@@ -14,6 +14,7 @@ export function useLiveEvents(): void {
       void client.invalidateQueries({ queryKey: ["rail"] });
       void client.invalidateQueries({ queryKey: ["conversation"] });
       void client.invalidateQueries({ queryKey: ["presence"] });
+      void client.invalidateQueries({ queryKey: ["session"] });
     };
     es.addEventListener("changed", changed);
     // EventSource reconnects by itself; signals sent while it was down are
@@ -23,7 +24,11 @@ export function useLiveEvents(): void {
       if (opened) changed();
       opened = true;
     });
-    es.addEventListener("presence", () => void client.invalidateQueries({ queryKey: ["presence"] }));
+    es.addEventListener("presence", () => {
+      void client.invalidateQueries({ queryKey: ["presence"] });
+      // A status change can't change Artifacts (it reads the whole channel).
+      void client.invalidateQueries({ queryKey: ["session"], predicate: (q) => q.queryKey[3] !== "artifacts" });
+    });
     return () => es.close();
   }, [client]);
 }

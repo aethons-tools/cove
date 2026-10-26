@@ -55,6 +55,7 @@ type Instance struct {
 	Name             string    `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
 	SessionKind      string    `json:"session_kind,omitempty"` // "ephemeral" | "standing" | "personal"; "" = ephemeral (plain string: Jam does not import allocator)
 	Backend          string    `json:"backend,omitempty"`      // populated by the real launcher (later slice)
+	Manager          string    `json:"manager,omitempty"`      // the manager that raised it (fleet); "" = raised before managers, routed to local
 	Location         string    `json:"location,omitempty"`     // opaque handle from Launcher.Raise
 	Phase            Phase     `json:"phase"`
 	Activity         Activity  `json:"activity,omitempty"`

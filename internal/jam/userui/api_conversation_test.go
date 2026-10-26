@@ -34,12 +34,12 @@ func TestConversationJSONShape(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn"} {
+	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn", "openAsks", "session"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("conversation JSON lacks %q: %s", k, b)
 		}
 	}
-	for _, k := range []string{"HasMessages", "hasMessages", "OpenAsks", "openAsks", "Board", "board", "Head", "head", "NewBoard", "newBoard"} {
+	for _, k := range []string{"HasMessages", "hasMessages", "OpenAsks", "Board", "board", "Head", "head", "NewBoard", "newBoard"} {
 		if _, ok := got[k]; ok {
 			t.Errorf("conversation JSON carries template-only %q", k)
 		}
@@ -50,7 +50,10 @@ func TestConversationJSONShape(t *testing.T) {
 			t.Errorf("message[%q] = %v, want %v", k, m[k], want)
 		}
 	}
-	for _, k := range []string{"Ask", "ask", "files", "reAsk", "Board", "board", "Channel", "channel"} {
+	if a, ok := m["ask"].(map[string]any); !ok || a["id"] != "a1" {
+		t.Errorf("message ask = %v, want the card", m["ask"])
+	}
+	for _, k := range []string{"Ask", "files", "reAsk", "Board", "board", "Channel", "channel"} {
 		if _, ok := m[k]; ok {
 			t.Errorf("message JSON carries %q (template-only, or omitempty when empty): %s", k, b)
 		}
@@ -320,5 +323,59 @@ func TestAPIMembership(t *testing.T) {
 	m, _ := e.Intercom.Post(pl, intercom.Squawk{From: bob, Body: "hi"})
 	if rec := apiPost(t, h, p, "/app/user/api/conversations/"+string(m.Channel)+"/leave", `{}`); rec.Code != 409 || !strings.Contains(rec.Body.String(), `"code":"conflict"`) {
 		t.Errorf("leave a chat = %d %s, want 409 conflict", rec.Code, rec.Body)
+	}
+}
+
+// The conversation carries its asks as cards: open ones in openAsks and on
+// their own rows; one for someone else is read-only and says for whom.
+func TestAPIConversationAsks(t *testing.T) {
+	e, p := fixture()
+	carol, err := e.st.CreateUser(jam.User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := e.ask(intercom.AskEvent{Question: "Merge PR #12?", Options: yesNoOpts})
+	forCarol := e.ask(intercom.AskEvent{Question: "Carol only?", Options: yesNoOpts, Of: []ident.ID{carol.ID}})
+	_, c, body := getConv(t, e, p, engID, "")
+	if len(c.OpenAsks) != 2 {
+		t.Fatalf("openAsks = %d: %s", len(c.OpenAsks), body)
+	}
+	cards := map[string]*AskCard{}
+	for i := range c.Messages {
+		if a := c.Messages[i].Ask; a != nil {
+			cards[a.ID] = a
+			if c.Messages[i].Card != "ask" {
+				t.Errorf("ask row card = %q", c.Messages[i].Card)
+			}
+		}
+	}
+	if a := cards[open.ID]; a == nil || !a.CanAnswer || a.State != "open" || a.Version != 1 || len(a.Options) != 2 || a.Options[1].Detail != "wait for CI" {
+		t.Errorf("open card = %+v", a)
+	}
+	if a := cards[forCarol.ID]; a == nil || a.CanAnswer || a.For != "carol" {
+		t.Errorf("card for carol = %+v", a)
+	}
+	if !strings.Contains(body, `"options":[{"id":"yes","label":"Ship it"},{"id":"no","label":"Hold","detail":"wait for CI"}]`) {
+		t.Errorf("options JSON: %s", body)
+	}
+}
+
+// A conversation names the session whose home it is (the app's header
+// and pane), with the old page's rule: a ticket session's home is its
+// ticket channel, not its own session channel; a room has none.
+func TestAPIConversationSession(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	if _, c, body := getConv(t, e, p, e.homeOf(t, personal), ""); c.Session != personal.ActorID {
+		t.Errorf("personal home: session = %q\n%s", c.Session, body)
+	}
+	if _, c, _ := getConv(t, e, p, engID, ""); c.Session != "" {
+		t.Errorf("a room names session %q", c.Session)
+	}
+	inst, ticket, own := ticketSession(t, e, p)
+	if _, c, _ := getConv(t, e, p, string(ticket), ""); c.Session != inst.ActorID {
+		t.Errorf("ticket channel: session = %q, want %q", c.Session, inst.ActorID)
+	}
+	if _, c, _ := getConv(t, e, p, string(own), ""); c.Session != "" {
+		t.Errorf("the session's own channel (not its home) names %q", c.Session)
 	}
 }

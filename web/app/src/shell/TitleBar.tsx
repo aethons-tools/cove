@@ -1,9 +1,12 @@
 import { ActionIcon, Anchor, Avatar, Badge, Group, Menu, Text, useMantineColorScheme } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import type { Bootstrap } from "../api/types";
+import { SoundsSettings } from "../sounds/SoundsSettings";
 
 // TitleBar mirrors the admin's app-titlebar: brand, tabs, principal menu.
 export function TitleBar({ boot }: { boot: Bootstrap }) {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const [sounds, soundsDialog] = useDisclosure(false);
   const next = colorScheme === "dark" ? "light" : colorScheme === "light" ? "auto" : "dark";
   return (
     <Group h="100%" px="md" justify="space-between" wrap="nowrap">
@@ -30,10 +33,12 @@ export function TitleBar({ boot }: { boot: Bootstrap }) {
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{boot.user.name} · {boot.roles}</Menu.Label>
+            <Menu.Item onClick={soundsDialog.open}>Sounds…</Menu.Item>
             <Menu.Item component="a" href="/app/user/">Classic Inbox</Menu.Item>
             {boot.signOut && <Menu.Item component="a" href="/app/auth/logout">Sign out</Menu.Item>}
           </Menu.Dropdown>
         </Menu>
+        <SoundsSettings opened={sounds} onClose={soundsDialog.close} />
       </Group>
     </Group>
   );

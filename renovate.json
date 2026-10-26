@@ -56,6 +56,13 @@
       "matchPackageNames": ["github.com/yuin/goldmark"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "The Jam app's TypeScript stays below 6.1: typescript-eslint (its lint) supports only typescript >=4.8.4 <6.1.0, so a TypeScript 7 bump fails the gate's `npm run check`. Move the ceiling with typescript-eslint's peer range (docs/web-app.md).",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["web/app/package.json"],
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<6.1"
     }
   ],
   "customManagers": [

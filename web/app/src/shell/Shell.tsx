@@ -4,6 +4,7 @@ import type { Bootstrap } from "../api/types";
 import { TitleBar } from "./TitleBar";
 import { Rail } from "../rail/Rail";
 import { useLiveEvents } from "../live/useLiveEvents";
+import { BootContext } from "../BootContext";
 
 export function Shell({ boot }: { boot: Bootstrap }) {
   useLiveEvents();
@@ -11,7 +12,7 @@ export function Shell({ boot }: { boot: Bootstrap }) {
     <AppShell header={{ height: 48 }} navbar={{ width: 300, breakpoint: "sm" }} padding="md">
       <AppShell.Header><TitleBar boot={boot} /></AppShell.Header>
       <AppShell.Navbar><Rail /></AppShell.Navbar>
-      <AppShell.Main><Outlet /></AppShell.Main>
+      <AppShell.Main><BootContext value={boot}><Outlet /></BootContext></AppShell.Main>
     </AppShell>
   );
 }

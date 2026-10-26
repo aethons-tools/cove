@@ -14,8 +14,8 @@ import (
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
-// maxSquawkBodyBytes caps a POST body to bound abuse (~16 KiB).
-const maxSquawkBodyBytes = 16 * 1024
+// MaxSquawkBodyBytes caps a POST body to bound abuse (~16 KiB).
+const MaxSquawkBodyBytes = 16 * 1024
 
 // Squawk is one squawk in a session's inbox, as returned by GET /squawks.
 // Channel and From are the channel model's (intercom slice 2); Author stays,
@@ -182,7 +182,7 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	var req struct {
 		Body        string   `json:"body"`
 		To          string   `json:"to"`
@@ -387,7 +387,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 // handleCallIn calls someone into a channel the session is in (its home
 // when channel is empty): 200 {channel, member}.
 func (h *SquawksHandler) handleCallIn(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	var req struct {
 		Who     string `json:"who"`
 		Channel string `json:"channel"`
@@ -415,7 +415,7 @@ func (h *SquawksHandler) handleCallIn(w http.ResponseWriter, r *http.Request, ac
 
 // handleLeave takes the session out of a channel: 204.
 func (h *SquawksHandler) handleLeave(w http.ResponseWriter, r *http.Request, actor Actor, _ Instance) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	var req struct {
 		Channel string `json:"channel"`
 	}
@@ -458,7 +458,7 @@ func membershipError(w http.ResponseWriter, err error) bool {
 // the token, never the body. up_to resolves to its seq in either log first;
 // an unknown id is a 400 and never advances anything.
 func (h *SquawksHandler) handleCommit(w http.ResponseWriter, r *http.Request, actor Actor) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSquawkBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, MaxSquawkBodyBytes)
 	var req struct {
 		UpTo string `json:"up_to"`
 	}

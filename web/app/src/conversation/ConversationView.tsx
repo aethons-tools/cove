@@ -1,13 +1,17 @@
-import { Loader, Stack } from "@mantine/core";
+import { Loader, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiPost } from "../api/client";
 import { Problem } from "../Problem";
 import { ConversationHeader } from "./ConversationHeader";
 import { MessageList } from "./MessageList";
 import { PresenceStrip } from "./PresenceStrip";
 import { messagesOf, useConversation } from "./useConversation";
-import { useLocation } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
+import { useBoot } from "../BootContext";
+import { Composer, type ComposerHandle } from "../composer/Composer";
+import { OpenAsks } from "../asks/OpenAsks";
+import { SessionView } from "../session/SessionView";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
@@ -16,6 +20,10 @@ export function ConversationView({ id }: { id: string }) {
   const q = useConversation(id);
   const client = useQueryClient();
   const here = useLocation();
+  const [search] = useSearchParams();
+  const boot = useBoot();
+  const [stick, setStick] = useState(0);
+  const composer = useRef<ComposerHandle>(null);
   const head = q.data?.pages[0];
   const lastSeq = head?.lastSeq ?? 0;
   const canRead = !!head?.sendTo;
@@ -35,14 +43,27 @@ export function ConversationView({ id }: { id: string }) {
 
   if (q.isPending) return <Loader m="md" size="sm" />;
   if (!q.data) return <Problem error={q.error!} here={here.pathname + here.search} />;
-  return (
-    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
-      <ConversationHeader c={q.data.pages[0]!} />
+  const c = q.data.pages[0]!;
+  const jumpToAsk = (a: string) => document.getElementById(`ask-${a}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const main = (
+    <>
+      <OpenAsks asks={c.openAsks} onJump={jumpToAsk} />
       {/* A failed refresh keeps what's loaded (and the reader's place) on screen. */}
       {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
       <MessageList messages={messagesOf(q.data.pages)} channel={id} earlier={q.hasNextPage}
-        loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} />
+        loadingEarlier={q.isFetchingNextPage} onEarlier={() => void q.fetchNextPage()} stickToEnd={stick}
+        onDiscuss={c.sendTo ? (card) => composer.current?.discuss(card.id, card.question) : undefined} />
       <PresenceStrip channel={id} />
+      {c.sendTo
+        ? <Composer ref={composer} key={c.sendTo} to={c.sendTo} label={c.label} attachMax={boot.attachMax}
+            onSent={() => setStick((n) => n + 1)} />
+        : <Text size="sm" c="dimmed" p="xs">From before the upgrade: read-only.</Text>}
+    </>
+  );
+  return (
+    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
+      <SessionView id={c.session || null} channel={id} linked={search.get("tab")} onAsk={jumpToAsk}
+        header={<ConversationHeader c={c} />}>{main}</SessionView>
     </Stack>
   );
 }
