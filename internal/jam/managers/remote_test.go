@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,13 +65,15 @@ func newFakeStream() *fakeStream {
 	return s
 }
 
+// next waits for a request. Safe from goroutines: it reports with t.Error and
+// returns the zero req on timeout.
 func (s *fakeStream) next(t *testing.T) req {
 	t.Helper()
 	select {
 	case r := <-s.reqs:
 		return r
 	case <-time.After(5 * time.Second):
-		t.Fatal("no request sent")
+		t.Error("no request sent")
 		return req{}
 	}
 }
@@ -79,11 +82,13 @@ func (s *fakeStream) result(t *testing.T, id uint64, body any, err error) {
 	t.Helper()
 	data, eerr := wire.EncodeResult(body, err)
 	if eerr != nil {
-		t.Fatal(eerr)
+		t.Error(eerr)
+		return
 	}
 	for _, f := range wire.Split(id, wire.OpResult, data) {
 		if derr := s.c.deliver(f); derr != nil {
-			t.Fatal(derr)
+			t.Error(derr)
+			return
 		}
 	}
 }
@@ -292,8 +297,12 @@ func TestRemoteLargeKitDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Write(big)
-	f.Close()
+	if _, err := f.Write(big); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	ref := jam.KitRef{ID: "k", Version: 1, Digest: "d"}
 	def := jam.KitDefinition{Ref: ref, Chain: []jam.KitLink{{Ref: ref, Files: fs}}}
 
@@ -317,7 +326,10 @@ func TestRemoteLargeKitDefinition(t *testing.T) {
 			return
 		}
 		var back bytes.Buffer
-		back.ReadFrom(rf)
+		if _, err := back.ReadFrom(rf); err != nil {
+			t.Error(err)
+			return
+		}
 		if !bytes.Equal(back.Bytes(), big) {
 			t.Error("kit file differs after reassembly")
 		}
@@ -325,5 +337,52 @@ func TestRemoteLargeKitDefinition(t *testing.T) {
 	}()
 	if _, err := r.PrepareKit(context.Background(), def); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRemoteSendFailure(t *testing.T) {
+	r := NewRemote("m1", nil)
+	r.attach(newConn(func(*managerpb.ManagerDown) error { return errors.New("broken pipe") }))
+	err := r.Pause(context.Background(), jam.Instance{})
+	if !errors.Is(err, jam.ErrManagerUnavailable) {
+		t.Fatalf("Pause err = %v, want ErrManagerUnavailable", err)
+	}
+	_, err = r.Raise(context.Background(), jam.RaiseSpec{}, jam.LaunchCreds{})
+	if !errors.Is(err, jam.ErrRaiseInterrupted) {
+		t.Fatalf("Raise err = %v, want ErrRaiseInterrupted", err)
+	}
+}
+
+func TestRemoteClosedButCurrent(t *testing.T) {
+	r, s := newRemote(t)
+	s.c.close(errors.New("gone")) // closed, not yet detached
+	_, err := r.Raise(context.Background(), jam.RaiseSpec{}, jam.LaunchCreds{})
+	if !errors.Is(err, jam.ErrManagerUnavailable) || errors.Is(err, jam.ErrRaiseInterrupted) {
+		t.Fatalf("err = %v, want plain unavailable", err)
+	}
+	if !strings.Contains(err.Error(), "m1") {
+		t.Fatalf("error does not name the manager: %v", err)
+	}
+}
+
+func TestRemoteLogStopsAfterCancel(t *testing.T) {
+	r, s := newRemote(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var buf bytes.Buffer
+	errc := make(chan error, 1)
+	go func() {
+		_, err := r.BuildKitDraft(ctx, jam.KitDefinition{Ref: jam.KitRef{ID: "k"}}, "tag", &buf)
+		errc <- err
+	}()
+	rq := s.next(t)
+	cancel()
+	if err := <-errc; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := s.c.deliver(&managerpb.Frame{Id: rq.id, Op: wire.OpLog, Data: []byte("late")}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("log written after cancel: %q", buf.String())
 	}
 }

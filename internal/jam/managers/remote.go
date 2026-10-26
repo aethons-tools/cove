@@ -79,6 +79,15 @@ func (r *Remote) conn() *conn {
 	return r.cur
 }
 
+// fail names the manager on a connection failure; other errors pass through.
+// errors.Is behaviour is kept.
+func (r *Remote) fail(err error) error {
+	if err != nil && errors.Is(err, jam.ErrManagerUnavailable) {
+		return fmt.Errorf("manager %s: %w", r.name, err)
+	}
+	return err
+}
+
 func (r *Remote) errUnavailable() error {
 	return fmt.Errorf("%w: %s", jam.ErrManagerUnavailable, r.name)
 }
@@ -89,7 +98,7 @@ func (r *Remote) do(ctx context.Context, op string, req, resp any) error {
 	if c == nil {
 		return r.errUnavailable()
 	}
-	return c.call(ctx, op, req, resp, nil)
+	return r.fail(c.call(ctx, op, req, resp, nil))
 }
 
 func (r *Remote) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
@@ -103,7 +112,7 @@ func (r *Remote) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Launch
 		if errors.Is(err, errInterrupted) {
 			return "", fmt.Errorf("%w: manager %s", jam.ErrRaiseInterrupted, r.name)
 		}
-		return "", err
+		return "", r.fail(err)
 	}
 	return res.Location, nil
 }
@@ -129,6 +138,7 @@ func (r *Remote) Probe(ctx context.Context, inst jam.Instance) (jam.Liveness, er
 	}
 	var res wire.ProbeResult
 	if err := c.call(ctx, wire.OpProbe, wire.InstanceRequest{Instance: inst}, &res, nil); err != nil {
+		r.log.Debug("manager probe failed", "manager", r.name, "err", err.Error())
 		return jam.LivenessUnknown, nil
 	}
 	return res.Liveness, nil
@@ -200,7 +210,7 @@ func (r *Remote) BuildKitDraft(ctx context.Context, def jam.KitDefinition, tag s
 	}
 	var res wire.DraftBuildResult
 	if err := c.call(ctx, wire.OpBuildKitDraft, wire.DraftBuildRequest{Def: enc, Tag: tag}, &res, log); err != nil {
-		return "", err
+		return "", r.fail(err)
 	}
 	return res.ImageID, nil
 }

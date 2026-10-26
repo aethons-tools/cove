@@ -104,7 +104,7 @@ func (c *conn) call(ctx context.Context, op string, req, resp any, log io.Writer
 	c.mu.Unlock()
 
 	if err := c.sendFrames(wire.Split(id, op, payload)); err != nil {
-		c.finish(id, result{err: fmt.Errorf("%w: send %s: %w", errInterrupted, op, err)})
+		c.finish(id, result{err: fmt.Errorf("%w: %w: send %s: %w", jam.ErrManagerUnavailable, errInterrupted, op, err)})
 	}
 
 	select {
