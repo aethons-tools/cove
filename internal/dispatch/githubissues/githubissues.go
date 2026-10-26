@@ -709,3 +709,6 @@ var _ scheduler.Tracker = (*Client)(nil)
 
 // Jam's contract (via NewJam; at-cove's New satisfies it too, with "#N" keys).
 var _ tracker.Tracker = (*Client)(nil)
+
+// The client places its own feed cursor (pages it reads and skips).
+var _ tracker.CursorFeed = (*Client)(nil)

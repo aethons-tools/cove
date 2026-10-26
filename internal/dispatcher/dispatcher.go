@@ -29,7 +29,7 @@ type Registry interface {
 	ListInstances() []jam.Instance
 }
 
-// Tracker is the scheduler.Tracker subset the Requisitioner needs (satisfied by *linear.Client).
+// Tracker is the subset of tracker.Tracker the Requisitioner needs (satisfied by *linear.Client and *githubissues.Client).
 type Tracker interface {
 	ListReady(ctx context.Context) ([]scheduler.Issue, error)
 	Comments(ctx context.Context, issueID string) ([]scheduler.Comment, error)

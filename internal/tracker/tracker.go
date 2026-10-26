@@ -34,6 +34,17 @@ type Tracker interface {
 	Viewer(ctx context.Context) (string, error)
 }
 
+// CursorFeed is the optional feed a tracker offers when the comments it
+// returns can't place the next poll: GitHub reads pages of comments it then
+// skips (pull request conversations, edited old ones) and stops at a page
+// cap, so only the client knows how far it read. next is where the
+// following poll starts; it never moves before since. The relay uses it when
+// the tracker implements it (GitHub) and otherwise derives its cursor from
+// the comments CommentFeed returns (Linear).
+type CursorFeed interface {
+	CommentFeedCursor(ctx context.Context, since time.Time, limit int) (out []FeedComment, next time.Time, err error)
+}
+
 // FeedComment is one comment from a tracker's comment feed.
 type FeedComment struct {
 	ID              string
