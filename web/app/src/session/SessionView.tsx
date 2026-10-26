@@ -1,10 +1,13 @@
-import { ActionIcon, Group, Text } from "@mantine/core";
-import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { ActionIcon, Group, Loader, Text } from "@mantine/core";
+import { lazy, Suspense, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { SessionHeader } from "./SessionHeader";
 import { useSessionHead } from "./useSession";
 import { usePaneLayout } from "./usePaneLayout";
-import { clampSize, KEY_STEP, MIN_MAIN, MIN_PANE, TAB_LABEL } from "./layout";
+import { clampSize, KEY_STEP, MIN_MAIN, MIN_PANE, TAB_LABEL, type PaneTab } from "./layout";
 import { PaneBody } from "./PaneTabs";
+
+// StudioTab is its own chunk, loaded when the tab first opens.
+const StudioTab = lazy(() => import("./StudioTab"));
 
 const GROW: Record<string, number> = { ArrowLeft: 1, ArrowUp: 1, ArrowRight: -1, ArrowDown: -1 };
 const border = "1px solid var(--mantine-color-default-border)";
@@ -25,6 +28,20 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
   const split = useRef<HTMLDivElement>(null);
   const right = pane.place === "right";
   const tab = h ? pane.tab : null;
+  // The Studio stays mounted (hidden) once shown, so the IDE keeps its
+  // state across tabs, until the pane closes.
+  const [studioKept, setStudioKept] = useState(false);
+  if (tab === "studio" && !studioKept) setStudioKept(true);
+  if (tab === null && studioKept) setStudioKept(false);
+  // Studio's first open, with no size saved for the placement, takes 60%.
+  const onTab = (t: PaneTab) => {
+    if (t === "studio" && tab !== "studio" && !pane.hasSize && split.current) {
+      const r = split.current.getBoundingClientRect();
+      pane.toggle(t, (right ? r.width : r.height) * 0.6);
+      return;
+    }
+    pane.toggle(t);
+  };
   const total = () => {
     const r = split.current!.getBoundingClientRect();
     return right ? r.width : r.height;
@@ -61,7 +78,7 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
     : { flex: `0 0 ${pane.size}px`, minHeight: MIN_PANE, maxHeight: `calc(100% - ${MIN_MAIN}px)` };
   return (
     <>
-      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={pane.toggle} />}
+      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={onTab} />}
       {header}
       <div ref={split} data-place={pane.place} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: right ? "row" : "column" }}>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>{children}</div>
@@ -77,11 +94,19 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
                 {!pane.narrow && <ActionIcon variant="subtle" size="sm" title="Move the pane right or below" aria-label="Move the pane right or below" onClick={pane.flip}>⇄</ActionIcon>}
                 <ActionIcon variant="subtle" size="sm" aria-label="Close the pane" onClick={pane.close}>×</ActionIcon>
               </Group>
-              {/* Thinking scrolls its own list. */}
-              <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]}
-                style={tab === "thinking" ? { flex: 1, minHeight: 0, overflow: "hidden" } : { flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
-                <PaneBody id={h!.id} channel={channel} tab={tab} busy={h!.state.class === "busy"} onAsk={onAsk} />
-              </div>
+              {/* Thinking scrolls its own list; Studio lives in its keep below. */}
+              {tab !== "studio" && (
+                <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]}
+                  style={tab === "thinking" ? { flex: 1, minHeight: 0, overflow: "hidden" } : { flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
+                  <PaneBody id={h!.id} channel={channel} tab={tab} busy={h!.state.class === "busy"} onAsk={onAsk} />
+                </div>
+              )}
+              {studioKept && (
+                <div data-keep role={tab === "studio" ? "tabpanel" : undefined} aria-label="Studio"
+                  style={{ display: tab === "studio" ? "flex" : "none", flex: 1, minHeight: 0, flexDirection: "column" }}>
+                  <Suspense fallback={<Loader size="sm" m="sm" />}><StudioTab id={h!.id} /></Suspense>
+                </div>
+              )}
             </aside>
           </>
         )}

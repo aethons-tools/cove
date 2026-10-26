@@ -16,7 +16,10 @@ export interface PaneLayout { tab: PaneTab | null; place: Place; w?: number; h?:
 // PaneState is a session's pane as the view uses it (usePaneLayout).
 export interface PaneState {
   tab: PaneTab | null; place: Place; narrow: boolean; size: number;
-  toggle(t: PaneTab): void; close(): void; flip(): void; resize(px: number, save?: boolean): void; commit(): void;
+  hasSize: boolean; // a size is saved for the current placement
+  // toggle opens t (closes it when open); size, on an open with no size
+  // saved for the placement, is saved with it (Studio's first widening).
+  toggle(t: PaneTab, size?: number): void; close(): void; flip(): void; resize(px: number, save?: boolean): void; commit(): void;
 }
 
 export const MIN_PANE = 200;

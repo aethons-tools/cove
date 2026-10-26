@@ -34,8 +34,8 @@ export function useFrame(sid: string, name: string, kind: FrameKind): FrameState
     set((x) => ({ ...x, src: "", seq: n, reopen: false, status: loading(kind) }));
     apiPost<FrameURL>(`sessions/${encodeURIComponent(sid)}/frame`, { name }).then((j) => {
       if (!c.live || c.seq !== n) return;
-      const open = httpURL(j.open) ? j.open : "";
-      if (!httpURL(j.url)) {
+      const open = httpURL(j?.open) ? j.open : "";
+      if (!httpURL(j?.url)) {
         c.err = true;
         set((x) => ({ ...x, open: open || x.open, status: "Couldn't open this view." }));
         return;
