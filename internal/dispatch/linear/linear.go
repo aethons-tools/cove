@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
 	"github.com/aethons-tools/cove/internal/kit"
+	"github.com/aethons-tools/cove/internal/tracker"
 )
 
 const endpoint = "https://api.linear.app/graphql"
@@ -380,16 +381,9 @@ func (c *Client) Comments(ctx context.Context, issueID string) ([]scheduler.Comm
 	return cs, nil
 }
 
-// FeedComment is one comment from the team-scoped comments feed.
-type FeedComment struct {
-	ID              string
-	Body            string
-	CreatedAt       time.Time
-	Author          string
-	AuthorID        string // the author's Linear user id
-	IssueIdentifier string
-	ParentID        string
-}
+// FeedComment is one comment from the team-scoped comments feed (Jam's
+// shared shape; ParentID is the Linear parent comment id).
+type FeedComment = tracker.FeedComment
 
 // CommentFeed returns comments in the Client's team created after `since`,
 // oldest-first, capped at `limit`. Backs the relay Linear ingress adapter.
@@ -445,3 +439,4 @@ func (c *Client) Viewer(ctx context.Context) (string, error) {
 }
 
 var _ scheduler.Tracker = (*Client)(nil)
+var _ tracker.Tracker = (*Client)(nil)
