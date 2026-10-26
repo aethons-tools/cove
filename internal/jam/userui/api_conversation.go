@@ -62,7 +62,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "bad_request", "limit: not a number")
 		return
 	}
-	_, conv, ok := h.openConversation(w, r)
+	p, conv, ok := h.openConversation(w, r)
 	if !ok {
 		return
 	}
@@ -74,6 +74,9 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	conv.Messages, conv.Earlier = pageOf(conv.Messages, before, int(limit))
 	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence)
+	if inst, ok := h.headSession(p, conv.ChannelID); ok {
+		conv.Session = inst.ActorID
+	}
 	writeJSON(w, http.StatusOK, lists(conv))
 }
 

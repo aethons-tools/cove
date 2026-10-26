@@ -184,35 +184,17 @@ func TestSessionHiddenFromOutsiders(t *testing.T) {
 // its own session channel (where the head's routes would resolve elsewhere).
 func TestSessionHeadOnlyInHome(t *testing.T) {
 	e, p, _, _, _ := sessionEnv(t)
-	e.Deps.Intercom = jam.NewIntercom(e.st, func() (ident.ID, bool) { return "linear", true }, e.lg, nil, nil) // a tracker: ticket channels
-	inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", Unit: "COV-1", Phase: jam.PhaseLive, RaisedAt: time.Now()}
-	if err := e.st.PutInstance(inst); err != nil {
-		t.Fatal(err)
-	}
-	proj, _ := e.st.GetProject("proj")
-	ticket, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceTicket, Key: "linear/COV-1", Label: "COV-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	own, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceSession, Key: inst.ActorID, Label: "own"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, ch := range []ident.ID{ticket.ID, own.ID} {
-		if err := e.st.JoinChannel(ch, p.UserID, 0); err != nil {
-			t.Fatal(err)
-		}
-	}
+	_, ticket, own := ticketSession(t, e, p)
 	h := Handler(e.Deps, nil)
 	get := func(ch ident.ID) string {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/?c="+string(ch), nil), p, false))
 		return rec.Body.String()
 	}
-	if !strings.Contains(get(ticket.ID), `id="session-head"`) {
+	if !strings.Contains(get(ticket), `id="session-head"`) {
 		t.Error("no head in the ticket channel")
 	}
-	if strings.Contains(get(own.ID), `id="session-head"`) {
+	if strings.Contains(get(own), `id="session-head"`) {
 		t.Error("a head in the session's own channel, which isn't its home")
 	}
 }
@@ -388,4 +370,30 @@ func TestSessionHeaderMission(t *testing.T) {
 	if want := `<div class="sh-mission" title="triaging ACME-7">triaging ACME-7</div>`; !strings.Contains(head(), want) {
 		t.Errorf("header missing %s", want)
 	}
+}
+
+// ticketSession adds a ticket session (COV-1) whose home is its ticket
+// channel, with a session channel of its own besides; p is in both.
+func ticketSession(t *testing.T, e *env, p jam.Participant) (inst jam.Instance, ticket, own ident.ID) {
+	t.Helper()
+	e.Deps.Intercom = jam.NewIntercom(e.st, func() (ident.ID, bool) { return "linear", true }, e.lg, nil, nil) // a tracker: ticket channels
+	inst = jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", Unit: "COV-1", Phase: jam.PhaseLive, RaisedAt: time.Now()}
+	if err := e.st.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	proj, _ := e.st.GetProject("proj")
+	tc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceTicket, Key: "linear/COV-1", Label: "COV-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceSession, Key: inst.ActorID, Label: "own"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []ident.ID{tc.ID, oc.ID} {
+		if err := e.st.JoinChannel(ch, p.UserID, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return inst, tc.ID, oc.ID
 }

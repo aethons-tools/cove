@@ -34,7 +34,7 @@ func TestConversationJSONShape(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn", "openAsks"} {
+	for _, k := range []string{"channelId", "label", "kind", "project", "phase", "needsYou", "sendTo", "messages", "lastSeq", "earlier", "sessionIds", "sessions", "canJoin", "canLeave", "callIn", "openAsks", "session"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("conversation JSON lacks %q: %s", k, b)
 		}
@@ -357,5 +357,25 @@ func TestAPIConversationAsks(t *testing.T) {
 	}
 	if !strings.Contains(body, `"options":[{"id":"yes","label":"Ship it"},{"id":"no","label":"Hold","detail":"wait for CI"}]`) {
 		t.Errorf("options JSON: %s", body)
+	}
+}
+
+// A conversation names the session whose home it is (the app's header
+// and pane), with the old page's rule: a ticket session's home is its
+// ticket channel, not its own session channel; a room has none.
+func TestAPIConversationSession(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	if _, c, body := getConv(t, e, p, e.homeOf(t, personal), ""); c.Session != personal.ActorID {
+		t.Errorf("personal home: session = %q\n%s", c.Session, body)
+	}
+	if _, c, _ := getConv(t, e, p, engID, ""); c.Session != "" {
+		t.Errorf("a room names session %q", c.Session)
+	}
+	inst, ticket, own := ticketSession(t, e, p)
+	if _, c, _ := getConv(t, e, p, string(ticket), ""); c.Session != inst.ActorID {
+		t.Errorf("ticket channel: session = %q, want %q", c.Session, inst.ActorID)
+	}
+	if _, c, _ := getConv(t, e, p, string(own), ""); c.Session != "" {
+		t.Errorf("the session's own channel (not its home) names %q", c.Session)
 	}
 }

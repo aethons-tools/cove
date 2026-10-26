@@ -61,24 +61,6 @@ func homeSession(d Deps, chID string) (jam.Instance, bool) {
 	return jam.Instance{}, false
 }
 
-// SessionHead is a session's header.
-type SessionHead struct {
-	ID, Label, Kind, Ticket, Role, Project, Owner string
-	State                                         SessionRow
-	Since                                         string // time in the current state
-	OpenAsks                                      int
-	Cost, TurnCost, Tokens                        string
-	Context, ContextTip                           string // the context window's use; "" = no model call yet
-	Uptime                                        string
-	Mission                                       string // the agent's one-line focus; "" = none
-	SSH                                           string // the copyable command; "" = not allowed
-	Studio                                        bool   // the Studio tab: ssh allowed and framing on
-	CanRelease, CanRestart, CanUpgrade            bool
-	Ops                                           bool // the session actions are wired
-	CanInterrupt, CanCompact, CanClear            bool // shown whenever Ops is set; disabled when false
-	RestartLabel, UpgradeState                    string
-}
-
 // sessionFor is session id if viewer p may see its home channel.
 func (h *handler) sessionFor(p jam.Participant, id string) (jam.Instance, string, bool) {
 	inst, ok := h.d.Store.GetInstance(id)
@@ -90,6 +72,20 @@ func (h *handler) sessionFor(p jam.Participant, id string) (jam.Instance, string
 		return jam.Instance{}, "", false
 	}
 	return inst, string(home.ID), true
+}
+
+// headSession is the session whose header shows in conversation sel for p:
+// sel's home session, when its routes resolve home to sel (a ticket
+// session's home is its ticket channel, not its own session channel).
+func (h *handler) headSession(p jam.Participant, sel string) (jam.Instance, bool) {
+	inst, ok := homeSession(h.d, sel)
+	if !ok {
+		return jam.Instance{}, false
+	}
+	if _, home, ok := h.sessionFor(p, inst.ActorID); ok && home == sel {
+		return inst, true
+	}
+	return jam.Instance{}, false
 }
 
 func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance) SessionHead {
