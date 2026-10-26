@@ -464,24 +464,44 @@ type CoveRaiseParams struct {
 	Unit     string
 	Prompt   string // workload prompt for the raised cove's agent; read from a file host-side, never argv
 	KitDraft string // run this kit's draft (a draft studio); the raise may build it first
+	// Managers, in preference order, are where the raise may land (empty = any);
+	// PlacementTimeout is a Go duration for how long to look ("" = do not wait).
+	Managers         []string
+	PlacementTimeout string
 }
 
 // draftRaiseTimeout bounds a draft studio's raise, which may run the
 // draft's test build first.
 const draftRaiseTimeout = 30 * time.Minute
 
+// placementMargin is the time a request keeps beyond its placement timeout for
+// the rest of the raise (launch, enrollment, the answer).
+const placementMargin = 30 * time.Second
+
+// withPlacementWait returns a client whose timeout is the larger of floor and
+// the placement timeout plus placementMargin, so the client does not give up on
+// a raise Jam is still placing. An unparsable timeout leaves floor (Jam answers
+// 400).
+func (c *Client) withPlacementWait(floor time.Duration, placementTimeout string) *http.Client {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = floor
+	if d, err := time.ParseDuration(placementTimeout); err == nil && d > 0 && d+placementMargin > floor {
+		hc.Timeout = d + placementMargin
+	}
+	return &hc
+}
+
 // RaiseCove raises a managed cove for a role and returns its runtime result
 // (including the identity token, once). A draft studio's raise (KitDraft)
 // may build its image first, so it waits up to draftRaiseTimeout.
 func (c *Client) RaiseCove(p CoveRaiseParams) (jam.CoveRaiseResult, error) {
 	var res jam.CoveRaiseResult
-	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, KitDraft: p.KitDraft}
-	httpc := c.httpc
+	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, KitDraft: p.KitDraft, Managers: p.Managers, PlacementTimeout: p.PlacementTimeout}
+	floor := c.httpc.Timeout
 	if p.KitDraft != "" {
-		hc := *c.httpc // keeps the Transport
-		hc.Timeout = draftRaiseTimeout
-		httpc = &hc
+		floor = draftRaiseTimeout
 	}
+	httpc := c.withPlacementWait(floor, p.PlacementTimeout)
 	err := c.doWith(httpc, "POST", "/admin/coves", body, &res)
 	return res, err
 }
@@ -513,12 +533,12 @@ func (c *Client) TeardownCove(id string) error {
 	return c.do("DELETE", "/admin/coves/"+url.PathEscape(id), nil, nil)
 }
 
-// RequestPersonalSession asks Jam for a personal session of role in project
+// RequestPersonalSession asks Jam for a personal session of b.Role in b.Project
 // ("" = the default project), owned by the roster human linked to the caller's
 // login. The prompt travels in the request body, never on argv.
-func (c *Client) RequestPersonalSession(project, role, prompt string) (jam.PersonalSessionResult, error) {
+func (c *Client) RequestPersonalSession(b jam.PersonalSessionBody) (jam.PersonalSessionResult, error) {
 	var res jam.PersonalSessionResult
-	err := c.do("POST", "/admin/sessions/personal", jam.PersonalSessionBody{Project: project, Role: role, Prompt: prompt}, &res)
+	err := c.doWith(c.withPlacementWait(c.httpc.Timeout, b.PlacementTimeout), "POST", "/admin/sessions/personal", b, &res)
 	return res, err
 }
 

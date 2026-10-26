@@ -244,7 +244,8 @@ names none), built on demand by the launcher — no pre-built image or
 `/etc/hosts` so that name resolves to the host gateway. Jam must reach the Colima
 backend (run it where `docker`/Colima is available); `identity-file` is the SSH key
 Jam uses to reach the studio (defaults to `~/.config/at-cove/id_ed25519`). Omit the
-whole block to keep the placeholder launcher (dev/tests).
+whole block to keep the placeholder launcher (dev/tests). The launcher is Jam's
+`local` manager; see [Managers and placement](coves.md#managers-and-placement).
 
 `docker-context` picks **which colima instance** the studios run in: every docker
 call the launcher makes is pinned to that docker context. It defaults to `colima`,

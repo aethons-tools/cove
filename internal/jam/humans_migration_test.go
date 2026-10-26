@@ -378,7 +378,7 @@ func TestPlanRegistryMigrationSeedsStandingSessions(t *testing.T) {
 	m := legacyState(t, map[string][]Human{"acme": nil})
 	m.roles[m.projects["acme"].ID] = map[string]Role{"impl": {Name: "impl", Allocation: RoleAllocation{Standing: []StandingSession{{Name: "spider", Prompt: "p"}, {Name: "ant", Prompt: "p"}}}}}
 	acme := m.projects["acme"].ID
-	m.standing[standingKey{acme, "impl", "ant"}] = "ses-already"
+	m.standing[standingKey{acme, "impl", "ant"}] = standingEntry{sessionID: "ses-already"}
 	plan := m.planRegistryMigration(3)
 	if len(plan.standing) != 1 || plan.standing[0] != (StandingSessionRef{ProjectID: acme, Role: "impl", Name: "spider", SessionID: StandingActorID("acme", "impl", "spider")}) {
 		t.Fatalf("standing = %+v", plan.standing)

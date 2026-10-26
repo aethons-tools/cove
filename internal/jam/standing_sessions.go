@@ -22,6 +22,12 @@ type StandingSessionRef struct {
 	Role      string   `json:"role"`
 	Name      string   `json:"name"`
 	SessionID string   `json:"session_id"`
+	Manager   string   `json:"manager,omitempty"` // the manager holding its state; "" = not yet pinned
+}
+
+// standingEntry is a standing-session map value.
+type standingEntry struct {
+	sessionID, manager string
 }
 
 type standingKey struct {
@@ -38,21 +44,33 @@ type StandingSessionStore interface {
 	// RemoveStandingSession drops a declaration's entry (no-op if absent).
 	RemoveStandingSession(project ident.ID, role, name string) error
 	ListStandingSessions() []StandingSessionRef
+	// StandingSessionManager is the manager a declaration is pinned to ("" if
+	// unpinned or absent).
+	StandingSessionManager(project ident.ID, role, name string) string
+	// SetStandingSessionManager pins a declaration to a manager ("" unpins);
+	// a no-op if the entry is absent.
+	SetStandingSessionManager(project ident.ID, role, name, manager string) error
 }
 
 func (m *memState) StandingSessionID(project ident.ID, role, name string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	id, ok := m.standing[standingKey{project, role, name}]
-	return id, ok
+	e, ok := m.standing[standingKey{project, role, name}]
+	return e.sessionID, ok
+}
+
+func (m *memState) StandingSessionManager(project ident.ID, role, name string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.standing[standingKey{project, role, name}].manager
 }
 
 func (m *memState) ListStandingSessions() []StandingSessionRef {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]StandingSessionRef, 0, len(m.standing))
-	for k, id := range m.standing {
-		out = append(out, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: id})
+	for k, e := range m.standing {
+		out = append(out, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: e.sessionID, Manager: e.manager})
 	}
 	slices.SortFunc(out, func(a, b StandingSessionRef) int {
 		return cmp.Or(cmp.Compare(a.ProjectID, b.ProjectID), cmp.Compare(a.Role, b.Role), cmp.Compare(a.Name, b.Name))
@@ -69,8 +87,8 @@ func (m *memState) preparePutStandingSession(project ident.ID, role, name, sessi
 		return fmt.Errorf("standing session: role, name and session id are required")
 	}
 	key := standingKey{project, role, name}
-	for k, id := range m.standing {
-		if id == sessionID && k != key {
+	for k, e := range m.standing {
+		if e.sessionID == sessionID && k != key {
 			return fmt.Errorf("session %s already serves standing session %s/%s", sessionID, k.role, k.name)
 		}
 	}
@@ -78,7 +96,28 @@ func (m *memState) preparePutStandingSession(project ident.ID, role, name, sessi
 }
 
 func (m *memState) applyPutStandingSession(project ident.ID, role, name, sessionID string) {
-	m.standing[standingKey{project, role, name}] = sessionID
+	key := standingKey{project, role, name}
+	e := m.standing[key] // a re-put keeps the pin
+	e.sessionID = sessionID
+	m.standing[key] = e
+}
+
+// applyPutStandingSessionRef applies a ref (an import or migration plan's
+// entry), restoring its pin when it carries one.
+func (m *memState) applyPutStandingSessionRef(r StandingSessionRef) {
+	m.applyPutStandingSession(r.ProjectID, r.Role, r.Name, r.SessionID)
+	if r.Manager != "" {
+		m.applySetStandingSessionManager(r.ProjectID, r.Role, r.Name, r.Manager)
+	}
+}
+
+// applySetStandingSessionManager pins an existing entry (no-op if absent).
+func (m *memState) applySetStandingSessionManager(project ident.ID, role, name, manager string) {
+	key := standingKey{project, role, name}
+	if e, ok := m.standing[key]; ok {
+		e.manager = manager
+		m.standing[key] = e
+	}
 }
 
 func (m *memState) applyRemoveStandingSession(project ident.ID, role, name string) {
@@ -92,6 +131,13 @@ func (fs *MemStore) PutStandingSession(project ident.ID, role, name, sessionID s
 		return err
 	}
 	fs.applyPutStandingSession(project, role, name, sessionID)
+	return nil
+}
+
+func (fs *MemStore) SetStandingSessionManager(project ident.ID, role, name, manager string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.applySetStandingSessionManager(project, role, name, manager)
 	return nil
 }
 

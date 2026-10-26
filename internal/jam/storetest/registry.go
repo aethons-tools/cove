@@ -966,11 +966,32 @@ func runRegistryConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		if l := s.ListStandingSessions(); len(l) != 1 || l[0].SessionID != id || l[0].Name != "spider" {
 			t.Fatalf("ListStandingSessions = %+v", l)
 		}
+		if got := s.StandingSessionManager(acme, "impl", "spider"); got != "" {
+			t.Fatalf("unpinned manager = %q", got)
+		}
+		if err := s.SetStandingSessionManager(acme, "impl", "spider", "mac-1"); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.StandingSessionManager(acme, "impl", "spider"); got != "mac-1" {
+			t.Fatalf("StandingSessionManager = %q, want mac-1", got)
+		}
+		if l := s.ListStandingSessions(); len(l) != 1 || l[0].Manager != "mac-1" {
+			t.Fatalf("ListStandingSessions lost the pin: %+v", l)
+		}
+		if err := s.SetStandingSessionManager(acme, "impl", "ghost", "mac-1"); err != nil {
+			t.Fatalf("pinning an absent entry is a no-op: %v", err)
+		}
+		if _, ok := s.StandingSessionID(acme, "impl", "ghost"); ok {
+			t.Fatal("pinning an absent entry created it")
+		}
 		if err := s.RemoveStandingSession(acme, "impl", "spider"); err != nil {
 			t.Fatal(err)
 		}
 		if _, ok := s.StandingSessionID(acme, "impl", "spider"); ok {
 			t.Fatal("entry kept after remove")
+		}
+		if got := s.StandingSessionManager(acme, "impl", "spider"); got != "" {
+			t.Fatalf("pin kept after remove: %q", got)
 		}
 		if err := s.RemoveStandingSession(acme, "impl", "spider"); err != nil {
 			t.Fatalf("removing an absent entry is a no-op: %v", err)

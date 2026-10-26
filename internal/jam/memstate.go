@@ -52,7 +52,7 @@ type memState struct {
 	aliases map[string]map[string]ident.ID
 	// standing maps a declared standing session to its session id
 	// (standing_sessions.go).
-	standing map[standingKey]string
+	standing map[standingKey]standingEntry
 	// grants is the studio share grants: session id → user id → grant
 	// (sharegrants.go).
 	grants map[string]map[ident.ID]ShareGrant
@@ -97,7 +97,7 @@ func newMemState() *memState {
 		accounts:        map[ident.ID]Account{},
 		members:         map[ident.ID]map[ident.ID]Membership{},
 		aliases:         map[string]map[string]ident.ID{},
-		standing:        map[standingKey]string{},
+		standing:        map[standingKey]standingEntry{},
 		grants:          map[string]map[ident.ID]ShareGrant{},
 		pushSubs:        map[string]PushSubscription{},
 		setup:           map[string]map[string]SetupSnapshot{},

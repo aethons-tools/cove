@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Standing sessions
@@ -112,7 +112,7 @@ A standing studio keeps its conversation and workspace in named Docker volumes
 that outlive its container and re-attach when the name is raised again; a
 restarted session resumes with `claude --continue`. No teardown deletes them —
 only [Reset](#reset) and [Dismissal](#dismissal) do. The volumes, their labels
-and the resume rules are in [standing-state.md](standing-state.md).
+and the resume rules are in [standing-state.md](standing-state.md). A standing session is pinned to its manager ([Managers and placement](coves.md#managers-and-placement)).
 
 ## Reset
 
