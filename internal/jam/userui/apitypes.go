@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
@@ -92,7 +93,7 @@ type MessageRow struct {
 	Seq   int64     `json:"seq"`
 	// Ask is the card of an ask's own squawk; System marks an ask's later
 	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
-	Ask     *AskCard `json:"-"` // the app shows asks from slice 4 (Card says which rows)
+	Ask     *AskCard `json:"ask,omitempty"` // the ask's card (Card == "ask")
 	System  bool     `json:"system"`
 	SysText string   `json:"sysText"` // a System row's line
 	ReAsk   *AskRef  `json:"reAsk,omitempty"`
@@ -140,7 +141,7 @@ type Conversation struct {
 	// strip (filled by the handler, which holds the Presence source).
 	SessionIDs []string     `json:"sessionIds"`
 	Sessions   []SessionRow `json:"sessions"`
-	OpenAsks   []AskCard    `json:"-"` // the channel's open asks (the panel above the stream)
+	OpenAsks   []AskCard    `json:"openAsks"` // the channel's open asks (the panel above the stream)
 	// Membership controls: Join (a channel they can see but aren't in),
 	// Leave (one they're in; never a chat), and who they may call in.
 	CanJoin  bool               `json:"canJoin"`
@@ -208,4 +209,29 @@ type MessageSent struct {
 // conversation with (the New message picker).
 type RecipientsResponse struct {
 	Options []NewMessageOption `json:"options"`
+}
+
+// AskCard is one ask as the viewer sees it.
+type AskCard struct {
+	ID         string               `json:"id"`
+	Question   string               `json:"question"`
+	Options    []intercom.AskOption `json:"options"`
+	Version    int                  `json:"version"`
+	State      string               `json:"state"` // open | answered | withdrawn
+	AnsweredBy string               `json:"answeredBy"`
+	Choice     string               `json:"choice"` // the chosen option's label ("other" for Other)
+	Comment    string               `json:"comment"`
+	Reason     string               `json:"reason"`
+	Edited     bool                 `json:"edited"`
+	CanAnswer  bool                 `json:"canAnswer"`
+	For        string               `json:"for"` // who it is for, when Of names others than the viewer
+}
+
+// AnswerRequest is POST api/asks/{id}/answer: the version answered (a
+// stale one is refused), an option id or "other", and a comment (needed
+// for "other").
+type AnswerRequest struct {
+	Version int    `json:"version"`
+	Choice  string `json:"choice"`
+	Comment string `json:"comment,omitempty"`
 }

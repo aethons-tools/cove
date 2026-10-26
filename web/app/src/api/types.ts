@@ -92,6 +92,11 @@ export interface MessageRow {
   time: string; // when it was sent (the app's day dividers and local times)
   mine: boolean;
   seq: number /* int64 */;
+  /**
+   * Ask is the card of an ask's own squawk; System marks an ask's later
+   * event (a one-line note, not a bubble); ReAsk a reply about an ask.
+   */
+  ask?: AskCard; // the ask's card (Card == "ask")
   system: boolean;
   sysText: string; // a System row's line
   reAsk?: AskRef;
@@ -145,6 +150,7 @@ export interface Conversation {
    */
   sessionIds: string[];
   sessions: SessionRow[];
+  openAsks: AskCard[]; // the channel's open asks (the panel above the stream)
   /**
    * Membership controls: Join (a channel they can see but aren't in),
    * Leave (one they're in; never a chat), and who they may call in.
@@ -216,4 +222,31 @@ export interface MessageSent {
  */
 export interface RecipientsResponse {
   options: NewMessageOption[];
+}
+/**
+ * AskCard is one ask as the viewer sees it.
+ */
+export interface AskCard {
+  id: string;
+  question: string;
+  options: { id: string; label: string; detail?: string }[];
+  version: number /* int */;
+  state: string; // open | answered | withdrawn
+  answeredBy: string;
+  choice: string; // the chosen option's label ("other" for Other)
+  comment: string;
+  reason: string;
+  edited: boolean;
+  canAnswer: boolean;
+  for: string; // who it is for, when Of names others than the viewer
+}
+/**
+ * AnswerRequest is POST api/asks/{id}/answer: the version answered (a
+ * stale one is refused), an option id or "other", and a comment (needed
+ * for "other").
+ */
+export interface AnswerRequest {
+  version: number /* int */;
+  choice: string;
+  comment?: string;
 }

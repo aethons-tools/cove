@@ -9,3 +9,4 @@ packages:
       jam.AttentionBucket: string
       template.HTML: string
       time.Time: string
+      intercom.AskOption: "{ id: string; label: string; detail?: string }"

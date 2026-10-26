@@ -15,21 +15,6 @@ import (
 // was asked, showing its current state; its later events are system lines;
 // open asks also list in a panel above the stream.
 
-// AskCard is one ask as the viewer sees it.
-type AskCard struct {
-	ID, Question string
-	Options      []intercom.AskOption
-	Version      int
-	State        string // open | answered | withdrawn
-	AnsweredBy   string
-	Choice       string // the chosen option's label ("other" for Other)
-	Comment      string
-	Reason       string
-	Edited       bool
-	CanAnswer    bool
-	For          string // who it is for, when Of names others than the viewer
-}
-
 func askCard(p jam.Participant, d Deps, a intercom.Ask) AskCard {
 	c := AskCard{ID: a.ID, Question: a.Question, Options: a.Options, Version: a.Version, State: string(a.State),
 		Reason: a.Reason, Edited: a.Version > 1, CanAnswer: d.Intercom.MayAnswer(p.UserID, a)}
@@ -42,6 +27,9 @@ func askCard(p jam.Participant, d Deps, a intercom.Ask) AskCard {
 			names[i] = d.Intercom.PartyOf(id).Label
 		}
 		c.For = strings.Join(names, ", ")
+	}
+	if c.Options == nil {
+		c.Options = []intercom.AskOption{} // types.ts says options: [...]
 	}
 	return c
 }
