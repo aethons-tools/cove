@@ -4,7 +4,7 @@ read_when: You are authoring, listing, changing or deleting a model-spec, bindin
 owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Model-specs
@@ -15,10 +15,7 @@ and which permission policy. Every **role** resolves to one (unbound = `claude-d
 Jam delivers the resolved spec to each of the role's coves, which apply it at their
 next episode — except its harness CLI `version` and `claude.plugins`, which are
 [built into the image](model-spec-harness.md). The permission
-policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md). The same
-schema and validator load a plain at-cove kit's
-[`model-spec:` block](../at-cove-config.md#model-spec) (no `principal` there;
-`version` optional).
+policy's argv mapping is in [model-spec-policy.md](model-spec-policy.md).
 
 ## Schema
 

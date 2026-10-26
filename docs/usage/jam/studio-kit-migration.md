@@ -4,7 +4,7 @@ read_when: Your serve config still sets `runtime.launcher.install-manifest`, Jam
 owns: the breaking changes of the StudioKit rework and how to migrate off them
 prereqs: kits.md for the StudioKit schema; serve.md for runtime.launcher
 tier: leaf
-updated: 2026-09-30
+updated: 2026-10-26
 ---
 
 # Migrating to StudioKits
@@ -20,7 +20,6 @@ Drop the key from the serve config. `runtime.launcher` now needs only
 config now come from the studio-kit registry: the `default` kit is seeded
 automatically at serve start; author others with `at-jam kit push` and bind them
 with `role add --kit` ([kits.md](kits.md#role-to-kit-and-the-default-kit)).
-`at-cove install` and its manifest are unaffected for interactive kits.
 
 ## The registry is studio-only
 

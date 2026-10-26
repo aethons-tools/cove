@@ -1,49 +1,50 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-read_when: You are enabling Docker inside a sandbox (a kit that runs `docker build` / `docker compose up` / testcontainers) — flipping the flag, installing Sysbox in the colima VM (`at-jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — flipping the launcher's `docker` setting, installing Sysbox in the colima VM (`at-jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
 owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-jam colima setup-docker`/`check-docker` commands that automate it
-prereqs: ../OVERVIEW.md for the sandbox + egress model; at-cove-config.md#docker for the flag's schema
+prereqs: ../OVERVIEW.md for the image + egress model; jam/serve.md#the-launcher-runtimelauncher for the launcher's docker setting
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Docker inside the sandbox
 
-Set `docker: true` in a kit and its sandboxes get a **working Docker for testing
+Set the launcher's `docker: true` and its studios get a **working Docker for testing
 workloads** — `docker build`, `docker compose up`, and **testcontainers** all run
 *inside* the sandbox — with the egress lock and the rest of the hardening intact.
 It runs on the **Sysbox** runtime, which requires a **one-time install in the
-colima VM** (below); at-cove's preflight fails fast and points you here if missing.
+colima VM** (below); the launcher's preflight fails fast and points you here if missing.
 
 For *why* this design is safe (no `--privileged`, no host socket) and the full
 threat model, see the [Sysbox docker-in-sandbox design](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md).
 
 ## Enabling it
 
-The single switch is the top-level kit flag — schema and validation live in
-[`at-cove-config.md`](at-cove-config.md#docker):
+The switch is the launcher's `docker` setting in the serve config
+([serve.md](jam/serve.md#the-launcher-runtimelauncher)):
 
 ```yaml
-# .at-cove/config.yml
-docker: true
+runtime:
+  launcher:
+    docker: true
 ```
 
-When set, `at-cove install`/`create` provision the sandbox so that:
+When set, every studio the launcher raises runs so that:
 
-- the **sandbox container itself** runs under `--runtime=sysbox-runc`, which lets a
+- the **studio container itself** runs under `--runtime=sysbox-runc`, which lets a
   normal **rootful `dockerd`** run inside an *unprivileged* container;
 - the inner daemon is exposed on the default socket, so the `agent` user runs
   `docker …` with **no `DOCKER_HOST` to set** (it is in the `docker` group);
-- a **persistent, bounded cache volume** (`atcove-{kit}[-{class}]-docker`) is
-  mounted at the inner `/var/lib/docker`, so pulled layers and build cache survive
-  `recreate` (removed on `destroy`).
+- a **bounded cache volume** (`<container>-docker`) is mounted at the inner
+  `/var/lib/docker`, so pulled layers and build cache last the studio's life;
+  teardown removes it ([standing-state.md](jam/standing-state.md)).
 
-A kit without the flag is **byte-for-byte unchanged** — no Sysbox runtime, no
+A launcher without the setting is **byte-for-byte unchanged** — no Sysbox runtime, no
 cache volume, no systemd.
 
 ## Prerequisite: install Sysbox in the colima VM (one-time)
 
-Sysbox is a **VM-level runtime** — at-cove *detects* it but never installs it. Two
+Sysbox is a **VM-level runtime** — Jam *detects* it but never installs it. Two
 things must hold, both surviving `colima stop/start`: Sysbox installed in the colima
 VM, and Docker having the `sysbox-runc` runtime **registered**. Configure them
 separately, because **colima owns `/etc/docker/daemon.json` and regenerates it on
@@ -59,7 +60,7 @@ $ colima restart                         # runs the hook — restarts every cove
 $ at-jam colima check-docker             # ok: sysbox-runc is registered
 ```
 
-It edits the default profile's config (behind the `colima` docker context at-cove
+It edits the default profile's config (behind the `colima` docker context the launcher
 uses), found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
 hook it owns (marked `# managed by at-jam colima setup-docker`; re-running replaces
@@ -68,7 +69,7 @@ below is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
 change the file is untouched. `--sysbox-version` (default and minimum
 `0.7.1`) picks the release. A changing run keeps comments but normalizes
 formatting, and edits a symlinked config's target. It never restarts colima.
-`check-docker` runs at-cove's preflight probe (non-zero if the runtime is missing).
+`check-docker` runs the launcher's preflight probe (non-zero if the runtime is missing).
 
 To do it by hand instead (or to see what the command writes):
 
@@ -116,7 +117,7 @@ $ colima ssh -- docker info -f '{{json .Runtimes}}' | jq 'has("sysbox-runc")'
 true
 ```
 
-If `docker: true` and the runtime is absent, `at-cove` **fails the preflight**
+If `docker: true` and the runtime is absent, a raise **fails the preflight**
 (pointing back here) rather than silently falling back.
 
 **Version floor.** Use Sysbox **≥ 0.7.1**; 0.6.x fails container create with
@@ -131,7 +132,7 @@ If `docker: true` and the runtime is absent, `at-cove` **fails the preflight**
 ## Allow-listing registries
 
 Image pulls ride the sandbox's **squid proxy**, so each registry's domains must be
-in the kit's root [`image.allowed-domains`](at-cove-config.md#imageallowed-domains)
+in the studio kit's `egress:` list ([kits.md](jam/kits.md))
 — the same additive allow-list every other egress uses
 ([four additive allow-lists](../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling)).
 Both the daemon *and* BuildKit route through squid, so this covers `docker build`
@@ -141,19 +142,18 @@ The registries need their **blob CDNs**, not just their API hosts — pulls fail
 mid-layer otherwise:
 
 ```yaml
-image:
-  allowed-domains:
-    # Docker Hub (docker.io)
-    - registry-1.docker.io
-    - auth.docker.io
-    - index.docker.io
-    - .cloudfront.docker.com    # the blob CDN (CloudFront) — required for layer downloads
-    # GitHub Container Registry (ghcr.io)
-    - ghcr.io
-    - pkg-containers.githubusercontent.com
+egress:
+  # Docker Hub (docker.io)
+  - registry-1.docker.io
+  - auth.docker.io
+  - index.docker.io
+  - .cloudfront.docker.com    # the blob CDN (CloudFront) — required for layer downloads
+  # GitHub Container Registry (ghcr.io)
+  - ghcr.io
+  - pkg-containers.githubusercontent.com
 ```
 
-Add only the registries a kit actually pulls from. When a pull is blocked, the
+Add only the registries a kit's studios actually pull from. When a pull is blocked, the
 denial surfaces as a squid `403` naming the host — add it here.
 
 ## Nested-container egress
@@ -183,7 +183,7 @@ would sidestep the agent's `output`-chain egress lock. An **always-on** `nftable
       curlimages/curl -fsS https://ghcr.io > /dev/null
   ```
 
-  The host must still be in `image.allowed-domains` — the *same* allow-list, no bypass.
+  The host must still be in the kit's `egress:` list — the *same* allow-list, no bypass.
 
 The full egress model is in the
 [design spec §E](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#e-egress).

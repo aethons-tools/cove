@@ -2,7 +2,7 @@
 summary: Section index for operating `at-jam` — the durable central service that brokers a studio's credentials/egress, holds the actor roster (RBAC), and serves the kit registry.
 read_when: You are running or administering a Jam service — standing it up, signing an operator in, deciding who can reach what, or registering kits — and need the map of its operator docs.
 owns: the map of the at-jam operator/usage docs and how they relate
-prereqs: ../../OVERVIEW.md for what at-cove/Jam is; ../at-cove-config.md#jam for the studio side of the connection
+prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
 updated: 2026-10-26
 ---
@@ -20,12 +20,11 @@ studios points at. It does three things for the studios it serves:
   enforces.
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
-`at-jam` ships in the same release archive as `at-cove`: install it with the
+`at-jam` ships in one release archive with `at-mint`: install it with the
 one-command installer and keep it current with `at-jam update` (see
 [installing the binaries](../../OVERVIEW.md#installing-the-binaries)).
 
-This is the *how to run and administer it* layer. For the studio side — making a
-sandbox use a Jam — see [`../at-cove-config.md#jam`](../at-cove-config.md).
+This is the *how to run and administer it* layer.
 For *why* it's built this way (threat model, the broker's boundary relocation, the
 five pillars), see the design history:
 [`../../superpowers/specs/2026-09-10-harbor-design.md`](../../superpowers/specs/2026-09-10-harbor-design.md).

@@ -1,23 +1,23 @@
 # AGENTS.md
 
-`at-cove` — a small Go CLI that runs hardened Claude Code sandboxes from a `.at-cove/` kit directory across pluggable VM backends.
+`cove` — the Jam service (`at-jam`) and the hardened Claude Code studios it builds and runs.
 
 **Start here:** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) —
-what the project is, the kit format, the command surface, the security model, the architecture, and how to build/test/run.
+what this repo builds, the studio image's security model, the package map, and how to build/test/run.
 For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Quick orientation
 
-- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `at-cove`, `at-task`, `at-switchboard`
-- **Entry points:** `cmd/at-cove/main.go` (the sandbox CLI — `create`/`connect`/`work`/`dispatch`) and `cmd/at-task/main.go` (the git/PR worker); see [`docs/orchestration/`](docs/orchestration/INDEX.md) for the Linear-driven dispatch scheduler. `cmd/at-switchboard/main.go` is the in-sandbox Discord conductor (Component A), launched by `at-cove teammate`.
-- **Packages:** `internal/{kit,assemble,backend,connect,secret,sshargs,keys,state,runner,dispatch}` — see the architecture section in the overview for what each owns.
+- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `at-jam`, `at-mint`, `cove-master` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
+- **Entry points:** `cmd/at-jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/cove-master/main.go` (the in-studio agent supervisor), `cmd/at-mint/main.go` (the token minter).
+- **Packages:** see the package map in [the overview](docs/OVERVIEW.md#architecture).
 
 ## Working in this repo
 
 - **This repo *builds* sandboxes — keep template files distinct from the repo's own files.**
   Everything under `internal/assemble/*/image-files/` (and the harness layer's
   `internal/harnessinstall/payload/`) is *payload*:
-  a template tree copied into the sandbox VMs that `at-cove` builds,
+  a template tree copied into the studio images Jam's launcher builds,
   not configuration for this repo.
   Likewise `images/*/image-files/`: for example,
   `images/cove-base-image/image-files/home/agent/.init-agent-data/CLAUDE.md`
@@ -36,7 +36,7 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   updates the sandbox's docs, which is a separate concern.
 
 - **Build/test via `just`** (run `just` to list recipes):
-  `just test` (hermetic unit tests), `just build`, `just run <args>`, `just lint`, `just integration` (real-ssh, needs ssh/sshd).
+  `just test` (hermetic unit tests), `just build`, `just jam <args>`, `just lint`, `just integration` (real-ssh, needs ssh/sshd).
 - **Tests are hermetic by default** —
   they drive `internal/runner.Fake`,
   so no Docker, network, or live VM is needed.
@@ -56,18 +56,6 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   Resolver commands run on the host;
   values flow into the VM in memory only.
   Don't add code paths that write secret values to files, logs, or command lines.
-  Structured logging preserves this by construction: injection paths (resolved
-  secret values, the VM env map) are never logged at any level, only self-owned
-  records reach the sink, and raw agent/VM output stays VM-local — see the
-  [observability reference](docs/usage/observability.md#secrets-never-reach-a-log).
-
-- **Diagnostics are structured; pure-UX output stays plain.**
-  Diagnostics/errors go through `internal/logging` (dual-output `UserError`) on
-  **stderr**; help text, `--dry-run` intent lines, and machine-readable command
-  data stay plain on **stdout**. The mode is chosen per consumer, not by a format
-  flag: **attended** (TTY) writes human text to stderr + a JSON file; **unattended**
-  (headless) writes JSON to stderr only. See the
-  [observability reference](docs/usage/observability.md).
 
 - **Toolchain quirks** —
   this repo is developed in an egress-locked sandbox;
@@ -76,4 +64,4 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 ## Design history
 
 Authoritative design docs and the implementation plans live under [`docs/superpowers/`](docs/superpowers/).
-Read `specs/2026-06-26-cove-sandboxes-design.md` for the current design before making structural changes.
+Read `specs/2026-10-26-jam-only-design.md` for the current direction before making structural changes.

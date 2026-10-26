@@ -4,7 +4,7 @@ read_when: You are adding a destination a studio needs client-side setup for (en
 owns: destination `env`/`git`, the template placeholders, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
 prereqs: serve.md#destinations for destinations; roster.md for which destinations a role's scope allows
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-26
 ---
 
 # The studio connector (destination env)
@@ -59,7 +59,7 @@ fail closed, never a silent pick.
   into a live agent (one holding its session open, e.g. for a background task)
   runs under the env that episode started with
   ([coves.md](coves.md#cove-master-the-in-cove-client)).
-- **Host-side clients** (at-cove connect, teammates, dispatch) call
+- **Host-side clients** call
   `GET /connector` on the broker listener with the identity as a bearer (or
   `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still
   unexpanded, `{url}` already resolved to `{base}<route>`. A git destination on

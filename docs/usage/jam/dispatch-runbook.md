@@ -2,9 +2,9 @@
 summary: End-to-end runbook for standing up Jam's Linear-driven dispatch on a single Colima host — the ordered procedure (serve → destinations → role → dispatch-label gate) plus the field gotchas that bite a first real run (egress, cert-name, flat-vs-grouped labels).
 read_when: You are bringing up a real Jam dispatch loop for the first time (or reproducing one) and want the ordered steps and the traps, not the per-field reference.
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
-prereqs: serve.md, roster.md, requisitioner.md, coves.md, ../at-cove-config.md#jam — this runbook orders them, it does not replace them
+prereqs: serve.md, roster.md, requisitioner.md, coves.md — this runbook orders them, it does not replace them
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-26
 ---
 
 # Runbook: Jam dispatch, end to end
@@ -16,7 +16,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Prerequisites
 
-- Colima running; a studio image built via `at-cove install` (its `install.json`).
+- Colima running (the launcher builds each studio kit's image on its first raise — [kits.md](kits.md)).
 - A Linear workspace + team; a Linear API token (Jam's own).
 - Anthropic + git credentials Jam will broker.
 - A DNS name for Jam with a TLS cert (see the cert gotcha below).
@@ -75,8 +75,8 @@ doc that owns the detail; this runbook only owns the **order** and the
   intercom wire endpoint was hard-renamed `/messages` → `/squawks` (no
   back-compat shim), so a post-rename studio calling `/squawks` against a
   pre-rename `serve` (or vice versa) gets a 404 and the agent silently has no
-  intercom tools. If a studio's tools 404, rebuild **both** the image (`at-cove
-  install`) and the host binary (`just build`) from the same commit.
+  intercom tools. If a studio's tools 404, rebuild the host binary (`just build`) and
+  re-raise the studio — its image rebuilds from the new binary's payload.
 - **Discord replies must be real replies; a wait-for-reply task ends its turn.** Reply-routing matches an inbound message by the message id it
   *replies to*, so a **bare** post in the channel carries no reference and is
   dropped by design (that's also how Jam's own echoed posts don't
