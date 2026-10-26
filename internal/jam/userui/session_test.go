@@ -366,3 +366,26 @@ func TestContextUse(t *testing.T) {
 		}
 	}
 }
+
+// The header shows the session's mission under its name, and nothing when
+// it has none.
+func TestSessionHeaderMission(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	h := Handler(e.Deps, nil)
+	head := func() string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/?c="+e.homeOf(t, personal), nil), p, false))
+		return rec.Body.String()
+	}
+	if body := head(); strings.Contains(body, `class="sh-mission"`) {
+		t.Error("a session without a mission shows a mission line")
+	}
+	personal.Mission = "triaging ACME-7"
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	if want := `<div class="sh-mission" title="triaging ACME-7">triaging ACME-7</div>`; !strings.Contains(head(), want) {
+		t.Errorf("header missing %s", want)
+	}
+}

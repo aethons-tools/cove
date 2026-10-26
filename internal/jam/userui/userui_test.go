@@ -1,6 +1,7 @@
 package userui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -78,5 +79,26 @@ func TestGroupRailSelectedIsRead(t *testing.T) {
 	}
 	if chs[0].Unread != 3 {
 		t.Fatal("groupRail mutated its input")
+	}
+}
+
+// A session row shows its mission under the name; a row without one has no
+// mission line.
+func TestRailMission(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	personal.Mission = "fixing the rail & header"
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	rail := railFor(t, Handler(e.Deps, nil), p)
+	want := `<span class="mission" title="fixing the rail &amp; header">fixing the rail &amp; header</span>`
+	if !strings.Contains(rail, want) {
+		t.Fatalf("rail missing %s:\n%s", want, rail)
+	}
+	if n := strings.Count(rail, `class="mission"`); n != 1 {
+		t.Fatalf("mission lines = %d, want 1 (the standing session has none):\n%s", n, rail)
+	}
+	if !strings.Contains(rail, `<span class="stack">`) {
+		t.Errorf("rail rows lack the name/mission stack:\n%s", rail)
 	}
 }

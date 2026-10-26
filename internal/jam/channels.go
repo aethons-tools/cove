@@ -61,6 +61,9 @@ type ChannelView struct {
 	// Sessions are the actor ids of the sessions taking part (sent or were
 	// addressed here, or back it), sorted.
 	Sessions []string
+	// Mission is the backing session's one-line focus, "" when none is
+	// shown: see userChannel for which session speaks for the channel.
+	Mission string
 }
 
 // Bucket places the channel in the attention-ordered rail. NeedsYou wins; a

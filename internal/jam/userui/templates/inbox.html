@@ -24,7 +24,7 @@
       {{range .Rows}}
         <a class="thread{{if .Selected}} sel{{end}}" data-ch="{{.ID}}" data-unread="{{.Unread}}" data-needs="{{.NeedsYou}}" href="/app/user/?c={{.ID}}">
           <span class="pin {{if .NeedsYou}}wait{{else if .Phase}}live{{else}}chan{{end}}"></span>
-          <span class="cove">{{.Label}}</span>
+          <span class="stack"><span class="cove">{{.Label}}</span>{{if .Mission}}<span class="mission" title="{{.Mission}}">{{.Mission}}</span>{{end}}</span>
           {{if gt .OpenAsks 0}}<span class="badge asks" title="open asks">?{{.OpenAsks}}</span>{{end}}
           {{if gt .Unread 0}}<span class="badge unread">{{.Unread}}</span>{{end}}
         </a>
@@ -229,7 +229,8 @@
 {{define "sessionhead"}}{{with .Conv}}{{with .Head}}
 <div class="session-head" id="session-head" hx-get="/app/user/session/{{.ID}}/head" hx-trigger="mePresence[!meMenuOpen()] from:body, meChanged[!meMenuOpen()] from:body, every 30s [!meMenuOpen()]" hx-swap="outerHTML">
   <div class="sh-id"><b>{{.Label}}</b> <span class="sh-kind">{{.Kind}}</span>{{if .Ticket}} <span class="sh-ticket">{{.Ticket}}</span>{{end}}
-    <span class="sh-sub">{{.Role}} · {{.Project}}{{if .Owner}} · for {{.Owner}}{{end}}</span></div>
+    <span class="sh-sub">{{.Role}} · {{.Project}}{{if .Owner}} · for {{.Owner}}{{end}}</span>
+    {{if .Mission}}<div class="sh-mission" title="{{.Mission}}">{{.Mission}}</div>{{end}}</div>
   <div class="sh-state sess {{.State.Class}}">{{.State.Text}}{{if .State.Tool}} <b>{{.State.Tool}}</b>{{end}}{{if .Since}} <span class="t">· {{.Since}}</span>{{end}}{{if .OpenAsks}} <span class="badge asks">?{{.OpenAsks}}</span>{{end}}</div>
   {{if .Cost}}<div class="sh-cost" title="{{.Tokens}}">{{.Cost}} <span class="t">· this turn {{.TurnCost}}</span></div>{{end}}
   {{if .Context}}<div class="sh-ctx t" title="{{.ContextTip}}">{{.Context}}</div>{{end}}

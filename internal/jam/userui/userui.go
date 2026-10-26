@@ -60,6 +60,7 @@ type ChannelRow struct {
 	OpenAsks int
 	LastSeq  int64
 	Selected bool
+	Mission  string // the backing session's one-line focus; "" = none
 }
 
 // RailGroup is one attention section of the rail (Needs you / Sessions /
@@ -166,6 +167,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			OpenAsks: ch.OpenAsks,
 			LastSeq:  ch.LastSeq,
 			Selected: ch.ID == selectedID,
+			Mission:  ch.Mission,
 		})
 	}
 	var groups []RailGroup
