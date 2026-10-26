@@ -91,24 +91,24 @@ func TestBrowserStudio(t *testing.T) {
 	defer srv.Close()
 	home := e.homeOf(t, personal)
 
-	poll := func(js string) chromedp.Action {
-		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	poll := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
-	run := func(what string, acts ...chromedp.Action) {
+	run := func(what string, acts ...step) {
 		t.Helper()
-		if err := chromedp.Run(ctx, acts...); err != nil {
+		if err := chromedp.Do(ctx, acts...); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
 	}
 	eval := func(js string, out any) {
 		t.Helper()
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, out)); err != nil {
+		if err := chromedp.Do(ctx, evalInto(js, out)); err != nil {
 			t.Fatalf("%s: %v", js, err)
 		}
 	}
 	const js = `function F(){ return document.querySelector('#studio iframe.st-iframe'); }
 		function S(){ return document.querySelector('#studio .st-status').textContent; }`
-	status := func(want string) chromedp.Action {
+	status := func(want string) step {
 		return poll(`(function(){` + js + `return S().includes(` + strconv.Quote(want) + `);})()`)
 	}
 	settle := func() { time.Sleep(400 * time.Millisecond) }
@@ -117,8 +117,8 @@ func TestBrowserStudio(t *testing.T) {
 	// (7) The first open, with no size saved, widens the pane to 60%.
 	run("open the page", chromedp.EmulateViewport(1400, 900),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+home),
-		chromedp.WaitVisible(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
-		chromedp.Click(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(`.sh-tabs [data-tab="studio"]`)),
+		chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="studio"]`)),
 		poll(`(function(){`+js+`return !!F() && S()==='';})()`))
 	var one struct {
 		Src, Open, Allow, Referrer string
@@ -146,11 +146,11 @@ func TestBrowserStudio(t *testing.T) {
 	// (2) Thinking and back keeps the same iframe; the pane's refresh leaves it.
 	var ok bool
 	run("to thinking and back",
-		chromedp.Evaluate(`document.querySelector('#studio iframe').dataset.mark='1'`, nil),
-		chromedp.Click(`.sh-tabs [data-tab="thinking"]`, chromedp.ByQuery),
+		chromedp.Evaluate[chromedp.Void](`document.querySelector('#studio iframe').dataset.mark='1'`),
+		chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="thinking"]`)),
 		poll(`document.getElementById('side-pane-body').textContent.includes('events')`),
-		chromedp.Click(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
-		chromedp.Evaluate(`document.body.dispatchEvent(new Event('meChanged'))`, nil))
+		chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="studio"]`)),
+		chromedp.Evaluate[chromedp.Void](`document.body.dispatchEvent(new Event('meChanged'))`))
 	settle()
 	eval(`(function(){`+js+`var f=F(); return !!f && f.dataset.mark==='1' && f.getClientRects().length>0 && document.getElementById('side-pane-body').hidden;})()`, &ok)
 	if !ok || ff.mints("ide") != 1 {
@@ -158,7 +158,7 @@ func TestBrowserStudio(t *testing.T) {
 	}
 
 	// (5) A message from anywhere but the frame is ignored, signin included.
-	run("forge", chromedp.Evaluate(`window.postMessage({jam:'frame-error',status:403},'*'); window.postMessage({jam:'frame-error',status:'signin'},'*')`, nil))
+	run("forge", chromedp.Evaluate[chromedp.Void](`window.postMessage({jam:'frame-error',status:403},'*'); window.postMessage({jam:'frame-error',status:'signin'},'*')`))
 	settle()
 	var st string
 	eval(`(function(){`+js+`return S();})()`, &st)
@@ -167,7 +167,7 @@ func TestBrowserStudio(t *testing.T) {
 	}
 
 	// (3) Reload mints anew and replaces the iframe.
-	run("reload", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+	run("reload", chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
 		poll(`(function(){`+js+`var f=F(); return !!f && f.dataset.mark!=='1';})()`), status(""))
 	if n := ff.mints("ide"); n != 2 {
 		t.Fatalf("(3) reload mints = %d, want 2", n)
@@ -175,7 +175,7 @@ func TestBrowserStudio(t *testing.T) {
 
 	// (4) A frame posting a 403 shows it.
 	ff.queue("ide", "post=403")
-	run("403", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("No longer shared with you."))
+	run("403", chromedp.Click(chromedp.CSS(`#studio .st-reload`)), status("No longer shared with you."))
 	settle()
 	eval(`(function(){`+js+`return S();})()`, &st)
 	if st != "No longer shared with you." {
@@ -185,7 +185,7 @@ func TestBrowserStudio(t *testing.T) {
 	// "signin" re-mints exactly once for the same name, and loads it.
 	ff.queue("ide", "post=signin")
 	before := ff.mints("ide")
-	run("signin", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+	run("signin", chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
 		poll(`(function(){`+js+`var f=F(); return !!f && !f.src.includes('post=');})()`), status(""))
 	settle()
 	if n := ff.mints("ide") - before; n != 2 {
@@ -194,7 +194,7 @@ func TestBrowserStudio(t *testing.T) {
 	// Twice in a row: no more re-mints, and an offer to reopen.
 	ff.queue("ide", "post=signin", "post=signin")
 	before = ff.mints("ide")
-	run("signin twice", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("Reopen this view"))
+	run("signin twice", chromedp.Click(chromedp.CSS(`#studio .st-reload`)), status("Reopen this view"))
 	settle()
 	if n := ff.mints("ide") - before; n != 2 {
 		t.Fatalf("signin twice: %d mints, want 2", n)
@@ -202,7 +202,7 @@ func TestBrowserStudio(t *testing.T) {
 	// "cookies" retries once; a second time says so.
 	ff.queue("ide", "post=cookies", "post=cookies")
 	before = ff.mints("ide")
-	run("cookies", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+	run("cookies", chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
 		status("This browser can't sign in inside the pane — use Open in new tab."))
 	if n := ff.mints("ide") - before; n != 2 {
 		t.Fatalf("cookies: %d mints, want 2", n)
@@ -210,9 +210,9 @@ func TestBrowserStudio(t *testing.T) {
 
 	// (6) View here frames a preview in the Previews tab; back restores the list.
 	run("view here",
-		chromedp.Click(`.sh-tabs [data-tab="previews"]`, chromedp.ByQuery),
-		chromedp.WaitVisible(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
-		chromedp.Click(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
+		chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="previews"]`)),
+		chromedp.WaitVisible(chromedp.CSS(`#side-pane-body .pv-here[data-name="app"]`)),
+		chromedp.Click(chromedp.CSS(`#side-pane-body .pv-here[data-name="app"]`)),
 		poll(`(function(){var f=document.querySelector('#side-pane-body iframe.st-iframe'); return !!f && f.src.indexOf(`+strconv.Quote(pv.URL+"/app?")+`)===0;})()`))
 	var six struct {
 		Text, Open string
@@ -226,17 +226,17 @@ func TestBrowserStudio(t *testing.T) {
 		t.Fatalf("(6) framed preview: %+v", six)
 	}
 	// The pane's refresh leaves the framed preview alone.
-	run("refresh", chromedp.Evaluate(`document.querySelector('#side-pane-body iframe').dataset.mark='p'; document.body.dispatchEvent(new Event('meChanged'))`, nil))
+	run("refresh", chromedp.Evaluate[chromedp.Void](`document.querySelector('#side-pane-body iframe').dataset.mark='p'; document.body.dispatchEvent(new Event('meChanged'))`))
 	settle()
 	eval(`(function(){var f=document.querySelector('#side-pane-body iframe'); return !!f && f.dataset.mark==='p';})()`, &ok)
 	if !ok {
 		t.Fatal("(6) the pane's refresh replaced the framed preview")
 	}
-	run("back", chromedp.Click(`#side-pane-body .pv-back`, chromedp.ByQuery),
+	run("back", chromedp.Click(chromedp.CSS(`#side-pane-body .pv-back`)),
 		poll(`!!document.querySelector('#side-pane-body .sp-row') && !document.querySelector('#side-pane-body iframe')`))
 
 	// Closing the pane removes the IDE's iframe.
-	run("close", chromedp.Click(`.sh-tabs [data-tab="previews"]`, chromedp.ByQuery),
+	run("close", chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="previews"]`)),
 		poll(`document.getElementById('side-pane').hidden && !document.querySelector('iframe.st-iframe')`))
 }
 
@@ -289,46 +289,46 @@ func TestBrowserStudioEdges(t *testing.T) {
 	defer srv.Close()
 	home, sHome := e.homeOf(t, personal), e.homeOf(t, standing)
 
-	poll := func(js string) chromedp.Action {
-		return chromedp.Poll(js, nil, chromedp.WithPollingTimeout(5*time.Second))
+	poll := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
-	run := func(what string, acts ...chromedp.Action) {
+	run := func(what string, acts ...step) {
 		t.Helper()
-		if err := chromedp.Run(ctx, acts...); err != nil {
+		if err := chromedp.Do(ctx, acts...); err != nil {
 			t.Fatalf("%s: %v", what, err)
 		}
 	}
 	eval := func(js string, out any) {
 		t.Helper()
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, out)); err != nil {
+		if err := chromedp.Do(ctx, evalInto(js, out)); err != nil {
 			t.Fatalf("%s: %v", js, err)
 		}
 	}
 	const js = `function F(){ return document.querySelector('#studio iframe.st-iframe'); }
 		function S(){ var x=document.querySelector('#studio .st-status'); return x ? x.textContent : null; }`
-	status := func(want string) chromedp.Action {
+	status := func(want string) step {
 		return poll(`(function(){` + js + `return S()===` + strconv.Quote(want) + `;})()`)
 	}
 	settle := func() { time.Sleep(400 * time.Millisecond) }
 	openStudio := func(what string) {
 		t.Helper()
-		run(what, chromedp.Evaluate(`localStorage.clear()`, nil), chromedp.Navigate(srv.URL+"/app/user/?c="+home),
-			chromedp.WaitVisible(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
-			chromedp.Click(`.sh-tabs [data-tab="studio"]`, chromedp.ByQuery),
+		run(what, chromedp.Evaluate[chromedp.Void](`localStorage.clear()`), chromedp.Navigate(srv.URL+"/app/user/?c="+home),
+			chromedp.WaitVisible(chromedp.CSS(`.sh-tabs [data-tab="studio"]`)),
+			chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="studio"]`)),
 			poll(`!!document.querySelector('#studio')`))
 	}
 
 	// (1) A remembered Studio tab, or &tab=studio, stays closed for a viewer
 	// without ssh (no Studio in the header), and isn't saved over.
 	run("open", chromedp.EmulateViewport(1400, 900), chromedp.Navigate(srv.URL+"/app/user/?c="+home),
-		chromedp.WaitVisible(`#session-head`, chromedp.ByQuery),
-		chromedp.Evaluate(`localStorage.clear(); localStorage.setItem('jam-pane:last', JSON.stringify({tab:'studio'}))`, nil))
+		chromedp.WaitVisible(chromedp.CSS(`#session-head`)),
+		chromedp.Evaluate[chromedp.Void](`localStorage.clear(); localStorage.setItem('jam-pane:last', JSON.stringify({tab:'studio'}))`))
 	var closed struct {
 		Hidden, Button bool
 		Last           string
 	}
 	for _, extra := range []string{"", "&tab=studio"} {
-		run("no ssh"+extra, chromedp.Navigate(srv.URL+"/app/user/?c="+sHome+extra), chromedp.WaitVisible(`#session-head`, chromedp.ByQuery))
+		run("no ssh"+extra, chromedp.Navigate(srv.URL+"/app/user/?c="+sHome+extra), chromedp.WaitVisible(chromedp.CSS(`#session-head`)))
 		settle()
 		eval(`({Hidden:document.getElementById('side-pane').hidden, Button:!!document.querySelector('.sh-tabs [data-tab="studio"]'),
 			Last:localStorage.getItem('jam-pane:last')})`, &closed)
@@ -347,14 +347,14 @@ func TestBrowserStudioEdges(t *testing.T) {
 		t.Fatalf("(6) Open in new tab after a refused mint: %q", open)
 	}
 	gate.set(http.StatusTooManyRequests, 0)
-	run("429", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("Too many views opened; wait a minute."))
+	run("429", chromedp.Click(chromedp.CSS(`#studio .st-reload`)), status("Too many views opened; wait a minute."))
 	gate.set(0, 0)
 
 	// (4) A frame URL that isn't http(s) isn't loaded.
 	ff.mu.Lock()
 	ff.base = "javascript:parent.document.body.dataset.pwned='1'//"
 	ff.mu.Unlock()
-	run("bad scheme", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery), status("Couldn't open this view."))
+	run("bad scheme", chromedp.Click(chromedp.CSS(`#studio .st-reload`)), status("Couldn't open this view."))
 	var pwned bool
 	eval(`(function(){`+js+`return !!F() || document.body.dataset.pwned==='1';})()`, &pwned)
 	if pwned {
@@ -366,10 +366,10 @@ func TestBrowserStudioEdges(t *testing.T) {
 
 	// (3) A frame that posts after a new mint has started can't fail the new frame.
 	ff.queue("ide", "post=403&late=1000")
-	run("late frame", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+	run("late frame", chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
 		poll(`(function(){`+js+`var f=F(); return !!f && f.src.includes('late=');})()`), status(""))
 	gate.set(0, 2500*time.Millisecond)
-	run("re-mint", chromedp.Click(`#studio .st-reload`, chromedp.ByQuery),
+	run("re-mint", chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
 		poll(`(function(){`+js+`var f=F(); return !!f && !f.src.includes('late=');})()`))
 	gate.set(0, 0)
 	run("new frame loads", status(""))
@@ -383,9 +383,9 @@ func TestBrowserStudioEdges(t *testing.T) {
 	// (5) Restored from the back/forward cache (pagehide emptied the keep),
 	// the Studio opens again.
 	before := ff.mints("ide")
-	run("bfcache", chromedp.Evaluate(`window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}))`, nil),
+	run("bfcache", chromedp.Evaluate[chromedp.Void](`window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}))`),
 		poll(`!document.querySelector('#studio')`),
-		chromedp.Evaluate(`window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))`, nil),
+		chromedp.Evaluate[chromedp.Void](`window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))`),
 		poll(`(function(){`+js+`return !!F();})()`), status(""))
 	if n := ff.mints("ide") - before; n != 1 {
 		t.Fatalf("(5) bfcache restore: %d mints, want 1", n)
@@ -394,8 +394,8 @@ func TestBrowserStudioEdges(t *testing.T) {
 	// (7) A framed preview posting 502 isn't answering.
 	ff.queue("app", "post=502")
 	run("preview 502",
-		chromedp.Click(`.sh-tabs [data-tab="previews"]`, chromedp.ByQuery),
-		chromedp.WaitVisible(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
-		chromedp.Click(`#side-pane-body .pv-here[data-name="app"]`, chromedp.ByQuery),
+		chromedp.Click(chromedp.CSS(`.sh-tabs [data-tab="previews"]`)),
+		chromedp.WaitVisible(chromedp.CSS(`#side-pane-body .pv-here[data-name="app"]`)),
+		chromedp.Click(chromedp.CSS(`#side-pane-body .pv-here[data-name="app"]`)),
 		poll(`(function(){var x=document.querySelector('#side-pane-body .pv-status'); return !!x && x.textContent==="The preview isn't answering.";})()`))
 }

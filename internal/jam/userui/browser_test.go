@@ -8,6 +8,7 @@ package userui
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,10 +23,9 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/browser"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
-	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -63,6 +63,46 @@ func browserCtx(t *testing.T) context.Context {
 	return ctx
 }
 
+// step is a browser action that yields no value: what chromedp.Do runs.
+type step = chromedp.Action[chromedp.Void]
+
+// into runs a and stores its value in *dst, so an action that returns a value
+// can sit among the steps of one chromedp.Do.
+func into[T any](dst *T, a chromedp.Action[T]) step {
+	return func(ctx context.Context, tg *chromedp.Target) (chromedp.Void, error) {
+		v, err := a(ctx, tg)
+		if err == nil {
+			*dst = v
+		}
+		return chromedp.Void{}, err
+	}
+}
+
+// call sends one protocol command to the tab, ignoring its result.
+func call[P, R any](c cdp.Command[P, R], params P) step {
+	return chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+		_, err := cdp.Call(ctx, tg, c, params)
+		return err
+	})
+}
+
+// onNewDocument runs src in every document the tab loads, before its scripts.
+func onNewDocument(src string) step {
+	return call(page.AddScriptToEvaluateOnNewDocument, page.AddScriptToEvaluateOnNewDocumentParams{Source: src})
+}
+
+// evalInto evaluates js and decodes its JSON result into out, a pointer of any
+// type; for helpers that take the destination as an argument.
+func evalInto(js string, out any) step {
+	return func(ctx context.Context, tg *chromedp.Target) (chromedp.Void, error) {
+		raw, err := chromedp.Evaluate[[]byte](js)(ctx, tg)
+		if err != nil {
+			return chromedp.Void{}, err
+		}
+		return chromedp.Void{}, json.Unmarshal(raw, out)
+	}
+}
+
 // serveInbox serves the fixture inbox as participant p on a local server.
 func serveInbox(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -78,20 +118,21 @@ func serveInbox(t *testing.T) *httptest.Server {
 // copy puts text on the browser's clipboard (headless Chrome keeps its own,
 // in-process), so a paste shortcut pastes it as a real, trusted paste event.
 // writeText is refused on later calls unless clipboard-read is granted too.
-func copy(origin, text string) chromedp.Action {
-	return chromedp.Tasks{
-		browser.SetPermission(&browser.PermissionDescriptor{Name: "clipboard-write"}, browser.PermissionSettingGranted).WithOrigin(origin),
-		browser.SetPermission(&browser.PermissionDescriptor{Name: "clipboard-read"}, browser.PermissionSettingGranted).WithOrigin(origin),
-		chromedp.Evaluate(`navigator.clipboard.writeText(`+strconv.Quote(text)+`)`, nil,
-			func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
-	}
+func copy(origin, text string) step {
+	return chromedp.Steps(
+		call(browser.SetPermission, browser.SetPermissionParams{Permission: &browser.PermissionDescriptor{Name: "clipboard-write"}, Setting: browser.PermissionSettingGranted, Origin: origin}),
+		call(browser.SetPermission, browser.SetPermissionParams{Permission: &browser.PermissionDescriptor{Name: "clipboard-read"}, Setting: browser.PermissionSettingGranted, Origin: origin}),
+		chromedp.Evaluate[chromedp.Void](`navigator.clipboard.writeText(`+strconv.Quote(text)+`)`,
+			chromedp.EvalAwaitPromise),
+	)
 }
 
 func TestBrowserComposerPastesAsCode(t *testing.T) {
 	ctx := browserCtx(t)
 	srv := serveInbox(t)
-	// ByQuery throughout: chromedp's default BySearch never matches on this
-	// Chrome, so every selector action would wait out the deadline.
+	// chromedp.CSS throughout: a plain string selector is a chromedp.Search,
+	// which never matches on this Chrome, so every selector action would wait
+	// out the deadline.
 	box := `.composer textarea`
 
 	// Ctrl-Shift-V (the non-Mac binding: headless Chrome reports a Linux
@@ -99,13 +140,13 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	// the composer wraps it. The pasted text has its own ``` run, so the fence
 	// must grow to four backticks.
 	var wrapped string
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
-		chromedp.WaitVisible(box, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(box)),
 		copy(srv.URL, "a ```b``` c"),
-		chromedp.SendKeys(box, "see:", chromedp.ByQuery),
-		chromedp.KeyEvent("V", chromedp.KeyModifiers(input.ModifierCtrl, input.ModifierShift)),
-		chromedp.Value(box, &wrapped, chromedp.ByQuery),
+		chromedp.SendKeys(chromedp.CSS(box), "see:"),
+		chromedp.KeyEvent("V", chromedp.KeyModifiers(chromedp.ModifierCtrl, chromedp.ModifierShift)),
+		into(&wrapped, chromedp.Value(chromedp.CSS(box))),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -117,12 +158,12 @@ func TestBrowserComposerPastesAsCode(t *testing.T) {
 	// A plain Ctrl-V does not mark the box, so the browser's paste goes in
 	// unwrapped.
 	var plain string
-	err = chromedp.Run(ctx,
-		chromedp.Focus(box, chromedp.ByQuery),
+	err = chromedp.Do(ctx,
+		chromedp.Focus(chromedp.CSS(box)),
 		copy(srv.URL, "z"),
-		chromedp.SetValue(box, "x", chromedp.ByQuery),
-		chromedp.KeyEvent("v", chromedp.KeyModifiers(input.ModifierCtrl)),
-		chromedp.Value(box, &plain, chromedp.ByQuery),
+		chromedp.SetValue(chromedp.CSS(box), "x"),
+		chromedp.KeyEvent("v", chromedp.KeyModifiers(chromedp.ModifierCtrl)),
+		into(&plain, chromedp.Value(chromedp.CSS(box))),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -151,14 +192,14 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 	// A half-typed reply survives leaving the conversation (a full page load)
 	// and coming back.
 	var kept string
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(conv),
-		chromedp.WaitVisible(box, chromedp.ByQuery),
-		chromedp.SendKeys(box, "half typed", chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(box)),
+		chromedp.SendKeys(chromedp.CSS(box), "half typed"),
 		chromedp.Navigate(srv.URL+"/app/user/"),
 		chromedp.Navigate(conv),
-		chromedp.WaitVisible(box, chromedp.ByQuery),
-		chromedp.Value(box, &kept, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(box)),
+		into(&kept, chromedp.Value(chromedp.CSS(box))),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -169,12 +210,12 @@ func TestBrowserComposerKeepsReplyAcrossNavigation(t *testing.T) {
 
 	// A successful send forgets it.
 	var after string
-	err = chromedp.Run(ctx,
-		chromedp.Click(`.composer button[type=submit]`, chromedp.ByQuery),
-		chromedp.Poll(`document.querySelector('.composer textarea').value===''`, nil),
+	err = chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(`.composer button[type=submit]`)),
+		chromedp.Poll[chromedp.Void](`document.querySelector('.composer textarea').value===''`),
 		chromedp.Navigate(conv),
-		chromedp.WaitVisible(box, chromedp.ByQuery),
-		chromedp.Value(box, &after, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(box)),
+		into(&after, chromedp.Value(chromedp.CSS(box))),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -200,21 +241,21 @@ func TestBrowserCopyButtons(t *testing.T) {
 	clip := func(sel string) string {
 		t.Helper()
 		var got string
-		err := chromedp.Run(ctx,
+		err := chromedp.Do(ctx,
 			copy(srv.URL, "-"),
-			chromedp.ScrollIntoView(sel, chromedp.ByQuery),
-			chromedp.Click(sel, chromedp.ByQuery),
-			chromedp.Poll(`navigator.clipboard.readText().then(function(s){ return s!=='-' ? s : null; })`, &got,
-				chromedp.WithPollingTimeout(5*time.Second)),
+			chromedp.ScrollIntoView(chromedp.CSS(sel)),
+			chromedp.Click(chromedp.CSS(sel)),
+			into(&got, chromedp.Poll[string](`navigator.clipboard.readText().then(function(s){ return s!=='-' ? s : null; })`,
+				chromedp.WithPollingTimeout(5*time.Second))),
 		)
 		if err != nil {
 			t.Fatalf("copy via %s: %v", sel, err)
 		}
 		return got
 	}
-	if err := chromedp.Run(ctx,
+	if err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
-		chromedp.WaitVisible(`.msg.agent pre`, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(`.msg.agent pre`)),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -242,24 +283,24 @@ func TestBrowserCopyButtons(t *testing.T) {
 	settle := func(x, y float64, want string) {
 		t.Helper()
 		var ok bool
-		err := chromedp.Run(ctx,
-			chromedp.MouseEvent(input.MouseMoved, x, y),
-			chromedp.Poll(opacity+`===`+strconv.Quote(want), &ok, chromedp.WithPollingTimeout(3*time.Second)),
+		err := chromedp.Do(ctx,
+			chromedp.MouseEvent(chromedp.MouseMoved, x, y),
+			into(&ok, chromedp.Poll[bool](opacity+`===`+strconv.Quote(want), chromedp.WithPollingTimeout(3*time.Second))),
 		)
 		if err != nil {
 			var got string
-			_ = chromedp.Run(ctx, chromedp.Evaluate(opacity, &got))
+			_ = chromedp.Do(ctx, into(&got, chromedp.Evaluate[string](opacity)))
 			t.Errorf("controls opacity (bubble, code) with the mouse at (%v, %v) = %s, want %s", x, y, got, want)
 		}
 	}
 	var pre []float64
-	err := chromedp.Run(ctx,
-		chromedp.Evaluate(`
+	err := chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](`
 			Array.from(document.styleSheets).forEach(function(ss){
 				try{ for(var i=ss.cssRules.length-1;i>=0;i--){ var r=ss.cssRules[i]; if(r.media && r.media.mediaText.indexOf('hover')>=0){ ss.deleteRule(i); } } }catch(_){}
 			});
-			document.activeElement.blur()`, nil),
-		chromedp.Evaluate(`(function(){ var r=document.querySelector('.msg.agent pre').getBoundingClientRect(); return [r.left+5, r.top+5]; })()`, &pre),
+			document.activeElement.blur()`),
+		into(&pre, chromedp.Evaluate[[]float64](`(function(){ var r=document.querySelector('.msg.agent pre').getBoundingClientRect(); return [r.left+5, r.top+5]; })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -269,10 +310,10 @@ func TestBrowserCopyButtons(t *testing.T) {
 
 	// A stream refresh re-renders the bubbles; the code buttons come back.
 	var n int
-	err = chromedp.Run(ctx,
-		chromedp.Evaluate(`document.querySelector('.msg.agent pre').parentNode.dataset.old='1'; htmx.trigger(document.body,'meChanged')`, nil),
-		chromedp.Poll(`!document.querySelector('[data-old]') && document.querySelectorAll('.msg.agent .copy-code').length`, &n,
-			chromedp.WithPollingTimeout(5*time.Second)),
+	err = chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](`document.querySelector('.msg.agent pre').parentNode.dataset.old='1'; htmx.trigger(document.body,'meChanged')`),
+		into(&n, chromedp.Poll[int](`!document.querySelector('[data-old]') && document.querySelectorAll('.msg.agent .copy-code').length`,
+			chromedp.WithPollingTimeout(5*time.Second))),
 	)
 	if err != nil || n != 1 {
 		t.Errorf("code copy buttons after a stream refresh: %d (err %v)", n, err)
@@ -302,16 +343,16 @@ func TestBrowserWideCodeBlockScrollsInsideItsBubble(t *testing.T) {
 	}
 	var boxes []box
 	var viewport float64
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(1000, 700),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
-		chromedp.WaitVisible(`.msg .body.md pre`, chromedp.ByQuery),
-		chromedp.Evaluate(`window.innerWidth`, &viewport),
-		chromedp.Evaluate(`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
+		chromedp.WaitVisible(chromedp.CSS(`.msg .body.md pre`)),
+		into(&viewport, chromedp.Evaluate[float64](`window.innerWidth`)),
+		into(&boxes, chromedp.Evaluate[[]box](`Array.from(document.querySelectorAll('.msg .body.md pre')).map(function(pre){
 			var m=pre.closest('.msg'), r=pre.getBoundingClientRect(), mr=m.getBoundingClientRect();
 			return {Kind: m.className, Left: r.left, Right: r.right, MsgLeft: mr.left, MsgRight: mr.right,
 				Client: pre.clientWidth, Scroll: pre.scrollWidth};
-		})`, &boxes),
+		})`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -346,14 +387,14 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 
 	// The strip sits between the message list and the composer.
 	var order bool
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(1000, 700),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
-		chromedp.WaitVisible(`#presence .sess.busy .dots`, chromedp.ByQuery),
-		chromedp.Evaluate(`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
+		chromedp.WaitVisible(chromedp.CSS(`#presence .sess.busy .dots`)),
+		into(&order, chromedp.Evaluate[bool](`(function(){ var s=document.getElementById('stream').getBoundingClientRect(),
 			p=document.getElementById('presence').getBoundingClientRect(),
 			c=document.querySelector('.composer').getBoundingClientRect();
-			return s.bottom<=p.top+1 && p.bottom<=c.top+1; })()`, &order),
+			return s.bottom<=p.top+1 && p.bottom<=c.top+1; })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -368,13 +409,13 @@ func TestBrowserPresenceStripLiveUpdates(t *testing.T) {
 	mu.Unlock()
 	pr.ch <- struct{}{}
 	var text string
-	err = chromedp.Run(ctx,
-		chromedp.Poll(`(function(){ var t=document.getElementById('presence').innerText; return t.indexOf('builder is writing')>=0 ? t : null; })()`, &text,
-			chromedp.WithPollingTimeout(5*time.Second)),
+	err = chromedp.Do(ctx,
+		into(&text, chromedp.Poll[string](`(function(){ var t=document.getElementById('presence').innerText; return t.indexOf('builder is writing')>=0 ? t : null; })()`,
+			chromedp.WithPollingTimeout(5*time.Second))),
 	)
 	if err != nil {
 		var now string
-		_ = chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('presence').innerText`, &now))
+		_ = chromedp.Do(ctx, into(&now, chromedp.Evaluate[string](`document.getElementById('presence').innerText`)))
 		t.Fatalf("strip did not update after a presence push: %v (now %q)", err, now)
 	}
 }
@@ -407,12 +448,12 @@ func TestBrowserNarrowScreenKeepsRailHeadControls(t *testing.T) {
 	ctx := browserCtx(t)
 	srv := serveInbox(t)
 	var vis bool
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(500, 800),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitVisible(`#newmsg summary`, chromedp.ByQuery),
-		chromedp.Evaluate(`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.right<=innerWidth;}
-			return v('#newmsg summary') && getComputedStyle(document.getElementById('rail')).display==='none'; })()`, &vis),
+		chromedp.WaitVisible(chromedp.CSS(`#newmsg summary`)),
+		into(&vis, chromedp.Evaluate[bool](`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.right<=innerWidth;}
+			return v('#newmsg summary') && getComputedStyle(document.getElementById('rail')).display==='none'; })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -434,12 +475,12 @@ func TestBrowserLongBrandKeepsPrincipalMenuAndTabs(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	var ok bool
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(500, 800),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitVisible(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Evaluate(`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
-			return v('.app-principal summary') && v('.app-tabs a'); })()`, &ok),
+		chromedp.WaitVisible(chromedp.CSS(`.app-principal summary`)),
+		into(&ok, chromedp.Evaluate[bool](`(function(){ function v(s){var r=document.querySelector(s).getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
+			return v('.app-principal summary') && v('.app-tabs a'); })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -461,13 +502,13 @@ func TestBrowserLongBrandKeepsTabsAtMidWidth(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	var ok bool
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.EmulateViewport(900, 800),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitVisible(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Evaluate(`(function(){ function v(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
+		chromedp.WaitVisible(chromedp.CSS(`.app-principal summary`)),
+		into(&ok, chromedp.Evaluate[bool](`(function(){ function v(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth;}
 			var tabs=document.querySelectorAll('.app-tabs a');
-			return tabs.length>=2 && v(tabs[0]) && v(tabs[1]) && v(document.querySelector('.app-principal summary')); })()`, &ok),
+			return tabs.length>=2 && v(tabs[0]) && v(tabs[1]) && v(document.querySelector('.app-principal summary')); })()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -491,12 +532,12 @@ func TestBrowserInboxRegistersServiceWorker(t *testing.T) {
 	srv := httptest.NewServer(m)
 	t.Cleanup(srv.Close)
 	var scope, manifest string
-	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
-	err := chromedp.Run(ctx,
+	await := chromedp.EvalAwaitPromise
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitVisible(`.app-titlebar`, chromedp.ByQuery),
-		chromedp.Evaluate(`navigator.serviceWorker.ready.then(function(r){ return r.scope; })`, &scope, await),
-		chromedp.Evaluate(`document.querySelector('link[rel=manifest]').href`, &manifest),
+		chromedp.WaitVisible(chromedp.CSS(`.app-titlebar`)),
+		into(&scope, chromedp.Evaluate[string](`navigator.serviceWorker.ready.then(function(r){ return r.scope; })`, await)),
+		into(&manifest, chromedp.Evaluate[string](`document.querySelector('link[rel=manifest]').href`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -549,16 +590,13 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 	})
 
 	stored := func() []jam.PushSubscription { return e.st.PushSubscriptions(p.UserID) }
-	err := chromedp.Run(ctx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
-			return err
-		}),
+	err := chromedp.Do(ctx,
+		onNewDocument(pushStub),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`, nil),
-		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
-		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: On'`, nil),
+		chromedp.Click(chromedp.CSS(`.app-principal summary`)),
+		chromedp.Poll[chromedp.Void](`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`),
+		chromedp.Click(chromedp.CSS(`#push-toggle`)),
+		chromedp.Poll[chromedp.Void](`document.getElementById('push-toggle').textContent === 'Notifications: On'`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -568,22 +606,22 @@ func TestBrowserPushToggleSubscribes(t *testing.T) {
 		t.Fatalf("stored = %+v (requests %v)", subs, seen)
 	}
 	var keyLen int
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.__pushKeyLen`, &keyLen)); err != nil || keyLen != 11 {
+	if err := chromedp.Do(ctx, into(&keyLen, chromedp.Evaluate[int](`window.__pushKeyLen`))); err != nil || keyLen != 11 {
 		t.Errorf("applicationServerKey length = %d (%v), want the decoded key's 11 bytes", keyLen, err)
 	}
 
 	// A reload in the same page session trusts the first registration; a
 	// new session (marker gone) re-sends the live subscription once.
 	isOn := `document.getElementById('push-toggle').textContent === 'Notifications: On' && !document.getElementById('push-toggle').disabled`
-	err = chromedp.Run(ctx,
+	err = chromedp.Do(ctx,
 		chromedp.Reload(),
-		chromedp.Poll(isOn, nil),
-		chromedp.Evaluate(`Object.keys(sessionStorage).filter(function(k){ return k.indexOf('jam.push.synced:') === 0; }).forEach(function(k){ sessionStorage.removeItem(k); })`, nil),
+		chromedp.Poll[chromedp.Void](isOn),
+		chromedp.Evaluate[chromedp.Void](`Object.keys(sessionStorage).filter(function(k){ return k.indexOf('jam.push.synced:') === 0; }).forEach(function(k){ sessionStorage.removeItem(k); })`),
 		chromedp.Reload(),
-		chromedp.Poll(isOn, nil),
-		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
-		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off'`, nil),
+		chromedp.Poll[chromedp.Void](isOn),
+		chromedp.Click(chromedp.CSS(`.app-principal summary`)),
+		chromedp.Click(chromedp.CSS(`#push-toggle`)),
+		chromedp.Poll[chromedp.Void](`document.getElementById('push-toggle').textContent === 'Notifications: Off'`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -634,14 +672,11 @@ func TestBrowserPushToggleWithoutWebPush(t *testing.T) {
 		ctx := browserCtx(t)
 		stub := `delete window.PushManager; Object.defineProperty(navigator, 'userAgent', {get: function(){ return ` + strconv.Quote(c.ua) + `; }});`
 		var got string
-		err := chromedp.Run(ctx,
-			chromedp.ActionFunc(func(ctx context.Context) error {
-				_, err := page.AddScriptToEvaluateOnNewDocument(stub).Do(ctx)
-				return err
-			}),
+		err := chromedp.Do(ctx,
+			onNewDocument(stub),
 			chromedp.Navigate(srv.URL+"/app/user/"),
-			chromedp.WaitReady(`#push-toggle`, chromedp.ByQuery),
-			chromedp.Evaluate(`(function(){ var b = document.getElementById('push-toggle'); return b.textContent + '|' + (b.hidden ? 'hidden' : 'visible'); })()`, &got),
+			chromedp.WaitReady(chromedp.CSS(`#push-toggle`)),
+			into(&got, chromedp.Evaluate[string](`(function(){ var b = document.getElementById('push-toggle'); return b.textContent + '|' + (b.hidden ? 'hidden' : 'visible'); })()`)),
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -703,10 +738,10 @@ func TestBrowserPushFocusReportsOpenConversation(t *testing.T) {
 	var log requestLog
 	srv := servePush(t, e, p, log.record)
 	focused := `POST /app/user/push/focus {"channel":"` + engID + `"}`
-	err := chromedp.Run(ctx,
-		emulation.SetFocusEmulationEnabled(true),
+	err := chromedp.Do(ctx,
+		call(emulation.SetFocusEmulationEnabled, emulation.SetFocusEmulationEnabledParams{Enabled: true}),
 		chromedp.Navigate(srv.URL+"/app/user/?c="+engID),
-		chromedp.WaitVisible(`#stream`, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(`#stream`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -714,8 +749,8 @@ func TestBrowserPushFocusReportsOpenConversation(t *testing.T) {
 	if !waitFor(ctx, func() bool { return log.has(focused) }) {
 		t.Fatalf("no focus report; requests:\n%s", log.String())
 	}
-	err = chromedp.Run(ctx, chromedp.Evaluate(`Object.defineProperty(document, 'visibilityState', {configurable: true, get: function(){ return 'hidden'; }});
-document.dispatchEvent(new Event('visibilitychange'));`, nil))
+	err = chromedp.Do(ctx, chromedp.Evaluate[chromedp.Void](`Object.defineProperty(document, 'visibilityState', {configurable: true, get: function(){ return 'hidden'; }});
+document.dispatchEvent(new Event('visibilitychange'));`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,14 +775,11 @@ func TestBrowserAppBadgeFollowsUnreadTotal(t *testing.T) {
 navigator.setAppBadge = function(n){ window.__badge.push(n); return Promise.resolve(); };
 navigator.clearAppBadge = function(){ window.__badge.push('clear'); return Promise.resolve(); };`
 	var got string
-	err := chromedp.Run(ctx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, err := page.AddScriptToEvaluateOnNewDocument(stub).Do(ctx)
-			return err
-		}),
+	err := chromedp.Do(ctx,
+		onNewDocument(stub),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitVisible(`#rail`, chromedp.ByQuery),
-		chromedp.Evaluate(`window.__badge.join(',')`, &got),
+		chromedp.WaitVisible(chromedp.CSS(`#rail`)),
+		into(&got, chromedp.Evaluate[string](`window.__badge.join(',')`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -756,9 +788,9 @@ navigator.clearAppBadge = function(){ window.__badge.push('clear'); return Promi
 		t.Fatalf("badge calls on load = %q, want %d", got, want)
 	}
 	// Opening the conversation marks it read; a rail refresh clears the badge.
-	err = chromedp.Run(ctx,
+	err = chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/?c="+engID),
-		chromedp.WaitVisible(`#stream`, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(`#stream`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -766,13 +798,13 @@ navigator.clearAppBadge = function(){ window.__badge.push('clear'); return Promi
 	if !waitFor(ctx, func() bool { return jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID) == 0 }) {
 		t.Fatal("opening the conversation did not mark it read")
 	}
-	err = chromedp.Run(ctx,
-		chromedp.Evaluate(`htmx.trigger(document.body, 'meChanged')`, nil),
-		chromedp.Poll(`window.__badge[window.__badge.length-1] === 'clear'`, nil),
+	err = chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](`htmx.trigger(document.body, 'meChanged')`),
+		chromedp.Poll[chromedp.Void](`window.__badge[window.__badge.length-1] === 'clear'`),
 	)
 	if err != nil {
 		var calls string
-		_ = chromedp.Run(ctx, chromedp.Evaluate(`window.__badge.join(',')`, &calls))
+		_ = chromedp.Do(ctx, into(&calls, chromedp.Evaluate[string](`window.__badge.join(',')`)))
 		t.Fatalf("badge not cleared: %v (calls %q)", err, calls)
 	}
 }
@@ -784,16 +816,13 @@ func TestBrowserSignOutDropsPushSubscription(t *testing.T) {
 	e, p := fixture()
 	var log requestLog
 	srv := servePush(t, e, p, log.record)
-	err := chromedp.Run(ctx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
-			return err
-		}),
+	err := chromedp.Do(ctx,
+		onNewDocument(pushStub),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`, nil),
-		chromedp.Click(`#push-toggle`, chromedp.ByQuery),
-		chromedp.Poll(`document.getElementById('push-toggle').textContent === 'Notifications: On'`, nil),
+		chromedp.Click(chromedp.CSS(`.app-principal summary`)),
+		chromedp.Poll[chromedp.Void](`document.getElementById('push-toggle').textContent === 'Notifications: Off' && !document.getElementById('push-toggle').disabled`),
+		chromedp.Click(chromedp.CSS(`#push-toggle`)),
+		chromedp.Poll[chromedp.Void](`document.getElementById('push-toggle').textContent === 'Notifications: On'`),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -802,8 +831,8 @@ func TestBrowserSignOutDropsPushSubscription(t *testing.T) {
 		t.Fatalf("stored before sign out = %+v", subs)
 	}
 	var fakeSub string
-	err = chromedp.Run(ctx,
-		chromedp.Click(`.app-principal a[href="/app/auth/logout"]`, chromedp.ByQuery),
+	err = chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(`.app-principal a[href="/app/auth/logout"]`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -811,7 +840,7 @@ func TestBrowserSignOutDropsPushSubscription(t *testing.T) {
 	if !waitFor(ctx, func() bool { return log.has("GET /app/auth/logout") }) {
 		t.Fatalf("never signed out; requests:\n%s", log.String())
 	}
-	if err := chromedp.Run(ctx, chromedp.WaitReady(`body`, chromedp.ByQuery), chromedp.Evaluate(`sessionStorage.getItem('__fakeSub') || ''`, &fakeSub)); err != nil {
+	if err := chromedp.Do(ctx, chromedp.WaitReady(chromedp.CSS(`body`)), into(&fakeSub, chromedp.Evaluate[string](`sessionStorage.getItem('__fakeSub') || ''`))); err != nil {
 		t.Fatal(err)
 	}
 	if subs := e.st.PushSubscriptions(p.UserID); len(subs) != 0 {
@@ -831,14 +860,11 @@ func TestBrowserSignOutWithoutSubscription(t *testing.T) {
 	e, p := fixture()
 	var log requestLog
 	srv := servePush(t, e, p, log.record)
-	err := chromedp.Run(ctx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, err := page.AddScriptToEvaluateOnNewDocument(pushStub).Do(ctx)
-			return err
-		}),
+	err := chromedp.Do(ctx,
+		onNewDocument(pushStub),
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.Click(`.app-principal summary`, chromedp.ByQuery),
-		chromedp.Click(`.app-principal a[href="/app/auth/logout"]`, chromedp.ByQuery),
+		chromedp.Click(chromedp.CSS(`.app-principal summary`)),
+		chromedp.Click(chromedp.CSS(`.app-principal a[href="/app/auth/logout"]`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -860,16 +886,16 @@ func TestBrowserServiceWorkerNotice(t *testing.T) {
 	srv := httptest.NewServer(m)
 	t.Cleanup(srv.Close)
 	var got string
-	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
-	err := chromedp.Run(ctx,
+	await := chromedp.EvalAwaitPromise
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
-		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+		into(&got, chromedp.Evaluate[string](`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
   (0, eval)(src);
   var p = {title: 'bob · eng', body: 'hello', channel: 'chn_1', id: 'sq_1', unread: 3};
   var a = jamNotice(p, null), b = jamNotice({title: 'bob · eng', body: 'again', channel: 'chn_1'}, a.options.data);
   return JSON.stringify([a.title, a.options.body, a.options.tag, a.options.renotify, a.options.data.n,
     b.options.body, b.options.data.n, jamTarget('chn_1')]);
-})`, &got, await),
+})`, await)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -890,10 +916,10 @@ func TestBrowserServiceWorkerRobust(t *testing.T) {
 	srv := httptest.NewServer(m)
 	t.Cleanup(srv.Close)
 	var got string
-	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
-	err := chromedp.Run(ctx,
+	await := chromedp.EvalAwaitPromise
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
-		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+		into(&got, chromedp.Evaluate[string](`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
   (0, eval)(src);
   var o = 'https://jam.example';
   var ps = [null, 5, 'str', [1], {body: 'x'}].map(function(v){ return JSON.stringify(jamPayload(v)); });
@@ -905,7 +931,7 @@ func TestBrowserServiceWorkerRobust(t *testing.T) {
     jamPickClient([o + '/app/admin/', o + '/app/user/?c=1', o + '/app/user/']),
     jamPickClient([o + '/app/admin/x', o + '/app/', 'not a url']),
     jamPickClient([])]);
-})`, &got, await),
+})`, await)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -935,15 +961,15 @@ func TestBrowserComposerSendKey(t *testing.T) {
 	defer srv.Close()
 	box := `.composer textarea`
 	var val, kbd string
-	if err := chromedp.Run(ctx,
+	if err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/?c="+url.QueryEscape(engID)),
-		chromedp.WaitVisible(box, chromedp.ByQuery),
-		chromedp.Click(box, chromedp.ByQuery),
-		chromedp.SendKeys(box, "line one", chromedp.ByQuery),
-		chromedp.KeyEvent("\r", chromedp.KeyModifiers(input.ModifierShift)),
-		chromedp.SendKeys(box, "line two", chromedp.ByQuery),
-		chromedp.Value(box, &val, chromedp.ByQuery),
-		chromedp.Text(`.composer kbd`, &kbd, chromedp.ByQuery),
+		chromedp.WaitVisible(chromedp.CSS(box)),
+		chromedp.Click(chromedp.CSS(box)),
+		chromedp.SendKeys(chromedp.CSS(box), "line one"),
+		chromedp.KeyEvent("\r", chromedp.KeyModifiers(chromedp.ModifierShift)),
+		chromedp.SendKeys(chromedp.CSS(box), "line two"),
+		into(&val, chromedp.Value(chromedp.CSS(box))),
+		into(&kbd, chromedp.Text(chromedp.CSS(`.composer kbd`))),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -958,7 +984,7 @@ func TestBrowserComposerSendKey(t *testing.T) {
 	if kbd != "Ctrl+↵" {
 		t.Fatalf("send key label %q off a Mac", kbd)
 	}
-	if err := chromedp.Run(ctx, chromedp.KeyEvent("\r", chromedp.KeyModifiers(input.ModifierCtrl))); err != nil {
+	if err := chromedp.Do(ctx, chromedp.KeyEvent("\r", chromedp.KeyModifiers(chromedp.ModifierCtrl))); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -979,10 +1005,10 @@ func TestBrowserServiceWorkerSilent(t *testing.T) {
 	srv := httptest.NewServer(m)
 	t.Cleanup(srv.Close)
 	var got string
-	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
-	err := chromedp.Run(ctx,
+	await := chromedp.EvalAwaitPromise
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
-		chromedp.Evaluate(`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+		into(&got, chromedp.Evaluate[string](`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
   (0, eval)(src);
   var now = 1e12, off = {messages: 'off', needs: 'chime'};
   return JSON.stringify([
@@ -992,7 +1018,7 @@ func TestBrowserServiceWorkerSilent(t *testing.T) {
     jamSilent('needs', off, null, now),
     jamNotice({}, null, true).options.silent,
     jamNotice({}, null).options.silent]);
-})`, &got, await),
+})`, await)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1009,10 +1035,10 @@ func TestBrowserInboxChimes(t *testing.T) {
 	ctx := browserCtx(t)
 	srv := serveInbox(t)
 	var got string
-	err := chromedp.Run(ctx,
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitReady(`#rail`, chromedp.ByQuery),
-		chromedp.Evaluate(`(function(){
+		chromedp.WaitReady(chromedp.CSS(`#rail`)),
+		into(&got, chromedp.Evaluate[string](`(function(){
   var played=[]; window.jamSound={play:function(k){ played.push(k); return true; }};
   var rail=document.getElementById('rail');
   function row(ch, u, n){ var a=document.createElement('a'); a.className='thread'; a.dataset.ch=ch; a.dataset.unread=String(u); a.dataset.needs=String(n); return a; }
@@ -1023,7 +1049,7 @@ func TestBrowserInboxChimes(t *testing.T) {
   set([row('a',1,false), row('b',0,true)]);           // starts needing you: needs
   set([row('a',2,false), row('b',0,true)]);           // more unread again: messages
   return JSON.stringify(played);
-})()`, &got),
+})()`)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1039,11 +1065,11 @@ func TestBrowserSoundsSettings(t *testing.T) {
 	ctx := browserCtx(t)
 	srv := serveInbox(t)
 	var got string
-	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
-	err := chromedp.Run(ctx,
+	await := chromedp.EvalAwaitPromise
+	err := chromedp.Do(ctx,
 		chromedp.Navigate(srv.URL+"/app/user/"),
-		chromedp.WaitReady(`#rail`, chromedp.ByQuery),
-		chromedp.Evaluate(`(async function(){
+		chromedp.WaitReady(chromedp.CSS(`#rail`)),
+		into(&got, chromedp.Evaluate[string](`(async function(){
   localStorage.removeItem('jam-sounds');
   document.body.insertAdjacentHTML('beforeend', '<button id="sounds-toggle" hidden></button><div id="sounds-panel" hidden><select name="messages"></select><select name="needs"></select><input type="range" name="volume"><button data-preview="messages"></button></div>');
   (0, eval)(await (await fetch('/app/static/sounds.js')).text());
@@ -1054,7 +1080,7 @@ func TestBrowserSoundsSettings(t *testing.T) {
   var played=window.jamSound.play('messages');
   var idb=await new Promise(function(res){ var r=indexedDB.open('jam',1); r.onsuccess=function(){ var g=r.result.transaction('prefs').objectStore('prefs').get('sounds'); g.onsuccess=function(){ res(g.result); }; }; });
   return JSON.stringify([opts, saved.messages, played, idb && idb.messages, !document.getElementById('sounds-toggle').hidden]);
-})()`, &got, await),
+})()`, await)),
 	)
 	if err != nil {
 		t.Fatal(err)

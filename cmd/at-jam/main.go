@@ -2763,7 +2763,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if frames != nil && paneFramingOn(&cfg) {
 			userDeps.Frames = frameURLs{tickets: frames, domain: cfg.Previews.Domain, adminListen: cfg.AdminListen}
 		}
-		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)))
+		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)}
+		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
+		// The Jam app (web/app) at /app/next/ while it is ported to parity
+		// (docs/superpowers/specs/2026-10-26-jam-spa-design.md); no framing yet.
+		nextApp := userui.Next(userDeps, log, nil, userOpts...)
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
 		// tabs (WithSetupDeps) render with the same deps.
@@ -2786,7 +2790,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
 		browser := appui.Handler(appui.Deps{
-			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
+			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux, Next: nextApp,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
 			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds), Push: vapid != nil},

@@ -12,6 +12,7 @@ type Deps struct {
 	Gate           browserauth.Gate
 	AuthRoutes     http.Handler // /app/auth/*; nil = no browser login
 	User           http.Handler // serves /app/user/*; nil = none
+	Next           http.Handler // serves /app/next/* (the Jam app, web/app); nil = none
 	Admin          http.Handler // serves /app/admin/*
 	TrustedOrigins []string
 	Shell          Shell // title-bar context for the pages
@@ -38,6 +39,10 @@ func Handler(d Deps) *http.ServeMux {
 	}
 	if d.User != nil {
 		mux.Handle("/app/user/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, WithShell(d.User, d.Shell)))))
+	}
+	if d.Next != nil {
+		// The Jam app shares the user area's gate and its same-origin rule.
+		mux.Handle("/app/next/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, WithShell(d.Next, d.Shell)))))
 	}
 	if d.Admin != nil {
 		mux.Handle("/app/admin/", d.Gate.Wrap(RequireAdmin(WithShell(d.Admin, d.Shell))))
