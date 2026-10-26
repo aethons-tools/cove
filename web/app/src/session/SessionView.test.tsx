@@ -260,6 +260,39 @@ describe("the session pane", () => {
     expect(saved("ses_1").w).toBe(600); // a saved size isn't widened again
   });
 
+  it("frames a preview with View here, keeps it across a refresh, and goes back", async () => {
+    let mints = 0;
+    serve(head(), { previews: pane("previews", { previews: [{ name: "web", url: "https://web--s.p.example/", port: 5173, frame: true }, { name: "api", url: "https://api--s.p.example/", port: 8080, frame: false }] }) });
+    server.use(http.post("/app/user/api/sessions/:id/frame", async ({ request }) => {
+      mints++;
+      const { name } = (await request.json()) as { name: string };
+      return HttpResponse.json({ url: `https://${name}--s.p.example/__jam/frame?t=${mints}`, open: `https://${name}--s.p.example/` });
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    renderApp(boot, "/app/next/c/chn_s", client);
+    await user.click(await screen.findByRole("tab", { name: "Previews" }));
+    expect(await screen.findAllByRole("button", { name: "View here" })).toHaveLength(1); // api can't be framed
+    await user.click(screen.getByRole("button", { name: "View here" }));
+    await waitFor(() => expect(document.querySelector(".pv-framed iframe.st-iframe")).not.toBeNull());
+    const f = document.querySelector(".pv-framed iframe.st-iframe")!;
+    expect(f.getAttribute("title")).toBe("web");
+    await client.invalidateQueries({ queryKey: ["session"] });
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+    expect(document.querySelector(".pv-framed iframe.st-iframe")).toBe(f);
+    expect(mints).toBe(1);
+    await user.click(screen.getByRole("button", { name: "← All previews" }));
+    expect(await screen.findByRole("link", { name: /web.*port 5173/ })).toBeInTheDocument();
+    expect(document.querySelector(".pv-framed")).toBeNull();
+    // Leaving the tab closes a framed preview.
+    await user.click(screen.getByRole("button", { name: "View here" }));
+    await waitFor(() => expect(document.querySelector(".pv-framed")).not.toBeNull());
+    await user.click(screen.getByRole("tab", { name: "Status" }));
+    await user.click(screen.getByRole("tab", { name: "Previews" }));
+    expect(await screen.findByRole("button", { name: "View here" })).toBeInTheDocument();
+    expect(document.querySelector(".pv-framed")).toBeNull();
+  });
+
   it("says the studio isn't available when the pane says so", async () => {
     serve(head({ studio: true }), { studio: pane("studio", { studio: false, ideOpen: "" }) });
     const user = userEvent.setup();
