@@ -1,0 +1,30 @@
+/// <reference types="vitest/config" />
+import { defineConfig, type ProxyOptions } from "vite";
+import react from "@vitejs/plugin-react";
+
+// The dev server (`just app-dev`) proxies the API, auth and shared static
+// routes to a running `at-jam serve` (JAM_URL; dev/jam.dev.yml's admin-listen),
+// rewriting Origin so RequireSameOrigin admits the proxied writes.
+const jam = process.env.JAM_URL ?? "http://localhost:8081";
+const toJam: ProxyOptions = {
+  target: jam,
+  changeOrigin: true,
+  configure: (proxy) => {
+    proxy.on("proxyReq", (req) => req.setHeader("origin", jam));
+  },
+};
+
+export default defineConfig({
+  base: "/app/next/",
+  plugins: [react()],
+  build: {
+    outDir: process.env.APP_OUT_DIR ?? "dist",
+    emptyOutDir: true,
+    assetsDir: "assets",
+    sourcemap: false,
+  },
+  server: {
+    proxy: { "/app/user": toJam, "/app/auth": toJam, "/app/static": toJam },
+  },
+  test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"], css: false },
+});

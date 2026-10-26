@@ -1,7 +1,9 @@
 // Package uiassets holds the static assets the Jam UIs share — jam.css (the
 // design tokens and typography base) and htmx — so the admin UI (/app/admin)
 // and the user Inbox (/app/user) read as one product from one source. The
-// browser app serves them, ungated, under /app/static/.
+// browser app serves them, ungated, under /app/static/. It also embeds the
+// built bundles: the whiteboard editor, and the Jam app (web/app, served by
+// webapp at /app/next/ behind the user gate).
 package uiassets
 
 import (
@@ -23,6 +25,30 @@ var files embed.FS
 //
 //go:embed all:whiteboard
 var whiteboardFiles embed.FS
+
+// appFiles is the Jam app bundle (web/app), built into app/ by `just app`
+// (scripts/app.sh); only a placeholder is committed, so a plain `go build`
+// has none and webapp serves its not-built page.
+//
+//go:embed all:app
+var appFiles embed.FS
+
+var app = func() fs.FS {
+	sub, err := fs.Sub(appFiles, "app")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}()
+
+// AppFS is the Jam app bundle's root (index.html, assets/).
+func AppFS() fs.FS { return app }
+
+// AppBuilt reports whether this binary carries the Jam app bundle.
+func AppBuilt() bool {
+	_, err := fs.Stat(app, "index.html")
+	return err == nil
+}
 
 var static = func() fs.FS {
 	sub, err := fs.Sub(files, "static")

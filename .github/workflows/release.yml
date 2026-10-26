@@ -63,6 +63,8 @@ jobs:
               - 'scripts/stage-attask.sh'
               - 'scripts/whiteboard.sh'
               - 'web/whiteboard/**' # the editor bundle at-jam embeds
+              - 'scripts/app.sh'
+              - 'web/app/**' # the Jam app bundle at-jam embeds
               - 'install.sh' # embedded in at-cove + at-jam (`update`)
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
@@ -241,7 +243,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: web/whiteboard/package-lock.json
+          cache-dependency-path: |
+            web/whiteboard/package-lock.json
+            web/app/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config

@@ -33,6 +33,9 @@ BINARIES=(at-cove at-task at-mint at-switchboard at-jam)
 # Build the whiteboard editor bundle at-jam embeds (skipped, with a warning,
 # where npm is missing: at-jam then builds without the editor).
 WHITEBOARD_OPTIONAL=1 ./scripts/whiteboard.sh
+# Build the Jam app bundle at-jam embeds (skipped, with a warning, when npm is
+# missing: /app/next/ then answers "not built").
+APP_OPTIONAL=1 ./scripts/app.sh
 
 # Stage the linux at-task and at-switchboard binaries at-cove embeds, before
 # at-cove is built — shared with the goreleaser before-hook, see

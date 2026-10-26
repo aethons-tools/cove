@@ -71,13 +71,7 @@ type inboxPage struct {
 // request from jam.ParticipantFrom (the /app/user gate injects it) — never a
 // constructor argument — so one handler serves every participant. lg may be nil.
 func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
-	if lg == nil {
-		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	h := &handler{d: d, lg: lg, streams: map[ident.ID]int{}, mints: newMintLimiter(time.Now)}
-	for _, opt := range opts {
-		opt(h)
-	}
+	h := newHandler(d, lg, opts...)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /app/user/{$}", h.full)
 	mux.HandleFunc("GET /app/user/rail", h.rail)
@@ -103,7 +97,20 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /app/user/session/{id}/frame", h.frameRoute) // more specific than {action}
 	mux.HandleFunc("POST /app/user/session/{id}/{action}", h.sessionAction)
 	h.pushRoutes(mux)
+	h.apiRoutes(mux)
 	return mux
+}
+
+// newHandler builds the handler Handler and Next share.
+func newHandler(d Deps, lg *slog.Logger, opts ...Option) *handler {
+	if lg == nil {
+		lg = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	h := &handler{d: d, lg: lg, streams: map[ident.ID]int{}, mints: newMintLimiter(time.Now)}
+	for _, opt := range opts {
+		opt(h)
+	}
+	return h
 }
 
 type handler struct {

@@ -1,0 +1,9 @@
+# Generates the Jam app's API types from Go (docs/web-app.md). Only
+# apitypes.go is read; jam's string kinds map to string.
+packages:
+  - path: github.com/aethons-tools/cove/internal/jam/userui
+    include_files: [apitypes.go]
+    output_path: web/app/src/api/types.ts
+    type_mappings:
+      jam.ChannelKind: string
+      jam.AttentionBucket: string
