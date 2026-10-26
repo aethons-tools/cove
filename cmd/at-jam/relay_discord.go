@@ -8,18 +8,18 @@ import (
 	"os"
 	"sync"
 
+	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/relay"
-	"github.com/aethons-tools/cove/internal/switchboard"
 )
 
-// discordClient is the narrow slice of *switchboard.RESTClient the surface
+// discordClient is the narrow slice of *discord.RESTClient the surface
 // uses; a fake in tests, the real client (over an injected transport) in
 // wiring.
 type discordClient interface {
 	PostID(ctx context.Context, channel, content string) (string, error)
-	Poll(ctx context.Context, cursors map[string]string) ([]switchboard.Message, map[string]string, error)
+	Poll(ctx context.Context, cursors map[string]string) ([]discord.Message, map[string]string, error)
 }
 
 // discordSurface is the concrete relay.Surface over Discord: egress posts
@@ -27,7 +27,7 @@ type discordClient interface {
 // reply can be routed back; ingress polls the project's discord inbox
 // channels and maps each message to an Event carrying the replied-to id.
 type discordSurface struct {
-	dial        func(channels []string) discordClient // real: wraps switchboard.NewRESTClient(token, channels, opts…)
+	dial        func(channels []string) discordClient // real: wraps discord.NewRESTClient(token, channels, opts…)
 	channelsFor func(project string) []string         // roster-derived discord inbox channels
 	receipts    *fileReceipts
 	log         *slog.Logger // optional: nil is tolerated (no-op), see warn below

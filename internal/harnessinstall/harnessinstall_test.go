@@ -165,7 +165,7 @@ func TestStageClaudeLayers(t *testing.T) {
 
 // The baseline is rendered from the one source, modelspec.DefaultClaudeSettings
 // — the preferences the sealed managed settings used to force — and is part
-// of at-cove's build identity (BaselineSettings).
+// of the assembly identity (BaselineSettings).
 func TestStagedBaselineIsDefaultClaudeSettings(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := Stage(dir, Default()); err != nil {

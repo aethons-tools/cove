@@ -2,7 +2,7 @@
 // description of how a cove runs its agent — its one validator (Validate), and
 // the harness CLI version constraint grammar. It is a leaf (no Jam or kit
 // imports) so the connector Jam delivers (internal/jam/snippet), the cove-side
-// harness (internal/agentrun) and a plain at-cove kit's model-spec: block
+// harness (internal/agentrun) and a kit's model-spec: block
 // (internal/kit) share one definition; internal/jam aliases these types and
 // owns storage and the Jam meaning of a principal.
 package modelspec
@@ -29,15 +29,14 @@ const DefaultName = "claude-default"
 // credential BY NAME — never a value), the model, the permission policy, and a
 // per-type body. It is a common envelope plus exactly one body keyed by Type
 // (a union). It never carries a secret value, so it may be delivered to a cove
-// as is. Jam stores it, and a plain at-cove kit may author one in its
+// as is. Jam stores it, and a kit may author one in its
 // model-spec: block — one schema, one validator (Validate).
 type Spec struct {
 	Name string      `json:"name"                yaml:"name"`
 	Type HarnessType `json:"type"                yaml:"type"`
 	// Version is the exact harness CLI release X.Y.Z (ParseExactVersion) the
 	// cove's image installs — the build pins it (COV-242).
-	// A plain at-cove kit may omit it (kit.Config.EffectiveModelSpec defaults
-	// it to DefaultClaudeVersion); Jam requires it.
+	// Jam requires it.
 	Version string `json:"version" yaml:"version,omitempty"`
 	// VersionConstraint is the runtime check the harness's Validate applies to
 	// the installed CLI (ParseConstraint grammar). Empty means "== Version"

@@ -109,6 +109,5 @@ operator-auth:
 
 runtime:
   launcher:
-    install-manifest: /path/to/cove/.at-cove/.state/install.json
     runtime-addr: jam.local.aethons.tools:443
     jam-host: jam.local.aethons.tools

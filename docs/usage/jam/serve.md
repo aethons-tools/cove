@@ -243,7 +243,7 @@ names none), built on demand by the launcher — no pre-built image or
 (`jam.host:443`) through its own squid proxy; `jam-host` is added to the studio's
 `/etc/hosts` so that name resolves to the host gateway. Jam must reach the Colima
 backend (run it where `docker`/Colima is available); `identity-file` is the SSH key
-Jam uses to reach the studio (defaults to `~/.config/at-cove/id_ed25519`). Omit the
+Jam uses to reach the studio (defaults to `~/.config/at-cove/id_ed25519`; serve generates the pair on first use). Omit the
 whole block to keep the placeholder launcher (dev/tests). The launcher is Jam's
 `local` manager; see [Managers and placement](coves.md#managers-and-placement).
 
@@ -375,8 +375,6 @@ can never be exposed to the network by accident. To administer a Jam from
 another machine, give it a routable `admin-listen`, TLS, and OIDC, then point
 clients at its `https://` admin URL ([operators.md](operators.md)).
 
-For the studio side of the broker connection — the `jam:` kit config, auto-enroll,
-and reaching a host-run Jam — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 For the broker's threat model and boundary rationale, follow the design-history
 pointer in [INDEX.md](INDEX.md).
 

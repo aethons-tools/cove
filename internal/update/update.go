@@ -1,9 +1,9 @@
 // Package update drives the embedded install.sh to update the on-PATH cove
-// binaries (at-cove, at-mint, at-jam) to a GitHub release (COV-128). Both
-// `at-cove update` and `at-jam update` call Do. It deliberately *reuses* install.sh's
+// binaries (at-mint, at-jam) to a GitHub release (COV-128). `at-jam update`
+// calls Do. It deliberately *reuses* install.sh's
 // resolve → download → verify (checksums.txt) → replace flow rather than
 // reimplementing any of it in Go: the checksum verification the installer
-// performs is a security boundary, so `at-cove update` must never replace a
+// performs is a security boundary, so `at-jam update` must never replace a
 // binary by a path that skips it.
 //
 // The package splits a pure, testable plan (Target/UpToDate/Env — argv/env and

@@ -570,8 +570,8 @@ func TestBaseImageSeedsAgentDocs(t *testing.T) {
 // owned by the agent user. An isolated workspace is a freshly-created backend
 // named volume mounted there; Docker initializes an empty volume's ownership from
 // the image directory at the mount path. Without an agent-owned dir in the image,
-// the fresh volume comes up root-owned and the first `chat` session's
-// `at-task clone-workspace` — which runs as the agent user — fails with
+// the fresh volume comes up root-owned and the agent's first write to its
+// workspace — the agent runs as the agent user — fails with
 // "/home/agent/workspace/.git: Permission denied" (the /agent-data volume avoids
 // this only because the entrypoint chowns it at boot).
 func TestWorkspaceDirOwnedByAgent(t *testing.T) {

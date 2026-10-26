@@ -1,5 +1,5 @@
 // Command gen-blessed snapshots the blessed cove-base-image digests from the
-// container registry before `go build`, so at-cove embeds every current
+// container registry before `go build`, so at-jam embeds every current
 // cove-base-image as blessed (COV-44 spec §4). It is the build-time wiring around
 // internal/blessgen; the walk logic lives there and is hermetically tested.
 //
@@ -12,7 +12,7 @@
 // walks newest→oldest through the watermark. Any failure there — including a
 // watermark pruned from the registry — is fatal, so a broken trust set can never
 // ship silently. With no token (offline / local dev) it is a no-op: no
-// generated.txt is written and at-cove embeds the committed watermark alone.
+// generated.txt is written and at-jam embeds the committed watermark alone.
 package main
 
 import (

@@ -38,6 +38,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -74,7 +75,6 @@ import (
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/standing"
 	"github.com/aethons-tools/cove/internal/studio"
-	"github.com/aethons-tools/cove/internal/switchboard"
 	"github.com/aethons-tools/cove/internal/textesc"
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/usersecret"
@@ -125,7 +125,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
-			{Name: "update", Brief: "update the cove installation (at-jam, at-cove, at-mint) to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "update", Brief: "update the cove installation (at-jam, at-mint) to the latest release", Run: cmdUpdate(getenv)},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
@@ -317,7 +317,7 @@ func cmdEnroll(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if *jsonOut {
-		// Machine-readable output for at-cove auto-enrollment (COV-141). The token
+		// Machine-readable output for scripted enrollment (COV-141). The token
 		// is on stdout only — the caller captures it in memory, never argv/logs.
 		_ = json.NewEncoder(stdout).Encode(struct {
 			ID        string             `json:"id"`
@@ -1836,13 +1836,16 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 	out.images = imagefacts.New(runner.OS{}, col) // setup inspection reads images on the same daemon
 	// The launcher builds each studio kit's image on demand, so it needs the
 	// public half of the SSH identity to bake into the image's authorized_keys
-	// (the same key at-cove install baked; its private half is IdentityFile). No
-	// kit source directory: the build context comes from the kit definition
-	// (data) + resources compiled into this binary, and the FROM-base is resolved
-	// per kit on the substrate (gate ON).
-	pub, err := os.ReadFile(lc.IdentityFile + ".pub")
+	// (its private half is IdentityFile), generated on first use. No kit
+	// source directory: the build context comes from the kit definition
+	// (data) + resources compiled into this binary, and the FROM-base is
+	// resolved per kit on the substrate (gate ON).
+	pub, err := launcherPublicKey(lc.IdentityFile)
 	if err != nil {
 		return builtLauncher{}, fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
+	}
+	if err := ensureKnownHostsDir(lc.KnownHostsDir); err != nil {
+		return builtLauncher{}, fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
 	}
 	colimaLauncher := launcher.New(launcher.Config{
 		Ops: be, Runner: runner.OS{},
@@ -2665,7 +2668,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if runDiscord {
 		dsurf := &discordSurface{
 			dial: func(channels []string) discordClient {
-				return switchboard.NewRESTClient(discordTok, channels)
+				return discord.NewRESTClient(discordTok, channels)
 			},
 			channelsFor: func(project string) []string { return discordPolledChannels(st, project) },
 			receipts:    discordReceipts,

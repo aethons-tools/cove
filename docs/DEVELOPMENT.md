@@ -4,12 +4,12 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Development notes
 
-Operational notes for building and testing `at-cove`,
+Operational notes for building and testing this repo,
 including the workarounds needed inside the egress-locked dev sandbox this repo is developed in.
 See [`OVERVIEW.md`](OVERVIEW.md) for the architecture and the `just` task list.
 
@@ -93,7 +93,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   directly against `github.com`.
 - That means `storage.googleapis.com` (the module proxy's blob store) must be
   egress-allow-listed alongside `proxy.golang.org` — both already are, in the
-  `image.allowed-domains` list in [`.at-cove/config.yml`](../.at-cove/config.yml).
+  `egress:` list in [`.at-jam/cove-ic/kit.yml`](../.at-jam/cove-ic/kit.yml), the repo's Jam studio kit.
 - Generated `.pb.go` files **are committed**. CI never regenerates them — `just
   buf-gen` is a manual step a developer runs after editing the `.proto`, and
   the diff it produces is reviewed and committed like any other source change.
@@ -108,9 +108,9 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   so a test using a production path (e.g. the agentrun harness's `/dev/shm` files)
   clobbers the live agent. Give every harness test paths (`testClaude`);
   `internal/agentrun`'s `TestMain` fails the run if a real harness file changed.
-- `just integration` (`go test -tags integration ./internal/connect/ -v`) runs the **real-ssh** suite:
-  it boots an unprivileged throwaway `sshd` on loopback with a fake `claude`
-  and exercises the transports and TOFU end-to-end with the real `ssh` client.
+- `just integration` (`go test -tags integration ./internal/sshargs/ -v`) runs the **real-ssh** suite:
+  it boots an unprivileged throwaway `sshd` on loopback
+  and exercises the ssh argv builders and TOFU end-to-end with the real `ssh` client.
   Needs `ssh`/`sshd`/`ssh-keygen` but **not** Docker.
 - `go test -tags integration ./internal/baseimage/` proves the provenance gate against
   **real docker**: it builds a base, a descendant, and an unrelated image and asserts the
@@ -135,12 +135,12 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   for Testing build; the same binary can screenshot a page
   (`chrome-headless-shell --screenshot=out.png <url>`) to eyeball a UI change.
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
-- The remaining untested gap is a full `create`→container→`connect` against a real image,
+- The remaining untested gap is a full studio raise against a real image,
   which needs a container runtime;
   podman covers the SSH/lifecycle mechanics,
   but the in-container `nftables`/Squid egress lockdown under rootless is the part to watch.
 
-## CI — the merge gate
+## CI: the merge gate
 
 [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
 to `main`, and on `main` itself. It runs the two hermetic checks —
@@ -168,8 +168,8 @@ loop cannot drift.
   it is not version-pinned there.)
 - The workflow needs no `just` — the logic lives in `scripts/`, per the
   justfile's header.
-- **Not** gated: `just integration` (real-ssh), `just test-browser` (headless
-  Chrome) and `just e2e` (live infra).
+- **Not** gated: `just integration` (real-ssh) and `just test-browser` (headless
+  Chrome).
 - CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.
@@ -197,18 +197,17 @@ setting, not a change here.
 ## The image tree
 
 The utility set lives in one published, pinned, multi-arch image tree — the
-single source of truth shared by CI job containers and the agent sandboxes
-at-cove hardens, so their tooling can't drift. See
+single source of truth shared by CI job containers and the studios
+Jam's launcher hardens, so their tooling can't drift. See
 [the design](superpowers/specs/2026-07-16-shared-base-image-design.md) for the
 full rationale.
 
 - **`images/cove-base-image/Dockerfile`** — the universal lean floor: OS +
   git/gh/sshd + the egress stack (nftables/squid) + the Docker engine & systemd
   (for the opt-in docker-in-sandbox capability, present-but-inert) + core utils.
-  **Pure tools**: no language toolchains, chrome, or java — and **no `at-task` or
-  `at-switchboard`**. at-cove injects the version-locked `at-task` (COV-42) and
-  `at-switchboard` (COV-135) into its sealed hardening layer, so the base has no
-  Go build and rebuilds only when `images/` changes (COV-44).
+  **Pure tools**: no language toolchains, chrome, or java — and **no
+  `cove-master`**: the launcher injects the version-locked `cove-master` into its
+  sealed hardening layer, so the base has no Go build and rebuilds only when `images/` changes (COV-44).
 - **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
   Base for both CI and the sandboxes. It also clones the pinned
@@ -241,7 +240,7 @@ on `ubuntu-24.04-arm`) and smoke-test that every tool resolves **before** any
 publish. Published (private) to `ghcr.io/aethons-tools/cove-base-image` and
 `…/cove-image`.
 
-## CI — the release pipeline
+## CI: the release pipeline
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) is **one
 monolithic continuous-delivery pipeline** (COV-44, design:
@@ -251,91 +250,74 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 "cut a release" step.
 
 - **Change-detection** (path-based) selects the legs: `images/cove-base-image/**`
-  → rebuild the base **and** cove-image (downstream) **and** re-cut at-cove (its
+  → rebuild the base **and** cove-image (downstream) **and** re-cut the host binaries (its
   new digest becomes the default base + blessed-list head);
   `images/cove-image/**` → rebuild just cove-image (FROM the current published
-  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut at-cove
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut the host binaries
   (blessed list recomputed from the registry head). Docs-only → nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
-  snapshot, [COV-47](../internal/blessgen)] → at-cove (embeds at-task +
-  at-switchboard + list); cove-image = `FROM cove-base-image:ci`. The base
-  publishes **before** the at-cove leg so `gen-blessed` sees **D** as the
+  snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed cove-master + list); cove-image = `FROM cove-base-image:ci`. The base
+  publishes **before** the binaries leg so `gen-blessed` sees **D** as the
   registry head.
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
-  manifests tagged `<N>-<MMDD>` (immutable) + `latest`; at-cove is built by
-  `goreleaser --snapshot` (one archive per os/arch carrying at-cove + at-mint +
-  at-jam, plus checksums, stamped `<N>-<MMDD>`) and the
+  manifests tagged `<N>-<MMDD>` (immutable) + `latest`; the binaries are built by
+  `goreleaser --snapshot` (one archive per os/arch carrying at-mint + at-jam + the
+  at-cove tombstone, plus checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
-- **at-task and at-switchboard are embedded**, not shipped standalone —
-  re-cutting at-cove re-cuts both embedded binaries
-  ([`.goreleaser.yaml`](../.goreleaser.yaml) before-hook, which now also stages
-  at-switchboard via `scripts/stage-attask.sh`). Unlike at-task, at-switchboard
-  has no base-image fallback: the hardening layer's install guard simply skips
-  it when unstaged, and `at-cove teammate` errors at launch if it's absent.
+- **cove-master is embedded**, not shipped standalone — re-cutting the binaries
+  re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
+  `scripts/stage-covemaster.sh`). The archive also carries
+  `scripts/release/at-cove`, a tombstone that keeps an older `at-jam update` working
+  (its embedded `install.sh` installs `at-cove` unconditionally); slice 3 of the
+  jam-only design drops it.
 
 ### Versioning
 
 `<N>-<MMDD>` — `<N>` = `git rev-list --count HEAD` is the version (globally
 monotonic, reproducible offline); `<MM><DD>` is an advisory month-day; `-` (not
 `.`) so it is never mistaken for SemVer. Every published artifact
-(`cove-base-image`, `cove-image`, `at-cove`) is tagged `<N>-<MMDD>` + a moving
+(`cove-base-image`, `cove-image`, the binaries release) is tagged `<N>-<MMDD>` + a moving
 `latest`. Because only what changed is rebuilt, artifacts' `<N>` values may
-differ — each reflects when it was last built. at-cove references the base by
+differ — each reflects when it was last built. Jam references the base by
 **digest**, never version, so divergent tags don't affect the gate.
 
 [`scripts/build.sh`](../scripts/build.sh) builds the host binaries locally (no
 publish) for iteration; `scripts/build-images.sh` does the same for the image
-tree. A dev `at-cove` run straight from `dist/<os>-<arch>/at-cove` invokes its
+tree. A dev `at-jam` run straight from `dist/<os>-<arch>/at-jam` invokes its
 **sibling** `dist/<os>-<arch>/at-mint` (version-matched, built by the same
 `build.sh`) rather than a PATH `at-mint`, falling back to the bare name on PATH
 when no sibling is present.
 
 ### Adopting a new base
 
-Publishing is automatic (above), but **adopting** a published image — pointing
-`.at-cove/config.yml`'s `image.base` at it — is a deliberate manual step, and a
-**breaking** base change (one that shifts the OCI layer-diff-id prefix) also needs
-the blessed watermark raised so older bases stop being trusted. `just adopt-base`
-does both:
+Publishing is automatic (above), and so is adopting a routine base: the release's
+blessed-list snapshot makes the newest published base Jam's default. A **breaking**
+base change (one that shifts the OCI layer-diff-id prefix, or one the sealed
+hardening layer newly *depends on*) also needs the blessed watermark raised so older
+bases stop being trusted. `just adopt-base` does that:
 
 ```
-just adopt-base <tag>              # routine: pin image.base to <tag>'s @sha256 digest
-just adopt-base <tag> --breaking   # also raise internal/basedigest/blessed/watermark.txt
-just adopt-base <tag> --pr         # after editing, branch + commit + open a PR
+just adopt-base <tag>        # raise internal/basedigest/blessed/watermark.txt to <tag>'s base
+just adopt-base <tag> --pr   # after editing, branch + commit + open a PR
 ```
 
-It resolves `<tag>` (e.g. `527-0808`, or `latest`) to the multi-arch **index**
-digest via the GitHub packages API and pins by digest (never a moving tag). It
-needs `GITHUB_TOKEN` with `read:packages` (like `gen-blessed`) and cannot run
-offline. `--breaking` prints the new blessed floor; preview the resulting set with
-`just gen-blessed`. Only raise the watermark for a genuinely breaking base — doing
-it on a routine bump wrongly evicts still-valid older bases. A base that the sealed
-hardening layer newly *depends on* counts as breaking too, even with an unchanged
-layer prefix. Design:
-[adopt-base-recipe](superpowers/specs/2026-08-09-adopt-base-recipe-design.md).
-
-## Verified `claude` CLI facts
-
-Checked against the `claude` CLI present in this sandbox (v2.1.x):
-
-- `claude auth login --claudeai` is the real subscription-OAuth login command (`--claudeai` is the default).
-- `claude auth status` exits `0` when logged in and non-zero otherwise —
-  this is what `connect` probes to decide whether a first-session login is needed.
+It resolves `<tag>` (e.g. `527-0808`, or `latest`) to `cove-base-image`'s
+multi-arch **index** digest via the GitHub packages API. It needs `GITHUB_TOKEN`
+with `read:packages` (like `gen-blessed`) and cannot run offline; preview the
+resulting set with `just gen-blessed`. Only raise the watermark for a genuinely
+breaking base — doing it on a routine bump wrongly evicts still-valid older bases.
+Design: [adopt-base-recipe](superpowers/specs/2026-08-09-adopt-base-recipe-design.md).
 
 ## Git / pushing
 
 `origin` is `https://github.com/aethons-tools/cove.git`.
 SSH git is impossible here — the egress lock drops port 22 —
-so the hardening layer rewrites GitHub remotes to HTTPS
-and a credential helper supplies the token from `GITHUB_TOKEN` in the session env
-(see [`OVERVIEW.md`](OVERVIEW.md#authentication) for the mechanism).
-A session whose kit does not declare that secret has no token,
-and git fails closed rather than prompting;
-this repo's kit declares it under `collaborators.<common>.secrets`
-(see [at-cove-config.md](usage/at-cove-config.md#collaborators)).
+so the hardening layer rewrites GitHub remotes to HTTPS,
+and in a Jam studio git authenticates through Jam's broker
+([connector.md](usage/jam/connector.md)).
 
 `main` is protected: changes land through a PR whose **`gate`** check passes.
 Direct pushes to `main` are rejected, including for admins.
 Inside a *sandbox* the story is different —
-the hardening rewrites GitHub remotes to HTTPS and feeds a `GITHUB_TOKEN` via a credential helper (see [`OVERVIEW.md`](OVERVIEW.md#authentication)).
+the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker ([connector.md](usage/jam/connector.md)).

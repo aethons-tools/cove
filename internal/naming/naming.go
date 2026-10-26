@@ -1,41 +1,18 @@
-// Package naming is the single source of truth for every runtime docker
-// resource name cove derives — image, container, volumes, and the ephemeral
-// worker container (COV-77). Every name shares the product prefix `atcove-` and
-// the structure `atcove-{kit}-{class}-{type}`, so a name can never collide with
-// an unrelated docker object and every resource of one instance sorts together.
-//
-// It is deliberately pure (no os/time): the impure inputs a worker name needs
-// (pid, nanotime) are passed in by the caller, keeping the whole package
-// hermetically testable. It does NOT own the secret-bucket key (the bare kit
-// name) or the interactive session label — those are not docker resources.
+// Package naming is the single source of truth for the runtime docker
+// resource names Jam's launcher derives: a studio's container
+// (atcove-cove-<id>, CoveContainer) and the volumes named after it. Every name
+// shares the product prefix `atcove-`, so it never collides with an unrelated
+// docker object and every resource of one studio sorts together. Pure (no
+// os/time), so it is hermetically testable.
 package naming
 
 import (
-	"fmt"
 	"strings"
 )
 
-// prefix is the product marker on every runtime resource name, so an at-cove
+// prefix is the product marker on every runtime resource name, so a cove
 // object is never confused with (or colliding with) an unrelated docker object.
 const prefix = "atcove"
-
-// instance is the shared base for an instance's runtime resources:
-// atcove-{kit} for a plain (no-collaborator) instance, atcove-{kit}-{class} for
-// a collaborator instance. Container is this base; the volumes append a type.
-func instance(kit, class string) string {
-	if class == "" {
-		return prefix + "-" + kit
-	}
-	return prefix + "-" + kit + "-" + class
-}
-
-// Image is the docker image tag for a kit. It is kit-scoped and carries NO
-// class: every collaborator of a kit shares one built image (COV-77).
-func Image(kit string) string { return prefix + "-" + kit }
-
-// Container is the docker container name for an instance: atcove-{kit} for a
-// plain instance, atcove-{kit}-{class} for a collaborator.
-func Container(kit, class string) string { return instance(kit, class) }
 
 // WorkspaceVolume names the /home/agent/workspace volume for an instance, given
 // that instance's container (base) name.
@@ -52,24 +29,6 @@ func AgentDataVolume(container string) string { return container + "-agent-data"
 // removed on destroy alongside them.
 func DockerVolume(container string) string { return container + "-docker" }
 
-// SanitizeShadowDir turns a validated relative shadow-dir path into the suffix
-// token used in its volume name: path separators become '-' and a single leading
-// '.' is dropped (so ".venv" and "node_modules" yield clean, sortable tokens). It
-// is the single source of the sanitize rule, shared with config validation's
-// collision check (COV-132).
-func SanitizeShadowDir(dir string) string {
-	return strings.TrimPrefix(strings.ReplaceAll(dir, "/", "-"), ".")
-}
-
-// ShadowVolume names the per-sandbox volume that overmounts a shared workspace's
-// transient dir (e.g. .venv) so it stays VM-local instead of colliding with the
-// host's copy (COV-132). It hangs off the instance's container (base) name with a
-// -shadow-<dir> suffix, so it sorts with the instance's other volumes and is
-// removed on destroy alongside them.
-func ShadowVolume(container, dir string) string {
-	return container + "-shadow-" + SanitizeShadowDir(dir)
-}
-
 // CoveContainer names a managed cove's container from its actor id: atcove-cove-<id>,
 // with any docker-unsafe characters replaced by '-' so the name is always valid.
 func CoveContainer(actorID string) string {
@@ -82,11 +41,4 @@ func CoveContainer(actorID string) string {
 		}
 	}, actorID)
 	return prefix + "-cove-" + safe
-}
-
-// WorkerContainer names an ephemeral `at-cove work` container. It carries the
-// atcove- prefix like every other resource, plus a pid+nanotime suffix so
-// concurrent dispatches of one kit (even from separate processes) never collide.
-func WorkerContainer(kit string, pid int, nano int64) string {
-	return fmt.Sprintf("%s-work-%s-%d-%d", prefix, kit, pid, nano)
 }

@@ -15,8 +15,8 @@ var hardeningFS embed.FS
 
 // HardeningFS returns the embedded sealed hardening layer (Dockerfile +
 // image-files) as a read-only FS rooted at "hardening". internal/install hashes
-// it as part of at-cove's build identity for the install currency check (COV-38);
-// assembly itself copies it via copyEmbed.
+// it into the assembly identity (AtCoveIdentity) that keys every studio image
+// tag; assembly itself copies it via copyEmbed.
 func HardeningFS() fs.FS { return hardeningFS }
 
 // SealedEgressBase is the sealed hardening layer's always-on egress list

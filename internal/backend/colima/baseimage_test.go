@@ -116,7 +116,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
 	}
-	// at-cove injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
+	// The launcher injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
 	// build arg so a kit's own image/Dockerfile builds on the blessed base
 	// (its ARG default is only for a bare manual `docker build`).
 	if !contains(build, "--build-arg") || !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
@@ -282,7 +282,7 @@ func TestResolveKitBaseTarOnRequiresParentAndTag(t *testing.T) {
 // HasKitBase inspects the stage tag on the pinned daemon; absence is a miss.
 func TestHasKitBase(t *testing.T) {
 	f := &runner.Fake{}
-	ok, err := New(f).(backend.KitImageBuilder).HasKitBase("cove-kit-base:stage")
+	ok, err := NewWithContext(f, "").HasKitBase("cove-kit-base:stage")
 	if err != nil || !ok {
 		t.Fatalf("present: HasKitBase = %v, %v", ok, err)
 	}
@@ -291,22 +291,7 @@ func TestHasKitBase(t *testing.T) {
 		t.Fatalf("HasKitBase did not inspect the pinned tag: %+v", f.Calls)
 	}
 	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if ok, err := New(f2).(backend.KitImageBuilder).HasKitBase("cove-kit-base:missing"); ok || err != nil {
+	if ok, err := NewWithContext(f2, "").HasKitBase("cove-kit-base:missing"); ok || err != nil {
 		t.Fatalf("absent: HasKitBase = %v, %v; want (false, nil)", ok, err)
-	}
-}
-
-// Install injects the resolved base as --build-arg BASE on the hardening build
-// (the single build path — Create is run-only, COV-38).
-func TestInstallInjectsBaseBuildArg(t *testing.T) {
-	f := &runner.Fake{}
-	if _, err := New(f).Install(backend.InstallContext{
-		Kit: "box", BuildDir: "/b",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE="+basedigest.DefaultRef()) {
-		t.Fatalf("build must inject BASE build-arg: %+v", f.Calls)
 	}
 }

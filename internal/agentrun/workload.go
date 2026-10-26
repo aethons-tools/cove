@@ -219,7 +219,7 @@ func (w *Workload) resumeText() string {
 // so the agent's backgrounding works. After the process exits, Run reports
 // Waiting and blocks until a Wake resumes it (a new continued episode) or ctx
 // is cancelled (Jam tearing the session down: end, idle timeout, wait-max).
-// No result file is read (worker-result.json is the at-cove work path's).
+// No result file is read.
 func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 	w.gateMu.Lock()
 	w.gateCtx, w.gateH = ctx, h

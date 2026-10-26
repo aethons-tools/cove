@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# build.sh — build at-cove and at-task, host-sensitive by default.
+# build.sh — build the host binaries, host-sensitive by default.
 #
-# The binaries are pure Go (no cgo; at-cove shells out to ssh/docker), so
+# The binaries are pure Go (no cgo; at-jam shells out to ssh/docker), so
 # Go's built-in cross-compilation just works — no toolchain or framework
 # needed. Every binary lands in a directory keyed by its OS/arch:
 #
-#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{at-cove,at-task}
+#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{at-mint,at-jam}
 #
 # The DEFAULT build targets the current host (go env GOOS/GOARCH). That keeps a
 # mac and a linux box (e.g. the cove VM) that share the same output folder from
@@ -24,11 +24,11 @@ cd "$(dirname "$0")/.."  # repo root
 OUT="${OUT:-dist}"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 # -trimpath: reproducible paths; -s -w: strip symbol/debug tables (smaller
-# binary); -X main.version: stamp the version reported by `at-cove version`.
+# binary); -X main.version: stamp the version reported by `at-jam version`.
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-cove at-task at-mint at-switchboard at-jam)
+BINARIES=(at-mint at-jam)
 
 # Build the whiteboard editor bundle at-jam embeds (skipped, with a warning,
 # where npm is missing: at-jam then builds without the editor).
@@ -37,14 +37,13 @@ WHITEBOARD_OPTIONAL=1 ./scripts/whiteboard.sh
 # missing: /app/next/ then answers "not built").
 APP_OPTIONAL=1 ./scripts/app.sh
 
-# Stage the linux at-task and at-switchboard binaries at-cove embeds, before
-# at-cove is built — shared with the goreleaser before-hook, see
-# scripts/stage-attask.sh.
-echo "Staging embedded at-task + at-switchboard (linux amd64+arm64)"
-VERSION="$VERSION" ./scripts/stage-attask.sh
+# Stage the linux cove-master binaries at-jam embeds, before at-jam is built —
+# shared with the goreleaser before-hook, see scripts/stage-covemaster.sh.
+echo "Staging embedded cove-master (linux amd64+arm64)"
+VERSION="$VERSION" ./scripts/stage-covemaster.sh
 
 # Snapshot the blessed cove-base-image digests from the registry into the
-# embedded (gitignored) blessed/generated.txt, before at-cove is built (COV-44
+# embedded (gitignored) blessed/generated.txt, before at-jam is built (COV-44
 # spec §4). With no GITHUB_TOKEN this is a no-op: the committed low-watermark is
 # embedded alone, so local/offline builds never need registry access. CI runs it
 # with a packages:read token to pick up every current base with no commit-back loop.

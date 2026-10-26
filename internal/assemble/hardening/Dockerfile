@@ -15,35 +15,11 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
-# Install the embedded, version-locked at-task the orchestrating at-cove staged
-# into the build context (COV-34). Install only when non-empty: a plain
-# `go build` without scripts/build.sh stages a 0-byte placeholder, in which case
-# we keep the base image's at-task rather than clobbering it with a broken one.
-COPY attask/ /tmp/attask/
-RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/attask/at-task-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/attask/at-task-linux-${arch}" /usr/local/bin/at-task; \
-    fi \
- && rm -rf /tmp/attask
-
-# Install the embedded, version-locked at-switchboard the orchestrating at-cove
-# staged into the build context (mirrors at-task above, COV-135). Install only
-# when non-empty: a plain `go build` without scripts/build.sh stages a 0-byte
-# placeholder, in which case at-switchboard is simply absent — there is no
-# base-image fallback (unlike at-task), so `at-cove teammate` errors clearly at
-# launch rather than the build silently installing a broken binary.
-COPY switchboard/ /tmp/switchboard/
-RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/switchboard/at-switchboard-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/switchboard/at-switchboard-linux-${arch}" /usr/local/bin/at-switchboard; \
-    fi \
- && rm -rf /tmp/switchboard
-
-# Install the embedded, version-locked cove-master the orchestrating at-cove
-# staged into the build context (mirrors at-switchboard above, COV-158). Install
-# only when the arch binary is non-empty; a plain `go build` stages a 0-byte
-# placeholder, in which case cove-master is simply absent and a managed raise
-# fails clearly at launch — there is no base-image fallback.
+# Install the embedded, version-locked cove-master that at-jam's launcher staged
+# into the build context (COV-158). Install only when the arch binary is
+# non-empty; a plain `go build` stages a 0-byte placeholder, in which case
+# cove-master is simply absent and a managed raise fails clearly at launch —
+# there is no base-image fallback.
 COPY covemaster/ /tmp/covemaster/
 RUN arch="$(dpkg --print-architecture)" \
  && if [ -s "/tmp/covemaster/cove-master-linux-${arch}" ]; then \
@@ -59,7 +35,7 @@ COPY image-files/. /.
 # Also create an agent-owned /home/agent/workspace: an isolated workspace is a
 # freshly-created named volume mounted there, and Docker initializes an empty
 # volume's ownership from this image dir — without it the volume comes up
-# root-owned and the first `chat` clone (run as agent) fails Permission denied.
+# root-owned and the agent's first workspace write fails Permission denied.
 RUN chmod +x /usr/local/bin/entrypoint.sh \
  && chown agent:agent /home/agent \
  && chown -R agent:agent /home/agent/.ssh \

@@ -1,6 +1,6 @@
 // Package mint turns a usersecret minter profile into a runnable at-mint
 // invocation: non-secret identifiers become flags, resolved secret material
-// becomes per-spec env (never argv). It is at-cove's usersecret.MintExpander.
+// becomes per-spec env (never argv). It is at-jam's usersecret.MintExpander.
 package mint
 
 import (
@@ -18,9 +18,9 @@ import (
 // a temp dir (os.Executable is process-global). See atMintBinary.
 var execPath = os.Executable
 
-// atMintBinary resolves argv[0] for the minter invocation. at-cove and at-mint
+// atMintBinary resolves argv[0] for the minter invocation. at-jam and at-mint
 // are built and version-stamped together (scripts/build.sh emits both into the
-// same dist/<os>-<arch>/ dir), so a running at-cove prefers its OWN sibling
+// same dist/<os>-<arch>/ dir), so a running at-jam prefers its OWN sibling
 // at-mint over whatever a bare-name PATH lookup would find. It returns the path
 // to an executable at-mint sitting beside the current executable, and falls back
 // to the bare name "at-mint" (PATH lookup, the prior behavior) when the sibling
@@ -41,9 +41,9 @@ func atMintBinary() string {
 
 // Expander returns a MintExpander bound to a host runner (for resolving a
 // profile's command/global-sourced secret fields), the store's global library,
-// and the target repo (owner/name) a github minter scopes its token to. repo is
-// the kit's source-control.github.project; it is passed to `at-mint github` as
-// the non-secret --repo flag (empty for callers that mint no github token).
+// and the target repo (owner/name) a github minter scopes its token to, passed
+// to `at-mint github` as the non-secret --repo flag. Jam passes "" (a github
+// profile can't mint through mint:; docs/usage/jam/credentials.md#minters).
 func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string) usersecret.MintExpander {
 	return func(profileName string, m usersecret.Minter, demandName string) (secret.Spec, error) {
 		switch {

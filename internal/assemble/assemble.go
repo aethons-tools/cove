@@ -8,64 +8,26 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aethons-tools/cove/internal/atswitchboard"
-	"github.com/aethons-tools/cove/internal/attask"
 	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/kit"
 )
 
 // Egress is the kit's baked egress beyond the sealed base, split by purpose.
-// Policy is image.allowed-domains: baked as the active policy list
+// Policy is the kit's egress list: baked as the active policy list
 // (allowed_domains.kit.txt, which a Jam role's list replaces at raise) and as
 // the immutable ceiling that role list must fit inside (egress_ceiling.txt).
-// Infra is kit.InfraDomains (provider, self-hosted GitLab, Jam hosts): always
-// on, baked into allowed_domains.infra.txt.
+// Infra is the always-on infrastructure list (Jam's launcher passes its
+// jam-host), baked into allowed_domains.infra.txt.
 type Egress struct {
 	Policy []string
 	Infra  []string
 }
 
-// EgressFor derives a kit config's baked Egress.
-func EgressFor(c kit.Config) Egress {
-	return Egress{Policy: c.Image.AllowedDomains, Infra: kit.InfraDomains(c)}
-}
-
-// HarnessFor derives a kit config's harness install: the harness layer of its
-// model-spec: block (version + plugins), or claude-default's when it has none
-// (kit.Config.EffectiveModelSpec).
-func HarnessFor(c kit.Config) harnessinstall.Install {
-	s := c.EffectiveModelSpec()
-	return harnessinstall.FromSpec(&s)
-}
-
-// Assemble builds the context in buildDir: the sealed hardening layer, the
-// injected at-task, the kit's egress lists, the per-kit GitLab gitconfig, and
-// the managed public key. The kit's image/ is the Dockerfile build context
-// (resolved elsewhere), not overlaid. gitlabHost is the kit's resolved GitLab
-// source-control host (from Config.GitLabHost) or "" for a non-GitLab kit.
-//
-// Assemble keeps the kit's .gitignore current (a dev-repo housekeeping side
-// effect on kitDir) and then assembles the build context. The build context
-// itself needs no kitDir — see AssembleContext, which the managed-cove launcher
-// uses to build from a kit communicated as data, with no host directory.
-func Assemble(kitDir, buildDir string, pub []byte, egress Egress, gitlabHost string, harness harnessinstall.Install) error {
-	// Any path that assembles a build context (build/create/work) keeps the kit's
-	// .gitignore current, so generated .build/.state artifacts never leak into git.
-	if err := kit.EnsureGitignore(kitDir); err != nil {
-		return err
-	}
-	// A full kit's agent never runs cove-master (only Jam-raised studio coves
-	// do), so it bakes no MCP servers — just the empty file. Its harness is
-	// the caller's — HarnessFor: the kit's model-spec: block, else
-	// claude-default's install (COV-241).
-	return AssembleContext(buildDir, pub, egress, gitlabHost, nil, harness)
-}
-
 // AssembleContext stages the docker build context into buildDir with NO source
 // kit directory: everything comes from resources compiled into this binary (the
 // sealed hardening layer + Dockerfile via the embedded FS, and the injected
-// at-task/at-switchboard/cove-master binaries), plus data the caller supplies —
+// cove-master binaries), plus data the caller supplies —
 // the kit's egress lists, its per-kit GitLab gitconfig, its MCP servers
 // (kit.MCPServersImagePath), the public key baked into authorized_keys, and the
 // harness install (the model-spec's CLI version + plugins). Because it takes no directory, a Launcher can build a
@@ -89,20 +51,12 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
 	// not overlaid, and the overridable defaults ship in cove-base-image. So the
 	// build context is the harness layer, the sealed hardening layer, the
-	// injected at-task, the kit's egress lists, and the managed key.
+	// injected cove-master, the kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {
 		return err
 	}
 
 	if err := writeDockerfile(buildDir, harness); err != nil {
-		return err
-	}
-
-	if err := writeAtTask(buildDir); err != nil {
-		return err
-	}
-
-	if err := writeSwitchboard(buildDir); err != nil {
 		return err
 	}
 
@@ -152,7 +106,9 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 // 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
 // 3: sshd trusts Jam's SSH user CA (cove.conf TrustedUserCAKeys) and ships
 // the sealed install-ssh-ca.sh helper.
-var Revision = "3"
+// 4: no attask/ or switchboard/ staging dirs (at-task and at-switchboard
+// deleted, jam-only slice 2).
+var Revision = "4"
 
 // writeDockerfile prepends the harness stage (staging its payload) to the
 // sealed hardening Dockerfile copyEmbed just wrote.
@@ -169,58 +125,10 @@ func writeDockerfile(buildDir string, harness harnessinstall.Install) error {
 	return os.WriteFile(df, []byte(stage+"\n# --- sealed hardening layer (internal/assemble/hardening) ---\n"+string(sealed)), 0o644)
 }
 
-// writeAtTask stages the embedded linux at-task binaries into the build context
-// (buildDir/attask/at-task-linux-<arch>), so the sealed hardening layer can
-// install the arch-matching one — the at-cove that orchestrates a dispatch ships
-// the exact at-task it expects (COV-34/COV-36). When the embed was not staged (a
-// plain `go build` without scripts/build.sh — never the release path), a 0-byte
-// placeholder is written instead; hardening installs the binary only when it is
-// non-empty, so it falls back to the base image's at-task rather than a broken one.
-func writeAtTask(buildDir string) error {
-	dir := filepath.Join(buildDir, "attask")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		b, err := attask.Binary(arch)
-		if err != nil {
-			b = nil // not staged → placeholder; hardening keeps the base's at-task
-		}
-		if err := os.WriteFile(filepath.Join(dir, "at-task-linux-"+arch), b, 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// writeSwitchboard stages the embedded linux at-switchboard binaries into the
-// build context (buildDir/switchboard/at-switchboard-linux-<arch>), so the
-// sealed hardening layer can install the arch-matching one — mirrors
-// writeAtTask. Unlike at-task there is no base-image fallback binary to keep:
-// when the embed was not staged (a plain `go build` without scripts/build.sh),
-// a 0-byte placeholder is written instead, and hardening's install guard skips
-// it; `at-cove teammate` then errors clearly at launch if the binary is absent.
-func writeSwitchboard(buildDir string) error {
-	dir := filepath.Join(buildDir, "switchboard")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		b, err := atswitchboard.Binary(arch)
-		if err != nil {
-			b = nil // not staged → placeholder; caught at launch, not build
-		}
-		if err := os.WriteFile(filepath.Join(dir, "at-switchboard-linux-"+arch), b, 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // writeCoveMaster stages the embedded linux cove-master binaries into the build
 // context (buildDir/covemaster/cove-master-linux-<arch>), so the sealed hardening
-// layer can install the arch-matching one — mirrors writeSwitchboard (COV-158).
-// When the embed was not staged (a plain `go build` without scripts/stage-attask.sh),
+// layer can install the arch-matching one (COV-158).
+// When the embed was not staged (a plain `go build` without scripts/stage-covemaster.sh),
 // a 0-byte placeholder is written instead and hardening's install guard skips it;
 // a raised cove then has no cove-master and the launcher's start step fails clearly.
 func writeCoveMaster(buildDir string) error {
@@ -320,7 +228,10 @@ func copyEmbed(efs fs.FS, root, dst string) error {
 // (kit.txt), the always-on infra list (infra.txt), and the ceiling a Jam role's
 // policy must fit inside (egress_ceiling.txt — read only by the sealed
 // apply-role-egress.sh, never by squid). Each is always written (empty → header
-// only) so the sealed squid.conf never references a missing ACL file.
+// only) so the sealed squid.conf never references a missing ACL file. The
+// headers' "image.allowed-domains" is the deleted kit config.yml's name for the
+// studio kit's egress list; the text is baked into every image, so rewording it
+// is an image change (slice 3), not a comment fix.
 func writeEgressLists(buildDir string, e Egress) error {
 	policy := sortedUnique(e.Policy)
 	files := []struct {

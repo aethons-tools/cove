@@ -6,8 +6,7 @@ name: gate
 # reports.
 #
 # Scope: the hermetic checks only — `go test ./...` and scripts/lint.sh. The
-# real-ssh integration suite and `just e2e` are deliberately out (e2e needs live
-# infra and E2E_REPO; integration is tracked separately).
+# real-ssh integration suite is deliberately out (it is tracked separately).
 
 on:
   pull_request:

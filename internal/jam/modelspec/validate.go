@@ -42,8 +42,7 @@ var protectedEnvKeys = map[string]bool{
 }
 
 // ProtectedEnvKey reports whether key is a sealed-owned or security-relevant
-// variable a model-spec's provider-env must never set. One list, shared by Jam
-// and the kit loader (kit.ProtectedEnvKey delegates here).
+// variable a model-spec's provider-env must never set.
 func ProtectedEnvKey(key string) bool { return protectedEnvKeys[key] }
 
 // ReservedEnvKey reports whether key is in the Jam-owned env namespace
@@ -75,7 +74,7 @@ var claudeNonPreferenceSettings = append([]string{
 // loaders: Jam's write path (internal/jam.ValidateModelSpec) and a kit's
 // model-spec: block (internal/kit). The two differ only in what a principal
 // means, so checkPrincipal decides that part: Jam resolves the credential
-// name (or the pool keyword) and checks the header rules; a plain at-cove kit
+// name (or the pool keyword) and checks the header rules; a kit
 // has no broker, so it refuses any principal. checkPrincipal's error is
 // returned as is; every other refusal is a plain error that never echoes a
 // provider-env value.
@@ -191,10 +190,9 @@ func validateClaude(c Claude) error {
 }
 
 // ProviderEnv is the provider env a spec implies — the one rendering the
-// cove-side harness (internal/agentrun) and a plain at-cove session
-// (kit.Config.SessionEnv) both use: vertex sets CLAUDE_CODE_USE_VERTEX=1,
-// bedrock CLAUDE_CODE_USE_BEDROCK=1, anthropic nothing; then
-// claude.provider-env. A protected, reserved or credential-carrying key is
+// cove-side harness (internal/agentrun) uses: vertex sets
+// CLAUDE_CODE_USE_VERTEX=1, bedrock CLAUDE_CODE_USE_BEDROCK=1, anthropic
+// nothing; then claude.provider-env. A protected, reserved or credential-carrying key is
 // dropped (defense in depth: Validate refuses them). nil when there is
 // nothing to set (or no claude body).
 func ProviderEnv(s *Spec) map[string]string {

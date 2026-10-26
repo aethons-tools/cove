@@ -36,66 +36,38 @@ func (rt router) RoundTrip(r *http.Request) (*http.Response, error) {
 	return jsonResp(404, `{"message":"not found"}`), nil
 }
 
-func testCfg() kit.Config {
-	return kit.Config{
-		Tracker: &kit.Tracker{GitHub: &kit.GitHubTracker{
-			Repo:             "acme/board",
-			ClassLabelPrefix: "class:",
-			States: kit.StateMap{
-				Ready: "status:ready", InProgress: "status:in-progress",
-				InReview: "status:in-review", NeedsInput: "status:needs-input",
-				Blocked: "status:blocked",
-			},
-		}},
+func testStates() kit.StateMap {
+	return kit.StateMap{
+		Ready: "status:ready", InProgress: "status:in-progress",
+		InReview: "status:in-review", NeedsInput: "status:needs-input",
+		Blocked: "status:blocked",
 	}
 }
 
 func newTestClient(t *testing.T, rt http.RoundTripper) *Client {
 	t.Helper()
-	c, err := New(testCfg(), "tok", &http.Client{Transport: rt})
+	c, err := NewJam(jamTracker(), "tok", &http.Client{Transport: rt})
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewJam: %v", err)
 	}
 	return c
 }
 
-func TestNewRejectsEmptyToken(t *testing.T) {
-	if _, err := New(testCfg(), "", nil); err == nil {
-		t.Fatal("New with empty token: want error, got nil")
+func TestNewJamRejectsEmptyToken(t *testing.T) {
+	if _, err := NewJam(jamTracker(), "", nil); err == nil {
+		t.Fatal("NewJam with empty token: want error, got nil")
 	}
 }
 
-func TestNewRequiresTrackerGitHub(t *testing.T) {
-	if _, err := New(kit.Config{}, "tok", nil); err == nil {
-		t.Fatal("New without tracker.github: want error, got nil")
-	}
-}
-
-func TestNewResolvesRepoOverrideAndInheritance(t *testing.T) {
-	// Explicit tracker.github.repo wins.
-	c, err := New(testCfg(), "tok", nil)
+func TestNewJamDefaultsPrefixes(t *testing.T) {
+	gt := jamTracker()
+	gt.ClassLabelPrefix = ""
+	c, err := NewJam(gt, "tok", nil)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewJam: %v", err)
 	}
-	if c.repo != "acme/board" {
-		t.Fatalf("repo = %q; want acme/board (override)", c.repo)
-	}
-
-	// With no override, the repo is inherited from source-control.github.project.
-	cfg := kit.Config{
-		SourceControl: &kit.SourceControl{GitHub: &kit.GitHubSource{Project: "acme/code"}},
-		Tracker:       &kit.Tracker{GitHub: &kit.GitHubTracker{States: testCfg().Tracker.GitHub.States}},
-	}
-	c2, err := New(cfg, "tok", nil)
-	if err != nil {
-		t.Fatalf("New (inherit): %v", err)
-	}
-	if c2.repo != "acme/code" {
-		t.Fatalf("repo = %q; want acme/code (inherited)", c2.repo)
-	}
-	// Class prefix defaults to "class:" when the config leaves it empty.
-	if c2.prefix != "class:" {
-		t.Fatalf("prefix = %q; want class:", c2.prefix)
+	if c.prefix != "class:" || c.dispatchPrefix != "dispatch:" {
+		t.Fatalf("prefixes = %q, %q; want class:, dispatch:", c.prefix, c.dispatchPrefix)
 	}
 }
 
@@ -122,7 +94,7 @@ func TestListReadyParsesClassAndIdentity(t *testing.T) {
 	c := newTestClient(t, rtFunc(func(r *http.Request) (*http.Response, error) {
 		sawQuery = r.URL.Query().Get("q")
 		return jsonResp(200, `{"items":[
-		 {"number":42,"title":"T1","body":"no markers here","labels":[{"name":"class:implementor"},{"name":"status:ready"}]}
+		 {"number":42,"title":"T1","body":"no markers here","labels":[{"name":"class:implementor"},{"name":"status:ready"},{"name":"dispatch:go"}]}
 		]}`), nil
 	}))
 	got, err := c.ListReady(context.Background())
@@ -135,8 +107,8 @@ func TestListReadyParsesClassAndIdentity(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("ListReady = %+v; want one issue", got)
 	}
-	if got[0].ID != "42" || got[0].Identifier != "#42" || got[0].Class != "implementor" {
-		t.Fatalf("issue = %+v; want ID=42 Identifier=#42 Class=implementor", got[0])
+	if got[0].ID != "42" || got[0].Identifier != "acme/board#42" || got[0].Class != "implementor" {
+		t.Fatalf("issue = %+v; want ID=42 Identifier=acme/board#42 Class=implementor", got[0])
 	}
 }
 
@@ -158,7 +130,7 @@ func runReady(t *testing.T, search string, blockerStates map[string]string) []sc
 
 func TestListReadyExcludesOnOpenBlocker(t *testing.T) {
 	const search = `{"items":[
-	 {"number":1,"title":"has open blocker","body":"Depends on #9","labels":[{"name":"status:ready"}]}
+	 {"number":1,"title":"has open blocker","body":"Depends on #9","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}
 	]}`
 	got := runReady(t, search, map[string]string{
 		"/repos/acme/board/issues/9": `{"number":9,"state":"open"}`,
@@ -170,7 +142,7 @@ func TestListReadyExcludesOnOpenBlocker(t *testing.T) {
 
 func TestListReadyIncludesWhenAllBlockersClosed(t *testing.T) {
 	const search = `{"items":[
-	 {"number":2,"title":"blockers done","body":"Depends on #9 and Blocked by #10","labels":[{"name":"status:ready"}]}
+	 {"number":2,"title":"blockers done","body":"Depends on #9 and Blocked by #10","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}
 	]}`
 	got := runReady(t, search, map[string]string{
 		"/repos/acme/board/issues/9":  `{"number":9,"state":"closed"}`,
@@ -183,7 +155,7 @@ func TestListReadyIncludesWhenAllBlockersClosed(t *testing.T) {
 
 func TestListReadyIncludesWhenNoMarker(t *testing.T) {
 	const search = `{"items":[
-	 {"number":3,"title":"no deps","body":"just a plain description","labels":[{"name":"status:ready"}]}
+	 {"number":3,"title":"no deps","body":"just a plain description","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}
 	]}`
 	// No blocker fetch should be needed; the router 404s any stray issue GET.
 	got := runReady(t, search, nil)
@@ -194,7 +166,7 @@ func TestListReadyIncludesWhenNoMarker(t *testing.T) {
 
 func TestListReadyIgnoresCrossRepoBlockerWithLog(t *testing.T) {
 	const search = `{"items":[
-	 {"number":4,"title":"cross-repo dep","body":"Depends on other/repo#7","labels":[{"name":"status:ready"}]}
+	 {"number":4,"title":"cross-repo dep","body":"Depends on other/repo#7","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}
 	]}`
 	// A cross-repo marker is out of scope for v1: it must NOT gate, and must be
 	// logged. The router 404s any issue GET, proving no same-repo #7 lookup happens.
@@ -219,59 +191,12 @@ func TestListReadyIgnoresCrossRepoBlockerWithLog(t *testing.T) {
 
 func TestListReadyHoldsOnMissingBlocker(t *testing.T) {
 	const search = `{"items":[
-	 {"number":5,"title":"phantom blocker","body":"Blocked by #99","labels":[{"name":"status:ready"}]}
+	 {"number":5,"title":"phantom blocker","body":"Blocked by #99","labels":[{"name":"status:ready"},{"name":"dispatch:go"}]}
 	]}`
 	// #99 resolves to 404 (deleted/missing) → treated as still blocking, so #5 is held.
 	got := runReady(t, search, nil)
 	if len(got) != 0 {
 		t.Fatalf("ListReady = %+v; want none (blocker #99 unresolved)", got)
-	}
-}
-
-func TestListInProgressDerivesTimestampFromTimeline(t *testing.T) {
-	rt := router{
-		"/search/issues": `{"items":[
-		 {"number":8,"title":"WIP","body":"","labels":[{"name":"class:implementor"},{"name":"status:in-progress"}]}
-		]}`,
-		// Two labelings of the status:in-progress label; the reaper wants the most recent.
-		"/repos/acme/board/issues/8/timeline": `[
-		 {"event":"labeled","created_at":"2026-07-01T10:00:00Z","label":{"name":"status:in-progress"}},
-		 {"event":"labeled","created_at":"2026-07-15T09:00:00Z","label":{"name":"status:in-progress"}},
-		 {"event":"labeled","created_at":"2026-08-01T09:00:00Z","label":{"name":"status:blocked"}},
-		 {"event":"commented","created_at":"2026-08-05T09:00:00Z","label":{"name":""}}
-		]`,
-	}
-	c := newTestClient(t, rt)
-	got, err := c.ListInProgress(context.Background())
-	if err != nil {
-		t.Fatalf("ListInProgress: %v", err)
-	}
-	if len(got) != 1 || got[0].ID != "8" || got[0].Class != "implementor" {
-		t.Fatalf("ListInProgress = %+v; want one #8 with class implementor", got)
-	}
-	want := "2026-07-15T09:00:00Z"
-	if got[0].StartedAt.UTC().Format("2006-01-02T15:04:05Z") != want {
-		t.Fatalf("StartedAt = %s; want %s (most recent status:in-progress labeling)", got[0].StartedAt, want)
-	}
-}
-
-func TestListInProgressSkipsWhenNoLabelEvent(t *testing.T) {
-	rt := router{
-		"/search/issues": `{"items":[
-		 {"number":8,"title":"WIP","body":"","labels":[{"name":"status:in-progress"}]}
-		]}`,
-		// No labeled event for status:in-progress → can't establish staleness → skipped.
-		"/repos/acme/board/issues/8/timeline": `[
-		 {"event":"labeled","created_at":"2026-07-01T10:00:00Z","label":{"name":"status:blocked"}}
-		]`,
-	}
-	c := newTestClient(t, rt)
-	got, err := c.ListInProgress(context.Background())
-	if err != nil {
-		t.Fatalf("ListInProgress: %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("ListInProgress = %+v; want none (no in-progress labeling)", got)
 	}
 }
 

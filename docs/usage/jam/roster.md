@@ -4,7 +4,7 @@ read_when: You are deciding who can reach what on a Jam — defining roles, sett
 owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role/grant/ungrant/roster/enroll/revoke verbs (incl. a role's `--max-ephemeral`/`--max-personal`/`--max-personal-per-owner` allocation policy, its `--idle-after`/`--nag-every`/`--reclaim-after` personal idle settings, and its `--idle-timeout`/`--on-idle` turn-end flags), a role's egress policy (`egress set|show|clear` and its routes), the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; serve.md for destinations (what a role's scope points at); kits.md for binding a kit to a role
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-26
 ---
 
 # Roles, grants & enrollment (RBAC)
@@ -121,11 +121,11 @@ at-jam egress clear --project acme --role fenced          # back to the kit defa
 ```
 
 - **No policy (the default) = the kit's list.** The studio gets the kit's
-  `image.allowed-domains` as before, so existing roles are unchanged. A **set but
+  `egress:` list as before, so existing roles are unchanged. A **set but
   empty** policy (`--none`) means nothing beyond the base and infra lists.
 - **The kit is the ceiling.** The role's list *replaces* the kit's list, but every
   domain must be covered by the kit's
-  [`image.allowed-domains`](../at-cove-config.md#imageallowed-domains). A leading-dot
+  `egress:` list ([kits.md](kits.md#the-egress-ceiling-cov-208)). A leading-dot
   entry (`.x.com`) covers `x.com` and its subdomains; an exact entry covers only
   itself. Jam checks only syntax and normalizes (lowercase, dedupe, sort, drop
   entries a wildcard in the list already covers); **the box enforces the ceiling**.
@@ -191,8 +191,6 @@ The snippet is the identity's [connector](connector.md) (also in `--json` as
   it ([connector.md](connector.md)), and it never lands in gitconfig on disk.
 - `--base-url` (or the app profile's `base-url`) sets the broker base in the
   printed snippet; `--json` needs no base URL.
-- Hardened studios usually **auto-enroll** themselves at session start rather than
-  using a hand-run snippet — see [`../at-cove-config.md#jam`](../at-cove-config.md).
 
 ## The actors
 

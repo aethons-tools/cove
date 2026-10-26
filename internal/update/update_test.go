@@ -118,8 +118,8 @@ func containsSlice(hay []string, needle string) bool {
 	return false
 }
 
-// TestDoNamesTheCallingBinary: Do is shared by at-cove and at-jam, so its
-// user-facing lines name whichever binary is updating itself.
+// TestDoNamesTheCallingBinary: Do's user-facing lines name whichever binary
+// is updating itself.
 func TestDoNamesTheCallingBinary(t *testing.T) {
 	var out strings.Builder
 	f := &runner.Fake{}

@@ -1,7 +1,7 @@
 // Package snippet renders the connector contract a client uses to route Anthropic
 // and git through Jam. It is stdlib-only — deliberately separate from
-// internal/jam (which pulls go-oidc) so the at-cove binary can reuse the
-// contract without that dependency.
+// internal/jam (which pulls go-oidc) so a caller can reuse the contract
+// without that dependency.
 //
 // The contract has two parts, and there is ONE source for each:
 //   - Env: the environment variables the client sets (Anthropic base URL + the
@@ -10,7 +10,7 @@
 //     Jam git connector and install a credential helper reading the env-only token.
 //
 // Render composes both into a single sourceable shell snippet (what `at-jam
-// enroll` prints for a Guest); at-cove consumes Env + GitConfig directly.
+// enroll` prints for a Guest).
 package snippet
 
 const (

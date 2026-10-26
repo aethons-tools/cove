@@ -34,7 +34,7 @@ const Label = "harbor.cove"
 // backend value satisfies all three, so its build/inventory and its RunEphemeral
 // share one docker daemon (COV-217).
 type Backend interface {
-	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, ScavengeLabeled
+	backend.DispatchOps     // RunEphemeral, Dial, RemoveContainer, Pause, Unpause
 	backend.KitImageBuilder // BuildKitImage, HasKitImage (studio-kit prepare)
 	backend.VolumeOps       // standing sessions' labeled state volumes
 	GetStatus(container string) (backend.State, error)
@@ -231,8 +231,8 @@ const JamLabel = "harbor.cove.jam"
 // agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).
 const agentDataPath = "/agent-data"
 
-// stateVolumes names a session's state volumes, given its container name: the
-// at-cove create path's <container>-agent-data and <container>-workspace. The
+// stateVolumes names a session's state volumes, given its container name:
+// <container>-agent-data and <container>-workspace. The
 // <container>-docker /var/lib/docker cache (which the backend mounts itself)
 // is the studio's, not the session's: Teardown removes it.
 func stateVolumes(name string) []string {

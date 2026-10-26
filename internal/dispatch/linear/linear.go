@@ -1,5 +1,5 @@
-// Package linear is at-cove dispatch's real scheduler.Tracker: a small GraphQL client
-// over the Linear API. Live calls are exercised by the integration-tagged test.
+// Package linear is a Linear team as Jam's tracker.Tracker: a small GraphQL
+// client over the Linear API. Live calls are exercised by the integration-tagged test.
 package linear
 
 import (
@@ -17,7 +17,7 @@ import (
 
 const endpoint = "https://api.linear.app/graphql"
 
-// Client talks to one Linear team. It satisfies scheduler.Tracker.
+// Client talks to one Linear team. It satisfies tracker.Tracker.
 type Client struct {
 	http           *http.Client
 	token          string
@@ -28,19 +28,17 @@ type Client struct {
 	stateID        map[scheduler.Role]string
 }
 
-// New constructs a Client and resolves the team's state names to ids up front.
-func New(cfg kit.Config, token string, httpc *http.Client) (*Client, error) {
-	if cfg.Tracker == nil || cfg.Tracker.Linear == nil {
-		return nil, fmt.Errorf("linear: kit declares no tracker.linear")
+// New constructs a Client for the team lt names and resolves its state names
+// to ids up front. A tracker with no team is an error, not a query for "".
+func New(lt kit.LinearTracker, token string, httpc *http.Client) (*Client, error) {
+	if lt.Team == "" {
+		return nil, fmt.Errorf("linear: no linear tracker configured (empty team)")
 	}
-	lt := cfg.Tracker.Linear
 	if httpc == nil {
 		httpc = http.DefaultClient
 	}
-	// Default the dispatch-label prefix here, not only in kit.ParseConfig: the
-	// Requisitioner wraps a bare LinearTracker (cmd/at-jam) and never runs
-	// the kit parser, so without this the prefix arrives empty and the gate opens
-	// (every ready issue would be raised).
+	// Default the dispatch-label prefix: without it the prefix arrives empty
+	// and the gate opens (every ready issue would be raised).
 	dispatchPrefix := lt.DispatchLabelPrefix
 	if dispatchPrefix == "" {
 		dispatchPrefix = "dispatch:"
@@ -189,9 +187,8 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 
 // ListReady returns issues in the READY state that are dispatchable now: every
 // "blocks" blocker has reached the Done (completed) state, or the issue has no
-// blockers. Blocked-ness lives in the relationships, not the state — the
-// scheduler no longer promotes BLOCKED→READY and never touches the backlog
-// (COV-65). A READY issue still waiting on a blocker is simply not returned; it
+// blockers. Blocked-ness lives in the relationships, not the state — nothing
+// promotes BLOCKED→READY or touches the backlog (COV-65). A READY issue still waiting on a blocker is simply not returned; it
 // waits in READY until its blockers finish.
 //
 // A dependency is satisfied ONLY at Done — In Progress / In Review / Backlog do
@@ -287,34 +284,6 @@ func (c *Client) doneBlockers(ctx context.Context, ids map[string]struct{}) (map
 		}
 	}
 	return done, nil
-}
-
-// ListInProgress returns issues currently IN PROGRESS paired with the time each
-// entered a started state (Linear's startedAt), for the stale-claim reaper.
-// Nodes without a parseable startedAt are skipped rather than reaped, since a
-// missing timestamp can't establish that a claim is stale.
-func (c *Client) ListInProgress(ctx context.Context) ([]scheduler.InProgressIssue, error) {
-	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description startedAt labels{nodes{name}}}}}`
-	var out struct {
-		Issues struct {
-			Nodes []struct {
-				issueNode
-				StartedAt string `json:"startedAt"`
-			} `json:"nodes"`
-		} `json:"issues"`
-	}
-	if err := c.do(ctx, q, map[string]any{"key": c.team, "state": c.states.InProgress}, &out); err != nil {
-		return nil, err
-	}
-	var issues []scheduler.InProgressIssue
-	for _, n := range out.Issues.Nodes {
-		started, err := time.Parse(time.RFC3339, n.StartedAt)
-		if err != nil {
-			continue // no reliable time-in-state; leave it for a human, don't reap
-		}
-		issues = append(issues, scheduler.InProgressIssue{Issue: c.toIssue(n.issueNode), StartedAt: started})
-	}
-	return issues, nil
 }
 
 // IssueByIdentifier resolves a human-readable ticket identifier (e.g. "AET-42")
@@ -419,5 +388,4 @@ func (c *Client) Viewer(ctx context.Context) (string, error) {
 	return out.Viewer.DisplayName, nil
 }
 
-var _ scheduler.Tracker = (*Client)(nil)
 var _ tracker.Tracker = (*Client)(nil)

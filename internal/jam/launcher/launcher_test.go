@@ -156,11 +156,8 @@ func (f *fakeOps) RemoveVolumes(names ...string) error {
 	f.volsRemoved = append(f.volsRemoved, names...)
 	return f.volsErr
 }
-func (f *fakeOps) Pause(name string) error   { f.paused = name; return nil }
-func (f *fakeOps) Unpause(name string) error { f.unpaused = name; return nil }
-func (f *fakeOps) ScavengeLabeled(label string, olderThan time.Duration, now time.Time) (int, error) {
-	return 0, nil
-}
+func (f *fakeOps) Pause(name string) error                           { f.paused = name; return nil }
+func (f *fakeOps) Unpause(name string) error                         { f.unpaused = name; return nil }
 func (f *fakeOps) GetStatus(container string) (backend.State, error) { return f.status, f.statusErr }
 
 // failingRunner is a Runner whose Run/RunStdin always error, for exercising the

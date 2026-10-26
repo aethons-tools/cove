@@ -4,7 +4,7 @@ read_when: You want a role's coves to run Claude on Vertex AI under Jam, are add
 owns: the Vertex brokering recipe — the per-region vertex destination (route, upstream, client env, allow-paths), the model-spec it pairs with, and why the cove needs no GCP credential or Google egress
 prereqs: serve.md#destinations for the destination verb; credentials.md for `exchange: gcp`; model-specs.md for `claude.provider`
 tier: leaf
-updated: 2026-10-06
+updated: 2026-10-26
 ---
 
 # Claude on Vertex AI through Jam
@@ -14,9 +14,7 @@ broker**. The Google credentials JSON stays on the Jam host as an
 [`exchange: gcp`](credentials.md#demand-and-supply) credential. The broker
 injects a short-lived access token that it refreshes itself, so the cove holds
 nothing but its Jam identity. This is the same model as the
-[anthropic destination](serve.md#destinations). Plain at-cove (no Jam) is
-separate: it still seeds the operator's ADC into the VM
-([at-cove-secrets.md](../at-cove-secrets.md)).
+[anthropic destination](serve.md#destinations).
 
 ## 1. The credential
 

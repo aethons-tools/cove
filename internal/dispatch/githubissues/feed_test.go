@@ -204,9 +204,8 @@ func TestCommentFeedRateLimited(t *testing.T) {
 	}
 }
 
-// Jam's reads (getJSON) surface a rate limit as a RateLimitError; at-cove's
-// New keeps its old error for the same answer (F8: at-cove unchanged).
-func TestRateLimitOnlyForJam(t *testing.T) {
+// Reads (getJSON) surface a rate limit as a RateLimitError.
+func TestReadsRateLimited(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "30")
@@ -216,17 +215,6 @@ func TestRateLimitOnlyForJam(t *testing.T) {
 	var rl *tracker.RateLimitError
 	if _, err := newJamClient(t, mux).ListReady(context.Background()); !errors.As(err, &rl) || rl.RetryAfter != 30*time.Second {
 		t.Fatalf("Jam ListReady = %v; want RateLimitError 30s", err)
-	}
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	u, _ := url.Parse(srv.URL)
-	cove, err := New(testCfg(), "tok", &http.Client{Transport: serverTransport{u}}) // at-cove's constructor
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	_, err = cove.ListReady(context.Background())
-	if errors.As(err, &rl) || err == nil || !strings.Contains(err.Error(), "githubissues: GET ") || !strings.Contains(err.Error(), `http 403: {"message":"secondary rate limit"}`) {
-		t.Fatalf("at-cove ListReady = %v; want its old http 403 error", err)
 	}
 }
 
@@ -359,10 +347,9 @@ func TestCommentFeedCursorHoldsOnError(t *testing.T) {
 	}
 }
 
-// F4: Jam's writes (do: comment, label, close) surface a rate limit as a
-// RateLimitError so the relay can wait it out; at-cove's New keeps its old
-// http error for the same answer.
-func TestWritesRateLimitedOnlyForJam(t *testing.T) {
+// F4: writes (do: comment, label, close) surface a rate limit as a
+// RateLimitError so the relay can wait it out.
+func TestWritesRateLimited(t *testing.T) {
 	mux := http.NewServeMux()
 	limited := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "42")
@@ -383,17 +370,6 @@ func TestWritesRateLimitedOnlyForJam(t *testing.T) {
 		if err := call(jc); !errors.As(err, &rl) || rl.RetryAfter != 42*time.Second {
 			t.Errorf("Jam %s = %v; want RateLimitError 42s", name, err)
 		}
-	}
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	u, _ := url.Parse(srv.URL)
-	cove, err := New(testCfg(), "tok", &http.Client{Transport: serverTransport{u}})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	var rl *tracker.RateLimitError
-	if err := cove.PostComment(ctx, "1", "hi"); errors.As(err, &rl) || err == nil || !strings.Contains(err.Error(), `http 429: {"message":"API rate limit exceeded"}`) {
-		t.Fatalf("at-cove PostComment = %v; want its old http 429 error", err)
 	}
 }
 

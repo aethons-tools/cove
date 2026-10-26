@@ -2,17 +2,18 @@
 summary: The at-mint usage doc — the host-side token minter binary, its two subcommands (github, anthropic), their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract.
 read_when: You are configuring a machine-side secret supply that mints a token — a GitHub App installation token or an Anthropic WIF bearer.
 owns: the at-mint CLI usage — the github and anthropic subcommands, their flags/env, and the minting contract
-prereqs: at-cove-secrets.md — how a kit's demand is supplied by a mint: profile or a command: that invokes at-mint
+prereqs: jam/credentials.md — how a credential is supplied by a mint: profile or a command: that invokes at-mint
 tier: leaf
-updated: 2026-07-14
+updated: 2026-10-26
 ---
 
 # `at-mint` usage
 
 `at-mint` is a **host-side token minter**: a small CLI that mints a short-lived
-credential and prints it to stdout, for use as a secret's `command:` resolver
-(see [at-cove-secrets.md](at-cove-secrets.md)). It never runs inside a
-sandbox — it runs on the host, invoked by `at-cove` when resolving a demand.
+credential and prints it to stdout, for use as a credential's `command:`
+source (see [jam/credentials.md](jam/credentials.md#sources)). It never runs
+inside a studio — it runs on the host, invoked by `at-jam` when resolving a
+demand.
 
 It has two subcommands, `github` and `anthropic`, each minting a different
 kind of token.
@@ -22,7 +23,7 @@ kind of token.
 Both subcommands share one contract:
 
 - **Flags are non-secret.** Every `--flag` value (App id, tenant, org, rule
-  id, a key *path*, …) is safe to write in `secrets.yml` or a shell history.
+  id, a key *path*, …) is safe to write in `credentials.yml` or a shell history.
 - **Env is secret.** The one piece of secret material each subcommand needs
   (a private key's contents, a client secret) comes **only** from an
   environment variable — never a flag, never argv.
@@ -53,8 +54,8 @@ at-mint github --app-id <id> --install-id <id> [--app-key-file <path>]
 
 The key comes from `--app-key-file` if set, else from
 `AT_MINT_GITHUB_APP_KEY`; if neither is set, it fails closed. `--repo`
-is required (the `mint:` expander supplies it from the kit's
-`source-control.github.project`; a bare `command:` passes it explicitly) — its
+is required (Jam's `mint:` expander supplies none, so pass it in a
+`command:` — [jam/credentials.md](jam/credentials.md#minters)) — its
 repo *name* (the part after the `/`) is what the installation-token request
 scopes to; the requested permissions are fixed in `at-mint` itself, not derived
 from any input. Every secret reaches `at-mint` via env only; every non-secret
@@ -96,48 +97,14 @@ either hop fails closed.
 The token's lifetime is set **server-side by the federation rule** (and bounded
 by the Auth0 assertion's own expiry) — at-mint requests no TTL. It logs the
 minted token's `expires_in` and whether a `refresh_token` was offered to stderr.
-When run as an at-cove worker secret supply (`COVE_RUN_TIMEOUT` is set), it also
-**fails closed if `expires_in` is shorter than the run timeout** — a bearer that
-would expire mid-run is caught before any VM is built, rather than surfacing
-later as an opaque agent `401`.
+If `COVE_RUN_TIMEOUT` is set in its environment (nothing in Jam sets it), it
+also **fails closed if `expires_in` is shorter than that timeout**.
 
-## Using it as a secret supply
+## Using it as a credential supply
 
-Normally you don't invoke `at-mint` yourself — a `{ mint: <profile> }` demand
-does it for you. `secrets.yml` names a reusable `minters:` profile once, and
-at-cove assembles the `at-mint` flags/env from it on every resolve:
-
-```yaml
-minters:
-  gh-cove:
-    github:
-      app-id: "123456"
-      install-id: "7890"
-      app-key: /etc/cove/gh-app.pem       # a path (non-secret) -> --app-key-file
-
-kits:
-  reference-worker:
-    AT_TASK_GIT_TOKEN: { mint: gh-cove }
-```
-
-See [at-cove-secrets.md](at-cove-secrets.md) for the full `minters:` profile
-schema (the `github`/`anthropic` tagged union, and how a `value:` path vs. a
-`command:`/`global:`-sourced field decides flag vs. env), the four supply
-sources, precedence, and fail-closed rules.
-
-The direct-`command:` form — invoking `at-mint` as a bare `command:` under a
-kit's `secrets.yml` entry, spelling out the full argv yourself — is the manual
-alternative, and still works:
-
-```yaml
-kits:
-  reference-worker:
-    AT_TASK_GIT_TOKEN:
-      command: ["at-mint","github","--app-id","123456","--install-id","7890","--app-key-file","/etc/cove/gh-app.pem"]
-```
-
-`AT_MINT_GITHUB_APP_KEY`/`AT_MINT_AUTH0_CLIENT_SECRET` come from the
-resolver's own process environment on the host — set them in the shell/
-service that runs `at-cove`, not in the kit or in `secrets.yml`. `command:`
-resolvers (manual form or profile-sourced) additionally see
-`COVE_RUN_{REPO,ISSUE,CLASS,TIMEOUT}` during `work`/`dispatch`.
+Normally you don't invoke `at-mint` yourself: Jam's
+[credentials file](jam/credentials.md#minters) names a `minters:` profile once and
+a `{ mint: <profile> }` credential runs `at-mint` from it on every resolve, or a
+`command:` spells the invocation out. `AT_MINT_GITHUB_APP_KEY` /
+`AT_MINT_AUTH0_CLIENT_SECRET` come from the resolving process's own environment
+or from the profile's source field — never from argv.
