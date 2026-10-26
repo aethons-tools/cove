@@ -4,7 +4,7 @@ read_when: You (a human operator) want Jam to raise a session of a role for you 
 owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-26
 ---
 
 # Personal sessions
@@ -166,6 +166,7 @@ All take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 
 ```
 at-jam session request --project acme --role pair --prompt-file task.md   # prints the session id
+#   [--manager NAME ...] [--placement-timeout 30s]: see coves.md#managers-and-placement
 at-jam session list    [--project acme]
 at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 ```

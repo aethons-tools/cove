@@ -55,6 +55,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
+	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/imagefacts"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
@@ -1810,6 +1811,69 @@ func cmdActors(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// builtLauncher is what buildLauncher hands serve: the launcher the supervisor
+// drives, the image reader for setup inspection, and the default studio kit.
+type builtLauncher struct {
+	launcher       jam.Launcher
+	images         jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
+	defaultKit     jam.KitRef
+	haveDefaultKit bool
+}
+
+// buildLauncher builds the studio launcher from runtime.launcher. With no
+// block it is placeholderLauncher{} and there is no router. With a block, the
+// Colima launcher is registered as the manager "local" in a fleet.Router,
+// which is what the supervisor drives.
+func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Logger) (builtLauncher, error) {
+	out := builtLauncher{launcher: placeholderLauncher{}}
+	lc := cfg.Runtime.Launcher
+	if lc == nil {
+		return out, nil
+	}
+	// docker-context picks the colima instance (profile) studios run in.
+	col := colima.NewWithContext(runner.OS{}, lc.DockerContext)
+	var be launcher.Backend = col
+	out.images = imagefacts.New(runner.OS{}, col) // setup inspection reads images on the same daemon
+	// The launcher builds each studio kit's image on demand, so it needs the
+	// public half of the SSH identity to bake into the image's authorized_keys
+	// (the same key at-cove install baked; its private half is IdentityFile). No
+	// kit source directory: the build context comes from the kit definition
+	// (data) + resources compiled into this binary, and the FROM-base is resolved
+	// per kit on the substrate (gate ON).
+	pub, err := os.ReadFile(lc.IdentityFile + ".pub")
+	if err != nil {
+		return builtLauncher{}, fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
+	}
+	colimaLauncher := launcher.New(launcher.Config{
+		Ops: be, Runner: runner.OS{},
+		JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
+		IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
+		DNS: lc.DNS, Docker: lc.Docker,
+		PublicKey: pub,
+		// Seed raised coves in subscription mode when the pool is enabled, so
+		// their claude authenticates as a pooled subscription principal.
+		Subscription: cfg.Pool != nil,
+		Log:          log,
+		SSHUserCA:    sshUserCA,
+	})
+	router := fleet.New(log)
+	router.Add(fleet.Local(colimaLauncher))
+	out.launcher = router
+	log.Info("Jam managers", "names", router.Names())
+	// Seed the built-in default studio kit (blessed base, Anthropic-free egress
+	// ceiling — COV-208) in the registry and hand its reference to the
+	// supervisor. Idempotent: an unchanged definition reuses the version across
+	// restarts; the supervisor resolves the full definition from the registry
+	// only when the launcher reports the kit is not yet built.
+	out.defaultKit, err = jam.EnsureDefaultStudioKit(st)
+	if err != nil {
+		return builtLauncher{}, fmt.Errorf("seed default studio kit: %w", err)
+	}
+	out.haveDefaultKit = true
+	log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", out.defaultKit.String())
+	return out, nil
+}
+
 // placeholderLauncher satisfies jam.Launcher without a real backend: it
 // records a synthetic location and always probes Alive, so the supervisor spine
 // (registry, leases, reconciler, restart re-adoption) runs end-to-end against a
@@ -2136,51 +2200,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1
 	}
-	var lch jam.Launcher = placeholderLauncher{}
-	var defaultRef jam.KitRef
-	var haveDefaultKit bool
-	var images jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
-	if lc := cfg.Runtime.Launcher; lc != nil {
-		// docker-context picks the colima instance (profile) studios run in.
-		col := colima.NewWithContext(runner.OS{}, lc.DockerContext)
-		var be launcher.Backend = col
-		images = imagefacts.New(runner.OS{}, col) // setup inspection reads images on the same daemon
-		// The launcher builds each studio kit's image on demand, so it needs the
-		// public half of the SSH identity to bake into the image's authorized_keys
-		// (the same key at-cove install baked; its private half is IdentityFile). No
-		// kit source directory: the build context comes from the kit definition
-		// (data) + resources compiled into this binary, and the FROM-base is resolved
-		// per kit on the substrate (gate ON).
-		pub, err := os.ReadFile(lc.IdentityFile + ".pub")
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: launcher identity public key ("+lc.IdentityFile+".pub):", err)
-			return 1
-		}
-		lch = launcher.New(launcher.Config{
-			Ops: be, Runner: runner.OS{},
-			JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
-			IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
-			DNS: lc.DNS, Docker: lc.Docker,
-			PublicKey: pub,
-			// Seed raised coves in subscription mode when the pool is enabled, so
-			// their claude authenticates as a pooled subscription principal.
-			Subscription: cfg.Pool != nil,
-			Log:          log,
-			SSHUserCA:    sshUserCA,
-		})
-		// Seed the built-in default studio kit (blessed base, Anthropic-free egress
-		// ceiling — COV-208) in the registry and hand its reference to the
-		// supervisor. Idempotent: an unchanged definition reuses the version across
-		// restarts; the supervisor resolves the full definition from the registry
-		// only when the launcher reports the kit is not yet built.
-		defaultRef, err = jam.EnsureDefaultStudioKit(st)
-		if err != nil {
-			fmt.Fprintln(stderr, "at-jam: seed default studio kit:", err)
-			return 1
-		}
-		haveDefaultKit = true
-		log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", defaultRef.String())
+	built, err := buildLauncher(cfg, st, sshUserCA, log)
+	if err != nil {
+		fmt.Fprintln(stderr, "at-jam:", err)
+		return 1
 	}
+	lch, images := built.launcher, built.images
+	defaultRef, haveDefaultKit := built.defaultKit, built.haveDefaultKit
 	sup := jam.NewSupervisor(st, lch, jam.NewHolderID(), ttl, reconcile, time.Now, log)
 	if haveDefaultKit {
 		sup.SetDefaultStudioKit(defaultRef)
