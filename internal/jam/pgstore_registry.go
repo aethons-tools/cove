@@ -506,7 +506,7 @@ func (s *PostgresStore) PutStandingSession(project ident.ID, role, name, session
 		return err
 	}
 	if err := s.registryTx("PutStandingSession", func(ctx context.Context, tx pgx.Tx) error {
-		return putStandingSessionTx(ctx, tx, project, role, name, sessionID)
+		return putStandingSessionTx(ctx, tx, project, role, name, sessionID, "")
 	}); err != nil {
 		return err
 	}
@@ -514,11 +514,13 @@ func (s *PostgresStore) PutStandingSession(project ident.ID, role, name, session
 	return nil
 }
 
-func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role, name, sessionID string) error {
+func putStandingSessionTx(ctx context.Context, tx pgx.Tx, project ident.ID, role, name, sessionID, manager string) error {
+	// A re-put keeps the existing pin unless the entry brings one (an import).
 	_, err := tx.Exec(ctx,
-		`INSERT INTO standing_sessions (project_id, role, name, session_id) VALUES ($1,$2,$3,$4)
-		 ON CONFLICT (project_id, role, name) DO UPDATE SET session_id = EXCLUDED.session_id`,
-		project, role, name, sessionID)
+		`INSERT INTO standing_sessions (project_id, role, name, session_id, manager) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (project_id, role, name) DO UPDATE SET session_id = EXCLUDED.session_id,
+		   manager = CASE WHEN EXCLUDED.manager <> '' THEN EXCLUDED.manager ELSE standing_sessions.manager END`,
+		project, role, name, sessionID, manager)
 	return err
 }
 

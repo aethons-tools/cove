@@ -138,3 +138,22 @@ func TestPersonalSessionNotPinned(t *testing.T) {
 		t.Fatalf("pin = %q, want none", got)
 	}
 }
+
+func TestStandingPinSurvivesConfigExportImport(t *testing.T) {
+	_, src, _, pid, sid := pinFixture(t, "a")
+	if err := src.SetStandingSessionManager(pid, "guest", "spider", "mac-1"); err != nil {
+		t.Fatal(err)
+	}
+	snap := src.ExportConfig()
+	dst := NewMemStore()
+	if err := dst.ImportConfig(snap); err != nil {
+		t.Fatal(err)
+	}
+	dpid, _ := ProjectIDOf(dst, "default")
+	if got, ok := dst.StandingSessionID(dpid, "guest", "spider"); !ok || got != sid {
+		t.Fatalf("imported session = %q, %v", got, ok)
+	}
+	if got := dst.StandingSessionManager(dpid, "guest", "spider"); got != "mac-1" {
+		t.Fatalf("imported pin = %q, want mac-1", got)
+	}
+}

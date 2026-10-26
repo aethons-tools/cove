@@ -566,7 +566,7 @@ func (m *memState) exportRegistry(snap *ConfigSnapshot) {
 		}
 	}
 	for k, e := range m.standing {
-		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: e.sessionID})
+		snap.StandingSessions = append(snap.StandingSessions, StandingSessionRef{ProjectID: k.project, Role: k.role, Name: k.name, SessionID: e.sessionID, Manager: e.manager})
 	}
 	slices.SortFunc(snap.StandingSessions, func(a, b StandingSessionRef) int { return strings.Compare(a.SessionID, b.SessionID) })
 	for _, id := range slices.Sorted(maps.Keys(m.channels)) {
@@ -720,7 +720,7 @@ func planSnapshotRegistry(s ConfigSnapshot, existing []Connection) (humanPlan, *
 		if err := m.preparePutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID); err != nil {
 			return bad("standing session %s/%s: %v", ss.Role, ss.Name, err)
 		}
-		m.applyPutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID)
+		m.applyPutStandingSessionRef(ss)
 		plan.standing = append(plan.standing, ss)
 	}
 	for _, c := range s.Channels {

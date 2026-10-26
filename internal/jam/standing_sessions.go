@@ -102,6 +102,15 @@ func (m *memState) applyPutStandingSession(project ident.ID, role, name, session
 	m.standing[key] = e
 }
 
+// applyPutStandingSessionRef applies a ref (an import or migration plan's
+// entry), restoring its pin when it carries one.
+func (m *memState) applyPutStandingSessionRef(r StandingSessionRef) {
+	m.applyPutStandingSession(r.ProjectID, r.Role, r.Name, r.SessionID)
+	if r.Manager != "" {
+		m.applySetStandingSessionManager(r.ProjectID, r.Role, r.Name, r.Manager)
+	}
+}
+
 // applySetStandingSessionManager pins an existing entry (no-op if absent).
 func (m *memState) applySetStandingSessionManager(project ident.ID, role, name, manager string) {
 	key := standingKey{project, role, name}

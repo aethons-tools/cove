@@ -574,7 +574,7 @@ func (m *memState) applyHumanPlan(p humanPlan) {
 		m.applyPutInstance(inst)
 	}
 	for _, s := range p.standing {
-		m.applyPutStandingSession(s.ProjectID, s.Role, s.Name, s.SessionID)
+		m.applyPutStandingSessionRef(s)
 	}
 	for _, c := range p.channels {
 		m.applyPutChannel(c)

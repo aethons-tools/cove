@@ -38,7 +38,7 @@ func stateFromSnapshot(snap ConfigSnapshot, instances []Instance) *memState {
 		m.applyPutChannel(c)
 	}
 	for _, ss := range snap.StandingSessions {
-		m.applyPutStandingSession(ss.ProjectID, ss.Role, ss.Name, ss.SessionID)
+		m.applyPutStandingSessionRef(ss)
 	}
 	for _, i := range instances {
 		m.applyPutInstance(i)
