@@ -2094,3 +2094,31 @@ func TestTeardownRemovesShareGrants(t *testing.T) {
 		t.Fatalf("grants survived teardown: %+v", got)
 	}
 }
+
+func TestSupervisorSetMission(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.SetMission("cove-1", " a\nb "); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.Mission != "a b" {
+		t.Fatalf("Mission = %q, want %q", got.Mission, "a b")
+	}
+	if err := sup.SetMission("nope", "x"); err == nil {
+		t.Fatal("unknown actor should error")
+	}
+}
+
+func TestRaiseCopiesMission(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Mission: " Ticket\ntitle "}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Mission != "Ticket title" {
+		t.Fatalf("Mission = %q, want %q", got.Mission, "Ticket title")
+	}
+}
