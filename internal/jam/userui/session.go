@@ -229,10 +229,55 @@ func (h *handler) sessionHeadRoute(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "sessionhead", inboxPage{Conv: &Conversation{Head: &hd}})
 }
 
-// sessionAction runs release, restart or upgrade on a session, re-checking
-// who may: 204 (a page reload once it ends, a refresh after an upgrade);
-// 403; 404 alike for missing and unseen. Interrupt, compact and clear are
-// anyone's who can see the session, while its activity allows (else 409).
+// sessionOutcome runs action on inst for p, re-checking who may: 204, or the
+// refusal's status, API code and text. Release, restart and upgrade are
+// the owner's or an operator's; interrupt, compact and clear are anyone's
+// who can see the session, while its activity allows (else 409). Shared by
+// the HTML and API routes.
+func (h *handler) sessionOutcome(r *http.Request, p jam.Participant, inst jam.Instance, action string) (int, string, string) {
+	pr, _ := appui.PrincipalFrom(r)
+	op := pr.Admin
+	var err error
+	switch action {
+	case "release":
+		if !mayRelease(inst, p, op) {
+			return http.StatusForbidden, "forbidden", "only the session's owner (or an operator) may release it"
+		}
+		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
+	case "restart":
+		if !op || inst.SessionKind == jam.SessionKindPersonal {
+			return http.StatusForbidden, "forbidden", "operators only"
+		}
+		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
+	case "upgrade":
+		if !op || inst.SessionKind != jam.SessionKindStanding {
+			return http.StatusForbidden, "forbidden", "operators only, standing sessions"
+		}
+		_, err = h.d.Ops.Upgrade(inst)
+	case string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
+		c := jam.SessionCommand(action)
+		if a := jam.CommandActivity(inst); !jam.CommandAllowed(c, a) {
+			return http.StatusConflict, "conflict", string(c) + " is not available while the session is " + string(a)
+		}
+		by := h.d.Intercom.PartyOf(p.UserID).Label
+		if by == "" {
+			by = string(p.UserID)
+		}
+		err = h.d.Ops.Command(r.Context(), inst, c, by)
+	default:
+		return http.StatusNotFound, "not_found", "no such session action"
+	}
+	if err != nil {
+		h.lg.Error("session action failed", "session", inst.ActorID, "action", action, "error", err.Error())
+		return http.StatusBadGateway, "action_failed", "the " + action + " failed; see the jam log"
+	}
+	h.lg.Info("session action", "session", inst.ActorID, "action", action, "by", string(p.UserID))
+	return http.StatusNoContent, "", ""
+}
+
+// sessionAction is the HTML route (see sessionOutcome): 204 (a page reload
+// once the session ends, a refresh after an upgrade or a command); 403; 404
+// alike for missing and unseen; 409; 502.
 func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
@@ -244,50 +289,17 @@ func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	pr, _ := appui.PrincipalFrom(r)
-	op := pr.Admin
-	var err error
-	switch r.PathValue("action") {
-	case "release":
-		if !mayRelease(inst, p, op) {
-			http.Error(w, "only the session's owner (or an operator) may release it", http.StatusForbidden)
-			return
-		}
-		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
-	case "restart":
-		if !op || inst.SessionKind == jam.SessionKindPersonal {
-			http.Error(w, "operators only", http.StatusForbidden)
-			return
-		}
-		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
-	case "upgrade":
-		if !op || inst.SessionKind != jam.SessionKindStanding {
-			http.Error(w, "operators only, standing sessions", http.StatusForbidden)
-			return
-		}
-		_, err = h.d.Ops.Upgrade(inst)
-	case string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
-		c := jam.SessionCommand(r.PathValue("action"))
-		if a := jam.CommandActivity(inst); !jam.CommandAllowed(c, a) {
-			http.Error(w, string(c)+" is not available while the session is "+string(a), http.StatusConflict)
-			return
-		}
-		by := h.d.Intercom.PartyOf(p.UserID).Label
-		if by == "" {
-			by = string(p.UserID)
-		}
-		err = h.d.Ops.Command(r.Context(), inst, c, by)
-	default:
+	action := r.PathValue("action")
+	switch status, _, msg := h.sessionOutcome(r, p, inst, action); status {
+	case http.StatusNoContent:
+	case http.StatusNotFound:
 		http.NotFound(w, r)
 		return
-	}
-	if err != nil {
-		h.lg.Error("session action failed", "session", inst.ActorID, "action", r.PathValue("action"), "error", err.Error())
-		http.Error(w, "the "+r.PathValue("action")+" failed; see the jam log", http.StatusBadGateway)
+	default:
+		http.Error(w, msg, status)
 		return
 	}
-	h.lg.Info("session action", "session", inst.ActorID, "action", r.PathValue("action"), "by", string(p.UserID))
-	switch r.PathValue("action") {
+	switch action {
 	case "upgrade", string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
 		w.Header().Set("HX-Trigger", "meChanged")
 	default:

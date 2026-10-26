@@ -2,6 +2,7 @@ package userui
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,3 +129,53 @@ func TestAPISessionPane(t *testing.T) {
 		}
 	}
 }
+
+func TestAPISessionActions(t *testing.T) {
+	e, p, personal, standing, ops := sessionEnv(t)
+	for _, tc := range []struct {
+		inst   jam.Instance
+		action string
+		admin  bool
+		code   int
+		want   string
+	}{
+		{standing, "restart", false, 403, `"code":"forbidden"`},
+		{standing, "upgrade", false, 403, "operators only, standing sessions"},
+		{standing, "release", true, 403, "only the session's owner (or an operator) may release it"},
+		{personal, "interrupt", false, 409, "is not available while the session is"},
+		{personal, "explode", false, 404, `"code":"not_found"`},
+		{personal, "release", false, 204, ""},
+		{standing, "upgrade", true, 204, ""},
+	} {
+		rec := sessAPI(t, e, p, "POST", tc.inst.ActorID+"/"+tc.action, "{}", tc.admin)
+		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("%s %s (admin %v) = %d %s, want %d %s", tc.inst.Name, tc.action, tc.admin, rec.Code, rec.Body, tc.code, tc.want)
+		}
+		if rec.Code >= 400 {
+			checkJSONHeaders(t, rec)
+		}
+	}
+	if len(ops.torn) != 1 || ops.torn[0] != personal.ActorID || len(ops.upgraded) != 1 {
+		t.Errorf("ops: torn %v, upgraded %v", ops.torn, ops.upgraded)
+	}
+	// A command that fails upstream says so; a form post is refused.
+	ops.cmdErr = errNoStream
+	if rec := sessAPI(t, e, p, "POST", personal.ActorID+"/compact", "{}", false); rec.Code != http.StatusBadGateway ||
+		!strings.Contains(rec.Body.String(), `"code":"action_failed"`) || !strings.Contains(rec.Body.String(), "the compact failed; see the jam log") {
+		t.Errorf("failed compact = %d %s", rec.Code, rec.Body)
+	}
+	req := httptest.NewRequest("POST", "/app/user/api/sessions/"+personal.ActorID+"/compact", strings.NewReader("x=1"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	Handler(e.Deps, nil).ServeHTTP(rec, asPrincipal(req, p, false))
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("form post = %d", rec.Code)
+	}
+	// Session ops not wired: there are no actions.
+	e.Deps.Ops = nil
+	if rec := sessAPI(t, e, p, "POST", personal.ActorID+"/compact", "{}", false); rec.Code != http.StatusNotFound {
+		t.Errorf("no ops = %d %s", rec.Code, rec.Body)
+	}
+}
+
+var errNoStream = errors.New("no live stream")

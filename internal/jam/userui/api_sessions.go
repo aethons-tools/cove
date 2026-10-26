@@ -14,6 +14,7 @@ var apiPaneTabs = []string{"previews", "artifacts", "status"}
 func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/sessions/{id}", h.apiSessionHead)
 	mux.HandleFunc("GET /app/user/api/sessions/{id}/pane/{tab}", h.apiSessionPane)
+	mux.HandleFunc("POST /app/user/api/sessions/{id}/{action}", h.apiSessionAction)
 }
 
 // noSession is every "no such session": the same for one the viewer may
@@ -57,4 +58,27 @@ func (h *handler) apiSessionPane(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, paneLists(h.buildPane(r, p, inst, home, tab)))
+}
+
+// apiSessionAction runs a session action (see sessionOutcome); the app
+// refetches the head, which 404s once the session is gone.
+func (h *handler) apiSessionAction(w http.ResponseWriter, r *http.Request) {
+	var req struct{}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	p, inst, _, ok := h.openSession(w, r)
+	if !ok {
+		return
+	}
+	if h.d.Ops == nil {
+		noSession(w)
+		return
+	}
+	status, code, msg := h.sessionOutcome(r, p, inst, r.PathValue("action"))
+	if status == http.StatusNoContent {
+		w.WriteHeader(status)
+		return
+	}
+	writeAPIError(w, status, code, msg)
 }
