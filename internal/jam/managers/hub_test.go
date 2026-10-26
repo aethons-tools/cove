@@ -1,0 +1,556 @@
+package managers
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/fleet"
+	"github.com/aethons-tools/cove/internal/jam/managers/client"
+	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
+)
+
+const testVersion = "v1"
+
+// hubEnv is a Hub served over bufconn with a MemStore and an empty Router.
+type hubEnv struct {
+	hub    *Hub
+	store  jam.Store
+	router *fleet.Router
+	cc     *grpc.ClientConn
+}
+
+// newHubEnv builds the env; mod (may be nil) adjusts the Config before
+// NewHub, and pre (may be nil) runs on the store before Start.
+func newHubEnv(t *testing.T, mod func(*Config), pre func(jam.Store)) *hubEnv {
+	t.Helper()
+	store := jam.NewMemStore()
+	if pre != nil {
+		pre(store)
+	}
+	cfg := Config{Store: store, Router: fleet.New(nil), Version: testVersion, Log: slog.New(slog.DiscardHandler)}
+	if mod != nil {
+		mod(&cfg)
+	}
+	h := NewHub(cfg)
+	if err := h.Start(); err != nil {
+		t.Fatal(err)
+	}
+	lis := bufconn.Listen(1 << 20)
+	srv := grpc.NewServer()
+	managerpb.RegisterStudioManagerServer(srv, h)
+	go func() { _ = srv.Serve(lis) }()
+	cc, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cc.Close(); srv.Stop() })
+	return &hubEnv{hub: h, store: store, router: cfg.Router, cc: cc}
+}
+
+func (e *hubEnv) add(t *testing.T, name string) string {
+	t.Helper()
+	tok, err := e.hub.Add(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.Name != name || tok.Token == "" {
+		t.Fatalf("Add = %+v", tok)
+	}
+	return tok.Token
+}
+
+// runClient runs client.Run in the background; stop cancels it and waits.
+func runClient(t *testing.T, cc grpc.ClientConnInterface, cfg client.Config) (errc chan error, stop func()) {
+	t.Helper()
+	if cfg.Version == "" {
+		cfg.Version = testVersion
+	}
+	if cfg.Launcher == nil {
+		cfg.Launcher = &testLauncher{loc: "loc-" + cfg.Name}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan error, 1)
+	finished := make(chan struct{})
+	go func() { out <- client.Run(ctx, cc, cfg); close(finished) }()
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case <-finished:
+			case <-time.After(5 * time.Second):
+				t.Error("client.Run did not return after cancel")
+			}
+		})
+	}
+	t.Cleanup(stop)
+	return out, stop
+}
+
+// runErr waits for a client's Run to return.
+func runErr(t *testing.T, errc chan error) error {
+	t.Helper()
+	select {
+	case err := <-errc:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("client.Run did not return")
+		return nil
+	}
+}
+
+// eventually polls cond for up to 2s.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (e *hubEnv) available(name string) bool {
+	e.hub.mu.Lock()
+	r := e.hub.remotes[name]
+	e.hub.mu.Unlock()
+	return r != nil && r.Available()
+}
+
+func (e *hubEnv) status(t *testing.T, name string) jam.ManagerStatus {
+	t.Helper()
+	for _, s := range e.hub.Statuses() {
+		if s.Name == name {
+			return s
+		}
+	}
+	t.Fatalf("no status for %s", name)
+	return jam.ManagerStatus{}
+}
+
+// rawStream opens a Connect stream with token and sends nothing.
+func rawStream(t *testing.T, cc grpc.ClientConnInterface, token string) managerpb.StudioManager_ConnectClient {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+	s, err := managerpb.NewStudioManagerClient(cc).Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// recvUntilErr reads until the stream fails.
+func recvUntilErr(t *testing.T, s managerpb.StudioManager_ConnectClient) error {
+	t.Helper()
+	errc := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := s.Recv(); err != nil {
+				errc <- err
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-errc:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream did not end")
+		return nil
+	}
+}
+
+func wantCode(t *testing.T, err error, code codes.Code) {
+	t.Helper()
+	if status.Code(err) != code {
+		t.Fatalf("err = %v, want %s", err, code)
+	}
+}
+
+// testLauncher is the manager's backend in hub and e2e tests.
+type testLauncher struct {
+	loc string
+
+	mu    sync.Mutex
+	creds []jam.LaunchCreds
+	torn  []string
+}
+
+func (l *testLauncher) Raise(_ context.Context, spec jam.RaiseSpec, c jam.LaunchCreds) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.creds = append(l.creds, c)
+	return l.loc, nil
+}
+
+func (l *testLauncher) Teardown(_ context.Context, inst jam.Instance) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.torn = append(l.torn, inst.ActorID)
+	return nil
+}
+
+func (l *testLauncher) Probe(context.Context, jam.Instance) (jam.Liveness, error) {
+	return jam.LivenessAlive, nil
+}
+func (l *testLauncher) Pause(context.Context, jam.Instance) error   { return nil }
+func (l *testLauncher) Unpause(context.Context, jam.Instance) error { return nil }
+func (l *testLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
+	return nil
+}
+func (l *testLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
+func (l *testLauncher) BuildKitDraft(_ context.Context, _ jam.KitDefinition, _ string, w io.Writer) (string, error) {
+	_, _ = io.WriteString(w, "step 1\n")
+	_, _ = io.WriteString(w, "step 2\n")
+	return "img-draft", nil
+}
+func (l *testLauncher) HasKitDraftImage(string) (bool, error) { return true, nil }
+
+func (l *testLauncher) gotCreds() []jam.LaunchCreds {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.creds)
+}
+
+func (l *testLauncher) gotTorn() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.torn)
+}
+
+type fakeReconciler struct {
+	mu   sync.Mutex
+	name string
+	inv  jam.ManagerInventory
+	out  jam.ManagerReconcile
+}
+
+func (f *fakeReconciler) ReconcileManager(name string, inv jam.ManagerInventory) jam.ManagerReconcile {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.name, f.inv = name, inv
+	return f.out
+}
+
+func TestHubRejectsBadToken(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	e.add(t, "m1")
+	errc, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: "not-a-token"})
+	err := runErr(t, errc)
+	wantCode(t, err, codes.Unauthenticated)
+	if !strings.Contains(err.Error(), "unknown manager token") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHubRejectsNameMismatch(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "a")
+	e.add(t, "b")
+	errc, _ := runClient(t, e.cc, client.Config{Name: "b", Token: tok})
+	wantCode(t, runErr(t, errc), codes.PermissionDenied)
+}
+
+func TestHubRejectsVersionMismatch(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	errc, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: tok, Version: "v2"})
+	err := runErr(t, errc)
+	wantCode(t, err, codes.FailedPrecondition)
+	if got := status.Convert(err).Message(); got != "version mismatch: jam v1, manager v2" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+func TestHubHelloTimeout(t *testing.T) {
+	e := newHubEnv(t, func(c *Config) { c.HelloTimeout = 50 * time.Millisecond }, nil)
+	tok := e.add(t, "m1")
+	s := rawStream(t, e.cc, tok)
+	err := recvUntilErr(t, s)
+	if err == io.EOF || status.Code(err) == codes.OK {
+		t.Fatalf("err = %v, want a non-OK status", err)
+	}
+}
+
+func TestHubFirstMessageNotHello(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	s := rawStream(t, e.cc, tok)
+	if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Heartbeat{Heartbeat: &managerpb.Heartbeat{}}}); err != nil {
+		t.Fatal(err)
+	}
+	err := recvUntilErr(t, s)
+	wantCode(t, err, codes.InvalidArgument)
+	if !strings.Contains(err.Error(), "expected hello") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestHubStartRegistersStoredManagersDisconnected(t *testing.T) {
+	e := newHubEnv(t, nil, func(s jam.Store) {
+		for i, n := range []string{"m1", "m2"} {
+			rec := jam.ManagerRecord{Name: n, TokenHash: jam.HashToken("tok-" + n), CreatedAt: time.Unix(int64(100+i), 0)}
+			if err := s.AddManager(rec); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	if got := e.router.Names(); !slices.Equal(got, []string{"m1", "m2"}) {
+		t.Fatalf("Names = %v", got)
+	}
+	lv, err := e.router.Probe(context.Background(), jam.Instance{ActorID: "x", Manager: "m1"})
+	if lv != jam.LivenessUnknown || err != nil {
+		t.Fatalf("Probe = %v, %v", lv, err)
+	}
+	if st := e.status(t, "m1"); st.Connected {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestHubConnectMakesAvailableAndReconciles(t *testing.T) {
+	rec := &fakeReconciler{out: jam.ManagerReconcile{Strays: []jam.ManagedStudio{{ActorID: "s1", Location: "ls"}}}}
+	e := newHubEnv(t, func(c *Config) { c.Reconciler = rec }, nil)
+	tok := e.add(t, "m1")
+
+	type res struct {
+		p   jam.Placed
+		err error
+	}
+	raised := make(chan res, 1)
+	go func() {
+		spec := jam.RaiseSpec{ActorID: "w1", Placement: jam.Placement{Managers: []string{"m1"}, Timeout: 5 * time.Second}}
+		p, err := e.router.RaiseOn(context.Background(), spec, jam.LaunchCreds{})
+		raised <- res{p, err}
+	}()
+
+	inv := []jam.ManagedStudio{{ActorID: "s1", Location: "ls"}}
+	runClient(t, e.cc, client.Config{
+		Name: "m1", Token: tok, Capacity: 4, Launcher: &testLauncher{loc: "loc-1"},
+		Inventory: func(context.Context) ([]jam.ManagedStudio, error) { return inv, nil },
+	})
+	eventually(t, "m1 available", func() bool { return e.available("m1") })
+	connected := time.Now()
+	if !e.router.HasManager("m1") {
+		t.Fatal("router lacks m1")
+	}
+	rec.mu.Lock()
+	if rec.name != "m1" || !slices.Equal(rec.inv.Studios, inv) {
+		t.Errorf("reconciled %q %+v", rec.name, rec.inv)
+	}
+	rec.mu.Unlock()
+	st := e.status(t, "m1")
+	if !st.Connected || st.Version != testVersion || st.Capacity != 4 || st.ConnectedAt.IsZero() || st.LastSeen.IsZero() {
+		t.Fatalf("status = %+v", st)
+	}
+	if !slices.Equal(st.Strays, inv) {
+		t.Fatalf("strays = %+v", st.Strays)
+	}
+	// The router re-polls a waiting raise every second; finishing well
+	// before that shows the hub's Kick woke it.
+	select {
+	case r := <-raised:
+		if r.err != nil || r.p.Manager != "m1" || r.p.Location != "loc-1" {
+			t.Fatalf("RaiseOn = %+v, %v", r.p, r.err)
+		}
+	case <-time.After(750*time.Millisecond - time.Since(connected)):
+		t.Fatal("waiting RaiseOn was not woken by the connect")
+	}
+}
+
+func TestHubReplacesStream(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	errA, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: tok, Launcher: &testLauncher{loc: "A"}})
+	eventually(t, "A connected", func() bool { return e.available("m1") })
+	runClient(t, e.cc, client.Config{Name: "m1", Token: tok, Launcher: &testLauncher{loc: "B"}})
+	runErr(t, errA) // A is closed once B attaches
+	eventually(t, "B connected", func() bool { return e.available("m1") })
+	p, err := e.router.RaiseOn(context.Background(), jam.RaiseSpec{ActorID: "w1", Placement: jam.Placement{Managers: []string{"m1"}, Timeout: 5 * time.Second}}, jam.LaunchCreds{})
+	if err != nil || p.Location != "B" {
+		t.Fatalf("RaiseOn = %+v, %v", p, err)
+	}
+	sts := e.hub.Statuses()
+	if len(sts) != 1 || !sts[0].Connected {
+		t.Fatalf("statuses = %+v", sts)
+	}
+}
+
+func TestHubDisconnectProbesUnknown(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	_, stop := runClient(t, e.cc, client.Config{Name: "m1", Token: tok})
+	eventually(t, "connected", func() bool { return e.available("m1") })
+	stop()
+	eventually(t, "disconnected", func() bool { return !e.status(t, "m1").Connected })
+	lv, err := e.router.Probe(context.Background(), jam.Instance{ActorID: "x", Manager: "m1"})
+	if lv != jam.LivenessUnknown || err != nil {
+		t.Fatalf("Probe = %v, %v", lv, err)
+	}
+	if st := e.status(t, "m1"); st.LastSeen.IsZero() {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestHubHeartbeatTimeout(t *testing.T) {
+	e := newHubEnv(t, func(c *Config) { c.DeadAfter = 50 * time.Millisecond }, nil)
+	tok := e.add(t, "m1")
+	s := rawStream(t, e.cc, tok)
+	if err := s.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Hello{Hello: &managerpb.Hello{Name: "m1", Version: testVersion}}}); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := s.Recv(); err != nil || m.GetWelcome() == nil {
+		t.Fatalf("first message = %v, %v", m, err)
+	}
+	if err := recvUntilErr(t, s); status.Code(err) == codes.OK {
+		t.Fatalf("err = %v, want non-OK", err)
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for e.available("m1") {
+		if time.Now().After(deadline) {
+			t.Fatal("manager still available after heartbeat timeout")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestHubRevoke(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	errc, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: tok})
+	eventually(t, "connected", func() bool { return e.available("m1") })
+	if err := e.store.PutInstance(jam.Instance{ActorID: "w1", Role: "guest", Manager: "m1", Location: "l", Phase: jam.PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := e.hub.Revoke("m1", false)
+	if !errors.Is(err, ErrManagerHasStudios) {
+		t.Fatalf("err = %v, want ErrManagerHasStudios", err)
+	}
+	if want := "manager m1 hosts 1 studios; revoke with force to forget them"; err.Error() != want {
+		t.Fatalf("err = %q, want %q", err, want)
+	}
+	if !e.router.HasManager("m1") || !e.available("m1") {
+		t.Fatal("refused revoke changed state")
+	}
+
+	if err := e.hub.Revoke("m1", true); err != nil {
+		t.Fatal(err)
+	}
+	runErr(t, errc)
+	if e.router.HasManager("m1") {
+		t.Fatal("router still has m1")
+	}
+	if lv, _ := e.router.Probe(context.Background(), jam.Instance{ActorID: "w1", Manager: "m1"}); lv != jam.LivenessDead {
+		t.Fatalf("Probe after revoke = %v, want Dead", lv)
+	}
+	errc2, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: tok})
+	wantCode(t, runErr(t, errc2), codes.Unauthenticated)
+	if len(e.hub.Statuses()) != 0 {
+		t.Fatalf("statuses = %+v", e.hub.Statuses())
+	}
+}
+
+func TestHubRevokeUnknown(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	if err := e.hub.Revoke("nope", true); !errors.Is(err, jam.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestHubRotate(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	oldTok := e.add(t, "m1")
+	errc, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: oldTok})
+	eventually(t, "connected", func() bool { return e.available("m1") })
+
+	nt, err := e.hub.Rotate("m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nt.Name != "m1" || nt.Token == "" || nt.Token == oldTok {
+		t.Fatalf("Rotate = %+v", nt)
+	}
+	runErr(t, errc)
+
+	errOld, _ := runClient(t, e.cc, client.Config{Name: "m1", Token: oldTok})
+	wantCode(t, runErr(t, errOld), codes.Unauthenticated)
+
+	runClient(t, e.cc, client.Config{Name: "m1", Token: nt.Token})
+	eventually(t, "new token connects", func() bool { return e.available("m1") })
+}
+
+func TestHubRotateUnknown(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	if _, err := e.hub.Rotate("nope"); !errors.Is(err, jam.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestHubAddRefusesLocal(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	_, err := e.hub.Add("local")
+	if err == nil || !strings.Contains(err.Error(), `manager name "local" is reserved`) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := e.hub.Add("m1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.hub.Add("m1"); !errors.Is(err, jam.ErrManagerExists) {
+		t.Fatalf("duplicate err = %v", err)
+	}
+	if got := e.router.Names(); !slices.Equal(got, []string{"m1"}) {
+		t.Fatalf("Names = %v", got)
+	}
+}
+
+func TestHubStatusesIncludeLocalAndStudioCounts(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	if err := e.router.Add(fleet.Local(&testLauncher{})); err != nil {
+		t.Fatal(err)
+	}
+	e.add(t, "m1")
+	for _, in := range []jam.Instance{
+		{ActorID: "a", Manager: "", Phase: jam.PhaseLive},
+		{ActorID: "b", Manager: "local", Phase: jam.PhaseLive},
+		{ActorID: "c", Manager: "m1", Phase: jam.PhaseLive},
+		{ActorID: "d", Manager: "m1", Phase: jam.PhaseGone},
+	} {
+		in.Role = "guest"
+		if err := e.store.PutInstance(in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sts := e.hub.Statuses()
+	if len(sts) != 2 || sts[0].Name != "m1" || sts[1].Name != fleet.LocalName {
+		t.Fatalf("statuses = %+v", sts)
+	}
+	if sts[0].Studios != 1 || sts[0].Connected || sts[0].Local {
+		t.Fatalf("m1 = %+v", sts[0])
+	}
+	if sts[1].Studios != 2 || !sts[1].Connected || !sts[1].Local {
+		t.Fatalf("local = %+v", sts[1])
+	}
+}
