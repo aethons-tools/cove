@@ -1895,7 +1895,7 @@ func addLocalManager(router *fleet.Router, cfg serveConfig, lc *launcherConfig, 
 		return fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
 	}
 	if err := ensureKnownHostsDir(lc.KnownHostsDir); err != nil {
-		return builtLauncher{}, fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
+		return fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
 	}
 	colimaLauncher := launcher.New(launcher.Config{
 		Ops: be, Runner: runner.OS{},
