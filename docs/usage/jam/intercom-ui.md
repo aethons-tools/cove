@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: the `/app/user` participant inbox UI — its two-pane rendering, the rail attention grouping, the conversation pane, the New Message picker, the session status strip (`GET /app/user/presence`) and how it maps session state to a status, the composer (keys, saved reply, draft stack) and copy controls, the unread mark-read (`POST /app/user/read`), the membership controls (`POST /app/user/join|leave|call-in`), the live push (`GET /app/user/events`) and fallback poll, and how it wires to the channel read-model and `/app/user/send`
 prereqs: session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; comms-addressing.md for the target space; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-26
 ---
 
 # The participant intercom inbox (`/app/user`)
@@ -31,7 +31,8 @@ header stays put when the list refreshes.
   is in or has messages in, that they may see — chats (labelled with the others
   in them), tickets and rooms — across their projects. Leaving a project takes
   its channels away at once. Each row shows the label, a presence pin, and an
-  **unread** badge. Last, **History (before the upgrade)**: the conversations of
+  **unread** badge.
+  A row may also show the session's [mission](intercom.md#what-the-tools-do) as a muted second line under the label, truncated with an ellipsis. A session channel shows its own active session's mission; a ticket channel the most recently raised active session's; a chat only when exactly one session in it is active; rooms never. A session that is no longer active (ended or gone) shows none; an idle one still counts as active. It updates on the rail's next refresh (up to 30s). Last, **History (before the upgrade)**: the conversations of
   the frozen legacy log, read-only (no composer, all read).
 - **Right pane — the open conversation:** the selected channel's messages (the
   viewer's own on one side), a **"Needs you"** chip when a session in it

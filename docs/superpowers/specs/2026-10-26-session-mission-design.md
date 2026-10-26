@@ -1,6 +1,6 @@
 # Session mission — design
 
-**Status:** design, awaiting approval.
+**Status:** built — PR pending.
 
 **Context:** In the `/app/user` inbox rail, a session shows only its name: `jam-ic-01`, a standing name, or a ticket key. The name doesn't tell you what the session is doing. Each session gets a **current mission**: one line saying what it is focused on right now. The agent sets the mission itself whenever its focus changes, for example when someone gives it a new task or it picks up a ticket.
 

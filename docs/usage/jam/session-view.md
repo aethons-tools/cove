@@ -4,7 +4,7 @@ read_when: You're using or extending how a session's conversation looks in `/app
 owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
 # The session view
@@ -20,7 +20,7 @@ it and a pane beside it. The view is served by `internal/jam/userui` (`session.g
 One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 
 - **Identity:** the name (or actor id), kind (standing, personal, ticket, session), ticket,
-  role, project, and owner.
+  role, project, and owner. Under them, the session's [mission](intercom.md#what-the-tools-do) (one truncated line), when it has one.
 - **State:** the same status as the [status strip](intercom-ui.md#session-status), how
   long it has been in that state, and open asks.
 - **Cost:** the total and the latest turn's cost. The tooltip shows input and output tokens.
@@ -53,7 +53,7 @@ session may press them, on any session kind. Clear asks for confirmation.
 |---------|--------------|------|
 | Interrupt | running | stops the current turn; the agent then acknowledges in its channel and waits |
 | Compact | running, holding (a turn ended with background tasks outstanding) or waiting | shrinks the conversation with Claude's `/compact` |
-| Clear | waiting, including paused | starts the next turn as a blank conversation |
+| Clear | waiting, including paused | starts the next turn as a blank conversation, and resets the session's mission (a failed reset is logged and doesn't fail the Clear) |
 
 Each press is `POST /app/user/session/{id}/interrupt|compact|clear`. The server answers 409
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
