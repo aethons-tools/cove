@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/intercom"
 )
@@ -26,7 +27,8 @@ func (e *Engine) egressTick(ctx context.Context) {
 	}
 	msgs := e.lg.ListSince(mark.LastSeq, egressBatch)
 
-	// Pass 1: deliver undelivered surfaces.
+	// Pass 1: deliver undelivered surfaces (none while a rate limit holds).
+deliver:
 	for _, m := range msgs {
 		surfaces := e.owned(service, m)
 		if len(surfaces) == 0 {
@@ -41,7 +43,13 @@ func (e *Engine) egressTick(ctx context.Context) {
 			if got[d.Address] {
 				continue
 			}
+			if e.backingOff(service) {
+				break deliver
+			}
 			if _, err := e.surf.Deliver(ctx, d, m); err != nil {
+				if e.backingOff(service) {
+					break deliver // this delivery hit the limit: retried once it ends
+				}
 				e.log.Warn("relay: egress deliver failed", "service", service, "msg", m.ID, "surface", d.Address, "error", err.Error())
 				continue // leave unmarked → retried next tick
 			}
@@ -81,6 +89,24 @@ func (e *Engine) egressDone(service string, m intercom.Squawk, pending map[strin
 		if !got[d.Address] {
 			return false
 		}
+	}
+	return true
+}
+
+// backingOff reports whether the surface (a Backoff) is waiting out a rate
+// limit, logging each wait once.
+func (e *Engine) backingOff(service string) bool {
+	b, ok := e.surf.(Backoff)
+	if !ok {
+		return false
+	}
+	until := b.Until()
+	if !time.Now().Before(until) {
+		return false
+	}
+	if !until.Equal(e.waitLogged) {
+		e.waitLogged = until
+		e.log.Warn("relay: egress waiting out a rate limit", "service", service, "until", until.UTC().Format(time.RFC3339))
 	}
 	return true
 }

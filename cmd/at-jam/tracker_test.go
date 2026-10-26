@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"strings"
@@ -269,5 +271,106 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 				t.Fatalf("a github ticket is not delivered to linear: %+v", got)
 			}
 		})
+	}
+}
+
+// scriptedViewer answers Viewer from a script of errors, then ok.
+type scriptedViewer struct {
+	errs  []error
+	self  string
+	calls int
+}
+
+func (v *scriptedViewer) Viewer(context.Context) (string, error) {
+	v.calls++
+	if len(v.errs) > 0 {
+		err := v.errs[0]
+		v.errs = v.errs[1:]
+		return "", err
+	}
+	return v.self, nil
+}
+
+// Fix round 1: on GitHub a failed Viewer (other than ErrNoViewer) is retried
+// — after a rate limit's RetryAfter, else a backoff — and the relay starts
+// only once it succeeds, so Jam's own comment is never routed meanwhile.
+func TestTrackerSelfGitHubRetriesUntilKnown(t *testing.T) {
+	ctx := context.Background()
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	var slept []time.Duration
+	sleep := func(_ context.Context, d time.Duration) bool { slept = append(slept, d); return true }
+
+	gh := trackertest.Both(t)[1]
+	v := &scriptedViewer{errs: []error{
+		errors.New("githubissues: GET https://api.github.com/user: http 500: oops"),
+		&tracker.RateLimitError{Service: "github", RetryAfter: 90 * time.Second},
+	}, self: gh.Self}
+	var started []string
+	if self, ok := trackerSelf(ctx, "github", v.Viewer, log, sleep); ok {
+		started = append(started, self)
+	}
+	if !slices.Equal(started, []string{"jam-bot"}) || v.calls != 3 || !slices.Equal(slept, []time.Duration{viewerRetryMin, 90 * time.Second}) {
+		t.Fatalf("started %q after %d calls, slept %v; want jam-bot after a backoff and the RetryAfter", started, v.calls, slept)
+	}
+	if n := strings.Count(buf.String(), "level=WARN"); n != 2 || strings.Contains(buf.String(), trackertest.Token) {
+		t.Fatalf("want one warn per failed attempt, no token:\n%s", buf.String())
+	}
+	// With the identity known, Jam's own comment is dropped.
+	dir := &directory{selfIdentity: started[0], trackerKind: "github", tracker: func() (ident.ID, bool) { return "", false }}
+	if _, ok := dir.Route("github", "acme", relay.Event{ForeignID: "1", Surface: gh.Key, Author: gh.Self, AuthorID: "7"}); ok {
+		t.Fatal("Jam's own comment routed")
+	}
+
+	// A context ending mid-wait never starts the relay.
+	v = &scriptedViewer{errs: []error{errors.New("down")}}
+	if _, ok := trackerSelf(ctx, "github", v.Viewer, log, func(context.Context, time.Duration) bool { return false }); ok {
+		t.Fatal("ctx ended: the relay must not start")
+	}
+	// ErrNoViewer: no identity, at once; Linear: one lookup, as before.
+	v = &scriptedViewer{errs: []error{fmt.Errorf("x: %w", tracker.ErrNoViewer)}}
+	if self, ok := trackerSelf(ctx, "github", v.Viewer, log, sleep); !ok || self != "" || v.calls != 1 {
+		t.Fatalf("ErrNoViewer = %q %v after %d calls", self, ok, v.calls)
+	}
+	v = &scriptedViewer{errs: []error{errors.New("down")}}
+	if self, ok := trackerSelf(ctx, "linear", v.Viewer, log, sleep); !ok || self != "" || v.calls != 1 {
+		t.Fatalf("linear = %q %v after %d calls; want one lookup", self, ok, v.calls)
+	}
+}
+
+// Fix round 1: a GitHub comment's author is recorded on the tracker
+// connection serve resolved, not the first github connection in the store.
+func TestRouteRecordsAuthorOnTheTrackerConnection(t *testing.T) {
+	st := jam.NewMemStore()
+	mustCreateProject(t, st, "acme")
+	other, err := st.CreateConnection(jam.Connection{Kind: "github", Name: "github"}) // what ConnectionOfKind("github") picks
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := st.CreateConnection(jam.Connection{Kind: "github", Name: "gh-acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutRole("acme", jam.Role{Name: "impl"}); err != nil {
+		t.Fatal(err)
+	}
+	inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: "acme/board#1", Phase: jam.PhaseLive}
+	if err := st.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	trackerFn := func() (ident.ID, bool) { return conn.ID, true }
+	ic := jam.NewIntercom(st, trackerFn, intercom.NewMemLog(nil), nil, nil)
+	if err := ic.SetUp(inst); err != nil {
+		t.Fatal(err)
+	}
+	dir := &directory{store: st, ic: ic, selfIdentity: "jam-bot", tracker: trackerFn, trackerKind: "github"}
+	if _, ok := dir.Route("github", "acme", relay.Event{ForeignID: "1", Surface: "acme/board#1", Author: "brent", AuthorID: "42", Body: "hi"}); !ok {
+		t.Fatal("unrouted")
+	}
+	if _, ok := st.AccountByUID(conn.ID, "42"); !ok {
+		t.Fatal("the author is not recorded on the tracker connection")
+	}
+	if _, ok := st.AccountByUID(other.ID, "42"); ok {
+		t.Fatal("the author is recorded on the other github connection")
 	}
 }

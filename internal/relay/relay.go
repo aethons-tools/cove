@@ -56,6 +56,13 @@ type Surface interface {
 	Close() error
 }
 
+// Backoff is an optional Surface capability: Until is when a rate limit the
+// Service imposed ends (zero or past: none in force). While one is, the
+// engine makes no deliveries and logs the wait once.
+type Backoff interface {
+	Until() time.Time
+}
+
 // EgressMark is the BOUNDED per-Service delivery bookkeeping (not stored in
 // intercom — it stays pure).
 type EgressMark struct {

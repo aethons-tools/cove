@@ -364,7 +364,7 @@ func (d *directory) author(kind string, ch jam.Channel, surface, uid, label stri
 	if uid == "" {
 		return "", false
 	}
-	conn, ok := d.store.ConnectionOfKind(kind)
+	conn, ok := d.authorConnection(kind)
 	if !ok {
 		var err error
 		if conn, err = d.store.CreateConnection(jam.Connection{Kind: kind, Name: kind}); err != nil {
@@ -388,6 +388,20 @@ func (d *directory) author(kind string, ch jam.Channel, surface, uid, label stri
 		}
 	}
 	return a.ID, true
+}
+
+// authorConnection is the connection kind's authors are recorded on: the
+// tracker connection for the tracker service (a Jam may hold several
+// connections of its kind), else the store's one of that kind.
+func (d *directory) authorConnection(kind string) (jam.Connection, bool) {
+	if kind == d.trackerService() {
+		if id, ok := d.tracker(); ok {
+			if c, ok := d.store.GetConnection(id); ok {
+				return c, true
+			}
+		}
+	}
+	return d.store.ConnectionOfKind(kind)
 }
 
 // Post appends a routed foreign event to its channel, trusted (its surface

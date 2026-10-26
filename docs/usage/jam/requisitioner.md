@@ -109,9 +109,8 @@ runtime:
 - **Ticket keys and the token.** Ticket keys are `owner/repo#<n>`. The token needs
   Issues read/write and Metadata read on the repo (a fine-grained PAT).
   `tracker-token-cred` is Linear-only.
-- **The relay.** The relay reads the repo's issue comments: it drops Jam's own
-  login and any Bot account, skips pull-request comments, and waits out a rate
-  limit's `Retry-After`.
+- **The relay.** The tracker relay carries the issue's comments both ways; what it
+  drops and how it waits out rate limits is in [intercom.md](intercom.md#enabling-it).
 
 The role must grant the `anthropic` and `git` destinations so the raised studio's
 agent can reach them ([roster.md](roster.md)).

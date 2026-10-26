@@ -34,7 +34,9 @@ type commentPoster interface {
 // comment feed (Linear's team feed, GitHub's repo feed). Egress delivery
 // goes through poster. After a rate limit (on a poll or a delivery: one
 // token, one limit) it makes no calls until the tracker's Retry-After has
-// passed.
+// passed. The wait is the relay's own: the Requisitioner's dispatcher and
+// the ticketer hold the same tracker but not notBefore, so they meet (and
+// report) a rate limit on their own calls.
 type trackerSurface struct {
 	service string // tracker kind; "" = linear
 	feed    commentFeeder
@@ -61,6 +63,16 @@ func (s *trackerSurface) waiting() (until time.Time, ok bool) {
 	defer s.mu.Unlock()
 	return s.notBefore, s.clock().Before(s.notBefore)
 }
+
+// Until is the end of the rate limit in force (relay.Backoff): the egress
+// engine delivers nothing, and warns once, until then.
+func (s *trackerSurface) Until() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notBefore
+}
+
+var _ relay.Backoff = (*trackerSurface)(nil)
 
 // limited records a rate limit in err, if any, and returns err.
 func (s *trackerSurface) limited(err error) error {

@@ -69,6 +69,24 @@ func TestIngressUnroutedMarkedSeen(t *testing.T) {
 	}
 }
 
+// A held cursor (another event's transient post failure) re-routes an
+// unrouted event on the retry: it is only marked seen once the cursor moves.
+func TestIngressUnroutedReroutedOnHeldCursor(t *testing.T) {
+	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "bad1", Body: "r"}, {ForeignID: "late", Body: "r"}}, next: "cur3"}
+	e, dir, cur := newIngressEngine(t, surf, map[string]Routed{"bad1": routeTo(chOps)})
+	dir.postErr = true
+	e.ingressTick(context.Background())
+	if e.seen["in:linear:late"] || cur.c["linear/acme"] != "" {
+		t.Fatalf("held cursor: seen %v, cursor %v; the unrouted event must stay unseen", e.seen, cur.c)
+	}
+	dir.postErr = false
+	dir.route["late"] = routeTo(chOps) // its channel appeared meanwhile
+	e.ingressTick(context.Background())
+	if n := len(e.lg.ListSince(0, 0)); n != 2 || !e.seen["in:linear:late"] {
+		t.Fatalf("retry posted %d, seen %v; want both events posted", n, e.seen)
+	}
+}
+
 func TestIngressPostErrorHoldsCursor(t *testing.T) {
 	surf := &fakeSurface{service: "linear", events: []Event{{ForeignID: "bad1", Body: "r", At: time.Unix(5, 0)}}, next: "cur3"}
 	e, dir, cur := newIngressEngine(t, surf, map[string]Routed{"bad1": routeTo(chOps)})

@@ -31,6 +31,9 @@ type Engine struct {
 	cfg  Config
 	log  *slog.Logger
 	seen map[string]bool // inbound ids for surf.Service() already in the Log, dropped, or unrouted
+	// waitLogged is the end of the last rate-limit wait egress logged
+	// (egress loop only): one Warn per wait.
+	waitLogged time.Time
 }
 
 // New constructs an Engine for surf, rebuilding seen from the Log's existing

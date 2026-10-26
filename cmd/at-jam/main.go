@@ -2553,17 +2553,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// inbound replies into the channel log opened above (ingress). It also
 		// delivers outbound Log messages to the tracker (egress). The Log is
 		// the single source of truth for both directions.
-		self, err := trk.Viewer(context.Background())
-		switch {
-		case errors.Is(err, tracker.ErrNoViewer):
-			log.Info("Jam relay: the token has no viewer identity; dropping bot authors only", "kind", kind)
-		case err != nil:
-			log.Warn("Jam relay: viewer lookup failed; self-post filter disabled", "kind", kind, "error", err.Error())
-		}
 		dir.project = reqProject // by id: the relays' cursors and polling outlive a rename
-		dir.selfIdentity = self
 		dir.trackerKind = kind
-		surf := &trackerSurface{service: kind, feed: trk, poster: trk, started: time.Now()}
 		// Seed once: skip everything the 1a dual-write already delivered live,
 		// so turning egress on never re-posts the Log's shadow history.
 		// Persisted with a nonzero LastSeq → never re-seeds (a re-seed to a
@@ -2578,9 +2569,27 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
-		go eng.Run(context.Background())
-		log.Info("Jam relay ("+kind+"): resident, egress ON", "self", self != "")
+		// startRelay runs the relay once Jam's tracker identity (the
+		// self-post filter) is known; only this engine reads selfIdentity.
+		startRelay := func(self string) {
+			dir.selfIdentity = self
+			surf := &trackerSurface{service: kind, feed: trk, poster: trk, started: time.Now()}
+			eng := relay.New(surf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
+			go eng.Run(context.Background())
+			log.Info("Jam relay ("+kind+"): resident, egress ON", "self", self != "")
+		}
+		if kind == tracker.KindGitHub {
+			// GitHub retries a failed Viewer (in the background: dispatch and
+			// reports run meanwhile) and starts the relay once it succeeds.
+			go func() {
+				if self, ok := trackerSelf(context.Background(), kind, trk.Viewer, log, sleepCtx); ok {
+					startRelay(self)
+				}
+			}()
+		} else {
+			self, _ := trackerSelf(context.Background(), kind, trk.Viewer, log, sleepCtx)
+			startRelay(self)
+		}
 
 	}
 	// Every live session gets its home channel — a ticket session its ticket
