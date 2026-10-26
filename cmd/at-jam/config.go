@@ -22,8 +22,10 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"github.com/aethons-tools/cove/internal/keys"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/logging"
+	"github.com/aethons-tools/cove/internal/runner"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -603,10 +605,10 @@ type launcherConfig struct {
 	// into JamHost and clears it.
 	DeprecatedHarborHost string `yaml:"harbor-host"`
 	// IdentityFile/KnownHostsDir are the SSH identity Jam uses to reach a
-	// raised cove. They must be the same key `at-cove install` baked into the
-	// image's authorized_keys. Default to the at-cove config dir's
-	// id_ed25519 / known_hosts.d when empty, so a Jam host colocated with
-	// at-cove needs no explicit path.
+	// raised cove; serve generates the key on first use and bakes its public
+	// half into every studio image. Default to the at-cove config dir's
+	// id_ed25519 / known_hosts.d when empty (the directory keeps its old name
+	// until the jam rename).
 	IdentityFile  string   `yaml:"identity-file"`
 	KnownHostsDir string   `yaml:"known-hosts-dir"`
 	DNS           []string `yaml:"dns"`
@@ -860,17 +862,22 @@ func (c serveConfig) validateDiscord() error {
 	return checkConnectionOrCred(c, "runtime.discord", d.Connection, "bot-token-cred", d.BotTokenCred)
 }
 
-// atCoveConfigDir mirrors at-cove's own configDir() (cmd/at-cove/main.go):
-// $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove. Duplicated rather than
-// imported — at-cove's configDir is unexported in a different `main` package
-// — so a Jam host colocated with `at-cove install` shares its identity key
-// and known_hosts without extra config.
+// atCoveConfigDir is $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove — the
+// launcher's default home for its SSH identity and known_hosts, kept from the
+// deleted at-cove CLI so existing Jam hosts keep their key.
 func atCoveConfigDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "at-cove")
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "at-cove")
+}
+
+// launcherPublicKey returns the public half of the launcher's SSH identity
+// (runtime.launcher.identity-file), which serve bakes into every studio image's
+// authorized_keys, generating the keypair on first use.
+func launcherPublicKey(identityFile string) ([]byte, error) {
+	return keys.EnsureFile(runner.OS{}, identityFile)
 }
 
 // operatorLoginConfig builds the public device-flow client config Jam

@@ -7,7 +7,7 @@ name: release
 #   cove-base-image ──publish──► digest D ──► (registry) ──► blessed-list snapshot
 #         │                                                        │
 #         ▼                                                        ▼
-#   cove-image (FROM cove-base-image:ci)                  at-cove (embeds at-task + list)
+#   cove-image (FROM cove-base-image:ci)                  at-jam + at-mint (embed cove-master + list)
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write # gh cuts the at-cove release + its <N>-<MMDD> tag
+  contents: write # gh cuts the release + its <N>-<MMDD> tag
   packages: write # GHCR push (also grants the read gen-blessed needs)
   pull-requests: read # paths-filter reads the PR's changed-files list
 
@@ -40,7 +40,7 @@ jobs:
     outputs:
       base: ${{ steps.legs.outputs.base }} # rebuild+publish cove-base-image
       cove_image: ${{ steps.legs.outputs.cove_image }} # (re)build cove-image
-      atcove: ${{ steps.legs.outputs.atcove }} # re-cut at-cove (+ blessed list)
+      atcove: ${{ steps.legs.outputs.atcove }} # re-cut the host binaries (+ blessed list)
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
@@ -65,13 +65,14 @@ jobs:
               - 'web/whiteboard/**' # the editor bundle at-jam embeds
               - 'scripts/app.sh'
               - 'web/app/**' # the Jam app bundle at-jam embeds
-              - 'install.sh' # embedded in at-cove + at-jam (`update`)
+              - 'install.sh' # embedded in at-jam (`update`)
+              - 'scripts/release/**' # the at-cove tombstone in the archive + its check
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
-        #   base change     => rebuild base AND cove-image (downstream) AND at-cove
+        #   base change     => rebuild base AND cove-image (downstream) AND the binaries
         #                      (new digest => new DefaultRef + blessed-list head).
         #   cove-image only => cove-image only (FROM the current published base).
-        #   go change       => at-cove only (blessed list recomputed from the head).
+        #   go change       => the binaries only (blessed list recomputed from the head).
         env:
           BASE: ${{ steps.filter.outputs.base }}
           COVE: ${{ steps.filter.outputs.cove_image }}
@@ -185,7 +186,7 @@ jobs:
 
   # main only: assemble the per-arch tags into one multi-arch manifest per built
   # image, tagged <N>-<MMDD> (immutable) + latest (moving). Publishes the base
-  # FIRST so its new digest D is in the registry before the at-cove leg's
+  # FIRST so its new digest D is in the registry before the binaries leg's
   # blessed-list snapshot runs.
   publish-images:
     needs: [changes, images]
@@ -220,13 +221,13 @@ jobs:
             echo "- \`${image}:${VERSION}\` @ \`${digest}\`" >> "$GITHUB_STEP_SUMMARY"
           done
 
-  # Re-cut at-cove (with at-task embedded + the blessed-list snapshot). Ordered
+  # Re-cut the host binaries (cove-master embedded + the blessed-list snapshot). Ordered
   # AFTER publish-images so a freshly-published base digest is already the registry
   # head when gen-blessed (a goreleaser before-hook) snapshots the blessed list.
   # PRs build + validate only; main builds a snapshot and cuts the GH release.
   atcove:
     needs: [changes, images, publish-images]
-    # Run when the at-cove leg is selected and nothing upstream failed. On PRs and
+    # Run when the binaries leg is selected and nothing upstream failed. On PRs and
     # go-only main pushes the image jobs are skipped (not failed), so still run.
     if: ${{ !cancelled() && !failure() && needs.changes.outputs.atcove == 'true' }}
     runs-on: ubuntu-latest
@@ -254,14 +255,16 @@ jobs:
           version: "~> v2"
           args: check
 
-      # PR: compile all binaries (+ run the stage-covemaster / gen-blessed before-hooks)
-      # to prove the release builds; never publish.
-      - name: Build at-cove (PR — no publish)
+      # PR: build the release archives exactly as main does (+ run the
+      # stage-covemaster / gen-blessed before-hooks) to prove the release builds;
+      # never publish (snapshot mode skips goreleaser's publishing; --skip=publish
+      # makes that explicit). The next step checks the archives.
+      - name: Build binaries (PR — no publish)
         if: github.event_name == 'pull_request'
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: build --snapshot --clean
+          args: release --snapshot --clean --skip=publish
         env:
           VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -269,7 +272,7 @@ jobs:
       # main: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
       # mode skips goreleaser's own publishing, sidestepping its SemVer tag
       # assumption); the next step cuts the release.
-      - name: Build at-cove (main)
+      - name: Build binaries (main)
         if: github.event_name == 'push'
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -279,7 +282,13 @@ jobs:
           VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish at-cove release
+      # Every archive must carry exactly at-cove (the tombstone an older
+      # `at-jam update` needs), at-mint and at-jam — on the PR before merge and
+      # on main before the release is cut.
+      - name: Check release archives
+        run: bash scripts/release/check-archive.sh dist
+
+      - name: Publish release
         if: github.event_name == 'push'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
@@ -287,7 +296,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (at-cove + at-mint + at-jam; at-task embedded)." \
+            --notes "Continuous release from ${GITHUB_SHA::7} (at-mint + at-jam; cove-master embedded; at-cove tombstone)." \
             --target "$GITHUB_SHA" \
             dist/cove_*.tar.gz dist/checksums.txt
-          echo "## Released at-cove \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

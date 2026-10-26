@@ -1,4 +1,6 @@
-// Package keys manages cove's dedicated SSH keypair.
+// Package keys manages the SSH keypair Jam's launcher uses to reach the
+// studios it raises (runtime.launcher.identity-file): the public half is baked
+// into each studio image's authorized_keys.
 package keys
 
 import (
@@ -9,23 +11,19 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
-// Ensure returns the path to <dir>/id_ed25519 and its public key bytes,
-// generating the keypair with ssh-keygen on first use.
-func Ensure(r runner.Runner, dir string) (string, []byte, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", nil, err
+// EnsureFile returns the public key of the ed25519 keypair whose private half
+// is priv (read from priv + ".pub"), generating the pair with ssh-keygen when
+// priv does not exist yet. priv's directory is created 0700 if missing.
+func EnsureFile(r runner.Runner, priv string) ([]byte, error) {
+	if err := os.MkdirAll(filepath.Dir(priv), 0o700); err != nil {
+		return nil, err
 	}
-	priv := filepath.Join(dir, "id_ed25519")
 	if _, err := os.Stat(priv); errors.Is(err, os.ErrNotExist) {
-		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "cove", "-f", priv); err != nil {
-			return "", nil, err
+		if err := r.Run("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "jam-launcher", "-f", priv); err != nil {
+			return nil, err
 		}
 	} else if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	pub, err := os.ReadFile(priv + ".pub")
-	if err != nil {
-		return "", nil, err
-	}
-	return priv, pub, nil
+	return os.ReadFile(priv + ".pub")
 }

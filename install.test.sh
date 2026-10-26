@@ -3,7 +3,7 @@
 #
 # No network, no Docker, no live release. We put stub `gh` and `uname`
 # executables on PATH that serve a locally-built fixture "release" (fake
-# at-cove/at-mint/at-jam binaries + a real checksums.txt), then drive install.sh
+# at-cove-tombstone/at-mint/at-jam binaries + a real checksums.txt), then drive install.sh
 # and assert on what it does. Pure helpers are unit-tested by sourcing
 # install.sh in lib mode (COVE_INSTALL_LIB=1), which suppresses main.
 #
@@ -50,14 +50,16 @@ RELEASE_DIR="$WORK/release" # what the stub gh "downloads" from
 STUB_BIN="$WORK/stubbin"    # stub gh/uname, first on PATH
 mkdir -p "$RELEASE_DIR" "$STUB_BIN"
 
-# build a fixture archive carrying fake at-cove + at-mint + at-jam for a given
-# os/arch. Optional 3rd arg: a version (default FIXTURE_VERSION); a 4th arg of
-# "nojam" omits at-jam, like a release cut before at-jam shipped.
+# build a fixture archive carrying fake at-cove (the tombstone) + at-mint +
+# at-jam for a given os/arch. Optional 3rd arg: a version (default
+# FIXTURE_VERSION); a 4th arg of "nojam" omits at-jam, like a release cut before
+# at-jam shipped, and "nocove" omits the at-cove tombstone.
 build_archive() {
-  local os="$1" arch="$2" ver="${3:-$FIXTURE_VERSION}" jam="${4:-}"
+  local os="$1" arch="$2" ver="${3:-$FIXTURE_VERSION}" variant="${4:-}"
   local stage="$WORK/stage-$ver-$os-$arch"
   local bins=(at-cove at-mint at-jam)
-  [ "$jam" = nojam ] && bins=(at-cove at-mint)
+  [ "$variant" = nojam ] && bins=(at-cove at-mint)
+  [ "$variant" = nocove ] && bins=(at-mint at-jam)
   mkdir -p "$stage"
   for b in "${bins[@]}"; do
     cat >"$stage/$b" <<EOF
@@ -73,6 +75,8 @@ build_archive linux amd64
 build_archive darwin arm64
 PRE_JAM_VERSION="99-0101"
 build_archive linux amd64 "$PRE_JAM_VERSION" nojam
+NO_COVE_VERSION="124-0722"
+build_archive linux amd64 "$NO_COVE_VERSION" nocove
 
 # real checksums over every archive (goreleaser format: "<sha>  <basename>")
 (
@@ -164,15 +168,15 @@ echo "== e2e: gh path installs every binary =="
 BIN1="$WORK/bin1"
 out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN1" run_install 2>&1)" && rc=0 || rc=$?
 if [ "$rc" = 0 ]; then ok "install exit 0"; else bad "install exit 0" "rc=$rc" "$out"; fi
-if [ -x "$BIN1/at-cove" ]; then ok "at-cove installed + executable"; else bad "at-cove installed + executable" "$out"; fi
 if [ -x "$BIN1/at-mint" ]; then ok "at-mint installed + executable"; else bad "at-mint installed + executable" "$out"; fi
 if [ -x "$BIN1/at-jam" ]; then ok "at-jam installed + executable"; else bad "at-jam installed + executable" "$out"; fi
-if [ -e "$BIN1/at-task" ]; then bad "at-task NOT installed (embedded)"; else ok "at-task NOT installed (embedded)"; fi
+if [ -e "$BIN1/at-cove" ]; then bad "at-cove tombstone NOT installed"; else ok "at-cove tombstone NOT installed"; fi
+if [ -e "$BIN1/at-task" ]; then bad "at-task NOT installed"; else ok "at-task NOT installed"; fi
 
 echo "== e2e: a pre-at-jam release still installs =="
 BIN0="$WORK/bin0"
 out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$PRE_JAM_VERSION" BINDIR="$BIN0" run_install 2>&1)" && rc=0 || rc=$?
-if [ "$rc" = 0 ] && [ -x "$BIN0/at-cove" ]; then ok "pre-at-jam release installs"; else bad "pre-at-jam release installs" "rc=$rc" "$out"; fi
+if [ "$rc" = 0 ] && [ -x "$BIN0/at-mint" ]; then ok "pre-at-jam release installs"; else bad "pre-at-jam release installs" "rc=$rc" "$out"; fi
 if [ -e "$BIN0/at-jam" ]; then bad "pre-at-jam release installs no at-jam"; else ok "pre-at-jam release installs no at-jam"; fi
 
 echo "== e2e: arch mapping picks darwin_arm64 asset =="
@@ -184,7 +188,44 @@ if grep -q "cove_${FIXTURE_VERSION}_darwin_arm64.tar.gz" "$PATTERN_LOG"; then ok
 echo "== e2e: latest-version resolution via gh =="
 BIN3="$WORK/bin3"
 UNAME_S=Linux UNAME_M=x86_64 BINDIR="$BIN3" run_install >/dev/null 2>&1 || true
-if [ -x "$BIN3/at-cove" ]; then ok "latest resolves + installs"; else bad "latest resolves + installs"; fi
+if [ -x "$BIN3/at-jam" ]; then ok "latest resolves + installs"; else bad "latest resolves + installs"; fi
+
+echo "== compat: an older at-jam's embedded installer updates to this release =="
+# testdata/install-legacy.sh is install.sh as embedded in every pre-slice-2
+# at-jam (`at-jam update` runs it). It places at-cove unconditionally, so the
+# release must keep the at-cove tombstone for it to succeed.
+LEGACY_SH="$HERE/testdata/install-legacy.sh"
+BIN5="$WORK/bin5"
+out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN5" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" = 0 ] && [ -x "$BIN5/at-jam" ] && [ -x "$BIN5/at-mint" ]; then ok "legacy installer updates at-jam + at-mint"; else bad "legacy installer updates at-jam + at-mint" "rc=$rc" "$out"; fi
+BIN6="$WORK/bin6"
+out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$NO_COVE_VERSION" BINDIR="$BIN6" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" != 0 ]; then ok "legacy installer needs the at-cove tombstone (fails without it)"; else bad "legacy installer needs the at-cove tombstone (fails without it)" "$out"; fi
+
+echo "== release: check-archive.sh guards the at-cove tombstone =="
+# release.yml runs scripts/release/check-archive.sh on goreleaser's archives (PR
+# and main); prove it accepts the real shape and rejects each broken one.
+CHECK_SH="$HERE/scripts/release/check-archive.sh"
+ca_case() { # ca_case <name> <want: ok|reject> <tombstone mode> <bins...>
+  local name="$1" want="$2" mode="$3" d="$WORK/ca-$1"
+  shift 3
+  mkdir -p "$d/stage" "$d/dist"
+  cp "$HERE/scripts/release/at-cove" "$d/stage/at-cove"
+  [ "$name" = altered ] && echo "# altered" >>"$d/stage/at-cove"
+  chmod "$mode" "$d/stage/at-cove"
+  printf 'bin\n' >"$d/stage/at-mint"
+  printf 'bin\n' >"$d/stage/at-jam"
+  printf 'readme\n' >"$d/stage/README.md"
+  tar -C "$d/stage" -czf "$d/dist/cove_1-0101_linux_amd64.tar.gz" "$@"
+  if bash "$CHECK_SH" "$d/dist" >/dev/null 2>&1; then got=ok; else got=reject; fi
+  assert_eq "check-archive $name -> $want" "$want" "$got"
+}
+ca_case good ok 0755 at-cove at-mint at-jam
+ca_case missing reject 0755 at-mint at-jam
+ca_case mode reject 0644 at-cove at-mint at-jam
+ca_case altered reject 0755 at-cove at-mint at-jam
+ca_case extra reject 0755 at-cove at-mint at-jam README.md
+if bash "$CHECK_SH" "$WORK/no-such-dist" >/dev/null 2>&1; then bad "check-archive no archives -> reject"; else ok "check-archive no archives -> reject"; fi
 
 echo "== e2e: tampered checksum aborts, nothing installed =="
 BADREL="$WORK/badrelease"
@@ -219,7 +260,7 @@ chmod +x "$STUB_BIN/gh"
 BIN4="$WORK/bin4"
 UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN4" run_install >/dev/null 2>&1 && rc=0 || rc=$?
 if [ "$rc" != 0 ]; then ok "tamper aborts (nonzero exit)"; else bad "tamper aborts (nonzero exit)"; fi
-if [ -e "$BIN4/at-cove" ]; then bad "no binary installed on tamper"; else ok "no binary installed on tamper"; fi
+if [ -e "$BIN4/at-jam" ]; then bad "no binary installed on tamper"; else ok "no binary installed on tamper"; fi
 
 echo
 echo "-------- $pass passed, $fail failed --------"
