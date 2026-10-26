@@ -48,10 +48,23 @@ var ConnectionKinds = []string{"linear", "discord", "github"}
 // TrackerKinds are the connection kinds a Requisitioner's tracker may be.
 var TrackerKinds = []string{"linear", "github"}
 
-// TrackerConnection is the tracker connection ticket bindings default to
-// when serve has not resolved the Requisitioner's: the linear one, else the
-// github one.
+// TrackerConnection is the tracker connection ticket bindings, room refs
+// and @-handles default to: the github tracker serve resolved (recorded by
+// SetTrackerRepo) when it is a live connection of store, else the linear
+// one, else the github one.
 func TrackerConnection(store Store) (Connection, bool) {
+	var resolved Connection
+	trackerRepos.Range(func(k, _ any) bool {
+		c, ok := store.GetConnection(k.(ident.ID))
+		if ok && c.Status == StatusLive && c.Kind == "github" {
+			resolved = c
+			return false
+		}
+		return true
+	})
+	if resolved.ID != "" {
+		return resolved, true
+	}
 	for _, k := range TrackerKinds {
 		if c, ok := store.ConnectionOfKind(k); ok {
 			return c, true

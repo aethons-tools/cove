@@ -416,3 +416,44 @@ func TestGitHubTicketAuthorizationIsCanonical(t *testing.T) {
 		}
 	}
 }
+
+// A malformed key with no '#' is no GitHub form: 403 unless a glob covers
+// it as written, and only then the malformed-key 404.
+func TestMalformedGitHubKeyWithoutHash(t *testing.T) {
+	for glob, want := range map[string]error{"ticket:*": ErrSendDenied, "ticket:acme/*": ticketkey.ErrGitHub} {
+		f := newGitHubICFixture(t, glob)
+		if _, err := f.plan(f.standing, "ticket:acme/board"); !errors.Is(err, want) {
+			t.Errorf("glob %s: ticket:acme/board → %v; want %v", glob, err, want)
+		}
+	}
+}
+
+// Final fix 6: a room's default connection is the tracker's — on a
+// GitHub-tracked Jam the github connection (serve's, when it recorded one),
+// not a linear one created for it.
+func TestRoomDefaultConnectionIsTheTrackers(t *testing.T) {
+	s := NewMemStore()
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	gh, err := s.CreateConnection(Connection{Kind: "github", Name: "gh-acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _, err := PutRoom(s, "acme", RoomBody{Name: "eng", Ref: "acme/board#3"})
+	if err != nil || v.ConnectionID != gh.ID {
+		t.Fatalf("default-connection room = %+v, %v; want on %s", v, err, gh.ID)
+	}
+	if _, ok := s.ConnectionOfKind("linear"); ok {
+		t.Fatal("a default room created a linear connection on a github-tracked Jam")
+	}
+	// With a linear connection too, serve's github tracker still wins.
+	if _, err := s.CreateConnection(Connection{Kind: "linear", Name: "linear"}); err != nil {
+		t.Fatal(err)
+	}
+	SetTrackerRepo(gh.ID, "acme/board")
+	t.Cleanup(func() { SetTrackerRepo(gh.ID, "") })
+	if v, _, err := PutRoom(s, "acme", RoomBody{Name: "ops", Ref: "acme/board#4"}); err != nil || v.ConnectionID != gh.ID {
+		t.Fatalf("default-connection room beside linear = %+v, %v; want on serve's tracker %s", v, err, gh.ID)
+	}
+}

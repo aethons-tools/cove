@@ -15,11 +15,12 @@ import (
 
 // Rooms in the admin plane (intercom slice 2a-3): `at-jam room` and
 // /admin/projects/{project}/rooms, replacing the roster-channel verbs. A
-// room's ref binds it on a connection (by name or id; default: the linear
-// one) — the surface it posts to and receives replies from.
+// room's ref binds it on a connection (by name, id or kind; default: the
+// tracker's, TrackerConnection) — the surface it posts to and receives
+// replies from.
 
 // RoomBody adds or updates a room: its name, the connection its ref is on (a
-// name, an id or a kind; "" = the linear connection), and the ref.
+// name, an id or a kind; "" = the tracker connection), and the ref.
 type RoomBody struct {
 	Name       string `json:"name"`
 	Connection string `json:"connection,omitempty"`
@@ -114,8 +115,14 @@ func bindingRef(kind, ref string) (string, error) {
 
 // roomConnection resolves a room's connection: a kind (in any case; its
 // connection of that kind, created when there is none, as roster channels
-// always were), "" (the linear kind), or a connection name or id.
+// always were), "" (the tracker connection; with none, the linear kind), or a
+// connection name or id.
 func roomConnection(store Store, ref string) (Connection, error) {
+	if strings.TrimSpace(ref) == "" {
+		if c, ok := TrackerConnection(store); ok {
+			return c, nil
+		}
+	}
 	if kind := strings.ToLower(strings.TrimSpace(cmp.Or(ref, "linear"))); slices.Contains(ConnectionKinds, kind) {
 		if c, ok := store.ConnectionOfKind(kind); ok {
 			return c, nil

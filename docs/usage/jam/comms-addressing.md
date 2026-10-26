@@ -111,7 +111,8 @@ personal session. The admin API behind these is `/admin/users`, `/admin/projects
 `/channels` and `/roster` routes, and `project roster`, are gone).
 
 A room's `--connection` is a connection name or id, or a kind (`linear`,
-`discord`, `github`: that kind's connection, created if there is none); default `linear`.
+`discord`, `github`: that kind's connection, created if there is none); default
+the tracker's connection (the Requisitioner's; with none, `linear`).
 A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub
 tracker's connection it must be on the tracker's repo (any case), else it is
 refused with "github ticket key is not on the tracker's repo" — nothing could
