@@ -1,7 +1,7 @@
-// Package scheduler is the at-cove dispatch engine: it polls a tracker for ready
-// autonomous work, runs each issue's configured dispatch command, and brokers the
-// result back as the single writer of tracker state. It is driven by the Tracker
-// and Executor interfaces so it can be tested without a network or real commands.
+// Package scheduler holds the tracker vocabulary Jam's Requisitioner and its
+// trackers share: lifecycle Roles, the Issue and Comment shapes, label
+// classification (ClassifyLabels) and the brief a raised session receives
+// (AssembleBrief). The polling engine that used to live here went with at-cove.
 package scheduler
 
 import (
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Role is a lifecycle role the engine transitions issues through. The Tracker maps
+// Role is a lifecycle role Jam transitions issues through. The Tracker maps
 // each role to this team's configured state name and then to a tracker state id.
 type Role int
 
@@ -23,7 +23,7 @@ const (
 	RoleDone
 )
 
-// Issue is the subset of a tracker issue the engine needs.
+// Issue is the subset of a tracker issue Jam needs.
 type Issue struct {
 	ID          string // tracker-internal id (for API calls)
 	Identifier  string // human key, e.g. "AET-42"
@@ -32,8 +32,7 @@ type Issue struct {
 	Class       string // parsed from the class label; "" if none
 	// DispatchLabeled is true when the issue carries a label matching the
 	// tracker's dispatch-label prefix (default "dispatch:"). Jam's resident
-	// dispatcher raises a cove only for labeled issues; the standalone scheduler
-	// ignores this field. Presence-only — the value after the prefix is unused.
+	// dispatcher raises a cove only for labeled issues. Presence-only — the value after the prefix is unused.
 	DispatchLabeled bool
 }
 
@@ -50,7 +49,7 @@ type InProgressIssue struct {
 	StartedAt time.Time
 }
 
-// Tracker is every tracker operation the engine needs. The implementation owns
+// Tracker is every tracker operation Jam needs. The implementation owns
 // team scoping and the Role→state-id mapping.
 type Tracker interface {
 	// ListReady returns issues in the READY state that are dispatchable now: all

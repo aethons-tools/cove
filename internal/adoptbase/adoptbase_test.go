@@ -5,46 +5,7 @@ import (
 	"testing"
 )
 
-const sampleConfig = `image:
-  # This repo builds out its toolchain image in CI rather than locally.
-  base: ghcr.io/aethons-tools/cove-image:2026.07.18-9528dd2
-  allowed-domains:
-    - gopkg.in
-`
-
-const goodDigest = "sha256:9292e42429bd7a93f67e35a100c7a1b533e0a0911c3a9f326eb2374ca738ae2f"
 const baseDigest = "sha256:b675a81c589e96fac6423ed759e727b523b8f850c6ac5c0fa139aceeb7b91726"
-
-func TestRewriteImageBase(t *testing.T) {
-	out, err := RewriteImageBase(sampleConfig, goodDigest)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := "  base: ghcr.io/aethons-tools/cove-image@" + goodDigest
-	if !strings.Contains(out, want) {
-		t.Fatalf("output missing %q\n---\n%s", want, out)
-	}
-	if strings.Contains(out, "2026.07.18-9528dd2") {
-		t.Fatal("old tag still present")
-	}
-	if !strings.Contains(out, "# This repo builds out its toolchain image") {
-		t.Fatal("surrounding comment not preserved")
-	}
-	// Idempotent: rewriting the result with the same digest is a no-op.
-	again, err := RewriteImageBase(out, goodDigest)
-	if err != nil || again != out {
-		t.Fatalf("not idempotent: err=%v", err)
-	}
-}
-
-func TestRewriteImageBaseErrors(t *testing.T) {
-	if _, err := RewriteImageBase("no base here\n", goodDigest); err == nil {
-		t.Fatal("expected error when no image.base line is present")
-	}
-	if _, err := RewriteImageBase(sampleConfig, "sha256:short"); err == nil {
-		t.Fatal("expected error for a malformed digest")
-	}
-}
 
 const sampleWatermark = `# Low-watermark: the OLDEST cove-base-image still blessed.
 #
@@ -99,12 +60,5 @@ func TestRewriteWatermarkIdempotent(t *testing.T) {
 	twice, err := RewriteWatermark(once, "527-0808", baseDigest, "Docker+systemd, drop podman — COV-116")
 	if err != nil || twice != once {
 		t.Fatalf("not idempotent: err=%v", err)
-	}
-}
-
-func TestRewriteImageBaseIgnoresSiblingRepo(t *testing.T) {
-	cfg := "image:\n  base: ghcr.io/aethons-tools/cove-image-arm64:1.0\n"
-	if _, err := RewriteImageBase(cfg, goodDigest); err == nil {
-		t.Fatal("expected error: cove-image-arm64 must not match the cove-image base line")
 	}
 }

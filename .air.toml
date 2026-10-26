@@ -12,7 +12,7 @@ tmp_dir = ".air"
   entrypoint = ["./dev/watch-serve.sh"]
   # Templates and htmx are go:embed'ed, so UI edits need a rebuild too.
   include_ext = ["go", "html", "js", "css"]
-  exclude_dir = [".air", ".git", ".gopath", ".worktrees", ".claude", ".at-cove", ".at-jam", "dist", "docs", "dev"]
+  exclude_dir = [".air", ".git", ".gopath", ".worktrees", ".claude", ".at-jam", "dist", "docs", "dev"]
   exclude_regex = ["_test\\.go$"]
   delay = 500
   # false: a failed build leaves the last good binary serving (Jam stays up).

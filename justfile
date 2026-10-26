@@ -62,10 +62,10 @@ buf-gen:
     go install github.com/bufbuild/buf/cmd/buf@v1.45.0
     cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
 
-# adopt a published base image: resolve <tag> to its @sha256 index digest and pin
-# it in .at-cove/config.yml (image.base). Add --breaking to also raise the blessed
-# watermark, and --pr to branch+commit+open a PR. Needs GITHUB_TOKEN (read:packages).
-# e.g. `just adopt-base 527-0808 --breaking --pr`
+# raise the blessed watermark to a published, breaking base image: resolve <tag>
+# to its cove-base-image @sha256 index digest and rewrite
+# internal/basedigest/blessed/watermark.txt. Add --pr to branch+commit+open a PR.
+# Needs GITHUB_TOKEN (read:packages). e.g. `just adopt-base 527-0808 --pr`
 adopt-base *ARGS:
     go run ./cmd/adopt-base {{ARGS}}
 
@@ -144,15 +144,6 @@ test-install:
 # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 integration:
     go test -tags integration ./internal/connect/ -v
-
-# End-to-end dispatch of the reference worker kit (needs real infra; see kits/reference-worker/RUNBOOK.md).
-e2e:
-    E2E_REPO=${E2E_REPO:?set E2E_REPO=<org>/<scratch-repo>} go test -tags integration ./internal/dispatchrun/ -run TestE2EReferenceWorker -v
-
-# docker-in-sandbox e2e: install+boot a docker:true kit under Sysbox and assert the
-# booted sandbox (needs a colima VM with Sysbox; see internal/dockere2e/RUNBOOK.md).
-integration-docker:
-    COVE_DOCKER_E2E=1 go test -tags integration ./internal/dockere2e/ -run TestDockerInSandboxE2E -v -timeout 20m
 
 # jam integration: real-TLS broker round-trip, real-sshd studio SSH end to end
 # (skips without sshd), kit git sources end to end (skips without git), + the
