@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { ApiError, apiGet, shouldRetry } from "./client";
+import { ApiError, apiGet, apiPost, shouldRetry } from "./client";
 
 describe("apiGet", () => {
   it("returns the JSON body", async () => {
@@ -42,5 +42,21 @@ describe("shouldRetry", () => {
     expect(shouldRetry(0, new ApiError(502, "unavailable", "x"))).toBe(true);
     expect(shouldRetry(0, new ApiError(0, "unavailable", "x"))).toBe(true);
     expect(shouldRetry(3, new ApiError(502, "unavailable", "x"))).toBe(false);
+  });
+});
+describe("apiPost", () => {
+  it("sends JSON and resolves undefined on 204", async () => {
+    let got: { ct: string | null; body: unknown } | undefined;
+    server.use(http.post("/app/user/api/conversations/chn_a/read", async ({ request }) => {
+      got = { ct: request.headers.get("Content-Type"), body: await request.json() };
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await expect(apiPost("conversations/chn_a/read", { seq: 7 })).resolves.toBeUndefined();
+    expect(got).toEqual({ ct: "application/json", body: { seq: 7 } });
+  });
+
+  it("throws the envelope on refusal", async () => {
+    server.use(http.post("/app/user/api/conversations/chn_a/leave", () => HttpResponse.json({ error: "this channel's members are fixed", code: "conflict" }, { status: 409 })));
+    await expect(apiPost("conversations/chn_a/leave", {})).rejects.toMatchObject({ status: 409, code: "conflict" });
   });
 });

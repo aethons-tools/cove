@@ -7,3 +7,5 @@ packages:
     type_mappings:
       jam.ChannelKind: string
       jam.AttentionBucket: string
+      template.HTML: string
+      time.Time: string

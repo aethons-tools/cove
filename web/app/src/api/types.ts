@@ -77,3 +77,117 @@ export interface RailGroup {
   title: string;
   rows: ChannelRow[];
 }
+/**
+ * MessageRow is one squawk in the conversation pane, from the viewer's side.
+ */
+export interface MessageRow {
+  from: string;
+  body: string; // rendered per the squawk's content type (squawkrender): the app inserts it as HTML
+  raw: string; // the body as sent, for the Markdown copy (escaped by the template)
+  /**
+   * Plain marks a text/plain squawk, shown literally with its whitespace.
+   */
+  plain: boolean;
+  at: string; // server-local "15:04" (the templates)
+  time: string; // when it was sent (the app's day dividers and local times)
+  mine: boolean;
+  seq: number /* int64 */;
+  system: boolean;
+  sysText: string; // a System row's line
+  reAsk?: AskRef;
+  /**
+   * Files are the message's attachments.
+   */
+  files?: FileChip[];
+  /**
+   * Card names the card this row is ("ask" or "board"; "" = none), so the
+   * app can place what it doesn't render yet.
+   */
+  card: string;
+}
+/**
+ * FileChip is one attachment of a message: an inline image or a download.
+ */
+export interface FileChip {
+  id: string;
+  name: string;
+  size: string;
+  image: boolean;
+}
+/**
+ * AskRef points a reply at the ask it discusses.
+ */
+export interface AskRef {
+  id: string;
+  question: string;
+}
+/**
+ * Conversation is the right-pane view of one open channel.
+ */
+export interface Conversation {
+  channelId: string;
+  label: string;
+  kind: string;
+  project: string;
+  phase: string;
+  needsYou: boolean;
+  sendTo: string; // what the composer POSTs to /app/user/send ("" = read-only History)
+  messages: MessageRow[];
+  lastSeq: number /* int64 */;
+  /**
+   * Earlier: the API page has older messages before its first (GET
+   * api/conversations/{c}?before=<first seq>).
+   */
+  earlier: boolean;
+  /**
+   * SessionIDs are the sessions taking part; Sessions is their presence
+   * strip (filled by the handler, which holds the Presence source).
+   */
+  sessionIds: string[];
+  sessions: SessionRow[];
+  /**
+   * Membership controls: Join (a channel they can see but aren't in),
+   * Leave (one they're in; never a chat), and who they may call in.
+   */
+  canJoin: boolean;
+  canLeave: boolean;
+  callIn: NewMessageOption[];
+}
+/**
+ * NewMessageOption is one recipient offered in the New Message picker.
+ */
+export interface NewMessageOption {
+  to: string; // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
+  label: string;
+  kind: string;
+  project: string;
+}
+/**
+ * SessionRow is one session's line in the presence strip: "<Label> is <Text>
+ * <Tool>". Class is busy (animated dots), wait (needs a human), or dim.
+ */
+export interface SessionRow {
+  label: string;
+  text: string;
+  tool: string;
+  class: string;
+}
+/**
+ * PresenceResponse is GET api/conversations/{c}/presence.
+ */
+export interface PresenceResponse {
+  sessions: SessionRow[];
+}
+/**
+ * ReadRequest is POST api/conversations/{c}/read: the newest seq seen.
+ */
+export interface ReadRequest {
+  seq: number /* int64 */;
+}
+/**
+ * CallInRequest is POST api/conversations/{c}/call-in: whom (user:<id> or
+ * session:<actor>, one of Conversation.callIn's "to").
+ */
+export interface CallInRequest {
+  who: string;
+}
