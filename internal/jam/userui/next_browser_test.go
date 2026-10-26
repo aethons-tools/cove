@@ -209,3 +209,77 @@ func TestBrowserNextConversation(t *testing.T) {
 		t.Errorf("page problem: %s", pr)
 	}
 }
+
+// Typing a reply and pressing Ctrl+Enter (headless Chrome reports a Linux
+// platform) sends it through POST api/messages; it shows in the list, and
+// the box is empty again. Shift+Ctrl+V pastes as code.
+func TestBrowserNextComposerSends(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Send = jam.NewParticipantSendHandler(e.st, e.Intercom, nil)
+	changes := &testChanges{}
+	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	box := chromedp.CSS(`textarea[aria-label="Message eng"]`)
+	var problems pageProblems
+	var value string
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.WaitVisible(box),
+		chromedp.SendKeys(box, "sent from the app"),
+		chromedp.KeyEvent("\r", chromedp.KeyModifiers(chromedp.ModifierCtrl)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last string
+	for i := 0; i < 50 && !strings.Contains(last, "sent from the app"); i++ {
+		if err := chromedp.Do(ctx, into(&last, chromedp.Evaluate[string](`[...document.querySelectorAll('[data-seq]')].pop()?.innerText ?? ''`))); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(last, "sent from the app") {
+		t.Errorf("sent message didn't show; last row = %q", last)
+	}
+	if err := chromedp.Do(ctx, into(&value, chromedp.Value(box))); err != nil || value != "" {
+		t.Errorf("box after send = %q, %v", value, err)
+	}
+	ms := e.lg.ChannelSince(e.room.ID, 0, 0)
+	if got := ms[len(ms)-1]; got.Body != "sent from the app" || got.From != p.UserID {
+		t.Errorf("log's last = %+v", got)
+	}
+
+	// Paste as code (the composer marks the box on the shortcut's keydown and
+	// wraps the real paste that follows).
+	err = chromedp.Do(ctx,
+		copy(srv.URL, "a ```b``` c"),
+		chromedp.SendKeys(box, "see:"),
+		chromedp.KeyEvent("V", chromedp.KeyModifiers(chromedp.ModifierCtrl, chromedp.ModifierShift)),
+		into(&value, chromedp.Value(box)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "see:\n````\na ```b``` c\n````\n"; value != want {
+		t.Errorf("paste as code: box = %q, want %q", value, want)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
