@@ -10,7 +10,7 @@ updated: 2026-10-26
 # Studio Managers
 
 A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name next to the in-process `local` manager.
-The manager binary itself arrives in a later plan (plan 3); this doc covers Jam's side.
+The manager binary is [at-studio-manager](../studio-manager.md); this doc covers Jam's side.
 How a raise chooses among managers is in [Managers and placement](coves.md#managers-and-placement).
 
 ## Enable it
@@ -71,5 +71,7 @@ On reconnect the manager reports its inventory and Jam reconciles:
 `revoke` refuses while the manager hosts studios: `manager <name> hosts <n> studios; revoke with force to forget them`.
 `--force` forgets them: they are marked Lost at once, and the next reconcile pass revokes their identities and removes them from Jam's records.
 Their containers are left on the host for the operator to remove.
+
+A teardown returns the studio's cove-master log tail, which Jam logs as `cove agent log (tail, captured on teardown)`.
 
 Manager metrics are in [monitoring.md](monitoring.md#metrics).

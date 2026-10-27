@@ -24,7 +24,7 @@ sealed hardening layer), raises it in Colima, brokers its credentials, and
 starts `cove-master`, the in-studio agent supervisor.
 
 - **Module:** `github.com/aethons-tools/cove`
-- **Binaries:** `at-jam` (the service and its CLI), `at-mint` (host-side token minter), `cove-master` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
+- **Binaries:** `at-jam` (the service and its CLI), `at-mint` (host-side token minter), `at-studio-manager` (remote Studio Manager host process), `cove-master` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
 - **Dependencies:** see `go.mod` — no CLI framework.
 
 ## Why it exists
@@ -224,6 +224,7 @@ a `Fake` records calls for tests.
 ```
 cmd/at-jam/                    at-jam: `serve` (broker + control plane + launcher + Requisitioner) and the admin-API client verbs
 cmd/at-mint/                   host-side token minter (github / anthropic)
+cmd/at-studio-manager/        remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
 cmd/cove-master/               the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
 internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher raises studios
@@ -256,7 +257,7 @@ the intercom — is documented under [usage/jam/](usage/jam/INDEX.md);
 ### Installing the binaries
 
 The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
-fastest way to get `at-jam` and `at-mint`: it pulls the prebuilt archive from the
+fastest way to get `at-jam`, `at-mint` and `at-studio-manager`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
 and installs both (the archive also holds an `at-cove` tombstone, kept only so an
@@ -310,7 +311,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build at-mint + at-jam into dist/<os>-<arch>/
+just build           # build at-mint + at-jam + at-studio-manager into dist/<os>-<arch>/
 just build-all       # cross-compile every supported target
 just jam <args>      # run the last-built at-jam with <args>
 just install         # install the host binaries onto your PATH (no sudo by default)
