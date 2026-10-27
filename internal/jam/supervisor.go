@@ -451,6 +451,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		}
 		draft = &dr
 		spec.Kit, spec.DraftImage, spec.draft, def = dr.def.Ref, &dr.image, &dr.ref, &dr.def
+		// It runs where its image is, and nowhere else. Without a placing
+		// launcher there are no manager names: the one launcher built it.
+		if _, ok := s.launcher.(PlacingLauncher); ok {
+			spec.Placement.Managers = []string{dr.manager}
+		}
 	case roleOK:
 		d, have, kerr := s.raiseKit(spec.Project, role)
 		if kerr != nil {
@@ -626,17 +631,20 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 const draftRaiseGone = "the raise stopped waiting for the draft's test build (it runs on: raise again to use it)"
 
 // draftRaise is what a draft studio's raise resolved: its definition, the
-// draft tree it runs, that tree's objects, and its built image.
+// draft tree it runs, that tree's objects, its built image, and the
+// manager holding that image.
 type draftRaise struct {
-	def   KitDefinition
-	ref   KitDraftRef
-	objs  KitObjects
-	image KitDraftImage
+	def     KitDefinition
+	ref     KitDraftRef
+	objs    KitObjects
+	image   KitDraftImage
+	manager string
 }
 
 // raiseDraft resolves a draft studio of kit spec.KitDraft for role: the
 // draft tree as of now under the role's harness (DraftKitDefinition), and
-// its image through the test-build jobs (Ensure), waited for.
+// its image through the test-build jobs (Ensure, over the raise's
+// placement managers), waited for.
 func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) (draftRaise, error) {
 	if s.draftBuilds == nil {
 		return draftRaise{}, writeErr(http.StatusServiceUnavailable, kitDraftBuildsOff)
@@ -649,7 +657,7 @@ func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) 
 	if err != nil {
 		return draftRaise{}, err
 	}
-	img, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name)
+	img, manager, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name, spec.Placement.Managers)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		// The raise's request went away while it waited for the build;
 		// the build runs on, for a later raise to reuse.
@@ -658,7 +666,7 @@ func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) 
 	if err != nil {
 		return draftRaise{}, err
 	}
-	return draftRaise{def: def, ref: ref, objs: objs, image: img}, nil
+	return draftRaise{def: def, ref: ref, objs: objs, image: img, manager: manager}, nil
 }
 
 // keepDraftTree re-stores a draft studio's tree should GC have collected
@@ -824,19 +832,37 @@ func (s *Supervisor) imageTagOn(manager string, ref KitRef) string {
 // tag the launcher names it ("" when the launcher cannot name images). Errors
 // (no supervisor, a missing role, an unresolvable kit or model-spec) are
 // returned, never guessed around, and logged at debug level once per role per
-// minute so an "unknown" image status can be explained.
-func (s *Supervisor) CurrentImage(project, role string) (CurrentImage, error) {
+// minute so an "unknown" image status can be explained. manager names whose
+// image tag is reported ("" — or one no longer configured — = the launcher's
+// default).
+func (s *Supervisor) CurrentImage(project, role, manager string) (CurrentImage, error) {
 	if s == nil {
 		return CurrentImage{}, fmt.Errorf("no supervisor")
 	}
-	cur, err := s.currentImage(project, role)
+	cur, err := s.currentImage(project, role, s.imageManager(manager))
 	if err != nil {
 		s.logImageErr(project, role, err)
 	}
 	return cur, err
 }
 
-func (s *Supervisor) currentImage(project, role string) (CurrentImage, error) {
+// imageManager is the manager image calls for manager go to: a name the
+// placing launcher no longer has is treated as a reset — the default manager
+// ("") — as applyStandingPin treats a stale pin on raise.
+func (s *Supervisor) imageManager(manager string) string {
+	if manager == "" {
+		return ""
+	}
+	if pl, ok := s.launcher.(PlacingLauncher); ok && !pl.HasManager(manager) {
+		if s.log != nil {
+			s.log.Debug("image manager is not configured; using the default manager", "manager", manager)
+		}
+		return ""
+	}
+	return manager
+}
+
+func (s *Supervisor) currentImage(project, role, manager string) (CurrentImage, error) {
 	r, ok := s.store.GetRole(project, role)
 	if !ok {
 		return CurrentImage{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
@@ -845,7 +871,7 @@ func (s *Supervisor) currentImage(project, role string) (CurrentImage, error) {
 	if err != nil || !have {
 		return CurrentImage{}, err
 	}
-	return CurrentImage{Kit: ref, HasKit: true, Tag: s.imageTag(ref)}, nil
+	return CurrentImage{Kit: ref, HasKit: true, Tag: s.imageTagOn(manager, ref)}, nil
 }
 
 // logImageErr logs a CurrentImage error at debug level, at most once per role
@@ -1583,9 +1609,11 @@ func (s *Supervisor) StandingUpgradeState(project, role, name string) string {
 // PrepareImage makes the image a raise for project/role would run now ready,
 // via the launcher's PrepareKit (idempotent: an image already present returns
 // at once; otherwise it builds, which may take minutes — callers must not hold
-// a lock across it). A role that raises no kit is ready as is. The returned
-// CurrentImage identifies what was prepared (its Key matches CurrentImage's).
-func (s *Supervisor) PrepareImage(ctx context.Context, project, role string) (CurrentImage, KitStatus, error) {
+// a lock across it). A role that raises no kit is ready as is. manager names
+// the manager to prepare on (a PlacingLauncher's PrepareKitOn); "" — or a
+// manager no longer configured — is the launcher's default. The returned CurrentImage identifies what was prepared
+// (its Key and Tag match CurrentImage's for the same manager).
+func (s *Supervisor) PrepareImage(ctx context.Context, project, role, manager string) (CurrentImage, KitStatus, error) {
 	r, ok := s.store.GetRole(project, role)
 	if !ok {
 		return CurrentImage{}, KitStatus{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
@@ -1597,8 +1625,14 @@ func (s *Supervisor) PrepareImage(ctx context.Context, project, role string) (Cu
 	if !have {
 		return CurrentImage{}, KitStatus{State: KitReady}, nil
 	}
-	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTag(def.Ref)}
-	st, err := s.launcher.PrepareKit(ctx, def)
+	manager = s.imageManager(manager)
+	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTagOn(manager, def.Ref)}
+	var st KitStatus
+	if pl, ok := s.launcher.(PlacingLauncher); ok && manager != "" {
+		st, err = pl.PrepareKitOn(ctx, manager, def)
+	} else {
+		st, err = s.launcher.PrepareKit(ctx, def)
+	}
 	return cur, st, err
 }
 
@@ -1994,3 +2028,33 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 // ErrNoInstance means an identity has no registered instance (e.g. a
 // hand-enrolled actor), so there is no session to compile context for.
 var ErrNoInstance = errors.New("no registered instance for this identity")
+
+// RoleImage is the image a raise for a role would run on one manager.
+type RoleImage struct {
+	Manager string `json:"manager"`
+	Kit     KitRef `json:"kit"`
+	HasKit  bool   `json:"has_kit"`
+	Tag     string `json:"tag"`
+}
+
+// RoleImages is the current image of project/role on each connected manager, in
+// the launcher's candidate order. Without a manager router it is one row with
+// Manager "".
+func (s *Supervisor) RoleImages(project, role string) ([]RoleImage, error) {
+	if s == nil {
+		return nil, fmt.Errorf("no supervisor")
+	}
+	names := []string{""}
+	if a, ok := s.launcher.(interface{ AvailableNames() []string }); ok {
+		names = a.AvailableNames()
+	}
+	out := make([]RoleImage, 0, len(names))
+	for _, n := range names {
+		cur, err := s.CurrentImage(project, role, n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, RoleImage{Manager: n, Kit: cur.Kit, HasKit: cur.HasKit, Tag: cur.Tag})
+	}
+	return out, nil
+}

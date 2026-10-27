@@ -203,22 +203,22 @@ func TestUpgradeBusy(t *testing.T) {
 func TestSupervisorPrepareImage(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
 	sup, store := imageKit(t, fl)
-	cur, st, err := sup.PrepareImage(context.Background(), "default", "dev")
-	want, _ := sup.CurrentImage("default", "dev")
+	cur, st, err := sup.PrepareImage(context.Background(), "default", "dev", "")
+	want, _ := sup.CurrentImage("default", "dev", "")
 	if err != nil || st.State != KitPreparing || cur.Key() != want.Key() || want.Key() == "" || fl.prepareCalls != 1 || fl.preparedDef.Ref != want.Kit {
 		t.Fatalf("PrepareImage = %+v %+v %v (want key %q, prepares %d)", cur, st, err, want.Key(), fl.prepareCalls)
 	}
 	fl.prepareState = KitReady
-	if _, st, _ := sup.PrepareImage(context.Background(), "default", "dev"); st.State != KitReady {
+	if _, st, _ := sup.PrepareImage(context.Background(), "default", "dev", ""); st.State != KitReady {
 		t.Fatalf("ready = %+v", st)
 	}
 	if err := store.PutRole("default", Role{Name: "bare"}); err != nil {
 		t.Fatal(err)
 	}
-	if cur, st, err := sup.PrepareImage(context.Background(), "default", "bare"); err != nil || st.State != KitReady || cur.HasKit || fl.prepareCalls != 2 {
+	if cur, st, err := sup.PrepareImage(context.Background(), "default", "bare", ""); err != nil || st.State != KitReady || cur.HasKit || fl.prepareCalls != 2 {
 		t.Fatalf("no kit = %+v %+v %v", cur, st, err)
 	}
-	if _, _, err := sup.PrepareImage(context.Background(), "default", "ghost"); err == nil {
+	if _, _, err := sup.PrepareImage(context.Background(), "default", "ghost", ""); err == nil {
 		t.Fatal("unknown role must error")
 	}
 }

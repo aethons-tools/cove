@@ -279,7 +279,7 @@ type CoveSummary struct {
 // ImageResolver resolves what a raise for a role would run now. A nil resolver
 // (or a nil *Supervisor) leaves every cove's image status unknown.
 type ImageResolver interface {
-	CurrentImage(project, role string) (CurrentImage, error)
+	CurrentImage(project, role, manager string) (CurrentImage, error)
 }
 
 // CoveSummaries returns the managed-cove runtime registry as scrubbed
@@ -305,7 +305,7 @@ func coveSummaries(store Store, img ImageResolver, keep func(Instance) bool) []C
 	for _, a := range store.ListActors() {
 		actors[a.ID] = a
 	}
-	current := map[[2]string]currentImage{} // project/role → resolved once per call
+	current := map[[3]string]currentImage{} // project/role → resolved once per call
 	var out []CoveSummary
 	for _, i := range store.ListInstances() {
 		if !keep(i) {
@@ -337,8 +337,9 @@ type currentImage struct {
 // (no resolver, a missing role, a bad kit or model-spec) is unknown — never an
 // error: a listing must not fail on one role. Only a cove that is (or is about
 // to be) running has a status; terminating, lost and gone ones report "-".
-// current memoizes resolution per role.
-func imageStatus(img ImageResolver, current map[[2]string]currentImage, i Instance) string {
+// current memoizes resolution per role and manager: a studio is compared with the
+// current image on its own manager.
+func imageStatus(img ImageResolver, current map[[3]string]currentImage, i Instance) string {
 	switch i.Phase {
 	case PhaseLive, PhaseIdled, PhaseRaising:
 	default:
@@ -350,10 +351,14 @@ func imageStatus(img ImageResolver, current map[[2]string]currentImage, i Instan
 	if img == nil || (i.ImageTag == "" && i.Kit.ID == "") {
 		return "unknown"
 	}
-	key := [2]string{i.Project, i.Role}
+	mgr := i.Manager
+	if mgr == "" {
+		mgr = LocalManager // raised before managers existed: it ran locally
+	}
+	key := [3]string{i.Project, i.Role, mgr}
 	cur, seen := current[key]
 	if !seen {
-		cur.CurrentImage, cur.err = img.CurrentImage(i.Project, i.Role)
+		cur.CurrentImage, cur.err = img.CurrentImage(i.Project, i.Role, mgr)
 		current[key] = cur
 	}
 	switch {
@@ -752,6 +757,24 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		log.Info("admin role removed", "operator", OperatorID(r), "project", project, "role", name)
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /admin/roles/{project}/{role}/images", func(w http.ResponseWriter, r *http.Request) {
+		if sup == nil {
+			http.Error(w, "no supervisor", http.StatusServiceUnavailable)
+			return
+		}
+		project, role := r.PathValue("project"), r.PathValue("role")
+		if _, ok := store.GetRole(project, role); !ok {
+			http.Error(w, "role not found", http.StatusNotFound)
+			return
+		}
+		images, err := sup.RoleImages(project, role)
+		if err != nil {
+			// The role exists, so the kit or model-spec it names does not resolve.
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"images": images})
 	})
 	mux.HandleFunc("POST /admin/actors/{id}/grants", func(w http.ResponseWriter, r *http.Request) {
 		var b GrantBody

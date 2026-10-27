@@ -4,7 +4,7 @@ read_when: You want to open, inspect, edit, discard, test-build, try in a studio
 owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines, draft studios (the raise, its image, the `draft` image status, its tree kept stored)
 prereqs: kits.md, kits-directory.md
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-27
 ---
 
 # Kit drafts
@@ -47,8 +47,8 @@ Publish checks the draft as a push would, records its tree as the kit's next
 version (origin `draft`: `"origin": "draft"` in `GET /admin/kits/{name}/history`)
 and closes the draft.
 
-- No change from *current*: 409 `draft <kit> has no changes`; the draft is kept.
-- Problems: 400 `draft <kit> has problems: …`.
+- No change from *current*: 409 `draft <kit> has no changes` (draft kept);
+  problems: 400 `draft <kit> has problems: …`.
 - Kits that follow this one go stale, as after any push. With
   `{"pin": true}`, each follower also gets a new version whose `base.kit`
   names the version it follows now (`app@v3`, rewritten in place), so it stays
@@ -83,43 +83,43 @@ the build routes answer 503
 `test builds need a launcher that builds images (runtime.launcher)`.
 
 - It builds the draft at the ETag you send (`If-Match`), under the default
-  harness. A draft with problems is refused (400
-  `draft <kit> has problems: …`) before anything builds.
-- One build per kit at a time. Another start answers 409
-  `kit <kit> already has a draft build running`.
+  harness. A draft with problems is refused (400) before anything builds.
+- One build per (kit, manager), the latest kept (the view has `manager`); a second start is 409
+  `a draft build of <kit> is already running on <manager>`. `--manager` (start body
+  `{"manager"}`) picks the manager, else the first draft-capable; `--show`,
+  `--cancel` and the routes (`?manager=`) default to the latest started build.
+  Unknown manager 404; unavailable or unable to build 503.
 - The log is docker's output plus `== …` lines. Jam keeps its last 1 MiB in
   memory only; a restart loses it, and the state is then `unknown`. It holds
   whatever a Dockerfile prints, so clients show it escaped.
-- Editing the draft does not stop a build: it finishes on the tree it
-  started from. `current` says whether that tree is still the draft's, and
-  `draft_etag` is the draft's ETag now.
-- Stopping Jam (SIGINT or SIGTERM) cancels running builds: `failed`,
-  `cancelled: Jam is shutting down`. Jam waits up to 15 s for them to stop
-  (a second signal stops it at once), then exits by the signal. Draft images
-  are not collected: remove old `cove-kit-draft` images with `docker image rm`.
+- Editing the draft does not stop a build: it finishes on its starting tree.
+  `current` says whether that is still the draft's; `draft_etag` is the ETag now.
+- Stopping Jam (SIGINT or SIGTERM) cancels builds (`failed`, `cancelled: Jam is
+  shutting down`), waiting up to 15 s (a second signal stops at once). Draft
+  images are not collected: `docker image rm` old `cove-kit-draft` ones.
 
 ## Draft studio
 
 `at-jam studio raise --id try --role dev --kit-draft app` raises a manual
 studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
-tree as of the raise, unpublished. Admin only, like every raise; the role
-supplies all but the kit. Its session context's kit fact and its setup
-inspect name the kit `<kit> (draft @<tree[:7]>)`.
+tree as of the raise, unpublished. Admin only, like every raise; the role supplies
+all but the kit. Its session context's kit fact and setup inspect name the kit
+`<kit> (draft @<tree[:7]>)`.
 
-- The raise reads the draft (problems refuse it), resolves its parents as a
-  push would, and test-builds it under the role's model-spec harness. The
-  last build of the same tree **and** harness is reused while it succeeded
-  and its image exists; otherwise (none, failed, image gone) a build starts
-  and the raise waits (`studio raise` allows 30 minutes). A request gone
-  first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
+- The raise reads the draft (problems refuse it), resolves its parents as a push would, and
+  test-builds it under the role's model-spec harness. The studio runs on the manager whose
+  build it uses: a build on any candidate (`managers` honoured) is reused, else one starts
+  on the first. The last build of the same tree **and** harness is reused while it
+  succeeded and its image exists; otherwise (none, failed, image gone) a build starts and
+  the raise waits (`studio raise` allows 30 minutes). A request gone first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
 - 409 while a build of another tree or harness runs, or
   `draft <kit> changed during the raise (retry)`. A failed build is 400
   `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
 - The studio runs that image by id (its setup inspect reads it by id too),
-  records `kit_draft` (`kit`, `tree`), and the raise answers `kit_draft_tree`. Its image status is `draft`: pushing or publishing never
-  makes it stale or restarts it onto current. Its tree stays stored while it
-  exists, even once the draft is discarded or published, for its session
-  context and setup inspect ([inspect.md](inspect.md#sections)).
+  records `kit_draft` (`kit`, `tree`), and the raise answers `kit_draft_tree`.
+  Its image status is `draft`: pushing or publishing never makes it stale or
+  restarts it onto current. Its tree stays stored while it exists, even once
+  the draft is discarded or published, for its session context and setup inspect ([inspect.md](inspect.md#sections)).
 
 ## The `kit draft` verbs
 
@@ -131,7 +131,7 @@ at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads s
 at-jam kit draft rm app old.sh                         # remove a file
 at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
 at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
-at-jam kit draft build app [--no-follow]               # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
+at-jam kit draft build app [--manager N] [--no-follow] # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
 at-jam kit draft discard app                           # drop the draft
 ```
 
@@ -174,9 +174,9 @@ Admin only, the same operator gate as the rest of `/admin`.
 | `DELETE /admin/kits/{name}/draft/files/{path}` | Remove one file (`If-Match`); 404 `draft <kit> has no file <path>`. |
 | `PUT /admin/kits/{name}/draft` | Replace the whole tree with an uncompressed tar (`If-Match`; `application/x-tar`, else 415), read and filtered by its `.dockerignore` as a push upload is: see [kits-directory.md](kits-directory.md). 400 for a refused tar, 413 past the upload cap; `kit.yml` may be absent (a problem, not a refusal). |
 | `POST /admin/kits/{name}/draft/publish` | Publish (`If-Match`; `{"pin": bool}`, `application/json`). Answers `version`, `tree`, `base`, `pinned`, `drift`, `warning`. |
-| `POST /admin/kits/{name}/draft/build` | Start a test build (`If-Match`; `application/json`, else 415). 202 with the build: `id`, `tree`, `state`, `tag`. 409 when one is running; 400 for problems. |
-| `GET /admin/kits/{name}/draft/build[?since=N]` | The latest build (`no-store`): `state` (`running`, `succeeded`, `failed`, `unknown`), `tree`, `tag`, `digest` (the image id), `error`, `started_at`, `finished_at`, `current`, `draft_etag`, and the `log` from offset N (`log_from`, `log_end` for the next `since`, `log_skipped` when bytes were dropped); 400 `since must be a log offset (0 or more)`. |
-| `DELETE /admin/kits/{name}/draft/build` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`; `succeeded` when it completed before the cancel landed), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
+| `POST /admin/kits/{name}/draft/build` | Start a test build (`If-Match`; `application/json`, else 415; optional `{"manager"}`, see [Test build](#test-build)). 202 with the build: `id`, `tree`, `state`, `tag`. 409 when one is running; 400 for problems. |
+| `GET /admin/kits/{name}/draft/build[?since=N][&manager=M]` | The latest build (`no-store`): `manager`, `state` (`running`, `succeeded`, `failed`, `unknown`), `tree`, `tag`, `digest` (the image id), `error`, `started_at`, `finished_at`, `current`, `draft_etag`, and the `log` from offset N (`log_from`, `log_end` for the next `since`, `log_skipped` when bytes were dropped); 400 `since must be a log offset (0 or more)`. |
+| `DELETE /admin/kits/{name}/draft/build[?manager=M]` | Cancel the running build; 200 with it once stopped (`failed`, `cancelled`; `succeeded` when it completed before the cancel landed), 404 `kit <name> has no draft build running`. Should the request go away first, 503 `kit <name> draft build is still stopping` (it was cancelled, and ends on its own). |
 
 A write answers the new `etag` (also the `ETag` header), the files it
 `changed` and the `problems`. A path is percent-encoded per segment; one

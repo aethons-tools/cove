@@ -47,7 +47,7 @@ func TestParentChangeMarksFollowingChildStale(t *testing.T) {
 	check("egress push", "stale", "ok")
 
 	// The cache never serves the pre-push tag.
-	cur, err := sup.CurrentImage("default", "follow")
+	cur, err := sup.CurrentImage("default", "follow", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,13 +97,13 @@ func TestParentRemovedSurfacesErrorNotCachedTag(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "follow", Project: "default", Role: "follow"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sup.CurrentImage("default", "follow"); err != nil {
+	if _, err := sup.CurrentImage("default", "follow", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RemoveKit("base"); err != nil {
 		t.Fatal(err)
 	}
-	cur, err := sup.CurrentImage("default", "follow")
+	cur, err := sup.CurrentImage("default", "follow", "")
 	if err == nil || !strings.Contains(err.Error(), "kit base (parent of follower) is missing") || cur.Tag != "" {
 		t.Fatalf("CurrentImage = %+v, %v; want the missing-parent error and no tag", cur, err)
 	}
@@ -121,7 +121,7 @@ func TestChainedCurrentImageIsCached(t *testing.T) {
 	mustEnsure(t, store, "follower", child)
 	chainRole(t, store, "follow", "follower")
 	for range 3 {
-		if _, err := sup.CurrentImage("default", "follow"); err != nil {
+		if _, err := sup.CurrentImage("default", "follow", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

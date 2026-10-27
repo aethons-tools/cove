@@ -158,8 +158,13 @@ func New(cfg Config) *Launcher {
 	return l
 }
 
+// container names actorID's container for this launcher's manager.
+func (l *Launcher) container(actorID string) string {
+	return naming.CoveContainerOn(l.cfg.Manager, actorID)
+}
+
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
-	name := naming.CoveContainer(spec.ActorID)
+	name := l.container(spec.ActorID)
 	// A studio raise always carries a kit: its image is cove-kit:<build-digest>-<asm>. A
 	// launcher without that kit in its inventory returns ErrKitNotReady and creates
 	// NO container, so the supervisor prepares the kit and retries.
@@ -296,7 +301,7 @@ func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount
 // starts fresh. A volume still in use by a container errors (the caller
 // retries later); an absent one is fine.
 func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
-	name := naming.CoveContainer(actorID)
+	name := l.container(actorID)
 	if err := l.cfg.Ops.RemoveVolumes(append(stateVolumes(name), naming.DockerVolume(name))...); err != nil {
 		return fmt.Errorf("purge %s state: %w", name, err)
 	}

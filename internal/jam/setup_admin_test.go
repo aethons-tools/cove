@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -80,5 +81,46 @@ func TestSetupRoutesNeedOperatorAuth(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("%s = %d, want 403", p, resp.StatusCode)
 		}
+	}
+}
+
+// ?manager= is validated up front: an unknown manager is a 404 naming it.
+func TestRoleSetupUnknownManager404(t *testing.T) {
+	p := newPlacingFake("m0")
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	d := SetupDeps{Store: store, Sup: sup, Images: checkedImages{&fakeImages{}, p}}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(d.Store, d.Sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, WithSetupInspect(d, log)))
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/admin/roles/default/guest/setup?sections=identity&manager=nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 404 || !strings.Contains(string(b), "unknown manager: nope") {
+		t.Fatalf("= %d %s, want 404 unknown manager: nope", resp.StatusCode, b)
+	}
+}
+
+// The manager error echoes the caller's ?manager=, so it is escaped: a bidi
+// override or control byte never reaches the client raw.
+func TestRoleSetupManagerErrorEscaped(t *testing.T) {
+	p := newPlacingFake("m0")
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	d := SetupDeps{Store: store, Sup: sup, Images: checkedImages{&fakeImages{}, p}}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(d.Store, d.Sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, WithSetupInspect(d, log)))
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/admin/roles/default/guest/setup?sections=identity&manager=" + url.QueryEscape("x‮y\x1b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 404 || strings.ContainsAny(string(b), "‮\x1b") || !strings.Contains(string(b), `x\u202ey`) {
+		t.Fatalf("= %d %q, want 404 with the manager escaped", resp.StatusCode, b)
 	}
 }

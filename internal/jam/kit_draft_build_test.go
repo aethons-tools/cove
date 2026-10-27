@@ -2,6 +2,8 @@ package jam
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
@@ -109,14 +111,14 @@ func draftBuildsFor(t *testing.T, fb *fakeDraftBuilder) (*KitDraftBuilds, Store,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	return NewKitDraftBuilds(ctx, st, fb, slog.New(slog.DiscardHandler)), st, s.ETag, cancel
+	return NewKitDraftBuilds(ctx, st, OneDraftManager("local", fb), slog.New(slog.DiscardHandler)), st, s.ETag, cancel
 }
 
 // finished waits for kit app's latest build to end and returns it.
 func finished(t *testing.T, b *KitDraftBuilds) KitDraftBuild {
 	t.Helper()
 	b.mu.Lock()
-	j := b.jobs["app"]
+	j := b.jobs[draftJobKey("app", "local")]
 	b.mu.Unlock()
 	if j == nil {
 		t.Fatal("no build")
@@ -126,7 +128,7 @@ func finished(t *testing.T, b *KitDraftBuilds) KitDraftBuild {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the build did not finish")
 	}
-	v, err := b.Status("app", 0)
+	v, err := b.Status("app", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +155,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 	b, st, etag, _ := draftBuildsFor(t, fb)
 	d, _ := st.GetKitDraft("app")
 	tag := "cove-kit-draft:app-" + d.Tree[:12]
-	v, err := b.Start("app", etag, "local")
+	v, err := b.Start("app", etag, "local", "")
 	if err != nil || v.State != DraftBuildRunning || v.Tree != d.Tree || v.Tag != tag || !strings.HasPrefix(v.ID, "kdb_") || v.By != "local" {
 		t.Fatalf("start = %+v, %v", v, err)
 	}
@@ -191,8 +193,8 @@ func TestDraftBuildOnAChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	fb := &fakeDraftBuilder{}
-	b := NewKitDraftBuilds(context.Background(), st, fb, slog.New(slog.DiscardHandler))
-	if _, err := b.Start("app", DraftETag(d.Tree), "local"); err != nil {
+	b := NewKitDraftBuilds(context.Background(), st, OneDraftManager("local", fb), slog.New(slog.DiscardHandler))
+	if _, err := b.Start("app", DraftETag(d.Tree), "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	finished(t, b)
@@ -208,13 +210,13 @@ func TestDraftBuildOnAChain(t *testing.T) {
 func TestDraftBuildRefusals(t *testing.T) {
 	fb := &fakeDraftBuilder{}
 	b, st, etag, _ := draftBuildsFor(t, fb)
-	_, err := b.Start("app", "", "local")
+	_, err := b.Start("app", "", "local", "")
 	wantErr(t, err, "draft app: If-Match is required (send the etag from the draft status)", 428)
-	_, err = b.Start("app", `"`+strings.Repeat("0", 64)+`"`, "local")
+	_, err = b.Start("app", `"`+strings.Repeat("0", 64)+`"`, "local", "")
 	wantErr(t, err, "draft app changed since you loaded it (reload)", 412)
-	_, err = b.Start("a b\n", etag, "local")
+	_, err = b.Start("a b\n", etag, "local", "")
 	wantErr(t, err, unsafeKitNameText, 400)
-	_, err = b.Start("nope", etag, "local")
+	_, err = b.Start("nope", etag, "local", "")
 	wantErr(t, err, "no such kit", 404)
 	// A build arg named like a reserved secret is a problem: nothing builds.
 	log := slog.New(slog.DiscardHandler)
@@ -222,7 +224,7 @@ func TestDraftBuildRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.Start("app", s.ETag, "local")
+	_, err = b.Start("app", s.ETag, "local", "")
 	if err == nil || WriteStatus(err, 500) != 400 || !strings.HasPrefix(err.Error(), "draft app has problems: ") ||
 		!strings.Contains(err.Error(), `build-arg "AT_TASK_GIT_TOKEN" is a reserved secret name`) {
 		t.Fatalf("err = %v", err)
@@ -231,17 +233,17 @@ func TestDraftBuildRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.Start("app", s.ETag, "local")
+	_, err = b.Start("app", s.ETag, "local", "")
 	wantErr(t, err, "draft app has problems: kit app: kit.yml missing at the root", 400)
 	if fb.builds() != 0 {
 		t.Fatal("a refused build ran")
 	}
-	if v, err := b.Status("app", 0); err != nil || v.State != DraftBuildUnknown {
+	if v, err := b.Status("app", "", 0); err != nil || v.State != DraftBuildUnknown {
 		t.Fatalf("status = %+v, %v", v, err)
 	}
-	_, err = b.Status("app", -1)
+	_, err = b.Status("app", "", -1)
 	wantErr(t, err, "since must be a log offset (0 or more)", 400)
-	_, err = b.Status("nope", 0)
+	_, err = b.Status("nope", "", 0)
 	wantErr(t, err, "no such kit", 404)
 }
 
@@ -252,7 +254,7 @@ func TestDraftBuildOnePerKit(t *testing.T) {
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
-			_, err := b.Start("app", etag, "local")
+			_, err := b.Start("app", etag, "local", "")
 			errs <- err
 		}()
 	}
@@ -264,13 +266,13 @@ func TestDraftBuildOnePerKit(t *testing.T) {
 	if refused == nil {
 		refused = e2
 	}
-	wantErr(t, refused, "kit app already has a draft build running", 409)
+	wantErr(t, refused, "a draft build of app is already running on local", 409)
 	<-fb.started
 	close(fb.release)
 	if v := finished(t, b); v.State != DraftBuildSucceeded {
 		t.Fatalf("state = %s", v.State)
 	}
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatalf("a new build after the last ended: %v", err)
 	}
 	<-fb.started
@@ -283,17 +285,17 @@ func TestDraftBuildOnePerKit(t *testing.T) {
 func TestDraftBuildCancel(t *testing.T) {
 	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	b, _, etag, _ := draftBuildsFor(t, fb)
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	<-fb.started
-	v, err := b.Cancel(context.Background(), "app")
+	v, err := b.Cancel(context.Background(), "app", "")
 	if err != nil || v.State != DraftBuildFailed || v.Error != "cancelled" || !strings.HasSuffix(v.Log, "build failed: cancelled\n") {
 		t.Fatalf("cancel = %+v, %v", v, err)
 	}
-	_, err = b.Cancel(context.Background(), "app")
+	_, err = b.Cancel(context.Background(), "app", "")
 	wantErr(t, err, "kit app has no draft build running", 404)
-	_, err = b.Cancel(context.Background(), "a b")
+	_, err = b.Cancel(context.Background(), "a b", "")
 	wantErr(t, err, unsafeKitNameText, 400)
 }
 
@@ -301,7 +303,7 @@ func TestDraftBuildCancel(t *testing.T) {
 func TestDraftBuildShutdown(t *testing.T) {
 	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	b, st, etag, stop := draftBuildsFor(t, fb)
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	<-fb.started
@@ -309,11 +311,11 @@ func TestDraftBuildShutdown(t *testing.T) {
 	if !b.Wait(5 * time.Second) {
 		t.Fatal("builds still running after shutdown")
 	}
-	if v, _ := b.Status("app", 0); v.State != DraftBuildFailed || v.Error != "cancelled: Jam is shutting down" {
+	if v, _ := b.Status("app", "", 0); v.State != DraftBuildFailed || v.Error != "cancelled: Jam is shutting down" {
 		t.Fatalf("status = %+v", v)
 	}
-	again := NewKitDraftBuilds(context.Background(), st, fb, slog.New(slog.DiscardHandler))
-	if v, err := again.Status("app", 0); err != nil || v.State != DraftBuildUnknown || v.DraftETag != etag || v.ID != "" {
+	again := NewKitDraftBuilds(context.Background(), st, OneDraftManager("local", fb), slog.New(slog.DiscardHandler))
+	if v, err := again.Status("app", "", 0); err != nil || v.State != DraftBuildUnknown || v.DraftETag != etag || v.ID != "" {
 		t.Fatalf("after a restart = %+v, %v", v, err)
 	}
 }
@@ -326,7 +328,7 @@ func TestDraftBuildEditedWhileRunning(t *testing.T) {
 	d1, _ := st.GetKitDraft("app")
 	tree1, _ := st.KitTree(d1.Tree)
 	old, _ := tree1.Lookup("Dockerfile")
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	<-fb.started
@@ -337,7 +339,7 @@ func TestDraftBuildEditedWhileRunning(t *testing.T) {
 	if _, ok := st.KitBlob(old.SHA256); ok {
 		t.Fatal("setup: the first draft Dockerfile should have been collected")
 	}
-	if v, _ := b.Status("app", 0); v.State != DraftBuildRunning || v.Tree != d1.Tree || v.Current || v.DraftETag != s.ETag {
+	if v, _ := b.Status("app", "", 0); v.State != DraftBuildRunning || v.Tree != d1.Tree || v.Current || v.DraftETag != s.ETag {
 		t.Fatalf("status mid-build = %+v", v)
 	}
 	close(fb.release)
@@ -379,14 +381,14 @@ func TestBuildLogKeepsItsTail(t *testing.T) {
 func TestDraftBuildLogSkipped(t *testing.T) {
 	fb := &fakeDraftBuilder{write: strings.Repeat("y", KitDraftLogCap+512)}
 	b, _, etag, _ := draftBuildsFor(t, fb)
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	v := finished(t, b)
 	if !v.LogSkipped || v.LogFrom == 0 || len(v.Log) != KitDraftLogCap || !strings.HasSuffix(v.Log, "(sha256:img)\n") {
 		t.Fatalf("skipped %v from %d len %d", v.LogSkipped, v.LogFrom, len(v.Log))
 	}
-	if tail, _ := b.Status("app", v.LogEnd); tail.Log != "" || tail.LogSkipped || tail.LogFrom != v.LogEnd {
+	if tail, _ := b.Status("app", "", v.LogEnd); tail.Log != "" || tail.LogSkipped || tail.LogFrom != v.LogEnd {
 		t.Fatalf("follow from the end = %+v", tail)
 	}
 }
@@ -397,14 +399,14 @@ func TestDraftBuildStartRefusedAfterShutdown(t *testing.T) {
 	fb := &fakeDraftBuilder{}
 	b, _, etag, stop := draftBuildsFor(t, fb)
 	stop()
-	_, err := b.Start("app", etag, "local")
+	_, err := b.Start("app", etag, "local", "")
 	wantErr(t, err, "Jam is shutting down", 503)
 
 	b2, _, etag2, _ := draftBuildsFor(t, fb)
 	if !b2.Wait(5 * time.Second) {
 		t.Fatal("an idle registry did not finish waiting")
 	}
-	_, err = b2.Start("app", etag2, "local")
+	_, err = b2.Start("app", etag2, "local", "")
 	wantErr(t, err, "Jam is shutting down", 503)
 	if fb.builds() != 0 {
 		t.Fatal("a refused build ran")
@@ -416,7 +418,7 @@ func TestDraftBuildStartRefusedAfterShutdown(t *testing.T) {
 func TestDraftBuildRunningRefusedBeforeCopying(t *testing.T) {
 	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	b, st, etag, _ := draftBuildsFor(t, fb)
-	if _, err := b.Start("app", etag, "local"); err != nil {
+	if _, err := b.Start("app", etag, "local", ""); err != nil {
 		t.Fatal(err)
 	}
 	<-fb.started
@@ -425,8 +427,8 @@ func TestDraftBuildRunningRefusedBeforeCopying(t *testing.T) {
 	df, _ := tree.Lookup("Dockerfile")
 	reads := &countingBlobs{Store: st, sha: df.SHA256}
 	b.store = reads
-	_, err := b.Start("app", etag, "local")
-	wantErr(t, err, "kit app already has a draft build running", 409)
+	_, err := b.Start("app", etag, "local", "")
+	wantErr(t, err, "a draft build of app is already running on local", 409)
 	if n := reads.count(); n != 0 {
 		t.Fatalf("the refused start read the Dockerfile blob %d times", n)
 	}
@@ -513,5 +515,293 @@ func TestLoadDraftFilesParents(t *testing.T) {
 		if _, err := loadDraftFilesLocked(st, def(p), self); err == nil {
 			t.Fatalf("parent %s: no error", p)
 		}
+	}
+}
+
+// fakeManagedDraft is a ManagedDraftBuilder over named fakeDraftBuilders:
+// DraftManagers is order less the unavailable ones; an unregistered name is
+// ErrUnknownManager and an unavailable one ErrManagerUnavailable.
+type fakeManagedDraft struct {
+	mu    sync.Mutex
+	order []string
+	by    map[string]*fakeDraftBuilder
+	away  map[string]bool
+	empty int // HasKitDraftImageOn calls with no image id: none may reach a manager
+}
+
+func newFakeManagedDraft(names ...string) *fakeManagedDraft {
+	f := &fakeManagedDraft{order: names, by: map[string]*fakeDraftBuilder{}, away: map[string]bool{}}
+	for _, n := range names {
+		f.by[n] = &fakeDraftBuilder{id: "sha256:" + n}
+	}
+	return f
+}
+
+func (f *fakeManagedDraft) setAway(name string, away bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.away[name] = away
+}
+
+func (f *fakeManagedDraft) DraftManagers() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, n := range f.order {
+		if !f.away[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func (f *fakeManagedDraft) on(name string) (*fakeDraftBuilder, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fb, ok := f.by[name]
+	switch {
+	case !ok:
+		return nil, fmt.Errorf("%w: %s", ErrUnknownManager, name)
+	case f.away[name]:
+		return nil, fmt.Errorf("%w: %s", ErrManagerUnavailable, name)
+	}
+	return fb, nil
+}
+
+func (f *fakeManagedDraft) BuildKitDraftOn(ctx context.Context, manager string, def KitDefinition, tag string, log io.Writer) (string, error) {
+	fb, err := f.on(manager)
+	if err != nil {
+		return "", err
+	}
+	return fb.BuildKitDraft(ctx, def, tag, log)
+}
+
+func (f *fakeManagedDraft) DraftManagerErr(manager string) error {
+	_, err := f.on(manager)
+	return err
+}
+
+func (f *fakeManagedDraft) emptyProbes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.empty
+}
+
+func (f *fakeManagedDraft) HasKitDraftImageOn(manager, id string) (bool, error) {
+	if id == "" {
+		f.mu.Lock()
+		f.empty++
+		f.mu.Unlock()
+	}
+	fb, err := f.on(manager)
+	if err != nil {
+		return false, err
+	}
+	return fb.HasKitDraftImage(id)
+}
+
+// managedBuildsFor is draftBuildsFor over fm's managers.
+func managedBuildsFor(t *testing.T, fm *fakeManagedDraft) (*KitDraftBuilds, Store, string) {
+	t.Helper()
+	b, st, etag, _ := draftBuildsFor(t, &fakeDraftBuilder{})
+	b.builder = fm
+	return b, st, etag
+}
+
+// waitJob waits for kit's latest build on manager to end.
+func waitJob(t *testing.T, b *KitDraftBuilds, kit, manager string) {
+	t.Helper()
+	b.mu.Lock()
+	j := b.jobs[draftJobKey(kit, manager)]
+	b.mu.Unlock()
+	if j == nil {
+		t.Fatalf("no build of %s on %s", kit, manager)
+	}
+	select {
+	case <-j.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the build did not finish")
+	}
+}
+
+func TestDraftBuildKeyedByManager(t *testing.T) {
+	fm := newFakeManagedDraft("local", "m1")
+	for _, fb := range fm.by {
+		fb.started, fb.release = make(chan string, 2), make(chan struct{})
+	}
+	t.Cleanup(func() {
+		for _, fb := range fm.by {
+			close(fb.release)
+		}
+	})
+	b, _, etag := managedBuildsFor(t, fm)
+	if v, err := b.Start("app", etag, "op", "local"); err != nil || v.Manager != "local" {
+		t.Fatalf("start local = %+v, %v", v, err)
+	}
+	if v, err := b.Start("app", etag, "op", "m1"); err != nil || v.Manager != "m1" {
+		t.Fatalf("start m1 = %+v, %v", v, err)
+	}
+	<-fm.by["local"].started
+	<-fm.by["m1"].started
+	_, err := b.Start("app", etag, "op", "m1")
+	wantErr(t, err, "a draft build of app is already running on m1", 409)
+	for _, m := range []string{"local", "m1"} {
+		v, err := b.Status("app", m, 0)
+		if err != nil || v.Manager != m || v.State != DraftBuildRunning {
+			t.Fatalf("status %s = %+v, %v", m, v, err)
+		}
+	}
+}
+
+func TestDraftBuildStatusLatestAcrossManagers(t *testing.T) {
+	fm := newFakeManagedDraft("local", "m1")
+	b, _, etag := managedBuildsFor(t, fm)
+	t0 := time.Unix(1000, 0).UTC()
+	b.now = func() time.Time { return t0 }
+	if _, err := b.Start("app", etag, "op", "local"); err != nil {
+		t.Fatal(err)
+	}
+	waitJob(t, b, "app", "local")
+	b.now = func() time.Time { return t0.Add(time.Minute) }
+	if _, err := b.Start("app", etag, "op", "m1"); err != nil {
+		t.Fatal(err)
+	}
+	waitJob(t, b, "app", "m1")
+	v, err := b.Status("app", "", 0)
+	if err != nil || v.Manager != "m1" || v.Digest != "sha256:m1" {
+		t.Fatalf("status = %+v, %v", v, err)
+	}
+	if v, err := b.Status("app", "local", 0); err != nil || v.Manager != "local" || v.Digest != "sha256:local" {
+		t.Fatalf("status local = %+v, %v", v, err)
+	}
+	_, err = b.Status("app", "nope", 0)
+	if !errors.Is(err, ErrUnknownManager) {
+		t.Fatalf("status nope = %v", err)
+	}
+	// Equal start times: the later start is the latest.
+	if _, err := b.Start("app", etag, "op", "local"); err != nil {
+		t.Fatal(err)
+	}
+	waitJob(t, b, "app", "local")
+	if v, err := b.Status("app", "", 0); err != nil || v.Manager != "local" || !v.StartedAt.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("status at an equal time = %+v, %v", v, err)
+	}
+}
+
+func TestDraftBuildStartDefaultManager(t *testing.T) {
+	fm := newFakeManagedDraft("m2", "m1")
+	b, _, etag := managedBuildsFor(t, fm)
+	v, err := b.Start("app", etag, "op", "")
+	if err != nil || v.Manager != "m2" {
+		t.Fatalf("start = %+v, %v", v, err)
+	}
+	waitJob(t, b, "app", "m2")
+	if fm.by["m2"].builds() != 1 || fm.by["m1"].builds() != 0 {
+		t.Fatalf("builds m2=%d m1=%d", fm.by["m2"].builds(), fm.by["m1"].builds())
+	}
+	fm.setAway("m2", true)
+	fm.setAway("m1", true)
+	_, err = b.Start("app", etag, "op", "")
+	if !errors.Is(err, ErrManagerUnavailable) || !strings.Contains(err.Error(), "no manager can build kit drafts") {
+		t.Fatalf("no managers = %v", err)
+	}
+	_, err = b.Start("app", etag, "op", "m1")
+	if !errors.Is(err, ErrManagerUnavailable) || !strings.Contains(err.Error(), "m1") {
+		t.Fatalf("away m1 = %v", err)
+	}
+	_, err = b.Start("app", etag, "op", "nope")
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown = %v", err)
+	}
+	_, err = b.Cancel(context.Background(), "app", "nope")
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("cancel unknown = %v", err)
+	}
+	if n := fm.emptyProbes(); n != 0 {
+		t.Fatalf("%d image checks with no image id reached a manager", n)
+	}
+}
+
+// ensureFor is DraftKitDefinition of kit app's draft under the default harness.
+func ensureFor(t *testing.T, st Store) (KitDefinition, KitDraftRef) {
+	t.Helper()
+	def, ref, err := DraftKitDefinition(st, "app", harnessinstall.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return def, ref
+}
+
+// builtOn starts a test build of app on manager and waits for it, leaving
+// its image present there.
+func builtOn(t *testing.T, b *KitDraftBuilds, fm *fakeManagedDraft, etag, manager string) {
+	t.Helper()
+	if _, err := b.Start("app", etag, "op", manager); err != nil {
+		t.Fatal(err)
+	}
+	waitJob(t, b, "app", manager)
+	fm.by[manager].setPresent("sha256:"+manager, true)
+}
+
+func TestEnsureReusesBuildOnLaterCandidate(t *testing.T) {
+	fm := newFakeManagedDraft("local", "m1")
+	b, st, etag := managedBuildsFor(t, fm)
+	builtOn(t, b, fm, etag, "m1")
+	def, ref := ensureFor(t, st)
+	img, m, _, err := b.Ensure(context.Background(), def, ref, "raise", nil)
+	if err != nil || m != "m1" || img.ID != "sha256:m1" {
+		t.Fatalf("ensure = %+v %q %v", img, m, err)
+	}
+	if fm.by["local"].builds() != 0 || fm.by["m1"].builds() != 1 {
+		t.Fatalf("builds local=%d m1=%d", fm.by["local"].builds(), fm.by["m1"].builds())
+	}
+}
+
+// Review Focus 1: the builder disconnected; the raise builds on the next.
+func TestEnsureSkipsUnavailableBuilder(t *testing.T) {
+	fm := newFakeManagedDraft("m1", "local")
+	b, st, etag := managedBuildsFor(t, fm)
+	builtOn(t, b, fm, etag, "m1")
+	fm.setAway("m1", true)
+	def, ref := ensureFor(t, st)
+	img, m, _, err := b.Ensure(context.Background(), def, ref, "raise", nil)
+	if err != nil || m != "local" || img.ID != "sha256:local" {
+		t.Fatalf("ensure = %+v %q %v", img, m, err)
+	}
+	if fm.by["local"].builds() != 1 {
+		t.Fatalf("local builds = %d", fm.by["local"].builds())
+	}
+}
+
+func TestEnsureRespectsRequestedManagers(t *testing.T) {
+	fm := newFakeManagedDraft("local", "m1")
+	b, st, etag := managedBuildsFor(t, fm)
+	builtOn(t, b, fm, etag, "local")
+	def, ref := ensureFor(t, st)
+	img, m, _, err := b.Ensure(context.Background(), def, ref, "raise", []string{"m1"})
+	if err != nil || m != "m1" || img.ID != "sha256:m1" || fm.by["m1"].builds() != 1 {
+		t.Fatalf("ensure = %+v %q %v (m1 builds %d)", img, m, err, fm.by["m1"].builds())
+	}
+	// No requested manager can build: the first one's own refusal.
+	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", []string{"nope"})
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown requested = %v", err)
+	}
+	if code, _ := ManagerErrStatus(err); code != 404 {
+		t.Fatalf("unknown requested status = %d", code)
+	}
+	fm.setAway("m1", true)
+	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", []string{"m1"})
+	if !errors.Is(err, ErrManagerUnavailable) || errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "m1") {
+		t.Fatalf("away requested = %v", err)
+	}
+	// Nothing requested and nothing can build: the generic refusal.
+	fm.setAway("local", true)
+	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", nil)
+	if !errors.Is(err, ErrManagerUnavailable) || !strings.Contains(err.Error(), "no manager can build kit drafts") {
+		t.Fatalf("no candidates = %v", err)
+	}
+	if n := fm.emptyProbes(); n != 0 {
+		t.Fatalf("%d image checks with no image id reached a manager", n)
 	}
 }

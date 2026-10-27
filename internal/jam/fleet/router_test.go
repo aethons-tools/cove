@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -252,5 +254,132 @@ func TestRouterImageFacts(t *testing.T) {
 	}
 	if _, err := r2.ImageFacts(context.Background(), "img"); !errors.Is(err, jam.ErrManagerUnavailable) {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// draftFake is a manager that can build kit drafts and read image facts.
+type draftFake struct {
+	*fakeManager
+	built []string
+}
+
+func (d *draftFake) BuildKitDraft(_ context.Context, _ jam.KitDefinition, tag string, _ io.Writer) (string, error) {
+	d.built = append(d.built, tag)
+	return "id-" + d.name, nil
+}
+func (d *draftFake) HasKitDraftImage(id string) (bool, error) { return id == "id-"+d.name, nil }
+func (d *draftFake) ImageFacts(context.Context, string) (jam.ImageFacts, error) {
+	return jam.ImageFacts{}, fmt.Errorf("facts from %s", d.name)
+}
+
+// localDraft is a launcher (wrapped by Local) that can build kit drafts.
+type localDraft struct {
+	jam.Launcher
+	built []string
+}
+
+func (l *localDraft) BuildKitDraft(_ context.Context, _ jam.KitDefinition, tag string, _ io.Writer) (string, error) {
+	l.built = append(l.built, tag)
+	return "id-local", nil
+}
+func (l *localDraft) HasKitDraftImage(string) (bool, error) { return true, nil }
+
+func TestDraftManagersOrderAndCapability(t *testing.T) {
+	r := newRouter()
+	m2 := &draftFake{fakeManager: newFake("m2")}
+	m2.avail.Store(false)
+	mustAdd(t, r, newFake("m1"), m2, Local(&localDraft{}))
+	if got := r.DraftManagers(); !slices.Equal(got, []string{"local"}) {
+		t.Fatalf("DraftManagers = %v", got)
+	}
+	if got := r.AvailableNames(); !slices.Equal(got, []string{"m1", "local"}) {
+		t.Fatalf("AvailableNames = %v", got)
+	}
+}
+
+func TestBuildKitDraftOnNamed(t *testing.T) {
+	r := newRouter()
+	ld := &localDraft{}
+	m2 := &draftFake{fakeManager: newFake("m2")}
+	mustAdd(t, r, m2, Local(ld))
+	id, err := r.BuildKitDraftOn(context.Background(), "m2", jam.KitDefinition{}, "t", nil)
+	if err != nil || id != "id-m2" || len(m2.built) != 1 || len(ld.built) != 0 {
+		t.Fatalf("id=%q err=%v m2=%v local=%v", id, err, m2.built, ld.built)
+	}
+	if ok, err := r.HasKitDraftImageOn("m2", "id-m2"); err != nil || !ok {
+		t.Fatalf("HasKitDraftImageOn = %v, %v", ok, err)
+	}
+	// "" is the first available draft-capable manager: m2 is registered first.
+	if id, _ := r.BuildKitDraftOn(context.Background(), "", jam.KitDefinition{}, "t", nil); id != "id-m2" {
+		t.Fatalf("default id = %q", id)
+	}
+}
+
+func TestOnFormsErrors(t *testing.T) {
+	r := newRouter()
+	down := &draftFake{fakeManager: newFake("down")}
+	down.avail.Store(false)
+	mustAdd(t, r, down, newFake("plain"))
+	ctx := context.Background()
+	calls := map[string]func(name string) error{
+		"build": func(n string) error { _, err := r.BuildKitDraftOn(ctx, n, jam.KitDefinition{}, "t", nil); return err },
+		"has":   func(n string) error { _, err := r.HasKitDraftImageOn(n, "id"); return err },
+		"draft": r.DraftManagerErr,
+		"facts": func(n string) error { _, err := r.ImageFactsOn(ctx, n, "img"); return err },
+	}
+	for what, call := range calls {
+		if err := call("nope"); !errors.Is(err, jam.ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+			t.Errorf("%s unknown: %v", what, err)
+		}
+		if err := call("down"); !errors.Is(err, jam.ErrManagerUnavailable) {
+			t.Errorf("%s unavailable: %v", what, err)
+		}
+	}
+	for what, want := range map[string]string{
+		"build": "manager plain cannot build kit drafts",
+		"has":   "manager plain cannot build kit drafts",
+		"draft": "manager plain cannot build kit drafts",
+		"facts": "manager plain cannot read image facts",
+	} {
+		err := calls[what]("plain")
+		if !errors.Is(err, jam.ErrManagerUnavailable) || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s incapable: %v", what, err)
+		}
+	}
+}
+
+func TestImageFactsOnDefaultIsFirstAvailable(t *testing.T) {
+	r := newRouter()
+	down := &draftFake{fakeManager: newFake("down")}
+	down.avail.Store(false)
+	mustAdd(t, r, newFake("plain"), down, &draftFake{fakeManager: newFake("ok")})
+	for _, name := range []string{"", "ok"} {
+		_, err := r.ImageFactsOn(context.Background(), name, "img")
+		if err == nil || err.Error() != "facts from ok" {
+			t.Fatalf("%q: %v", name, err)
+		}
+	}
+	if _, err := r.ImageFacts(context.Background(), "img"); err == nil || err.Error() != "facts from ok" {
+		t.Fatalf("ImageFacts: %v", err)
+	}
+}
+
+func TestRouterManagerErr(t *testing.T) {
+	up, down := newFake("up"), newFake("down")
+	down.avail.Store(false)
+	r := New(nil)
+	for _, m := range []Manager{up, down} {
+		if err := r.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.ManagerErr("up"); err != nil {
+		t.Errorf("up: %v", err)
+	}
+	if err := r.ManagerErr("nope"); !errors.Is(err, jam.ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("nope: %v", err)
+	}
+	if err := r.ManagerErr("down"); !errors.Is(err, jam.ErrManagerUnavailable) || !strings.Contains(err.Error(), "down") {
+		t.Errorf("down: %v", err)
 	}
 }

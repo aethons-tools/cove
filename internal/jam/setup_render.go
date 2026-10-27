@@ -15,9 +15,9 @@ import (
 // SetupDeps are what a setup render reads beyond the store.
 type SetupDeps struct {
 	Store        Store
-	Sup          *Supervisor      // nil: context and kit resolution unavailable
-	Images       ImageFactsReader // nil: image parts unavailable (placeholder launcher)
-	SealedEgress []string         // the hardening layer's always-on egress list
+	Sup          *Supervisor        // nil: context and kit resolution unavailable
+	Images       ManagedImageReader // nil: image parts unavailable (placeholder launcher)
+	SealedEgress []string           // the hardening layer's always-on egress list
 }
 
 // Fixed section reasons: never an error text from outside, never repo text.
@@ -32,6 +32,9 @@ const (
 	reasonModelSpec         = "the role's model-spec does not resolve; a raise would fail"
 	reasonConnectorConflict = "the role's destinations conflict; a raise would fail"
 	reasonRoleGone          = "the role no longer exists"
+	// A studio's own manager failing (InstanceSetup: the caller named none).
+	reasonManagerUnavailable = "the studio's manager is not connected"
+	reasonManagerUnknown     = "the studio's manager is no longer registered"
 )
 
 // Image-read reasons are the fixed error values' text.
@@ -92,9 +95,14 @@ func (s *Supervisor) wouldBeRaise(project string, role Role) (wouldBe, error) {
 
 // imageMemo reads an image at most once per render.
 type imageMemo struct {
+	manager string // the manager the image is read from
+	// own: manager is the studio's own (InstanceSetup), not one the caller
+	// named — its failure is a section reason, not a failed render.
+	own    bool
 	done   bool
 	facts  ImageFacts
 	reason string
+	err    error // a named-manager failure (unknown or unavailable): the render fails, not the section
 }
 
 // readImage returns tag's facts, or the fixed reason they are unavailable;
@@ -113,8 +121,15 @@ func (d SetupDeps) readImage(ctx context.Context, m *imageMemo, tag, noKit strin
 	case tag == "":
 		m.reason = reasonImageUnknown
 	default:
-		f, err := d.Images.ImageFacts(ctx, tag)
+		f, err := d.Images.ImageFactsOn(ctx, m.manager, tag)
 		switch {
+		case m.own && errors.Is(err, ErrManagerUnavailable):
+			m.reason = reasonManagerUnavailable
+		case m.own && errors.Is(err, ErrUnknownManager):
+			m.reason = reasonManagerUnknown
+		case isManagerErr(err):
+			m.err = err
+			m.reason = reasonImageError
 		case errors.Is(err, ErrImageNotPresent):
 			m.reason = reasonNoImage
 		case err != nil:
@@ -156,7 +171,8 @@ func (d SetupDeps) seedSection(ctx context.Context, m *imageMemo, tag, noKit str
 // RoleSetup renders what a studio of project/role raised now would get.
 // sections is validated (empty = all; an unknown name is ErrUnknownSection).
 // ErrNotFound for an unknown role; every other failure is a section's.
-func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, sections []string) (StudioSetup, error) {
+// manager names the manager whose image is read ("" = the default).
+func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, sections []string, manager string) (StudioSetup, error) {
 	sections, err := setupSections(sections)
 	if err != nil {
 		return StudioSetup{}, err
@@ -164,6 +180,9 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 	r, ok := d.Store.GetRole(project, roleName)
 	if !ok {
 		return StudioSetup{}, fmt.Errorf("role %s/%s: %w", orDefaultProject(project), roleName, ErrNotFound)
+	}
+	if err := d.checkManager(manager); err != nil {
+		return StudioSetup{}, err
 	}
 	out := StudioSetup{Subject: "role " + ProjectName(d.Store, orDefaultProject(project)) + "/" + r.Name}
 	wb, wbErr := d.Sup.wouldBeRaise(project, r)
@@ -186,7 +205,17 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 	case wb.imageTag == "":
 		noKit = reasonLauncherUntagged // a role render has no recorded tag to be missing
 	}
-	var img imageMemo
+	if manager != "" && wbErr == nil && wb.kitErr == nil && wb.haveKit {
+		cur, err := d.Sup.CurrentImage(project, roleName, manager)
+		if err != nil {
+			return StudioSetup{}, fmt.Errorf("role %s/%s on manager %s: %w", orDefaultProject(project), roleName, manager, err)
+		}
+		wb.imageTag = cur.Tag
+		if cur.Tag == "" {
+			noKit = reasonLauncherUntagged
+		}
+	}
+	img := imageMemo{manager: manager}
 	for _, name := range sections {
 		sec := SetupSection{Name: name, Source: SourceConfig}
 		switch name {
@@ -241,6 +270,9 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 		}
 		out.Sections = append(out.Sections, sec)
 	}
+	if img.err != nil {
+		return StudioSetup{}, img.err
+	}
 	return out, nil
 }
 
@@ -248,7 +280,9 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 // label) got: its snapshots, else a labelled recompute; config sections as
 // of now; image facts for the image it runs. diffRole adds, per section, a
 // line diff against RoleSetup of its role. sections is validated as
-// RoleSetup's. ErrNotFound for an unknown or gone studio.
+// RoleSetup's. ErrNotFound for an unknown or gone studio. The studio's own
+// manager being unavailable or unregistered is a section reason
+// (reasonManagerUnavailable/Unknown), never a failed render.
 func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []string, diffRole bool) (StudioSetup, error) {
 	sections, err := setupSections(sections)
 	if err != nil {
@@ -273,7 +307,7 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 		}
 	}
 	out := StudioSetup{Subject: "studio " + id}
-	var img imageMemo
+	img := imageMemo{manager: instanceManager(inst), own: true}
 	for _, name := range sections {
 		var sec SetupSection
 		switch name {
@@ -317,7 +351,7 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 		out.Note = reasonRoleGone + ": no diff"
 		return out, nil
 	}
-	rs, err := RoleSetup(ctx, d, inst.Project, inst.Role, sections)
+	rs, err := RoleSetup(ctx, d, inst.Project, inst.Role, sections, instanceManager(inst))
 	if err != nil {
 		out.Note = "the role could not be rendered: no diff"
 		return out, nil
@@ -403,13 +437,46 @@ func (d SetupDeps) instanceKitSection(ctx context.Context, m *imageMemo, inst In
 	if s, ok := snaps[SetupPartKit]; ok {
 		sec.Source, sec.Reason, sec.At, sec.Body = SourceSnapshot, "", s.At, s.Body
 	}
-	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[2]string]currentImage{}, inst) == "stale"
+	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[3]string]currentImage{}, inst) == "stale"
 	if inst.Kit.ID != "" {
 		sk, _ := instanceKit(d.Store, inst)
 		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs, inst.KitDraft)
 	}
 	sec.Body += d.imageLabelsPart(ctx, m, instanceImage(inst), noKit)
 	return sec
+}
+
+// instanceManager is the manager an instance's image lives on: "" is local.
+func instanceManager(inst Instance) string {
+	if inst.Manager == "" {
+		return LocalManager
+	}
+	return inst.Manager
+}
+
+// managerChecker is what an image reader that knows its managers offers
+// (fleet.Router).
+type managerChecker interface{ ManagerErr(name string) error }
+
+// checkManager validates a named manager up front, whether or not an image is
+// read. Without a checker only LocalManager is known.
+func (d SetupDeps) checkManager(manager string) error {
+	if manager == "" {
+		return nil
+	}
+	if c, ok := d.Images.(managerChecker); ok {
+		return c.ManagerErr(manager)
+	}
+	if manager != LocalManager {
+		return fmt.Errorf("%w: %s", ErrUnknownManager, manager)
+	}
+	return nil
+}
+
+// isManagerErr reports a named-manager failure (unknown or unavailable).
+func isManagerErr(err error) bool {
+	_, ok := ManagerErrStatus(err)
+	return ok
 }
 
 // instanceImage is the image an instance's image facts are read from: a
