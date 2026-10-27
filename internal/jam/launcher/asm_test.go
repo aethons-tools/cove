@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestTagForFormat(t *testing.T) {
 	kit := strings.Repeat("a", 64)
 	asm := strings.Repeat("b", 64)
 	got := tagFor(kit, asm)
-	want := "cove-kit:" + strings.Repeat("a", 32) + "-" + strings.Repeat("b", 32)
+	want := "jam-kit:" + strings.Repeat("a", 32) + "-" + strings.Repeat("b", 32)
 	if got != want {
 		t.Fatalf("tagFor = %q, want %q", got, want)
 	}
@@ -22,7 +23,7 @@ func TestTagForFormat(t *testing.T) {
 }
 
 func TestImageTagShortDigest(t *testing.T) {
-	if got := tagFor("cafef00d", "beef"); got != "cove-kit:cafef00d-beef" {
+	if got := tagFor("cafef00d", "beef"); got != "jam-kit:cafef00d-beef" {
 		t.Fatalf("short digests must be used whole, got %q", got)
 	}
 }
@@ -56,7 +57,7 @@ func TestLauncherTagDependsOnJamHostAndKey(t *testing.T) {
 	if a.imageTag(ref) == b.imageTag(ref) || a.imageTag(ref) == c.imageTag(ref) {
 		t.Fatalf("tag ignores JamHost/key: %s %s %s", a.imageTag(ref), b.imageTag(ref), c.imageTag(ref))
 	}
-	if !strings.HasPrefix(a.imageTag(ref), "cove-kit:"+strings.Repeat("c", 32)+"-") {
+	if !strings.HasPrefix(a.imageTag(ref), "jam-kit:"+strings.Repeat("c", 32)+"-") {
 		t.Fatalf("tag %q lacks the kit digest prefix", a.imageTag(ref))
 	}
 }
@@ -71,5 +72,20 @@ func TestImageTagIsTheRaisedImage(t *testing.T) {
 	}
 	if got := l.ImageTag(testKitRef); got != ops.runImage || got != tagFor(testKitRef.Digest, l.asm) {
 		t.Fatalf("ImageTag = %q, raise ran %q", got, ops.runImage)
+	}
+}
+
+func TestStudioLabelsAndTags(t *testing.T) {
+	if Label != "jam.studio" || StateLabel != "jam.studio.state" || JamLabel != "jam.studio.jam" {
+		t.Fatalf("labels = %q %q %q", Label, StateLabel, JamLabel)
+	}
+	if got := tagFor(strings.Repeat("a", 64), strings.Repeat("b", 64)); !strings.HasPrefix(got, "jam-kit:") {
+		t.Fatalf("tagFor = %q", got)
+	}
+	if !strings.HasPrefix(draftTagPrefix, "jam-kit-draft:") {
+		t.Fatalf("draftTagPrefix = %q", draftTagPrefix)
+	}
+	if got := New(Config{}).cfg.BuildRoot; filepath.Base(got) != "jam-kit-builds" {
+		t.Fatalf("BuildRoot = %q", got)
 	}
 }

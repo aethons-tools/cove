@@ -1,18 +1,14 @@
 // Package naming is the single source of truth for the runtime docker
 // resource names Jam's launcher derives: a studio's container
-// (atcove-cove-<id>, StudioContainer) and the volumes named after it. Every name
-// shares the product prefix `atcove-`, so it never collides with an unrelated
-// docker object and every resource of one studio sorts together. Pure (no
-// os/time), so it is hermetically testable.
+// (jam-studio-<id>, StudioContainer) and the volumes named after it; every
+// name starts `jam-studio-`, so one studio's resources sort together and never
+// collide with an unrelated docker object. Pure (no os/time), so it is
+// hermetically testable.
 package naming
 
 import (
 	"strings"
 )
-
-// prefix is the product marker on every runtime resource name, so a cove
-// object is never confused with (or colliding with) an unrelated docker object.
-const prefix = "atcove"
 
 // WorkspaceVolume names the /home/agent/workspace volume for an instance, given
 // that instance's container (base) name.
@@ -43,4 +39,4 @@ func SafeID(actorID string) string {
 
 // StudioContainer names a managed studio's container from its actor id,
 // docker-safe (SafeID).
-func StudioContainer(actorID string) string { return prefix + "-cove-" + SafeID(actorID) }
+func StudioContainer(actorID string) string { return "jam-studio-" + SafeID(actorID) }

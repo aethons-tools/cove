@@ -1076,12 +1076,12 @@ func TestStandingUpgradeCommand(t *testing.T) {
 
 	// Already current: nothing restarted, said so.
 	cur := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Image: "cove-kit:abc", Reason: "already current"})
+		_ = json.NewEncoder(w).Encode(jam.StandingUpgradeResult{Image: "jam-kit:abc", Reason: "already current"})
 	}))
 	defer cur.Close()
 	out.Reset()
 	if code := run([]string{"standing", "upgrade", "--admin-url", cur.URL, "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 ||
-		!strings.Contains(out.String(), "already runs the current image (cove-kit:abc)") {
+		!strings.Contains(out.String(), "already runs the current image (jam-kit:abc)") {
 		t.Fatalf("already current: exit=%d out=%q", code, out.String())
 	}
 }

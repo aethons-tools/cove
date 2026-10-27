@@ -136,7 +136,7 @@ func finished(t *testing.T, b *KitDraftBuilds) KitDraftBuild {
 func TestKitDraftTag(t *testing.T) {
 	tree := strings.Repeat("ab", 32)
 	tag, err := KitDraftTag("app", tree)
-	if err != nil || tag != "cove-kit-draft:app-abababababab" || KitDraftStageTag(tag) != "cove-kit-draft:app-abababababab-stage" {
+	if err != nil || tag != "jam-kit-draft:app-abababababab" || KitDraftStageTag(tag) != "jam-kit-draft:app-abababababab-stage" {
 		t.Fatalf("tag = %q, %v", tag, err)
 	}
 	if _, err := KitDraftTag(strings.Repeat("a", 109), tree); err != nil {
@@ -152,7 +152,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 	fb := &fakeDraftBuilder{write: "#1 FROM base\n"}
 	b, st, etag, _ := draftBuildsFor(t, fb)
 	d, _ := st.GetKitDraft("app")
-	tag := "cove-kit-draft:app-" + d.Tree[:12]
+	tag := "jam-kit-draft:app-" + d.Tree[:12]
 	v, err := b.Start("app", etag, "local")
 	if err != nil || v.State != DraftBuildRunning || v.Tree != d.Tree || v.Tag != tag || !strings.HasPrefix(v.ID, "kdb_") || v.By != "local" {
 		t.Fatalf("start = %+v, %v", v, err)
@@ -165,7 +165,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 		t.Fatalf("log = %q", v.Log)
 	}
 	def := fb.defs[0]
-	if fb.tags[0] != tag || strings.HasPrefix(fb.tags[0], "cove-kit:") || def.Ref.ID != "app" || def.Ref.Version != 0 || len(def.Chain) != 1 || def.Chain[0].Ref.Version != 0 {
+	if fb.tags[0] != tag || strings.HasPrefix(fb.tags[0], "jam-kit:") || def.Ref.ID != "app" || def.Ref.Version != 0 || len(def.Chain) != 1 || def.Chain[0].Ref.Version != 0 {
 		t.Fatalf("built %q from %+v", fb.tags[0], def.Ref)
 	}
 	if !reflect.DeepEqual(def.Harness, harnessinstall.Default()) {

@@ -84,7 +84,7 @@ type KitDraftBuild struct {
 const kitDraftStageSuffix = "-stage"
 
 // KitDraftTag is the image tag a build of kit's draft tree gets:
-// cove-kit-draft:<kit>-<tree[:12]>. It is never a kit version's tag. A
+// jam-kit-draft:<kit>-<tree[:12]>. It is never a kit version's tag. A
 // name that cannot make a docker tag (the tag part is at most 128
 // characters and must fit the -stage suffix; it cannot start with . or -)
 // is refused (400), unnamed.
@@ -93,7 +93,7 @@ func KitDraftTag(kit, tree string) (string, error) {
 	if !studio.TagSafeName(kit) || len(t)+len(kitDraftStageSuffix) > 128 || kit[0] == '.' || kit[0] == '-' {
 		return "", writeErr(http.StatusBadRequest, "kit name cannot form a draft image tag (at most 109 characters of [A-Za-z0-9_.-], not starting with . or -)")
 	}
-	return "cove-kit-draft:" + t, nil
+	return "jam-kit-draft:" + t, nil
 }
 
 // KitDraftStageTag is the tag of a draft build's own stage (its Dockerfile

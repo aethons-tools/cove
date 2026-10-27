@@ -125,14 +125,14 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 func TestRunEphemeralMounts(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "atcove-cove-s1", "harbor.cove", nil, nil, false,
-		backend.Mount{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
-		backend.Mount{Volume: "atcove-cove-s1-workspace", Target: "/home/agent/workspace"},
+	if _, err := c.RunEphemeral("img:tag", "", "jam-studio-s1", "jam.studio", nil, nil, false,
+		backend.Mount{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
+		backend.Mount{Volume: "jam-studio-s1-workspace", Target: "/home/agent/workspace"},
 	); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(dockerCall(f.Calls, "run"), " ")
-	for _, want := range []string{"--rm", "-v atcove-cove-s1-agent-data:/agent-data", "-v atcove-cove-s1-workspace:/home/agent/workspace"} {
+	for _, want := range []string{"--rm", "-v jam-studio-s1-agent-data:/agent-data", "-v jam-studio-s1-workspace:/home/agent/workspace"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -163,10 +163,10 @@ func TestRemoveVolumes(t *testing.T) {
 func TestCreateVolumeLabels(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if err := c.CreateVolume("v1", "harbor.cove.state=standing-a-b-c"); err != nil {
+	if err := c.CreateVolume("v1", "jam.studio.state=standing-a-b-c"); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label harbor.cove.state=standing-a-b-c v1" {
+	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label jam.studio.state=standing-a-b-c v1" {
 		t.Errorf("args = %q", got)
 	}
 }
@@ -176,7 +176,7 @@ func TestCreateVolumeLabels(t *testing.T) {
 func TestListVolumes(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
 	c := NewWithContext(f, "")
-	got, err := c.ListVolumes("harbor.cove.state", "harbor.cove.jam=j1")
+	got, err := c.ListVolumes("jam.studio.state", "jam.studio.jam=j1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestListVolumes(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	args := strings.Join(dockerCall(f.Calls, "volume"), " ")
-	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --filter label=harbor.cove.jam=j1 --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
+	if !strings.Contains(args, "volume ls --filter label=jam.studio.state --filter label=jam.studio.jam=j1 --format") || !strings.Contains(args, `{{.Label "jam.studio.state"}}`) {
 		t.Errorf("args = %q", args)
 	}
 }

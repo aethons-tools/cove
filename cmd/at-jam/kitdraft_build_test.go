@@ -88,7 +88,7 @@ func TestKitDraftBuildFollowsToSuccess(t *testing.T) {
 		"building draft app @" + tree + " (build kdb_",
 		"#1 step\n",
 		`#2 \x1b[31mred\x1b[0m` + "\n",
-		"built draft app @" + tree + ": cove-kit-draft:app-" + tree + " (digest sha256:img)\n",
+		"built draft app @" + tree + ": jam-kit-draft:app-" + tree + " (digest sha256:img)\n",
 	} {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Fatalf("exit %d lacks %q:\n%s\nstderr: %s", code, want, out, errs)

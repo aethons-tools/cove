@@ -37,7 +37,7 @@ const hardeningMarker = "chown -R agent:agent /home/agent/.ssh"
 // and hardening layers are applied once, on top. It needs a reachable colima
 // docker context (JAM_DOCKER_CONTEXT, default "colima") with the blessed base
 // available, and network for the harness layer; it skips without a daemon. It
-// leaves cove-kit-base:* stage tags in that daemon (they are the stage cache).
+// leaves jam-kit-base:* stage tags in that daemon (they are the stage cache).
 // Run: `go test -tags integration ./internal/jam/launcher/ -run TestChainBuildTwoLevels`.
 func TestChainBuildTwoLevels(t *testing.T) {
 	dctx := os.Getenv("JAM_DOCKER_CONTEXT")

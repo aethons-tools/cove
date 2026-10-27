@@ -27,7 +27,7 @@ func TestDraftStudioSetupGolden(t *testing.T) {
 		"\n== " + heading + " (snapshot, ",
 		"  kit: my-app (draft @" + s.Tree[:7] + ") digest ",
 		"  chain (root first): default@v1 → web-dev@v1 → my-app (draft)\n",
-		"  image tag: cove-kit-draft:my-app-" + s.Tree[:12] + "\n",
+		"  image tag: jam-kit-draft:my-app-" + s.Tree[:12] + "\n",
 		"my-app (draft)  draft, not published",
 	} {
 		if !strings.Contains(text, want) {
@@ -50,10 +50,10 @@ func TestDraftStudioKitRefsRecomputed(t *testing.T) {
 	inst := Instance{
 		Kit:      KitRef{ID: "my-app", Version: 0, Digest: "sha256:0123456789abcdef"},
 		KitChain: []KitRef{{ID: "default", Version: 1}, {ID: "my-app", Version: 0}},
-		ImageTag: "cove-kit-draft:my-app-abcdef012345",
+		ImageTag: "jam-kit-draft:my-app-abcdef012345",
 		KitDraft: &KitDraftRef{Kit: "my-app", Tree: "abcdef0123456789"},
 	}
-	want := "kit: my-app (draft @abcdef0) digest " + shortDigest(inst.Kit.Digest) + "\nchain (root first): default@v1 → my-app (draft)\nimage tag: cove-kit-draft:my-app-abcdef012345\n"
+	want := "kit: my-app (draft @abcdef0) digest " + shortDigest(inst.Kit.Digest) + "\nchain (root first): default@v1 → my-app (draft)\nimage tag: jam-kit-draft:my-app-abcdef012345\n"
 	if got := instanceKitRefsBody(inst); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

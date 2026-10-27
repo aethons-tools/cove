@@ -23,11 +23,8 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
-// Label is the docker label on every container the launcher raises, and the
-// filter it lists them by. It keeps its pre-rename "harbor" value: changing it
-// would hide studios an older binary raised from the new one during a rollout.
-// See docs/usage/jam/renamed-from-harbor.md.
-const Label = "harbor.cove"
+// Label tags every studio container this launcher runs.
+const Label = "jam.studio"
 
 // Backend is the backend surface the launcher needs: the ephemeral run/dial/remove
 // ops, GetStatus for probing, and the managed-kit build+inventory. The Colima
@@ -64,7 +61,7 @@ type Config struct {
 	SSHUserCA []byte
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
-	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
+	// build contexts are assembled (default os.TempDir()/jam-kit-builds).
 	// PublicKey is the launcher's own SSH public key, baked into the built image's
 	// authorized_keys so Jam can reach the raised cove (its private half is
 	// IdentityFile). The build context comes entirely from the KitDefinition (data)
@@ -112,7 +109,7 @@ func New(cfg Config) *Launcher {
 		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
 	if cfg.BuildRoot == "" {
-		cfg.BuildRoot = filepath.Join(os.TempDir(), "cove-kit-builds")
+		cfg.BuildRoot = filepath.Join(os.TempDir(), "jam-kit-builds")
 	}
 	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
 	asm, err := currentAsmDigest(cfg)
@@ -132,13 +129,13 @@ func New(cfg Config) *Launcher {
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := naming.StudioContainer(spec.ActorID)
-	// A studio raise always carries a kit: its image is cove-kit:<build-digest>-<asm>. A
+	// A studio raise always carries a kit: its image is jam-kit:<build-digest>-<asm>. A
 	// launcher without that kit in its inventory returns ErrKitNotReady and creates
 	// NO container, so the supervisor prepares the kit and retries.
 	if spec.Kit.ID == "" {
 		return "", fmt.Errorf("raise %s: no kit (studio raises require a kit)", name)
 	}
-	// The build-digest keys the image tag cove-kit:<Digest>; empty would yield an invalid tag.
+	// The build-digest keys the image tag jam-kit:<Digest>; empty would yield an invalid tag.
 	if spec.Kit.Digest == "" {
 		return "", fmt.Errorf("raise %s: kit %s has no build-digest", name, spec.Kit.ID)
 	}
@@ -161,7 +158,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if !ok {
 			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 		}
-		// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
+		// Run the immutable jam-kit:<build-digest>-<asm> tag. No digest pin: the tag already
 		// names the exact built image by its build-input digest.
 		image = l.imageTag(spec.Kit)
 	}
@@ -220,12 +217,12 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 // StateLabel is the docker label on a standing session's state volumes; its
 // value is the owning actor id. The standing reconciler sweeps by it: a
 // labeled volume whose actor id is no longer declared is removed.
-const StateLabel = "harbor.cove.state"
+const StateLabel = "jam.studio.state"
 
 // JamLabel scopes a state volume to the Jam that created it (its value is
 // Config.JamID), so a Jam sweeps only its own volumes, never another's on a
 // shared docker host.
-const JamLabel = "harbor.cove.jam"
+const JamLabel = "jam.studio.jam"
 
 // agentDataPath is where a standing session's agent-data volume mounts: the
 // agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).

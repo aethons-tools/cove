@@ -12,10 +12,10 @@ import (
 // never declare or override it.
 const MCPReservedName = "messaging"
 
-// MCPServersImagePath is where a kit's mcp-servers are baked into the cove
-// image (JSON: name → MCPServer) for the agent harness to read. Cove-owned —
+// MCPServersImagePath is where a kit's mcp-servers are baked into the studio
+// image (JSON: name → MCPServer) for the agent harness to read. Jam-owned —
 // deliberately not under /etc/claude-code.
-const MCPServersImagePath = "/etc/cove/mcp-servers.json"
+const MCPServersImagePath = "/etc/jam/mcp-servers.json"
 
 // MCPServer is one kit-declared MCP server (a kit's mcp-servers: map value).
 // Its JSON form is Claude Code's --mcp-config server entry shape, so the

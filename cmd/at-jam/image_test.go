@@ -23,7 +23,7 @@ type taggingLauncher struct {
 }
 
 func (l taggingLauncher) ImageTag(ref jam.KitRef) string {
-	return "cove-kit:" + ref.Digest + "-" + *l.asm
+	return "jam-kit:" + ref.Digest + "-" + *l.asm
 }
 
 // `studio list` prints each cove's image status, and `standing list` each

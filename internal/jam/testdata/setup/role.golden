@@ -230,7 +230,7 @@
 == kit (config)
   kit: my-app@v2 digest <hex>
   chain (root first): default@v1 → web-dev@v1 → my-app@v2
-  image tag: cove-kit:<hex>-asm1
+  image tag: jam-kit:<hex>-asm1
   provenance (root first):
     KIT         SOURCE                                                                                      FILES
     default@v1  local file, pushed <time>                                                     tree <hex>, 1 file

@@ -99,8 +99,8 @@ func TestConnectorBodyMasks(t *testing.T) {
 
 func TestKitRefsBody(t *testing.T) {
 	kit := KitRef{ID: "my-app", Version: 2, Digest: "0123456789abcdef"}
-	got := kitRefsBody(kit, []KitRef{{ID: "default", Version: 1}, {ID: "my-app", Version: 2}}, "cove-kit:0123-asm")
-	want := "kit: my-app@v2 digest 0123456789ab\nchain (root first): default@v1 → my-app@v2\nimage tag: cove-kit:0123-asm\n"
+	got := kitRefsBody(kit, []KitRef{{ID: "default", Version: 1}, {ID: "my-app", Version: 2}}, "jam-kit:0123-asm")
+	want := "kit: my-app@v2 digest 0123456789ab\nchain (root first): default@v1 → my-app@v2\nimage tag: jam-kit:0123-asm\n"
 	if got != want {
 		t.Fatalf("got %q", got)
 	}

@@ -50,7 +50,7 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	// the just-built image under a stable, content-derived local tag and hand that
 	// back — `FROM <tag>` resolves it from the local daemon (never a registry fetch,
 	// since the tag exists locally), and `docker inspect` (the gate) accepts it too.
-	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
 	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
@@ -128,7 +128,7 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("docker build - (streamed context): no image id on stdout")
 	}
-	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
 	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}

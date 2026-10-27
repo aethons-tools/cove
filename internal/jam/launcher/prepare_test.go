@@ -100,7 +100,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 		Ops:     ops,
 		Runner:  &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		BuildRoot: "/tmp/cove-kit-builds-test",
+		BuildRoot: "/tmp/jam-kit-builds-test",
 		Inventory: inv,
 		assemble:  asm,
 		sleep:     func(time.Duration) {},
@@ -108,7 +108,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 }
 
 // studioKitDef is a small studio KitDefinition for prepare tests: its ref's
-// Digest is the build-digest, so l.imageTag(ref) == cove-kit:<digest>-<asm>.
+// Digest is the build-digest, so l.imageTag(ref) == jam-kit:<digest>-<asm>.
 func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
 	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk, harnessinstall.Default())}, Kit: sk, Harness: harnessinstall.Default()}
 }
