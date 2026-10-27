@@ -28,6 +28,9 @@ var (
 	_ jam.ImageTagger      = (*Router)(nil)
 	_ jam.KitDraftBuilder  = (*Router)(nil)
 	_ jam.ImageFactsReader = (*Router)(nil)
+
+	_ jam.ManagedDraftBuilder = (*Router)(nil)
+	_ jam.ManagedImageReader  = (*Router)(nil)
 )
 
 // Router is a jam.Launcher over the registered managers.
@@ -314,21 +317,74 @@ func cmpErr(first, err error) error {
 	return err
 }
 
-var errNoDraftBuilder = errors.New("no manager can build kit drafts")
+// AvailableNames lists the available managers in candidate order.
+func (r *Router) AvailableNames() []string {
+	av := r.available()
+	names := make([]string, len(av))
+	for i, m := range av {
+		names[i] = m.Name()
+	}
+	return names
+}
 
-// draftBuilder is the first available manager that can build kit drafts.
-func (r *Router) draftBuilder() (jam.KitDraftBuilder, error) {
+// DraftManagers lists the available managers that can build kit drafts, in
+// candidate order.
+func (r *Router) DraftManagers() []string {
+	var names []string
 	for _, m := range r.available() {
-		if b, ok := optional(m).(jam.KitDraftBuilder); ok {
-			return b, nil
+		if _, ok := optional(m).(jam.KitDraftBuilder); ok {
+			names = append(names, m.Name())
 		}
 	}
-	return nil, errNoDraftBuilder
+	return names
+}
+
+// named resolves an available manager; unknown and unavailable names error as
+// in routeAvail.
+func (r *Router) named(name string) (Manager, error) {
+	m, ok := r.get(name)
+	switch {
+	case !ok:
+		return nil, fmt.Errorf("%w: %s", jam.ErrUnknownManager, name)
+	case !m.Available():
+		return nil, fmt.Errorf("%w: %s", jam.ErrManagerUnavailable, name)
+	}
+	return m, nil
+}
+
+var errNoDraftBuilder = errors.New("no manager can build kit drafts")
+
+// draftBuilderOn is the named manager's draft builder; "" is the first
+// available draft-capable manager.
+func (r *Router) draftBuilderOn(name string) (jam.KitDraftBuilder, error) {
+	if name == "" {
+		for _, m := range r.available() {
+			if b, ok := optional(m).(jam.KitDraftBuilder); ok {
+				return b, nil
+			}
+		}
+		return nil, errNoDraftBuilder
+	}
+	m, err := r.named(name)
+	if err != nil {
+		return nil, err
+	}
+	b, ok := optional(m).(jam.KitDraftBuilder)
+	if !ok {
+		return nil, fmt.Errorf("%w: manager %s cannot build kit drafts", jam.ErrManagerUnavailable, name)
+	}
+	return b, nil
 }
 
 // BuildKitDraft forwards to the first available draft-capable manager.
 func (r *Router) BuildKitDraft(ctx context.Context, def jam.KitDefinition, tag string, log io.Writer) (string, error) {
-	b, err := r.draftBuilder()
+	return r.BuildKitDraftOn(ctx, "", def, tag, log)
+}
+
+// BuildKitDraftOn builds the draft on the named manager; "" is the first
+// available draft-capable one.
+func (r *Router) BuildKitDraftOn(ctx context.Context, manager string, def jam.KitDefinition, tag string, log io.Writer) (string, error) {
+	b, err := r.draftBuilderOn(manager)
 	if err != nil {
 		return "", err
 	}
@@ -337,7 +393,13 @@ func (r *Router) BuildKitDraft(ctx context.Context, def jam.KitDefinition, tag s
 
 // HasKitDraftImage forwards to the first available draft-capable manager.
 func (r *Router) HasKitDraftImage(imageID string) (bool, error) {
-	b, err := r.draftBuilder()
+	return r.HasKitDraftImageOn("", imageID)
+}
+
+// HasKitDraftImageOn asks the named manager; "" is the first available
+// draft-capable one.
+func (r *Router) HasKitDraftImageOn(manager, imageID string) (bool, error) {
+	b, err := r.draftBuilderOn(manager)
 	if err != nil {
 		return false, err
 	}
@@ -346,10 +408,27 @@ func (r *Router) HasKitDraftImage(imageID string) (bool, error) {
 
 // ImageFacts forwards to the first available manager that can read image facts.
 func (r *Router) ImageFacts(ctx context.Context, image string) (jam.ImageFacts, error) {
-	for _, m := range r.available() {
-		if rd, ok := optional(m).(jam.ImageFactsReader); ok {
-			return rd.ImageFacts(ctx, image)
+	return r.ImageFactsOn(ctx, "", image)
+}
+
+// ImageFactsOn reads image facts on the named manager; "" is the first
+// available manager that can read them.
+func (r *Router) ImageFactsOn(ctx context.Context, manager, image string) (jam.ImageFacts, error) {
+	if manager == "" {
+		for _, m := range r.available() {
+			if rd, ok := optional(m).(jam.ImageFactsReader); ok {
+				return rd.ImageFacts(ctx, image)
+			}
 		}
+		return jam.ImageFacts{}, fmt.Errorf("%w: no manager can read image facts", jam.ErrManagerUnavailable)
 	}
-	return jam.ImageFacts{}, fmt.Errorf("%w: no manager can read image facts", jam.ErrManagerUnavailable)
+	m, err := r.named(manager)
+	if err != nil {
+		return jam.ImageFacts{}, err
+	}
+	rd, ok := optional(m).(jam.ImageFactsReader)
+	if !ok {
+		return jam.ImageFacts{}, fmt.Errorf("%w: manager %s cannot read image facts", jam.ErrManagerUnavailable, manager)
+	}
+	return rd.ImageFacts(ctx, image)
 }
