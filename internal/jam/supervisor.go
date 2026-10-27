@@ -1592,9 +1592,11 @@ func (s *Supervisor) StandingUpgradeState(project, role, name string) string {
 // PrepareImage makes the image a raise for project/role would run now ready,
 // via the launcher's PrepareKit (idempotent: an image already present returns
 // at once; otherwise it builds, which may take minutes — callers must not hold
-// a lock across it). A role that raises no kit is ready as is. The returned
-// CurrentImage identifies what was prepared (its Key matches CurrentImage's).
-func (s *Supervisor) PrepareImage(ctx context.Context, project, role string) (CurrentImage, KitStatus, error) {
+// a lock across it). A role that raises no kit is ready as is. manager names
+// the manager to prepare on (a PlacingLauncher's PrepareKitOn); "" is the
+// launcher's default. The returned CurrentImage identifies what was prepared
+// (its Key and Tag match CurrentImage's for the same manager).
+func (s *Supervisor) PrepareImage(ctx context.Context, project, role, manager string) (CurrentImage, KitStatus, error) {
 	r, ok := s.store.GetRole(project, role)
 	if !ok {
 		return CurrentImage{}, KitStatus{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
@@ -1606,8 +1608,13 @@ func (s *Supervisor) PrepareImage(ctx context.Context, project, role string) (Cu
 	if !have {
 		return CurrentImage{}, KitStatus{State: KitReady}, nil
 	}
-	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTag(def.Ref)}
-	st, err := s.launcher.PrepareKit(ctx, def)
+	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTagOn(manager, def.Ref)}
+	var st KitStatus
+	if pl, ok := s.launcher.(PlacingLauncher); ok && manager != "" {
+		st, err = pl.PrepareKitOn(ctx, manager, def)
+	} else {
+		st, err = s.launcher.PrepareKit(ctx, def)
+	}
 	return cur, st, err
 }
 
