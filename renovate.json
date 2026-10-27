@@ -5,9 +5,9 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
-      "description": "cove-base-image and cove-base are built locally in this repo (not pulled from a registry), so Renovate must not try to update those FROM lines.",
+      "description": "jam-studio-base is built locally in this repo (not pulled from a registry), so Renovate must not try to update its FROM lines.",
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["cove-base-image", "cove-base"],
+      "matchPackageNames": ["jam-studio-base"],
       "enabled": false
     },
     {
@@ -24,7 +24,7 @@
       "enabled": false
     },
     {
-      "description": "Couple the ubuntu:24.04 base *digest* with the pinned apt package versions it must build against — the `deb` rule below shares this groupName. A digest-only bump fails the base rebuild the moment a pinned apt version has aged out of the archive (see images/cove-base-image/Dockerfile: 'a pin that ages out ... fails the build loudly'), so the digest and the noble pins land together in one grouped PR instead of a digest-only PR that is doomed to fail.",
+      "description": "Couple the ubuntu:24.04 base *digest* with the pinned apt package versions it must build against — the `deb` rule below shares this groupName. A digest-only bump fails the base rebuild the moment a pinned apt version has aged out of the archive (see images/jam-studio-base/Dockerfile: 'a pin that ages out ... fails the build loudly'), so the digest and the noble pins land together in one grouped PR instead of a digest-only PR that is doomed to fail.",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ubuntu"],
       "matchUpdateTypes": ["digest"],
@@ -68,17 +68,17 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Go toolchain — GO_VERSION arg in the cove-image Dockerfile",
-      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "description": "Go toolchain — GO_VERSION arg in the jam-studio Dockerfile",
+      "managerFilePatterns": ["images/jam-studio/Dockerfile"],
       "matchStrings": ["ARG GO_VERSION=(?<currentValue>\\S+)"],
       "datasourceTemplate": "golang-version",
       "depNameTemplate": "go"
     },
     {
       "customType": "regex",
-      "description": "hadolint — HADOLINT_VERSION pinned in three places that must not drift: the cove-image Dockerfile (ARG), the merge gate (env), and the dev setup script (shell var). One manager watches all three so Renovate bumps them together in a single PR (COV-35).",
+      "description": "hadolint — HADOLINT_VERSION pinned in three places that must not drift: the jam-studio Dockerfile (ARG), the merge gate (env), and the dev setup script (shell var). One manager watches all three so Renovate bumps them together in a single PR (COV-35).",
       "managerFilePatterns": [
-        "images/cove-image/Dockerfile",
+        "images/jam-studio/Dockerfile",
         ".github/workflows/gate.yml",
         "scripts/setup-test-tools.sh"
       ],
@@ -93,7 +93,7 @@
     {
       "customType": "regex",
       "description": "Eclipse Temurin JDK — JDK_RELEASE arg (captures the version after the jdk- prefix)",
-      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "managerFilePatterns": ["images/jam-studio/Dockerfile"],
       "matchStrings": ["ARG JDK_RELEASE=jdk-(?<currentValue>\\S+)"],
       "datasourceTemplate": "java-version",
       "depNameTemplate": "java-jdk"
@@ -101,15 +101,15 @@
     {
       "customType": "regex",
       "description": "Node.js — NODE_VERSION arg (nodesource deb; track the upstream node version, keep the -1nodesourceN suffix)",
-      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "managerFilePatterns": ["images/jam-studio/Dockerfile"],
       "matchStrings": ["ARG NODE_VERSION=(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)-"],
       "datasourceTemplate": "node-version",
       "depNameTemplate": "node"
     },
     {
       "customType": "regex",
-      "description": "Ubuntu apt pins (pkg=version) in the base + cove-image Dockerfiles. Matches indented lowercase-name = digit-leading-version lines; the ARG toolchain lines (uppercase names / non-digit values) are not matched. Datasource + registryUrls supplied by the deb packageRule above.",
-      "managerFilePatterns": ["images/cove-base-image/Dockerfile", "images/cove-image/Dockerfile"],
+      "description": "Ubuntu apt pins (pkg=version) in the base + jam-studio Dockerfiles. Matches indented lowercase-name = digit-leading-version lines; the ARG toolchain lines (uppercase names / non-digit values) are not matched. Datasource + registryUrls supplied by the deb packageRule above.",
+      "managerFilePatterns": ["images/jam-studio-base/Dockerfile", "images/jam-studio/Dockerfile"],
       "matchStrings": ["(?<depName>[a-z][a-z0-9.+-]*)=(?<currentValue>[0-9][^\\s\\\\]*)"],
       "datasourceTemplate": "deb",
       "versioningTemplate": "deb"
@@ -124,8 +124,8 @@
     },
     {
       "customType": "regex",
-      "description": "samber/cc-skills-golang — Go agent skills pinned in the cove-image Dockerfile, cloned at build and seeded into the agent-data skills set.",
-      "managerFilePatterns": ["images/cove-image/Dockerfile"],
+      "description": "samber/cc-skills-golang — Go agent skills pinned in the jam-studio Dockerfile, cloned at build and seeded into the agent-data skills set.",
+      "managerFilePatterns": ["images/jam-studio/Dockerfile"],
       "matchStrings": ["ARG CC_SKILLS_GOLANG_VERSION=(?<currentValue>\\S+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "samber/cc-skills-golang"
@@ -133,7 +133,7 @@
     {
       "customType": "regex",
       "description": "code-server — CODE_SERVER_VERSION arg in the base image (release .deb). The per-arch CODE_SERVER_SHA256_* args must be updated with it; the build fails on a mismatch.",
-      "managerFilePatterns": ["images/cove-base-image/Dockerfile"],
+      "managerFilePatterns": ["images/jam-studio-base/Dockerfile"],
       "matchStrings": ["ARG CODE_SERVER_VERSION=(?<currentValue>\\S+)"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "coder/code-server",

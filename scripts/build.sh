@@ -42,12 +42,12 @@ APP_OPTIONAL=1 ./scripts/app.sh
 echo "Staging embedded cove-master (linux amd64+arm64)"
 VERSION="$VERSION" ./scripts/stage-covemaster.sh
 
-# Snapshot the blessed cove-base-image digests from the registry into the
+# Snapshot the blessed jam-studio-base digests from the registry into the
 # embedded (gitignored) blessed/generated.txt, before at-jam is built (COV-44
 # spec §4). With no GITHUB_TOKEN this is a no-op: the committed low-watermark is
 # embedded alone, so local/offline builds never need registry access. CI runs it
 # with a packages:read token to pick up every current base with no commit-back loop.
-echo "Snapshotting blessed cove-base-image digests (no-op offline)"
+echo "Snapshotting blessed jam-studio-base digests (no-op offline)"
 go run ./cmd/gen-blessed
 
 # Choose targets from the args (default: just the current host).

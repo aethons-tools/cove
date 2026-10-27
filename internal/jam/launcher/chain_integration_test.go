@@ -28,7 +28,7 @@ var (
 )
 
 // hardeningMarker is a command only the sealed hardening layer runs (not
-// cove-base-image): the layer that re-owns the agent's .ssh. Exactly one
+// jam-studio-base): the layer that re-owns the agent's .ssh. Exactly one
 // history entry of the final image must carry it.
 const hardeningMarker = "chown -R agent:agent /home/agent/.ssh"
 

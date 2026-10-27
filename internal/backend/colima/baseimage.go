@@ -75,7 +75,7 @@ func (d dockerImg) Layers(ref string) ([]string, error) {
 
 // resolveBase selects and verifies the base ref for a build, returning the value
 // to pass as the hardening build's BASE arg. The gate runs only for a kit-chosen
-// base; the default is a blessed cove-base-image by construction.
+// base; the default is a blessed jam-studio-base by construction.
 func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 	s := baseimage.Spec{
 		Base:            spec.Base,

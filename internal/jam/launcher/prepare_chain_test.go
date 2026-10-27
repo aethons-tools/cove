@@ -238,7 +238,7 @@ func TestChainStageGateFailureNamesLink(t *testing.T) {
 	}
 
 	// The root's own gate failure names the root.
-	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed cove-base-image")}
+	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed jam-studio-base")}
 	rootCtx := ctxLink(t, "base-dev", 1, "", "root")
 	_, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).PrepareKit(context.Background(), chainDef(nil, rootCtx, leaf))
 	if err == nil || !strings.Contains(err.Error(), "base-dev@v1") || ops.builds != 0 {

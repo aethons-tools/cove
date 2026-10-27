@@ -1,4 +1,4 @@
-// Package basedigest holds the blessed cove-base-image manifest digests that a
+// Package basedigest holds the blessed jam-studio-base manifest digests that a
 // kit's resolved base must descend from — COV-34's provenance gate compares the
 // base's OCI layer diff_ids against the blessed image's. The digests are embedded
 // into at-jam (go:embed), so the gate runs fully offline at build time.
@@ -27,10 +27,10 @@ import (
 //go:embed blessed
 var blessedFS embed.FS
 
-// Image is the published cove-base-image repository the blessed digests name.
-const Image = "ghcr.io/aethons-tools/cove-base-image"
+// Image is the published jam-studio-base repository the blessed digests name.
+const Image = "ghcr.io/aethons-tools/jam-studio-base"
 
-// Blessed returns the trusted cove-base-image manifest digests (sha256:…),
+// Blessed returns the trusted jam-studio-base manifest digests (sha256:…),
 // newest first. It reads the build-time registry snapshot (blessed/generated.txt)
 // when present, else the committed low-watermark (blessed/watermark.txt). Blank
 // lines and #-comments are ignored.
@@ -45,7 +45,7 @@ func Blessed() []string {
 }
 
 // DefaultRef is the base Jam's launcher hardens when a kit selects none: the newest
-// blessed cove-base-image, pinned by digest.
+// blessed jam-studio-base, pinned by digest.
 func DefaultRef() string {
 	return Image + "@" + Blessed()[0]
 }

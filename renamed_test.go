@@ -26,6 +26,7 @@ var renamedGroups = []renamedGroup{
 		`harbor\.attach\.v1`, `x-harbor-launch-secret`}},
 	{"in-image paths and build args", []string{`lib/cove\b`, `cove-egress`, `sshd_config\.d/cove\.conf`,
 		`cove-git-credential`, `/dev/shm/cove-`, `cove-master\.log`, `\bAT_JAM_`, `\bCOVE_BASE_IMAGE\b`, `\bCOVE_SSHENV\b`}},
+	{"images", []string{`\bcove-base\b`, `\bcove-image\b`, `\bCOVE_IMAGE\b`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the

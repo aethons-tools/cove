@@ -34,7 +34,7 @@ the human can review it before rebuilding.
 
 Your image is built in three layers, in order:
 
-1. **Kit base** — the kit's own image, built on the blessed `cove-base-image`
+1. **Kit base** — the kit's own image, built on the blessed `jam-studio-base`
    (the `image:` block's additions are applied on top). It also ships the docs and
    skills seeded into `/agent-data` (this file, `CLAUDE.md`, `skills/`), so a kit
    can replace them.

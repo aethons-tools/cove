@@ -3,7 +3,7 @@ set -euxo pipefail
 
 # Seed the persistent state volume (/agent-data is CLAUDE_CONFIG_DIR) from the
 # image's /home/agent/.init-agent-data — whatever the kit base provides
-# (cove-base-image ships the default agent docs and skills). The sealed script
+# (jam-studio-base ships the default agent docs and skills). The sealed script
 # owns only the mechanism: a first-boot full copy guarded by /agent-data/.seeded
 # (so a restart, or a recreate against an existing volume, never clobbers saved
 # state such as the OAuth login in .credentials.json), then an every-boot

@@ -4,7 +4,7 @@
 # Sealed (hardening) mechanism, image-provided content: the entrypoint runs this
 # as root on every boot with SEED=/home/agent/.init-agent-data and
 # DEST=/agent-data (CLAUDE_CONFIG_DIR). It knows no file names — what to seed,
-# and what to refresh, is whatever the image (the kit base, cove-base-image by
+# and what to refresh, is whatever the image (the kit base, jam-studio-base by
 # default) put under SEED.
 #
 #   First boot   — copy all of SEED into DEST once, guarded by DEST/.seeded, so a
@@ -19,7 +19,7 @@
 #
 # It warns loudly (stderr, every boot) when the image has no seed, or a seed
 # without CLAUDE.md — the sign of a kit base older than COV-246, which moved
-# the agent docs out of the sealed layer into cove-base-image. The boot goes on.
+# the agent docs out of the sealed layer into jam-studio-base. The boot goes on.
 #
 # .refresh format: one top-level entry name per line; blank lines and #-comments
 # are ignored. An entry must be a single path segment of [A-Za-z0-9._-] other
@@ -36,9 +36,9 @@ seed=$1
 dest=$2
 
 if [ ! -d "$seed" ]; then
-  echo "seed-agent-data: WARNING: the image has no seed at $seed — the agent starts without CLAUDE.md, docs or skills. Is the kit base older than COV-246? Rebuild it on a current cove-base-image." >&2
+  echo "seed-agent-data: WARNING: the image has no seed at $seed — the agent starts without CLAUDE.md, docs or skills. Is the kit base older than COV-246? Rebuild it on a current jam-studio-base." >&2
 elif [ ! -e "$seed/CLAUDE.md" ]; then
-  echo "seed-agent-data: WARNING: the seed at $seed has no CLAUDE.md — the agent starts without its docs. Is the kit base older than COV-246? Rebuild it on a current cove-base-image." >&2
+  echo "seed-agent-data: WARNING: the seed at $seed has no CLAUDE.md — the agent starts without its docs. Is the kit base older than COV-246? Rebuild it on a current jam-studio-base." >&2
 fi
 
 mkdir -p "$dest"

@@ -1,5 +1,5 @@
 // Command adopt-base raises the blessed watermark to a newly-published,
-// breaking base image. It resolves a release tag to cove-base-image's @sha256
+// breaking base image. It resolves a release tag to jam-studio-base's @sha256
 // index digest via the GitHub packages API and rewrites
 // internal/basedigest/blessed/watermark.txt, so kits on older bases fail the
 // provenance gate until they move. With --pr it branches, commits, and opens a
@@ -27,7 +27,7 @@ import (
 
 const (
 	owner         = "aethons-tools"
-	coveBasePkg   = "cove-base-image"
+	basePkg       = "jam-studio-base"
 	watermarkPath = "internal/basedigest/blessed/watermark.txt"
 )
 
@@ -59,17 +59,17 @@ func run(tag string, pr bool, reason string) error {
 
 	// Resolve BEFORE writing, so a resolution failure (bad/absent tag, auth,
 	// transient error) never leaves a partial edit.
-	baseDigest, err := blessgen.GHCR{HTTP: httpc, Token: token, Owner: owner, Package: coveBasePkg}.
+	baseDigest, err := blessgen.GHCR{HTTP: httpc, Token: token, Owner: owner, Package: basePkg}.
 		DigestForTag(ctx, tag)
 	if err != nil {
-		return fmt.Errorf("resolve %s:%s: %w", coveBasePkg, tag, err)
+		return fmt.Errorf("resolve %s:%s: %w", basePkg, tag, err)
 	}
 	if err := rewriteFile(watermarkPath, func(s string) (string, error) {
 		return adoptbase.RewriteWatermark(s, tag, baseDigest, reason)
 	}); err != nil {
 		return err
 	}
-	fmt.Printf("watermark -> cove-base-image@%s (blessed floor raised; run `just gen-blessed` to preview the set)\n", baseDigest)
+	fmt.Printf("watermark -> jam-studio-base@%s (blessed floor raised; run `just gen-blessed` to preview the set)\n", baseDigest)
 
 	if pr {
 		return openPR(tag)

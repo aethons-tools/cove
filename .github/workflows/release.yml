@@ -4,10 +4,10 @@ name: release
 # on every push to main decides — from the repo diff — which artifacts to
 # (re)build and publish, in DAG order (spec §3, no cycle):
 #
-#   cove-base-image ──publish──► digest D ──► (registry) ──► blessed-list snapshot
+#   jam-studio-base ──publish──► digest D ──► (registry) ──► blessed-list snapshot
 #         │                                                        │
 #         ▼                                                        ▼
-#   cove-image (FROM cove-base-image:ci)                  at-jam (embeds cove-master + list), at-mint
+#   jam-studio (FROM jam-studio-base:ci)                  at-jam (embeds cove-master + list), at-mint
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
@@ -29,8 +29,8 @@ permissions:
   pull-requests: read # paths-filter reads the PR's changed-files list
 
 env:
-  BASE_IMAGE: ghcr.io/aethons-tools/cove-base-image
-  COVE_IMAGE: ghcr.io/aethons-tools/cove-image
+  BASE_IMAGE: ghcr.io/aethons-tools/jam-studio-base
+  STUDIO_IMAGE: ghcr.io/aethons-tools/jam-studio
 
 jobs:
   # Decide, from the push/PR diff, which DAG legs run — and stamp the version.
@@ -38,8 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      base: ${{ steps.legs.outputs.base }} # rebuild+publish cove-base-image
-      cove_image: ${{ steps.legs.outputs.cove_image }} # (re)build cove-image
+      base: ${{ steps.legs.outputs.base }} # rebuild+publish jam-studio-base
+      studio_image: ${{ steps.legs.outputs.studio_image }} # (re)build jam-studio
       atcove: ${{ steps.legs.outputs.atcove }} # re-cut the host binaries (+ blessed list)
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -51,9 +51,9 @@ jobs:
         with:
           filters: |
             base:
-              - 'images/cove-base-image/**'
-            cove_image:
-              - 'images/cove-image/**'
+              - 'images/jam-studio-base/**'
+            studio_image:
+              - 'images/jam-studio/**'
             go:
               - 'cmd/**'
               - 'internal/**'
@@ -69,22 +69,22 @@ jobs:
               - 'scripts/release/**' # the at-cove tombstone in the archive + its check
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
-        #   base change     => rebuild base AND cove-image (downstream) AND the binaries
+        #   base change     => rebuild base AND jam-studio (downstream) AND the binaries
         #                      (new digest => new DefaultRef + blessed-list head).
-        #   cove-image only => cove-image only (FROM the current published base).
+        #   jam-studio only => jam-studio only (FROM the current published base).
         #   go change       => the binaries only (blessed list recomputed from the head).
         env:
           BASE: ${{ steps.filter.outputs.base }}
-          COVE: ${{ steps.filter.outputs.cove_image }}
+          STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
         run: |
-          base=false; cove=false; atcove=false
+          base=false; studio=false; atcove=false
           if [ "$BASE" = 'true' ]; then base=true; fi
-          if [ "$BASE" = 'true' ] || [ "$COVE" = 'true' ]; then cove=true; fi
+          if [ "$BASE" = 'true' ] || [ "$STUDIO" = 'true' ]; then studio=true; fi
           if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then atcove=true; fi
           {
             echo "base=$base"
-            echo "cove_image=$cove"
+            echo "studio_image=$studio"
             echo "atcove=$atcove"
           } >>"$GITHUB_OUTPUT"
       - id: version
@@ -93,11 +93,11 @@ jobs:
         run: echo "version=$(git rev-list --count HEAD)-$(date -u +%m%d)" >>"$GITHUB_OUTPUT"
 
   # Build the image tree for the touched legs, smoke-test natively per arch, and —
-  # on main — push per-arch tags the publish job merges. Runs whenever cove-image
-  # is (re)built, which subsumes a base rebuild (base => cove-image downstream).
+  # on main — push per-arch tags the publish job merges. Runs whenever jam-studio
+  # is (re)built, which subsumes a base rebuild (base => jam-studio downstream).
   images:
     needs: changes
-    if: needs.changes.outputs.cove_image == 'true'
+    if: needs.changes.outputs.studio_image == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -109,7 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Login on PRs too: a cove-image-only change pulls the (private) published
+      # Login on PRs too: a jam-studio-only change pulls the (private) published
       # base below. The actual push of built images stays main-only (guarded).
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -118,22 +118,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Provide cove-base-image:ci for the cove-image build. Rebuild it from source
+      # Provide jam-studio-base:ci for the jam-studio build. Rebuild it from source
       # when the base changed; else pull the current published base so a
-      # cove-image-only change does NOT republish the base (spec §3).
+      # jam-studio-only change does NOT republish the base (spec §3).
       - name: Prepare base image
         run: |
           if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
             # On failure, surface the build's tail as annotations: they are
             # readable through the checks API where the raw log may not be.
-            if ! docker build --progress=plain --tag cove-base-image:ci images/cove-base-image > /tmp/base-build.log 2>&1; then
+            if ! docker build --progress=plain --tag jam-studio-base:ci images/jam-studio-base > /tmp/base-build.log 2>&1; then
               # (GitHub keeps 10 error annotations per step: one for the tail.)
               echo "::error title=base image build::$(grep -E 'E: |ERROR' /tmp/base-build.log | tail -n 15 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
               # A pinned apt version gone from the archive is the usual cause:
               # list each missing package's current candidate.
               pkgs=$(grep -o "for '[^']*' was not found" /tmp/base-build.log | cut -d"'" -f2 | sort -u | tr '\n' ' ')
               if [ -n "$pkgs" ]; then
-                from=$(sed -n 's/^FROM //p' images/cove-base-image/Dockerfile | head -1)
+                from=$(sed -n 's/^FROM //p' images/jam-studio-base/Dockerfile | head -1)
                 out=$(docker run --rm "$from" sh -c "apt-get update -qq >/dev/null 2>&1; apt-cache policy $pkgs" 2>&1 || true)
                 echo "::error title=apt candidates::$(printf '%s\n' "$out" | grep -E '^[^ ].*:$|Candidate:' | sed 's/^ *//' | paste - - | sed ':a;N;$!ba;s/\n/%0A/g')"
               fi
@@ -141,28 +141,28 @@ jobs:
             fi
           else
             docker pull "${BASE_IMAGE}:latest"
-            docker tag  "${BASE_IMAGE}:latest" cove-base-image:ci
+            docker tag  "${BASE_IMAGE}:latest" jam-studio-base:ci
           fi
 
-      - name: Build cove-image
-        run: docker build --build-arg BASE_TAG=ci --tag cove-image:ci images/cove-image
+      - name: Build jam-studio
+        run: docker build --build-arg BASE_TAG=ci --tag jam-studio:ci images/jam-studio
 
       # Every expected tool must resolve inside the image, on a native runner,
       # BEFORE anything is published.
-      - name: Smoke-test cove-image
+      - name: Smoke-test jam-studio
         run: |
-          docker run --rm cove-image:ci bash -euo pipefail -c '
+          docker run --rm jam-studio:ci bash -euo pipefail -c '
             echo "arch: $(uname -m)"
             go version
             just --version
             shellcheck --version | head -n2
             hadolint --version
-            # code-server (built-in Studio IDE) from cove-base-image.
+            # code-server (built-in Studio IDE) from jam-studio-base.
             code-server --version
             # Go agent skills (samber/cc-skills-golang) seeded into the skills set.
             test -f /home/agent/.init-agent-data/skills/golang-how-to/SKILL.md
             test -f /usr/share/doc/cc-skills-golang/LICENSE
-            # Agent docs/skills seeded by cove-base-image (COV-246), agent-owned.
+            # Agent docs/skills seeded by jam-studio-base (COV-246), agent-owned.
             seed=/home/agent/.init-agent-data
             for f in CLAUDE.md SANDBOX.md .refresh reference/sandbox-kit-changes.md skills/docs-audit/SKILL.md; do
               test -f "$seed/$f"
@@ -178,11 +178,11 @@ jobs:
         run: |
           sha="${GITHUB_SHA::7}"
           if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
-            docker tag  cove-base-image:ci "${BASE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+            docker tag  jam-studio-base:ci "${BASE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
             docker push                    "${BASE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
           fi
-          docker tag  cove-image:ci "${COVE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
-          docker push               "${COVE_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+          docker tag  jam-studio:ci "${STUDIO_IMAGE}:sha-${sha}-${{ matrix.arch }}"
+          docker push               "${STUDIO_IMAGE}:sha-${sha}-${{ matrix.arch }}"
 
   # main only: assemble the per-arch tags into one multi-arch manifest per built
   # image, tagged <N>-<MMDD> (immutable) + latest (moving). Publishes the base
@@ -190,7 +190,7 @@ jobs:
   # blessed-list snapshot runs.
   publish-images:
     needs: [changes, images]
-    if: github.event_name == 'push' && needs.changes.outputs.cove_image == 'true'
+    if: github.event_name == 'push' && needs.changes.outputs.studio_image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -208,8 +208,8 @@ jobs:
         run: |
           sha="${GITHUB_SHA::7}"
           echo "## Published images" >> "$GITHUB_STEP_SUMMARY"
-          images=("${COVE_IMAGE}")
-          if [ "$BASE" = 'true' ]; then images=("${BASE_IMAGE}" "${COVE_IMAGE}"); fi
+          images=("${STUDIO_IMAGE}")
+          if [ "$BASE" = 'true' ]; then images=("${BASE_IMAGE}" "${STUDIO_IMAGE}"); fi
           for image in "${images[@]}"; do
             docker buildx imagetools create \
               --tag "${image}:${VERSION}" \

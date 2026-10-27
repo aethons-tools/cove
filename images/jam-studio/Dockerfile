@@ -1,10 +1,10 @@
-# cove-image — FROM cove-base-image + the full build/test/run toolchain.
+# jam-studio — FROM jam-studio-base + the full build/test/run toolchain.
 #
 # The base image for BOTH cove's CI job containers AND the agent sandboxes: an
 # agent must be able to build/test/run anything CI does. Adds go on top of the lean base.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
 ARG BASE_TAG=latest
-FROM cove-base-image:${BASE_TAG}
+FROM jam-studio-base:${BASE_TAG}
 ARG TARGETARCH
 # Toolchain versions — pinned for reproducibility; Renovate keeps them current.
 ARG GO_VERSION=1.27.3
@@ -44,8 +44,8 @@ ENV GOROOT=/usr/local/go \
 ENV JAM_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
 
 # Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
-# its skill files into the first-boot skills set. Scoped to cove-image (this
-# repo's toolchain image + agent sandboxes), NOT cove-base-image, so other
+# its skill files into the first-boot skills set. Scoped to jam-studio (this
+# repo's toolchain image + agent sandboxes), NOT jam-studio-base, so other
 # kits are unaffected. The base seed's .refresh manifest lists skills, so the
 # entrypoint re-mirrors $SEED/skills -> /agent-data/skills on every boot and a
 # rebuilt image reaches existing sandboxes on restart. MIT-licensed; the notice is retained under /usr/share/doc.

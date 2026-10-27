@@ -72,5 +72,5 @@ if have shellcheck; then
 fi
 
 if have hadolint; then
-  hadolint images/cove-base-image/Dockerfile images/cove-image/Dockerfile internal/assemble/hardening/Dockerfile
+  hadolint images/jam-studio-base/Dockerfile images/jam-studio/Dockerfile internal/assemble/hardening/Dockerfile
 fi

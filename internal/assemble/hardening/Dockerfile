@@ -44,7 +44,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
  && mkdir -p /home/agent/workspace \
  && chown agent:agent /home/agent/workspace
 # The agent docs and skills seeded into /agent-data are NOT sealed: they ship in
-# the kit base (cove-base-image's /home/agent/.init-agent-data), so a kit
+# the kit base (jam-studio-base's /home/agent/.init-agent-data), so a kit
 # overrides them by COPY. This layer owns only the seeding mechanism
 # (entrypoint.sh -> /usr/local/lib/jam/seed-agent-data.sh).
 

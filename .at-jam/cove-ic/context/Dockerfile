@@ -98,7 +98,7 @@ RUN case "${JAM_STUDIO_TARGET_ARCH}" in \
 
 # Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
 # its skill files into the first-boot skills set, alongside the generic skills
-# the blessed base (cove-base-image) seeds. Scoped to this kit's image, so other
+# the blessed base (jam-studio-base) seeds. Scoped to this kit's image, so other
 # kits are unaffected. The base seed's .refresh manifest lists skills, so the
 # entrypoint re-mirrors $SEED/skills -> /agent-data/skills on every boot and a
 # rebuilt image reaches existing sandboxes on restart. MIT-licensed; the notice is retained under /usr/share/doc.

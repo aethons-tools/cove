@@ -1,9 +1,9 @@
-// Package blessgen generates the blessed cove-base-image list at build time from
+// Package blessgen generates the blessed jam-studio-base list at build time from
 // the container registry, so the launcher's provenance gate (COV-34) trusts every
-// current cove-base-image without a hand-maintained list.
+// current jam-studio-base without a hand-maintained list.
 //
 // The repo commits exactly one digest — the low-watermark, the oldest base still
-// blessed. Before `go build`, a build step lists the published cove-base-image
+// blessed. Before `go build`, a build step lists the published jam-studio-base
 // digests newest-first and Walks from the head down to and including the
 // watermark; the result is written to internal/basedigest/blessed/generated.txt
 // for go:embed. With no registry access (offline / local dev) the step is a no-op
@@ -55,7 +55,7 @@ func Watermark(content string) (string, error) {
 // line is the watermark the next build reads back via Watermark.
 func Render(digests []string) string {
 	var b strings.Builder
-	b.WriteString("# Blessed cove-base-image manifest digests (sha256), newest first.\n")
+	b.WriteString("# Blessed jam-studio-base manifest digests (sha256), newest first.\n")
 	b.WriteString("#\n")
 	b.WriteString("# GENERATED at build time by cmd/gen-blessed from the container registry\n")
 	b.WriteString("# (COV-44 spec §4). Do NOT commit or hand-edit — this file is gitignored and\n")
@@ -82,7 +82,7 @@ func parse(s string) []string {
 	return out
 }
 
-// Lister enumerates published cove-base-image manifest digests, newest first.
+// Lister enumerates published jam-studio-base manifest digests, newest first.
 // It is the network seam: GHCR satisfies it in production; tests use a fake.
 type Lister interface {
 	Digests(ctx context.Context) ([]string, error)
@@ -156,7 +156,7 @@ type GHCR struct {
 	HTTP    *http.Client
 	Token   string
 	Owner   string // the org that owns the package, e.g. "aethons-tools"
-	Package string // the container package name, e.g. "cove-base-image"
+	Package string // the container package name, e.g. "jam-studio-base"
 }
 
 const ghAPI = "https://api.github.com"

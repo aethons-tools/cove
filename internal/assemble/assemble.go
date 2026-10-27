@@ -49,7 +49,7 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 	}
 
 	// The kit's image/ is only the Dockerfile build context now (COV-34) — it is
-	// not overlaid, and the overridable defaults ship in cove-base-image. So the
+	// not overlaid, and the overridable defaults ship in jam-studio-base. So the
 	// build context is the harness layer, the sealed hardening layer, the
 	// injected cove-master, the kit's egress lists, and the managed key.
 	if err := copyEmbed(hardeningFS, "hardening", buildDir); err != nil {

@@ -1,16 +1,16 @@
-# cove-base-image — the universal lean floor every org repo can build on.
+# jam-studio-base — the universal lean floor every org repo can build on.
 #
 # OS + git/gh/sshd + the egress stack + the Docker engine (for the opt-in
 # docker-in-sandbox capability — present but INERT here) + core utilities. It
 # deliberately EXCLUDES language toolchains, chrome, and java — those live in
-# cove-image, which builds FROM this. It also carries no at-task: at-cove injects
+# jam-studio, which builds FROM this. It also carries no at-task: at-cove injects
 # the exact version-locked at-task into its sealed hardening layer (COV-42/COV-44),
 # so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
 FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
-LABEL org.opencontainers.image.description="cove base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
+LABEL org.opencontainers.image.description="jam studio base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
 # Base tooling from the Ubuntu archive: sshd, git, the GitHub CLI, curl, the
 # egress stack (nftables, squid), systemd (PID-1 init for docker-enabled kits;

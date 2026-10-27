@@ -13,7 +13,7 @@ import (
 )
 
 // The default path (no image.base, no image/Dockerfile) needs no gate: the ref
-// is a blessed cove-base-image by construction, so no docker inspect runs.
+// is a blessed jam-studio-base by construction, so no docker inspect runs.
 func TestResolveBaseDefaultSkipsGate(t *testing.T) {
 	f := &runner.Fake{}
 	c := &Colima{r: f}
@@ -38,7 +38,7 @@ func TestResolveBaseTagVerified(t *testing.T) {
 		{Stdout: `["sha256:a","sha256:b"]`},            // the blessed image's layers (a prefix)
 	}}
 	c := &Colima{r: f}
-	const tag = "ghcr.io/acme/cove-image@sha256:child"
+	const tag = "ghcr.io/acme/jam-studio@sha256:child"
 	ref, err := c.resolveBase(backend.BaseSpec{Base: tag})
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 
 // ResolveKitBaseTar streams the context tar to `docker build -q … -` (the tar on
 // stdin), tags the built id under cove-kit-base:<hex>, and runs the provenance
-// gate. The built base must descend from a blessed cove-base-image.
+// gate. The built base must descend from a blessed jam-studio-base.
 func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
 	const builtID = "sha256:streamed"
 	const wantRef = "cove-kit-base:streamed"

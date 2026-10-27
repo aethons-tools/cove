@@ -32,7 +32,7 @@ before:
     # Build the Jam app bundle at-jam embeds (git-ignored output). Required
     # here: a release ships the app.
     - bash scripts/app.sh
-    # Snapshot the blessed cove-base-image digests from the registry into the
+    # Snapshot the blessed jam-studio-base digests from the registry into the
     # embedded (gitignored) blessed/generated.txt before at-jam is built (COV-44
     # spec §4). A no-op without GITHUB_TOKEN (offline embeds the committed
     # low-watermark); release.yml grants packages:read so CI picks up every current

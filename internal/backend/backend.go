@@ -26,7 +26,7 @@ type Endpoint struct {
 // BaseSpec tells the backend how to resolve and verify the base image the sealed
 // hardening layer is applied FROM (COV-34). The backend selects the ref (a kit
 // image/Dockerfile it builds, or image.base, or the default blessed
-// cove-base-image), runs the provenance gate, and passes the result as the
+// jam-studio-base), runs the provenance gate, and passes the result as the
 // hardening build's BASE arg.
 type BaseSpec struct {
 	KitDir          string // holds image/Dockerfile, if the kit ships one
@@ -135,14 +135,14 @@ type KitImageBuilder interface {
 	// returning the ref to pass BuildKitImage as its base. Docker reads the context
 	// on stdin and preserves file modes natively (so a +x script keeps its exec
 	// bit). The gate is ON (same as ResolveKitBase) — the built base must descend
-	// from a blessed cove-base-image or this errors. The context's Dockerfile builds
+	// from a blessed jam-studio-base or this errors. The context's Dockerfile builds
 	// FROM the blessed base via the injected JAM_STUDIO_BASE_IMAGE build arg.
 	ResolveKitBaseTar(ctx io.Reader) (resolvedBase string, err error)
 	// ResolveKitBaseTarOn builds one stage of a kit chain: like ResolveKitBaseTar,
 	// but the context builds FROM parentRef (the parent stage, injected as
 	// JAM_STUDIO_BASE_IMAGE) instead of the blessed default.
 	// The gate is ON and unchanged — the built stage must descend from a blessed
-	// cove-base-image (the parent does, so a child built on it does too). Only
+	// jam-studio-base (the parent does, so a child built on it does too). Only
 	// once the gate passes is the result tagged stageTag, which is returned; a
 	// rejected stage leaves no stageTag behind, so HasKitBase never vouches for an
 	// ungated image.

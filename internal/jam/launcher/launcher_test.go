@@ -127,7 +127,7 @@ func (f *fakeOps) ResolveKitBaseTarOn(ctx io.Reader, parentRef, stageTag string)
 	b, _ := io.ReadAll(ctx)
 	f.stages = append(f.stages, stageCall{parent: parentRef, stage: stageTag, tar: b})
 	if f.stageErrAt == len(f.stages) {
-		return "", errors.New("base does not descend from any blessed cove-base-image")
+		return "", errors.New("base does not descend from any blessed jam-studio-base")
 	}
 	if f.hasBase == nil {
 		f.hasBase = map[string]bool{}

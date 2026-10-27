@@ -63,7 +63,7 @@ buf-gen:
     cd internal/jam/attach && PATH="$PATH:$(go env GOPATH)/bin" buf generate
 
 # raise the blessed watermark to a published, breaking base image: resolve <tag>
-# to its cove-base-image @sha256 index digest and rewrite
+# to its jam-studio-base @sha256 index digest and rewrite
 # internal/basedigest/blessed/watermark.txt. Add --pr to branch+commit+open a PR.
 # Needs GITHUB_TOKEN (read:packages). e.g. `just adopt-base 527-0808 --pr`
 adopt-base *ARGS:

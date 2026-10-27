@@ -2,6 +2,7 @@ package basedigest
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,20 @@ func TestDefaultRefAndBlessedRefs(t *testing.T) {
 	for i, d := range blessed {
 		if refs[i] != Image+"@"+d {
 			t.Fatalf("BlessedRefs()[%d] = %q, want %q", i, refs[i], Image+"@"+d)
+		}
+	}
+}
+
+func TestDefaultRefIsTheRecutRepo(t *testing.T) {
+	if Image != "ghcr.io/aethons-tools/jam-studio-base" {
+		t.Fatalf("Image = %q", Image)
+	}
+	if !strings.HasPrefix(DefaultRef(), "ghcr.io/aethons-tools/jam-studio-base@sha256:") {
+		t.Fatalf("DefaultRef = %q", DefaultRef())
+	}
+	for _, r := range BlessedRefs() {
+		if !strings.HasPrefix(r, Image+"@") {
+			t.Fatalf("blessed ref %q is not under %s", r, Image)
 		}
 	}
 }

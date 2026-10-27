@@ -1,6 +1,6 @@
-// Command gen-blessed snapshots the blessed cove-base-image digests from the
+// Command gen-blessed snapshots the blessed jam-studio-base digests from the
 // container registry before `go build`, so at-jam embeds every current
-// cove-base-image as blessed (COV-44 spec §4). It is the build-time wiring around
+// jam-studio-base as blessed (COV-44 spec §4). It is the build-time wiring around
 // internal/blessgen; the walk logic lives there and is hermetically tested.
 //
 // It reads the committed low-watermark (internal/basedigest/blessed/watermark.txt)
@@ -8,7 +8,7 @@
 // the working tree stays clean (goreleaser's dirty-tree check stays happy). The
 // dir default can be overridden with a positional arg.
 //
-// With GITHUB_TOKEN set (CI) it lists the published cove-base-image digests and
+// With GITHUB_TOKEN set (CI) it lists the published jam-studio-base digests and
 // walks newest→oldest through the watermark. Any failure there — including a
 // watermark pruned from the registry — is fatal, so a broken trust set can never
 // ship silently. With no token (offline / local dev) it is a no-op: no

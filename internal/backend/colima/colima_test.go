@@ -106,7 +106,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 // the bare-runner build in T2/T3 got wrong (COV-217).
 func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}} // the post-build inspect .Id
-	digest, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, false)
+	digest, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "jam-studio-base@sha256:base", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 		t.Fatalf("digest = %q, want sha256:img", digest)
 	}
 	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE=cove-base@sha256:base") ||
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE=jam-studio-base@sha256:base") ||
 		!contains(build, "-t") || !contains(build, "cove-kit:managed-v1") || !contains(build, "/b") ||
 		!contains(build, "--progress=plain") {
 		t.Fatalf("build call = %+v", f.Calls)
@@ -129,7 +129,7 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 func TestBuildKitImageNoCache(t *testing.T) {
 	for _, noCache := range []bool{false, true} {
 		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
-		if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, noCache); err != nil {
+		if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "jam-studio-base@sha256:base", nil, noCache); err != nil {
 			t.Fatal(err)
 		}
 		build := dockerCall(f.Calls, "build")
@@ -162,7 +162,7 @@ func TestBuildKitImageRequiresBase(t *testing.T) {
 // alongside the required BASE arg.
 func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
-	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:deadbeef", "cove-base@sha256:base",
+	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:deadbeef", "jam-studio-base@sha256:base",
 		map[string]string{"NODE_VERSION": "20"}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 	if build == nil || !contains(build, "--build-arg") || !contains(build, "NODE_VERSION=20") {
 		t.Fatalf("build must inject the kit build-arg: %+v", f.Calls)
 	}
-	if !contains(build, "BASE=cove-base@sha256:base") {
+	if !contains(build, "BASE=jam-studio-base@sha256:base") {
 		t.Fatalf("build must still inject the BASE arg: %+v", f.Calls)
 	}
 }

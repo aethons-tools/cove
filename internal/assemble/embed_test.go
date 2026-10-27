@@ -29,18 +29,18 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
 		}
 	}
-	// The replaceable user-settings default now ships in cove-base-image (COV-34),
+	// The replaceable user-settings default now ships in jam-studio-base (COV-34),
 	// not the sealed embed.
 	if _, err := os.Stat(baseInitAgentData("settings.json")); err != nil {
-		t.Errorf("cove-base-image missing settings.json default: %v", err)
+		t.Errorf("jam-studio-base missing settings.json default: %v", err)
 	}
 }
 
-// baseInitAgentData resolves a file the cove-base-image seeds into
+// baseInitAgentData resolves a file the jam-studio-base seeds into
 // /home/agent/.init-agent-data (the overridable startup defaults, COV-34),
 // relative to this package's directory.
 func baseInitAgentData(name string) string {
-	return filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data", name)
+	return filepath.Join("..", "..", "images", "jam-studio-base", "image-files", "home", "agent", ".init-agent-data", name)
 }
 
 // TestNftablesForwardChainContainsNestedEgress guards the always-on forward drop
@@ -411,7 +411,7 @@ func TestGitCredentialHelperYieldsGitLabToken(t *testing.T) {
 func TestClaudeJSONPrunedAndBlended(t *testing.T) {
 	cj, err := os.ReadFile(baseInitAgentData(".claude.json"))
 	if err != nil {
-		t.Fatalf(".claude.json default not found in cove-base-image: %v", err)
+		t.Fatalf(".claude.json default not found in jam-studio-base: %v", err)
 	}
 	s := string(cj)
 	for _, want := range []string{"hasCompletedOnboarding", "hasTrustDialogAccepted"} {
@@ -488,7 +488,7 @@ func TestEntrypointSeedsGenerically(t *testing.T) {
 }
 
 // TestHardeningShipsNoAgentDocs guards decision B3 (COV-246): the agent docs
-// and skills seeded into /agent-data are the kit base's (cove-base-image), so a
+// and skills seeded into /agent-data are the kit base's (jam-studio-base), so a
 // kit can override them; the sealed layer ships none of them, nor the unused
 // /etc/claude-code/mcp.json (agentrun generates the MCP config since COV-240).
 func TestHardeningShipsNoAgentDocs(t *testing.T) {
@@ -552,7 +552,7 @@ func TestBaseImageSeedsAgentDocs(t *testing.T) {
 	if got, want := strings.Join(entries, " "), "CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md reference skills"; got != want {
 		t.Errorf(".refresh = %q, want %q (runtime-owned files must never refresh)", got, want)
 	}
-	df, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "Dockerfile"))
+	df, err := os.ReadFile(filepath.Join("..", "..", "images", "jam-studio-base", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}

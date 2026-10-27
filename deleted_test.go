@@ -37,7 +37,7 @@ var deletedMentions = []string{
 func mentionExempt(rel string) bool {
 	for _, p := range []string{
 		"docs/superpowers/",
-		"images/cove-base-image/image-files/home/agent/.init-agent-data/",
+		"images/jam-studio-base/image-files/home/agent/.init-agent-data/",
 		"testdata/install-legacy.sh",
 		"deleted_test.go",
 		".gitignore", // names the stale staged dirs so they are never committed

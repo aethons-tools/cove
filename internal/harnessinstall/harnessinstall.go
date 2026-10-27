@@ -130,7 +130,7 @@ const header = `# --------------------------------------------------------------
 # (FROM ${BASE} -> harness -> hardening), so a CLI bump rebuilds from here on.
 # ---------------------------------------------------------------------------
 # The base this image builds FROM. at-cove always injects --build-arg BASE (the
-# resolved, provenance-gated base: a blessed cove-base-image by default, or the
+# resolved, provenance-gated base: a blessed jam-studio-base by default, or the
 # kit's image.base / built image/Dockerfile).
 ARG BASE
 # BASE is an at-cove-injected, digest-pinned ref, so "always tag" does not apply.

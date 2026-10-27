@@ -504,7 +504,7 @@ func TestSeedAgentDataRejectsUnsafeEntries(t *testing.T) {
 // it gets CLAUDE.md, the trimmed SANDBOX.md it imports and the reference set,
 // and an updated SANDBOX.md reaches an existing volume on the next boot.
 func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
-	src := filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data")
+	src := filepath.Join("..", "..", "images", "jam-studio-base", "image-files", "home", "agent", ".init-agent-data")
 	seed := filepath.Join(t.TempDir(), "seed")
 	if out, err := exec.Command("cp", "-a", src, seed).CombinedOutput(); err != nil {
 		t.Fatalf("copy seed: %v\n%s", err, out)

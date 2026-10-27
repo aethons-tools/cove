@@ -145,7 +145,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 // An unblessed context base fails the prepare loudly (gate ON, fail-closed): the
 // kit image is never built.
 func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
-	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed cove-base-image")}
+	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed jam-studio-base")}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
