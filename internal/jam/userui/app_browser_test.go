@@ -4,11 +4,14 @@ package userui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +26,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
@@ -75,7 +79,7 @@ func (p *pageProblems) watch(ctx context.Context) step {
 
 // The Jam app loads under its CSP, shows the member's rail from the API, and
 // deep-links on reload (spec slice 1).
-func TestBrowserNextAppShowsRail(t *testing.T) {
+func TestBrowserAppShowsRail(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -140,7 +144,7 @@ func (c *testChanges) fire() {
 // The conversation renders squawkrender's markdown (code blocks get a copy
 // button), raw HTML stays inert under the CSP, a long conversation opens at
 // its newest message, and a new message arrives live (events → refetch).
-func TestBrowserNextConversation(t *testing.T) {
+func TestBrowserAppConversation(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -211,7 +215,7 @@ func TestBrowserNextConversation(t *testing.T) {
 // Typing a reply and pressing Ctrl+Enter (headless Chrome reports a Linux
 // platform) sends it through POST api/messages; it shows in the list, and
 // the box is empty again. Shift+Ctrl+V pastes as code.
-func TestBrowserNextComposerSends(t *testing.T) {
+func TestBrowserAppComposerSends(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -280,7 +284,7 @@ func TestBrowserNextComposerSends(t *testing.T) {
 
 // An ask renders as a card; choosing an option records the answer (the
 // log's ask state) and the card shows who chose what.
-func TestBrowserNextAnswersAnAsk(t *testing.T) {
+func TestBrowserAppAnswersAnAsk(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -325,7 +329,7 @@ func TestBrowserNextAnswersAnAsk(t *testing.T) {
 // A session's home channel shows its header; Status opens the pane beside
 // the messages, the keyboard widens it, ⇄ moves it below, and a session
 // never opened starts from that layout — under the app's CSP.
-func TestBrowserNextSessionPane(t *testing.T) {
+func TestBrowserAppSessionPane(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -399,7 +403,7 @@ func TestBrowserNextSessionPane(t *testing.T) {
 
 // The app's Thinking tab: the backfill (agent markup inert), a tool call with
 // its result folded in, a live event, and Load earlier — under the CSP.
-func TestBrowserNextThinking(t *testing.T) {
+func TestBrowserAppThinking(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -514,7 +518,7 @@ const thinkingListJS = `document.querySelector('[role="log"][aria-label="Session
 
 // A burst of live events, with the reader at the bottom, stays followed:
 // rows measured taller than estimated mustn't strand the reader above them.
-func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
+func TestBrowserAppThinkingFollowsBursts(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -567,7 +571,7 @@ func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
 
 // Load earlier keeps the reader's place in Detailed format, where rows are
 // much taller than the virtualizer's estimate.
-func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
+func TestBrowserAppThinkingEarlierKeepsPlace(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -607,7 +611,7 @@ func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
 // route, under a CSP whose frame-src is the preview origin: the frame loads
 // (status clears), a forged message from the page itself changes nothing,
 // and a real frame-error from the frame is shown.
-func TestBrowserNextStudio(t *testing.T) {
+func TestBrowserAppStudio(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -666,7 +670,7 @@ func TestBrowserNextStudio(t *testing.T) {
 // The app's board route mounts Excalidraw under the app's CSP, loading every
 // font from the app's own bundle (no CDN), saves a drawn rectangle, and shows
 // an agent's edit pushed live.
-func TestBrowserNextBoard(t *testing.T) {
+func TestBrowserAppBoard(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -747,7 +751,7 @@ func TestBrowserNextBoard(t *testing.T) {
 
 // An edit made just before "← Back to chat" is saved, not dropped: leaving
 // the board in the app flushes the pending (debounced) save.
-func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
+func TestBrowserAppBoardFlushesOnLeave(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -801,7 +805,7 @@ func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
 // registers the /app/ service worker from its bundle, the Notifications item
 // subscribes this device (stored with Jam), and the open conversation is
 // reported for push focus.
-func TestBrowserNextPush(t *testing.T) {
+func TestBrowserAppPush(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -862,4 +866,72 @@ func withPWA(f http.HandlerFunc) http.Handler {
 		}
 		f(w, r)
 	})
+}
+
+// studioFrames is a fake Frames minting URLs on a second server (the
+// "preview"): /<name>?<query>, the query taken from a per-name queue
+// (empty once drained). It counts the mints per name.
+type studioFrames struct {
+	mu   sync.Mutex
+	base string
+	n    map[string]int
+	next map[string][]string
+}
+
+func (f *studioFrames) FrameURL(_ collab.Principal, _, _, name string, _ collab.Right) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n[name]++
+	q := ""
+	if l := f.next[name]; len(l) > 0 {
+		q, f.next[name] = l[0], l[1:]
+	}
+	return f.base + "/" + name + "?" + q, nil
+}
+
+func (f *studioFrames) queue(name string, qs ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.next[name] = append(f.next[name], qs...)
+}
+
+func (f *studioFrames) mints(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.n[name]
+}
+
+// framePage is the fake preview: <p id="ok">name</p>, posting a frame-error
+// to its parent when ?post= asks (a number posts as a number), ?late= ms later.
+func framePage(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><p id="ok">%s</p>`, html.EscapeString(name))
+	if post := r.URL.Query().Get("post"); post != "" {
+		var status any = post
+		if n, err := strconv.Atoi(post); err == nil {
+			status = n
+		}
+		b, _ := json.Marshal(map[string]any{"jam": "frame-error", "status": status})
+		delay := r.URL.Query().Get("late") // ms: post that much later
+		if delay == "" {
+			delay = "0"
+		}
+		fmt.Fprintf(w, `<script>setTimeout(function(){ parent.postMessage(%s, '*'); }, %s)</script>`, b, strconv.Quote(delay))
+	}
+}
+
+// thinkRaw is one stream-json line as the store keeps it.
+func thinkRaw(v map[string]any) []byte {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+func assistantBlock(block map[string]any) []byte {
+	return thinkRaw(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{block}}})
+}
+
+func toolResultBlock(tid, text string, isErr bool) []byte {
+	return thinkRaw(map[string]any{"type": "user", "message": map[string]any{"content": []any{
+		map[string]any{"type": "tool_result", "tool_use_id": tid, "content": text, "is_error": isErr}}}})
 }

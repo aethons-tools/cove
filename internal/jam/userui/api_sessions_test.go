@@ -328,3 +328,35 @@ func TestAPIPaneStudio(t *testing.T) {
 		t.Errorf("studio without ssh = %+v", no)
 	}
 }
+
+// The head carries the session's mission ("" without one).
+func TestAPISessionHeadMission(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", false)); hd.Mission != "" {
+		t.Errorf("mission without one = %q", hd.Mission)
+	}
+	personal.Mission = "triaging ACME-7"
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", false)); hd.Mission != "triaging ACME-7" {
+		t.Errorf("mission = %q", hd.Mission)
+	}
+}
+
+// With a preview host, the owner's previews list each exposure's URL.
+func TestAPISessionPanePreviews(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	e.Deps.PreviewURL = func(actorID, name string) (string, error) {
+		return "https://" + name + "--" + actorID + ".preview.test/", nil
+	}
+	personal.Exposures = []jam.Exposure{{Name: "web", Port: 5173}}
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	pv := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", personal.ActorID+"/pane/previews", "", false))
+	if pv.PreviewsOff || len(pv.Previews) != 1 || pv.Previews[0].Name != "web" || pv.Previews[0].Port != 5173 ||
+		pv.Previews[0].URL != "https://web--"+personal.ActorID+".preview.test/" {
+		t.Errorf("previews = %+v", pv)
+	}
+}

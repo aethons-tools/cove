@@ -1,7 +1,8 @@
 package userui
 
-// JSON twins of the HTML routes' authorization and behavior tests (spec §5:
-// they land before the HTML routes are deleted at the cutover).
+// The API's share of the authorization and behavior tests the old Inbox's
+// HTML routes carried (spec §5): written against the API before the cutover
+// deleted those routes.
 
 import (
 	"context"
@@ -39,7 +40,7 @@ func rowLabeled(r RailResponse, label string) (ChannelRow, jam.AttentionBucket, 
 	return ChannelRow{}, "", false
 }
 
-// Twin of TestRailUnreadAndHistory.
+// The rail counts each conversation's unread and lists the viewer's History.
 func TestAPIRailUnreadAndHistory(t *testing.T) {
 	e, p := fixture()
 	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
@@ -99,7 +100,7 @@ func TestAPIRailUnreadAndHistory(t *testing.T) {
 	}
 }
 
-// Twin of TestHistoryIsTheViewersNameOnly.
+// A viewer renamed in a name clash doesn't see the old name's History.
 func TestAPIHistoryIsTheViewersNameOnly(t *testing.T) {
 	e, p := fixture()
 	legacy := intercom.NewLegacyMemLog()
@@ -116,7 +117,7 @@ func TestAPIHistoryIsTheViewersNameOnly(t *testing.T) {
 	}
 }
 
-// Twin of TestRailCarriesUnreadTotal.
+// The rail carries the unread total (the app badge).
 func TestAPIRailUnreadTotal(t *testing.T) {
 	e, p := fixture()
 	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
@@ -134,7 +135,7 @@ func TestAPIRailUnreadTotal(t *testing.T) {
 	}
 }
 
-// Twin of TestSessionCommandsMatrix.
+// Interrupt, compact and clear run only while the session's activity allows.
 func TestAPISessionCommandsMatrix(t *testing.T) {
 	e, p, personal, _, ops := sessionEnv(t)
 	for _, tt := range []struct {
@@ -184,7 +185,7 @@ func TestAPISessionCommandsMatrix(t *testing.T) {
 	}
 }
 
-// Twin of TestSessionCommandsAnyViewer.
+// Any viewer who can see a session may send it a command.
 func TestAPISessionCommandsAnyViewer(t *testing.T) {
 	e, _, personal, _, ops := sessionEnv(t)
 	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-bob"}}}); err != nil {
@@ -207,7 +208,7 @@ func TestAPISessionCommandsAnyViewer(t *testing.T) {
 	}
 }
 
-// Twin of TestSessionPaneArtifacts.
+// Artifacts lists the home channel's boards, files, asks and links.
 func TestAPISessionPaneArtifacts(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
 	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
@@ -252,7 +253,7 @@ func TestAPISessionPaneArtifacts(t *testing.T) {
 	}
 }
 
-// Twin of TestSessionPaneStatusKit.
+// Status names the session's kit: published, or a draft's tree.
 func TestAPISessionPaneStatusKit(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
 	kit := func() string {
@@ -281,8 +282,7 @@ func TestAPISessionPaneStatusKit(t *testing.T) {
 	}
 }
 
-// Twin of TestThinkingEventsBackfillLiveInert, for the JSON feed (the only
-// form after the cutover).
+// The feed backfills the tail, then streams live events, agent text inert.
 func TestThinkingJSONBackfillAndLive(t *testing.T) {
 	e, p, personal, store, hub := thinkEnv(t)
 	appendText(t, store, personal.ActorID, 1, 2)
@@ -293,7 +293,7 @@ func TestThinkingJSONBackfillAndLive(t *testing.T) {
 	defer func() { srv.CloseClientConnections(); srv.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/app/user/session/"+personal.ActorID+"/thinking/events?format=json", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/app/user/session/"+personal.ActorID+"/thinking/events", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -334,8 +334,8 @@ func TestThinkingJSONBackfillAndLive(t *testing.T) {
 	}
 }
 
-// Twin of TestThinkingHiddenFromOutsiders' page and raw paths (the feed's
-// own path keeps its test): an outsider, and a member who left.
+// Thinking's page, raw and pane routes are hidden from an outsider and from
+// a member who left (TestThinkingHiddenFromOutsiders covers the feed).
 func TestAPIThinkingHiddenFromOutsiders(t *testing.T) {
 	e, p, personal, store, _ := thinkEnv(t)
 	appendText(t, store, personal.ActorID, 1, 3)
@@ -356,7 +356,8 @@ func TestAPIThinkingHiddenFromOutsiders(t *testing.T) {
 	}
 }
 
-// Twin of TestAskForOthersAndRail.
+// An ask for someone else shows read-only and doesn't put the room in Needs
+// you; one for anyone does.
 func TestAPIAskForOthers(t *testing.T) {
 	e, p := fixture()
 	carol, err := e.st.CreateUser(jam.User{Name: "carol"})

@@ -309,7 +309,7 @@ describe("the session pane", () => {
     renderApp(boot, "/app/user/c/chn_s");
     await user.click(await screen.findByRole("tab", { name: "Thinking" }));
     expect(await screen.findByRole("log", { name: "Session events" })).toBeInTheDocument();
-    expect(urls).toContain("/app/user/session/ses_1/thinking/events?format=json");
+    expect(urls).toContain("/app/user/session/ses_1/thinking/events");
     vi.unstubAllGlobals();
   });
 

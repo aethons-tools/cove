@@ -6,7 +6,6 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
-	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // This file holds every type the /app/user/api JSON carries. tygo reads only
@@ -86,10 +85,10 @@ type RailGroup struct {
 type MessageRow struct {
 	From string        `json:"from"`
 	Body template.HTML `json:"body"` // rendered per the squawk's content type (squawkrender): the app inserts it as HTML
-	Raw  string        `json:"raw"`  // the body as sent, for the Markdown copy (escaped by the template)
+	Raw  string        `json:"raw"`  // the body as sent, for the Markdown copy (text, never markup)
 	// Plain marks a text/plain squawk, shown literally with its whitespace.
 	Plain bool      `json:"plain"`
-	At    string    `json:"at"`   // server-local "15:04" (the templates)
+	At    string    `json:"at"`   // server-local "15:04"
 	Time  time.Time `json:"time"` // when it was sent (the app's day dividers and local times)
 	Mine  bool      `json:"mine"`
 	Seq   int64     `json:"seq"`
@@ -103,8 +102,6 @@ type MessageRow struct {
 	Files []FileChip `json:"files,omitempty"`
 	// Board is a board's card (the squawk that started it).
 	Board *BoardCard `json:"board,omitempty"` // the board's card (Card == "board")
-	// Channel is the conversation's id (a board card links into it).
-	Channel string `json:"-"`
 	// Card names the card this row is ("ask" or "board"; "" = none), so the
 	// app can place what it doesn't render yet.
 	Card string `json:"card"`
@@ -126,16 +123,15 @@ type AskRef struct {
 
 // Conversation is the right-pane view of one open channel.
 type Conversation struct {
-	ChannelID   string          `json:"channelId"`
-	Label       string          `json:"label"`
-	Kind        jam.ChannelKind `json:"kind"`
-	Project     string          `json:"project"`
-	Phase       string          `json:"phase"`
-	NeedsYou    bool            `json:"needsYou"`
-	SendTo      string          `json:"sendTo"` // what the composer POSTs to /app/user/send ("" = read-only History)
-	Messages    []MessageRow    `json:"messages"`
-	HasMessages bool            `json:"-"`
-	LastSeq     int64           `json:"lastSeq"`
+	ChannelID string          `json:"channelId"`
+	Label     string          `json:"label"`
+	Kind      jam.ChannelKind `json:"kind"`
+	Project   string          `json:"project"`
+	Phase     string          `json:"phase"`
+	NeedsYou  bool            `json:"needsYou"`
+	SendTo    string          `json:"sendTo"` // what the composer POSTs to /app/user/send ("" = read-only History)
+	Messages  []MessageRow    `json:"messages"`
+	LastSeq   int64           `json:"lastSeq"`
 	// Earlier: the API page has older messages before its first (GET
 	// api/conversations/{c}?before=<first seq>).
 	Earlier bool `json:"earlier"`
@@ -149,16 +145,12 @@ type Conversation struct {
 	CanJoin  bool               `json:"canJoin"`
 	CanLeave bool               `json:"canLeave"`
 	CallIn   []NewMessageOption `json:"callIn"`
-	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
-	// and the editor is built); Board is the board ?board= opened.
-	NewBoard bool         `json:"newBoard"`
-	Board    *BoardEditor `json:"-"`
+	// NewBoard offers New whiteboard (the viewer may start one here).
+	NewBoard bool `json:"newBoard"`
 	// Session is the actor id of the session whose home this channel is,
 	// when the viewer may see it ("" = none): the app's session header and
 	// pane read api/sessions/{session}.
 	Session string `json:"session"`
-	// Head is the session header when this is a session's home channel.
-	Head *SessionHead `json:"-"`
 }
 
 // NewMessageOption is one recipient offered in the New Message picker.
@@ -288,12 +280,10 @@ type SessionPane struct {
 	Asks        []PaneAsk   `json:"asks"`
 	Links       []PaneLink  `json:"links"`
 	Status      []StatusRow `json:"status"`
-	// Streams are the session's recorded event streams (the template's
-	// Thinking tab); ThinkingStreams the same for the app; EventsOff: this
-	// jam records no session events.
-	Streams         []sessionevents.StreamInfo `json:"-"`
-	ThinkingStreams []ThinkingStream           `json:"streams"`
-	EventsOff       bool                       `json:"eventsOff"`
+	// ThinkingStreams are the session's recorded event streams; EventsOff:
+	// this jam records no session events.
+	ThinkingStreams []ThinkingStream `json:"streams"`
+	EventsOff       bool             `json:"eventsOff"`
 	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
 	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
 	Studio  bool   `json:"studio"`
@@ -336,7 +326,7 @@ type StatusRow struct {
 }
 
 // ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
-// of the feed with ?format=json, and a row of a page. Every string is agent
+// of the feed, and a row of a page. Every string is agent
 // text, shown as text, never as markup.
 type ThinkingEvent struct {
 	Stream    string `json:"stream"`
@@ -397,7 +387,6 @@ type FrameURL struct {
 type BoardCard struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
-	Built bool   `json:"-"` // the old page's editor bundle is built
 }
 
 // BoardInfo is GET api/boards/{id}: the board the app's board route opens,

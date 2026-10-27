@@ -38,7 +38,7 @@ function open(c: Conn, stream: string, clear: boolean) {
   const gen = ++c.gen;
   c.setPinned(stream);
   if (clear) c.dispatch({ type: "reset" });
-  const es = new EventSource(`/app/user/session/${enc(c.id)}/thinking/events?format=json${stream ? `&stream=${enc(stream)}` : ""}`);
+  const es = new EventSource(`/app/user/session/${enc(c.id)}/thinking/events${stream ? `?stream=${enc(stream)}` : ""}`);
   c.es = es;
   const on = (name: string, fn: (e: MessageEvent<string>) => void) =>
     es.addEventListener(name, (e) => { if (c.gen === gen) fn(e as MessageEvent<string>); });

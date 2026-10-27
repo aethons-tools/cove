@@ -20,7 +20,7 @@ func WithPush(publicKey string) Option {
 	return func(h *handler) { h.pushKey = publicKey }
 }
 
-// WithPushFocus enables POST /app/user/push/focus, where the Inbox reports
+// WithPushFocus enables POST /app/user/push/focus, where the app reports
 // the conversation it has open and focused, so f suppresses pushes for it.
 // It takes effect only with WithPush; nil leaves it off.
 func WithPushFocus(f *push.Focus) Option {

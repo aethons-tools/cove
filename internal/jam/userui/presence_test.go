@@ -3,10 +3,9 @@ package userui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -58,53 +57,51 @@ func presenceFixture() (*env, jam.Participant, *fakePresence) {
 	return e, p, pr
 }
 
+// presenceJSON is eng's presence strip as the API serves it.
+func presenceJSON(t *testing.T, h http.Handler, p jam.Participant) []SessionRow {
+	t.Helper()
+	var r PresenceResponse
+	if rec := apiGet(t, h, &p, "/app/user/api/conversations/"+engID+"/presence"); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &r) != nil {
+		t.Fatalf("presence = %d %s", rec.Code, rec.Body)
+	}
+	return r.Sessions
+}
+
 func TestPresenceRows(t *testing.T) {
 	e, p, pr := presenceFixture()
-	h := Handler(e.Deps, nil, WithPresence(pr))
-	req := jam.WithParticipant(httptest.NewRequest("GET", "/app/user/presence?c="+url.QueryEscape(engID), nil), p)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	body := rec.Body.String()
-	for _, want := range []string{
-		`<div class="sess busy"><span class="sname">builder</span> is running <b>Bash</b><span class="dots" aria-hidden="true">`,
-		`<div class="sess dim"><span class="sname">idle</span> is idle</div>`,
+	rows := presenceJSON(t, Handler(e.Deps, nil, WithPresence(pr)), p)
+	for _, want := range []SessionRow{
+		{"builder", "is running", "Bash", "busy"},
+		{"idle", "is idle", "", "dim"},
 		// A turn that ended is idle; only a session that asked needs you.
-		`<div class="sess dim"><span class="sname">waiting</span> is idle</div>`,
-		`<div class="sess wait"><span class="sname">asking</span> needs you</div>`,
-		`<div class="sess wait"><span class="sname">stuck</span> is blocked</div>`,
+		{"waiting", "is idle", "", "dim"},
+		{"asking", "needs you", "", "wait"},
+		{"stuck", "is blocked", "", "wait"},
 		// Paused while it waits, it still needs you (escalation keeps paging it).
-		`<div class="sess wait"><span class="sname">pausedasker</span> needs you</div>`,
-		`<div class="sess busy"><span class="sname">background</span> is working in the background`,
-		`<div class="sess dim"><span class="sname">paused</span> is paused</div>`,
+		{"pausedasker", "needs you", "", "wait"},
+		{"background", "is working in the background", "", "busy"},
+		{"paused", "is paused", "", "dim"},
 		// Live, but no event seen yet (e.g. just after a Jam restart).
-		`<div class="sess busy"><span class="sname">fresh</span> is working<span class="dots" aria-hidden="true">`,
+		{"fresh", "is working", "", "busy"},
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("presence missing %q in:\n%s", want, body)
+		if !slices.Contains(rows, want) {
+			t.Errorf("presence lacks %+v in %+v", want, rows)
 		}
 	}
-	for _, gone := range []string{">gone<", ">unknown<", "Read"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("presence should not contain %q:\n%s", gone, body)
-		}
-	}
-	// The full page carries the strip too, and the hook to refresh it.
-	full := httptest.NewRecorder()
-	h.ServeHTTP(full, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/?c="+url.QueryEscape(engID), nil), p))
-	for _, want := range []string{`id="presence"`, `hx-get="/app/user/presence?c=` + engID + `"`, `mePresence from:body`, "es.addEventListener('presence'", "builder</span> is running"} {
-		if !strings.Contains(full.Body.String(), want) {
-			t.Errorf("page missing %q", want)
+	for _, row := range rows {
+		if row.Label == "gone" || row.Label == "unknown" {
+			t.Errorf("presence shows %q", row.Label)
 		}
 	}
 }
 
 func TestPresenceWithoutTrackerFallsBackToPhase(t *testing.T) {
 	e, p, _ := presenceFixture()
-	h := Handler(e.Deps, nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, jam.WithParticipant(httptest.NewRequest("GET", "/app/user/presence?c="+url.QueryEscape(engID), nil), p))
-	if body := rec.Body.String(); !strings.Contains(body, "builder</span> is working") || !strings.Contains(body, "asking</span> needs you") {
-		t.Errorf("without a tracker, live sessions read as working:\n%s", body)
+	rows := presenceJSON(t, Handler(e.Deps, nil), p)
+	for _, want := range []SessionRow{{"builder", "is working", "", "busy"}, {"asking", "needs you", "", "wait"}} {
+		if !slices.Contains(rows, want) {
+			t.Errorf("without a tracker, live sessions read as working: lacks %+v in %+v", want, rows)
+		}
 	}
 }
 

@@ -1,9 +1,8 @@
-// Package userui serves the participant intercom inbox under /app/user — a two-pane,
-// server-rendered (html/template + htmx) web UI over the person's channels
-// (intercom slice 2b: jam.UserChannels on the channel log), with a read-only
-// History of the legacy log. It mirrors internal/jam/adminui's mechanism but
-// has its own two-pane chrome and its own gate (no loopback trust); identity
-// is per-request via jam.ParticipantFrom.
+// Package userui serves the user area under /app/user: the Jam app (web/app,
+// embedded via uiassets) and the JSON API and byte/stream routes it reads
+// over the person's channels (jam.UserChannels on the channel log), with a
+// read-only History of the legacy log. It has its own gate (no loopback
+// trust); identity is per-request via jam.ParticipantFrom.
 package userui
 
 import (
@@ -16,7 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
-// Deps are what the inbox reads: the store, the intercom (who may see and
+// Deps are what the user area reads: the store, the intercom (who may see and
 // post where), the channel log, and the frozen legacy log (its History; nil
 // = none).
 type Deps struct {
@@ -132,8 +131,8 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
 	for _, ch := range chs {
 		if ch.ID == selectedID {
-			// The open conversation is being read: the page commits its
-			// cursor only after it loads (POST /app/user/read), so the stored
+			// The open conversation is being read: the app commits its
+			// cursor only after it loads (POST api/conversations/{c}/read), so the stored
 			// count would otherwise linger in the rail and app badge.
 			ch.Unread = 0
 		}

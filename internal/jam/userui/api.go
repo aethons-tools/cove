@@ -15,8 +15,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/webapp"
 )
 
-// apiRoutes registers the JSON API the Jam app (web/app) reads: the same view
-// models the templates render, behind the same participant checks
+// apiRoutes registers the JSON API the Jam app (web/app) reads: the user
+// area's view models, behind its participant checks
 // (docs/superpowers/specs/2026-10-26-jam-spa-design.md §2).
 func (h *handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/bootstrap", h.apiBootstrap)

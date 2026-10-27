@@ -207,3 +207,17 @@ func TestUserAreaServesTheApp(t *testing.T) {
 		}
 	}
 }
+
+// Without a participant (mounted outside the user gate) neither the app nor
+// its API serves anything.
+func TestUserAreaFailsClosedWithoutParticipant(t *testing.T) {
+	e, _ := fixture()
+	h := Handler(e.Deps, nil)
+	for _, path := range []string{"/app/user/", "/app/user/c/" + engID, "/app/user/api/bootstrap", "/app/user/api/rail", "/app/user/api/conversations/" + engID} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil)) // no WithParticipant
+		if rec.Code < 400 {
+			t.Errorf("no-participant %s = %d, want a refusal", path, rec.Code)
+		}
+	}
+}
