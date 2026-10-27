@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -59,51 +58,14 @@ func TestPlanCredentials_ResolvesSpecsByName(t *testing.T) {
 	}
 }
 
-func TestServeWiresRouterWithLocal(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	st := jam.NewMemStore()
-
-	got, err := buildLauncher(serveConfig{}, st, nil, log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := got.launcher.(placeholderLauncher); !ok {
-		t.Fatalf("no launcher block: want placeholderLauncher, got %T", got.launcher)
-	}
-	if got.images != nil || got.haveDefaultKit {
-		t.Errorf("no launcher block: want no images and no default kit, got %+v", got)
-	}
-
-	id := filepath.Join(t.TempDir(), "id")
-	if err := os.WriteFile(id+".pub", []byte("ssh-ed25519 AAAA test\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var cfg serveConfig
-	cfg.Runtime.Launcher = &launcherConfig{IdentityFile: id, KnownHostsDir: filepath.Join(t.TempDir(), "known_hosts.d"), DockerContext: "colima-jam"}
-	got, err = buildLauncher(cfg, st, nil, log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	router, ok := got.launcher.(*fleet.Router)
-	if !ok {
-		t.Fatalf("launcher block: want *fleet.Router, got %T", got.launcher)
-	}
-	if names := router.Names(); !reflect.DeepEqual(names, []string{"local"}) {
-		t.Errorf("Names() = %v, want [local]", names)
-	}
-	if _, ok := got.launcher.(jam.KitDraftBuilder); !ok {
-		t.Error("router must satisfy jam.KitDraftBuilder")
-	}
-	if got.images == nil || !got.haveDefaultKit {
-		t.Errorf("want images and default kit set, got %+v", got)
-	}
-}
-
+// The router exists only for runtime.studio-managers: there is no in-process
+// manager any more, so it starts empty and managers join as they connect.
+// Without it Jam runs the placeholder launcher (dev spine only).
 func TestBuildLauncherStudioManagersOnly(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	var cfg serveConfig
 	cfg.Runtime.StudioManagers = true
-	got, err := buildLauncher(cfg, jam.NewMemStore(), nil, log)
+	got, err := buildLauncher(cfg, jam.NewMemStore(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +79,19 @@ func TestBuildLauncherStudioManagersOnly(t *testing.T) {
 	if got.router != router {
 		t.Errorf("router field = %p, want the launcher router %p", got.router, router)
 	}
-	if got.images == nil || !got.haveDefaultKit {
+	if got.images == nil || !got.haveDefaultKit || got.defaultKit == (jam.KitRef{}) {
 		t.Errorf("want images and default kit set, got %+v", got)
+	}
+
+	got, err = buildLauncher(serveConfig{}, jam.NewMemStore(), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.launcher.(placeholderLauncher); !ok {
+		t.Fatalf("neither setting: want placeholderLauncher, got %T", got.launcher)
+	}
+	if got.router != nil || got.images != nil || got.haveDefaultKit {
+		t.Errorf("neither setting: want no router, images or default kit, got %+v", got)
 	}
 }
 

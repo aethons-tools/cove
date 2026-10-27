@@ -1670,3 +1670,29 @@ func TestStudioRaiseManagerFlagsOrdered(t *testing.T) {
 		t.Fatalf("posted managers=%v timeout=%q", got.Managers, got.PlacementTimeout)
 	}
 }
+
+// `at-jam colima` moved to at-studio-manager with the in-process launcher: the
+// verb is gone, and invoking it says where it went (exit 2, as for any unknown
+// command), globals or not.
+func TestColimaVerbMoved(t *testing.T) {
+	const want = `at-jam: colima moved to at-studio-manager: run "at-studio-manager colima setup-docker|check-docker"`
+	for _, argv := range [][]string{
+		{"colima"},
+		{"colima", "setup-docker"},
+		{"--log-level", "debug", "colima", "check-docker"},
+		{"--dry-run", "colima"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(argv, func(string) string { return "" }, &out, &errb); code != 2 {
+			t.Errorf("%v: exit %d, want 2", argv, code)
+		}
+		if !strings.Contains(errb.String(), "colima moved to at-studio-manager") || strings.TrimSpace(errb.String()) != want {
+			t.Errorf("%v: stderr = %q, want %q", argv, errb.String(), want)
+		}
+	}
+	var out, errb bytes.Buffer
+	run([]string{"help"}, func(string) string { return "" }, &out, &errb)
+	if strings.Contains(out.String(), "colima") {
+		t.Errorf("help still lists colima:\n%s", out.String())
+	}
+}
