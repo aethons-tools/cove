@@ -63,10 +63,10 @@ func TestDraftBuildRoutes(t *testing.T) {
 		t.Fatalf("start = %d %s", w.Code, w.Body)
 	}
 	// The API started it on the supervisor's builds: the one registry.
-	if s, err := b.Status("app", 0); err != nil || s.ID != v.ID {
+	if s, err := b.Status("app", "", 0); err != nil || s.ID != v.ID {
 		t.Fatalf("supervisor's builds = %+v %v, want build %s", s, err, v.ID)
 	}
-	if w := draftDo(t, h, "POST", path, "application/json", etag, nil); w.Code != http.StatusConflict || body(w) != "kit app already has a draft build running" {
+	if w := draftDo(t, h, "POST", path, "application/json", etag, nil); w.Code != http.StatusConflict || body(w) != "a draft build of app is already running on local" {
 		t.Fatalf("second start = %d %s", w.Code, w.Body)
 	}
 	<-fb.started // the fake wrote its log line before signalling
@@ -101,8 +101,8 @@ func TestDraftBuildRoutes(t *testing.T) {
 	}
 	// The audit lines carry exactly these fields, never log content.
 	for msg, want := range map[string][]string{
-		"kit draft build requested": {"build", "kit", "level", "msg", "operator", "time", "tree"},
-		"kit draft build cancelled": {"build", "kit", "level", "msg", "operator", "time"},
+		"kit draft build requested": {"build", "kit", "level", "manager", "msg", "operator", "time", "tree"},
+		"kit draft build cancelled": {"build", "kit", "level", "manager", "msg", "operator", "time"},
 	} {
 		recs := auditRecords(t, logs, msg)
 		if len(recs) != 1 {
@@ -197,4 +197,49 @@ func TestDraftBuildTwoConcurrentPosts(t *testing.T) {
 		t.Fatalf("codes = %v, want one 202 and one 409", got)
 	}
 	close(fb.release)
+}
+
+// managedBuildsHandler is buildsHandler over fm's managers.
+func managedBuildsHandler(t *testing.T, fm *fakeManagedDraft) (http.Handler, *KitDraftBuilds, string) {
+	t.Helper()
+	h, b, etag, _ := buildsHandler(t, &fakeDraftBuilder{})
+	b.builder = fm
+	return h, b, etag
+}
+
+func TestDraftBuildStartUnknownManager404(t *testing.T) {
+	fm := newFakeManagedDraft("local", "m1")
+	h, b, etag := managedBuildsHandler(t, fm)
+	const path = "/admin/kits/app/draft/build"
+	if w := draftDo(t, h, "POST", path, "application/json", etag, []byte(`{"manager":"nope"}`)); w.Code != http.StatusNotFound || !strings.Contains(body(w), "unknown manager: nope") {
+		t.Fatalf("unknown = %d %s", w.Code, w.Body)
+	}
+	fm.setAway("m1", true)
+	if w := draftDo(t, h, "POST", path, "application/json", etag, []byte(`{"manager":"m1"}`)); w.Code != http.StatusServiceUnavailable || !strings.Contains(body(w), "manager unavailable: m1") {
+		t.Fatalf("unavailable = %d %s", w.Code, w.Body)
+	}
+	fm.setAway("m1", false)
+	w := draftDo(t, h, "POST", path, "application/json", etag, []byte(`{"manager":"m1"}`))
+	var v KitDraftBuild
+	if w.Code != http.StatusAccepted || json.Unmarshal(w.Body.Bytes(), &v) != nil || v.Manager != "m1" {
+		t.Fatalf("start m1 = %d %s", w.Code, w.Body)
+	}
+	waitJob(t, b, "app", "m1")
+	g := draftDo(t, h, "GET", path+"?manager=m1", "", "", nil)
+	var gv KitDraftBuild
+	if g.Code != http.StatusOK || json.Unmarshal(g.Body.Bytes(), &gv) != nil || gv.ID != v.ID || gv.Manager != "m1" {
+		t.Fatalf("status m1 = %d %s", g.Code, g.Body)
+	}
+	if g := draftDo(t, h, "GET", path+"?manager=local", "", "", nil); g.Code != http.StatusOK || !strings.Contains(g.Body.String(), `"state":"unknown"`) {
+		t.Fatalf("status local = %d %s", g.Code, g.Body)
+	}
+	if g := draftDo(t, h, "GET", path+"?manager=nope", "", "", nil); g.Code != http.StatusNotFound {
+		t.Fatalf("status nope = %d %s", g.Code, g.Body)
+	}
+	if d := draftDo(t, h, "DELETE", path+"?manager=m1", "", "", nil); d.Code != http.StatusNotFound || body(d) != "kit app has no draft build running on m1" {
+		t.Fatalf("cancel m1 = %d %s", d.Code, d.Body)
+	}
+	if d := draftDo(t, h, "DELETE", path+"?manager=nope", "", "", nil); d.Code != http.StatusNotFound || body(d) != "unknown manager: nope" {
+		t.Fatalf("cancel nope = %d %s", d.Code, d.Body)
+	}
 }

@@ -4,7 +4,7 @@ import "github.com/aethons-tools/cove/internal/jam"
 
 // LocalName is the reserved name of the in-process manager. Instances raised
 // before managers existed carry no manager name and route here.
-const LocalName = "local"
+const LocalName = jam.LocalManager
 
 type local struct {
 	jam.Launcher

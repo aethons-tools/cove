@@ -101,7 +101,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
-			{Name: "role", Brief: "manage roles (add|list|rm|inspect) via the admin API", Run: cmdRole},
+			{Name: "role", Brief: "manage roles (add|list|rm|inspect|images) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
@@ -509,7 +509,7 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 
 func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "at-jam role: expected add|list|rm|inspect")
+		fmt.Fprintln(stderr, "at-jam role: expected add|list|rm|inspect|images")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -610,6 +610,27 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, "removed role", pos[0])
+	case "images":
+		if len(pos) != 1 || pos[0] == "" {
+			fmt.Fprintln(stderr, "usage: at-jam role images <project>/<role>")
+			return 2
+		}
+		proj, role, found := strings.Cut(pos[0], "/")
+		if !found {
+			proj, role = jam.DefaultProject, pos[0]
+		}
+		rows, err := c.RoleImages(proj, role)
+		if err != nil {
+			fmt.Fprintln(stderr, "at-jam:", err)
+			return 1
+		}
+		for _, r := range rows {
+			kit := "-"
+			if r.HasKit {
+				kit = r.Kit.ID
+			}
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = no router: local
+		}
 	default:
 		fmt.Fprintln(stderr, "at-jam role: unknown subcommand", sub)
 		return 2
@@ -1819,8 +1840,8 @@ func cmdActors(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // drives, the image reader for setup inspection, and the default studio kit.
 type builtLauncher struct {
 	launcher       jam.Launcher
-	router         *fleet.Router        // nil with the placeholder launcher
-	images         jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
+	router         *fleet.Router          // nil with the placeholder launcher
+	images         jam.ManagedImageReader // nil with the placeholder launcher: image parts unavailable
 	defaultKit     jam.KitRef
 	haveDefaultKit bool
 }
@@ -2261,8 +2282,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// registry is the supervisor's: the admin build routes read it there.
 	buildCtx, stopBuilds := context.WithCancel(context.Background())
 	var draftBuilds *jam.KitDraftBuilds
-	if b, ok := lch.(jam.KitDraftBuilder); ok {
-		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, b, log)
+	// Builds run per manager: the router's, or the one launcher's as local.
+	if mb, ok := lch.(jam.ManagedDraftBuilder); ok {
+		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, mb, log)
+	} else if b, ok := lch.(jam.KitDraftBuilder); ok {
+		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, jam.OneDraftManager(jam.LocalManager, b), log)
+	}
+	if draftBuilds != nil {
 		sup.SetKitDraftBuilds(draftBuilds)
 	}
 	go stopBuildsOnSignal(shutdownSignals(), stopBuilds, draftBuilds, log, dieBySignal)
@@ -2897,6 +2923,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		if built.router != nil {
+			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
+		}
 		if managerHub != nil {
 			uiOpts = append(uiOpts, adminui.WithManagers(managerHub.Statuses))
 		}

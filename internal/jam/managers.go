@@ -10,13 +10,16 @@ import (
 // ErrManagerExists reports that a manager name is already registered.
 var ErrManagerExists = errors.New("manager already registered")
 
+// LocalManager is the reserved name of Jam's in-process manager
+// (fleet.LocalName); package jam cannot import fleet.
+const LocalManager = "local"
+
 var managerNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // ValidManagerName reports whether name may be registered as a Studio
 // Manager. "local" is reserved for Jam's own manager.
 func ValidManagerName(name string) error {
-	// "local" is fleet.LocalName; package jam cannot import fleet.
-	if name == "local" {
+	if name == LocalManager {
 		return fmt.Errorf("manager name %q is reserved", name)
 	}
 	if !managerNameRE.MatchString(name) {

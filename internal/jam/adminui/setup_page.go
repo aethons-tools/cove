@@ -19,6 +19,20 @@ func WithSetupDeps(d jam.SetupDeps) Option {
 	return func(o *options) { o.setup = &d }
 }
 
+// WithSetupManagers gives a role's Setup tab the managers to pick the image
+// facts' manager from (the router's AvailableNames). With fewer than two the
+// tab shows no selector.
+func WithSetupManagers(names func() []string) Option {
+	return func(o *options) { o.setupManagers = names }
+}
+
+// managerChoice is one entry of a role Setup tab's manager selector.
+type managerChoice struct {
+	Name    string
+	Href    string
+	Current bool
+}
+
 // setupPage is the Setup tab's shell: the subject's head, the Overview ·
 // Setup strip, the section filter, the diff toggle (a studio's) and the lazy
 // loader. It inspects nothing: SectionsURL is fetched once it has painted.
@@ -31,10 +45,11 @@ type setupPage struct {
 	ConfigName  string  // role: "<project>/<role>" (the managed badge)
 	Crumbs      []crumb // role: Agents / <role> / Setup
 	Filter      []subTab
-	DiffHref    string // studio: this page with ?diff=role toggled
-	Diffing     bool   // studio: ?diff=role is on
-	SectionsURL string // the fragment the loader fetches, with this page's query
-	Error       string // a bad ?sections= or ?diff=, shown instead of the loader
+	DiffHref    string          // studio: this page with ?diff=role toggled
+	Diffing     bool            // studio: ?diff=role is on
+	SectionsURL string          // the fragment the loader fetches, with this page's query
+	Managers    []managerChoice // role: the manager selector (two or more managers)
+	Error       string          // a bad ?sections= or ?diff=, shown instead of the loader
 	NotFound    bool
 }
 
@@ -119,7 +134,7 @@ func setupFilter(base string, q url.Values) []subTab {
 
 // fillSetupPage completes the shell from its request; a bad query is p.Error
 // and 400.
-func fillSetupPage(p *setupPage, r *http.Request) int {
+func fillSetupPage(p *setupPage, r *http.Request, managers []string) int {
 	base, q := r.URL.EscapedPath(), r.URL.Query()
 	_, diff, err := setupQuery(q, p.Studio)
 	if err != nil {
@@ -138,6 +153,17 @@ func fillSetupPage(p *setupPage, r *http.Request) int {
 		p.DiffHref = withQuery(base, t)
 	}
 	p.SectionsURL = withQuery(base+"/sections", q)
+	if !p.Studio && len(managers) > 1 {
+		cur := q.Get("manager")
+		if cur == "" {
+			cur = managers[0] // "" reads the first available manager
+		}
+		for _, n := range managers {
+			t := cloneQuery(q)
+			t.Set("manager", n)
+			p.Managers = append(p.Managers, managerChoice{Name: n, Href: withQuery(base, t), Current: n == cur})
+		}
+	}
 	return http.StatusOK
 }
 
@@ -198,6 +224,10 @@ func auditSetup(log *slog.Logger, r *http.Request, subject string, sections []st
 
 // setupFail maps a render error to its fixed-text response.
 func setupFail(w http.ResponseWriter, log *slog.Logger, err error, subject, notFound string) {
+	if code, ok := jam.ManagerErrStatus(err); ok {
+		renderError(w, code, jam.SetupDisplayText(err.Error()))
+		return
+	}
 	switch {
 	case errors.Is(err, jam.ErrNotFound):
 		renderError(w, http.StatusNotFound, notFound)
@@ -214,11 +244,17 @@ func setupFail(w http.ResponseWriter, log *slog.Logger, err error, subject, notF
 //	GET /app/admin/projects/{project}/roles/{name}/setup[/sections]
 //	GET /app/admin/agents/{id}/setup[/sections]          — a running studio (?diff=role)
 //	GET /app/admin/agents/{id}/setup/sections/{section}  — one section, diffed (the stale badge)
-func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *slog.Logger) {
+func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, managerNames func() []string, log *slog.Logger) {
 	if d == nil {
 		return
 	}
 	deps := *d
+	names := func() []string {
+		if managerNames == nil {
+			return nil
+		}
+		return managerNames()
+	}
 	mux.HandleFunc("GET /app/admin/projects/{project}/roles/{name}/setup", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		project, name := r.PathValue("project"), r.PathValue("name")
@@ -229,7 +265,7 @@ func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *s
 			renderStatus(w, r, http.StatusNotFound, "role-setup", p)
 			return
 		}
-		st := fillSetupPage(&p, r)
+		st := fillSetupPage(&p, r, names())
 		renderStatus(w, r, st, "role-setup", p)
 	})
 	mux.HandleFunc("GET /app/admin/projects/{project}/roles/{name}/setup/sections", func(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +276,7 @@ func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *s
 			return
 		}
 		project, name := r.PathValue("project"), r.PathValue("name")
-		s, err := jam.RoleSetup(r.Context(), deps, project, name, sections)
+		s, err := jam.RoleSetup(r.Context(), deps, project, name, sections, r.URL.Query().Get("manager"))
 		if err != nil {
 			setupFail(w, log, err, "role "+project+"/"+name, "role "+project+"/"+name+" does not exist")
 			return
@@ -257,7 +293,7 @@ func registerSetup(mux *http.ServeMux, store jam.Store, d *jam.SetupDeps, log *s
 			renderStatus(w, r, http.StatusNotFound, "agent-setup", p)
 			return
 		}
-		st := fillSetupPage(&p, r)
+		st := fillSetupPage(&p, r, nil)
 		renderStatus(w, r, st, "agent-setup", p)
 	})
 	mux.HandleFunc("GET /app/admin/agents/{id}/setup/sections", func(w http.ResponseWriter, r *http.Request) {

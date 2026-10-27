@@ -12,7 +12,7 @@ import (
 // on another tag is stale.
 type newImage struct{}
 
-func (newImage) CurrentImage(project, role string) (jam.CurrentImage, error) {
+func (newImage) CurrentImage(project, role, manager string) (jam.CurrentImage, error) {
 	return jam.CurrentImage{HasKit: true, Tag: "img:new"}, nil
 }
 

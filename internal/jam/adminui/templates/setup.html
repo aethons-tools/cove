@@ -33,6 +33,9 @@
 </div>
 {{if .Error}}<div class="banner error">{{.Error}}</div>
 {{else}}
+{{if .Managers}}<div class="filter" aria-label="Image manager"><span class="sub">image on</span>
+  {{range .Managers}}{{if .Current}}<b class="chip accent">{{.Name}}</b>{{else}}<a class="chip" href="{{.Href}}">{{.Name}}</a>{{end}}{{end}}
+</div>{{end}}
 <div class="filter">
   {{range .Filter}}<a class="chip{{if .Current}} accent{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
   <span class="spacer"></span>

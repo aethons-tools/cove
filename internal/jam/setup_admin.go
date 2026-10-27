@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // WithSetupInspect mounts the setup inspection routes (inside the operator
@@ -14,7 +16,8 @@ import (
 //	GET /admin/roles/{project}/{role}/setup   — what a raise now would get
 //	GET /admin/instances/{id}/setup           — what a studio got (?diff=role)
 //
-// both taking ?sections=a,b. Each call is logged "setup inspected" with the
+// both taking ?sections=a,b; the role route also ?manager=<name> (the manager
+// whose image is read). Each call is logged "setup inspected" with the
 // operator, subject and sections — never a body.
 func WithSetupInspect(d SetupDeps, log *slog.Logger) AdminOption {
 	sectionsOf := func(w http.ResponseWriter, r *http.Request) ([]string, bool) {
@@ -30,6 +33,10 @@ func WithSetupInspect(d SetupDeps, log *slog.Logger) AdminOption {
 	}
 	// fail maps a render error to its fixed-string response; never echoes a body.
 	fail := func(w http.ResponseWriter, err error, subject, notFound string) {
+		if code, ok := ManagerErrStatus(err); ok {
+			http.Error(w, textesc.Escape(err.Error(), false), code) // it may carry the caller's ?manager=
+			return
+		}
 		switch {
 		case errors.Is(err, ErrNotFound):
 			http.Error(w, notFound, http.StatusNotFound)
@@ -47,7 +54,7 @@ func WithSetupInspect(d SetupDeps, log *slog.Logger) AdminOption {
 				return
 			}
 			project, role := r.PathValue("project"), r.PathValue("role")
-			s, err := RoleSetup(r.Context(), d, project, role, sections)
+			s, err := RoleSetup(r.Context(), d, project, role, sections, r.URL.Query().Get("manager"))
 			if err != nil {
 				fail(w, err, "role "+project+"/"+role, fmt.Sprintf("role %s/%s does not exist", project, role))
 				return

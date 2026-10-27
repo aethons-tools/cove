@@ -115,24 +115,42 @@ func (c *Client) PublishKitDraft(name string, pin bool, etag string) (jam.KitDra
 
 func draftBuildPath(name string) string { return draftPath(name) + "/build" }
 
-// StartKitDraftBuild starts a test build of kit name's draft at etag (202).
-func (c *Client) StartKitDraftBuild(name, etag string) (jam.KitDraftBuild, error) {
+// managerQuery is "&manager=<m>" (or "?manager=<m>" when first), "" for
+// no manager.
+func managerQuery(sep, manager string) string {
+	if manager == "" {
+		return ""
+	}
+	return sep + "manager=" + url.QueryEscape(manager)
+}
+
+// StartKitDraftBuild starts a test build of kit name's draft at etag (202)
+// on manager ("" = the first draft-capable one).
+func (c *Client) StartKitDraftBuild(name, etag, manager string) (jam.KitDraftBuild, error) {
+	body := []byte("{}")
+	if manager != "" {
+		body, _ = json.Marshal(struct {
+			Manager string `json:"manager"`
+		}{manager})
+	}
 	var b jam.KitDraftBuild
-	_, err := c.sendHeaders(c.draftClient(0), "POST", draftBuildPath(name), "application/json", []byte("{}"), ifMatch(etag), &b)
+	_, err := c.sendHeaders(c.draftClient(0), "POST", draftBuildPath(name), "application/json", body, ifMatch(etag), &b)
 	return b, err
 }
 
-// KitDraftBuildStatus is kit name's latest draft build, its log from offset since.
-func (c *Client) KitDraftBuildStatus(name string, since int64) (jam.KitDraftBuild, error) {
+// KitDraftBuildStatus is kit name's latest draft build on manager ("" = the
+// most recently started on any), its log from offset since.
+func (c *Client) KitDraftBuildStatus(name, manager string, since int64) (jam.KitDraftBuild, error) {
 	var b jam.KitDraftBuild
-	_, err := c.sendHeaders(c.draftClient(0), "GET", draftBuildPath(name)+"?since="+strconv.FormatInt(since, 10), "", nil, nil, &b)
+	_, err := c.sendHeaders(c.draftClient(0), "GET", draftBuildPath(name)+"?since="+strconv.FormatInt(since, 10)+managerQuery("&", manager), "", nil, nil, &b)
 	return b, err
 }
 
-// CancelKitDraftBuild stops kit name's running draft build and answers it
-// once stopped (a docker build may take seconds to stop).
-func (c *Client) CancelKitDraftBuild(name string) (jam.KitDraftBuild, error) {
+// CancelKitDraftBuild stops kit name's running draft build on manager ("" =
+// the most recently started running one) and answers it once stopped (a
+// docker build may take seconds to stop).
+func (c *Client) CancelKitDraftBuild(name, manager string) (jam.KitDraftBuild, error) {
 	var b jam.KitDraftBuild
-	_, err := c.sendHeaders(c.draftClient(time.Minute), "DELETE", draftBuildPath(name), "", nil, nil, &b)
+	_, err := c.sendHeaders(c.draftClient(time.Minute), "DELETE", draftBuildPath(name)+managerQuery("?", manager), "", nil, nil, &b)
 	return b, err
 }
