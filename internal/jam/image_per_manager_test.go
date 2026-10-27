@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 )
 
 // tagPlacing is a placingFake whose managers name images differently
@@ -51,12 +52,19 @@ func raisedOn(t *testing.T, store Store, id, manager, tag string) {
 	}
 }
 
+// The default manager (the launcher's own tags) is m1, so only honouring the
+// instance's manager can tell local's studios from m1's.
 func TestImageStatusUsesInstanceManager(t *testing.T) {
 	sup, store, _ := perManagerKit(t)
 	m1, _ := sup.CurrentImage("default", "dev", "m1")
-	raisedOn(t, store, "w1", "m1", m1.Tag)
-	if got := summaryImage(t, store, sup, "w1"); got != "ok" {
-		t.Fatalf("status = %q, want ok (tag matches m1's current)", got)
+	loc, _ := sup.CurrentImage("default", "dev", LocalManager)
+	raisedOn(t, store, "onlocal", LocalManager, loc.Tag)
+	raisedOn(t, store, "onm1", "m1", m1.Tag)
+	raisedOn(t, store, "m1wronglocal", "m1", loc.Tag)
+	for id, want := range map[string]string{"onlocal": "ok", "onm1": "ok", "m1wronglocal": "stale"} {
+		if got := summaryImage(t, store, sup, id); got != want {
+			t.Errorf("%s status = %q, want %q", id, got, want)
+		}
 	}
 }
 
@@ -110,5 +118,11 @@ func TestRoleImagesRoute(t *testing.T) {
 	}
 	if rec := doReq(t, h, "GET", "/admin/roles/default/nope/images", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing role: code %d", rec.Code)
+	}
+	if err := store.PutRole("default", Role{Name: "badkit", Kit: "web", ModelSpec: "absent", Scope: Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doReq(t, h, "GET", "/admin/roles/default/badkit/images", nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unresolvable kit: code %d: %s", rec.Code, rec.Body)
 	}
 }

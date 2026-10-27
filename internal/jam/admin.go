@@ -770,7 +770,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		images, err := sup.RoleImages(project, role)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			// The role exists, so the kit or model-spec it names does not resolve.
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"images": images})
