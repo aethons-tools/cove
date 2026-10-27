@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"html/template"
 	"io/fs"
 	"net/http"
 	"path"
@@ -25,11 +26,17 @@ type Config struct {
 	Bootstrap func(*http.Request) (any, error)
 	// FrameSrc are the origins the app may frame (CSP frame-src); none = 'none'.
 	FrameSrc []string
-	Name     string // for the not-built page, e.g. "the Jam app"
+	// Head is trusted head markup (the app's manifest link, icons) put at
+	// <!--jam:head-->; nil = none.
+	Head func(*http.Request) template.HTML
+	Name string // for the not-built page, e.g. "the Jam app"
 }
 
 // marker is where index.html takes the bootstrap (web/app/index.html).
 const marker = "<!--jam:bootstrap-->"
+
+// headMarker is where index.html takes Config.Head.
+const headMarker = "<!--jam:head-->"
 
 // Handler serves c. Only GET and HEAD.
 func Handler(c Config) http.Handler {
@@ -83,6 +90,11 @@ func Handler(c Config) http.Handler {
 		}
 		page := bytes.Replace(index, []byte(marker),
 			[]byte(`<script id="jam-bootstrap" type="application/json">`+string(js)+`</script>`), 1)
+		var head []byte
+		if c.Head != nil {
+			head = []byte(c.Head(r))
+		}
+		page = bytes.Replace(page, []byte(headMarker), head, 1)
 		h.Set("Content-Security-Policy", csp)
 		h.Set("Cache-Control", "no-store")
 		h.Set("Content-Type", "text/html; charset=utf-8")

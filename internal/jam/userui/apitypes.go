@@ -32,6 +32,7 @@ type Bootstrap struct {
 	Tabs      []NavTab `json:"tabs"`      // the title bar's links
 	AttachMax int64    `json:"attachMax"` // per-file cap; 0 = attachments off
 	PushKey   string   `json:"pushKey"`   // VAPID public key; "" = Web Push off
+	PushFocus bool     `json:"pushFocus"` // report the open conversation (POST /app/user/push/focus)
 	Boards    bool     `json:"boards"`    // whiteboards on (the app bundles its editor)
 }
 
