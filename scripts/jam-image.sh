@@ -51,8 +51,8 @@ find_bin() {
 
 for plat in "${plist[@]}"; do
   case "$plat" in
-    linux/*) arch="${plat#linux/}" ;;
-    *) echo "jam-image: unsupported platform $plat (linux only)" >&2; exit 1 ;;
+    linux/amd64|linux/arm64) arch="${plat#linux/}" ;;
+    *) echo "jam-image: unsupported platform $plat (only linux/amd64, linux/arm64)" >&2; exit 1 ;;
   esac
   mkdir -p "$ctx/bin/linux-$arch"
   for bin in at-jam at-mint; do
@@ -64,6 +64,8 @@ for plat in "${plist[@]}"; do
   done
 done
 
+# Multi-platform --push needs a docker-container buildx builder (CI runs
+# setup-buildx); the default docker driver only builds the host platform.
 args=(buildx build --platform "$platforms")
 for t in "${tags[@]}"; do args+=(-t "$t"); done
 if [ "$push" -eq 1 ]; then args+=(--push); else args+=(--load); fi

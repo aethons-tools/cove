@@ -59,9 +59,10 @@ mkbin "$WORK/dist/linux-amd64/at-jam"
 mkbin "$WORK/dist/linux-amd64/at-mint"
 run --dist "$WORK/dist" --platforms linux/amd64
 assert_eq "build layout: exit 0" 0 "$RC"
-assert_eq "build layout: argv" \
-  "buildx build --platform linux/amd64 -t cove-jam:dev --load $(grep -o '[^ ]*$' "$DOCKER_LOG")" \
-  "$(cat "$DOCKER_LOG")"
+case "$(cat "$DOCKER_LOG")" in
+  "buildx build --platform linux/amd64 -t cove-jam:dev --load "*) ok "build layout: argv" ;;
+  *) bad "build layout: argv" "actual: $(cat "$DOCKER_LOG")" ;;
+esac
 ctx="$(cat "$CTX_LOG")"
 assert_contains "build layout: at-jam" "$ctx" "bin/linux-amd64/at-jam"
 assert_contains "build layout: at-mint" "$ctx" "bin/linux-amd64/at-mint"
@@ -103,12 +104,22 @@ assert_eq "load multi: exit 1" 1 "$RC"
 assert_contains "load multi: message" "$ERR" "--load supports one platform; use --push"
 [ ! -e "$DOCKER_LOG" ] && ok "load multi: docker not called" || bad "load multi: docker not called"
 
+# 4b. unsupported platform, unknown flag
+reset
+run --dist "$WORK/dist" --platforms linux/s390x
+assert_eq "bad platform: exit 1" 1 "$RC"
+assert_contains "bad platform: message" "$ERR" "unsupported platform linux/s390x"
+[ ! -e "$DOCKER_LOG" ] && ok "bad platform: docker not called" || bad "bad platform: docker not called"
+run --bogus
+assert_eq "unknown flag: exit 2" 2 "$RC"
+[ ! -e "$DOCKER_LOG" ] && ok "unknown flag: docker not called" || bad "unknown flag: docker not called"
+
 # 5. Dockerfile contract
 df="$(cat "$DOCKERFILE")"
 for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["at-jam"]' \
   'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
   'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
-  'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' '10001'; do
+  'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' 'addgroup -g 10001' '-u 10001' 'chown 10001:10001 /var/lib/jam' '= 10001:10001'; do
   assert_contains "Dockerfile: $pat" "$df" "$pat"
 done
 if grep -E '^[[:space:]]*(RUN )?.*apk add' "$DOCKERFILE" | grep -Eiq 'docker|openssh|git'; then

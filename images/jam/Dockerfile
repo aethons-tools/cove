@@ -6,7 +6,8 @@ FROM alpine:3.22
 ARG TARGETARCH
 
 RUN apk add --no-cache ca-certificates
-RUN adduser -D -u 10001 -h /var/lib/jam jam && mkdir -p /etc/jam && chmod 755 /etc/jam
+RUN addgroup -g 10001 jam && adduser -D -u 10001 -G jam -h /var/lib/jam jam && mkdir -p /var/lib/jam /etc/jam && chown 10001:10001 /var/lib/jam && chmod 755 /etc/jam
+RUN test "$(id -u jam):$(id -g jam)" = 10001:10001
 
 COPY bin/linux-${TARGETARCH}/ /usr/local/bin/
 
