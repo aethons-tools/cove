@@ -269,7 +269,7 @@ func TestRaiseRejectsEmptyDigest(t *testing.T) {
 }
 
 // A kit-referenced raise whose kit is prepared runs the jam-kit:<build-digest>-<asm>
-// image and launches cove-master as usual.
+// image and launches jam-studio-agent as usual.
 func TestRaiseFromPreparedKit(t *testing.T) {
 	ops := &fakeOps{}
 	inv := &fakeInv{}
@@ -501,7 +501,7 @@ func TestTeardownCapturesAgentLog(t *testing.T) {
 	if !strings.Contains(buf.String(), "claude auth failed") {
 		t.Errorf("teardown log missing the captured agent log; got: %s", buf.String())
 	}
-	// It read the cove-master log over ssh before removal.
+	// It read the jam-studio-agent log over ssh before removal.
 	var sawTail bool
 	for _, c := range r.Calls {
 		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.StudioAgentLogVMPath) {
@@ -563,7 +563,7 @@ func TestProbeMapsState(t *testing.T) {
 	}
 }
 
-// TestRaiseResidentKinds: the launcher asks cove-master for resident mode
+// TestRaiseResidentKinds: the launcher asks jam-studio-agent for resident mode
 // (JAM_RESIDENT=1) only for resident kinds — personal and standing.
 func TestRaiseResidentKinds(t *testing.T) {
 	for kind, want := range map[string]bool{"": false, "ephemeral": false, jam.SessionKindPersonal: true, jam.SessionKindStanding: true} {
@@ -591,7 +591,7 @@ func TestRaiseResidentKinds(t *testing.T) {
 
 // egressOps is a fakeOps that also implements backend.RoleEgress, recording the
 // domains it was given and how many runner calls had happened by then (so a
-// test can prove the policy lands before cove-master launches).
+// test can prove the policy lands before jam-studio-agent launches).
 type egressOps struct {
 	*fakeOps
 	r          *runner.Fake
@@ -624,13 +624,13 @@ func newEgressLauncher(ops Backend, r *runner.Fake, logw io.Writer) *Launcher {
 	})
 }
 
-// isStudioAgentLaunch reports whether a runner call is part of the cove-master
+// isStudioAgentLaunch reports whether a runner call is part of the jam-studio-agent
 // bootstrap (staging its env/prompt on stdin, or starting it), not the sshd probe.
 func isStudioAgentLaunch(c runner.Call) bool {
-	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "cove-master")
+	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "jam-studio-agent")
 }
 
-// A role's policy is applied in-box after sshd answers and before cove-master
+// A role's policy is applied in-box after sshd answers and before jam-studio-agent
 // (and so the agent) starts; the domains reach the op unchanged; the info log
 // carries the count, never the list.
 func TestRaiseAppliesRoleEgressBeforeStudioAgent(t *testing.T) {
@@ -651,7 +651,7 @@ func TestRaiseAppliesRoleEgressBeforeStudioAgent(t *testing.T) {
 	}
 	for _, c := range r.Calls[:ops.callsAtApp] {
 		if isStudioAgentLaunch(c) {
-			t.Fatal("cove-master launched before the role egress was applied")
+			t.Fatal("jam-studio-agent launched before the role egress was applied")
 		}
 	}
 	launched := false
@@ -659,7 +659,7 @@ func TestRaiseAppliesRoleEgressBeforeStudioAgent(t *testing.T) {
 		launched = launched || isStudioAgentLaunch(c)
 	}
 	if !launched {
-		t.Fatal("cove-master never launched after the egress apply")
+		t.Fatal("jam-studio-agent never launched after the egress apply")
 	}
 	out := logs.String()
 	if !strings.Contains(out, `"msg":"role egress applied"`) || !strings.Contains(out, `"domains":2`) {
@@ -697,7 +697,7 @@ func TestRaiseEmptyEgressStillApplies(t *testing.T) {
 }
 
 // A failed apply (e.g. a domain outside the kit's ceiling) fails the raise,
-// never launches cove-master, and removes the container.
+// never launches jam-studio-agent, and removes the container.
 func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("apply-role-egress: evil.example is outside the kit's egress ceiling")}
@@ -711,7 +711,7 @@ func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 	}
 	for _, c := range r.Calls {
 		if isStudioAgentLaunch(c) {
-			t.Fatal("cove-master launched despite the egress failure")
+			t.Fatal("jam-studio-agent launched despite the egress failure")
 		}
 	}
 }
@@ -731,7 +731,7 @@ func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
 	}
 	for _, c := range r.Calls {
 		if isStudioAgentLaunch(c) {
-			t.Fatal("cove-master launched without the role egress")
+			t.Fatal("jam-studio-agent launched without the role egress")
 		}
 	}
 }
@@ -810,7 +810,7 @@ func TestTeardownUnpausesBeforeRemoving(t *testing.T) {
 	}
 }
 
-// The launcher stages the compiled context and the session kind for cove-master.
+// The launcher stages the compiled context and the session kind for jam-studio-agent.
 func TestRaisePassesContextAndKind(t *testing.T) {
 	r := &runner.Fake{}
 	l := New(Config{Ops: &fakeOps{}, Runner: r, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh", Inventory: readyInv(), sleep: func(time.Duration) {}})
@@ -857,7 +857,7 @@ func newSSHCALauncher(ops Backend, r *runner.Fake, logw io.Writer, ca []byte) *L
 }
 
 // The CA key is installed after sshd answers and the role egress lands, and
-// before cove-master (and so the agent) starts.
+// before jam-studio-agent (and so the agent) starts.
 func TestRaiseInstallsSSHUserCABeforeStudioAgent(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}}
@@ -877,7 +877,7 @@ func TestRaiseInstallsSSHUserCABeforeStudioAgent(t *testing.T) {
 	}
 	for _, c := range r.Calls[:ops.callsAtInstall] {
 		if isStudioAgentLaunch(c) {
-			t.Fatal("cove-master launched before the CA was installed")
+			t.Fatal("jam-studio-agent launched before the CA was installed")
 		}
 	}
 }

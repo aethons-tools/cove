@@ -20,7 +20,7 @@ type Store struct {
 	Credentials map[string]Source // credentials.yml: name -> source
 }
 
-// file is the on-disk shape of the supply file. Kits is the retired at-cove
+// file is the on-disk shape of the supply file. Kits is the retired
 // per-kit section, still accepted (and ignored) so an older file keeps loading.
 type file struct {
 	Minters     map[string]Minter            `yaml:"minters"`

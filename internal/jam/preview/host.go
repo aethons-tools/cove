@@ -19,7 +19,7 @@ const (
 	// hardening layer, internal/assemble/hardening/image-files/etc/squid/
 	// squid.conf); it can never be exposed either.
 	SquidPort = 3128
-	// IDEPort is the built-in code-server port: cove-master tunnels to it, and
+	// IDEPort is the built-in code-server port: jam-studio-agent tunnels to it, and
 	// it can never be exposed.
 	IDEPort = 13337
 	// IDEName is the preview name of the Studio tab's IDE.

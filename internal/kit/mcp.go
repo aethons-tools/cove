@@ -8,7 +8,7 @@ import (
 )
 
 // MCPReservedName is the MCP server name the cove's agent harness always
-// registers itself (the Jam messaging tools, `cove-master mcp`). A kit may
+// registers itself (the Jam messaging tools, `jam-studio-agent mcp`). A kit may
 // never declare or override it.
 const MCPReservedName = "messaging"
 

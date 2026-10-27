@@ -1,4 +1,4 @@
-// Package connect launches cove-master inside a raised studio over ssh
+// Package connect launches jam-studio-agent inside a raised studio over ssh
 // (LaunchStudioAgent), staging its prompt, context and env into tmpfs.
 package connect
 

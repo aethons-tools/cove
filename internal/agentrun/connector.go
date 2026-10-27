@@ -31,7 +31,7 @@ type GitRouter interface {
 
 // ConnectorConfig turns on the per-turn connector refresh. Nil Config.Connector
 // (an older launcher that sets no JAM_BASE_URL) keeps today's behavior: every
-// spawn inherits cove-master's env.
+// spawn inherits jam-studio-agent's env.
 type ConnectorConfig struct {
 	Source  ConnectorSource
 	Git     GitRouter // nil → execGit
@@ -115,14 +115,14 @@ func (r *connectorRefresher) prepare(ctx context.Context) (env []string, fp stri
 	return env, fp, changed
 }
 
-// spawnEnv is cove-master's env minus every key the raise-time (Initial) or
+// spawnEnv is jam-studio-agent's env minus every key the raise-time (Initial) or
 // previous connector owned, or the current one sets (incl. the identity-token vars Expand re-emits with
 // the same value), plus the current connector expanded in memory — so a key a
 // destination dropped is gone, and no key appears twice.
 func (r *connectorRefresher) spawnEnv(cur snippet.Connector) []string {
 	exp := cur.Expand(r.cfg.BaseURL, r.cfg.Token)
 	owned := map[string]bool{}
-	// Initial's keys are always owned: cove-master's process env carries the
+	// Initial's keys are always owned: jam-studio-agent's process env carries the
 	// raise-time values for its whole lifetime, so a key dropped later must stay
 	// stripped on every subsequent turn, not just the turn it was dropped.
 	for k := range r.cfg.Initial.Env {

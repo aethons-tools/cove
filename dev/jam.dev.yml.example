@@ -1,9 +1,9 @@
-# Template for `at-jam serve` local-dev config. Copy to `dev/jam.dev.yml` (which
+# Template for `jam serve` local-dev config. Copy to `dev/jam.dev.yml` (which
 # is gitignored) and fill in the real secrets there — never commit real tokens.
 #
 #   cp dev/jam.dev.yml.example dev/jam.dev.yml
 #   just dev-up                                # raise the dev Postgres
-#   at-jam serve --config dev/jam.dev.yml      # run Jam against it
+#   jam serve --config dev/jam.dev.yml      # run Jam against it
 #
 # This is a DEV shape: plaintext admin on loopback, inline credential values, a
 # self-signed broker cert. Never use these settings in production — see
@@ -29,7 +29,7 @@ ui-origins:
   - http://localhost:8090
 # DEV ONLY: loopback /ui and /me act as this user with no login (no IdP
 # callbacks needed). The user needs a login (for /ui), an OIDC identity and a
-# project membership (for /me): at-jam user login|oidc, project member add.
+# project membership (for /me): jam user login|oidc, project member add.
 # dev-identity:
 #   user: you
 
@@ -82,10 +82,10 @@ credentials:
 # Two one-time setup steps AFTER `serve` picks this up:
 #   1. Seed a real login (on a trusted machine, `claude auth login`, then copy
 #      its ~/.claude/.credentials.json here as ./credentials.json):
-#        at-jam pool add  --store dev/pool.dev.json --name pool-a --from-file ./credentials.json
-#        at-jam pool list --store dev/pool.dev.json     # names + expiries, never tokens
+#        jam pool add  --store dev/pool.dev.json --name pool-a --from-file ./credentials.json
+#        jam pool list --store dev/pool.dev.json     # names + expiries, never tokens
 #   2. Flip the anthropic destination to the pool (bearer identity):
-#        at-jam destination add --name anthropic --route /anthropic/ \
+#        jam destination add --name anthropic --route /anthropic/ \
 #          --upstream https://api.anthropic.com \
 #          --identity-in bearer --cred-name anthropic-sub --apply bearer
 #

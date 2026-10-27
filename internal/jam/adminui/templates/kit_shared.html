@@ -45,7 +45,7 @@
 {{define "kit-masked-note"}}A packed context in this text is shown masked («packed context, not shown»); remove it before pushing.{{end}}
 
 {{/* kit-hidden-note says how to get at a kit.yml not shown at all; the dot is the kit's name. */}}
-{{define "kit-hidden-note"}}This kit.yml is not shown: it may hold a packed context. Write it out with <code>at-jam config write &lt;dir&gt; --all</code> (it is <code>kits/{{.}}/kit.yml</code>), fix it, and push that directory with <code>at-jam kit push</code>.{{end}}
+{{define "kit-hidden-note"}}This kit.yml is not shown: it may hold a packed context. Write it out with <code>jam config write &lt;dir&gt; --all</code> (it is <code>kits/{{.}}/kit.yml</code>), fix it, and push that directory with <code>jam kit push</code>.{{end}}
 
 {{/* ctx-file is one file of a version's tree (ctxFileView): its content, its line diff, or why neither. */}}
 {{define "ctx-file"}}

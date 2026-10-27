@@ -1,4 +1,4 @@
-// Package agentrun is cove-master's agent wrapper: a studioagent.Workload that
+// Package agentrun is jam-studio-agent's agent wrapper: a studioagent.Workload that
 // runs the agent headless through a Harness (the agent-CLI seam; default
 // Claude) as a sequence of episodes and maps its lifecycle onto the Attach
 // Activity stream.
@@ -20,7 +20,7 @@ import (
 // a fake. Spawn returns once the process has started (or failed to start).
 type Spawner interface {
 	// Spawn starts bin. stdout, when non-nil, receives the process's stdout
-	// instead of cove-master's own stdout; nil falls back to os.Stdout.
+	// instead of jam-studio-agent's own stdout; nil falls back to os.Stdout.
 	Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error)
 }
 
@@ -46,7 +46,7 @@ type execProcess struct {
 func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir string, env []string, stdout io.Writer) (Process, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
-	cmd.Env = env // nil inherits cove-master's env
+	cmd.Env = env // nil inherits jam-studio-agent's env
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = s.grace
 	cmd.Stdout = os.Stdout

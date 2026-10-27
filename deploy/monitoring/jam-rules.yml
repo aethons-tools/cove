@@ -14,4 +14,4 @@ groups:
           key: jam.down
         annotations:
           summary: "Jam is unreachable from Prometheus"
-          fix: "check that at-jam serve is running and its broker listener is reachable"
+          fix: "check that jam serve is running and its broker listener is reachable"

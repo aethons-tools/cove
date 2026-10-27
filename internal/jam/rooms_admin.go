@@ -13,7 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
-// Rooms in the admin plane (intercom slice 2a-3): `at-jam room` and
+// Rooms in the admin plane (intercom slice 2a-3): `jam room` and
 // /admin/projects/{project}/rooms, replacing the roster-channel verbs. A
 // room's ref binds it on a connection (by name, id or kind; default: the
 // tracker's, TrackerConnection) — the surface it posts to and receives

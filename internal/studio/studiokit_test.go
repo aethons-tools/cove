@@ -21,7 +21,7 @@ egress:
 build-args:
   NODE_VERSION: "20"
 secrets:
-  AT_TASK_GIT_TOKEN:
+  GIT_TOKEN:
     description: git push token
 prompt: |
   You maintain the web service.
@@ -33,7 +33,7 @@ prompt: |
 	if sk.LegacyName != "web" || sk.Base.Image != "ghcr.io/acme/web@sha256:abc" {
 		t.Fatalf("bad parse: %+v", sk)
 	}
-	if sk.BuildArgs["NODE_VERSION"] != "20" || sk.Secrets["AT_TASK_GIT_TOKEN"].Description == "" {
+	if sk.BuildArgs["NODE_VERSION"] != "20" || sk.Secrets["GIT_TOKEN"].Description == "" {
 		t.Fatalf("bad parse: %+v", sk)
 	}
 	b, err := json.Marshal(sk)
@@ -90,11 +90,11 @@ build-args:
 		},
 		{
 			name: "build-arg is a reserved secret name",
-			desc: "build-arg uses AT_TASK_GIT_TOKEN, a reserved name",
+			desc: "build-arg uses GOOGLE_APPLICATION_CREDENTIALS_JSON, a reserved name",
 			data: []byte(`kind: studio
 name: web
 build-args:
-  AT_TASK_GIT_TOKEN: value
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: value
 `),
 			wantErr: "reserved secret name",
 		},

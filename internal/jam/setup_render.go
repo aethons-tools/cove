@@ -28,7 +28,7 @@ const (
 	reasonImageUnknown      = "image tag unknown (raised before it was recorded, or the launcher cannot name images)"
 	reasonLauncherUntagged  = "the launcher cannot name images"
 	reasonNoKit             = "the role raises no kit (the launcher's static image)"
-	reasonKitUnresolvable   = "the role's kit does not resolve; a raise would fail (see at-jam kit show)"
+	reasonKitUnresolvable   = "the role's kit does not resolve; a raise would fail (see jam kit show)"
 	reasonModelSpec         = "the role's model-spec does not resolve; a raise would fail"
 	reasonConnectorConflict = "the role's destinations conflict; a raise would fail"
 	reasonRoleGone          = "the role no longer exists"

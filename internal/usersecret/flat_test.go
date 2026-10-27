@@ -110,13 +110,13 @@ func TestPlanFlat_MintUsesExpander(t *testing.T) {
 		Credentials: map[string]Source{"anthropic": {Mint: "m"}},
 	}
 	expand := func(profile string, m Minter, demand string) (secret.Spec, error) {
-		return secret.Spec{Name: demand, Command: []string{"at-mint", "anthropic"}}, nil
+		return secret.Spec{Name: demand, Command: []string{"jam", "mint", "anthropic"}}, nil
 	}
 	specs, _, err := st.PlanFlat([]string{"anthropic"}, expand)
 	if err != nil {
 		t.Fatalf("PlanFlat: %v", err)
 	}
-	if len(specs) != 1 || specs[0].Name != "anthropic" || specs[0].Command[0] != "at-mint" {
+	if len(specs) != 1 || specs[0].Name != "anthropic" || specs[0].Command[1] != "mint" {
 		t.Fatalf("mint expansion wrong: %+v", specs)
 	}
 }
@@ -186,7 +186,7 @@ func TestPlanFlat_EmptyLiteralResolves(t *testing.T) {
 }
 
 func TestLoadFlat_AcceptsRetiredKitsSection(t *testing.T) {
-	// A supply file carrying the retired at-cove kits: section still loads
+	// A supply file carrying the retired kits: section still loads
 	// (strict decoding would otherwise reject it); the section is ignored.
 	p := writeTemp(t, `
 kits:

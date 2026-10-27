@@ -49,7 +49,7 @@ func TestLaunchStudioAgentInjectsAndLaunches(t *testing.T) {
 		t.Fatalf("prompt stdin = %q, want %q", got, "do the task")
 	}
 
-	// The env script is written to a tmpfs file and contains the connector + cove-master vars.
+	// The env script is written to a tmpfs file and contains the connector + jam-studio-agent vars.
 	envWrite := stdinTo(studioAgentEnvVMPath)
 	for _, want := range []string{
 		"JAM_RUNTIME_ADDR=", "jam.example.com:443",
@@ -65,11 +65,11 @@ func TestLaunchStudioAgentInjectsAndLaunches(t *testing.T) {
 		}
 	}
 
-	// The detached launch command starts cove-master, and no secret rides argv.
+	// The detached launch command starts jam-studio-agent, and no secret rides argv.
 	var launched bool
 	for _, c := range fake.Calls {
 		argv := strings.Join(c.Args, " ")
-		if c.Name == "ssh" && strings.Contains(argv, "setsid nohup cove-master") {
+		if c.Name == "ssh" && strings.Contains(argv, "setsid nohup jam-studio-agent") {
 			launched = true
 		}
 		for _, sec := range []string{"tok-123", "sec-456", "do the task"} {
@@ -79,7 +79,7 @@ func TestLaunchStudioAgentInjectsAndLaunches(t *testing.T) {
 		}
 	}
 	if !launched {
-		t.Fatalf("no detached cove-master launch; calls=%+v", fake.Calls)
+		t.Fatalf("no detached jam-studio-agent launch; calls=%+v", fake.Calls)
 	}
 	for _, sec := range []string{"tok-123", "sec-456"} {
 		if n := strings.Count(envWrite, sec); n != 1 {

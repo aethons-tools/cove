@@ -8,7 +8,7 @@
 // SetTurnEnd it also enforces turn end: a session that asked to end is torn
 // down once Waiting and never woken again, an armed idle deadline wakes the
 // session or tears it down per its role, and due alarms fire for a Holding or
-// Waiting session (held while it runs). Wired from cmd/at-jam; not
+// Waiting session (held while it runs). Wired from cmd/jam; not
 // imported by internal/jam core.
 package wakeon
 
@@ -88,7 +88,7 @@ type NagRecorder interface {
 
 // Nagger tells a personal session's owner their session is idle, or that it was
 // reclaimed, and confirms their "keep"/"release" reply to a nag. Implemented in
-// cmd/at-jam over the intercom log.
+// cmd/jam over the intercom log.
 type Nagger interface {
 	Nag(ctx context.Context, inst jam.Instance, idle time.Duration) error
 	NotifyReclaimed(ctx context.Context, inst jam.Instance, idle time.Duration) error
@@ -104,7 +104,7 @@ type Cursor interface {
 }
 
 // Ender tells a session's owner that it ended itself (the `end` tool).
-// Implemented in cmd/at-jam over the intercom log.
+// Implemented in cmd/jam over the intercom log.
 type Ender interface {
 	NotifyEnded(ctx context.Context, inst jam.Instance, reason string) error
 }
@@ -131,7 +131,7 @@ type GateRunner interface {
 }
 
 // TicketCloser marks a ticket session's ticket blocked when Jam ends the
-// session without a final report (implemented in cmd/at-jam; a no-op for a
+// session without a final report (implemented in cmd/jam; a no-op for a
 // ticketless or terminally-reported session).
 type TicketCloser interface {
 	BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error

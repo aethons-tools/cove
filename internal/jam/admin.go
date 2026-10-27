@@ -411,7 +411,7 @@ func parseActivity(s string) (Activity, bool) {
 }
 
 // OperatorLoginConfig is the public device-flow client config Jam advertises
-// at GET /admin/login-config so `at-jam login` can self-configure. Every field
+// at GET /admin/login-config so `jam login` can self-configure. Every field
 // is a public OAuth parameter — never a secret.
 type OperatorLoginConfig struct {
 	Issuer   string `json:"issuer"`

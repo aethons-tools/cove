@@ -11,13 +11,13 @@ func TestDeprecatedWarnsOncePerOldName(t *testing.T) {
 	t.Cleanup(ResetDeprecations)
 	t.Setenv("JAM_LOG_MODE", "")
 	var errb bytes.Buffer
-	Deprecated(&errb, "at-harbor", "at-jam")
-	Deprecated(&errb, "at-harbor", "at-jam")
+	Deprecated(&errb, "jam cove", "jam studio")
+	Deprecated(&errb, "jam cove", "jam studio")
 	got := errb.String()
 	if strings.Count(got, "\n") != 1 {
 		t.Fatalf("want exactly one warning line, got %q", got)
 	}
-	for _, want := range []string{`"level":"WARN"`, `"old":"at-harbor"`, `"new":"at-jam"`, RenameDoc} {
+	for _, want := range []string{`"level":"WARN"`, `"old":"jam cove"`, `"new":"jam studio"`, RenameDoc} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("warning missing %q: %q", want, got)
 		}

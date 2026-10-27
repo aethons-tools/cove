@@ -1,7 +1,7 @@
 // Package launcher is the real jam.Launcher: it raises/tears down/probes a
-// managed cove on a Colima backend and bootstraps cove-master over SSH. It lives
+// managed cove on a Colima backend and bootstraps jam-studio-agent over SSH. It lives
 // outside internal/jam core (which stays backend/connect-free) and is wired
-// from cmd/at-jam.
+// from cmd/jam.
 package launcher
 
 import (
@@ -114,7 +114,7 @@ func New(cfg Config) *Launcher {
 	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
 	asm, err := currentAsmDigest(cfg)
 	if err != nil {
-		cfg.Log.Warn("launcher: at-jam build identity unreadable; image tags key on the other inputs only", "error", err.Error())
+		cfg.Log.Warn("launcher: assembly identity unreadable; image tags key on the other inputs only", "error", err.Error())
 	}
 	l.asm = asm
 	l.inv = cfg.Inventory
@@ -184,7 +184,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if err := l.waitForSSH(tgt); err != nil {
 			return fmt.Errorf("wait for sshd: %w", err)
 		}
-		// The role's egress policy lands before cove-master (and so the agent)
+		// The role's egress policy lands before jam-studio-agent (and so the agent)
 		// starts, so the agent never runs under the wider kit default.
 		if err := l.applyRoleEgress(name, spec); err != nil {
 			return err
@@ -362,7 +362,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	}
 	// Post-mortem insurance: before the container is removed (a standing
 	// session's agent-data and workspace volumes survive it; only PurgeState
-	// deletes them), grab the tail of cove-master's log and record it, so a cove
+	// deletes them), grab the tail of jam-studio-agent's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
@@ -382,7 +382,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	return nil
 }
 
-// captureAgentLog returns the last few KB of cove-master's log from the cove, or
+// captureAgentLog returns the last few KB of jam-studio-agent's log from the cove, or
 // "" if it can't be read (container gone, no ssh, no log yet). Best-effort.
 func (l *Launcher) captureAgentLog(container string) string {
 	ep, cleanup, err := l.cfg.Ops.Dial(container)

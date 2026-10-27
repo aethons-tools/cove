@@ -4,7 +4,7 @@ set -euo pipefail
 # build-images.sh — build the cove image tree locally (jam-studio-base, then
 # jam-studio FROM it). A convenience for local iteration; CI builds these
 # multi-arch in .github/workflows/release.yml. The base is pure tools (no
-# cove-master, no Go) — Jam's launcher installs cove-master in the hardening
+# jam-studio-agent, no Go) — Jam's launcher installs jam-studio-agent in the hardening
 # layer when it builds a studio image.
 
 cd "$(dirname "$0")/.."  # repo root

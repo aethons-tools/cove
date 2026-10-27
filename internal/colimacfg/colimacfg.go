@@ -2,7 +2,7 @@
 // docker:true sandboxes: a provision hook that installs Sysbox on every boot and
 // the sysbox-runc runtime registered through colima's docker: passthrough (colima
 // regenerates /etc/docker/daemon.json each start, so that is the durable seam).
-// It is pure bytes-in/bytes-out; the at-jam colima command owns the file I/O.
+// It is pure bytes-in/bytes-out; the jam colima command owns the file I/O.
 package colimacfg
 
 import (
@@ -24,7 +24,7 @@ const SysboxRuntimePath = "/usr/bin/sysbox-runc"
 
 // Marker identifies the provision hook this package owns, so a re-run replaces
 // it rather than appending a duplicate, and leaves the operator's hooks alone.
-const Marker = "# managed by at-jam colima setup-docker — re-run it to change; edits here are overwritten"
+const Marker = "# managed by jam colima setup-docker — re-run it to change; edits here are overwritten"
 
 // Options parameterizes Apply.
 type Options struct {

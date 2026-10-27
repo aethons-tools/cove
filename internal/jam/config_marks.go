@@ -27,7 +27,7 @@ func (m ConfigMark) Key() ConfigKey { return ConfigKey{Kind: m.Kind, Name: m.Nam
 
 // ConfigSource is the Jam's one tracked config source and its last apply
 // from it. It lives in jam_settings ('config_source'), not in a table of
-// its own, and is not part of at-jam export (like the marks).
+// its own, and is not part of jam export (like the marks).
 type ConfigSource struct {
 	Repo      string    `json:"repo"`
 	Dir       string    `json:"dir,omitempty"`

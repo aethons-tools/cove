@@ -112,7 +112,7 @@ func TestDraftPublishManagedOffersConfigWrite(t *testing.T) {
 	rec = post(t, h, "/app/admin/kits/app/draft/publish", url.Values{"etag": {hiddenETag(t, pub)}, "drift": {"1"}})
 	done := section(rec.Body.String(), "draft-published")
 	for _, want := range []string{
-		`id="config-write"`, "<code>at-jam config write &lt;repo&gt;</code>",
+		`id="config-write"`, "<code>jam config write &lt;repo&gt;</code>",
 		`<li data-change="added">kits/app/docs/new.md`, `<li data-change="modified">kits/app/run.sh`,
 		`id="draft-published-warning">` + jam.DraftDriftWarning,
 	} {

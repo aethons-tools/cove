@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# app.sh — build the Jam app bundle (web/app) that at-jam embeds, into
+# app.sh — build the Jam app bundle (web/app) that jam embeds, into
 # internal/jam/uiassets/app/ (git-ignored). Needs Node and npm with access to
-# the npm registry; the lockfile pins every package. Without the bundle at-jam
+# the npm registry; the lockfile pins every package. Without the bundle jam
 # still builds: /app/next/ answers "not built". See docs/web-app.md.
 #
 #   scripts/app.sh                  # build (npm ci + vite build + size budget)
@@ -12,7 +12,7 @@ cd "$root/web/app"
 
 if ! command -v npm >/dev/null 2>&1; then
   if [ "${APP_OPTIONAL:-}" = 1 ]; then
-    echo "app: npm not found; skipping the Jam app bundle (at-jam builds without it)" >&2
+    echo "app: npm not found; skipping the Jam app bundle (jam builds without it)" >&2
     exit 0
   fi
   echo "app: npm is required (install Node 22), or set APP_OPTIONAL=1" >&2

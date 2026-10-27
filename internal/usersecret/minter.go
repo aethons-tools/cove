@@ -4,7 +4,7 @@ import "fmt"
 
 // Minter is a named minting profile: a tagged union over the code host / token
 // kind. Exactly one provider is set. Parsed and validated here; expanded into
-// an at-mint invocation by internal/mint.
+// a `jam mint` invocation by internal/mint.
 type Minter struct {
 	GitHub    *GitHubMinter    `yaml:"github,omitempty"`
 	Anthropic *AnthropicMinter `yaml:"anthropic,omitempty"`

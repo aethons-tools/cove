@@ -13,7 +13,7 @@ func TestTargetPrefersFlagThenEnv(t *testing.T) {
 		t.Fatalf("flag must win over env; got %q", got)
 	}
 	if got := Target("", "9-9999"); got != "9-9999" {
-		t.Fatalf("env (COVE_VERSION) is the fallback pin; got %q", got)
+		t.Fatalf("env (JAM_VERSION) is the fallback pin; got %q", got)
 	}
 	if got := Target("", ""); got != "" {
 		t.Fatalf("no flag/env means unresolved latest (empty); got %q", got)
@@ -40,8 +40,8 @@ func TestEnvPinsTarget(t *testing.T) {
 		t.Fatalf("no target means no explicit env (knobs inherited); got %v", env)
 	}
 	env := Env("3-0405")
-	if len(env) != 1 || env[0] != "COVE_VERSION=3-0405" {
-		t.Fatalf("a target must pin COVE_VERSION; got %v", env)
+	if len(env) != 1 || env[0] != "JAM_VERSION=3-0405" {
+		t.Fatalf("a target must pin JAM_VERSION; got %v", env)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestRunInvokesBashWithEnv(t *testing.T) {
 	if c.Name != "bash" || len(c.Args) != 1 || c.Args[0] != "/tmp/install.sh" {
 		t.Fatalf("must run `bash <script>`; got %s %v", c.Name, c.Args)
 	}
-	if len(c.Env) != 1 || c.Env[0] != "COVE_VERSION=4-0506" {
+	if len(c.Env) != 1 || c.Env[0] != "JAM_VERSION=4-0506" {
 		t.Fatalf("must pass the pinning env; got %v", c.Env)
 	}
 }
@@ -104,7 +104,7 @@ func TestResolveLatestSourcesLibMode(t *testing.T) {
 	if !strings.Contains(strings.Join(c.Args, " "), "resolve_version") {
 		t.Fatalf("resolve must call resolve_version; args=%v", c.Args)
 	}
-	if !containsSlice(c.Env, "COVE_INSTALL_LIB=1") {
+	if !containsSlice(c.Env, "JAM_INSTALL_LIB=1") {
 		t.Fatalf("resolve must source install.sh in lib mode; env=%v", c.Env)
 	}
 }
@@ -123,11 +123,11 @@ func containsSlice(hay []string, needle string) bool {
 func TestDoNamesTheCallingBinary(t *testing.T) {
 	var out strings.Builder
 	f := &runner.Fake{}
-	err := Do(f, []byte("#!/usr/bin/env bash\n"), Options{Binary: "at-jam", Current: "1-0101", Pin: "2-0202", Stdout: &out})
+	err := Do(f, []byte("#!/usr/bin/env bash\n"), Options{Binary: "jam", Current: "1-0101", Pin: "2-0202", Stdout: &out})
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	if !strings.Contains(out.String(), "updating at-jam from 1-0101 to 2-0202") {
+	if !strings.Contains(out.String(), "updating jam from 1-0101 to 2-0202") {
 		t.Fatalf("Do must name the calling binary; stdout=%q", out.String())
 	}
 	if len(f.Calls) != 1 || f.Calls[0].Name != "bash" {
@@ -135,18 +135,18 @@ func TestDoNamesTheCallingBinary(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Do(&runner.Fake{}, nil, Options{Binary: "at-jam", Current: "2-0202", Pin: "2-0202", Stdout: &out}); err != nil {
+	if err := Do(&runner.Fake{}, nil, Options{Binary: "jam", Current: "2-0202", Pin: "2-0202", Stdout: &out}); err != nil {
 		t.Fatalf("Do (current): %v", err)
 	}
-	if !strings.Contains(out.String(), "at-jam is already up to date (2-0202)") {
+	if !strings.Contains(out.String(), "jam is already up to date (2-0202)") {
 		t.Fatalf("no-op must name the calling binary; stdout=%q", out.String())
 	}
 
 	out.Reset()
-	if err := Do(&runner.Fake{}, nil, Options{Binary: "at-jam", Current: "1-0101", DryRun: true, Stdout: &out}); err != nil {
+	if err := Do(&runner.Fake{}, nil, Options{Binary: "jam", Current: "1-0101", DryRun: true, Stdout: &out}); err != nil {
 		t.Fatalf("Do (dry-run): %v", err)
 	}
-	if !strings.Contains(out.String(), "would update at-jam from 1-0101 to the latest release") {
+	if !strings.Contains(out.String(), "would update jam from 1-0101 to the latest release") {
 		t.Fatalf("dry-run must name the calling binary; stdout=%q", out.String())
 	}
 }

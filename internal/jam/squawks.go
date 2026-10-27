@@ -20,7 +20,7 @@ const MaxSquawkBodyBytes = 16 * 1024
 // Squawk is one squawk in a session's inbox, as returned by GET /squawks.
 // Channel and From are the channel model's (intercom slice 2); Author stays,
 // holding From's label, for clients that predate them (a studio runs the
-// cove-master baked into its image). A legacy entry (before the cutover) has
+// jam-studio-agent baked into its image). A legacy entry (before the cutover) has
 // no Channel. At is a pointer so an unset timestamp is omitted from the wire.
 type Squawk struct {
 	ID     string     `json:"id,omitempty"`

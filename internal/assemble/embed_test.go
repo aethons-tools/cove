@@ -639,7 +639,7 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 }
 
-// SANDBOX.md is the plain at-cove sandbox guide. A Jam session gets the
+// SANDBOX.md is the plain sandbox guide. A Jam session gets the
 // sandbox rules from its compiled context, so the file opens with a short guard
 // telling a Jam session (CORE.md present) to ignore the rest; nothing in the
 // sealed layer rewrites this kit-overridable file (COV-246). The body after the
@@ -662,7 +662,7 @@ func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	if len(head) > 300 {
 		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
 	}
-	for _, want := range []string{".at-cove/config.yml", "at-cove recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
+	for _, want := range []string{"." + sandboxKitCLI + "/config.yml", sandboxKitCLI + " recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
 		}

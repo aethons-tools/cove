@@ -5,7 +5,7 @@
 # and walks newest->oldest through this watermark, writing the result to the
 # sibling generated.txt (gitignored) for go:embed (COV-44 spec §4). A routine base
 # republish is then blessed automatically — no commit-back loop. When generated.txt
-# is absent (offline builds, fresh checkout) at-cove embeds this watermark alone.
+# is absent (offline builds, fresh checkout) jam embeds this watermark alone.
 #
 # To DROP older bases after a breaking base change (e.g. shedding at-task, which
 # changes the layer prefix), bump this to the first post-break digest — one line,

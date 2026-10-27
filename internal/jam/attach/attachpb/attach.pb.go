@@ -215,7 +215,7 @@ func (*StatusUp_Connector) isStatusUp_Msg() {}
 func (*StatusUp_Gate) isStatusUp_Msg() {}
 
 // ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
-// connector cove-master applied to the agent's most recent spawn. Jam compares it
+// connector jam-studio-agent applied to the agent's most recent spawn. Jam compares it
 // with the role's current connector to flag a stale studio.
 type ConnectorApplied struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -264,10 +264,10 @@ func (x *ConnectorApplied) GetFingerprint() string {
 // SessionEvent is one line of the agent's claude stream-json stdout.
 type SessionEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	StreamId       string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                      // random per cove-master process: 32 lowercase hex chars
+	StreamId       string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                      // random per jam-studio-agent process: 32 lowercase hex chars
 	Seq            uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`                                               // monotonic per stream_id, from 1
 	Turn           uint32                 `protobuf:"varint,3,opt,name=turn,proto3" json:"turn,omitempty"`                                             // claude invocation number, from 1
-	ObservedUnixMs int64                  `protobuf:"varint,4,opt,name=observed_unix_ms,json=observedUnixMs,proto3" json:"observed_unix_ms,omitempty"` // when cove-master read the line
+	ObservedUnixMs int64                  `protobuf:"varint,4,opt,name=observed_unix_ms,json=observedUnixMs,proto3" json:"observed_unix_ms,omitempty"` // when jam-studio-agent read the line
 	Raw            []byte                 `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`                                                // the line, no trailing newline, secrets redacted
 	TruncatedBytes uint64                 `protobuf:"varint,6,opt,name=truncated_bytes,json=truncatedBytes,proto3" json:"truncated_bytes,omitempty"`   // bytes dropped from raw; 0 = intact
 	unknownFields  protoimpl.UnknownFields
@@ -1052,7 +1052,7 @@ func (x *RotateToken) GetToken() string {
 	return ""
 }
 
-// RunGate asks cove-master to run an alarm's gate (sh -c command in the
+// RunGate asks jam-studio-agent to run an alarm's gate (sh -c command in the
 // agent's workspace, killed at timeout_s) and answer with a GateResult.
 type RunGate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1256,7 +1256,7 @@ func (x *OpenTunnel) GetPort() int32 {
 }
 
 // SetTunnelPorts replaces the studio's dynamic tunnel allow-list: the loopback
-// ports Jam may OpenTunnel to, besides cove-master's configured ones (sshd).
+// ports Jam may OpenTunnel to, besides jam-studio-agent's configured ones (sshd).
 // Sent first on every Attach stream, then after each change.
 type SetTunnelPorts struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`

@@ -1,7 +1,7 @@
 {
   "name": "jam-app",
   "private": true,
-  "description": "The Jam app (React + Mantine), served at /app/next/ and embedded by at-jam. Built by `just app` into internal/jam/uiassets/app/ (git-ignored). See docs/web-app.md.",
+  "description": "The Jam app (React + Mantine), served at /app/next/ and embedded by jam. Built by `just app` into internal/jam/uiassets/app/ (git-ignored). See docs/web-app.md.",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {

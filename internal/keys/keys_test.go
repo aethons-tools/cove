@@ -31,10 +31,10 @@ func TestEnsureFileUsesExistingKey(t *testing.T) {
 	}
 }
 
-// A fresh Jam host has no launcher key (at-cove used to generate it): the
+// A fresh Jam host has no launcher key (it is not shipped): the
 // launcher generates it at the configured path.
 func TestEnsureFileGeneratesWhenMissing(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "at-cove")
+	dir := filepath.Join(t.TempDir(), "jam")
 	priv := filepath.Join(dir, "id_ed25519")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestEnsureFileRunsKeygenQuietWithEmptyStdin(t *testing.T) {
 }
 
 func TestEnsureFileCreatesKeyDir0700(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "fresh", "at-cove")
+	dir := filepath.Join(t.TempDir(), "fresh", "jam")
 	_, _ = EnsureFile(&runner.Fake{}, filepath.Join(dir, "id_ed25519")) // the .pub read fails: the fake generated nothing
 	st, err := os.Stat(dir)
 	if err != nil {

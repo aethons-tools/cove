@@ -70,7 +70,7 @@ func TestResolveMergesSpecEnv(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "minted-token\n"}}}
 	specs := []Spec{{
 		Name:    "TOK",
-		Command: []string{"at-mint", "github", "--app-id", "1"},
+		Command: []string{"jam", "mint", "github", "--app-id", "1"},
 		Env:     map[string]string{"JAM_MINT_GITHUB_APP_KEY": "SECRETPEM"},
 	}}
 	out, err := Resolve(f, map[string]string{"JAM_RUN_REPO": "o/r"}, specs)

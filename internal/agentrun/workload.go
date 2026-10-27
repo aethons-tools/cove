@@ -61,7 +61,7 @@ const resumeFailWindow = 2 * time.Minute
 // on its persisted /agent-data. A var so tests can shrink it.
 var streamLogCap int64 = 16 << 20
 
-// defaultConversationMarker is the file a standing session's cove-master
+// defaultConversationMarker is the file a standing session's jam-studio-agent
 // writes once its agent is first seen replying (so a conversation exists): on the persisted /agent-data
 // volume, so a restarted session knows there is a conversation to continue. A
 // var so tests can point it away from the real /agent-data.
@@ -69,7 +69,7 @@ var defaultConversationMarker = "/agent-data/.cove-conversation"
 
 // defaultClearMarker is the file a Clear pressed while waiting writes (its
 // contents are who pressed it): on the persisted /agent-data volume, so the
-// fresh start it asks for survives a cove-master restart. A var so tests can
+// fresh start it asks for survives a jam-studio-agent restart. A var so tests can
 // point it away from the real /agent-data.
 var defaultClearMarker = "/agent-data/.cove-clear-pending"
 
@@ -91,14 +91,14 @@ type Config struct {
 	// Connector, when set, refreshes the agent's connector before every spawn
 	// (episode — not per prompt: a Wake written into a live episode keeps that
 	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
-	// cove-master's env unchanged (an older launcher).
+	// jam-studio-agent's env unchanged (an older launcher).
 	Connector *ConnectorConfig
 	// Resident marks a personal or standing session; it only picks the resume
 	// prompt now — every session waits after every episode.
 	Resident bool
 	// StreamLogPath is the VM-local file the agent's stdout is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
-	// not cove-master's stdout, which Jam reads into its own log.
+	// not jam-studio-agent's stdout, which Jam reads into its own log.
 	StreamLogPath string
 	// Context is the compiled session context; nil (an older launcher) runs
 	// the agent without it. Written under ContextDir once at Run start; its core
@@ -135,7 +135,7 @@ const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 var defaultContextDir = sessionctx.Dir
 
 // Workload runs the agent (via its Harness) as a turn loop and maps its lifecycle onto
-// the covemaster Activity stream: every turn ends in Waiting until a Wake
+// the studioagent Activity stream: every turn ends in Waiting until a Wake
 // arrives. It implements studioagent.Workload.
 type Workload struct {
 	cfg     Config
@@ -286,7 +286,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
-			// cove-master restart) gets no notice: nothing came before it.
+			// jam-studio-agent restart) gets no notice: nothing came before it.
 			if changed := w.ctxr.episode(ctx); turn > 1 {
 				first += contextNotice(changed, false)
 			}
@@ -530,7 +530,7 @@ func specName(spec *modelspec.Spec) string {
 }
 
 // overlayEnv sets the harness's extra env over the spawn env (nil = inherit
-// cove-master's env), except a key the current connector sets: the connector
+// jam-studio-agent's env), except a key the current connector sets: the connector
 // owns routing and identity. Logs never carry the values.
 func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 	if len(extra) == 0 {

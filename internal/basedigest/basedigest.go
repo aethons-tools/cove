@@ -1,7 +1,7 @@
 // Package basedigest holds the blessed jam-studio-base manifest digests that a
 // kit's resolved base must descend from — COV-34's provenance gate compares the
 // base's OCI layer diff_ids against the blessed image's. The digests are embedded
-// into at-jam (go:embed), so the gate runs fully offline at build time.
+// into jam (go:embed), so the gate runs fully offline at build time.
 //
 // The set is generated at build time from the registry, bounded by a committed
 // low-watermark — see internal/blessgen and cmd/gen-blessed (COV-44). The embed

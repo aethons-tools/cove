@@ -21,7 +21,7 @@ import (
 
 var (
 	ErrStudioNotConnected = errors.New("studio not connected")
-	ErrDialBackTimeout    = errors.New("studio did not open the tunnel in time (is its cove-master current?)")
+	ErrDialBackTimeout    = errors.New("studio did not open the tunnel in time (is its jam-studio-agent current?)")
 	ErrTooManyTunnels     = errors.New("too many open tunnels for this studio")
 	// ErrTooManyPreviewTunnels: previews hold their share of the studio's
 	// tunnels (the rest are kept for SSH). It is an ErrTooManyTunnels.

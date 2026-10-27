@@ -230,7 +230,7 @@ func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 }
 
 // The real assembler bakes the studio kit's mcp-servers into the image
-// (COV-240), where cove-master's claude harness reads them.
+// (COV-240), where jam-studio-agent's claude harness reads them.
 func TestDefaultAssembleBakesKitMCPServers(t *testing.T) {
 	sk := studio.StudioKit{Kind: studio.Kind, MCPServers: map[string]kit.MCPServer{
 		"linear": {Type: "http", URL: "${LINEAR_MCP_URL}"},

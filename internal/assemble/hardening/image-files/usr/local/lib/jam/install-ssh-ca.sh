@@ -12,7 +12,7 @@
 # SEALED + ROOT-ONLY: delivered by the hardening layer and invoked solely by the
 # host via `docker exec -u root` (Jam's launcher, at studio raise). /etc/ssh is
 # root-owned, so the non-root agent workload cannot plant its own CA. Absent
-# file (a plain at-cove sandbox, or a studio Jam gave no CA) = no cert logins;
+# file (a studio Jam gave no CA) = no cert logins;
 # plain key auth is unaffected.
 set -euo pipefail
 export LC_ALL=C

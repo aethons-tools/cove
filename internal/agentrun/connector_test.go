@@ -66,7 +66,7 @@ func TestConnectorAppliesFetched(t *testing.T) {
 
 func TestConnectorDropsRemovedKeys(t *testing.T) {
 	initial := snippet.Connector{Env: map[string]string{"OLD_VAR": "x", "GH_HOST": "{host}"}}
-	// cove-master's own env still carries the raise-time values.
+	// jam-studio-agent's own env still carries the raise-time values.
 	environ := []string{"PATH=/bin", "OLD_VAR=x", "GH_HOST=jam.example"}
 	src := &fakeSource{c: snippet.Connector{Env: map[string]string{"GH_HOST": "{host}"}}}
 	r := newRefresher(src, &fakeGit{}, initial, environ)

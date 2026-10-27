@@ -29,7 +29,7 @@ type Scope struct {
 	TTL         time.Duration     `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
 	// = the kit's default list. Managed only by the egress endpoints
-	// (`at-jam egress set|show|clear`); a role re-put keeps it.
+	// (`jam egress set|show|clear`); a role re-put keeps it.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
@@ -71,7 +71,7 @@ type RoleAllocation struct {
 	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
 	// Standing is the role's declared standing sessions — the desired state the
 	// standing reconciler keeps running, one cove per name. Managed only by the
-	// standing endpoints (`at-jam standing add|rm|list`); a role re-put keeps it.
+	// standing endpoints (`jam standing add|rm|list`); a role re-put keeps it.
 	Standing []StandingSession `json:"standing,omitempty"`
 }
 
@@ -109,7 +109,7 @@ type Role struct {
 	// Separate from Allocation, whose UI form rebuilds it on save.
 	TurnEnd TurnEndPolicy `json:"turn_end,omitzero"`
 	// Context is the role's authored session-context layer (rules for this
-	// role). Managed only by the context endpoints (`at-jam context … --role`);
+	// role). Managed only by the context endpoints (`jam context … --role`);
 	// a role re-put keeps it.
 	Context sessionctx.Layer `json:"context,omitzero"`
 	// Collaborate is the role's studio-collaboration policy: which rights the
@@ -366,7 +366,7 @@ type Project struct {
 	ChatService string `json:"chat_service,omitempty"`
 	// Context is the project's authored session-context layer (its goals) and
 	// Resources the repos/docs/trackers sessions should know; both managed by
-	// the context endpoints (`at-jam context … --project`).
+	// the context endpoints (`jam context … --project`).
 	Context   sessionctx.Layer      `json:"context,omitzero"`
 	Resources []sessionctx.Resource `json:"resources,omitempty"`
 }

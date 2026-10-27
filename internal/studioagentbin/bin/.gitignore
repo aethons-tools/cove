@@ -1,1 +1,3 @@
-/cove-master-linux-*
+# The staged binaries (scripts/stage-studio-agent.sh), and any pre-rename ones a
+# local checkout still holds: never commit either.
+/*-linux-*

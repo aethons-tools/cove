@@ -122,7 +122,7 @@ func TestPreviewIDEDialRecheckNamesSSH(t *testing.T) {
 	}
 }
 
-// The IDE's tunnel may wait for cove-master to start code-server (up to
+// The IDE's tunnel may wait for jam-studio-agent to start code-server (up to
 // 15 s), so its open gets 30 s; an app's keeps openTimeout.
 func TestPreviewIDEOpenTimeout(t *testing.T) {
 	ph := newPreviewHarness(t, helloApp(t, nil))

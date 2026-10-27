@@ -797,7 +797,7 @@ func TestResumeTextPerKind(t *testing.T) {
 	}
 }
 
-// The first episode refreshes too (a cove-master restart, or edits made while
+// The first episode refreshes too (a jam-studio-agent restart, or edits made while
 // the kit built), silently: its prompt carries no notice.
 func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 	dir := t.TempDir()

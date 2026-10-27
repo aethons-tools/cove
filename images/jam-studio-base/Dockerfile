@@ -3,9 +3,9 @@
 # OS + git/gh/sshd + the egress stack + the Docker engine (for the opt-in
 # docker-in-sandbox capability — present but INERT here) + core utilities. It
 # deliberately EXCLUDES language toolchains, chrome, and java — those live in
-# jam-studio, which builds FROM this. It also carries no at-task: at-cove injects
-# the exact version-locked at-task into its sealed hardening layer (COV-42/COV-44),
-# so the base is pure tools with no Go build dependency.
+# jam-studio, which builds FROM this. It also carries no in-studio binary: jam injects
+# the exact version-locked jam-studio-agent into its sealed hardening layer
+# (COV-42/COV-44), so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
 FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
@@ -87,7 +87,7 @@ RUN useradd -m -s /bin/bash agent \
 
 # The agent's default docs and skills: /home/agent/.init-agent-data is the seed
 # the sealed entrypoint copies into /agent-data (CLAUDE_CONFIG_DIR) on first
-# boot — CLAUDE.md and its includes (SANDBOX.md is the plain at-cove sandbox
+# boot — CLAUDE.md and its includes (SANDBOX.md is the plain sandbox
 # guide; a Jam session gets those rules from its session context instead),
 # reference/ and skills/, plus the startup defaults (settings.json,
 # .claude.json). Its .refresh manifest names the entries re-copied on every boot

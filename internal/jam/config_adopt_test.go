@@ -120,7 +120,7 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 	return st, repoFetcher{kitsRepo: kits}
 }
 
-// exportToDir writes exp under dir as at-jam config write does: Files and
+// exportToDir writes exp under dir as jam config write does: Files and
 // each kit dir's files, then Remove, then each kit dir mirrored: every file
 // there the export does not hold removed (the fixtures put no ignored files
 // on disk), and the dirs left empty.

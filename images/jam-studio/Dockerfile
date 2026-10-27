@@ -28,7 +28,7 @@ WORKDIR /
 RUN rm -rf /install
 
 # Put the go toolchain on PATH via ENV, so it works for BOTH usages with no
-# duplication: a bare `docker run` / CI container reads ENV directly, and at-cove's
+# duplication: a bare `docker run` / CI container reads ENV directly, and the sealed
 # hardening layer copies the live PATH (intrinsic in JAM_SSHENV) into
 # /etc/environment for SSH agent sessions. One statement, both contexts.
 ENV PATH="/usr/local/go/bin:${PATH}"

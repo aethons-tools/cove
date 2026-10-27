@@ -735,7 +735,7 @@ func TestClearWhileLiveDropped(t *testing.T) {
 	}
 }
 
-// Review focus 4: a Clear pending when cove-master restarts wins over a
+// Review focus 4: a Clear pending when jam-studio-agent restarts wins over a
 // standing session's conversation marker.
 func TestClearSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()

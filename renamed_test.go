@@ -30,6 +30,8 @@ var renamedGroups = []renamedGroup{
 	{"tags, labels, containers", []string{`cove-kit`, `harbor\.cove`, `atcove-cove`, `"atcove"`, `/etc/cove/mcp-servers`}},
 	{"directories and markers", []string{`\.config/at-(cove|jam|harbor)`, `state/at-jam`, `[<>]{3} at-jam`,
 		`atCoveConfigDir`, `atJamConfigDir`, `atJamStateDir`, `legacyConfigDir`}},
+	{"binaries and release", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-harbor`, `cove-master`, `covemaster`,
+		`\batcove\b`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the
@@ -45,7 +47,10 @@ var renamedAllow = []struct {
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
-	{"testdata/install-legacy.sh", nil},
+	{"testdata/install-legacy", nil},                           // the frozen pre-rename installers
+	{"install.test.sh", nil},                                   // drives the frozen pre-rename installers
+	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`}}, // the stale-binary notice
+	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
 }
 
 // docsPending skips the docs until Task 9 of the slice-3 plan renames them.

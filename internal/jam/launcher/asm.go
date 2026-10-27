@@ -15,8 +15,8 @@ import (
 const tagHalf = 32
 
 // asmDigest is the launcher's assembly fingerprint: everything a studio-kit
-// build bakes in that is NOT in the kit's own BuildDigest — at-jam's embedded
-// payload (the sealed hardening layer, harness payload and cove-master, hashed
+// build bakes in that is NOT in the kit's own BuildDigest — jam's embedded
+// payload (the sealed hardening layer, harness payload and jam-studio-agent, hashed
 // by install.AssemblyIdentity), the blessed default base (an omitted base builds FROM it; a context base
 // descends from it), the Jam host (baked into the infra egress list) and the
 // launcher's public key (baked into authorized_keys). Length-prefixed fields.

@@ -7,7 +7,7 @@ name: release
 #   jam-studio-base ──publish──► digest D ──► (registry) ──► blessed-list snapshot
 #         │                                                        │
 #         ▼                                                        ▼
-#   jam-studio (FROM jam-studio-base:ci)                  at-jam (embeds cove-master + list), at-mint
+#   jam-studio (FROM jam-studio-base:ci)                  jam (embeds jam-studio-agent + list)
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
@@ -40,7 +40,7 @@ jobs:
     outputs:
       base: ${{ steps.legs.outputs.base }} # rebuild+publish jam-studio-base
       studio_image: ${{ steps.legs.outputs.studio_image }} # (re)build jam-studio
-      atcove: ${{ steps.legs.outputs.atcove }} # re-cut the host binaries (+ blessed list)
+      binaries: ${{ steps.legs.outputs.binaries }} # re-cut the host binary (+ blessed list)
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
@@ -60,13 +60,13 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.goreleaser.yaml'
-              - 'scripts/stage-covemaster.sh'
+              - 'scripts/stage-studio-agent.sh'
               - 'scripts/whiteboard.sh'
-              - 'web/whiteboard/**' # the editor bundle at-jam embeds
+              - 'web/whiteboard/**' # the editor bundle jam embeds
               - 'scripts/app.sh'
-              - 'web/app/**' # the Jam app bundle at-jam embeds
-              - 'install.sh' # embedded in at-jam (`update`)
-              - 'scripts/release/**' # the at-cove tombstone in the archive + its check
+              - 'web/app/**' # the Jam app bundle jam embeds
+              - 'install.sh' # embedded in jam (`update`)
+              - 'scripts/release/**' # the archive check
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
         #   base change     => rebuild base AND jam-studio (downstream) AND the binaries
@@ -78,14 +78,14 @@ jobs:
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
         run: |
-          base=false; studio=false; atcove=false
+          base=false; studio=false; binaries=false
           if [ "$BASE" = 'true' ]; then base=true; fi
           if [ "$BASE" = 'true' ] || [ "$STUDIO" = 'true' ]; then studio=true; fi
-          if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then atcove=true; fi
+          if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then binaries=true; fi
           {
             echo "base=$base"
             echo "studio_image=$studio"
-            echo "atcove=$atcove"
+            echo "binaries=$binaries"
           } >>"$GITHUB_OUTPUT"
       - id: version
         # <N>-<MMDD>: N (git rev-list --count HEAD) is the monotonic version; the
@@ -221,15 +221,15 @@ jobs:
             echo "- \`${image}:${VERSION}\` @ \`${digest}\`" >> "$GITHUB_STEP_SUMMARY"
           done
 
-  # Re-cut the host binaries (cove-master embedded + the blessed-list snapshot). Ordered
+  # Re-cut the host binary (jam-studio-agent embedded + the blessed-list snapshot). Ordered
   # AFTER publish-images so a freshly-published base digest is already the registry
   # head when gen-blessed (a goreleaser before-hook) snapshots the blessed list.
   # PRs build + validate only; main builds a snapshot and cuts the GH release.
-  atcove:
+  binaries:
     needs: [changes, images, publish-images]
     # Run when the binaries leg is selected and nothing upstream failed. On PRs and
     # go-only main pushes the image jobs are skipped (not failed), so still run.
-    if: ${{ !cancelled() && !failure() && needs.changes.outputs.atcove == 'true' }}
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.binaries == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -256,7 +256,7 @@ jobs:
           args: check
 
       # PR: build the release archives exactly as main does (+ run the
-      # stage-covemaster / gen-blessed before-hooks) to prove the release builds;
+      # stage-studio-agent / gen-blessed before-hooks) to prove the release builds;
       # never publish (snapshot mode skips goreleaser's publishing; --skip=publish
       # makes that explicit). The next step checks the archives.
       - name: Build binaries (PR — no publish)
@@ -282,9 +282,8 @@ jobs:
           VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Every archive must carry exactly at-cove (the tombstone an older
-      # `at-jam update` needs), at-mint and at-jam — on the PR before merge and
-      # on main before the release is cut.
+      # Every archive must hold exactly jam — on the PR before merge and on
+      # main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
 
@@ -296,7 +295,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (at-mint + at-jam; cove-master embedded; at-cove tombstone)." \
+            --notes "Continuous release from ${GITHUB_SHA::7} (jam; jam-studio-agent embedded)." \
             --target "$GITHUB_SHA" \
-            dist/cove_*.tar.gz dist/checksums.txt
+            dist/jam_*.tar.gz dist/checksums.txt
           echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

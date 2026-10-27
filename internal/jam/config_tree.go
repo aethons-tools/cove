@@ -322,7 +322,7 @@ func (l *treeLoader) loadKits() {
 // oldConfigRepoHint follows the refusal of a kits/<n>/kit.yml that still
 // names a packed-context field: a config repo written by an older Jam, which
 // config write mirrors into a kit directory.
-const oldConfigRepoHint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+const oldConfigRepoHint = "; a config repo written by an older Jam: run jam config write <repo> and commit"
 
 // oldContextHint is oldConfigRepoHint when rel/kit.yml, a regular file of at
 // most kittree.MaxFile bytes, names a packed-context field, else "".

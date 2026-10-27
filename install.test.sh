@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # install.test.sh — hermetic tests for the root install.sh installer.
 #
-# No network, no Docker, no live release. We put stub `gh` and `uname`
-# executables on PATH that serve a locally-built fixture "release" (fake
-# at-cove-tombstone/at-mint/at-jam binaries + a real checksums.txt), then drive install.sh
-# and assert on what it does. Pure helpers are unit-tested by sourcing
-# install.sh in lib mode (COVE_INSTALL_LIB=1), which suppresses main.
+# No network, no Docker, no live release. Stub `gh` and `uname` executables on
+# PATH serve a locally-built fixture "release": a jam_<ver>_<os>_<arch>.tar.gz
+# holding a fake `jam`, plus, as a control, an old-format cove_<ver>_* archive
+# like the releases before the jam rename. Pure helpers are unit-tested by
+# sourcing install.sh in lib mode (JAM_INSTALL_LIB=1), which suppresses main.
 #
-# Run: bash install.test.sh   (also wired into `just lint`-adjacent CI gate)
+# Run: bash install.test.sh   (`just test-install`; a CI gate)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SH="$HERE/install.sh"
+# install.sh as embedded in the pre-rename at-jam builds in the field: after
+# jam-only slice 2 (main before the rename), and the older pre-slice-2 one.
+LEGACY_SHS=("$HERE/testdata/install-legacy.sh" "$HERE/testdata/install-legacy-preslice2.sh")
 
 pass=0
 fail=0
@@ -23,244 +26,177 @@ bad() {
   shift || true
   for line in "$@"; do note "$line"; done
 }
+assert_eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected: $2" "actual:   $3"; fi; }
 
-# assert_eq <name> <expected> <actual>
-assert_eq() {
-  if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected: $2" "actual:   $3"; fi
-}
-
-# ---- sha helper mirroring the script, for building fixtures -----------------
 sha_of() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
-# ---- build a throwaway sandbox with a fixture release -----------------------
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-# Run inside the sandbox so any accidental relative write from a stub lands here,
-# never in the repo. INSTALL_SH is already absolute (resolved above).
 cd "$WORK"
 
-FIXTURE_VERSION="123-0722"
-RELEASE_DIR="$WORK/release" # what the stub gh "downloads" from
-STUB_BIN="$WORK/stubbin"    # stub gh/uname, first on PATH
+FIXTURE_VERSION="200-1026"   # a jam release
+OLD_VERSION="150-1001"       # a pre-rename release (old archive name and contents)
+RELEASE_DIR="$WORK/release"
+STUB_BIN="$WORK/stubbin"
 mkdir -p "$RELEASE_DIR" "$STUB_BIN"
 
-# build a fixture archive carrying fake at-cove (the tombstone) + at-mint +
-# at-jam for a given os/arch. Optional 3rd arg: a version (default
-# FIXTURE_VERSION); a 4th arg of "nojam" omits at-jam, like a release cut before
-# at-jam shipped, and "nocove" omits the at-cove tombstone.
-build_archive() {
-  local os="$1" arch="$2" ver="${3:-$FIXTURE_VERSION}" variant="${4:-}"
-  local stage="$WORK/stage-$ver-$os-$arch"
-  local bins=(at-cove at-mint at-jam)
-  [ "$variant" = nojam ] && bins=(at-cove at-mint)
-  [ "$variant" = nocove ] && bins=(at-mint at-jam)
-  mkdir -p "$stage"
-  for b in "${bins[@]}"; do
-    cat >"$stage/$b" <<EOF
+# fake_bin <dir> <name> <version>
+fake_bin() {
+  cat >"$1/$2" <<EOF
 #!/bin/sh
-[ "\$1" = version ] && echo "$b $ver"
+[ "\$1" = version ] && echo "$2 $3"
 EOF
-    chmod +x "$stage/$b"
-  done
-  tar -C "$stage" -czf "$RELEASE_DIR/cove_${ver}_${os}_${arch}.tar.gz" "${bins[@]}"
+  chmod +x "$1/$2"
 }
 
-build_archive linux amd64
-build_archive darwin arm64
-PRE_JAM_VERSION="99-0101"
-build_archive linux amd64 "$PRE_JAM_VERSION" nojam
-NO_COVE_VERSION="124-0722"
-build_archive linux amd64 "$NO_COVE_VERSION" nocove
-
-# real checksums over every archive (goreleaser format: "<sha>  <basename>")
+# build_jam_archive <os> <arch> — the new shape: exactly `jam`.
+build_jam_archive() {
+  local stage="$WORK/stage-jam-$1-$2"
+  mkdir -p "$stage"
+  fake_bin "$stage" jam "$FIXTURE_VERSION"
+  tar -C "$stage" -czf "$RELEASE_DIR/jam_${FIXTURE_VERSION}_$1_$2.tar.gz" jam
+}
+# build_old_archive <os> <arch> — the pre-rename shape the legacy installer expects.
+build_old_archive() {
+  local stage="$WORK/stage-old-$1-$2" b
+  mkdir -p "$stage"
+  for b in at-cove at-mint at-jam; do fake_bin "$stage" "$b" "$OLD_VERSION"; done
+  tar -C "$stage" -czf "$RELEASE_DIR/cove_${OLD_VERSION}_$1_$2.tar.gz" at-cove at-mint at-jam
+}
+build_jam_archive linux amd64
+build_jam_archive darwin arm64
+build_old_archive linux amd64
 (
   cd "$RELEASE_DIR"
   : >checksums.txt
-  for f in cove_*.tar.gz; do printf '%s  %s\n' "$(sha_of "$f")" "$f" >>checksums.txt; done
+  for f in *.tar.gz; do printf '%s  %s\n' "$(sha_of "$f")" "$f" >>checksums.txt; done
 )
 
-# ---- stub gh: serves the fixture release; records requested patterns --------
 PATTERN_LOG="$WORK/patterns.log"
 : >"$PATTERN_LOG"
 cat >"$STUB_BIN/gh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-RELEASE_DIR="$RELEASE_DIR"
-FIXTURE_VERSION="$FIXTURE_VERSION"
-PATTERN_LOG="$PATTERN_LOG"
 sub="\${1:-}"; act="\${2:-}"
 if [ "\$sub" = auth ] && [ "\$act" = status ]; then exit 0; fi
-if [ "\$sub" = release ] && [ "\$act" = view ]; then echo "\$FIXTURE_VERSION"; exit 0; fi
+if [ "\$sub" = release ] && [ "\$act" = view ]; then echo "$FIXTURE_VERSION"; exit 0; fi
 if [ "\$sub" = release ] && [ "\$act" = download ]; then
-  dir=.; patterns=()
-  shift 2
+  dir=.; patterns=(); shift 2
   while [ \$# -gt 0 ]; do
     case "\$1" in
       --dir|-D) dir="\$2"; shift 2;;
-      --pattern) patterns+=("\$2"); echo "\$2" >>"\$PATTERN_LOG"; shift 2;;
+      --pattern) patterns+=("\$2"); echo "\$2" >>"$PATTERN_LOG"; shift 2;;
       --repo|-R) shift 2;;
-      --clobber) shift;;
       *) shift;;
     esac
   done
   mkdir -p "\$dir"
   for p in "\${patterns[@]}"; do
-    match="\$RELEASE_DIR/\$p"
-    [ -e "\$match" ] || { echo "gh: no asset matching \$p" >&2; exit 1; }
-    cp "\$match" "\$dir/"
+    [ -e "$RELEASE_DIR/\$p" ] || { echo "gh: no assets match the file pattern \$p" >&2; exit 1; }
+    cp "$RELEASE_DIR/\$p" "\$dir/"
   done
   exit 0
 fi
 echo "stub gh: unhandled: \$*" >&2; exit 2
 EOF
 chmod +x "$STUB_BIN/gh"
-
-# stub uname: OS from UNAME_S, machine from UNAME_M
 cat >"$STUB_BIN/uname" <<'EOF'
 #!/usr/bin/env bash
-case "${1:-}" in
-  -s) echo "${UNAME_S:-Linux}";;
-  -m) echo "${UNAME_M:-x86_64}";;
-  *)  echo "${UNAME_S:-Linux}";;
-esac
+case "${1:-}" in -s) echo "${UNAME_S:-Linux}";; -m) echo "${UNAME_M:-x86_64}";; *) echo "${UNAME_S:-Linux}";; esac
 EOF
 chmod +x "$STUB_BIN/uname"
-
-# run install.sh with stubs first on PATH and a clean-ish env
-run_install() {
-  PATH="$STUB_BIN:$PATH" bash "$INSTALL_SH"
-}
+run_install() { PATH="$STUB_BIN:$PATH" bash "$INSTALL_SH"; }
 
 echo "== unit: pure helpers (sourced in lib mode) =="
 # shellcheck disable=SC1090
-COVE_INSTALL_LIB=1 source "$INSTALL_SH"
-
-assert_eq "normalize_arch x86_64 -> amd64" "amd64" "$(normalize_arch x86_64)"
-assert_eq "normalize_arch aarch64 -> arm64" "arm64" "$(normalize_arch aarch64)"
-assert_eq "normalize_arch arm64 -> arm64" "arm64" "$(normalize_arch arm64)"
+JAM_INSTALL_LIB=1 source "$INSTALL_SH"
+assert_eq "normalize_arch x86_64 -> amd64" amd64 "$(normalize_arch x86_64)"
+assert_eq "normalize_arch aarch64 -> arm64" arm64 "$(normalize_arch aarch64)"
 if normalize_arch i386 >/dev/null 2>&1; then bad "normalize_arch i386 rejected"; else ok "normalize_arch i386 rejected"; fi
-
-assert_eq "normalize_os Linux -> linux" "linux" "$(normalize_os Linux)"
-assert_eq "normalize_os Darwin -> darwin" "darwin" "$(normalize_os Darwin)"
+assert_eq "normalize_os Darwin -> darwin" darwin "$(normalize_os Darwin)"
 if normalize_os MINGW64_NT >/dev/null 2>&1; then bad "normalize_os windows rejected"; else ok "normalize_os windows rejected"; fi
+assert_eq "resolve_bindir default" "$HOME/.local/bin" "$(BINDIR='' JAM_SYSTEM='' resolve_bindir)"
+assert_eq "resolve_bindir JAM_SYSTEM=1" /usr/local/bin "$(BINDIR='' JAM_SYSTEM=1 resolve_bindir)"
+assert_eq "resolve_bindir BINDIR wins" /opt/bin "$(BINDIR=/opt/bin JAM_SYSTEM=1 resolve_bindir)"
+assert_eq "resolve_bindir ignores COVE_SYSTEM" "$HOME/.local/bin" "$(BINDIR='' JAM_SYSTEM='' COVE_SYSTEM=1 resolve_bindir)"
+vc="$WORK/vc"; mkdir -p "$vc"; echo hello >"$vc/jam_x.tar.gz"
+printf '%s  %s\n' "$(sha_of "$vc/jam_x.tar.gz")" jam_x.tar.gz >"$vc/checksums.txt"
+if (cd "$vc" && verify_checksum jam_x.tar.gz checksums.txt); then ok "verify_checksum good"; else bad "verify_checksum good"; fi
+echo tampered >>"$vc/jam_x.tar.gz"
+if (cd "$vc" && verify_checksum jam_x.tar.gz checksums.txt 2>/dev/null); then bad "verify_checksum tamper"; else ok "verify_checksum tamper -> abort"; fi
 
-# resolve_bindir precedence: BINDIR > COVE_SYSTEM > ~/.local/bin default
-assert_eq "resolve_bindir default" "$HOME/.local/bin" "$(BINDIR='' COVE_SYSTEM='' resolve_bindir)"
-assert_eq "resolve_bindir COVE_SYSTEM=1" "/usr/local/bin" "$(BINDIR='' COVE_SYSTEM=1 resolve_bindir)"
-assert_eq "resolve_bindir BINDIR wins" "/opt/bin" "$(BINDIR=/opt/bin COVE_SYSTEM=1 resolve_bindir)"
-
-# verify_checksum: good passes, tampered fails
-vc="$WORK/vc"
-mkdir -p "$vc"
-echo hello >"$vc/cove_x.tar.gz"
-printf '%s  %s\n' "$(sha_of "$vc/cove_x.tar.gz")" "cove_x.tar.gz" >"$vc/checksums.txt"
-if (cd "$vc" && verify_checksum cove_x.tar.gz checksums.txt); then ok "verify_checksum good"; else bad "verify_checksum good"; fi
-echo tampered >>"$vc/cove_x.tar.gz"
-if (cd "$vc" && verify_checksum cove_x.tar.gz checksums.txt 2>/dev/null); then bad "verify_checksum tamper -> abort"; else ok "verify_checksum tamper -> abort"; fi
-
-echo "== e2e: gh path installs every binary =="
+echo "== e2e: installs exactly jam =="
 BIN1="$WORK/bin1"
-out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN1" run_install 2>&1)" && rc=0 || rc=$?
-if [ "$rc" = 0 ]; then ok "install exit 0"; else bad "install exit 0" "rc=$rc" "$out"; fi
-if [ -x "$BIN1/at-mint" ]; then ok "at-mint installed + executable"; else bad "at-mint installed + executable" "$out"; fi
-if [ -x "$BIN1/at-jam" ]; then ok "at-jam installed + executable"; else bad "at-jam installed + executable" "$out"; fi
-if [ -e "$BIN1/at-cove" ]; then bad "at-cove tombstone NOT installed"; else ok "at-cove tombstone NOT installed"; fi
-if [ -e "$BIN1/at-task" ]; then bad "at-task NOT installed"; else ok "at-task NOT installed"; fi
+out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN1" run_install 2>&1)" && rc=0 || rc=$?
+assert_eq "install exit 0" 0 "$rc"
+if [ -x "$BIN1/jam" ]; then ok "jam installed + executable"; else bad "jam installed + executable" "$out"; fi
+for b in at-jam at-mint at-cove; do
+  if [ -e "$BIN1/$b" ]; then bad "$b NOT installed"; else ok "$b NOT installed"; fi
+done
+if grep -q "jam_${FIXTURE_VERSION}_linux_amd64.tar.gz" "$PATTERN_LOG"; then ok "requested the jam_ archive"; else bad "requested the jam_ archive" "$(cat "$PATTERN_LOG")"; fi
+case "$out" in *"pre-rename binaries"*) bad "no stale notice on a clean dir" "$out" ;; *) ok "no stale notice on a clean dir" ;; esac
 
-echo "== e2e: a pre-at-jam release still installs =="
-BIN0="$WORK/bin0"
-out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$PRE_JAM_VERSION" BINDIR="$BIN0" run_install 2>&1)" && rc=0 || rc=$?
-if [ "$rc" = 0 ] && [ -x "$BIN0/at-mint" ]; then ok "pre-at-jam release installs"; else bad "pre-at-jam release installs" "rc=$rc" "$out"; fi
-if [ -e "$BIN0/at-jam" ]; then bad "pre-at-jam release installs no at-jam"; else ok "pre-at-jam release installs no at-jam"; fi
+echo "== e2e: stale pre-rename binaries are noticed, never touched =="
+BIN2="$WORK/bin2"; mkdir -p "$BIN2"
+printf 'old-at-jam\n' >"$BIN2/at-jam"; printf 'old-at-mint\n' >"$BIN2/at-mint"
+out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN2" run_install 2>&1)" && rc=0 || rc=$?
+assert_eq "install with stale binaries exit 0" 0 "$rc"
+case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint"*"renamed-from-at.md"*) ok "stale notice names them and the runbook" ;; *) bad "stale notice" "$out" ;; esac
+assert_eq "stale at-jam untouched" old-at-jam "$(cat "$BIN2/at-jam")"
+assert_eq "stale at-mint untouched" old-at-mint "$(cat "$BIN2/at-mint")"
 
-echo "== e2e: arch mapping picks darwin_arm64 asset =="
+echo "== e2e: arch mapping and latest resolution =="
 : >"$PATTERN_LOG"
-BIN2="$WORK/bin2"
-UNAME_S=Darwin UNAME_M=arm64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN2" run_install >/dev/null 2>&1 || true
-if grep -q "cove_${FIXTURE_VERSION}_darwin_arm64.tar.gz" "$PATTERN_LOG"; then ok "requested darwin_arm64 archive"; else bad "requested darwin_arm64 archive" "patterns: $(cat "$PATTERN_LOG")"; fi
+UNAME_S=Darwin UNAME_M=arm64 JAM_VERSION="$FIXTURE_VERSION" BINDIR="$WORK/bin3" run_install >/dev/null 2>&1 || true
+if grep -q "jam_${FIXTURE_VERSION}_darwin_arm64.tar.gz" "$PATTERN_LOG"; then ok "requested darwin_arm64"; else bad "requested darwin_arm64"; fi
+BINDIR="$WORK/bin4" run_install >/dev/null 2>&1 || true
+if [ -x "$WORK/bin4/jam" ]; then ok "latest resolves + installs"; else bad "latest resolves + installs"; fi
 
-echo "== e2e: latest-version resolution via gh =="
-BIN3="$WORK/bin3"
-UNAME_S=Linux UNAME_M=x86_64 BINDIR="$BIN3" run_install >/dev/null 2>&1 || true
-if [ -x "$BIN3/at-jam" ]; then ok "latest resolves + installs"; else bad "latest resolves + installs"; fi
+echo "== compat: an old at-jam update against the jam release fails, changing nothing =="
+for LEGACY_SH in "${LEGACY_SHS[@]}"; do
+  L="$(basename "$LEGACY_SH" .sh)"
+  BIN5="$WORK/bin5-$L"; mkdir -p "$BIN5"
+  printf 'running-at-jam\n' >"$BIN5/at-jam"; printf 'running-at-mint\n' >"$BIN5/at-mint"
+  before="$(cd "$BIN5" && find . -mindepth 1 | sort | tr '\n' ' ')"
+  out="$(COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN5" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" != 0 ]; then ok "$L exits non-zero on a jam release"; else bad "$L exits non-zero on a jam release" "$out"; fi
+  assert_eq "$L leaves at-jam byte-identical" running-at-jam "$(cat "$BIN5/at-jam")"
+  assert_eq "$L leaves at-mint byte-identical" running-at-mint "$(cat "$BIN5/at-mint")"
+  assert_eq "$L adds no file" "$before" "$(cd "$BIN5" && find . -mindepth 1 | sort | tr '\n' ' ')"
+  # Control: the same legacy installer still works against a pre-rename release,
+  # so the failure above is the missing asset, not a broken harness.
+  BIN6="$WORK/bin6-$L"
+  out="$(COVE_VERSION="$OLD_VERSION" BINDIR="$BIN6" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
+  if [ "$rc" = 0 ] && [ -x "$BIN6/at-jam" ]; then ok "control: $L still installs a pre-rename release"; else bad "control: $L" "rc=$rc" "$out"; fi
+done
 
-echo "== compat: an older at-jam's embedded installer updates to this release =="
-# testdata/install-legacy.sh is install.sh as embedded in every pre-slice-2
-# at-jam (`at-jam update` runs it). It places at-cove unconditionally, so the
-# release must keep the at-cove tombstone for it to succeed.
-LEGACY_SH="$HERE/testdata/install-legacy.sh"
-BIN5="$WORK/bin5"
-out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN5" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
-if [ "$rc" = 0 ] && [ -x "$BIN5/at-jam" ] && [ -x "$BIN5/at-mint" ]; then ok "legacy installer updates at-jam + at-mint"; else bad "legacy installer updates at-jam + at-mint" "rc=$rc" "$out"; fi
-BIN6="$WORK/bin6"
-out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$NO_COVE_VERSION" BINDIR="$BIN6" PATH="$STUB_BIN:$PATH" bash "$LEGACY_SH" 2>&1)" && rc=0 || rc=$?
-if [ "$rc" != 0 ]; then ok "legacy installer needs the at-cove tombstone (fails without it)"; else bad "legacy installer needs the at-cove tombstone (fails without it)" "$out"; fi
-
-echo "== release: check-archive.sh guards the at-cove tombstone =="
-# release.yml runs scripts/release/check-archive.sh on goreleaser's archives (PR
-# and main); prove it accepts the real shape and rejects each broken one.
+echo "== release: check-archive.sh guards the jam archive shape =="
 CHECK_SH="$HERE/scripts/release/check-archive.sh"
-ca_case() { # ca_case <name> <want: ok|reject> <tombstone mode> <bins...>
+ca_case() { # ca_case <name> <want: ok|reject> <jam mode> <bins...>
   local name="$1" want="$2" mode="$3" d="$WORK/ca-$1"
   shift 3
   mkdir -p "$d/stage" "$d/dist"
-  cp "$HERE/scripts/release/at-cove" "$d/stage/at-cove"
-  [ "$name" = altered ] && echo "# altered" >>"$d/stage/at-cove"
-  chmod "$mode" "$d/stage/at-cove"
-  printf 'bin\n' >"$d/stage/at-mint"
-  printf 'bin\n' >"$d/stage/at-jam"
-  printf 'readme\n' >"$d/stage/README.md"
-  tar -C "$d/stage" -czf "$d/dist/cove_1-0101_linux_amd64.tar.gz" "$@"
+  for b in jam at-cove README.md; do printf 'x\n' >"$d/stage/$b"; done
+  chmod "$mode" "$d/stage/jam"
+  tar -C "$d/stage" -czf "$d/dist/jam_1-0101_linux_amd64.tar.gz" "$@"
   if bash "$CHECK_SH" "$d/dist" >/dev/null 2>&1; then got=ok; else got=reject; fi
   assert_eq "check-archive $name -> $want" "$want" "$got"
 }
-ca_case good ok 0755 at-cove at-mint at-jam
-ca_case missing reject 0755 at-mint at-jam
-ca_case mode reject 0644 at-cove at-mint at-jam
-ca_case altered reject 0755 at-cove at-mint at-jam
-ca_case extra reject 0755 at-cove at-mint at-jam README.md
+ca_case good ok 0755 jam
+ca_case mode reject 0644 jam
+ca_case tombstone reject 0755 jam at-cove
+ca_case extra reject 0755 jam README.md
 if bash "$CHECK_SH" "$WORK/no-such-dist" >/dev/null 2>&1; then bad "check-archive no archives -> reject"; else ok "check-archive no archives -> reject"; fi
 
 echo "== e2e: tampered checksum aborts, nothing installed =="
-BADREL="$WORK/badrelease"
-mkdir -p "$BADREL"
-cp "$RELEASE_DIR"/cove_"${FIXTURE_VERSION}"_linux_amd64.tar.gz "$BADREL/"
-# checksums that will NOT match the archive
-printf '%s  %s\n' "$(sha_of /dev/null)" "cove_${FIXTURE_VERSION}_linux_amd64.tar.gz" >"$BADREL/checksums.txt"
-# point the stub gh at the tampered release for this run
-cat >"$STUB_BIN/gh" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-sub="\${1:-}"; act="\${2:-}"
-if [ "\$sub" = auth ] && [ "\$act" = status ]; then exit 0; fi
-if [ "\$sub" = release ] && [ "\$act" = download ]; then
-  # Collect patterns, resolve --dir fully, THEN copy — --dir may follow --pattern.
-  dir=.; patterns=(); shift 2
-  while [ \$# -gt 0 ]; do
-    case "\$1" in
-      --dir|-D) dir="\$2"; shift 2;;
-      --pattern) patterns+=("\$2"); shift 2;;
-      --repo|-R) shift 2;;
-      *) shift;;
-    esac
-  done
-  mkdir -p "\$dir"
-  for p in "\${patterns[@]}"; do cp "$BADREL/\$p" "\$dir/" 2>/dev/null || true; done
-  exit 0
-fi
-exit 0
-EOF
-chmod +x "$STUB_BIN/gh"
-BIN4="$WORK/bin4"
-UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN4" run_install >/dev/null 2>&1 && rc=0 || rc=$?
+cp "$RELEASE_DIR/checksums.txt" "$WORK/checksums.good"
+printf '%s  %s\n' "$(sha_of /dev/null)" "jam_${FIXTURE_VERSION}_linux_amd64.tar.gz" >"$RELEASE_DIR/checksums.txt"
+JAM_VERSION="$FIXTURE_VERSION" BINDIR="$WORK/bin7" run_install >/dev/null 2>&1 && rc=0 || rc=$?
 if [ "$rc" != 0 ]; then ok "tamper aborts (nonzero exit)"; else bad "tamper aborts (nonzero exit)"; fi
-if [ -e "$BIN4/at-jam" ]; then bad "no binary installed on tamper"; else ok "no binary installed on tamper"; fi
+if [ -e "$WORK/bin7/jam" ]; then bad "no binary installed on tamper"; else ok "no binary installed on tamper"; fi
+cp "$WORK/checksums.good" "$RELEASE_DIR/checksums.txt"
 
 echo
 echo "-------- $pass passed, $fail failed --------"

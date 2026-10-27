@@ -6,20 +6,20 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# build for the current host into dist/<os>-<arch>/{at-mint,at-jam} (host-sensitive)
+# build for the current host into dist/<os>-<arch>/jam (host-sensitive)
 build:
     ./scripts/build.sh
 
-# cross-compile every supported target into dist/<os>-<arch>/{at-mint,at-jam}
+# cross-compile every supported target into dist/<os>-<arch>/jam
 build-all:
     ./scripts/build.sh all
 
-# Run the at-jam binary, forwarding ARGS (uses the last `just build` output —
+# Run the jam binary, forwarding ARGS (uses the last `just build` output —
 # run `just build` first). e.g. `just jam destination list`  or  `just jam version`
 jam *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam" {{ARGS}}
 
-# install the host binaries (at-mint, at-jam) onto your PATH.
+# install the host binary (jam) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
 install: build
@@ -29,12 +29,12 @@ install: build
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
     plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    for b in at-mint at-jam; do
+    for b in jam; do
       install -m 0755 "dist/$plat/$b" "$bin/$b"
       echo "installed dist/$plat/$b -> $bin/$b"
     done
-    if command -v at-jam >/dev/null 2>&1; then
-      echo "on PATH: $(command -v at-jam) ($(at-jam version))"
+    if command -v jam >/dev/null 2>&1; then
+      echo "on PATH: $(command -v jam) ($(jam version))"
     else
       echo "warning: $bin is not on your PATH — add it or use BINDIR=/usr/local/bin"
     fi
@@ -88,15 +88,15 @@ dev-up:
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 
-# Run at-jam serve against the local dev config (uses the last `just build`
+# Run jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
 # wildcard :443 without root; on Linux, sudo the built binary directly for that.
 dev-serve *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam" serve --config dev/jam.dev.yml {{ARGS}}
 
 # Config in .air.toml; needs a plain-HTTP admin listener (no admin-tls). Runs
 # Jam as you (macOS wildcard :443 bind); JAM_WATCH_SUDO=1 uses sudo. See dev/README.md.
-# live-reload at-jam serve (air): rebuild+restart on change, browse http://localhost:8090
+# live-reload jam serve (air): rebuild+restart on change, browse http://localhost:8090
 dev-watch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -112,18 +112,18 @@ dev-watch:
 test:
     go test ./...
 
-# build the whiteboard editor bundle at-jam embeds (needs Node/npm; see
+# build the whiteboard editor bundle jam embeds (needs Node/npm; see
 # scripts/whiteboard.sh). `just build` runs it when npm is available.
 whiteboard:
     ./scripts/whiteboard.sh
 
-# build the Jam app bundle at-jam embeds at /app/next/ (needs Node/npm; see
+# build the Jam app bundle jam embeds at /app/next/ (needs Node/npm; see
 # scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
 app:
     ./scripts/app.sh
 
 # the Jam app's dev server (hot reload) proxying the API to a running
-# `at-jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/next/
+# `jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/next/
 app-dev:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
 
@@ -149,7 +149,7 @@ integration:
 # (skips without sshd), kit git sources end to end (skips without git), + the
 # jam packages' tagged tests
 integration-jam:
-    go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
+    go test -tags integration ./cmd/jam/... ./internal/jam/... ./internal/allocator/...
 
 # Discord live check: a real Discord REST round-trip through internal/discord
 # (DISCORD_IT_TOKEN + DISCORD_IT_CHANNEL); skips if they are unset.

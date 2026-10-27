@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# FROZEN FIXTURE — do not edit. This is install.sh exactly as it shipped before
-# jam-only slice 2: the copy embedded in every older at-jam, which `at-jam
-# update` runs. install.test.sh drives it against a current-shaped release to
-# prove an older at-jam can still update (it installs at-cove unconditionally,
-# hence the at-cove tombstone in the release archive). Delete in slice 3.
-# install.sh — one-command installer for at-cove (and its siblings at-mint and at-jam).
+# FROZEN FIXTURE — do not edit. This is install.sh exactly as it shipped after
+# jam-only slice 2 (main before the jam rename): the copy embedded in every
+# at-jam in the field, which `at-jam update` runs. install.test.sh drives it
+# against a jam release to prove an old updater fails before touching anything.
+# install.sh — one-command installer for the cove host binaries: at-jam and at-mint.
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -15,8 +14,9 @@
 #
 # It pulls a prebuilt release archive (cove_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `at-cove` + `at-mint` + `at-jam` onto your PATH.
-# `at-task` is embedded inside `at-cove`, so it is not installed separately.
+# release's checksums.txt, and drops `at-mint` + `at-jam` onto your PATH. The
+# archive also carries an `at-cove` tombstone (scripts/release/at-cove) for older
+# installers; this one does not install it.
 #
 # Env knobs:
 #   COVE_VERSION=<N>-<MMDD>   pin a release (default: latest)
@@ -191,7 +191,7 @@ main() {
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
   local b installed=()
-  for b in at-cove at-mint at-jam; do
+  for b in at-mint at-jam; do
     # at-jam joined the archive later: a pinned older release lacks it.
     if [ "$b" = at-jam ] && [ ! -f "$tmp/extract/$b" ]; then continue; fi
     place "$tmp/extract/$b" "$bindir"
@@ -200,8 +200,8 @@ main() {
   info "installed ${installed[*]} -> $bindir"
 
   path_check "$bindir"
-  if command -v "$bindir/at-cove" >/dev/null 2>&1; then
-    info "$("$bindir/at-cove" version 2>/dev/null || echo "at-cove $version")"
+  if command -v "$bindir/at-jam" >/dev/null 2>&1; then
+    info "$("$bindir/at-jam" version 2>/dev/null || echo "at-jam $version")"
   fi
 }
 

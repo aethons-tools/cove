@@ -414,7 +414,7 @@ func TestDialBackIDEPortStartsIDE(t *testing.T) {
 	}
 }
 
-// When Run returns, the IDE is closed: no code-server outlives cove-master.
+// When Run returns, the IDE is closed: no code-server outlives jam-studio-agent.
 func TestRunClosesIDE(t *testing.T) {
 	f := &scriptRuntime{opened: make(chan string, 1)}
 	ide := &recIDE{released: make(chan struct{})}

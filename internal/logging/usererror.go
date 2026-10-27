@@ -11,6 +11,6 @@ func (l *Logger) UserError(ctx context.Context, err error, attrs ...slog.Attr) {
 		l.sink.LogAttrs(ctx, slog.LevelError, err.Error(), attrs...)
 		return
 	}
-	fmt.Fprintf(l.human, "at-cove: %s\n", err.Error())
+	fmt.Fprintf(l.human, "jam: %s\n", err.Error())
 	l.Logger.LogAttrs(ctx, slog.LevelError, err.Error(), append(attrs, slog.Bool(userShownKey, true))...)
 }

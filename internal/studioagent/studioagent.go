@@ -1,5 +1,5 @@
 // Package studioagent is the in-cove client of Jam's Attach stream — the first
-// limb of cove-master, the cove's primary process. It dials Jam's runtime
+// limb of jam-studio-agent, the cove's primary process. It dials Jam's runtime
 // listener, authenticates with the cove's identity token + per-instance launch
 // secret, reports activity up and reacts to control down, reconnecting across
 // transient drops. It depends only on the generated attachpb types + grpc, never
@@ -120,7 +120,7 @@ type Handle interface {
 	GateResult(GateResult)
 }
 
-// Workload is what cove-master supervises (the agent, in a later slice).
+// Workload is what jam-studio-agent supervises (the agent, in a later slice).
 type Workload interface {
 	// Run does the work, reporting activity via h, until it completes (return
 	// nil → the client reports Done and exits) or ctx is cancelled (a Teardown,

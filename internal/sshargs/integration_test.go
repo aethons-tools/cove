@@ -4,7 +4,7 @@
 // loopback — no Docker, no network egress, no VM. They validate what the
 // hermetic argv tests cannot: that Base actually drives OpenSSH and that
 // known_hosts TOFU (accept-new) pins the host key. Moved here from
-// internal/connect when at-cove's connect flow was deleted (jam-only slice 2).
+// internal/connect when the sandbox connect flow was deleted (jam-only slice 2).
 //
 // Run with:
 //

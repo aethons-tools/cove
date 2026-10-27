@@ -9,7 +9,7 @@ import (
 )
 
 // TestHasSysboxRuntime pins the shared probe the launcher's preflight and
-// `at-jam colima check-docker` both use: present, absent, unreachable, garbage.
+// `jam colima check-docker` both use: present, absent, unreachable, garbage.
 func TestHasSysboxRuntime(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -46,7 +46,7 @@ func TestHasSysboxRuntime(t *testing.T) {
 func TestRequireSysboxRuntimeNamesSetupCommand(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
 	err := (&Colima{r: f}).requireSysboxRuntime()
-	if err == nil || !strings.Contains(err.Error(), "at-jam colima setup-docker") || !strings.Contains(err.Error(), "docs/usage/docker-in-sandbox.md") {
+	if err == nil || !strings.Contains(err.Error(), "jam colima setup-docker") || !strings.Contains(err.Error(), "docs/usage/docker-in-sandbox.md") {
 		t.Fatalf("err = %v", err)
 	}
 }

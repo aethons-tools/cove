@@ -97,7 +97,7 @@ func TestExecSpawnerStdoutOnlyToProvidedWriter(t *testing.T) {
 	}
 }
 
-// With a writer provided, the child's stdout must NOT also reach cove-master's
+// With a writer provided, the child's stdout must NOT also reach jam-studio-agent's
 // own stdout (jam-studio-agent.log is Jam-visible; agent output must stay out of it).
 func TestExecSpawnerDoesNotEchoToOsStdout(t *testing.T) {
 	needSh(t)

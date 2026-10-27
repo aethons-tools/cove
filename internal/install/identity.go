@@ -1,5 +1,5 @@
 // Package install computes the assembly identity: the digest of the sealed
-// hardening layer, harness payload and embedded cove-master that keys every
+// hardening layer, harness payload and embedded jam-studio-agent that keys every
 // studio image tag (AssemblyIdentity).
 package install
 
@@ -63,7 +63,7 @@ func HashTree(fsys fs.FS) (string, error) {
 // var so a test can swap it).
 var harnessBaseline = harnessinstall.BaselineSettings
 
-// studioAgentFS is the embedded cove-master binaries (a var so a test can swap
+// studioAgentFS is the embedded jam-studio-agent binaries (a var so a test can swap
 // them).
 var studioAgentFS = studioagentbin.BinFS
 
@@ -71,7 +71,7 @@ var studioAgentFS = studioagentbin.BinFS
 // hardening layer (and assemble.Revision), the harness layer's payload (its
 // scripts and the managed settings' sandbox policy) and its rendered baseline
 // preferences — NOT any install's version/plugins, which are per-image (the
-// studio build-digest) — and the embedded cove-master binaries. An upgrade that
+// studio build-digest) — and the embedded jam-studio-agent binaries. An upgrade that
 // changes any of these flips the digest, so every studio image tag changes
 // (internal/jam/launcher asm.go keys the tag on it).
 func AssemblyIdentity() (string, error) {
@@ -99,7 +99,7 @@ func AssemblyIdentity() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	writeField(h, []byte("covemaster"))
+	writeField(h, []byte("studioagent"))
 	writeField(h, []byte(cm))
 
 	return hex.EncodeToString(h.Sum(nil)), nil

@@ -48,8 +48,8 @@ func TestHashTreeDeterministicAndContentSensitive(t *testing.T) {
 	}
 }
 
-// The embedded cove-master binaries (COV-158) are hashed into the identity: a
-// cove-master rebuild must flip it, so every studio image is retagged.
+// The embedded jam-studio-agent binaries (COV-158) are hashed into the identity: a
+// jam-studio-agent rebuild must flip it, so every studio image is retagged.
 func TestAssemblyIdentityIncludesStudioAgent(t *testing.T) {
 	id, err := AssemblyIdentity()
 	if err != nil {
@@ -58,11 +58,11 @@ func TestAssemblyIdentityIncludesStudioAgent(t *testing.T) {
 	orig := studioAgentFS
 	t.Cleanup(func() { studioAgentFS = orig })
 	studioAgentFS = func() fs.FS {
-		return fstest.MapFS{"bin/cove-master-linux-amd64": {Data: []byte("rebuilt")}}
+		return fstest.MapFS{"bin/jam-studio-agent-linux-amd64": {Data: []byte("rebuilt")}}
 	}
 	other, err := AssemblyIdentity()
 	if err != nil || other == id {
-		t.Fatalf("a cove-master change must change the identity (err %v)", err)
+		t.Fatalf("a jam-studio-agent change must change the identity (err %v)", err)
 	}
 }
 

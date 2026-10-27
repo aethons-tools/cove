@@ -1,4 +1,4 @@
-# The sealed hardening layer. It builds FROM the HARNESS LAYER, the stage at-cove
+# The sealed hardening layer. It builds FROM the HARNESS LAYER, the stage jam
 # assemble generates from the model-spec and prepends to this file
 # (internal/harnessinstall): `ARG BASE` + `FROM ${BASE} AS harness` installs the
 # agent CLI at its exact version + its plugins on the kit-built base. So the
@@ -15,17 +15,17 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
-# Install the embedded, version-locked cove-master that at-jam's launcher staged
+# Install the embedded, version-locked jam-studio-agent that jam's launcher staged
 # into the build context (COV-158). Install only when the arch binary is
 # non-empty; a plain `go build` stages a 0-byte placeholder, in which case
-# cove-master is simply absent and a managed raise fails clearly at launch —
+# jam-studio-agent is simply absent and a managed raise fails clearly at launch —
 # there is no base-image fallback.
-COPY covemaster/ /tmp/covemaster/
+COPY studioagent/ /tmp/studioagent/
 RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/covemaster/cove-master-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/covemaster/cove-master-linux-${arch}" /usr/local/bin/cove-master; \
+ && if [ -s "/tmp/studioagent/jam-studio-agent-linux-${arch}" ]; then \
+      install -m 0755 "/tmp/studioagent/jam-studio-agent-linux-${arch}" /usr/local/bin/jam-studio-agent; \
     fi \
- && rm -rf /tmp/covemaster
+ && rm -rf /tmp/studioagent
 
 COPY image-files/. /.
 # `COPY image-files/. /.` carries home/agent/ directory entries (for the

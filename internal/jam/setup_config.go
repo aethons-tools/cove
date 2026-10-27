@@ -15,7 +15,7 @@ import (
 )
 
 // IntercomTools are the tools the guaranteed intercom MCP server
-// (`cove-master mcp`) offers every session, sorted. cmd/cove-master pins it
+// (`jam-studio-agent mcp`) offers every session, sorted. cmd/jam-studio-agent pins it
 // (TestIntercomToolsMatchJam).
 var IntercomTools = []string{"alarm_clear", "alarm_list", "alarm_set", "amend", "ask", "asks", "board_apply", "board_create",
 	"board_read", "board_snapshot", "boards", "call_in", "commit", "end", "escalate", "expose", "exposures", "fetch",
@@ -174,7 +174,7 @@ func mcpBody(servers map[string]kit.MCPServer, kitKnown bool) string {
 		}
 		writeTable(&sb, []string{"  NAME", "TYPE", "URL/COMMAND", "HEADERS"}, rows)
 	}
-	fmt.Fprintf(&sb, "intercom (cove-master mcp, always loaded): %s\n", strings.Join(IntercomTools, ", "))
+	fmt.Fprintf(&sb, "intercom (jam-studio-agent mcp, always loaded): %s\n", strings.Join(IntercomTools, ", "))
 	return sb.String()
 }
 

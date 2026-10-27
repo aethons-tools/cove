@@ -314,7 +314,7 @@ func TestLoadKitsHintsConfigWriteForOldContextField(t *testing.T) {
 		"kits/files/kit.yml":          "kind: studio\nbase:\n  context-files: {dockerfile: x}\n",
 		"kits/bad/kit.yml":            "kind: studio\nworkers: {}\n",
 	})
-	const hint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+	const hint = "; a config repo written by an older Jam: run jam config write <repo> and commit"
 	tr, _ := LoadConfigTree(root)
 	joined := strings.Join(tr.Refusals, "\n")
 	for _, want := range []string{

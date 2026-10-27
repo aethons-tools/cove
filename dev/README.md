@@ -4,7 +4,7 @@ Assets for running a local dev instance of Jam.
 
 - **`docker-compose.yml`** — a local PostgreSQL 18 and Garage (the attachments blob store) for Jam.
 - **`garage.toml`** — Garage's dev config.
-- **`jam.dev.yml`** — a sample `at-jam serve` config wired to both.
+- **`jam.dev.yml`** — a sample `jam serve` config wired to both.
 
 ## Postgres
 
@@ -54,7 +54,7 @@ aws --endpoint-url http://localhost:13900 s3 ls s3://jam-attachments/blobs/
 
 or `docker compose -f dev/docker-compose.yml exec garage /garage bucket info jam-attachments`.
 
-## Running `at-jam serve`
+## Running `jam serve`
 
 `jam.dev.yml` is a ready-to-edit dev serve config pointed at the Postgres
 above, with an inline dev DB password and loopback admin API. The broker
@@ -66,11 +66,11 @@ self-signed cert for that name (`just dev-cert`, written to the gitignored
 ```sh
 just dev-cert          # writes dev/tls/{cert,key}.pem (CN=jam.local.aethons.tools)
 just dev-up
-just build             # (re)build dist/<os>-<arch>/at-jam
-just dev-serve         # runs the built at-jam serve --config dev/jam.dev.yml
+just build             # (re)build dist/<os>-<arch>/jam
+just dev-serve         # runs the built jam serve --config dev/jam.dev.yml
 ```
 
-`just dev-serve` runs the **last-built** `dist/<os>-<arch>/at-jam` (run `just
+`just dev-serve` runs the **last-built** `dist/<os>-<arch>/jam` (run `just
 build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
 --config path/to/other.yml`). For arbitrary subcommands there is also `just
 jam …` (e.g. `just jam destination list`). On macOS the wildcard
@@ -81,7 +81,7 @@ privileged port needs root — run the built binary under `sudo` directly for th
 
 `just dev-watch` runs [air](https://github.com/air-verse/air) (version pinned in
 the recipe, fetched with `go run`; config in `../.air.toml`). It rebuilds
-`at-jam` and restarts `serve` whenever a `.go`, `.html`, `.js` or `.css` file
+`jam` and restarts `serve` whenever a `.go`, `.html`, `.js` or `.css` file
 changes. Templates and htmx are `go:embed`ed, so UI edits rebuild too. Browse
 **`http://localhost:8090`** (`/me/`, `/ui/`): air's proxy fronts the admin
 listener and reloads the page after each restart.
@@ -104,8 +104,8 @@ listener and reloads the page after each restart.
 - **Skip login entirely with `dev-identity`** (recommended for UI work). Set
   `dev-identity: {user: <name>}` in `jam.dev.yml`, and loopback requests to
   `/ui` and `/me` act as that user, with no IdP and no callbacks. The user
-  needs a login (`at-jam user login`, for `/ui` actions like Request), an OIDC
-  identity (`at-jam user oidc`, for `/me`) and a project membership. See
+  needs a login (`jam user login`, for `/ui` actions like Request), an OIDC
+  identity (`jam user oidc`, for `/me`) and a project membership. See
   `dev-identity` in
   [serve.md](../docs/usage/jam/serve.md).
 - **Real `/me` login through the proxy** also works, but the OIDC redirect URI

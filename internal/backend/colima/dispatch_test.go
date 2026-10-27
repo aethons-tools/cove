@@ -12,7 +12,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
-	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 		t.Fatalf("instance = %+v", inst)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.work", "--init", "-p 127.0.0.1::2222", "img:tag"} {
+	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label jam.work", "--init", "-p 127.0.0.1::2222", "img:tag"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -42,14 +42,14 @@ func TestRunEphemeralDNS(t *testing.T) {
 	c := NewWithContext(f, "")
 	// Jam add-hosts render as --add-host h:host-gateway (COV-138)
 	fh := &runner.Fake{}
-	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, []string{"jam.local"}, false); err != nil {
+	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, []string{"jam.local"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local:host-gateway") {
 		t.Fatalf("ephemeral run must map the Jam host:\n%s", got)
 	}
 
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -66,7 +66,7 @@ func TestRunEphemeralDNS(t *testing.T) {
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "at-cove.work", nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "jam.work", nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 func TestRunEphemeralDocker(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, true); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, true); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -111,7 +111,7 @@ func TestRunEphemeralDocker(t *testing.T) {
 func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
 	c := NewWithContext(f, "")
-	_, err := c.RunEphemeral("img:tag", "", "disp-1", "at-cove.work", nil, nil, true)
+	_, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, true)
 	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") {
 		t.Fatalf("docker:true dispatch must fail actionably without sysbox-runc; err=%v", err)
 	}

@@ -45,7 +45,7 @@ func writeContext(dir string, b sessionctx.Bundle) error {
 			return err
 		}
 	}
-	// A pre-symlink plain directory (older cove-master) is removed once.
+	// A pre-symlink plain directory (older jam-studio-agent) is removed once.
 	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&os.ModeSymlink == 0 {
 		if err := os.RemoveAll(dir); err != nil {
 			return err

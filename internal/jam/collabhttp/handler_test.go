@@ -231,7 +231,7 @@ func TestCertEndpointRefusals(t *testing.T) {
 			if got := rec.Header().Get("WWW-Authenticate"); got != `Bearer error="invalid_token"` {
 				t.Errorf("WWW-Authenticate %q", got)
 			}
-			if !strings.Contains(rec.Body.String(), "at-jam login --participant") {
+			if !strings.Contains(rec.Body.String(), "jam login --participant") {
 				t.Errorf("no sign-in hint: %q", rec.Body)
 			}
 		}

@@ -3,7 +3,7 @@
 #
 # Supplies an HTTPS git token from the session environment, memory-only — the
 # token is never written to disk (no `store`). GitHub (github.com) authenticates
-# with GITHUB_TOKEN; the kit's GitLab host (GITLAB_HOST, defaulted by at-cove for a
+# with GITHUB_TOKEN; the kit's GitLab host (GITLAB_HOST, defaulted by jam for a
 # gitlab source-control kit) authenticates with GITLAB_TOKEN. Declare the matching
 # token as a collaborator secret in the kit's config.yml; cove injects it into the
 # connect session env, and git (run inside that session) invokes this helper for the

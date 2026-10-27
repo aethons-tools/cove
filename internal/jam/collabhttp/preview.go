@@ -44,7 +44,7 @@ const (
 	labelRebuildEvery = time.Second
 	labelMissTTL      = 2 * time.Second
 	labelMissMax      = 4096
-	// ideOpenTimeout bounds opening a tunnel for the ide preview: cove-master
+	// ideOpenTimeout bounds opening a tunnel for the ide preview: jam-studio-agent
 	// may first start the built-in IDE (up to 15 s), so it is longer than
 	// openTimeout.
 	ideOpenTimeout = 30 * time.Second
@@ -308,7 +308,7 @@ func (p *previewProxy) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, ErrInvalidToken):
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
-		http.Error(w, "invalid or expired token; sign in again (at-jam login)", http.StatusUnauthorized)
+		http.Error(w, "invalid or expired token; sign in again (jam login)", http.StatusUnauthorized)
 		return
 	case errors.Is(err, ErrUnbound):
 		p.iframeError(w, r, ErrUnbound.Error(), http.StatusForbidden)

@@ -50,7 +50,7 @@ func managedFollowersToPin(store jam.Store, kit string) []string {
 // configFiles lists the config-repo paths a drifting publish changed, paths
 // only: when kit is managed, kits/<kit>/<path> for each file that differs
 // from version prev (current before the publish); and kits/<f>/kit.yml for
-// each managed follower pinned. `at-jam config write <repo>` renders them.
+// each managed follower pinned. `jam config write <repo>` renders them.
 func configFiles(store jam.Store, kit string, prev int, res jam.KitDraftPublish) []configFile {
 	var out []configFile
 	if jam.KitManaged(store, kit) {

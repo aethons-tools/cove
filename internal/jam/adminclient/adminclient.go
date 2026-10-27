@@ -1,5 +1,5 @@
 // Package adminclient is a typed HTTP client for Jam's loopback admin API.
-// Kept dependency-light so a future at-jamctl can reuse it; today it imports
+// Kept dependency-light so a future jamctl can reuse it; today it imports
 // internal/jam only for the wire types (Jam is stdlib-only).
 package adminclient
 
@@ -157,7 +157,7 @@ func (c *Client) sendHeaders(httpc *http.Client, method, path, contentType strin
 	}
 	resp, err := httpc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("admin API unreachable at %s (is `at-jam serve` running?): %w", c.base, err)
+		return nil, fmt.Errorf("admin API unreachable at %s (is `jam serve` running?): %w", c.base, err)
 	}
 	return resp.Header, finish(resp, method, path, out)
 }

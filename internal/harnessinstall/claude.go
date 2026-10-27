@@ -42,7 +42,7 @@ const ClaudeInstallerURL = "https://claude.ai/install.sh"
 //     sandbox-wide policy every claude session in the image gets — update
 //     control, remote control, the bypass-mode acceptance, disableAutoMode,
 //     and permissions.defaultMode bypassPermissions for interactive sessions
-//     (at-cove connect/chat run claude without the harness argv; a Jam cove's
+//     (a session started without the harness argv gets these; a Jam cove's
 //     --dangerously-skip-permissions / --permission-mode flag overrides it,
 //     COV-239). It lives here, not in the sealed hardening layer, because it
 //     is Claude-specific; the kit still cannot override it (the harness stage

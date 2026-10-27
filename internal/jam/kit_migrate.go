@@ -159,7 +159,7 @@ func kitMigrateConditions(store Store, t *condition.Tracker) {
 		t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
 			Summary: fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current),
 			Detail:  reason,
-			Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (at-jam kit pin)"})
+			Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (jam kit pin)"})
 	}
 	for _, key := range t.OpenKeys(KitMigrateKind) {
 		if !open[key] {

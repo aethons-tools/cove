@@ -16,7 +16,7 @@ func TestParseGitHub(t *testing.T) {
 		{"Acme-Co/board.go#1", "acme-co/board.go", 1, true}, // canonical: lowercased (F16)
 		{"a_b/c-d#999999", "a_b/c-d", 999999, true},
 		{"acme/board#007", "acme/board", 7, true},         // canonical: no leading zeros (F16)
-		{"#12", "", 0, false},                             // at-cove's bare form is not a Jam key
+		{"#12", "", 0, false},                             // a bare #N is not a Jam key
 		{"AET-42", "", 0, false},                          // a Linear key
 		{"acme/board#", "", 0, false},                     // no number
 		{"acme/board#0", "", 0, false},                    // issue numbers start at 1

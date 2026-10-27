@@ -3,7 +3,7 @@
 // (RoleAllocation.Standing). A declared name with no cove is granted and raised;
 // one whose cove died is raised again as the same session (the standing-session
 // map; a new declaration starts a new one), and resumes:
-// its /agent-data and workspace volumes survive and cove-master continues the
+// its /agent-data and workspace volumes survive and jam-studio-agent continues the
 // prior conversation (COV-249); a cove whose name is no longer declared, or
 // whose role is gone, is torn down. Persisted state is purged level-triggered:
 // every pass sweeps the state of names no longer declared (once no cove uses
@@ -13,7 +13,7 @@
 // prepares the image first, waits for the session to be idle, then tears it
 // down and raises it again. A name whose raise keeps failing backs off
 // exponentially. It lives outside internal/jam core (Jam must not import
-// it) and is wired from cmd/at-jam whenever Jam serves.
+// it) and is wired from cmd/jam whenever Jam serves.
 package standing
 
 import (

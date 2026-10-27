@@ -11,13 +11,20 @@
 
 # `go build ./cmd/<name>` output at the repo root
 /adopt-base
-/at-jam
-/at-mint
-/cove-master
+/jam
+/jam-studio-agent
 /gen-blessed
 
 # Per-command build outputs in cmd/*/
+/cmd/*/jam
+/cmd/*/jam-studio-agent
+
+# pre-rename local builds
+/at-jam
+/at-mint
+/cove-master
 /cmd/*/at-*
+/internal/covemasterbin/
 
 # Stale staged binaries from the removed at-task / at-switchboard
 /internal/attask/
@@ -27,7 +34,7 @@
 /deploy/monitoring/.local/
 
 # The whiteboard editor bundle, built by `just whiteboard` (scripts/whiteboard.sh)
-# and embedded by at-jam; only its placeholder is committed.
+# and embedded by jam; only its placeholder is committed.
 /internal/jam/uiassets/whiteboard/*
 /internal/jam/uiassets/whiteboard.tmp/
 !/internal/jam/uiassets/whiteboard/.keep

@@ -30,7 +30,7 @@
   {{if .Drift}}
   <div class="body" id="config-write">
     <h3>Write to config repo</h3>
-    <p>In your config repo checkout run <code>at-jam config write &lt;repo&gt;</code>, check <code>git diff</code>, and commit. Expect these files:</p>
+    <p>In your config repo checkout run <code>jam config write &lt;repo&gt;</code>, check <code>git diff</code>, and commit. Expect these files:</p>
     <ul class="mono">{{range .ConfigFiles}}<li data-change="{{.Change}}">{{.Path}} <span class="unset">{{.Change}}</span></li>{{end}}</ul>
   </div>
   {{end}}

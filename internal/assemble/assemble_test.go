@@ -46,7 +46,7 @@ func TestWriteStudioAgent_WritesArchFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
-		p := filepath.Join(dir, "covemaster", "cove-master-linux-"+arch)
+		p := filepath.Join(dir, "studioagent", "jam-studio-agent-linux-"+arch)
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("missing %s: %v", p, err)
 		}
@@ -110,7 +110,7 @@ func TestSquidConfReferencesKitFile(t *testing.T) {
 }
 
 // The sealed squid.conf must reference the per-session allow-list (COV-58 / COV-39
-// §4), so at-cove can widen a session's egress by rewriting that one file and
+// §4), so jam can widen a session's egress by rewriting that one file and
 // reconfiguring squid — additive on top of the sealed base + kit lists.
 func TestSquidConfReferencesSessionFile(t *testing.T) {
 	got := read(t, "hardening/image-files/etc/squid/squid.conf")
@@ -327,9 +327,46 @@ func TestAssembleContextHomeDirModes(t *testing.T) {
 	}
 }
 
+// Every COPY source in the assembled Dockerfile's sealed hardening layer exists
+// in the assembled build context: the dir writeStudioAgent stages is the one
+// the hardening Dockerfile copies (a mismatch fails every studio image build,
+// which no hermetic test would otherwise notice).
+func TestAssembleContextHasEveryHardeningCopySource(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	if err := AssembleContext(buildDir, []byte("k\n"), Egress{Policy: []string{"pkg.go.dev"}}, "", nil, harnessinstall.Default()); err != nil {
+		t.Fatal(err)
+	}
+	df := read(t, filepath.Join(buildDir, "Dockerfile"))
+	_, sealed, ok := strings.Cut(df, "# --- sealed hardening layer")
+	if !ok {
+		t.Fatal("assembled Dockerfile has no sealed hardening layer marker")
+	}
+	n := 0
+	for _, line := range strings.Split(sealed, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || f[0] != "COPY" || strings.HasPrefix(f[1], "--") {
+			continue
+		}
+		for _, src := range f[1 : len(f)-1] {
+			n++
+			if _, err := os.Stat(filepath.Join(buildDir, src)); err != nil {
+				t.Errorf("hardening %q: source %q is not in the build context: %v", line, src, err)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("found no COPY in the sealed hardening layer")
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		if _, err := os.Stat(filepath.Join(buildDir, "studioagent", "jam-studio-agent-linux-"+arch)); err != nil {
+			t.Errorf("jam-studio-agent %s not staged under the copied dir: %v", arch, err)
+		}
+	}
+}
+
 // The build context carries no at-switchboard or at-task: those binaries were
-// deleted with at-cove (jam-only slice 2), so neither their staging dirs nor any
-// Dockerfile stanza installing them may survive. cove-master is still staged,
+// deleted in jam-only slice 2, so neither their staging dirs nor any
+// Dockerfile stanza installing them may survive. jam-studio-agent is still staged,
 // and every sealed hardening step is still there, in order — only the two
 // stanzas are gone (the hardening layer is not weakened).
 func TestAssembleContextStagesOnlyStudioAgent(t *testing.T) {
@@ -343,8 +380,8 @@ func TestAssembleContextStagesOnlyStudioAgent(t *testing.T) {
 		}
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
-		if _, err := os.Stat(filepath.Join(buildDir, "covemaster", "cove-master-linux-"+arch)); err != nil {
-			t.Fatalf("cove-master %s not staged: %v", arch, err)
+		if _, err := os.Stat(filepath.Join(buildDir, "studioagent", "jam-studio-agent-linux-"+arch)); err != nil {
+			t.Fatalf("jam-studio-agent %s not staged: %v", arch, err)
 		}
 	}
 	df := read(t, filepath.Join(buildDir, "Dockerfile"))
@@ -357,7 +394,7 @@ func TestAssembleContextStagesOnlyStudioAgent(t *testing.T) {
 	for _, sealed := range []string{
 		"FROM harness",
 		"PermitRootLogin no",
-		"COPY covemaster/ /tmp/covemaster/",
+		"COPY studioagent/ /tmp/studioagent/",
 		"COPY image-files/. /.",
 		"systemctl enable jam-egress.service squid.service",
 		"/usr/local/lib/jam/apply-sshenv.sh",

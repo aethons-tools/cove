@@ -1,12 +1,11 @@
-// Package mint turns a usersecret minter profile into a runnable at-mint
+// Package mint turns a usersecret minter profile into a runnable `jam mint`
 // invocation: non-secret identifiers become flags, resolved secret material
-// becomes per-spec env (never argv). It is at-jam's usersecret.MintExpander.
+// becomes per-spec env (never argv). It is jam's usersecret.MintExpander.
 package mint
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/runner"
@@ -14,35 +13,32 @@ import (
 	"github.com/aethons-tools/cove/internal/usersecret"
 )
 
-// execPath is a seam over os.Executable so tests can point sibling resolution at
-// a temp dir (os.Executable is process-global). See atMintBinary.
+// execPath is a seam over os.Executable so tests can point self resolution at
+// a temp dir (os.Executable is process-global). See jamBinary.
 var execPath = os.Executable
 
-// atMintBinary resolves argv[0] for the minter invocation. at-jam and at-mint
-// are built and version-stamped together (scripts/build.sh emits both into the
-// same dist/<os>-<arch>/ dir), so a running at-jam prefers its OWN sibling
-// at-mint over whatever a bare-name PATH lookup would find. It returns the path
-// to an executable at-mint sitting beside the current executable, and falls back
-// to the bare name "at-mint" (PATH lookup, the prior behavior) when the sibling
-// can't be determined or doesn't exist — e.g. a released install where both
-// binaries are on PATH degrades gracefully.
-func atMintBinary() string {
+// jamBinary is argv[0] of a minter invocation: the running jam itself
+// (minting is its `mint` subcommand), else "jam" on PATH. After `jam update`
+// replaces the file under a running jam, Linux reports the path with a
+// " (deleted)" suffix; the path itself then holds the new jam, so the suffix is
+// dropped and the path used if it is still an executable file.
+func jamBinary() string {
 	self, err := execPath()
 	if err != nil {
-		return "at-mint"
+		return "jam"
 	}
-	sibling := filepath.Join(filepath.Dir(self), "at-mint")
+	self = strings.TrimSuffix(self, " (deleted)")
 	// linux/darwin only (per build.sh) — no .exe handling needed.
-	if info, err := os.Stat(sibling); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-		return sibling
+	if info, err := os.Stat(self); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		return self
 	}
-	return "at-mint"
+	return "jam"
 }
 
 // Expander returns a MintExpander bound to a host runner (for resolving a
 // profile's command/global-sourced secret fields), the store's global library,
 // and the target repo (owner/name) a github minter scopes its token to, passed
-// to `at-mint github` as the non-secret --repo flag. Jam passes "" (a github
+// to `jam mint github` as the non-secret --repo flag. Jam passes "" (a github
 // profile can't mint through mint:; docs/usage/jam/credentials.md#minters).
 func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string) usersecret.MintExpander {
 	return func(profileName string, m usersecret.Minter, demandName string) (secret.Spec, error) {
@@ -58,7 +54,7 @@ func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string
 }
 
 func githubSpec(r runner.Runner, globals map[string]usersecret.Source, name string, g *usersecret.GitHubMinter, repo string) (secret.Spec, error) {
-	argv := []string{atMintBinary(), "github", "--app-id", g.AppID, "--install-id", g.InstallID}
+	argv := []string{jamBinary(), "mint", "github", "--app-id", g.AppID, "--install-id", g.InstallID}
 	if repo != "" {
 		argv = append(argv, "--repo", repo) // the token's scope (non-secret)
 	}
@@ -87,7 +83,7 @@ func anthropicSpec(r runner.Runner, globals map[string]usersecret.Source, name s
 		return secret.Spec{}, fmt.Errorf("anthropic minter: only the auth0 IdP is supported")
 	}
 	argv := []string{
-		atMintBinary(), "anthropic",
+		jamBinary(), "mint", "anthropic",
 		"--auth0-tenant", z.Tenant,
 		"--auth0-client-id", z.ClientID,
 		"--auth0-audience", z.Audience,

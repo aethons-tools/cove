@@ -1,5 +1,5 @@
 // Package discord is Jam's Discord REST client: it polls, seeds and posts to a
-// fixed set of channels for the Discord relay (cmd/at-jam relay_discord.go).
+// fixed set of channels for the Discord relay (cmd/jam relay_discord.go).
 package discord
 
 // Message is one inbound Discord message. ID is the Discord snowflake, used as

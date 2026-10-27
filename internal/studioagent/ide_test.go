@@ -399,7 +399,7 @@ func TestIDEChildEnvDropsJamVars(t *testing.T) {
 	}
 	env := string(raw)
 	if strings.Contains(env, "JAM_TEST_SECRET") || strings.Contains(env, "JAM_WORKDIR") || strings.Contains(env, "s3cret") {
-		t.Errorf("code-server env leaks cove-master secrets:\n%s", env)
+		t.Errorf("code-server env leaks jam-studio-agent secrets:\n%s", env)
 	}
 	if !strings.Contains(env, "IDE_ENV_HARMLESS=ok") {
 		t.Errorf("harmless var missing from code-server env:\n%s", env)

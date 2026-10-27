@@ -56,7 +56,7 @@ type Server struct {
 var ackEvery = 250 * time.Millisecond
 
 // SetSessionEvents enables session-event ingest. Call before serving. Without
-// it, events are ignored (never acked) — at-jam always sets one, using a
+// it, events are ignored (never acked) — jam always sets one, using a
 // no-op store when storage is not configured.
 func (s *Server) SetSessionEvents(in *sessionevents.Ingest) { s.events = in }
 

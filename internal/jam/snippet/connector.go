@@ -25,7 +25,7 @@ import (
 // $JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
 //
 // For a cove, ModelSpec is its role's resolved model-spec (names only — never
-// a secret value): cove-master re-reads it with every connector refresh, so an
+// a secret value): jam-studio-agent re-reads it with every connector refresh, so an
 // edit takes effect at the cove's next episode. nil = none (a Jam predating
 // model-specs, or the default spec not seeded): the harness's built-in defaults.
 type Connector struct {
@@ -88,7 +88,7 @@ func (c Connector) Render(baseURL, token string) string {
 
 // GitConfig returns the token-free `git config --global` commands routing
 // github.com through the connector's git route, or "" when it routes no git.
-// The keys come from the builders execGit (cove-master's per-turn refresh) sets
+// The keys come from the builders execGit (jam-studio-agent's per-turn refresh) sets
 // via argv, so the two cannot drift; here the subsection is shell-quoted.
 func (c Connector) GitConfig(baseURL string) string {
 	if c.GitRoute == "" {
@@ -189,7 +189,7 @@ func FetchContext(ctx context.Context, hc *http.Client, baseURL, token string) (
 // delivered model-spec, never a token — a Connector holds none): sha256 of its
 // JSON, whose map keys encoding/json sorts, so it is order-independent; nil and
 // empty Env coincide (omitempty). A model-spec edit therefore shows the cove's
-// connector as stale until its next episode applies it. cove-master reports it after applying a connector and Jam compares
+// connector as stale until its next episode applies it. jam-studio-agent reports it after applying a connector and Jam compares
 // it with the role's current one, so both sides must use this function.
 func Fingerprint(c Connector) string {
 	b, _ := json.Marshal(c) // a validated spec's settings always marshal
@@ -198,7 +198,7 @@ func Fingerprint(c Connector) string {
 }
 
 // GitHelper is the git credential-helper value GitConfig installs, unquoted —
-// for callers that set it via argv (cove-master's per-turn git refresh).
+// for callers that set it via argv (jam-studio-agent's per-turn git refresh).
 func GitHelper() string { return gitHelperValue }
 
 func hostOf(baseURL string) string {

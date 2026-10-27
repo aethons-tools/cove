@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# whiteboard.sh — build the whiteboard editor bundle (Excalidraw) that at-jam
+# whiteboard.sh — build the whiteboard editor bundle (Excalidraw) that jam
 # embeds, into internal/jam/uiassets/whiteboard/ (git-ignored). Needs Node and
 # npm with access to the npm registry; the lockfile pins every package.
 #
-# Without the bundle at-jam still builds and works: /app/user hides New
+# Without the bundle jam still builds and works: /app/user hides New
 # whiteboard and board cards say the editor isn't built.
 #
 #   scripts/whiteboard.sh            # build (npm ci + esbuild)
@@ -13,7 +13,7 @@ cd "$(dirname "$0")/../web/whiteboard"
 
 if ! command -v npm >/dev/null 2>&1; then
   if [ "${WHITEBOARD_OPTIONAL:-}" = 1 ]; then
-    echo "whiteboard: npm not found; skipping the editor bundle (at-jam builds without it)" >&2
+    echo "whiteboard: npm not found; skipping the editor bundle (jam builds without it)" >&2
     exit 0
   fi
   echo "whiteboard: npm is required (install Node 20+), or set WHITEBOARD_OPTIONAL=1" >&2

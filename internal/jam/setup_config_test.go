@@ -53,7 +53,7 @@ func TestModelAndMCPBodies(t *testing.T) {
 		"docs":   {Type: "stdio", Command: "docs-mcp", Args: []string{"--key", "sk-live"}},
 		"search": {Type: "http", URL: "https://u:p@search.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${SEARCH_TOKEN}"}},
 	}, true)
-	for _, want := range []string{"docs", "docs-mcp (+2 args)", "https://search.example/mcp", "Authorization", "intercom (cove-master mcp, always loaded): alarm_clear,"} {
+	for _, want := range []string{"docs", "docs-mcp (+2 args)", "https://search.example/mcp", "Authorization", "intercom (jam-studio-agent mcp, always loaded): alarm_clear,"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}

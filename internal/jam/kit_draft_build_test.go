@@ -218,13 +218,13 @@ func TestDraftBuildRefusals(t *testing.T) {
 	wantErr(t, err, "no such kit", 404)
 	// A build arg named like a reserved secret is a problem: nothing builds.
 	log := slog.New(slog.DiscardHandler)
-	s, err := PutKitDraftFile(st, log, "app", "kit.yml", 0, []byte("kind: studio\nbuild-args:\n  AT_TASK_GIT_TOKEN: x\n"), etag, "local", draftNow)
+	s, err := PutKitDraftFile(st, log, "app", "kit.yml", 0, []byte("kind: studio\nbuild-args:\n  GOOGLE_APPLICATION_CREDENTIALS_JSON: x\n"), etag, "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = b.Start("app", s.ETag, "local")
 	if err == nil || WriteStatus(err, 500) != 400 || !strings.HasPrefix(err.Error(), "draft app has problems: ") ||
-		!strings.Contains(err.Error(), `build-arg "AT_TASK_GIT_TOKEN" is a reserved secret name`) {
+		!strings.Contains(err.Error(), `build-arg "GOOGLE_APPLICATION_CREDENTIALS_JSON" is a reserved secret name`) {
 		t.Fatalf("err = %v", err)
 	}
 	s, err = RemoveKitDraftFile(st, log, "app", "kit.yml", s.ETag, "local", draftNow)

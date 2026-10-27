@@ -67,7 +67,7 @@ func DeriveIndex(raw []byte) Index {
 // contextLine is what a raw line says about the agent's context window: the
 // size of the main thread's context after an assistant message, the window of
 // each model in a result, or that the context was reset (a compaction, or a
-// Clear/Compact press cove-master acted on).
+// Clear/Compact press jam-studio-agent acted on).
 type contextLine struct {
 	Tokens  int64            // > 0: a main-thread assistant message's context size
 	Model   string           // with Tokens: the model that answered

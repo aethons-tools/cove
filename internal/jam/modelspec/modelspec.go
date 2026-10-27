@@ -208,7 +208,7 @@ func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 // config.yml kit without a model-spec: block installs, and the install a raise
 // uses when no spec is delivered (harnessinstall.Default). Bumping it does NOT
 // change a claude-default already stored in a Jam — an operator moves that one
-// with `at-jam model-spec update` (or the admin UI).
+// with `jam model-spec update` (or the admin UI).
 //
 // renovate: datasource=npm depName=@anthropic-ai/claude-code
 const DefaultClaudeVersion = "2.1.310"

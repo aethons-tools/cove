@@ -1,9 +1,9 @@
-// Package update drives the embedded install.sh to update the on-PATH cove
-// binaries (at-mint, at-jam) to a GitHub release (COV-128). `at-jam update`
+// Package update drives the embedded install.sh to update the on-PATH jam
+// binary to a GitHub release (COV-128). `jam update`
 // calls Do. It deliberately *reuses* install.sh's
 // resolve → download → verify (checksums.txt) → replace flow rather than
 // reimplementing any of it in Go: the checksum verification the installer
-// performs is a security boundary, so `at-jam update` must never replace a
+// performs is a security boundary, so `jam update` must never replace a
 // binary by a path that skips it.
 //
 // The package splits a pure, testable plan (Target/UpToDate/Env — argv/env and
@@ -22,13 +22,13 @@ import (
 )
 
 // Target resolves the pinned release tag for an update: the --version flag wins,
-// else install.sh's own COVE_VERSION env knob. An empty result means "no pin —
+// else install.sh's own JAM_VERSION env knob. An empty result means "no pin —
 // resolve the latest release" (see ResolveLatest).
-func Target(versionFlag, coveVersionEnv string) string {
+func Target(versionFlag, pinEnv string) string {
 	if versionFlag != "" {
 		return versionFlag
 	}
-	return coveVersionEnv
+	return pinEnv
 }
 
 // UpToDate reports whether the running version already matches target, so the
@@ -40,16 +40,16 @@ func UpToDate(current, target string) bool {
 }
 
 // Env is the extra environment for the install.sh child. A non-empty target pins
-// COVE_VERSION so the exact release is fetched (and a resolved-latest install is
-// not re-resolved by the script). The other knobs — BINDIR, COVE_SYSTEM,
-// COVE_REPO — need no explicit entry: they are inherited from the process
+// JAM_VERSION so the exact release is fetched (and a resolved-latest install is
+// not re-resolved by the script). The other knobs — BINDIR, JAM_SYSTEM,
+// JAM_SYSTEM_BINDIR, JAM_REPO — need no explicit entry: they are inherited from the process
 // environment by the Runner, exactly as a direct `install.sh` invocation reads
 // them.
 func Env(target string) []string {
 	if target == "" {
 		return nil
 	}
-	return []string{"COVE_VERSION=" + target}
+	return []string{"JAM_VERSION=" + target}
 }
 
 // WriteScript materializes the embedded install.sh to a private temp file and
@@ -57,7 +57,7 @@ func Env(target string) []string {
 // can read the script we are about to run through bash); the returned cleanup
 // removes it and is safe to call more than once.
 func WriteScript(script []byte) (path string, cleanup func(), err error) {
-	f, err := os.CreateTemp("", "at-cove-install-*.sh")
+	f, err := os.CreateTemp("", "jam-install-*.sh")
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -76,15 +76,15 @@ func WriteScript(script []byte) (path string, cleanup func(), err error) {
 }
 
 // ResolveLatest returns the latest release tag by sourcing install.sh in lib
-// mode (COVE_INSTALL_LIB=1 suppresses its main) and calling the script's own
+// mode (JAM_INSTALL_LIB=1 suppresses its main) and calling the script's own
 // resolve_version — reusing the installer's resolution (gh-or-curl fork, private
 // repo aware) rather than reimplementing it in Go. It shells out via the Runner
 // and hits the network; keep it out of --dry-run paths.
 func ResolveLatest(r runner.Runner, scriptPath string) (string, error) {
 	// The script path rides as a positional ($1) rather than being interpolated
 	// into the -c program, so a path with shell metacharacters can never break
-	// out. COVE_REPO/COVE_VERSION flow through the inherited env, as in install.sh.
-	out, err := r.OutputEnv([]string{"COVE_INSTALL_LIB=1"}, "bash", "-c", `source "$1"; resolve_version`, "bash", scriptPath)
+	// out. JAM_REPO/JAM_VERSION flow through the inherited env, as in install.sh.
+	out, err := r.OutputEnv([]string{"JAM_INSTALL_LIB=1"}, "bash", "-c", `source "$1"; resolve_version`, "bash", scriptPath)
 	if err != nil {
 		return "", err
 	}
@@ -104,10 +104,10 @@ func Run(r runner.Runner, scriptPath string, env []string) error {
 
 // Options parameterizes Do for the calling binary.
 type Options struct {
-	Binary  string    // the updating binary's name, for user-facing lines (e.g. "at-jam")
+	Binary  string    // the updating binary's name, for user-facing lines (e.g. "jam")
 	Current string    // the running binary's version
 	Pin     string    // the --version flag ("" = unpinned)
-	CoveEnv string    // the COVE_VERSION env knob ("" = unset)
+	PinEnv  string    // the JAM_VERSION env knob ("" = unset)
 	DryRun  bool      // print the intent; resolve and replace nothing
 	Stdout  io.Writer // where progress lines go
 }
@@ -115,13 +115,13 @@ type Options struct {
 // Do updates the installation to a release by driving the embedded install.sh
 // (script) — resolve → download → verify checksums.txt → replace — never
 // reimplementing that flow in Go, and never fetching the script over the
-// network. The target is the pin, else COVE_VERSION, else the latest (resolved
+// network. The target is the pin, else JAM_VERSION, else the latest (resolved
 // via install.sh's own resolve_version). It no-ops when the running version
 // already matches the target. A dry run resolves nothing (no network) and
-// replaces nothing. install.sh's other knobs (BINDIR, COVE_SYSTEM, COVE_REPO)
+// replaces nothing. install.sh's other knobs (BINDIR, JAM_SYSTEM, JAM_SYSTEM_BINDIR, JAM_REPO)
 // flow through the inherited process env untouched.
 func Do(r runner.Runner, script []byte, o Options) error {
-	target := Target(o.Pin, o.CoveEnv)
+	target := Target(o.Pin, o.PinEnv)
 
 	// A pinned target we already run is a no-op we can decide without touching the
 	// network. (The unpinned "latest" no-op is decided after resolving, below.)

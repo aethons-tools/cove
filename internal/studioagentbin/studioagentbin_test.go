@@ -10,10 +10,10 @@ func TestBinaryUnstagedErrorsActionably(t *testing.T) {
 	// per-arch binaries are absent and Binary must error actionably (never panic).
 	_, err := Binary("amd64")
 	if err == nil {
-		t.Skip("cove-master binary is staged in this build; nothing to assert")
+		t.Skip("jam-studio-agent binary is staged in this build; nothing to assert")
 	}
-	if !strings.Contains(err.Error(), "cove-master") {
-		t.Fatalf("error should name cove-master, got: %v", err)
+	if !strings.Contains(err.Error(), "jam-studio-agent") {
+		t.Fatalf("error should name jam-studio-agent, got: %v", err)
 	}
 }
 
