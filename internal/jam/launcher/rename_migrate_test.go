@@ -94,7 +94,7 @@ func (f *volFake) CopyVolume(image, from, to string) error {
 	f.data[to] = f.data[from]
 	return nil
 }
-func (f *volFake) ListContainers(filter string) (map[string]backend.ContainerInfo, error) {
+func (f *volFake) FindContainers(filter string) (map[string]backend.ContainerInfo, error) {
 	out := map[string]backend.ContainerInfo{}
 	for n, img := range f.containers {
 		switch {
@@ -485,5 +485,34 @@ func TestMigrateStateVolumesFailedOldRemovalFailsClosed(t *testing.T) {
 	}
 	if f.data[na] != "used" || f.data[oa] != "precious" || len(f.copyImages) != 1 {
 		t.Fatalf("a completed copy is never redone: new %q old %q copies %v", f.data[na], f.data[oa], f.copyImages)
+	}
+}
+
+// A remote manager of this Jam sharing the local docker daemon labels its
+// state volumes RuntimeAddr#<manager>, so the local launcher's migration
+// (JamID = RuntimeAddr) never retires its pre-rename containers nor moves
+// its volumes: remote studios are re-raised once their manager is upgraded.
+func TestRenameMigrationLeavesARemoteManagersStudios(t *testing.T) {
+	f := newVolFake()
+	remote := legacynames.Container("r1")
+	f.containers[remote], f.labelled[remote] = "img-r", true
+	ra, rw := oldVols("r1")
+	f.addVol(ra, "remote-agent", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
+	f.addVol(rw, "remote-ws", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
+	f.mounts[remote] = []string{ra, rw}
+	l := migLauncher(t, f)
+	got, err := l.RetireLegacyContainers(context.Background(), []string{"s1"})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("retired = %v, %v", got, err)
+	}
+	if _, ok := f.containers[remote]; !ok {
+		t.Fatal("a remote manager's pre-rename container must be left running")
+	}
+	moved, err := l.MigrateStateVolumes(context.Background(), nil)
+	if err != nil || len(moved) != 0 {
+		t.Fatalf("moved = %v, %v", moved, err)
+	}
+	if f.data[ra] != "remote-agent" || f.data[rw] != "remote-ws" {
+		t.Fatal("a remote manager's state volumes must be untouched")
 	}
 }

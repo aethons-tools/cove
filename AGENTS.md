@@ -8,7 +8,7 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Quick orientation
 
-- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `jam` (minting is `jam mint`), `jam-studio-agent` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
+- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `jam` (minting is `jam mint`), `jam-studio-manager` (remote Studio Manager host process), `jam-studio-agent` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
 - **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
 - **Packages:** see the package map in [the overview](docs/OVERVIEW.md#architecture).
 

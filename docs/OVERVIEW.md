@@ -4,7 +4,7 @@ read_when: You need what this repo builds, the studio image's security model, th
 owns: the project overview: studio image assembly, security model, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # cove — Project Overview
@@ -24,7 +24,7 @@ sealed hardening layer), raises it in Colima, brokers its credentials, and
 starts `jam-studio-agent`, the in-studio agent supervisor.
 
 - **Module:** `github.com/aethons-tools/cove`
-- **Binaries:** `jam` (the service and its CLI; `jam mint` is its host-side token minter), `jam-studio-agent` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
+- **Binaries:** `jam` (the service and its CLI; `jam mint` is its host-side token minter), `jam-studio-manager` (remote Studio Manager host process), `jam-studio-agent` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
 - **Dependencies:** see `go.mod` — no CLI framework.
 
 ## Why it exists
@@ -224,6 +224,7 @@ a `Fake` records calls for tests.
 ```
 cmd/jam/                       jam: `serve` (broker + control plane + launcher + Requisitioner) and the admin-API client verbs
 internal/mintcmd/              `jam mint`: the host-side token minter (github / anthropic)
+cmd/jam-studio-manager/        remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
 cmd/jam-studio-agent/          the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
 internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher raises studios
@@ -256,10 +257,11 @@ the intercom — is documented under [usage/jam/](usage/jam/INDEX.md);
 ### Installing the binaries
 
 The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
-fastest way to get `jam` (minting is its `jam mint` subcommand): it pulls the prebuilt archive from the
+fastest way to get `jam` (minting is its `jam mint` subcommand) and
+`jam-studio-manager`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs it (the archive holds the one `jam` binary). `jam-studio-agent`
+and installs both (the archive holds exactly those two binaries). `jam-studio-agent`
 ships **embedded** in `jam`.
 
 The repo is **private** today, so the installer authenticates through your GitHub
@@ -290,7 +292,7 @@ Optional knobs:
 | `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
 | `JAM_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
 
-**Updating in place.** Once installed, `jam update` upgrades `jam` to the latest release without re-running the `curl | bash` line: it
+**Updating in place.** Once installed, `jam update` upgrades `jam` and `jam-studio-manager` to the latest release without re-running the `curl | bash` line: it
 drives a copy of this same `install.sh` **embedded** in the binary (so it needs no
 repo checkout and never re-fetches the script over the network), reusing its
 resolve → download → verify → replace flow — including the `checksums.txt`
@@ -306,7 +308,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build jam into dist/<os>-<arch>/
+just build           # build jam + jam-studio-manager into dist/<os>-<arch>/
 just build-all       # cross-compile every supported target
 just jam <args>      # run the last-built jam with <args>
 just install         # install the host binaries onto your PATH (no sudo by default)

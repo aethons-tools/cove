@@ -294,3 +294,63 @@ func TestThinkingEventsEndOnRevoke(t *testing.T) {
 		}
 	}
 }
+
+// ?format=json: the same feed, each ev a ThinkingEvent (agent text as JSON
+// data, never markup); without format the HTML fragments are unchanged.
+func TestThinkingEventsJSON(t *testing.T) {
+	e, p, personal, store, _ := thinkEnv(t)
+	actor := personal.ActorID
+	if err := store.Append(textEvent(actor, 1, "<img src=x onerror=alert(1)>\r\nsecond line")); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(asWho(Handler(e.Deps, nil), p))
+	defer func() { srv.CloseClientConnections(); srv.Close() }()
+	res, err := http.Get(srv.URL + "/app/user/session/" + actor + "/thinking/events?format=json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var buf strings.Builder
+	sseRead(t, sseLines(res.Body), &buf, "event: ev")
+	var data string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(l, "data: {") {
+			data = strings.TrimPrefix(l, "data: ")
+		}
+	}
+	var ev ThinkingEvent
+	if err := json.Unmarshal([]byte(data), &ev); err != nil {
+		t.Fatalf("ev data %q: %v\n%s", data, err, buf.String())
+	}
+	if ev.Stream != thinkStream || ev.Seq != 1 || ev.Kind != "text" || ev.At != time.Unix(1001, 0).UnixMilli() ||
+		!strings.Contains(ev.Text+ev.Detail, "<img src=x onerror=alert(1)>") {
+		t.Errorf("ev = %+v", ev)
+	}
+	if strings.Contains(buf.String(), `class="te`) {
+		t.Errorf("JSON feed carries HTML fragments:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "id: "+thinkStream+":1") {
+		t.Errorf("JSON feed lost its cursor:\n%s", buf.String())
+	}
+}
+
+func TestThinkingEventOf(t *testing.T) {
+	at := time.UnixMilli(1_700_000_000_123)
+	for _, tc := range []struct {
+		in   sessionview.EventView
+		want ThinkingEvent
+	}{
+		{sessionview.EventView{StreamID: "s", Seq: 2, Turn: 1, At: at, Kind: sessionview.KindToolCall, Tool: "Bash", ToolUseID: "tu1", Narrative: "go test", Detail: "go test ./...", Raw: "{}"},
+			ThinkingEvent{Stream: "s", Seq: 2, Turn: 1, At: at.UnixMilli(), Kind: "tool_call", Tool: "Bash", ToolUseID: "tu1", Text: "go test", Detail: "go test ./..."}},
+		{sessionview.EventView{Kind: sessionview.KindGap, Gap: true, Summary: "3 events lost", Narrative: "ignored"},
+			ThinkingEvent{Kind: "gap", Text: "3 events lost"}},
+		{sessionview.EventView{Kind: sessionview.KindOther, Narrative: "system/init", Detail: "hidden"},
+			ThinkingEvent{Kind: "other", Text: "system/init"}},
+		{sessionview.EventView{Kind: sessionview.KindResult, CostUSD: 0.12, DurationMS: 38000, ClaudeSession: "c1", IsError: true, TruncatedBytes: 9, DetailTruncated: 4, Detail: "d"},
+			ThinkingEvent{Kind: "result", CostUSD: 0.12, DurationMS: 38000, ClaudeSession: "c1", IsError: true, TruncatedBytes: 9, DetailTruncated: 4, Detail: "d"}},
+	} {
+		if got := thinkingEventOf(tc.in); got != tc.want {
+			t.Errorf("thinkingEventOf(%+v)\n = %+v\nwant %+v", tc.in, got, tc.want)
+		}
+	}
+}

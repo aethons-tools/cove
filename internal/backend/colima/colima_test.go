@@ -63,7 +63,7 @@ func TestDialParsesDockerPort(t *testing.T) {
 // uses a different daemon than colima.
 func TestPinsContext(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := NewWithContext(f, "").RunEphemeral("img:tag", "", "box", "jam.studio", nil, nil, false); err != nil {
+	if _, err := NewWithContext(f, "").RunEphemeral("img:tag", "", "box", []string{"jam.studio"}, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Calls) == 0 || !allPinned(f.Calls) {
@@ -84,7 +84,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 		return &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	}
 	// RunEphemeral
-	if _, err := NewWithContext(mkFail(), "").RunEphemeral("img:tag", "", "box", "jam.studio", nil, nil, false); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if _, err := NewWithContext(mkFail(), "").RunEphemeral("img:tag", "", "box", []string{"jam.studio"}, nil, nil, false); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("RunEphemeral should fail actionably; err=%v", err)
 	}
 	// Dial
@@ -270,7 +270,7 @@ func allPinned(calls []runner.Call) bool {
 func TestNewWithContextPinsEveryCall(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
 	c := NewWithContext(f, "colima-jam-b")
-	if _, err := c.RunEphemeral("img", "", "jam-studio-x", "jam.studio", nil, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img", "", "jam-studio-x", []string{"jam.studio"}, nil, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	if _, _, err := c.Dial("jam-studio-x"); err != nil {

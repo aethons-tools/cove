@@ -151,6 +151,13 @@ func TestAPIBootstrap(t *testing.T) {
 	if len(b.Tabs) != 1 || b.Tabs[0].Key != "inbox" || b.Tabs[0].Href != "/app/next/" {
 		t.Errorf("tabs = %+v, want the Inbox pointing at /app/next/", b.Tabs)
 	}
+	// Whiteboards on: the app bundles its own editor, so the old bundle
+	// (uiassets.WhiteboardBuilt) doesn't gate it.
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	rec = apiGet(t, Handler(e.Deps, nil), &p, "/app/user/api/bootstrap")
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || !b.Boards {
+		t.Errorf("boards on: bootstrap = %+v (%v)", b, err)
+	}
 }
 
 func TestNextServesTheAppWithBootstrap(t *testing.T) {

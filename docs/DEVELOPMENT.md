@@ -262,8 +262,9 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; the binaries are built by
-  `goreleaser --snapshot` (`jam` for darwin/linux × amd64/arm64, one
-  `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly `jam` — checked by
+  `goreleaser --snapshot` (`jam` and `jam-studio-manager` for darwin/linux ×
+  amd64/arm64, one `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly
+  those two — checked by
   `scripts/release/check-archive.sh` — plus checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
 - **jam-studio-agent is embedded**, not shipped standalone — re-cutting the binaries

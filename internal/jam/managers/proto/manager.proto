@@ -1,0 +1,53 @@
+syntax = "proto3";
+// The Studio Manager envelope. Payloads in Frame.data are JSON, defined in
+// internal/jam/managers/wire; this proto only carries them. Jam and the manager
+// must run the same version (checked in Hello).
+package jam.manager.v1;
+option go_package = "github.com/aethons-tools/cove/internal/jam/managers/managerpb";
+
+service StudioManager {
+  rpc Connect(stream ManagerUp) returns (stream ManagerDown);
+}
+
+message ManagerUp {
+  oneof msg {
+    Hello     hello     = 1;
+    Frame     frame     = 2;
+    Heartbeat heartbeat = 3;
+  }
+}
+
+message ManagerDown {
+  oneof msg {
+    Welcome   welcome   = 1;
+    Frame     frame     = 2;
+    Heartbeat heartbeat = 3;
+  }
+}
+
+message Hello {
+  string name     = 1;
+  string version  = 2;
+  int32  capacity = 3;
+  repeated Studio studios = 4;
+  repeated string state_owners = 5;
+}
+
+message Studio {
+  string actor_id = 1;
+  string location = 2;
+}
+
+message Welcome {
+  // The OpenSSH user CA public key studios trust for SSH logins.
+  bytes ssh_user_ca = 1;
+}
+
+message Heartbeat {}
+
+message Frame {
+  uint64 id   = 1;
+  string op   = 2;
+  bytes  data = 3;
+  bool   more = 4;
+}

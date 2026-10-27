@@ -85,7 +85,7 @@ func (l *Launcher) RetireLegacyStudio(ctx context.Context, actorID string) error
 func (l *Launcher) RetireLegacyContainers(ctx context.Context, ids []string) ([]string, error) {
 	found := map[string]backend.ContainerInfo{}
 	for _, filter := range []string{"label=" + legacynames.Label, "name=" + legacynames.ContainerPrefix} {
-		got, err := l.cfg.Ops.ListContainers(filter)
+		got, err := l.cfg.Ops.FindContainers(filter)
 		if err != nil {
 			return nil, fmt.Errorf("migration: list pre-rename containers: %w", err)
 		}

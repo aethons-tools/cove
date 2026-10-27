@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -22,21 +23,23 @@ type Manager interface {
 }
 
 var (
-	_ jam.PlacingLauncher = (*Router)(nil)
-	_ jam.StateKeeper     = (*Router)(nil)
-	_ jam.ImageTagger     = (*Router)(nil)
-	_ jam.KitDraftBuilder = (*Router)(nil)
+	_ jam.PlacingLauncher  = (*Router)(nil)
+	_ jam.StateKeeper      = (*Router)(nil)
+	_ jam.ImageTagger      = (*Router)(nil)
+	_ jam.KitDraftBuilder  = (*Router)(nil)
+	_ jam.ImageFactsReader = (*Router)(nil)
 )
 
 // Router is a jam.Launcher over the registered managers.
 type Router struct {
-	log  *slog.Logger
-	wake chan struct{} // 1-buffered; Kick wakes raises waiting for a manager
-	now  func() time.Time
-	poll time.Duration // how often a waiting raise re-checks without a Kick
+	log     *slog.Logger
+	waiters atomic.Int32 // raises parked waiting for a manager (test hook)
+	now     func() time.Time
+	poll    time.Duration // how often a waiting raise re-checks without a Kick
 
 	mu      sync.RWMutex
-	members []Manager // registration order
+	wake    chan struct{} // closed and replaced by Kick; guarded by mu
+	members []Manager     // registration order
 }
 
 // New returns an empty Router. A nil log discards.
@@ -44,7 +47,7 @@ func New(log *slog.Logger) *Router {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Router{log: log, wake: make(chan struct{}, 1), now: time.Now, poll: time.Second}
+	return &Router{log: log, wake: make(chan struct{}), now: time.Now, poll: time.Second}
 }
 
 // Add registers m. It errors on a duplicate name, and on a non-Local manager
@@ -72,12 +75,19 @@ func (r *Router) Remove(name string) {
 	r.members = slices.DeleteFunc(r.members, func(x Manager) bool { return x.Name() == name })
 }
 
-// Kick wakes raises waiting for a manager. It never blocks.
+// Kick wakes every raise waiting for a manager. It never blocks.
 func (r *Router) Kick() {
-	select {
-	case r.wake <- struct{}{}:
-	default:
-	}
+	r.mu.Lock()
+	close(r.wake)
+	r.wake = make(chan struct{})
+	r.mu.Unlock()
+}
+
+// wakeChan is the channel the next Kick closes.
+func (r *Router) wakeChan() <-chan struct{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.wake
 }
 
 // ordered returns the members in candidate order: registration order, local last.
@@ -332,4 +342,14 @@ func (r *Router) HasKitDraftImage(imageID string) (bool, error) {
 		return false, err
 	}
 	return b.HasKitDraftImage(imageID)
+}
+
+// ImageFacts forwards to the first available manager that can read image facts.
+func (r *Router) ImageFacts(ctx context.Context, image string) (jam.ImageFacts, error) {
+	for _, m := range r.available() {
+		if rd, ok := optional(m).(jam.ImageFactsReader); ok {
+			return rd.ImageFacts(ctx, image)
+		}
+	}
+	return jam.ImageFacts{}, fmt.Errorf("%w: no manager can read image facts", jam.ErrManagerUnavailable)
 }

@@ -27,7 +27,7 @@ var errDockerDown = errors.New("Cannot connect to the Docker daemon")
 
 func (d *dockerRenamer) RetireLegacyContainers(context.Context, []string) ([]string, error) {
 	d.calls++
-	if d.down { // as the launcher reports docker's ListContainers failing
+	if d.down { // as the launcher reports docker's FindContainers failing
 		return nil, fmt.Errorf("migration: list pre-rename containers: %w", errDockerDown)
 	}
 	return nil, nil

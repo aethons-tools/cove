@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
-	inst, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -42,14 +43,14 @@ func TestRunEphemeralDNS(t *testing.T) {
 	c := NewWithContext(f, "")
 	// Jam add-hosts render as --add-host h:host-gateway (COV-138)
 	fh := &runner.Fake{}
-	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, []string{"jam.local"}, false); err != nil {
+	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, []string{"jam.local"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local:host-gateway") {
 		t.Fatalf("ephemeral run must map the Jam host:\n%s", got)
 	}
 
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -66,7 +67,7 @@ func TestRunEphemeralDNS(t *testing.T) {
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", "jam.work", nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", []string{"jam.work"}, nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 func TestRunEphemeralDocker(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, true); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, true); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -111,7 +112,7 @@ func TestRunEphemeralDocker(t *testing.T) {
 func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
 	c := NewWithContext(f, "")
-	_, err := c.RunEphemeral("img:tag", "", "disp-1", "jam.work", nil, nil, true)
+	_, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, true)
 	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") {
 		t.Fatalf("docker:true dispatch must fail actionably without sysbox-runc; err=%v", err)
 	}
@@ -125,7 +126,7 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 func TestRunEphemeralMounts(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "jam-studio-s1", "jam.studio", nil, nil, false,
+	if _, err := c.RunEphemeral("img:tag", "", "jam-studio-s1", []string{"jam.studio"}, nil, nil, false,
 		backend.Mount{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
 		backend.Mount{Volume: "jam-studio-s1-workspace", Target: "/home/agent/workspace"},
 	); err != nil {
@@ -227,5 +228,69 @@ func TestUnpauseIdempotentWhenNotPaused(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: container abc is not paused", Err: &runner.ExitError{Code: 1}}}}
 	if err := NewWithContext(f, "").Unpause("abc"); err != nil {
 		t.Fatalf("Unpause of a non-paused container must be a no-op success, got %v", err)
+	}
+}
+
+// TestRunEphemeralLabels: each label becomes one `--label <l>`, in order.
+func TestRunEphemeralLabels(t *testing.T) {
+	f := &runner.Fake{}
+	c := NewWithContext(f, "")
+	if _, err := c.RunEphemeral("img:tag", "", "cove-w1", []string{"jam.studio", "jam.studio.actor=w1"}, nil, nil, false); err != nil {
+		t.Fatalf("RunEphemeral: %v", err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--label jam.studio --label jam.studio.actor=w1") {
+		t.Errorf("args = %q", got)
+	}
+}
+
+// TestListContainersArgvAndParse: docker ps filtered by key and every match
+// label; name -> key's value.
+func TestListContainersArgvAndParse(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "cove-w1\tw1\ncove-w2\tw2\n"}}}
+	c := NewWithContext(f, "")
+	got, err := c.ListContainers("jam.studio.actor", "jam.studio.manager=m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["cove-w1"] != "w1" || got["cove-w2"] != "w2" {
+		t.Fatalf("got %v", got)
+	}
+	want := "ps --filter label=jam.studio.actor --filter label=jam.studio.manager=m1 --format {{.Names}}\t{{.Label \"jam.studio.actor\"}}"
+	if a := strings.Join(dockerCall(f.Calls, "ps"), " "); a != want {
+		t.Errorf("args = %q; want %q", a, want)
+	}
+	empty, err := NewWithContext(&runner.Fake{Outputs: []runner.FakeResult{{Stdout: ""}}}, "").ListContainers("k")
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty = %v, %v", empty, err)
+	}
+}
+
+// TestRemoveContainerAbsentIsSuccess: a daemon "No such container" is success;
+// any other failure is returned.
+func TestRemoveContainerAbsentIsSuccess(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: No such container: cove-w1", Err: &runner.ExitError{Code: 1}}}}
+	if err := NewWithContext(f, "").RemoveContainer("cove-w1"); err != nil {
+		t.Fatalf("absent container must be success, got %v", err)
+	}
+	if got := strings.Join(dockerCall(f.Calls, "rm"), " "); got != "rm -f cove-w1" {
+		t.Errorf("args = %q", got)
+	}
+	g := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: boom", Err: &runner.ExitError{Code: 1}}}}
+	if err := NewWithContext(g, "").RemoveContainer("cove-w1"); err == nil {
+		t.Fatal("other failures must propagate")
+	}
+}
+
+// TestDockerIdempotentErrorCarriesOutput: a non-benign failure keeps docker's
+// own message (trimmed) and still wraps the exit error.
+func TestDockerIdempotentErrorCarriesOutput(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: removal of container cove-w1 is already in progress\n", Err: &runner.ExitError{Code: 1}}}}
+	err := NewWithContext(f, "").RemoveContainer("cove-w1")
+	if err == nil || !strings.HasSuffix(err.Error(), ": Error response from daemon: removal of container cove-w1 is already in progress") {
+		t.Fatalf("err = %q, want docker's message", err)
+	}
+	var ee *runner.ExitError
+	if !errors.As(err, &ee) || ee.Code != 1 {
+		t.Fatalf("err = %v, want it to wrap the exit error", err)
 	}
 }

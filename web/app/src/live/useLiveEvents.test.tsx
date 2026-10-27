@@ -63,4 +63,15 @@ describe("useLiveEvents", () => {
     expect(keep({ queryKey: ["session", "ses_1", "pane", "status"] })).toBe(true);
     expect(keep({ queryKey: ["session", "ses_1", "pane", "artifacts"] })).toBe(false);
   });
+
+  it("re-dispatches board signals as jam-board window events", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    mount();
+    const got: string[] = [];
+    const on = (e: Event) => got.push((e as CustomEvent<string>).detail);
+    window.addEventListener("jam-board", on);
+    FakeEventSource.last!.listeners.board?.forEach((fn) => (fn as unknown as (e: MessageEvent) => void)(new MessageEvent("board", { data: "brd_1" })));
+    window.removeEventListener("jam-board", on);
+    expect(got).toEqual(["brd_1"]);
+  });
 });

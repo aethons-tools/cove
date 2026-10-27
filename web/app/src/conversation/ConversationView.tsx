@@ -62,7 +62,7 @@ export function ConversationView({ id }: { id: string }) {
   );
   return (
     <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
-      <SessionView id={c.session || null} channel={id} linked={search.get("tab")} onAsk={jumpToAsk}
+      <SessionView id={c.session || null} linked={search.get("tab")} onAsk={jumpToAsk}
         header={<ConversationHeader c={c} />}>{main}</SessionView>
     </Stack>
   );

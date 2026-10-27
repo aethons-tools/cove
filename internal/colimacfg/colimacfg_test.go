@@ -268,3 +268,14 @@ func TestValidateVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestValidDockerContext(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want bool
+	}{{"colima", true}, {"colima-work", true}, {"", false}, {"-x", false}, {"a b", false}} {
+		if got := ValidDockerContext(c.in); got != c.want {
+			t.Errorf("ValidDockerContext(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

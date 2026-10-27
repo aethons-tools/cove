@@ -1,15 +1,15 @@
-# goreleaser config for the jam host binary — the BUILD tool for the binaries
+# goreleaser config for the Jam host binaries — the BUILD tool for the binaries
 # leg of the monolithic pipeline (.github/workflows/release.yml, COV-44). CI runs
 # `goreleaser release --snapshot` on every main push: goreleaser builds + archives
-# jam (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION env; the
-# workflow then cuts the (private) GitHub release with `gh`. Snapshot mode is
-# used deliberately — it skips goreleaser's own publishing, so the non-SemVer
-# <N>-<MMDD> version needs no git tag to satisfy goreleaser. jam-studio-agent is
-# NOT shipped standalone — it is embedded in jam (the before-hook stages the
-# linux jam-studio-agent binaries first).
+# jam + jam-studio-manager (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via
+# the VERSION env; the workflow then cuts the (private) GitHub release with
+# `gh`. Snapshot mode is used deliberately — it skips goreleaser's own
+# publishing, so the non-SemVer <N>-<MMDD> version needs no git tag to satisfy
+# goreleaser. jam-studio-agent is NOT shipped standalone — it is embedded in jam
+# (the before-hook stages the linux jam-studio-agent binaries first).
 #
-# Public phase (later): add a `brews:` block that installs jam from the single
-# archive below.
+# Public phase (later): add a `brews:` block that installs jam and
+# jam-studio-manager from the single archive below.
 version: 2
 
 project_name: jam
@@ -51,11 +51,24 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
+  - id: jam-studio-manager
+    main: ./cmd/jam-studio-manager
+    binary: jam-studio-manager
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
 archives:
-  # One archive holding exactly `jam` — what install.sh (and so `jam update`)
-  # installs. `none*` matches nothing, so goreleaser adds no README/LICENSE.
+  # One archive holding exactly `jam` and `jam-studio-manager` — what
+  # install.sh (and so `jam update`) installs. `none*` matches nothing, so
+  # goreleaser adds no README/LICENSE.
   - id: jam
-    ids: [jam]
+    ids: [jam, jam-studio-manager]
     name_template: "jam_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - none*

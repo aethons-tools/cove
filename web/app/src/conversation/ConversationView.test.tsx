@@ -7,16 +7,22 @@ import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
 import type { Conversation, MessageRow, RailResponse } from "../api/types";
 
+// today is a time on the current day: the view labels it "Today".
+const today = (h: number, m: number): Date => {
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d;
+};
 const rail: RailResponse = { unreadTotal: 0, groups: [] };
 const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
-  from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: new Date(2026, 9, 26, 9, seq % 60).toISOString(),
+  from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: today(9, seq % 60).toISOString(),
   mine: false, seq, system: false, sysText: "", card: "", ...over,
 });
 const conv = (over: Partial<Conversation> = {}): Conversation => ({
   channelId: "chn_a", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_a",
   messages: [msg(1), msg(2, { mine: true, raw: "**hi**", body: "<p><strong>hi</strong></p>" })], lastSeq: 2, earlier: false,
   sessionIds: ["ses_1"], sessions: [{ label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }],
-  canJoin: false, canLeave: true, callIn: [{ to: "user:usr_2", label: "bob", kind: "person", project: "test" }], openAsks: [], session: "", ...over,
+  canJoin: false, canLeave: true, callIn: [{ to: "user:usr_2", label: "bob", kind: "person", project: "test" }], openAsks: [], session: "", newBoard: false, ...over,
 });
 
 function serve(c: Conversation | ((before: number) => Conversation), reads: number[] = []) {

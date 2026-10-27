@@ -1028,3 +1028,35 @@ func (c *Client) KitDiff(name string, from, to int) (jam.KitDiffResult, error) {
 	err := c.do("GET", path, nil, &d)
 	return d, err
 }
+
+// Managers lists the registered Studio Managers and their status.
+func (c *Client) Managers() ([]jam.ManagerStatus, error) {
+	var out []jam.ManagerStatus
+	err := c.do("GET", "/admin/managers", nil, &out)
+	return out, err
+}
+
+// AddManager registers a Studio Manager; the returned token is shown once
+// (ErrConflict if the name exists).
+func (c *Client) AddManager(name string) (jam.ManagerToken, error) {
+	var out jam.ManagerToken
+	err := c.do("POST", "/admin/managers", map[string]string{"name": name}, &out)
+	return out, err
+}
+
+// RotateManager replaces a manager's token (ErrNotFound if unknown).
+func (c *Client) RotateManager(name string) (jam.ManagerToken, error) {
+	var out jam.ManagerToken
+	err := c.do("POST", "/admin/managers/"+url.PathEscape(name)+"/rotate", nil, &out)
+	return out, err
+}
+
+// RevokeManager removes a manager; without force it is refused (ErrConflict)
+// while the manager still hosts studios.
+func (c *Client) RevokeManager(name string, force bool) error {
+	p := "/admin/managers/" + url.PathEscape(name)
+	if force {
+		p += "?force=true"
+	}
+	return c.do("DELETE", p, nil, nil)
+}

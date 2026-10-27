@@ -21,7 +21,7 @@ describe("New message", () => {
       http.get("/app/user/api/conversations/chn_new", () => HttpResponse.json({
         channelId: "chn_new", label: "bob", kind: "chat", project: "test", phase: "", needsYou: false, sendTo: "chn_new",
         messages: [{ from: "alice", body: "<p>hello bob</p>", raw: "hello bob", plain: false, at: "", time: new Date().toISOString(), mine: true, seq: 1, system: false, sysText: "", card: "" }],
-        lastSeq: 1, earlier: false, sessionIds: [], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [], session: "",
+        lastSeq: 1, earlier: false, sessionIds: [], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [], session: "", newBoard: false,
       } satisfies Conversation)),
       http.get("/app/user/api/conversations/chn_new/presence", () => HttpResponse.json({ sessions: [] })),
       http.post("/app/user/api/conversations/chn_new/read", () => new HttpResponse(null, { status: 204 })),

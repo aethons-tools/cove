@@ -51,7 +51,7 @@ separately, because **colima owns `/etc/docker/daemon.json` and regenerates it o
 every start** — a runtime entry written by the Sysbox `.deb` postinstall (or by
 hand) is wiped on the next boot, so register it through colima's own config.
 
-**The quick way — `jam colima setup-docker`.** On the colima host, run:
+**The quick way — `jam colima setup-docker`.** On the colima host (a [manager host](studio-manager.md) runs the same verbs as `jam-studio-manager colima ...`), run:
 
 ```console
 $ jam colima setup-docker --dry-run   # show the change as a diff, write nothing

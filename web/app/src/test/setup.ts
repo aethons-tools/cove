@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeAll } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { server } from "./server";
 
 // Mantine reads these; jsdom has neither.
@@ -14,6 +14,10 @@ globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {
 if (!("fonts" in document)) {
   Object.defineProperty(document, "fonts", { value: { addEventListener: () => {}, removeEventListener: () => {} } });
 }
+
+// findBy*/waitFor wait up to 5 s: a file's first render (cold imports) can
+// pass 1 s while the whole suite runs in parallel.
+configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 afterEach(() => { server.resetHandlers(); cleanup(); document.getElementById("jam-bootstrap")?.remove(); });

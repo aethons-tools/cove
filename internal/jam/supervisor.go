@@ -1619,7 +1619,12 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if inst.Phase == PhaseIdled {
-			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
+			// Paused on purpose: the wake-on engine owns its lifecycle
+			// (resume/teardown), unless its manager is gone.
+			if s.ownsDecision(inst, now) {
+				s.reapIfManagerGone(ctx, inst)
+			}
+			continue
 		}
 		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
 			// An instance already mid-teardown (Done reported, or reconciler-
@@ -1632,6 +1637,9 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		}
 		if inst.Lease.Expiry.After(now) {
 			if inst.Lease.Holder == s.holder {
+				if s.reapIfManagerGone(ctx, inst) {
+					continue
+				}
 				// Renew our own lease. Only the lease holder re-applies egress, so
 				// two Jams never both exec in.
 				if cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) { c.Lease.Expiry = now.Add(s.ttl) }); ok {
@@ -1656,6 +1664,40 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+// ownsDecision reports whether this Jam may act on inst: it holds the lease,
+// or the lease has expired. Another holder's live lease is not ours to touch.
+func (s *Supervisor) ownsDecision(inst Instance, now time.Time) bool {
+	return !inst.Lease.Expiry.After(now) || inst.Lease.Holder == s.holder
+}
+
+// reapIfManagerGone declares a Live or Idled inst Lost and tears it down when
+// it is recorded on a named manager the launcher no longer has (only a
+// PlacingLauncher knows). A raise that succeeded after its manager was
+// force-revoked (ForgetManager ran first) leaves such a record, which no
+// manager will ever probe and whose own lease would be renewed forever.
+// Reports whether it reaped.
+func (s *Supervisor) reapIfManagerGone(ctx context.Context, inst Instance) bool {
+	if inst.Manager == "" {
+		return false
+	}
+	pl, ok := s.launcher.(PlacingLauncher)
+	if !ok || pl.HasManager(inst.Manager) {
+		return false
+	}
+	cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) {
+		if c.Manager == inst.Manager && (c.Phase == PhaseLive || c.Phase == PhaseIdled) {
+			c.Phase = PhaseLost
+		}
+	})
+	if !ok || cur.Phase != PhaseLost {
+		return false
+	}
+	if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
+		s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", inst.Manager, "err", err.Error())
+	}
+	return true
+}
+
 // egressMaxFailures is how many consecutive failed egress re-applies a Live cove
 // survives before it is torn down: a short grace for a transient exec or squid
 // reload failure, never an indefinite run under a policy other than its role's.
@@ -1677,7 +1719,8 @@ func (s *Supervisor) roleEgress(inst Instance) (*EgressPolicy, bool) {
 
 // reconcileEgress re-applies inst's role egress policy when it has drifted from
 // the one the cove is running under (inst.Egress). Success records the new
-// fingerprint; a failure is counted and retried next pass, and the
+// fingerprint; an unavailable manager is retried next pass without counting;
+// any other failure is counted and retried next pass, and the
 // egressMaxFailures-th consecutive one tears the cove down (fail closed — a
 // standing session is raised again under the new policy by its reconciler).
 //
@@ -1701,6 +1744,14 @@ func (s *Supervisor) reconcileEgress(ctx context.Context, inst Instance) {
 		s.patchEgress(inst.ActorID, func(cur *Instance) { cur.Egress, cur.EgressFailures = fp, 0 })
 		s.logEgressApplied(inst, want)
 		s.recordEgress(inst, want)
+		return
+	}
+	if errors.Is(err, ErrManagerUnavailable) {
+		// The manager is away, which says nothing about the policy: the stale
+		// fingerprint makes the first pass after it reconnects re-apply.
+		if s.log != nil {
+			s.log.Debug("egress re-apply deferred: manager unavailable", "id", inst.ActorID, "manager", inst.Manager)
+		}
 		return
 	}
 	failures := 0

@@ -32,7 +32,7 @@ type Bootstrap struct {
 	Tabs      []NavTab `json:"tabs"`      // the title bar's links
 	AttachMax int64    `json:"attachMax"` // per-file cap; 0 = attachments off
 	PushKey   string   `json:"pushKey"`   // VAPID public key; "" = Web Push off
-	Boards    bool     `json:"boards"`    // whiteboards on and the editor built
+	Boards    bool     `json:"boards"`    // whiteboards on (the app bundles its editor)
 }
 
 // BootUser is the signed-in member.
@@ -101,7 +101,7 @@ type MessageRow struct {
 	// Files are the message's attachments.
 	Files []FileChip `json:"files,omitempty"`
 	// Board is a board's card (the squawk that started it).
-	Board *BoardCard `json:"-"` // the app shows boards from slice 7 (Card says which rows)
+	Board *BoardCard `json:"board,omitempty"` // the board's card (Card == "board")
 	// Channel is the conversation's id (a board card links into it).
 	Channel string `json:"-"`
 	// Card names the card this row is ("ask" or "board"; "" = none), so the
@@ -150,7 +150,7 @@ type Conversation struct {
 	CallIn   []NewMessageOption `json:"callIn"`
 	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
 	// and the editor is built); Board is the board ?board= opened.
-	NewBoard bool         `json:"-"`
+	NewBoard bool         `json:"newBoard"`
 	Board    *BoardEditor `json:"-"`
 	// Session is the actor id of the session whose home this channel is,
 	// when the viewer may see it ("" = none): the app's session header and
@@ -287,15 +287,16 @@ type SessionPane struct {
 	Asks        []PaneAsk   `json:"asks"`
 	Links       []PaneLink  `json:"links"`
 	Status      []StatusRow `json:"status"`
-	// Streams are the session's recorded event streams (Thinking tab);
-	// EventsOff: this jam records no session events. The app's Thinking
-	// tab comes in slice 6.
-	Streams   []sessionevents.StreamInfo `json:"-"`
-	EventsOff bool                       `json:"-"`
+	// Streams are the session's recorded event streams (the template's
+	// Thinking tab); ThinkingStreams the same for the app; EventsOff: this
+	// jam records no session events.
+	Streams         []sessionevents.StreamInfo `json:"-"`
+	ThinkingStreams []ThinkingStream           `json:"streams"`
+	EventsOff       bool                       `json:"eventsOff"`
 	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
-	// IDEOpen: its plain URL, for Open in new tab when a mint fails (slice 6).
-	Studio  bool   `json:"-"`
-	IDEOpen string `json:"-"`
+	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
+	Studio  bool   `json:"studio"`
+	IDEOpen string `json:"ideOpen"`
 }
 
 // PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -331,4 +332,91 @@ type PaneLink struct {
 type StatusRow struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+// ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
+// of the feed with ?format=json, and a row of a page. Every string is agent
+// text, shown as text, never as markup.
+type ThinkingEvent struct {
+	Stream    string `json:"stream"`
+	Seq       uint64 `json:"seq"`
+	Turn      uint32 `json:"turn"`
+	At        int64  `json:"at"`   // unix ms; 0 = unknown
+	Kind      string `json:"kind"` // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+	Tool      string `json:"tool"`
+	ToolUseID string `json:"toolUseId"`
+	// Text is the one line (a gap's summary); Detail the expanded body ("" for
+	// kind other), DetailTruncated the bytes cut from it.
+	Text            string  `json:"text"`
+	Detail          string  `json:"detail"`
+	DetailTruncated int     `json:"detailTruncated"`
+	IsError         bool    `json:"isError"`
+	TruncatedBytes  uint64  `json:"truncatedBytes"` // dropped by the recorder
+	CostUSD         float64 `json:"costUsd"`        // result: the claude session's cumulative cost
+	DurationMS      int64   `json:"durationMs"`     // result
+	ClaudeSession   string  `json:"claudeSession"`  // result: the claude session CostUSD accumulates over
+}
+
+// ThinkingStream is one recorded event stream of a session (the Thinking
+// tab's stream selector), newest first.
+type ThinkingStream struct {
+	ID      string    `json:"id"`
+	FirstAt time.Time `json:"firstAt"`
+	Events  int       `json:"events"`
+}
+
+// ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
+// ?before=, in seq order; Before > 0: older ones exist below it.
+type ThinkingPage struct {
+	Events []ThinkingEvent `json:"events"`
+	Before uint64          `json:"before"`
+}
+
+// ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
+// capped; Truncated is the bytes cut.
+type ThinkingRaw struct {
+	Raw       string `json:"raw"`
+	Truncated int    `json:"truncated"`
+}
+
+// FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
+// IDE ("ide") or an exposed preview's name.
+type FrameRequest struct {
+	Name string `json:"name"`
+}
+
+// FrameURL is a minted frame URL (one-time: never cached) and the view's
+// plain URL, for Open in new tab ("" = none).
+type FrameURL struct {
+	URL  string `json:"url"`
+	Open string `json:"open"`
+}
+
+// BoardCard is a board's card in its conversation (MessageRow.Board).
+type BoardCard struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Built bool   `json:"-"` // the old page's editor bundle is built
+}
+
+// BoardInfo is GET api/boards/{id}: the board the app's board route opens,
+// its conversation, and whether the viewer may only look.
+type BoardInfo struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Channel  string `json:"channel"`
+	ReadOnly bool   `json:"readOnly"`
+}
+
+// NewBoardRequest is POST api/boards: a whiteboard in a conversation the
+// viewer may post to.
+type NewBoardRequest struct {
+	Channel string `json:"channel"`
+	Title   string `json:"title"`
+}
+
+// NewBoardResponse is the new board and its conversation.
+type NewBoardResponse struct {
+	Board   string `json:"board"`
+	Channel string `json:"channel"`
 }

@@ -3,8 +3,10 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,7 +80,6 @@ func TestRaiseOnWaitsForKick(t *testing.T) {
 	a := newFake("a")
 	a.avail.Store(false)
 	r := placeRouter(t, a)
-	<-r.wake // drop the kick from Add
 	go func() {
 		time.Sleep(20 * time.Millisecond)
 		a.avail.Store(true)
@@ -163,5 +164,171 @@ func TestPrepareKitOnRoutesToNamed(t *testing.T) {
 	b.avail.Store(false)
 	if _, err := r.PrepareKitOn(context.Background(), "b", jam.KitDefinition{}); !errors.Is(err, jam.ErrManagerUnavailable) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// testCtx is cancelled when the test ends, so parked raises don't outlive it.
+func testCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
+}
+
+// waitFor fails the test if cond is not true within 2s.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestRaiseOnInterruptedDoesNotFallThrough(t *testing.T) {
+	a, b := newFake("a"), newFake("b")
+	a.raiseErr = fmt.Errorf("x: %w", jam.ErrRaiseInterrupted)
+	r := placeRouter(t, a, b)
+	start := time.Now()
+	_, err := r.RaiseOn(testCtx(t), spec(5*time.Second, "a", "b"), jam.LaunchCreds{})
+	if !errors.Is(err, jam.ErrRaiseInterrupted) || time.Since(start) > 100*time.Millisecond {
+		t.Fatalf("err %v after %v", err, time.Since(start))
+	}
+	if n := a.raiseCalls.Load(); n != 1 {
+		t.Fatalf("a saw %d raises, want 1", n)
+	}
+	if n := b.raiseCalls.Load(); n != 0 {
+		t.Fatalf("b saw %d raises", n)
+	}
+}
+
+func TestKickWakesAllWaiters(t *testing.T) {
+	a := newFake("a")
+	a.avail.Store(false)
+	r := placeRouter(t, a)
+	r.poll = time.Hour
+	ctx := testCtx(t)
+	var wg sync.WaitGroup
+	errs := make(chan error, 3)
+	for range 3 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := r.RaiseOn(ctx, spec(5*time.Second, "a"), jam.LaunchCreds{})
+			errs <- err
+		}()
+	}
+	waitFor(t, "three parked waiters", func() bool { return r.waiters.Load() >= 3 })
+	a.avail.Store(true)
+	r.Kick()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("not all waiters woke")
+	}
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestDeclineBackoff(t *testing.T) {
+	a := newFake("a")
+	a.raiseErr = errors.New("full")
+	r := placeRouter(t, a)
+	r.poll = 10 * time.Millisecond
+	_, err := r.RaiseOn(testCtx(t), spec(200*time.Millisecond, "a"), jam.LaunchCreds{})
+	var nm *jam.NoManagerError
+	if !errors.As(err, &nm) {
+		t.Fatalf("err %v", err)
+	}
+	if n := a.raiseCalls.Load(); n > 6 || n < 2 {
+		t.Fatalf("calls = %d, want 2..6", n)
+	}
+	// Whether the final round skipped or tried, the real decline text survives.
+	if !strings.Contains(err.Error(), "full") {
+		t.Fatalf("decline reason lost: %v", err)
+	}
+
+	// A Kick makes the manager eligible at once (poll is 1h, so any retry is
+	// Kick-caused).
+	b := newFake("b")
+	b.raiseErr = errors.New("full")
+	r2 := placeRouter(t, b)
+	r2.poll = time.Hour
+	ctx := testCtx(t)
+	go func() { _, _ = r2.RaiseOn(ctx, spec(5*time.Second, "b"), jam.LaunchCreds{}) }()
+	waitFor(t, "first decline and park", func() bool { return b.raiseCalls.Load() >= 1 && r2.waiters.Load() >= 1 })
+	before := b.raiseCalls.Load()
+	r2.Kick()
+	waitFor(t, "retry after Kick", func() bool { return b.raiseCalls.Load() > before })
+}
+
+func TestUnavailableNotBackedOff(t *testing.T) {
+	a := newFake("a")
+	a.avail.Store(false)
+	r := placeRouter(t, a)
+	r.poll = 10 * time.Millisecond
+	ctx := testCtx(t)
+	type res struct {
+		p   jam.Placed
+		err error
+	}
+	out := make(chan res, 1)
+	go func() {
+		p, err := r.RaiseOn(ctx, spec(5*time.Second, "a"), jam.LaunchCreds{})
+		out <- res{p, err}
+	}()
+	// Unavailable for ~100ms: with no backoff it is polled every ~10ms
+	// (about 10 checks); a doubling backoff would give about 4.
+	time.Sleep(100 * time.Millisecond)
+	if n := a.availCalls.Load(); n < 6 {
+		t.Fatalf("Available() checked %d times in 100ms, want >= 6", n)
+	}
+	a.avail.Store(true) // no Kick
+	select {
+	case got := <-out:
+		if got.err != nil || got.p.Manager != "a" {
+			t.Fatalf("got %+v, %v", got.p, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("not placed after the manager became available")
+	}
+}
+
+// cancelingManager cancels the caller's ctx during Raise, as a caller giving
+// up mid-call would, and fails with the ctx's error.
+type cancelingManager struct {
+	*fakeManager
+	cancel context.CancelFunc
+}
+
+func (m cancelingManager) Raise(ctx context.Context, _ jam.RaiseSpec, _ jam.LaunchCreds) (string, error) {
+	m.raiseCalls.Add(1)
+	m.cancel()
+	<-ctx.Done()
+	return "", fmt.Errorf("raise: %w", ctx.Err())
+}
+
+// A raise cut short by the caller's ctx is not a decline: no other manager is
+// tried, and the ctx's error is returned.
+func TestRaiseOnCtxCancelledDuringRaiseStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := cancelingManager{fakeManager: newFake("a"), cancel: cancel}
+	b := newFake("b")
+	r := placeRouter(t, a, b)
+	_, err := r.RaiseOn(ctx, spec(5*time.Second, "a", "b"), jam.LaunchCreds{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if n := b.raiseCalls.Load(); n != 0 {
+		t.Fatalf("b saw %d raises after the caller gave up", n)
 	}
 }

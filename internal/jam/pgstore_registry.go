@@ -476,6 +476,9 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := s.loadPushSubscriptions(ctx); err != nil {
 		return err
 	}
+	if err := s.loadManagers(ctx); err != nil {
+		return err
+	}
 	return s.loadChannels(ctx)
 }
 
@@ -744,6 +747,74 @@ func (s *PostgresStore) loadPushSubscriptions(ctx context.Context) error {
 		}
 		p.CreatedAt, p.LastOKAt = p.CreatedAt.UTC(), p.LastOKAt.UTC()
 		s.applyPutPushSubscription(p, nil)
+	}
+	return rows.Err()
+}
+
+func (s *PostgresStore) AddManager(r ManagerRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareAddManager(r); err != nil {
+		return err
+	}
+	if err := s.registryTx("AddManager", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO managers (name, token_hash, created_at) VALUES ($1,$2,$3)`,
+			r.Name, r.TokenHash, r.CreatedAt)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyPutManager(r)
+	return nil
+}
+
+func (s *PostgresStore) SetManagerToken(name, tokenHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.prepareSetManagerToken(name, tokenHash)
+	if err != nil {
+		return err
+	}
+	if err := s.registryTx("SetManagerToken", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE managers SET token_hash = $2 WHERE name = $1`, name, tokenHash)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyPutManager(r)
+	return nil
+}
+
+func (s *PostgresStore) RemoveManager(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareRemoveManager(name); err != nil {
+		return err
+	}
+	if err := s.registryTx("RemoveManager", func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM managers WHERE name = $1`, name)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.applyRemoveManager(name)
+	return nil
+}
+
+// loadManagers fills the manager registry. load's part; no lock.
+func (s *PostgresStore) loadManagers(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `SELECT name, token_hash, created_at FROM managers`)
+	if err != nil {
+		return fmt.Errorf("pgstore: load managers: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r ManagerRecord
+		if err := rows.Scan(&r.Name, &r.TokenHash, &r.CreatedAt); err != nil {
+			return err
+		}
+		r.CreatedAt = r.CreatedAt.UTC()
+		s.applyPutManager(r)
 	}
 	return rows.Err()
 }

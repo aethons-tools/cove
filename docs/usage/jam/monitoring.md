@@ -4,7 +4,7 @@ read_when: You want to be alerted when Jam needs a human, are setting up `metric
 owns: the condition model (keys, severities, lifecycle), the v1 condition kinds, the `/metrics` exposition and its scrape token, the Health tab, `jam attention list`, and the deploy/monitoring bundle
 prereqs: serve.md for the serve config and credentials
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-26
 ---
 
 # Operator attention
@@ -48,7 +48,10 @@ under `credentials:`; its value — the scrape token — comes from the credenti
 file). Jam then serves `/metrics` on the **broker listener** (the TLS port
 studios use), requiring `Authorization: Bearer <scrape token>`; studio identity
 tokens are refused. Series: `jam_up`, `jam_attention_condition{key,kind,severity,summary,fix}`
-(one per open condition), `jam_attention_open{severity}`, `jam_studios`.
+(one per open condition), `jam_attention_open{severity}`, `jam_studios`, and —
+with `runtime.studio-managers` on — `jam_managers` (remote [Studio
+Managers](studio-managers.md) registered; `local` excluded) and
+`jam_managers_connected`.
 Unset ⇒ no `/metrics`.
 
 - `token-cred` must be a plain credential: not `exchange: gcp`, not the pool's `cred-name` (serve refuses it).

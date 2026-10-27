@@ -1,4 +1,4 @@
-package main
+package colimacmd
 
 import (
 	"bytes"
@@ -38,7 +38,7 @@ func colimaHome(t *testing.T, cfg string) (func(string) string, string) {
 
 func runColima(getenv func(string) string, r runner.Runner, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	code := cmdColima(getenv, r)(args, cli.Globals{}, &out, &errb)
+	code := Command("jam", getenv, r)(args, cli.Globals{}, &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -163,7 +163,7 @@ func TestColimaNoSubcommand(t *testing.T) {
 func TestColimaGlobalDryRunWritesNothing(t *testing.T) {
 	getenv, path := colimaHome(t, freshColima)
 	var out, errb bytes.Buffer
-	code := cmdColima(getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
+	code := Command("jam", getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
 	if code != 0 || !strings.Contains(out.String(), "would change") {
 		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errb.String())
 	}
@@ -219,5 +219,13 @@ func TestColimaSetupDockerKeepsSymlink(t *testing.T) {
 	}
 	if bak, _ := os.ReadFile(target + ".bak"); string(bak) != freshColima {
 		t.Fatalf("backup next to target = %q", bak)
+	}
+}
+
+func TestCommandUsesProgName(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Command("jam-studio-manager", func(string) string { return "" }, &runner.Fake{})(nil, cli.Globals{}, &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "jam-studio-manager colima: expected setup-docker|check-docker") {
+		t.Fatalf("code=%d stderr=%q", code, errb.String())
 	}
 }

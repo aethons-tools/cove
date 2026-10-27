@@ -12,6 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/collab"
 )
 
 // sessAPI calls /app/user/api/sessions/<path> as p (an operator when admin);
@@ -75,6 +76,10 @@ func TestAPISessionHiddenIsUniform(t *testing.T) {
 		{"GET", "/pane/status", ""},
 		{"POST", "/release", "{}"},
 		{"POST", "/interrupt", "{}"},
+		{"GET", "/pane/thinking", ""},
+		{"POST", "/frame", `{"name":"ide"}`},
+		{"GET", "/thinking?stream=" + strings.Repeat("a", 32) + "&before=3", ""},
+		{"GET", "/thinking/raw?stream=" + strings.Repeat("a", 32) + "&seq=1", ""},
 	} {
 		hidden := sessAPI(t, e, bob, tc.method, personal.ActorID+tc.path, tc.body, false)
 		gone := sessAPI(t, e, bob, tc.method, missing+tc.path, tc.body, false)
@@ -100,14 +105,14 @@ func TestAPISessionPane(t *testing.T) {
 	if pv := decodeAs[SessionPane](t, rec); !pv.PreviewsOff {
 		t.Errorf("previews = %+v, want off", pv)
 	}
-	for _, k := range []string{`"previews":[]`, `"boards":[]`, `"files":[]`, `"asks":[]`, `"links":[]`, `"status":[]`} {
+	for _, k := range []string{`"previews":[]`, `"boards":[]`, `"files":[]`, `"asks":[]`, `"links":[]`, `"status":[]`, `"streams":[]`} {
 		if !strings.Contains(rec.Body.String(), k) {
 			t.Errorf("previews JSON lacks %s: %s", k, rec.Body)
 		}
 	}
-	for _, k := range []string{"streams", "Streams", "eventsOff", "studio", "ideOpen", "IDEOpen"} {
+	for _, k := range []string{"Streams", "IDEOpen"} {
 		if strings.Contains(rec.Body.String(), `"`+k+`"`) {
-			t.Errorf("pane JSON carries slice-6 field %q", k)
+			t.Errorf("pane JSON carries template-only field %q", k)
 		}
 	}
 	// Artifacts: a link from the home channel, labelled.
@@ -122,8 +127,8 @@ func TestAPISessionPane(t *testing.T) {
 	if len(art.Links) != 1 || art.Links[0].Label != "cove PR #472" || art.Links[0].URL != "https://github.com/aethons-tools/cove/pull/472" {
 		t.Errorf("artifacts links = %+v", art.Links)
 	}
-	// Thinking and Studio come in slice 6; an unknown tab is a 404 too.
-	for _, tab := range []string{"thinking", "studio", "bogus"} {
+	// An unknown tab is a 404.
+	for _, tab := range []string{"bogus"} {
 		if rec := sessAPI(t, e, p, "GET", personal.ActorID+"/pane/"+tab, "", false); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"code":"not_found"`) {
 			t.Errorf("pane/%s = %d %s", tab, rec.Code, rec.Body)
 		}
@@ -179,3 +184,147 @@ func TestAPISessionActions(t *testing.T) {
 }
 
 var errNoStream = errors.New("no live stream")
+
+func TestAPIThinking(t *testing.T) {
+	e, p, personal, store, _ := thinkEnv(t)
+	actor := personal.ActorID
+	old := thinkingPageSize
+	thinkingPageSize = 3
+	t.Cleanup(func() { thinkingPageSize = old })
+	appendText(t, store, actor, 1, 5)
+
+	pane := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", actor+"/pane/thinking", "", false))
+	if pane.EventsOff || len(pane.ThinkingStreams) != 1 || pane.ThinkingStreams[0].ID != thinkStream || pane.ThinkingStreams[0].Events != 5 {
+		t.Errorf("pane/thinking = %+v", pane)
+	}
+	pg := decodeAs[ThinkingPage](t, sessAPI(t, e, p, "GET", actor+"/thinking?stream="+thinkStream+"&before=6", "", false))
+	if len(pg.Events) != 3 || pg.Events[0].Seq != 3 || pg.Events[2].Seq != 5 || pg.Before != 3 || pg.Events[0].Kind != "text" {
+		t.Errorf("page below 6 = %+v", pg)
+	}
+	last := decodeAs[ThinkingPage](t, sessAPI(t, e, p, "GET", actor+"/thinking?stream="+thinkStream+"&before=3", "", false))
+	if len(last.Events) != 2 || last.Before != 0 {
+		t.Errorf("first page = %+v", last)
+	}
+	if rec := sessAPI(t, e, p, "GET", actor+"/thinking?stream="+thinkStream+"&before=1", "", false); !strings.Contains(rec.Body.String(), `"events":[]`) {
+		t.Errorf("empty page = %s", rec.Body)
+	}
+	raw := decodeAs[ThinkingRaw](t, sessAPI(t, e, p, "GET", actor+"/thinking/raw?stream="+thinkStream+"&seq=2", "", false))
+	if !strings.Contains(raw.Raw, "said 2") || raw.Truncated != 0 {
+		t.Errorf("raw = %+v", raw)
+	}
+	for _, tc := range []struct {
+		path string
+		code int
+		want string
+	}{
+		{"/thinking?stream=bogus&before=3", 400, `"code":"bad_request"`},
+		{"/thinking?stream=" + thinkStream + "&before=0", 400, `"code":"bad_request"`},
+		{"/thinking/raw?stream=" + thinkStream + "&seq=99", 404, "no such event"},
+		{"/thinking/raw?stream=" + thinkStream, 400, `"code":"bad_request"`},
+	} {
+		if rec := sessAPI(t, e, p, "GET", actor+tc.path, "", false); rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("%s = %d %s, want %d %s", tc.path, rec.Code, rec.Body, tc.code, tc.want)
+		}
+	}
+	// No events store: the pane says so; the page and raw are 404.
+	e.Deps.Events, e.Deps.Hub = nil, nil
+	if off := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", actor+"/pane/thinking", "", false)); !off.EventsOff || off.ThinkingStreams == nil {
+		t.Errorf("events off: pane = %+v", off)
+	}
+	if rec := sessAPI(t, e, p, "GET", actor+"/thinking?stream="+thinkStream+"&before=3", "", false); rec.Code != 404 || !strings.Contains(rec.Body.String(), "aren't recorded") {
+		t.Errorf("events off: page = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAPIThinkingRawCapped(t *testing.T) {
+	e, p, personal, store, _ := thinkEnv(t)
+	big := strings.Repeat("x", rawMax+10)
+	if err := store.Append(textEvent(personal.ActorID, 1, big)); err != nil {
+		t.Fatal(err)
+	}
+	raw := decodeAs[ThinkingRaw](t, sessAPI(t, e, p, "GET", personal.ActorID+"/thinking/raw?stream="+thinkStream+"&seq=1", "", false))
+	if len(raw.Raw) != rawMax || raw.Truncated <= 0 {
+		t.Errorf("raw len %d, truncated %d", len(raw.Raw), raw.Truncated)
+	}
+}
+
+func frameAPI(t *testing.T, e *env, p jam.Participant, id, name string) *httptest.ResponseRecorder {
+	t.Helper()
+	b, _ := json.Marshal(FrameRequest{Name: name})
+	return sessAPI(t, e, p, "POST", id+"/frame", string(b), false)
+}
+
+func TestAPIFrame(t *testing.T) {
+	e, p, personal, standing, ff := frameEnv(t)
+	got := decodeAs[FrameURL](t, frameAPI(t, e, p, personal.ActorID, "ide"))
+	if got.URL != "https://ide--"+personal.ActorID+".preview.test/__jam/frame?t=tk" || got.Open != "https://ide--"+personal.ActorID+".preview.test/" {
+		t.Errorf("ide = %+v", got)
+	}
+	if len(ff.calls) != 1 || ff.calls[0].right != collab.SSH || ff.calls[0].name != "ide" || ff.calls[0].display != "alice" {
+		t.Errorf("minted %+v", ff.calls)
+	}
+	decodeAs[FrameURL](t, frameAPI(t, e, p, personal.ActorID, "app"))
+	if c := ff.calls[len(ff.calls)-1]; c.right != collab.Preview || c.name != "app" {
+		t.Errorf("app minted %+v", c)
+	}
+	n := len(ff.calls)
+	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}
+	for _, tc := range []struct {
+		who  jam.Participant
+		id   string
+		name string
+		code int
+		want string
+	}{
+		{p, personal.ActorID, "nope", 404, "no such session"},
+		{p, personal.ActorID, "", 404, "no such session"},
+		{p, standing.ActorID, "ide", 403, `"code":"forbidden"`},
+		{bob, personal.ActorID, "app", 404, "no such session"},
+	} {
+		if rec := frameAPI(t, e, tc.who, tc.id, tc.name); rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("%s %q = %d %s, want %d %s", tc.who.Name, tc.name, rec.Code, rec.Body, tc.code, tc.want)
+		}
+	}
+	if len(ff.calls) != n {
+		t.Errorf("minted on a refusal: %+v", ff.calls[n:])
+	}
+	ff.err = errors.New("boom")
+	if rec := frameAPI(t, e, p, personal.ActorID, "app"); rec.Code != 500 || !strings.Contains(rec.Body.String(), `"code":"internal"`) {
+		t.Errorf("mint failure = %d %s", rec.Code, rec.Body)
+	}
+	e.Deps.Frames = nil
+	if rec := frameAPI(t, e, p, personal.ActorID, "ide"); rec.Code != 404 {
+		t.Errorf("frames off = %d", rec.Code)
+	}
+}
+
+func TestAPIFrameRateLimited(t *testing.T) {
+	e, p, personal, _, _ := frameEnv(t)
+	h := Handler(e.Deps, nil)
+	call := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/app/user/api/sessions/"+personal.ActorID+"/frame", strings.NewReader(`{"name":"app"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, asPrincipal(req, p, false))
+		return rec
+	}
+	for i := 0; i < maxFrameMints; i++ {
+		if rec := call(); rec.Code != 200 {
+			t.Fatalf("mint %d = %d", i, rec.Code)
+		}
+	}
+	if rec := call(); rec.Code != 429 || !strings.Contains(rec.Body.String(), `"code":"too_many"`) {
+		t.Errorf("over the cap = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAPIPaneStudio(t *testing.T) {
+	e, p, personal, standing, _ := frameEnv(t)
+	st := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", personal.ActorID+"/pane/studio", "", false))
+	if !st.Studio || st.IDEOpen != "https://ide--"+personal.ActorID+".preview.test/" {
+		t.Errorf("studio pane = %+v", st)
+	}
+	if no := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", standing.ActorID+"/pane/studio", "", false)); no.Studio || no.IDEOpen != "" {
+		t.Errorf("studio without ssh = %+v", no)
+	}
+}

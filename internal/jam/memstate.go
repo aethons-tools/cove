@@ -58,6 +58,8 @@ type memState struct {
 	grants map[string]map[ident.ID]ShareGrant
 	// pushSubs is the Web Push subscriptions by endpoint (push_subscriptions.go).
 	pushSubs map[string]PushSubscription
+	// managers is the Studio Manager registry by name (managers_store.go).
+	managers map[string]ManagerRecord
 	// setup is the per-instance setup snapshots: actor id → part → snapshot
 	// (setup_snapshot.go). Dropped with the instance.
 	setup map[string]map[string]SetupSnapshot
@@ -100,6 +102,7 @@ func newMemState() *memState {
 		standing:        map[standingKey]standingEntry{},
 		grants:          map[string]map[ident.ID]ShareGrant{},
 		pushSubs:        map[string]PushSubscription{},
+		managers:        map[string]ManagerRecord{},
 		setup:           map[string]map[string]SetupSnapshot{},
 		channels:        map[ident.ID]Channel{},
 		chanMembers:     map[ident.ID][]ChannelMember{},

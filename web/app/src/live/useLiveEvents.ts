@@ -24,6 +24,8 @@ export function useLiveEvents(): void {
       if (opened) changed();
       opened = true;
     });
+    // The open board's editor listens for these (the old page's contract).
+    es.addEventListener("board", (e) => window.dispatchEvent(new CustomEvent("jam-board", { detail: (e as MessageEvent<string>).data })));
     es.addEventListener("presence", () => {
       void client.invalidateQueries({ queryKey: ["presence"] });
       // A status change can't change Artifacts (it reads the whole channel).

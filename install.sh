@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for the jam host binary.
+# install.sh — one-command installer for the Jam host binaries: jam and jam-studio-manager.
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -10,7 +10,7 @@
 #
 # It pulls a prebuilt release archive (jam_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `jam` onto your PATH.
+# release's checksums.txt, and drops `jam` + `jam-studio-manager` onto your PATH.
 #
 # Env knobs:
 #   JAM_VERSION=<N>-<MMDD>    pin a release (default: latest)
@@ -159,7 +159,7 @@ path_check() {
 # stale_binaries <dir> -> the pre-rename binaries still in dir, space-separated.
 stale_binaries() {
   local b found=()
-  for b in at-jam at-mint at-cove; do
+  for b in at-jam at-mint at-cove at-studio-manager; do
     if [ -e "$1/$b" ]; then found+=("$b"); fi
   done
   echo "${found[*]:-}"
@@ -194,8 +194,11 @@ main() {
   mkdir -p "$tmp/extract"
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
-  place "$tmp/extract/jam" "$bindir"
-  info "installed jam -> $bindir"
+  local b
+  for b in jam jam-studio-manager; do
+    place "$tmp/extract/$b" "$bindir"
+  done
+  info "installed jam jam-studio-manager -> $bindir"
 
   path_check "$bindir"
   local stale

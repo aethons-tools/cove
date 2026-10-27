@@ -57,6 +57,9 @@ func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instanc
 			pane.EventsOff = true
 		} else {
 			pane.Streams, _ = h.d.Events.Streams(inst.ActorID)
+			for _, s := range pane.Streams {
+				pane.ThinkingStreams = append(pane.ThinkingStreams, ThinkingStream{ID: s.StreamID, FirstAt: s.FirstAt, Events: s.Events})
+			}
 		}
 	case "previews":
 		h.panePreviews(r, p, inst, &pane)
@@ -87,6 +90,9 @@ func paneLists(p SessionPane) SessionPane {
 	}
 	if p.Status == nil {
 		p.Status = []StatusRow{}
+	}
+	if p.ThinkingStreams == nil {
+		p.ThinkingStreams = []ThinkingStream{}
 	}
 	return p
 }

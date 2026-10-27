@@ -2,6 +2,7 @@ import { Anchor, Group, Image, Paper, Text, UnstyledButton } from "@mantine/core
 import { useRef } from "react";
 import type { AskCard, MessageRow } from "../api/types";
 import { AskCardView } from "../asks/AskCard";
+import { BoardCard } from "../boards/BoardCard";
 import { MessageBody } from "./MessageBody";
 import { copyText } from "./copy";
 import { timeOf } from "./days";
@@ -17,6 +18,7 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
   if (m.card === "ask" && m.ask) {
     return <div data-seq={m.seq}><AskCardView card={m.ask} channel={channel} onDiscuss={onDiscuss} /></div>;
   }
+  if (m.card === "board" && m.board) return <BoardCard m={m} />;
   if (m.card) {
     return (
       <Paper data-seq={m.seq} withBorder p="xs" my={4} maw="80%">

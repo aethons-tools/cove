@@ -20,8 +20,9 @@ studios points at. It does three things for the studios it serves:
   enforces.
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
-`jam` ships as one binary (minting is `jam mint`): install it with the
-one-command installer and keep it current with `jam update` (see
+`jam` ships as one binary (minting is `jam mint`), released alongside
+[`jam-studio-manager`](../studio-manager.md) for remote manager hosts: install
+them with the one-command installer and keep them current with `jam update` (see
 [installing the binaries](../../OVERVIEW.md#installing-the-binaries)).
 
 This is the *how to run and administer it* layer.
@@ -60,6 +61,7 @@ five pillars), see the design history:
 | [config-git.md](config-git.md) | You want a Jam's config (kits, destinations, model-specs, users, connections, projects, roles, context, serve settings) in a git repo — writing it out, diffing/applying a checkout, replicating a Jam — or a config apply refused, flagged drift or listed unmanaged objects, or want the repo to stop managing an object (`config release`). |
 | [config-git-sources.md](config-git-sources.md) | You want a Jam to follow a config repo in git (`config track\|sync\|untrack`, `--git`), are referencing a kit by its own source (`kits/<name>.source.yml`), or a config sync failed to fetch or flagged a source kit as drifted. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (jam-studio-agent). |
+| [studio-managers.md](studio-managers.md) | You register, rotate or revoke a remote Studio Manager (`jam manager add\|list\|rotate\|revoke`, `runtime.studio-managers`), or debug a manager connection, its strays, or a refused revoke. |
 | [inspect.md](inspect.md) | You want to see everything a studio (or a raise of a role now) is set up with — context files, egress, destinations, env, model-spec, kit/image, seed, MCP, policy — or why a studio differs from its role: `role inspect`, `studio inspect --diff`, or an agent or role page's Setup tab. |
 | [session-context-authoring.md](session-context-authoring.md) | You want sessions of a role, a project or the whole Jam to know something at raise — rules, goals, repos — and need `jam context`, the YAML format or the limits. |
 | [session-context.md](session-context.md) | You are writing a kit prompt, debugging what a session was told at raise, or changing how session context is compiled or delivered. |
@@ -85,7 +87,7 @@ five pillars), see the design history:
 | [push-delivery.md](push-delivery.md) | You're debugging push delivery (`push:relay` open, `push: send refused`, a subscription vanished, a late or missing push) or extending the `/app/user/push/*` routes (key, subscriptions, focus) or the endpoint allowlist. |
 | [comms-addressing.md](comms-addressing.md) | You want a studio's agent to send to a named human or channel instead of only its own ticket — the target space, a Project's members and rooms, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |
 | [discord.md](discord.md) | You are giving a human a Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>`, `account add --connection discord --uid`), setting a project's chat service, or a Discord reply was attributed (member vs display name) differently than you expected. |
-| [renamed-from-at.md](renamed-from-at.md) | You are upgrading from a release whose binaries were `at-jam`/`at-mint`, or you have a kit, script, env var or path that still says `at-`, `cove-` or `harbor.cove`, and need the new name and the upgrade steps. |
+| [renamed-from-at.md](renamed-from-at.md) | You are upgrading from a release whose binaries were `at-jam`/`at-mint`/`at-studio-manager`, or you have a kit, script, env var or path that still says `at-`, `cove-` or `harbor.cove`, and need the new name and the upgrade steps. |
 | [renamed-from-harbor.md](renamed-from-harbor.md) | You have a kit, config, script or env var that still says "harbor", or saw a "deprecated name" warning, and need the new name and how long the old one keeps working. |
 | [studio-kit-migration.md](studio-kit-migration.md) | Your `jam.yml` still sets `runtime.launcher.install-manifest`, or a pre-existing full-kit registry row now fails `kit show`/resolution, and you need what to change. |
 | [whiteboards.md](whiteboards.md) | You want people and agents to sketch together on a shared canvas in a conversation — board access, per-element merge, sync routes, the board_* agent tools and the server-side renderer. |

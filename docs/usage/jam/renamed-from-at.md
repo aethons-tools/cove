@@ -1,6 +1,6 @@
 ---
-summary: The at-/cove → jam rename — every old name (binaries, images, tags, labels, containers and volumes, env vars, build args, in-image paths, directories, release assets, Go packages) and its new name, the upgrade steps, and what Jam migrates by itself at serve start.
-read_when: You are upgrading a Jam host or a workstation from a release whose binaries were `at-jam`/`at-mint`, or something you own (a kit, script, service unit, env var, path or ssh config) still says `at-jam`, `at-mint`, `cove-master`, `cove-*` or `harbor.cove`, and you need the new name or the upgrade steps.
+summary: The at-/cove → jam rename — every old name (binaries, the Studio Manager, images, tags, labels, containers and volumes, env vars, build args, in-image paths, directories, release assets, Go packages) and its new name, the upgrade steps, and what Jam migrates by itself at serve start.
+read_when: You are upgrading a Jam host or a workstation from a release whose binaries were `at-jam`/`at-mint`/`at-studio-manager`, or something you own (a kit, script, service unit, env var, path or ssh config) still says `at-jam`, `at-mint`, `cove-master`, `cove-*` or `harbor.cove`, and you need the new name or the upgrade steps.
 owns: the at-/cove → jam old→new name table, the jam-rename upgrade runbook, and what the jam-rename serve-start migrations do
 prereqs: serve.md for running serve
 tier: leaf
@@ -9,8 +9,8 @@ updated: 2026-10-27
 
 # Renamed from `at-*` and `cove-*` to `jam`
 
-Everything this repo ships is now named for **Jam**: one binary, `jam`. There
-are **no aliases** — an old name is simply not read. Jam migrates its own state
+Everything this repo ships is now named for **Jam**: `jam`, and
+`jam-studio-manager` on remote Studio Manager hosts. There are **no aliases** — an old name is simply not read. Jam migrates its own state
 the first time the new `jam serve` starts; you install the binary, point your
 service at it, and re-raise your studios once. Every studio image and every kit
 rebuilds once (the studio assembly changed).
@@ -23,8 +23,9 @@ rebuilds once (the studio assembly changed).
    cannot fetch the new release (it asks for a `cove_*` archive that no longer
    exists, fails, and changes nothing):
    `gh api -H "Accept: application/vnd.github.raw" /repos/aethons-tools/cove/contents/install.sh | bash`
-   It notices any `at-jam`, `at-mint` or `at-cove` left in the install
-   directory; delete them after step 3.
+   It installs `jam` and `jam-studio-manager`, and notices any `at-jam`,
+   `at-mint`, `at-cove` or `at-studio-manager` left in the install directory;
+   delete them after step 3.
 3. **Point the service and your PATH at `jam`**: the unit's `ExecStart`
    becomes `jam serve --config …`; scripts call `jam …`; `AT_JAM_ADMIN_TOKEN`
    becomes `JAM_ADMIN_TOKEN` (tables below). In the
@@ -60,6 +61,8 @@ rebuilds once (the studio assembly changed).
      track `.jam/cove-ic`;
    - the release workflow's `atcove` job is now `binaries`: update the
      required-check names in branch protection.
+
+Then upgrade every [remote Studio Manager host](#remote-studio-managers).
 
 Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
 `JAM_IDENTITY_TOKEN`.
@@ -107,8 +110,9 @@ Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
 
   `<docker-context>` is the launcher's `docker-context` (default `colima`).
 - **Other managers**: studios and standing sessions on a manager other than
-  `local` are not migrated — re-raise them once their manager runs the new
-  release.
+  `local` are not migrated, even when that manager shares the local docker
+  host (its volumes carry its own Jam label, `<runtime-addr>#<name>`) — see
+  [Remote Studio Managers](#remote-studio-managers).
 - **Kits**: a kit whose current `kit.yml` or Dockerfile still uses an old
   build-arg or ENV name, or names the old base image repository (also in a
   `FROM` line, digest kept), gets a new version with the new names (history
@@ -127,25 +131,62 @@ Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
 Old images (`cove-kit:*`) are not deleted; remove them when you like:
 `docker --context <docker-context> image ls --filter 'reference=cove-kit*' -q | xargs -r docker --context <docker-context> image rm`.
 
+## Remote Studio Managers
+
+Nothing on a manager host migrates by itself, and a manager must run Jam's
+exact release (an old one is refused: its stream also uses the old gRPC name).
+On each host, after Jam is upgraded:
+
+1. **Stop `at-studio-manager run`** (its service unit).
+2. **Install the release** with the one-command installer above (an old
+   `at-jam update` there fails the same way). Delete `at-studio-manager` (and
+   any `at-jam`, `at-mint`) from the install directory.
+3. **Move its config directory**: `mv ~/.config/at-studio-manager
+   ~/.config/jam-studio-manager` (under `$XDG_CONFIG_HOME` when set), and
+   rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir`
+   in `config.yml` that names the old directory. The token stays valid.
+4. **Point the service at `jam-studio-manager run`** (`--config` if you pass
+   one) and start it.
+5. **Re-raise its studios.** The new manager does not see its pre-rename
+   containers (old labels), so on reconnect Jam marks them lost and tears each
+   down, which removes the old container. Remove anything left over:
+   `docker --context <docker-context> ps -a --filter label=harbor.cove.manager=<name>`.
+6. **Standing sessions pinned to it start fresh** (Jam warns `pinned standing
+   session's state is missing on its manager`): their state stays in the old
+   `atcove-cove-<id>-agent-data` and `-workspace` volumes on that host. To keep
+   it, before step 4 create each new volume and copy into it, as root, on an
+   image already on the host (for example the old studio's, `docker --context <docker-context> inspect
+   --format '{{.Config.Image}}' atcove-cove-<id>`):
+   `docker --context <docker-context> volume create --label jam.studio.state=<id> --label jam.studio.jam=<runtime-addr>#<name> --label jam.studio.manager=<name> jam-studio-<id>-agent-data`,
+   then `docker --context <docker-context> run --rm --network none --user 0:0 --entrypoint /bin/sh -v atcove-cove-<id>-agent-data:/from:ro -v jam-studio-<id>-agent-data:/to <image> -c 'cp -a /from/. /to/'`
+   (and the same for `-workspace`); remove the old volumes once you have
+   checked the new ones. `<runtime-addr>` and `<docker-context>` are the manager's
+   `colima.runtime-addr` and `colima.docker-context` (default `colima`).
+
+Its `authorization: Bearer` token, Jam's cove-facing :443 address and its env
+(it reads none) are unchanged; the names it changes (binary, directory, gRPC
+stream, labels) are in the tables below.
+
 ## Old → new
 
 | Old | New |
 |---|---|
 | `at-jam` | `jam` |
+| `at-studio-manager` (remote manager hosts), `~/.config/at-studio-manager` | `jam-studio-manager`, `~/.config/jam-studio-manager` |
 | `at-mint github\|anthropic` | `jam mint github\|anthropic` |
 | `cove-master` (in studios) | `jam-studio-agent` |
 | `ghcr.io/aethons-tools/cove-base-image`, `…/cove-image` | `ghcr.io/aethons-tools/jam-studio-base`, `…/jam-studio` (the blessed bases were copied, digests unchanged) |
 | tags `cove-kit:`, `cove-kit-base:`, `cove-kit-draft:`; `$TMP/cove-kit-builds` | `jam-kit:`, `jam-kit-base:`, `jam-kit-draft:`; `$TMP/jam-kit-builds` |
-| labels `harbor.cove`, `harbor.cove.state`, `harbor.cove.jam` | `jam.studio`, `jam.studio.state`, `jam.studio.jam` |
+| labels `harbor.cove`, `harbor.cove.state`, `harbor.cove.jam`, `harbor.cove.actor`, `harbor.cove.manager` | `jam.studio`, `jam.studio.state`, `jam.studio.jam`, `jam.studio.actor`, `jam.studio.manager` |
 | containers `atcove-cove-<id>`, volumes `atcove-cove-<id>-{agent-data,workspace,docker}` | `jam-studio-<id>`, `jam-studio-<id>-…` |
 | build args `COVE_BASE_IMAGE`, `AT_JAM_STUDIO_BASE_IMAGE`, `AT_JAM_STUDIO_TARGET_ARCH`; kit `ENV COVE_SSHENV` | `JAM_STUDIO_BASE_IMAGE`, `JAM_STUDIO_TARGET_ARCH`; `ENV JAM_SSHENV` |
 | `/usr/local/lib/cove/`, `cove-egress.service` (and its `cove-egress.conf` drop-ins), `/etc/ssh/sshd_config.d/cove.conf`, `cove-git-credential.sh`, `/etc/cove/mcp-servers.json`, `/dev/shm/cove-*`, `/agent-data/cove-master.log` | `/usr/local/lib/jam/`, `jam-egress.service` (`jam-egress.conf`), `/etc/ssh/sshd_config.d/00-jam.conf`, `jam-git-credential.sh`, `/etc/jam/mcp-servers.json`, `/dev/shm/jam-*` (except `/dev/shm/cove-master-env` → `/dev/shm/jam-studio-agent-env`), `/agent-data/jam-studio-agent.log` |
 | `~/.config/at-jam`, `~/.local/state/at-jam`, `~/.config/at-cove` (launcher key) | `~/.config/jam`, `~/.local/state/jam`, `~/.config/jam` |
 | `~/.ssh/config` `# >>> at-jam <studio> >>>` | `# >>> jam <studio> >>>` |
-| release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`) |
-| attach gRPC `harbor.attach.v1.Runtime`, `x-harbor-launch-secret` | `jam.attach.v1.Runtime`, `x-jam-launch-secret` |
+| release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam, at-studio-manager) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`, `jam-studio-manager`) |
+| attach gRPC `harbor.attach.v1.Runtime`, `x-harbor-launch-secret`; manager gRPC `cove.manager.v1.StudioManager` | `jam.attach.v1.Runtime`, `x-jam-launch-secret`; `jam.manager.v1.StudioManager` |
 | `.at-jam/<kit>/` (this repo's dev kit) | `.jam/<kit>/` |
-| repo dirs `cmd/at-jam`, `cmd/at-mint`, `cmd/cove-master`, `images/cove-base-image`, `images/cove-image`; `docs/usage/at-mint.md` | `cmd/jam`, `internal/mintcmd`, `cmd/jam-studio-agent`, `images/jam-studio-base`, `images/jam-studio`; `docs/usage/jam-mint.md` |
+| repo dirs `cmd/at-jam`, `cmd/at-mint`, `cmd/at-studio-manager`, `cmd/cove-master`, `images/cove-base-image`, `images/cove-image`; `docs/usage/at-mint.md` | `cmd/jam`, `internal/mintcmd`, `cmd/jam-studio-manager`, `cmd/jam-studio-agent`, `images/jam-studio-base`, `images/jam-studio`; `docs/usage/jam-mint.md` |
 | Go `internal/covemaster`, `internal/covemasterbin`, `scripts/stage-covemaster.sh` (staged `covemaster/cove-master-linux-<arch>`) | `internal/studioagent`, `internal/studioagentbin`, `scripts/stage-studio-agent.sh` (`studioagent/jam-studio-agent-linux-<arch>`) |
 | Go `AtCoveIdentity`, `LaunchCoveMaster`, `CoveMasterOptions`, `CoveMasterLogVMPath`, `naming.CoveContainer` | `AssemblyIdentity`, `LaunchStudioAgent`, `StudioAgentOptions`, `StudioAgentLogVMPath`, `naming.StudioContainer` |
 

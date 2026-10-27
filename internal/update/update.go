@@ -1,5 +1,5 @@
-// Package update drives the embedded install.sh to update the on-PATH jam
-// binary to a GitHub release (COV-128). `jam update`
+// Package update drives the embedded install.sh to update the on-PATH Jam
+// binaries (jam, jam-studio-manager) to a GitHub release (COV-128). `jam update`
 // calls Do. It deliberately *reuses* install.sh's
 // resolve → download → verify (checksums.txt) → replace flow rather than
 // reimplementing any of it in Go: the checksum verification the installer

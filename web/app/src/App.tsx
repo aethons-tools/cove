@@ -4,6 +4,7 @@ import { Shell } from "./shell/Shell";
 import { Home } from "./routes/Home";
 import { Conversation } from "./routes/Conversation";
 import { NewMessage } from "./compose/NewMessage";
+import { BoardPage } from "./boards/BoardPage";
 
 // routes are the app's client routes under /app/next/ (webapp serves
 // index.html for every one of them).
@@ -15,6 +16,7 @@ export function routes(boot: Bootstrap): RouteObject[] {
       { index: true, element: <Home /> },
       { path: "c/:channel", element: <Conversation /> },
       { path: "new", element: <NewMessage /> },
+      { path: "boards/:id", element: <BoardPage /> },
     ],
   }];
 }

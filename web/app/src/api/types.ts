@@ -24,7 +24,7 @@ export interface Bootstrap {
   tabs: NavTab[]; // the title bar's links
   attachMax: number /* int64 */; // per-file cap; 0 = attachments off
   pushKey: string; // VAPID public key; "" = Web Push off
-  boards: boolean; // whiteboards on and the editor built
+  boards: boolean; // whiteboards on (the app bundles its editor)
 }
 /**
  * BootUser is the signed-in member.
@@ -105,6 +105,10 @@ export interface MessageRow {
    */
   files?: FileChip[];
   /**
+   * Board is a board's card (the squawk that started it).
+   */
+  board?: BoardCard; // the board's card (Card == "board")
+  /**
    * Card names the card this row is ("ask" or "board"; "" = none), so the
    * app can place what it doesn't render yet.
    */
@@ -158,6 +162,11 @@ export interface Conversation {
   canJoin: boolean;
   canLeave: boolean;
   callIn: NewMessageOption[];
+  /**
+   * Whiteboards: NewBoard offers New whiteboard (the viewer may post here
+   * and the editor is built); Board is the board ?board= opened.
+   */
+  newBoard: boolean;
   /**
    * Session is the actor id of the session whose home this channel is,
    * when the viewer may see it ("" = none): the app's session header and
@@ -311,6 +320,14 @@ export interface SessionPane {
   asks: PaneAsk[];
   links: PaneLink[];
   status: StatusRow[];
+  streams: ThinkingStream[];
+  eventsOff: boolean;
+  /**
+   * Studio: the Studio tab's IDE may be framed here (ssh and framing on);
+   * IDEOpen: its plain URL, for Open in new tab when a mint fails.
+   */
+  studio: boolean;
+  ideOpen: string;
 }
 /**
  * PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -351,4 +368,102 @@ export interface PaneLink {
 export interface StatusRow {
   name: string;
   value: string;
+}
+/**
+ * ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
+ * of the feed with ?format=json, and a row of a page. Every string is agent
+ * text, shown as text, never as markup.
+ */
+export interface ThinkingEvent {
+  stream: string;
+  seq: number /* uint64 */;
+  turn: number /* uint32 */;
+  at: number /* int64 */; // unix ms; 0 = unknown
+  kind: string; // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+  tool: string;
+  toolUseId: string;
+  /**
+   * Text is the one line (a gap's summary); Detail the expanded body ("" for
+   * kind other), DetailTruncated the bytes cut from it.
+   */
+  text: string;
+  detail: string;
+  detailTruncated: number /* int */;
+  isError: boolean;
+  truncatedBytes: number /* uint64 */; // dropped by the recorder
+  costUsd: number /* float64 */; // result: the claude session's cumulative cost
+  durationMs: number /* int64 */; // result
+  claudeSession: string; // result: the claude session CostUSD accumulates over
+}
+/**
+ * ThinkingStream is one recorded event stream of a session (the Thinking
+ * tab's stream selector), newest first.
+ */
+export interface ThinkingStream {
+  id: string;
+  firstAt: string;
+  events: number /* int */;
+}
+/**
+ * ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
+ * ?before=, in seq order; Before > 0: older ones exist below it.
+ */
+export interface ThinkingPage {
+  events: ThinkingEvent[];
+  before: number /* uint64 */;
+}
+/**
+ * ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
+ * capped; Truncated is the bytes cut.
+ */
+export interface ThinkingRaw {
+  raw: string;
+  truncated: number /* int */;
+}
+/**
+ * FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
+ * IDE ("ide") or an exposed preview's name.
+ */
+export interface FrameRequest {
+  name: string;
+}
+/**
+ * FrameURL is a minted frame URL (one-time: never cached) and the view's
+ * plain URL, for Open in new tab ("" = none).
+ */
+export interface FrameURL {
+  url: string;
+  open: string;
+}
+/**
+ * BoardCard is a board's card in its conversation (MessageRow.Board).
+ */
+export interface BoardCard {
+  id: string;
+  title: string;
+}
+/**
+ * BoardInfo is GET api/boards/{id}: the board the app's board route opens,
+ * its conversation, and whether the viewer may only look.
+ */
+export interface BoardInfo {
+  id: string;
+  title: string;
+  channel: string;
+  readOnly: boolean;
+}
+/**
+ * NewBoardRequest is POST api/boards: a whiteboard in a conversation the
+ * viewer may post to.
+ */
+export interface NewBoardRequest {
+  channel: string;
+  title: string;
+}
+/**
+ * NewBoardResponse is the new board and its conversation.
+ */
+export interface NewBoardResponse {
+  board: string;
+  channel: string;
 }

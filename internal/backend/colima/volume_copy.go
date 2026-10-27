@@ -65,10 +65,10 @@ func (c *Colima) CopyVolume(image, from, to string) error {
 		"-v", from+":/from:ro", "-v", to+":/to", image, "-c", copyVolumeScript)...)
 }
 
-// ListContainers lists every container (running or not) matching one
+// FindContainers lists every container (running or not) matching one
 // `docker ps` filter ("label=<key>", "name=<substring>"): name → the image it
 // was run from and the volumes it mounts.
-func (c *Colima) ListContainers(filter string) (map[string]backend.ContainerInfo, error) {
+func (c *Colima) FindContainers(filter string) (map[string]backend.ContainerInfo, error) {
 	if err := c.preflight(); err != nil {
 		return nil, err
 	}

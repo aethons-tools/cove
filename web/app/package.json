@@ -14,12 +14,14 @@
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/ibm-plex-sans": "5.3.0",
     "@mantine/core": "9.7.4",
     "@mantine/hooks": "9.7.4",
     "@mantine/notifications": "9.7.4",
     "@tanstack/react-query": "5.105.0",
+    "@tanstack/react-virtual": "3.14.23",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-router": "8.5.0"

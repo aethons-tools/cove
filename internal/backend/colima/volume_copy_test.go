@@ -53,9 +53,9 @@ func TestVolumeExistsMatchesExactly(t *testing.T) {
 	}
 }
 
-func TestListContainersParsesNamesImagesAndMounts(t *testing.T) {
+func TestFindContainersParsesNamesImagesAndMounts(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "box-a\timg-a@sha256:1\tvol-1,vol-2\nbox-b\timg-b\t\n\n"}}}
-	got, err := NewWithContext(f, "").ListContainers("label=some.label")
+	got, err := NewWithContext(f, "").FindContainers("label=some.label")
 	if err != nil {
 		t.Fatal(err)
 	}

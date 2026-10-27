@@ -23,7 +23,7 @@ var renamedGroups = []renamedGroup{
 	{"env and wire", []string{`\bAT_(COVE|HARBOR|MINT|LOG)_`,
 		`\bAT_JAM_(ADMIN|IDENTITY|RUNTIME|LAUNCH|BASE|CONNECTOR|SHUTDOWN|SIGNAL|TOKEN|TEST|X)`,
 		`\bCOVE_(DOCKER|SHADOW_DIRS|PLUGIN_|RUN_|KIT_DOMAINS_FILE|SESSION_DOMAINS_FILE|EGRESS_CEILING_FILE|ENV_FILE|SSH_USER_CA_FILE|BROWSER|BOARD_SCREENSHOT|RUNNER_TEST_HELPER)`,
-		`harbor\.attach\.v1`, `x-harbor-launch-secret`}},
+		`harbor\.attach\.v1`, `x-harbor-launch-secret`, `cove\.manager\.v1`}},
 	{"in-image paths and build args", []string{`lib/cove\b`, `cove-egress`, `sshd_config\.d/cove\.conf`,
 		`cove-git-credential`, `/dev/shm/cove-`, `cove-master\.log`, `\bAT_JAM_`, `\bCOVE_BASE_IMAGE\b`, `\bCOVE_SSHENV\b`}},
 	{"images", []string{`\bcove-base\b`, `\bcove-image\b`, `\bCOVE_IMAGE\b`}},
@@ -31,7 +31,7 @@ var renamedGroups = []renamedGroup{
 	{"directories and markers", []string{`\.config/at-(cove|jam|harbor)`, `state/at-jam`, `[<>]{3} at-jam`,
 		`atCoveConfigDir`, `atJamConfigDir`, `atJamStateDir`, `legacyConfigDir`}},
 	{"binaries and release", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-harbor`, `cove-master`, `covemaster`,
-		`\batcove\b`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
+		`at-studio-manager`, `\batcove\b`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the
@@ -45,16 +45,16 @@ var renamedAllow = []struct {
 	{"docs/superpowers/", nil},
 	{"docs/usage/jam/renamed-from-harbor.md", nil},
 	{"docs/usage/jam/renamed-from-at.md", nil},
-	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `harbor\.cove`}},                 // the routing row to renamed-from-at.md names what it renames
-	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                       // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
-	{"docs/OVERVIEW.md", []string{`\bat-cove`}},                                                // its interim slice-2 note; slice 4 rewrites OVERVIEW
-	{"images/jam-studio-base/image-files/home/agent/.init-agent-data/", []string{`\bat-cove`}}, // the in-image agent docs still describe a deleted CLI; slice 4 rewrites them
+	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.md names what it renames
+	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
+	{"docs/OVERVIEW.md", []string{`\bat-cove`}},                                                     // its interim slice-2 note; slice 4 rewrites OVERVIEW
+	{"images/jam-studio-base/image-files/home/agent/.init-agent-data/", []string{`\bat-cove`}},      // the in-image agent docs still describe a deleted CLI; slice 4 rewrites them
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
 	{"testdata/install-legacy", nil},                                                            // the frozen pre-rename installers
 	{"install.test.sh", nil},                                                                    // drives the frozen pre-rename installers
-	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`}},                                  // the stale-binary notice
+	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`}},             // the stale-binary notice
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
 }
 

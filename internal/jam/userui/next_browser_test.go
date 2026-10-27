@@ -21,6 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
@@ -410,5 +411,419 @@ func TestBrowserNextSessionPane(t *testing.T) {
 	}
 	for _, pr := range problems.all() {
 		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// The app's Thinking tab: the backfill (agent markup inert), a tool call with
+// its result folded in, a live event, and Load earlier — under the CSP.
+func TestBrowserNextThinking(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p, personal, store, hub := thinkEnv(t)
+	old := thinkingTail
+	thinkingTail = 5
+	t.Cleanup(func() { thinkingTail = old })
+	actor, cur := personal.ActorID, strings.Repeat("c", 32)
+	t0 := time.Now().Add(-time.Minute)
+	add := func(seq uint64, raw []byte, ix sessionevents.Index, at time.Duration) {
+		t.Helper()
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: seq, Turn: 1, Kind: sessionevents.KindEvent, ObservedAt: t0.Add(at), ReceivedAt: t0.Add(at), Raw: raw, Index: ix}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for s := uint64(1); s <= 4; s++ {
+		add(s, assistantBlock(map[string]any{"type": "text", "text": fmt.Sprintf("early %d", s)}), sessionevents.Index{Type: "assistant"}, time.Duration(s)*time.Millisecond)
+	}
+	add(5, assistantBlock(map[string]any{"type": "text", "text": `<img src=x onerror="document.title='pwned'">`}), sessionevents.Index{Type: "assistant"}, time.Second)
+	add(6, assistantBlock(map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "go test ./..."}}), sessionevents.Index{Type: "assistant", ToolName: "Bash"}, 2*time.Second)
+	add(7, toolResultBlock("tu1", "ok  \tpkg\t0.1s", false), sessionevents.Index{Type: "user", ToolName: "Bash"}, 5100*time.Millisecond)
+
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	text := `document.querySelector('[role="log"][aria-label="Session events"]').textContent`
+	var problems pageProblems
+	var title, status string
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 900),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)+"?tab=thinking"),
+		has(`!!document.querySelector('[role="log"][aria-label="Session events"]') && `+text+`.includes('go test')`),
+		into(&status, chromedp.Text(chromedp.CSS(`[data-kind="tool_call"] .te-status`))),
+		into(&title, chromedp.Evaluate[string](`document.title`)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(status, "✓ 3.1s") || title == "pwned" {
+		t.Fatalf("status %q, title %q", status, title)
+	}
+	// A live event, then the page below the tail.
+	live := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: 8, Turn: 2, Kind: sessionevents.KindEvent, ObservedAt: time.Now(), ReceivedAt: time.Now(),
+		Raw: assistantBlock(map[string]any{"type": "text", "text": "live 8"}), Index: sessionevents.Index{Type: "assistant"}}
+	if err := store.Append(live); err != nil {
+		t.Fatal(err)
+	}
+	hub.Publish(live)
+	if err := chromedp.Do(ctx,
+		has(text+`.includes('live 8')`),
+		chromedp.Click(chromedp.CSS(`.te-more`)),
+		has(text+`.includes('early 2')`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// thinkingApp serves the app and its API for a Thinking scroll test: the
+// session's stream holds n text events of lines lines each.
+func thinkingApp(t *testing.T, n, lines int) (*env, string, *httptest.Server, func(seq uint64)) {
+	t.Helper()
+	e, p, personal, store, hub := thinkEnv(t)
+	actor, cur := personal.ActorID, strings.Repeat("c", 32)
+	t0 := time.Now().Add(-time.Hour)
+	text := func(seq uint64) []byte {
+		ls := make([]string, lines)
+		for i := range ls {
+			ls[i] = fmt.Sprintf("event %d line %d", seq, i)
+		}
+		return assistantBlock(map[string]any{"type": "text", "text": strings.Join(ls, "\n")})
+	}
+	for s := uint64(1); s <= uint64(n); s++ {
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: s, Turn: 1, Kind: sessionevents.KindEvent, ObservedAt: t0.Add(time.Duration(s) * time.Second),
+			ReceivedAt: t0.Add(time.Duration(s) * time.Second), Raw: text(s), Index: sessionevents.Index{Type: "assistant"}}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish := func(seq uint64) {
+		ev := sessionevents.Event{ActorID: actor, StreamID: cur, Seq: seq, Turn: 2, Kind: sessionevents.KindEvent, ObservedAt: time.Now(), ReceivedAt: time.Now(),
+			Raw: text(seq), Index: sessionevents.Index{Type: "assistant"}}
+		if err := store.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+		hub.Publish(ev)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	return e, e.homeOf(t, personal), srv, publish
+}
+
+const thinkingListJS = `document.querySelector('[role="log"][aria-label="Session events"]')`
+
+// A burst of live events, with the reader at the bottom, stays followed:
+// rows measured taller than estimated mustn't strand the reader above them.
+func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	_, home, srv, publish := thinkingApp(t, 60, 1)
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+home+"?tab=thinking"),
+		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 60 line 0')`),
+		chromedp.Sleep(300*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	for s := uint64(61); s <= 100; s++ {
+		publish(s)
+	}
+	var gap int
+	var pill bool
+	if err := chromedp.Do(ctx,
+		has(thinkingListJS+`.textContent.includes('event 100 line 0')`),
+		chromedp.Sleep(500*time.Millisecond),
+		into(&gap, chromedp.Evaluate[int](`(function(){var L=`+thinkingListJS+`; return Math.round(L.scrollHeight-L.scrollTop-L.clientHeight);})()`)),
+		into(&pill, chromedp.Evaluate[bool](`!!document.querySelector('[aria-label="Show new events"]')`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if gap > 16 || pill {
+		t.Fatalf("after a burst: %dpx from the bottom, pill %v (want followed)", gap, pill)
+	}
+	// A reader who scrolled up stays where they are, told of what's new.
+	var top int
+	if err := chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](thinkingListJS+`.scrollTop=0`),
+		chromedp.Sleep(200*time.Millisecond),
+	); err != nil {
+		t.Fatal(err)
+	}
+	publish(101)
+	if err := chromedp.Do(ctx,
+		has(`(function(){var b=document.querySelector('[aria-label="Show new events"]'); return !!b && b.textContent.includes('1');})()`),
+		into(&top, chromedp.Evaluate[int](`Math.round(`+thinkingListJS+`.scrollTop)`)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if top > 50 {
+		t.Fatalf("a reader scrolled to the top was moved to %dpx", top)
+	}
+}
+
+// Load earlier keeps the reader's place in Detailed format, where rows are
+// much taller than the virtualizer's estimate.
+func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	_, home, srv, _ := thinkingApp(t, 600, 6) // the real tail and page: 300 each
+	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	url := srv.URL + "/app/next/c/" + home + "?tab=thinking"
+	// The row's offset from the top of the list.
+	at := func(seq int) string {
+		return fmt.Sprintf(`(function(){var L=%s, r=L.querySelector('[data-testid="te"][data-seq="%d"]'); return r ? Math.round(r.getBoundingClientRect().top-L.getBoundingClientRect().top) : -9999;})()`, thinkingListJS, seq)
+	}
+	var before, after int
+	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
+		chromedp.Navigate(url),
+		chromedp.Evaluate[chromedp.Void](`localStorage.setItem('jam-thinking', JSON.stringify({format:'detailed'}))`),
+		chromedp.Navigate(url),
+		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 600 line 0')`),
+		chromedp.Evaluate[chromedp.Void](thinkingListJS+`.scrollTop=0`),
+		has(`!!document.querySelector('.te-more')`), // a virtual row: rendered near the top only
+		chromedp.Sleep(300*time.Millisecond),
+		into(&before, chromedp.Evaluate[int](at(301))),
+		chromedp.Click(chromedp.CSS(`.te-more`)),
+		has(`!!`+thinkingListJS+`.querySelector('[data-testid="te"][data-seq="300"]') || `+at(301)+`!==`+fmt.Sprint(-9999)),
+		chromedp.Sleep(500*time.Millisecond),
+		into(&after, chromedp.Evaluate[int](at(301))),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if before < 0 || after-before > 30 || before-after > 30 {
+		t.Fatalf("row 301 was %dpx from the top before Load earlier, %dpx after (want its place kept)", before, after)
+	}
+}
+
+// The app frames the Studio's IDE and a preview's View here from the frame
+// route, under a CSP whose frame-src is the preview origin: the frame loads
+// (status clears), a forged message from the page itself changes nothing,
+// and a real frame-error from the frame is shown.
+func TestBrowserNextStudio(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p, personal, _, _ := frameEnv(t)
+	pv := httptest.NewServer(http.HandlerFunc(framePage))
+	t.Cleanup(pv.Close)
+	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
+	e.Deps.Frames = ff
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, []string{pv.URL})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = asPrincipal(r, p, false)
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	st := `(document.querySelector('#studio .st-status')||{textContent:'?'}).textContent`
+	var problems pageProblems
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 900),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)),
+		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="studio"]`)),
+		has(`!!document.querySelector('#studio iframe.st-iframe') && `+st+`===''`), // loaded
+		chromedp.Evaluate[chromedp.Void](`window.postMessage({jam:'frame-error',status:403},'*')`),
+		chromedp.Sleep(300*time.Millisecond),
+		has(st+`===''`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := ff.mints("ide"); n != 1 {
+		t.Fatalf("ide mints = %d, want 1", n)
+	}
+	// A real refusal from the frame itself; then View here frames a preview.
+	ff.queue("ide", "post=403")
+	if err := chromedp.Do(ctx,
+		chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
+		has(st+`==='No longer shared with you.'`),
+		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="previews"]`)),
+		chromedp.Click(chromedp.CSS(`.pv-here`)),
+		has(`!!document.querySelector('.pv-framed iframe.st-iframe') && document.querySelector('.pv-framed .st-status').textContent===''`),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// The app's board route mounts Excalidraw under the app's CSP, loading every
+// font from the app's own bundle (no CDN), saves a drawn rectangle, and shows
+// an agent's edit pushed live.
+func TestBrowserNextBoard(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Arch", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A labelled shape first, so the board draws text (fonts load per use).
+	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "first", Text: "hello"}}); err != nil {
+		t.Fatal(err)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	type fonts struct {
+		Local   bool     `json:"local"`
+		Foreign []string `json:"foreign"`
+	}
+	var f fonts
+	var problems pageProblems
+	err = chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 1000),
+		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		chromedp.Poll[chromedp.Void](`!!document.querySelector('[data-board-editor]') && document.querySelector('[data-board-editor]').jamElementCount() >= 2`, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		chromedp.Sleep(800*time.Millisecond),
+		into(&f, chromedp.Evaluate[fonts](`(async function(){ await document.fonts.ready;
+			var r = performance.getEntriesByType('resource').map(function(e){ return e.name; });
+			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/next/assets/excalidraw/fonts/') === 0; }),
+				foreign: r.filter(function(n){ return n.indexOf(location.origin) !== 0; })}; })()`, chromedp.EvalAwaitPromise)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Local || len(f.Foreign) > 0 {
+		t.Errorf("fonts from the bundle: %v; requests elsewhere: %v", f.Local, f.Foreign)
+	}
+	var rect bool
+	for range 50 {
+		els, _, _ := e.Deps.Boards.Elements(e.alice.ID, b.ID, 0)
+		for _, el := range els {
+			rect = rect || strings.Contains(string(el), `"type":"rectangle"`)
+		}
+		if rect {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !rect {
+		t.Fatal("the drawn rectangle wasn't saved")
+	}
+	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "agent-shape", Text: "from an agent"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := chromedp.Do(ctx, chromedp.Poll[chromedp.Void](`document.querySelector('[data-board-editor]').jamElementCount() >= 5`, chromedp.WithPollingTimeout(5*time.Second))); err != nil {
+		t.Fatalf("the agent's edit didn't arrive: %v", err)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// An edit made just before "← Back to chat" is saved, not dropped: leaving
+// the board in the app flushes the pending (debounced) save.
+func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Arch", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	err = chromedp.Do(ctx,
+		chromedp.EmulateViewport(1400, 1000),
+		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		// At once: within the 300 ms debounce, so the save is still pending.
+		chromedp.Evaluate[chromedp.Void](`Array.from(document.querySelectorAll('a')).find(function(a){ return a.textContent.indexOf('Back to chat') >= 0; }).click()`),
+		chromedp.WaitVisible(chromedp.CSS(`h2`)), // the conversation
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rect bool
+	for range 30 {
+		els, _, _ := e.Deps.Boards.Elements(e.alice.ID, b.ID, 0)
+		for _, el := range els {
+			rect = rect || strings.Contains(string(el), `"type":"rectangle"`)
+		}
+		if rect {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !rect {
+		t.Fatal("the rectangle drawn just before Back to chat was lost")
 	}
 }

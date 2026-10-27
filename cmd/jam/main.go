@@ -38,6 +38,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/colimacmd"
 	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
@@ -60,6 +61,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/imagefacts"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
+	"github.com/aethons-tools/cove/internal/jam/managers"
+	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
@@ -97,6 +100,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
 			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
 			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
+			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm|inspect) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
@@ -118,7 +122,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
-			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: cmdColima(getenv, runner.OS{})},
+			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: colimacmd.Command("jam", getenv, runner.OS{})},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
 			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
 			{Name: "ssh-proxy", Brief: "the ssh ProxyCommand: renew the studio's SSH certificate when under 1 h remains, then tunnel stdio through Jam (OpenSSH reads the certificate before running it, so a renewal applies from the next connection)", Run: cmdSSHProxy},
@@ -129,7 +133,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "mint", Brief: "mint a short-lived token (github | anthropic) — what Jam runs for a minter credential", Run: func(a []string, g cli.Globals, out, errw io.Writer) int {
 				return mintcmd.Run(a, version, os.LookupEnv, http.DefaultClient, out, errw)
 			}},
-			{Name: "update", Brief: "update jam to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "update", Brief: "update the Jam installation (jam, jam-studio-manager) to the latest release", Run: cmdUpdate(getenv)},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
@@ -1819,10 +1823,11 @@ func cmdActors(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // drives, the image reader for setup inspection, and the default studio kit.
 type builtLauncher struct {
 	launcher       jam.Launcher
+	router         *fleet.Router        // nil with the placeholder launcher
 	images         jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
 	defaultKit     jam.KitRef
 	haveDefaultKit bool
-	local          *launcher.Launcher // the colima launcher (nil without one): the studio-name migration's
+	local          *launcher.Launcher // the colima launcher (nil without one): the studio-name migration's target
 }
 
 // buildLauncher builds the studio launcher from runtime.launcher. With no
@@ -1832,13 +1837,62 @@ type builtLauncher struct {
 func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Logger) (builtLauncher, error) {
 	out := builtLauncher{launcher: placeholderLauncher{}}
 	lc := cfg.Runtime.Launcher
-	if lc == nil {
+	if lc == nil && !cfg.Runtime.StudioManagers {
 		return out, nil
 	}
+	router := fleet.New(log)
+	if lc != nil {
+		local, err := addLocalManager(router, cfg, lc, sshUserCA, log)
+		if err != nil {
+			return builtLauncher{}, err
+		}
+		out.local = local
+	}
+	out.launcher, out.router, out.images = router, router, router
+	log.Info("Jam managers", "names", router.Names())
+	// Seed the built-in default studio kit (blessed base, Anthropic-free egress
+	// ceiling — COV-208) in the registry and hand its reference to the
+	// supervisor. Idempotent: an unchanged definition reuses the version across
+	// restarts; the supervisor resolves the full definition from the registry
+	// only when the launcher reports the kit is not yet built.
+	var err error
+	out.defaultKit, err = jam.EnsureDefaultStudioKit(st)
+	if err != nil {
+		return builtLauncher{}, fmt.Errorf("seed default studio kit: %w", err)
+	}
+	out.haveDefaultKit = true
+	if lc != nil {
+		log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", out.defaultKit.String())
+	}
+	return out, nil
+}
+
+// localLauncher is the "local" manager's launcher: the Colima launcher
+// (embedded concretely so its optional interfaces stay reachable through
+// fleet.Local's Unwrap) plus the image reader on the same daemon.
+type localLauncher struct {
+	*launcher.Launcher
+	jam.ImageFactsReader
+}
+
+// startManagers registers every stored manager with the router (hub.Start),
+// then calls run. It must precede the supervisor's reconcile loop so a manager
+// that has not reconnected yet probes Unknown rather than Dead. A Start error
+// is returned and run is not called.
+func startManagers(hub *managers.Hub, run func()) error {
+	if err := hub.Start(); err != nil {
+		return err
+	}
+	run()
+	return nil
+}
+
+// addLocalManager registers the Colima launcher as the manager "local".
+// It returns the Colima launcher, which the studio-name migration runs on.
+func addLocalManager(router *fleet.Router, cfg serveConfig, lc *launcherConfig, sshUserCA []byte, log *slog.Logger) (*launcher.Launcher, error) {
 	// docker-context picks the colima instance (profile) studios run in.
 	col := colima.NewWithContext(runner.OS{}, lc.DockerContext)
 	var be launcher.Backend = col
-	out.images = imagefacts.New(runner.OS{}, col) // setup inspection reads images on the same daemon
 	// The launcher builds each studio kit's image on demand, so it needs the
 	// public half of the SSH identity to bake into the image's authorized_keys
 	// (its private half is IdentityFile), generated on first use. No kit
@@ -1847,10 +1901,10 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 	// resolved per kit on the substrate (gate ON).
 	pub, err := launcherPublicKey(lc.IdentityFile)
 	if err != nil {
-		return builtLauncher{}, fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
+		return nil, fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
 	}
 	if err := ensureKnownHostsDir(lc.KnownHostsDir); err != nil {
-		return builtLauncher{}, fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
+		return nil, fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
 	}
 	colimaLauncher := launcher.New(launcher.Config{
 		Ops: be, Runner: runner.OS{},
@@ -1864,23 +1918,10 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 		Log:          log,
 		SSHUserCA:    sshUserCA,
 	})
-	out.local = colimaLauncher
-	router := fleet.New(log)
-	router.Add(fleet.Local(colimaLauncher))
-	out.launcher = router
-	log.Info("Jam managers", "names", router.Names())
-	// Seed the built-in default studio kit (blessed base, Anthropic-free egress
-	// ceiling — COV-208) in the registry and hand its reference to the
-	// supervisor. Idempotent: an unchanged definition reuses the version across
-	// restarts; the supervisor resolves the full definition from the registry
-	// only when the launcher reports the kit is not yet built.
-	out.defaultKit, err = jam.EnsureDefaultStudioKit(st)
-	if err != nil {
-		return builtLauncher{}, fmt.Errorf("seed default studio kit: %w", err)
+	if err := router.Add(fleet.Local(localLauncher{Launcher: colimaLauncher, ImageFactsReader: imagefacts.New(runner.OS{}, col)})); err != nil {
+		return nil, err
 	}
-	out.haveDefaultKit = true
-	log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", out.defaultKit.String())
-	return out, nil
+	return colimaLauncher, nil
 }
 
 // placeholderLauncher satisfies jam.Launcher without a real backend: it
@@ -2262,7 +2303,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sup.SetKitDraftBuilds(draftBuilds)
 	}
 	go stopBuildsOnSignal(shutdownSignals(), stopBuilds, draftBuilds, log, dieBySignal)
-	go sup.Run(context.Background())
+	// Studio Managers: register every stored manager with the router (so an
+	// instance on a not-yet-reconnected manager probes Unknown, not Dead)
+	// before the supervisor starts reconciling.
+	var managerHub *managers.Hub
+	runSup := func() { go sup.Run(context.Background()) }
+	if cfg.Runtime.StudioManagers {
+		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log})
+		if err := startManagers(managerHub, runSup); err != nil {
+			fmt.Fprintln(stderr, "jam: studio managers:", err)
+			return 1
+		}
+		log.Info("Jam studio managers: accepting connections", "registered", len(st.ListManagers()))
+	} else {
+		runSup()
+	}
 
 	// Attach gRPC server: served on the cove-facing :443 mux below, and
 	// optionally on a plaintext dev listener (runtime.listen). One server, one
@@ -2293,6 +2348,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	sup.SetTunnelCloser(tunnels)
 	gs := grpc.NewServer()
 	attachpb.RegisterRuntimeServer(gs, rsrv)
+	if managerHub != nil {
+		managerpb.RegisterStudioManagerServer(gs, managerHub)
+	}
 
 	// The intercom's channel log, opened once for the serve lifetime in the
 	// shared control-plane Postgres; it continues the frozen legacy log (ml),
@@ -2477,7 +2535,23 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		httpHandler = withMetrics(httpHandler, condition.MetricsHandler(conds, tok[cfg.Metrics.TokenCred], func() []condition.Gauge {
-			return []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
+			gauges := []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
+			if managerHub != nil {
+				var registered, connected int
+				for _, m := range managerHub.Statuses() {
+					if m.Local {
+						continue
+					}
+					registered++
+					if m.Connected {
+						connected++
+					}
+				}
+				gauges = append(gauges,
+					condition.Gauge{Name: "jam_managers", Help: "Studio Managers registered.", Value: float64(registered)},
+					condition.Gauge{Name: "jam_managers_connected", Help: "Studio Managers connected.", Value: float64(connected)})
+			}
+			return gauges
 		}))
 		log.Info("Jam metrics: mounted", "path", "/metrics") // never the token
 	}
@@ -2848,8 +2922,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)}
 		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
 		// The Jam app (web/app) at /app/next/ while it is ported to parity
-		// (docs/superpowers/specs/2026-10-26-jam-spa-design.md); no framing yet.
-		nextApp := userui.Next(userDeps, log, nil, userOpts...)
+		// (docs/superpowers/specs/2026-10-26-jam-spa-design.md); its CSP
+		// frames the preview hosts when the pane may.
+		nextApp := userui.Next(userDeps, log, appFrameSrc(&cfg), userOpts...)
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
 		// tabs (WithSetupDeps) render with the same deps.
@@ -2859,6 +2934,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		if managerHub != nil {
+			uiOpts = append(uiOpts, adminui.WithManagers(managerHub.Statuses))
+		}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}
@@ -2904,14 +2982,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// redirect (a 308 to the login page).
 			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
-		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser,
+		adminOpts := []jam.AdminOption{
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
 			jam.WithConfig(st, kitFetcher, cfgEnv, log),
-			jam.WithSetupInspect(setupDeps, log))
+			jam.WithSetupInspect(setupDeps, log),
+		}
+		if managerHub != nil {
+			adminOpts = append(adminOpts, managers.AdminRoutes(managerHub)...)
+		}
+		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser, adminOpts...)
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {
 			// The previews' login: sessions, single-use codes and the bounce

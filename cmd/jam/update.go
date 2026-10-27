@@ -15,8 +15,8 @@ import (
 // swap in a runner.Fake.
 var updateRunner runner.Runner = runner.OS{}
 
-// cmdUpdate updates the on-PATH jam binary via the shared update.Do and the
-// embedded install.sh.
+// cmdUpdate updates the on-PATH Jam binaries (jam and jam-studio-manager ship
+// in one release archive) via the shared update.Do and the embedded install.sh.
 func cmdUpdate(getenv func(string) string) func([]string, cli.Globals, io.Writer, io.Writer) int {
 	return func(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("update", flag.ContinueOnError)
