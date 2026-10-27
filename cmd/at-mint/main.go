@@ -53,7 +53,7 @@ func doGitHub(args []string, env func(string) (string, bool), httpc *http.Client
 	if _, err := cli.ParseInterspersed(fs, args); err != nil {
 		return 2
 	}
-	keyPEM, err := readKeyPEM(*appKeyFile, getenv(env, "AT_MINT_GITHUB_APP_KEY"))
+	keyPEM, err := readKeyPEM(*appKeyFile, getenv(env, "JAM_MINT_GITHUB_APP_KEY"))
 	if err != nil {
 		fmt.Fprintf(stderr, "at-mint: %v\n", err)
 		return 1
@@ -82,7 +82,7 @@ func readKeyPEM(path, envContent string) ([]byte, error) {
 	if envContent != "" {
 		return []byte(envContent), nil
 	}
-	return nil, fmt.Errorf("no App private key: set --app-key-file or AT_MINT_GITHUB_APP_KEY")
+	return nil, fmt.Errorf("no App private key: set --app-key-file or JAM_MINT_GITHUB_APP_KEY")
 }
 
 func doAnthropic(args []string, env func(string) (string, bool), httpc *http.Client, stdout, stderr io.Writer) int {
@@ -98,9 +98,9 @@ func doAnthropic(args []string, env func(string) (string, bool), httpc *http.Cli
 	if _, err := cli.ParseInterspersed(fs, args); err != nil {
 		return 2
 	}
-	secret := getenv(env, "AT_MINT_AUTH0_CLIENT_SECRET")
+	secret := getenv(env, "JAM_MINT_AUTH0_CLIENT_SECRET")
 	if secret == "" {
-		fmt.Fprintln(stderr, "at-mint: AT_MINT_AUTH0_CLIENT_SECRET is not set")
+		fmt.Fprintln(stderr, "at-mint: JAM_MINT_AUTH0_CLIENT_SECRET is not set")
 		return 1
 	}
 	in := anthropicInput{
@@ -123,9 +123,9 @@ func doAnthropic(args []string, env func(string) (string, bool), httpc *http.Cli
 	}
 	fmt.Fprintf(stderr, "at-mint: anthropic token minted (expires_in=%ds, refresh_token=%s)\n", resp.ExpiresIn, refresh)
 	// Fail closed when the token would expire before the run finishes: a caller
-	// that sets COVE_RUN_TIMEOUT (nothing in Jam does) declares how long the
+	// that sets JAM_RUN_TIMEOUT (nothing in Jam does) declares how long the
 	// bearer must live, and one whose TTL is below that would 401 mid-run.
-	if to := getenv(env, "COVE_RUN_TIMEOUT"); to != "" && resp.ExpiresIn > 0 {
+	if to := getenv(env, "JAM_RUN_TIMEOUT"); to != "" && resp.ExpiresIn > 0 {
 		if d, perr := time.ParseDuration(to); perr == nil && time.Duration(resp.ExpiresIn)*time.Second < d {
 			fmt.Fprintf(stderr, "at-mint: minted token TTL %ds is shorter than the run timeout %s; it would expire mid-run — raise the Auth0 API token expiration or the federation rule token lifetime\n", resp.ExpiresIn, d)
 			return 1

@@ -149,7 +149,7 @@ func TestNewWrapsFileErrors(t *testing.T) {
 	}
 }
 
-// TestModeFrom covers the --log-mode/AT_LOG_MODE value mapper: the two recognized
+// TestModeFrom covers the --log-mode/JAM_LOG_MODE value mapper: the two recognized
 // modes map to their Mode, and everything else (empty, garbage) falls back to
 // Auto (TTY-detected). Shared by the at-cove and at-task CLIs (COV-94).
 func TestModeFrom(t *testing.T) {
@@ -166,7 +166,7 @@ func TestModeFrom(t *testing.T) {
 	}
 }
 
-// TestLevelFrom covers the --log-level/AT_LOG_LEVEL value mapper: the recognized
+// TestLevelFrom covers the --log-level/JAM_LOG_LEVEL value mapper: the recognized
 // levels map through, and everything else (empty, "info", garbage) falls back to
 // Info.
 func TestLevelFrom(t *testing.T) {

@@ -19,7 +19,7 @@
 # regardless of these vars.
 set -euo pipefail
 
-env_file="${COVE_ENV_FILE:-/etc/environment}"
+env_file="${JAM_ENV_FILE:-/etc/environment}"
 : >"$env_file" # the sealed layer owns this file — start clean and deterministic
 
 # 1) Image-provided session env: PATH (intrinsic) + the COVE_SSHENV names.

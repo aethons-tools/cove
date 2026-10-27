@@ -123,7 +123,7 @@ func TestNftablesOutputAllowsNestedBridges(t *testing.T) {
 }
 
 // TestEntrypointExecsSystemdForDocker guards the COV-118 PID-1 branch: a docker:true
-// sandbox (COVE_DOCKER=1) hands off to systemd (exec /sbin/init), which raises the
+// sandbox (JAM_DOCKER=1) hands off to systemd (exec /sbin/init), which raises the
 // egress lock and starts sshd + the inner rootful dockerd as ordered units; a
 // non-docker sandbox keeps the script path (exec sshd), unchanged. The handoff must
 // precede the non-docker tail so the docker path never runs the script bring-up.
@@ -133,8 +133,8 @@ func TestEntrypointExecsSystemdForDocker(t *testing.T) {
 		t.Fatalf("entrypoint.sh not embedded: %v", err)
 	}
 	s := string(b)
-	if !strings.Contains(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Errorf("entrypoint must branch on COVE_DOCKER; got:\n%s", s)
+	if !strings.Contains(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Errorf("entrypoint must branch on JAM_DOCKER; got:\n%s", s)
 	}
 	initIdx := strings.Index(s, "exec /sbin/init")
 	sshdIdx := strings.Index(s, "exec /usr/sbin/sshd -D")
@@ -471,8 +471,8 @@ func TestEntrypointSeedsGenerically(t *testing.T) {
 	if !strings.Contains(s, call) || !strings.Contains(s, "chown -R agent:agent /agent-data") {
 		t.Fatalf("entrypoint must run %q and chown the volume; got:\n%s", call, s)
 	}
-	if strings.Index(s, call) > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Error("seeding must run before the COVE_DOCKER branch")
+	if strings.Index(s, call) > strings.Index(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Error("seeding must run before the JAM_DOCKER branch")
 	}
 	var code strings.Builder
 	for _, line := range strings.Split(s, "\n") {
@@ -622,7 +622,7 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		"${COVE_SHADOW_DIRS:-}",
+		"${JAM_SHADOW_DIRS:-}",
 		`case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac`,
 		"set -f", // no globbing: an entry must never be pathname-expanded (COV-132 #2)
 		// chown only a real mountpoint (the fresh volume), never host content
@@ -634,8 +634,8 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 		}
 	}
 	// The chown must precede the docker/systemd handoff so both paths run it.
-	if strings.Index(s, "COVE_SHADOW_DIRS") > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Error("shadow-dir chown must run before the COVE_DOCKER branch")
+	if strings.Index(s, "JAM_SHADOW_DIRS") > strings.Index(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Error("shadow-dir chown must run before the JAM_DOCKER branch")
 	}
 }
 

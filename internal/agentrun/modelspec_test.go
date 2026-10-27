@@ -89,7 +89,7 @@ func TestClaudeEnvByProvider(t *testing.T) {
 		"bedrock": {"bedrock", map[string]string{"AWS_REGION": "us-west-2"},
 			map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-west-2"}},
 		// Defense in depth: what Jam refuses at write never reaches the env.
-		"refused keys dropped": {"vertex", map[string]string{"PATH": "/evil", "ANTHROPIC_API_KEY": "k", "AT_JAM_X": "1", "OK": "1"},
+		"refused keys dropped": {"vertex", map[string]string{"PATH": "/evil", "ANTHROPIC_API_KEY": "k", "JAM_X": "1", "OK": "1"},
 			map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "OK": "1"}},
 	}
 	for name, c := range cases {

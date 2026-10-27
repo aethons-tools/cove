@@ -19,7 +19,7 @@ func cmdAttention(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("attention list", flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: AT_JAM_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: JAM_ADMIN_TOKEN)")
 	all := fs.Bool("all", false, "include conditions resolved in the last 7 days")
 	if _, code, ok := cli.ParseFlags(fs, args[1:], stdout, stderr); !ok {
 		return code

@@ -22,7 +22,7 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-session_file="${COVE_SESSION_DOMAINS_FILE:-/etc/squid/allowed_domains.session.txt}"
+session_file="${JAM_SESSION_DOMAINS_FILE:-/etc/squid/allowed_domains.session.txt}"
 
 # Rewrite atomically: build the new list beside the target, then move it into
 # place, so a concurrent squid read never sees a half-written file.

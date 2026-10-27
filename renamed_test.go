@@ -19,7 +19,11 @@ type renamedGroup struct {
 
 var renamedGroups = []renamedGroup{
 	{"go identifiers", []string{`AtCove`, `CoveMaster`, `coveMaster`, `covemasterbin`,
-		`internal/covemaster\b`, `package covemaster`, `\bcovemaster\.[A-Z]`, `CoveContainer`}},
+		`internal/covemaster\b`, `(?i)package covemaster`, `\bcovemaster\.[A-Z]`, `CoveContainer`}},
+	{"env and wire", []string{`\bAT_(COVE|HARBOR|MINT|LOG)_`,
+		`\bAT_JAM_(ADMIN|IDENTITY|RUNTIME|LAUNCH|BASE|CONNECTOR|SHUTDOWN|SIGNAL|TOKEN|TEST|X)`,
+		`\bCOVE_(DOCKER|SHADOW_DIRS|PLUGIN_|RUN_|KIT_DOMAINS_FILE|SESSION_DOMAINS_FILE|EGRESS_CEILING_FILE|ENV_FILE|SSH_USER_CA_FILE|BROWSER|BOARD_SCREENSHOT|RUNNER_TEST_HELPER)`,
+		`harbor\.attach\.v1`, `x-harbor-launch-secret`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the

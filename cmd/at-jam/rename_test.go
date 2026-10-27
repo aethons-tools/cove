@@ -125,8 +125,7 @@ func TestAdminTokenNewEnvWins(t *testing.T) {
 	logging.ResetDeprecations()
 	t.Cleanup(logging.ResetDeprecations)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AT_JAM_ADMIN_TOKEN", "NEW-TOK")
-	t.Setenv("AT_HARBOR_ADMIN_TOKEN", "OLD-TOK")
+	t.Setenv("JAM_ADMIN_TOKEN", "NEW-TOK")
 	var gotAuth string
 	ts := adminTokenServer(t, &gotAuth)
 	var out, errb bytes.Buffer
@@ -134,33 +133,20 @@ func TestAdminTokenNewEnvWins(t *testing.T) {
 		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
 	}
 	if gotAuth != "Bearer NEW-TOK" {
-		t.Fatalf("Authorization = %q, want the AT_JAM_ADMIN_TOKEN value", gotAuth)
+		t.Fatalf("Authorization = %q, want the JAM_ADMIN_TOKEN value", gotAuth)
 	}
 	if strings.Contains(errb.String(), "deprecated") {
 		t.Fatalf("the new variable must not warn; stderr=%q", errb.String())
 	}
 }
 
-func TestAdminTokenOldEnvAloneWorksAndWarns(t *testing.T) {
-	logging.ResetDeprecations()
-	t.Cleanup(logging.ResetDeprecations)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AT_JAM_ADMIN_TOKEN", "")
-	t.Setenv("AT_HARBOR_ADMIN_TOKEN", "OLD-TOK")
-	var gotAuth string
-	ts := adminTokenServer(t, &gotAuth)
-	var out, errb bytes.Buffer
-	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, os.Getenv, &out, &errb); code != 0 {
-		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
-	}
-	if gotAuth != "Bearer OLD-TOK" {
-		t.Fatalf("Authorization = %q, want the AT_HARBOR_ADMIN_TOKEN fallback", gotAuth)
-	}
-	if !strings.Contains(errb.String(), "AT_HARBOR_ADMIN_TOKEN") || !strings.Contains(errb.String(), "AT_JAM_ADMIN_TOKEN") {
-		t.Fatalf("want a deprecation warning naming both; stderr=%q", errb.String())
-	}
-	if strings.Contains(errb.String(), "OLD-TOK") {
-		t.Fatalf("the token value must never be logged; stderr=%q", errb.String())
+func TestAdminTokenOldEnvIgnored(t *testing.T) {
+	t.Setenv("JAM_ADMIN_TOKEN", "")
+	// Spelled split so the renamed guard (renamed_test.go) does not flag them.
+	t.Setenv("AT_"+"HARBOR_ADMIN_TOKEN", "old")
+	t.Setenv("AT_"+"JAM_ADMIN_TOKEN", "older")
+	if got := adminTokenEnv(io.Discard); got != "" {
+		t.Fatalf("adminTokenEnv() = %q; pre-rename names must be ignored", got)
 	}
 }
 

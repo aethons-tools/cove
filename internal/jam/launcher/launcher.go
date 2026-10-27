@@ -51,7 +51,7 @@ type Config struct {
 	DNS           []string
 	Docker        bool
 	Subscription  bool   // legacy-render fallback only: the supervisor always sets RaiseSpec.Connector, whose env carries the mode
-	WorkDir       string // AT_COVE_WORKDIR; default /home/agent/workspace
+	WorkDir       string // JAM_WORKDIR; default /home/agent/workspace
 	// JamID labels the state volumes this Jam creates (JamLabel) and scopes
 	// its sweep to them. It must be stable across restarts and distinct per
 	// Jam sharing a docker host; default RuntimeAddr (the address coves dial

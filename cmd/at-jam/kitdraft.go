@@ -65,7 +65,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("kit draft "+verb, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	// Each verb defines only its own flags, so another verb's is a usage error.
 	from, asJSON, outFile, mode, pin, etag := new(string), new(bool), new(string), new(string), new(bool), new(string)
 	noFollow, show, cancelBuild := new(bool), new(bool), new(bool)

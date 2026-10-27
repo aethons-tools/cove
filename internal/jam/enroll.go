@@ -46,11 +46,10 @@ func Enroll(store Store, id, project, role string, overrides *Override, now time
 // RenderEnrollSnippet renders the legacy env + gitconfig (Anthropic + git) a
 // Guest cove sources to route through Jam — the fallback when an enrollment
 // carries no connector (an older Jam); see snippet.Connector. The identity token is written once (as
-// AT_JAM_IDENTITY_TOKEN; the deprecated AT_HARBOR_IDENTITY_TOKEN is exported from
-// it) and both connectors reference it; Jam swaps it for the real credentials.
+// JAM_IDENTITY_TOKEN) and both connectors reference it; Jam swaps it for the real credentials.
 //
 // The token stays **env-only**: the git credential helper reads it from
-// $AT_JAM_IDENTITY_TOKEN at run time, so the token never lands in gitconfig on
+// $JAM_IDENTITY_TOKEN at run time, so the token never lands in gitconfig on
 // disk (only the env-var name does). This makes `git clone` through Jam work
 // headlessly — no prompt — matching the repo's existing env-only-token pattern.
 func RenderEnrollSnippet(baseURL, token string) string {

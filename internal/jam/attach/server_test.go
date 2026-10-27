@@ -78,7 +78,7 @@ func harness(t *testing.T) (jam.Store, *jam.Supervisor, *Server, func() *grpc.Cl
 
 func authCtx(token, secret string) context.Context {
 	return metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
-		"authorization", "Bearer "+token, "x-harbor-launch-secret", secret))
+		"authorization", "Bearer "+token, "x-jam-launch-secret", secret))
 }
 
 // eventually polls cond up to ~1s (10ms steps) — for the server's async recv loop.

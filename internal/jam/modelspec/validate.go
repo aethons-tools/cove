@@ -46,9 +46,9 @@ var protectedEnvKeys = map[string]bool{
 func ProtectedEnvKey(key string) bool { return protectedEnvKeys[key] }
 
 // ReservedEnvKey reports whether key is in the Jam-owned env namespace
-// (AT_JAM_*, and the pre-rename AT_HARBOR_*), which operator-authored env never sets.
+// (JAM_*), which operator-authored env never sets.
 func ReservedEnvKey(key string) bool {
-	return strings.HasPrefix(key, "AT_JAM_") || strings.HasPrefix(key, "AT_HARBOR_")
+	return strings.HasPrefix(key, "JAM_")
 }
 
 // claudeNonPreferenceSettings are settings.json keys that are not preferences:

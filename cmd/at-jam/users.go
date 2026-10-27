@@ -19,7 +19,7 @@ import (
 func clientFlags(fs *flag.FlagSet, stderr io.Writer) func() (*adminclient.Client, error) {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	return func() (*adminclient.Client, error) {
 		if err := validateApp(*app); err != nil {
 			return nil, err

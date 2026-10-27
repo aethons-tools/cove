@@ -1,9 +1,9 @@
 syntax = "proto3";
-// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
-// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
-// already-built cove images dials, so renaming it would break running coves.
-// See docs/usage/jam/renamed-from-harbor.md.
-package harbor.attach.v1;
+// The service is jam.attach.v1.Runtime (/jam.attach.v1.Runtime/Attach), the
+// gRPC wire name a studio's agent dials. Studios built before the jam rename
+// speak the pre-rename name and cannot attach; they are retired at serve start
+// (docs/usage/jam/renamed-from-at.md).
+package jam.attach.v1;
 option go_package = "github.com/aethons-tools/cove/internal/jam/attach/attachpb";
 
 service Runtime {

@@ -22,7 +22,7 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-ca_file="${COVE_SSH_USER_CA_FILE:-/etc/ssh/jam_user_ca.pub}"
+ca_file="${JAM_SSH_USER_CA_FILE:-/etc/ssh/jam_user_ca.pub}"
 
 key="$(head -c 4097)"
 if [ "${#key}" -gt 4096 ]; then

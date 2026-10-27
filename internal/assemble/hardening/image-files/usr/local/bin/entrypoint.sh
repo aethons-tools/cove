@@ -15,7 +15,7 @@ chown -R agent:agent /agent-data
 # A share-repo-dir class may overmount transient dirs (.venv, node_modules) with
 # fresh per-sandbox volumes (COV-132). Each mounts empty and root:root, so chown
 # the mountpoint to agent (non-recursive: first boot is empty; later boots' content
-# is already agent-owned). COVE_SHADOW_DIRS is the space-joined list from the run.
+# is already agent-owned). JAM_SHADOW_DIRS is the space-joined list from the run.
 # Defense-in-depth for this sealed file (config restricts the entries at parse
 # time, but this env value is trusted last): `set -f` so an entry is never
 # pathname-expanded against the entrypoint's cwd — a glob metachar would otherwise
@@ -24,7 +24,7 @@ chown -R agent:agent /agent-data
 # (the fresh per-sandbox volume), never host content showing through the shared
 # bind, since chowning that would rewrite the user's real files to agent.
 set -f
-for d in ${COVE_SHADOW_DIRS:-}; do
+for d in ${JAM_SHADOW_DIRS:-}; do
   case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac
   p="/home/agent/workspace/$d"
   if mountpoint -q "$p"; then chown agent:agent "$p"; fi
@@ -39,7 +39,7 @@ set +f
 # (COV-118, COV-125). The seed/refresh above ran
 # for both paths (it touches no network); everything below is the non-docker path,
 # byte-for-byte unchanged.
-if [ "${COVE_DOCKER:-}" = "1" ]; then
+if [ "${JAM_DOCKER:-}" = "1" ]; then
   exec /sbin/init
 fi
 

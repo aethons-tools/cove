@@ -154,7 +154,7 @@ func TestEventsDeliveredInOrderThenDone(t *testing.T) {
 func TestEventsRedactOwnSecrets(t *testing.T) {
 	f := &fakeRuntime{autoAck: true}
 	c := fakeClient(t, f, nil)
-	_ = c.Run(context.Background(), &eventWorkload{lines: []string{`{"out":"AT_JAM_TOKEN=tok-SECRET-0001 x=ls-SECRET-0002"}`}})
+	_ = c.Run(context.Background(), &eventWorkload{lines: []string{`{"out":"JAM_TOKEN=tok-SECRET-0001 x=ls-SECRET-0002"}`}})
 	f.mu.Lock()
 	raw := string(f.events[0].Raw)
 	f.mu.Unlock()

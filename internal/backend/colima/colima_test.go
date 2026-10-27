@@ -30,7 +30,7 @@ func TestDockerArgs(t *testing.T) {
 		t.Errorf("docker off must yield no flags; got %v", a)
 	}
 	got := strings.Join(dockerArgs(true, "box-docker"), " ")
-	if got != "--runtime=sysbox-runc -e COVE_DOCKER=1 -v box-docker:/var/lib/docker" {
+	if got != "--runtime=sysbox-runc -e JAM_DOCKER=1 -v box-docker:/var/lib/docker" {
 		t.Errorf("dockerArgs = %q", got)
 	}
 }

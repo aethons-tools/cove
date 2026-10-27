@@ -564,7 +564,7 @@ func TestProbeMapsState(t *testing.T) {
 }
 
 // TestRaiseResidentKinds: the launcher asks cove-master for resident mode
-// (AT_COVE_RESIDENT=1) only for resident kinds — personal and standing.
+// (JAM_RESIDENT=1) only for resident kinds — personal and standing.
 func TestRaiseResidentKinds(t *testing.T) {
 	for kind, want := range map[string]bool{"": false, "ephemeral": false, jam.SessionKindPersonal: true, jam.SessionKindStanding: true} {
 		ops := &fakeOps{}
@@ -579,12 +579,12 @@ func TestRaiseResidentKinds(t *testing.T) {
 		}
 		got := false
 		for _, c := range r.Calls {
-			if strings.Contains(c.Stdin, "AT_COVE_RESIDENT=1") {
+			if strings.Contains(c.Stdin, "JAM_RESIDENT=1") {
 				got = true
 			}
 		}
 		if got != want {
-			t.Fatalf("kind %q: AT_COVE_RESIDENT set = %v, want %v", kind, got, want)
+			t.Fatalf("kind %q: JAM_RESIDENT set = %v, want %v", kind, got, want)
 		}
 	}
 }
@@ -820,7 +820,7 @@ func TestRaisePassesContextAndKind(t *testing.T) {
 	}
 	var kind, ctx bool
 	for _, c := range r.Calls {
-		kind = kind || strings.Contains(c.Stdin, "AT_COVE_SESSION_KIND='standing'")
+		kind = kind || strings.Contains(c.Stdin, "JAM_SESSION_KIND='standing'")
 		ctx = ctx || strings.Contains(c.Stdin, `"core":"CORE-TEXT"`)
 	}
 	if !kind || !ctx {

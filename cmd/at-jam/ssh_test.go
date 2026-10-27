@@ -38,8 +38,7 @@ func sshTestHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("AT_JAM_ADMIN_TOKEN", "")
-	t.Setenv("AT_HARBOR_ADMIN_TOKEN", "")
+	t.Setenv("JAM_ADMIN_TOKEN", "")
 	// The default admin URL is a closed port, so no test reaches a real Jam.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -436,7 +435,7 @@ func TestSSHExecsSSHAfterFreshCert(t *testing.T) {
 	stubSSHSelf(t, "/usr/local/bin/at-jam", nil)
 	fakeClock(t, time.Now())
 	j := newCollabJam(t)
-	t.Setenv("AT_JAM_ADMIN_TOKEN", "optok")
+	t.Setenv("JAM_ADMIN_TOKEN", "optok")
 	var gotPath string
 	var gotArgv []string
 	oldExec, oldLook := sshExec, sshLookPath

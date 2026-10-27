@@ -35,7 +35,7 @@ func (j *askJam) env(t *testing.T) func(string) string {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok-A"}
+	env := map[string]string{"JAM_RUNTIME_ADDR": srv.URL, "JAM_IDENTITY_TOKEN": "tok-A"}
 	return func(k string) string { return env[k] }
 }
 

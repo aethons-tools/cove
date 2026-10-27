@@ -30,7 +30,7 @@ type GitRouter interface {
 }
 
 // ConnectorConfig turns on the per-turn connector refresh. Nil Config.Connector
-// (an older launcher that sets no AT_JAM_BASE_URL) keeps today's behavior: every
+// (an older launcher that sets no JAM_BASE_URL) keeps today's behavior: every
 // spawn inherits cove-master's env.
 type ConnectorConfig struct {
 	Source  ConnectorSource

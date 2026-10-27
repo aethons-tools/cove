@@ -43,7 +43,7 @@ func TestRunGitHubPrintsOnlyToken(t *testing.T) {
 		return resp(201, `{"token":"ghs_ok"}`), nil
 	})}
 	env := envMap(map[string]string{
-		"AT_MINT_GITHUB_APP_KEY": string(keyPEM),
+		"JAM_MINT_GITHUB_APP_KEY": string(keyPEM),
 	})
 	var out, errOut bytes.Buffer
 	code := run([]string{"github", "--app-id", "1", "--install-id", "2", "--repo", "acme/widgets"}, env, httpc, &out, &errOut)
@@ -78,7 +78,7 @@ func TestRunAnthropicPrintsOnlyToken(t *testing.T) {
 		}
 		return resp(200, `{"access_token":"sk-ant-oat01-ok"}`), nil
 	})}
-	env := envMap(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh"})
+	env := envMap(map[string]string{"JAM_MINT_AUTH0_CLIENT_SECRET": "shh"})
 	var out, errOut bytes.Buffer
 	code := run([]string{"anthropic",
 		"--auth0-tenant", "t.us.auth0.com", "--auth0-client-id", "c", "--auth0-audience", "a",

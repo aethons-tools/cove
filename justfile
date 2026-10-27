@@ -133,7 +133,7 @@ app-check:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npm run check
 
 # headless-Chrome tests of the /app/user UI's JS (needs chrome-headless-shell on PATH or
-# COVE_BROWSER; each test skips without one)
+# JAM_BROWSER; each test skips without one)
 test-browser:
     go test -tags browser ./internal/jam/userui/ -run Browser -v
 

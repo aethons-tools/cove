@@ -374,7 +374,7 @@ func TestFakeOnRunBlocksUntilCancel(t *testing.T) {
 
 // helperEnv makes the test binary, re-run as a child, act as a process that
 // blocks until it is interrupted (TestHelperBlockUntilInterrupt).
-const helperEnv = "COVE_RUNNER_TEST_HELPER"
+const helperEnv = "JAM_RUNNER_TEST_HELPER"
 
 // TestHelperBlockUntilInterrupt is not a test: run as a child with
 // helperEnv=block it prints "ready" and exits once it gets an interrupt.

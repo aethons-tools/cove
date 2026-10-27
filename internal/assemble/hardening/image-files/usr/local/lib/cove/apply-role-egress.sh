@@ -36,9 +36,9 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-kit_file="${COVE_KIT_DOMAINS_FILE:-/etc/squid/allowed_domains.kit.txt}"
-session_file="${COVE_SESSION_DOMAINS_FILE:-/etc/squid/allowed_domains.session.txt}"
-ceiling_file="${COVE_EGRESS_CEILING_FILE:-/etc/squid/egress_ceiling.txt}"
+kit_file="${JAM_KIT_DOMAINS_FILE:-/etc/squid/allowed_domains.kit.txt}"
+session_file="${JAM_SESSION_DOMAINS_FILE:-/etc/squid/allowed_domains.session.txt}"
+ceiling_file="${JAM_EGRESS_CEILING_FILE:-/etc/squid/egress_ceiling.txt}"
 
 # At least two labels; no scheme, port, path, glob or whitespace; an optional
 # leading dot means "and subdomains". Jam enforces the same rule.

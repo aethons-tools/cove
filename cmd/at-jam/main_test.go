@@ -117,7 +117,7 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 	if !strings.Contains(out.String(), "ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"") {
 		t.Fatalf("stdout missing snippet:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "AT_JAM_IDENTITY_TOKEN=") {
+	if !strings.Contains(out.String(), "JAM_IDENTITY_TOKEN=") {
 		t.Fatal("stdout missing minted token line")
 	}
 	if !strings.Contains(out.String(), `export GH_HOST="jam.local.aethons.tools"`) || !strings.Contains(out.String(), "insteadOf") {

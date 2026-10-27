@@ -4,21 +4,18 @@
 // image entrypoint in its own non-root account is a later slice. It reads its
 // configuration from the environment (no SSH, no host orchestration):
 //
-//	AT_JAM_RUNTIME_ADDR      Jam's cove-facing :443 address (host:443), dialed
-//	                         over TLS through the cove's squid CONNECT proxy
-//	AT_JAM_IDENTITY_TOKEN    the cove's identity token
-//	AT_JAM_LAUNCH_SECRET     the per-instance launch secret
+//	JAM_RUNTIME_ADDR       Jam's cove-facing :443 address (host:443), dialed
+//	                       over TLS through the cove's squid CONNECT proxy
+//	JAM_IDENTITY_TOKEN     the cove's identity token
+//	JAM_LAUNCH_SECRET      the per-instance launch secret
 //
-// Each AT_JAM_* variable falls back to its deprecated AT_HARBOR_* name, which
-// an older Jam launcher sets (docs/usage/jam/renamed-from-harbor.md).
-//
-//	AT_COVE_WORKDIR          the agent's cwd (default /home/agent/workspace)
-//	AT_COVE_AGENT_PROMPT_FILE path to the file holding the agent's prompt (required)
-//	AT_COVE_RESIDENT         "1"/"true" keeps the agent resident between turns
-//	                         (personal sessions): it waits for a Wake after every turn
-//	AT_JAM_BASE_URL          https://<jam host>; when set, the agent's connector is re-fetched
-//	                         (GET /connector) before every spawn
-//	AT_JAM_CONNECTOR         the raise-time connector (JSON, no token): fallback + owned env keys
+//	JAM_WORKDIR            the agent's cwd (default /home/agent/workspace)
+//	JAM_AGENT_PROMPT_FILE  path to the file holding the agent's prompt (required)
+//	JAM_RESIDENT           "1"/"true" keeps the agent resident between turns
+//	                       (personal sessions): it waits for a Wake after every turn
+//	JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re-fetched
+//	                       (GET /connector) before every spawn
+//	JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 package main
 
 import (
@@ -48,13 +45,9 @@ func clientTransportCreds() credentials.TransportCredentials {
 	return credentials.NewTLS(&tls.Config{})
 }
 
-// jamEnv reads the AT_JAM_<suffix> variable, falling back to the deprecated
-// AT_HARBOR_<suffix> name. Values are never logged.
+// jamEnv reads the JAM_<suffix> variable. Values are never logged.
 func jamEnv(getenv func(string) string, suffix string) string {
-	if v := getenv("AT_JAM_" + suffix); v != "" {
-		return v
-	}
-	return getenv("AT_HARBOR_" + suffix)
+	return getenv("JAM_" + suffix)
 }
 
 func buildConfig(getenv func(string) string, log *slog.Logger) (studioagent.Config, error) {
@@ -63,11 +56,11 @@ func buildConfig(getenv func(string) string, log *slog.Logger) (studioagent.Conf
 	secret := jamEnv(getenv, "LAUNCH_SECRET")
 	switch {
 	case addr == "":
-		return studioagent.Config{}, fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
+		return studioagent.Config{}, fmt.Errorf("JAM_RUNTIME_ADDR is required")
 	case token == "":
-		return studioagent.Config{}, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
+		return studioagent.Config{}, fmt.Errorf("JAM_IDENTITY_TOKEN is required")
 	case secret == "":
-		return studioagent.Config{}, fmt.Errorf("AT_JAM_LAUNCH_SECRET is required")
+		return studioagent.Config{}, fmt.Errorf("JAM_LAUNCH_SECRET is required")
 	}
 	return studioagent.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,
@@ -77,24 +70,24 @@ func buildConfig(getenv func(string) string, log *slog.Logger) (studioagent.Conf
 }
 
 func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
-	workdir := getenv("AT_COVE_WORKDIR")
+	workdir := getenv("JAM_WORKDIR")
 	if workdir == "" {
 		workdir = "/home/agent/workspace"
 	}
-	promptFile := getenv("AT_COVE_AGENT_PROMPT_FILE")
+	promptFile := getenv("JAM_AGENT_PROMPT_FILE")
 	if promptFile == "" {
-		return agentrun.Config{}, fmt.Errorf("AT_COVE_AGENT_PROMPT_FILE is required")
+		return agentrun.Config{}, fmt.Errorf("JAM_AGENT_PROMPT_FILE is required")
 	}
 	prompt, err := os.ReadFile(promptFile)
 	if err != nil {
-		return agentrun.Config{}, fmt.Errorf("reading AT_COVE_AGENT_PROMPT_FILE: %w", err)
+		return agentrun.Config{}, fmt.Errorf("reading JAM_AGENT_PROMPT_FILE: %w", err)
 	}
-	resident := getenv("AT_COVE_RESIDENT")
+	resident := getenv("JAM_RESIDENT")
 	cfg := agentrun.Config{WorkDir: workdir, Prompt: string(prompt), Resident: resident == "1" || resident == "true"}
-	if base := getenv("AT_JAM_BASE_URL"); base != "" {
+	if base := getenv("JAM_BASE_URL"); base != "" {
 		token := jamEnv(getenv, "IDENTITY_TOKEN")
 		var initial snippet.Connector
-		if raw := getenv("AT_JAM_CONNECTOR"); raw != "" {
+		if raw := getenv("JAM_CONNECTOR"); raw != "" {
 			if err := json.Unmarshal([]byte(raw), &initial); err != nil {
 				initial = snippet.Connector{} // the first successful fetch fills it
 			}
@@ -103,7 +96,7 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 			Source: agentrun.HTTPConnectorSource(base, token), BaseURL: base, Token: token, Initial: initial,
 		}
 	}
-	if cf := getenv("AT_COVE_AGENT_CONTEXT_FILE"); cf != "" {
+	if cf := getenv("JAM_AGENT_CONTEXT_FILE"); cf != "" {
 		// Not fatal: a missing or bad bundle runs the agent without context.
 		if raw, err := os.ReadFile(cf); err == nil {
 			var b sessionctx.Bundle
@@ -112,9 +105,9 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 			}
 		}
 	}
-	cfg.SessionKind = getenv("AT_COVE_SESSION_KIND")
+	cfg.SessionKind = getenv("JAM_SESSION_KIND")
 	// Live refresh (GET /context) needs a raise-time bundle to start from.
-	if base := getenv("AT_JAM_BASE_URL"); base != "" && cfg.Context != nil {
+	if base := getenv("JAM_BASE_URL"); base != "" && cfg.Context != nil {
 		cfg.ContextSource = agentrun.HTTPContextSource(base, jamEnv(getenv, "IDENTITY_TOKEN"))
 	}
 	return cfg, nil

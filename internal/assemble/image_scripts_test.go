@@ -32,7 +32,7 @@ func TestApplySshEnv(t *testing.T) {
 		"GOROOT=/usr/local/go",
 		"GOPATH=/home/agent/go",
 		"FOO=nope", // set but NOT named in COVE_SSHENV → must not transfer
-		"COVE_ENV_FILE=" + envFile,
+		"JAM_ENV_FILE=" + envFile,
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("apply-sshenv.sh failed: %v\n%s", err, out)
@@ -117,9 +117,9 @@ func (e roleEgressEnv) runArgs(t *testing.T, stdin string, args ...string) (int,
 	cmd := exec.Command("bash", append([]string{"hardening/image-files/usr/local/lib/cove/apply-role-egress.sh"}, args...)...)
 	cmd.Env = []string{
 		"PATH=" + filepath.Join(e.dir, "bin") + ":/usr/bin:/bin",
-		"COVE_KIT_DOMAINS_FILE=" + e.kit,
-		"COVE_SESSION_DOMAINS_FILE=" + e.session,
-		"COVE_EGRESS_CEILING_FILE=" + e.ceiling,
+		"JAM_KIT_DOMAINS_FILE=" + e.kit,
+		"JAM_SESSION_DOMAINS_FILE=" + e.session,
+		"JAM_EGRESS_CEILING_FILE=" + e.ceiling,
 	}
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()

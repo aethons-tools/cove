@@ -48,12 +48,12 @@ func TestResolveLiteralValueRunsNoCommand(t *testing.T) {
 
 func TestResolvePassesExtraEnv(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "tok"}}}
-	_, err := Resolve(f, map[string]string{"COVE_RUN_REPO": "acme/x"}, []Spec{{Name: "T", Command: []string{"mint"}}})
+	_, err := Resolve(f, map[string]string{"JAM_RUN_REPO": "acme/x"}, []Spec{{Name: "T", Command: []string{"mint"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Calls) != 1 || !contains(f.Calls[0].Env, "COVE_RUN_REPO=acme/x") {
-		t.Fatalf("resolver env = %v; want COVE_RUN_REPO", f.Calls[0].Env)
+	if len(f.Calls) != 1 || !contains(f.Calls[0].Env, "JAM_RUN_REPO=acme/x") {
+		t.Fatalf("resolver env = %v; want JAM_RUN_REPO", f.Calls[0].Env)
 	}
 }
 
@@ -71,9 +71,9 @@ func TestResolveMergesSpecEnv(t *testing.T) {
 	specs := []Spec{{
 		Name:    "TOK",
 		Command: []string{"at-mint", "github", "--app-id", "1"},
-		Env:     map[string]string{"AT_MINT_GITHUB_APP_KEY": "SECRETPEM"},
+		Env:     map[string]string{"JAM_MINT_GITHUB_APP_KEY": "SECRETPEM"},
 	}}
-	out, err := Resolve(f, map[string]string{"COVE_RUN_REPO": "o/r"}, specs)
+	out, err := Resolve(f, map[string]string{"JAM_RUN_REPO": "o/r"}, specs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,10 +90,10 @@ func TestResolveMergesSpecEnv(t *testing.T) {
 		t.Fatalf("secret leaked into argv: %q", joinedArgs)
 	}
 	joinedEnv := strings.Join(c.Env, " ")
-	if !strings.Contains(joinedEnv, "AT_MINT_GITHUB_APP_KEY=SECRETPEM") {
+	if !strings.Contains(joinedEnv, "JAM_MINT_GITHUB_APP_KEY=SECRETPEM") {
 		t.Fatalf("spec env not applied: %v", c.Env)
 	}
-	if !strings.Contains(joinedEnv, "COVE_RUN_REPO=o/r") {
+	if !strings.Contains(joinedEnv, "JAM_RUN_REPO=o/r") {
 		t.Fatalf("extraEnv not applied: %v", c.Env)
 	}
 }

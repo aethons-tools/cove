@@ -37,22 +37,21 @@ func TestEnrollRequiresExistingRole(t *testing.T) {
 func TestRenderEnrollSnippetIncludesEndpointsNotSecrets(t *testing.T) {
 	out := RenderEnrollSnippet("https://jam.local.aethons.tools", "TOK123")
 	for _, want := range []string{
-		"export AT_JAM_IDENTITY_TOKEN=TOK123",
-		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
+		"export JAM_IDENTITY_TOKEN=TOK123",
 		"ANTHROPIC_BASE_URL=\"https://jam.local.aethons.tools/anthropic\"",
-		"ANTHROPIC_API_KEY=\"${AT_JAM_IDENTITY_TOKEN}\"",
+		"ANTHROPIC_API_KEY=\"${JAM_IDENTITY_TOKEN}\"",
 		`url."https://jam.local.aethons.tools/git/".insteadOf`,
 		// git must have a working, headless credential (username + env-only password),
 		// so `git clone` through Jam doesn't prompt.
 		`credential."https://jam.local.aethons.tools".helper`,
 		"username=x-access-token",
-		"password=${AT_JAM_IDENTITY_TOKEN:-$AT_HARBOR_IDENTITY_TOKEN}",
+		"password=${JAM_IDENTITY_TOKEN}",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("snippet missing %q\n---\n%s", want, out)
 		}
 	}
-	// The raw token must appear exactly once — only in AT_JAM_IDENTITY_TOKEN.
+	// The raw token must appear exactly once — only in JAM_IDENTITY_TOKEN.
 	// Everything else references the env var, so the token never lands in gitconfig.
 	if n := strings.Count(out, "TOK123"); n != 1 {
 		t.Fatalf("raw token appears %d times, want exactly 1 (env-only)\n---\n%s", n, out)

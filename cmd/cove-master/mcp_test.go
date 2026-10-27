@@ -83,8 +83,8 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_JAM_RUNTIME_ADDR":   backend.URL,
-		"AT_JAM_IDENTITY_TOKEN": "tok-A",
+		"JAM_RUNTIME_ADDR":   backend.URL,
+		"JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -108,8 +108,8 @@ func TestMCPSendForwardsToJam(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_JAM_RUNTIME_ADDR":   backend.URL,
-		"AT_JAM_IDENTITY_TOKEN": "tok-A",
+		"JAM_RUNTIME_ADDR":   backend.URL,
+		"JAM_IDENTITY_TOKEN": "tok-A",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -143,8 +143,8 @@ func TestMCPReadReturnsInbox(t *testing.T) {
 	defer backend.Close()
 
 	env := map[string]string{
-		"AT_JAM_RUNTIME_ADDR":   backend.URL,
-		"AT_JAM_IDENTITY_TOKEN": "tok-B",
+		"JAM_RUNTIME_ADDR":   backend.URL,
+		"JAM_IDENTITY_TOKEN": "tok-B",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -190,9 +190,9 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -220,9 +220,9 @@ func TestMCPSendReturnsIDAndChannel(t *testing.T) {
 	defer srv.Close()
 	c, _ := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -244,9 +244,9 @@ func TestMCPListTargets(t *testing.T) {
 	defer srv.Close()
 	c, _ := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -267,9 +267,9 @@ func TestMCPReadNoParamsSendsNoQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -295,9 +295,9 @@ func TestMCPReadWithSeekParamsSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -335,9 +335,9 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -365,9 +365,9 @@ func TestMCPCommitPostsUpTo(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -399,8 +399,8 @@ func TestMCPCommitToolForwardsToJam(t *testing.T) {
 	defer srv.Close()
 
 	env := map[string]string{
-		"AT_JAM_RUNTIME_ADDR":   srv.URL,
-		"AT_JAM_IDENTITY_TOKEN": "tok-C",
+		"JAM_RUNTIME_ADDR":   srv.URL,
+		"JAM_IDENTITY_TOKEN": "tok-C",
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -443,9 +443,9 @@ func TestMCPEscalateForwardsCategory(t *testing.T) {
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -472,9 +472,9 @@ func turnEndClient(t *testing.T, gotMethod, gotPath, gotBody *string) *messaging
 	t.Cleanup(srv.Close)
 	c, err := newMessagingClient(func(k string) string {
 		switch k {
-		case "AT_JAM_RUNTIME_ADDR":
+		case "JAM_RUNTIME_ADDR":
 			return srv.URL
-		case "AT_JAM_IDENTITY_TOKEN":
+		case "JAM_IDENTITY_TOKEN":
 			return "tok"
 		}
 		return ""
@@ -535,7 +535,7 @@ func TestMCPAlarmListDecodes(t *testing.T) {
 	}))
 	defer srv.Close()
 	c, err := newMessagingClient(func(k string) string {
-		return map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok"}[k]
+		return map[string]string{"JAM_RUNTIME_ADDR": srv.URL, "JAM_IDENTITY_TOKEN": "tok"}[k]
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -565,8 +565,8 @@ func TestMCPNonTwoXXIsToolErrorWithoutToken(t *testing.T) {
 
 	const secretToken = "super-secret-token-value"
 	env := map[string]string{
-		"AT_JAM_RUNTIME_ADDR":   backend.URL,
-		"AT_JAM_IDENTITY_TOKEN": secretToken,
+		"JAM_RUNTIME_ADDR":   backend.URL,
+		"JAM_IDENTITY_TOKEN": secretToken,
 	}
 	getenv := func(k string) string { return env[k] }
 
@@ -598,7 +598,7 @@ func TestMCPSendForwardsContentTypeAndReadReturnsIt(t *testing.T) {
 	}}
 	backend := httptest.NewServer(fh.handler())
 	defer backend.Close()
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": backend.URL, "AT_JAM_IDENTITY_TOKEN": "tok-A"}
+	env := map[string]string{"JAM_RUNTIME_ADDR": backend.URL, "JAM_IDENTITY_TOKEN": "tok-A"}
 	sess := connectMCP(t, func(k string) string { return env[k] })
 
 	// Default: no content_type sent (Jam defaults to markdown).
@@ -639,7 +639,7 @@ func TestMCPCallInAndLeaveToolsForwardToJam(t *testing.T) {
 		_, _ = w.Write([]byte(`{"channel":{"id":"chn_1","kind":"session","label":"spider"},"member":{"id":"usr_1","kind":"user","label":"bob"}}`))
 	}))
 	defer srv.Close()
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok-C"}
+	env := map[string]string{"JAM_RUNTIME_ADDR": srv.URL, "JAM_IDENTITY_TOKEN": "tok-C"}
 	sess := connectMCP(t, func(k string) string { return env[k] })
 
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "call_in", Arguments: map[string]any{"who": "user:bob"}})
@@ -680,7 +680,7 @@ func TestMCPExposeToolsEndToEnd(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok"}
+	env := map[string]string{"JAM_RUNTIME_ADDR": srv.URL, "JAM_IDENTITY_TOKEN": "tok"}
 	sess := connectMCP(t, func(k string) string { return env[k] })
 	ctx := context.Background()
 	text := func(res *mcp.CallToolResult) string {
@@ -722,7 +722,7 @@ func TestMCPExposeToolsEndToEnd(t *testing.T) {
 // inspection says every session is offered — to the tools this server
 // registers.
 func TestIntercomToolsMatchJam(t *testing.T) {
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "AT_JAM_IDENTITY_TOKEN": "tok"}
+	env := map[string]string{"JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "JAM_IDENTITY_TOKEN": "tok"}
 	sess := connectMCP(t, func(k string) string { return env[k] })
 	res, err := sess.ListTools(context.Background(), nil)
 	if err != nil {

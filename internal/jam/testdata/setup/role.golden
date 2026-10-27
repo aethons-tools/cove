@@ -187,10 +187,9 @@
 == env (config)
   ANTHROPIC_API_KEY=«identity token»
   ANTHROPIC_BASE_URL={base}/anthropic
-  AT_HARBOR_IDENTITY_TOKEN=«identity token»
-  AT_JAM_IDENTITY_TOKEN=«identity token»
   GH_HOST={host}
   GH_TOKEN=«masked»
+  JAM_IDENTITY_TOKEN=«identity token»
   git: https://api.github.com/ → {base}/gh/
   model-spec: spec1
 

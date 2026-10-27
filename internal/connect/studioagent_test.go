@@ -52,16 +52,11 @@ func TestLaunchStudioAgentInjectsAndLaunches(t *testing.T) {
 	// The env script is written to a tmpfs file and contains the connector + cove-master vars.
 	envWrite := stdinTo(studioAgentEnvVMPath)
 	for _, want := range []string{
-		"AT_JAM_RUNTIME_ADDR=", "jam.example.com:443",
-		"AT_JAM_LAUNCH_SECRET=", "sec-456",
-		"AT_COVE_WORKDIR=", "/home/agent/workspace",
-		"AT_COVE_AGENT_PROMPT_FILE=", studioAgentPromptVMPath,
-		"AT_JAM_IDENTITY_TOKEN=tok-123",
-		// The deprecated names are still set for older images, each exported
-		// from its new variable so no secret is written twice.
-		`export AT_HARBOR_IDENTITY_TOKEN="$AT_JAM_IDENTITY_TOKEN"`,
-		`export AT_HARBOR_LAUNCH_SECRET="$AT_JAM_LAUNCH_SECRET"`,
-		`export AT_HARBOR_RUNTIME_ADDR="$AT_JAM_RUNTIME_ADDR"`,
+		"JAM_RUNTIME_ADDR=", "jam.example.com:443",
+		"JAM_LAUNCH_SECRET=", "sec-456",
+		"JAM_WORKDIR=", "/home/agent/workspace",
+		"JAM_AGENT_PROMPT_FILE=", studioAgentPromptVMPath,
+		"JAM_IDENTITY_TOKEN=tok-123",
 		"ANTHROPIC_BASE_URL=\"https://jam.example.com/anthropic\"",
 		"git config --global",
 	} {
@@ -126,13 +121,13 @@ func TestLaunchStudioAgentSubscription(t *testing.T) {
 	if strings.Contains(env, "ANTHROPIC_API_KEY") {
 		t.Fatalf("subscription env must NOT set ANTHROPIC_API_KEY:\n%s", env)
 	}
-	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=\"${AT_JAM_IDENTITY_TOKEN}\"") {
+	if !strings.Contains(env, "export ANTHROPIC_AUTH_TOKEN=\"${JAM_IDENTITY_TOKEN}\"") {
 		t.Fatalf("subscription env must set ANTHROPIC_AUTH_TOKEN from the identity var:\n%s", env)
 	}
 	if !strings.Contains(env, "ANTHROPIC_BASE_URL=\"https://jam.example.com/anthropic\"") {
 		t.Fatalf("env missing base URL:\n%s", env)
 	}
-	if !strings.Contains(env, "export AT_JAM_IDENTITY_TOKEN=cove-identity") {
+	if !strings.Contains(env, "export JAM_IDENTITY_TOKEN=cove-identity") {
 		t.Fatalf("env missing identity export:\n%s", env)
 	}
 	// No secret rides argv.
@@ -169,7 +164,7 @@ func TestLaunchStudioAgentNonSubscriptionKeepsAPIKey(t *testing.T) {
 	}
 }
 
-// TestLaunchStudioAgentResident: AT_COVE_RESIDENT=1 is exported only when the
+// TestLaunchStudioAgentResident: JAM_RESIDENT=1 is exported only when the
 // options ask for a resident (personal-session) cove.
 func TestLaunchStudioAgentResident(t *testing.T) {
 	for _, resident := range []bool{false, true} {
@@ -187,8 +182,8 @@ func TestLaunchStudioAgentResident(t *testing.T) {
 				env = c.Stdin
 			}
 		}
-		if got := strings.Contains(env, "export AT_COVE_RESIDENT=1\n"); got != resident {
-			t.Fatalf("resident=%v: env exports AT_COVE_RESIDENT=%v; env:\n%s", resident, got, env)
+		if got := strings.Contains(env, "export JAM_RESIDENT=1\n"); got != resident {
+			t.Fatalf("resident=%v: env exports JAM_RESIDENT=%v; env:\n%s", resident, got, env)
 		}
 	}
 }
@@ -208,7 +203,7 @@ func TestLaunchStudioAgentUsesConnector(t *testing.T) {
 			env = call.Stdin
 		}
 	}
-	if !strings.Contains(env, `export GH_HOST="jam.example.com"`) || !strings.Contains(env, `export ANTHROPIC_API_KEY="${AT_JAM_IDENTITY_TOKEN}"`) {
+	if !strings.Contains(env, `export GH_HOST="jam.example.com"`) || !strings.Contains(env, `export ANTHROPIC_API_KEY="${JAM_IDENTITY_TOKEN}"`) {
 		t.Fatalf("env script lacks connector vars:\n%s", env)
 	}
 	if strings.Contains(env, "ANTHROPIC_AUTH_TOKEN") || strings.Contains(env, "git config") {
@@ -233,10 +228,10 @@ func TestLaunchStudioAgentHandsOffConnector(t *testing.T) {
 			env = call.Stdin
 		}
 	}
-	if !strings.Contains(env, "export AT_JAM_BASE_URL='https://jam.example.com'") {
+	if !strings.Contains(env, "export JAM_BASE_URL='https://jam.example.com'") {
 		t.Fatalf("no base url:\n%s", env)
 	}
-	if !strings.Contains(env, "export AT_JAM_CONNECTOR=") || !strings.Contains(env, `"git_route":"/git/"`) {
+	if !strings.Contains(env, "export JAM_CONNECTOR=") || !strings.Contains(env, `"git_route":"/git/"`) {
 		t.Fatalf("no connector handoff:\n%s", env)
 	}
 	if n := strings.Count(env, "tok-123"); n != 1 {
@@ -281,8 +276,8 @@ func TestLaunchStudioAgentStagesContext(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil || !reflect.DeepEqual(&got, b) {
 		t.Fatalf("staged bundle = %+v (%v), want %+v", got, err, b)
 	}
-	if env := w[studioAgentEnvVMPath]; !strings.Contains(env, "export AT_COVE_AGENT_CONTEXT_FILE='"+studioAgentContextVMPath+"'") {
-		t.Fatalf("env missing AT_COVE_AGENT_CONTEXT_FILE:\n%s", env)
+	if env := w[studioAgentEnvVMPath]; !strings.Contains(env, "export JAM_AGENT_CONTEXT_FILE='"+studioAgentContextVMPath+"'") {
+		t.Fatalf("env missing JAM_AGENT_CONTEXT_FILE:\n%s", env)
 	}
 }
 
@@ -291,8 +286,8 @@ func TestLaunchStudioAgentNoContextNoEnv(t *testing.T) {
 	if _, ok := w[studioAgentContextVMPath]; ok {
 		t.Fatal("nil context must stage nothing")
 	}
-	if strings.Contains(w[studioAgentEnvVMPath], "AT_COVE_AGENT_CONTEXT_FILE") {
-		t.Fatal("nil context must not export AT_COVE_AGENT_CONTEXT_FILE")
+	if strings.Contains(w[studioAgentEnvVMPath], "JAM_AGENT_CONTEXT_FILE") {
+		t.Fatal("nil context must not export JAM_AGENT_CONTEXT_FILE")
 	}
 }
 
@@ -302,10 +297,10 @@ func TestLaunchStudioAgentExportsSessionKind(t *testing.T) {
 		IdentityToken: "t", LaunchSecret: "s", WorkDir: "/w", Prompt: "p", SessionKind: "standing"}); err != nil {
 		t.Fatal(err)
 	}
-	if env := stdinWrites(fake)[studioAgentEnvVMPath]; !strings.Contains(env, "export AT_COVE_SESSION_KIND='standing'") {
+	if env := stdinWrites(fake)[studioAgentEnvVMPath]; !strings.Contains(env, "export JAM_SESSION_KIND='standing'") {
 		t.Fatalf("env missing the session kind:\n%s", env)
 	}
-	if env := stdinWrites(launchWith(t, nil))[studioAgentEnvVMPath]; strings.Contains(env, "AT_COVE_SESSION_KIND") {
+	if env := stdinWrites(launchWith(t, nil))[studioAgentEnvVMPath]; strings.Contains(env, "JAM_SESSION_KIND") {
 		t.Fatal("no kind → no export")
 	}
 }

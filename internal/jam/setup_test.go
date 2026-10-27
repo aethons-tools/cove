@@ -87,8 +87,8 @@ func TestConnectorBodyMasks(t *testing.T) {
 	c := snippet.Connector{Env: map[string]string{"GH_TOKEN": "ghp_live", "ANTHROPIC_API_KEY": "{token}", "ANTHROPIC_BASE_URL": "{base}/anthropic"},
 		GitRoute: "/git/", ModelSpec: &modelspec.Spec{Name: "claude-default"}}
 	got := connectorBody(c)
-	want := "ANTHROPIC_API_KEY=«identity token»\nANTHROPIC_BASE_URL={base}/anthropic\nAT_HARBOR_IDENTITY_TOKEN=«identity token»\n" +
-		"AT_JAM_IDENTITY_TOKEN=«identity token»\nGH_TOKEN=«masked»\ngit: https://github.com/ → {base}/git/\nmodel-spec: claude-default\n"
+	want := "ANTHROPIC_API_KEY=«identity token»\nANTHROPIC_BASE_URL={base}/anthropic\n" +
+		"GH_TOKEN=«masked»\nJAM_IDENTITY_TOKEN=«identity token»\ngit: https://github.com/ → {base}/git/\nmodel-spec: claude-default\n"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}

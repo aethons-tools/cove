@@ -383,9 +383,9 @@ func TestIDEAcquireHonoursContext(t *testing.T) {
 	}
 }
 
-func TestIDEChildEnvDropsJamAndHarborVars(t *testing.T) {
-	t.Setenv("AT_JAM_TEST_SECRET", "s3cret")
-	t.Setenv("AT_HARBOR_TEST_SECRET", "s3cret")
+func TestIDEChildEnvDropsJamVars(t *testing.T) {
+	t.Setenv("JAM_TEST_SECRET", "s3cret")
+	t.Setenv("JAM_WORKDIR", "/w")
 	t.Setenv("IDE_ENV_HARMLESS", "ok")
 	cfg, count := fakeIDE(t, "")
 	ide := NewIDE(cfg, nil)
@@ -398,7 +398,7 @@ func TestIDEChildEnvDropsJamAndHarborVars(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := string(raw)
-	if strings.Contains(env, "AT_JAM_") || strings.Contains(env, "AT_HARBOR_") || strings.Contains(env, "s3cret") {
+	if strings.Contains(env, "JAM_TEST_SECRET") || strings.Contains(env, "JAM_WORKDIR") || strings.Contains(env, "s3cret") {
 		t.Errorf("code-server env leaks cove-master secrets:\n%s", env)
 	}
 	if !strings.Contains(env, "IDE_ENV_HARMLESS=ok") {

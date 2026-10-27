@@ -22,7 +22,7 @@ import (
 // {token} (the identity token). Jam resolves each destination's {url} to
 // {base}<route> before handing a Connector out, so the token never sits in a
 // template — the client substitutes it in memory (Expand) or references
-// $AT_JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
+// $JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
 //
 // For a cove, ModelSpec is its role's resolved model-spec (names only — never
 // a secret value): cove-master re-reads it with every connector refresh, so an
@@ -54,11 +54,11 @@ func Legacy(subscription bool) Connector {
 }
 
 // Expand returns the env a client sets in memory: each template resolved, plus
-// the identity token under tokenVar and its deprecated name.
+// the identity token under tokenVar.
 func (c Connector) Expand(baseURL, token string) map[string]string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	r := strings.NewReplacer("{base}", baseURL, "{host}", hostOf(baseURL), "{token}", token)
-	out := map[string]string{tokenVar: token, legacyTokenVar: token}
+	out := map[string]string{tokenVar: token}
 	for k, v := range c.Env {
 		out[k] = r.Replace(v)
 	}
@@ -66,13 +66,12 @@ func (c Connector) Expand(baseURL, token string) map[string]string {
 }
 
 // Render returns a sourceable shell snippet: the token exported once, every
-// other value double-quoted with {token} as a ${AT_JAM_IDENTITY_TOKEN} reference,
+// other value double-quoted with {token} as a ${JAM_IDENTITY_TOKEN} reference,
 // then the git config when the connector routes git.
 func (c Connector) Render(baseURL, token string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	var b strings.Builder
 	fmt.Fprintf(&b, "export %s=%s\n", tokenVar, token)
-	fmt.Fprintf(&b, "export %s=\"$%s\"\n", legacyTokenVar, tokenVar)
 	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
 	lit := strings.NewReplacer("{base}", baseURL, "{host}", hostOf(baseURL))
 	for _, k := range slices.Sorted(maps.Keys(c.Env)) {

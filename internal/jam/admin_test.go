@@ -889,7 +889,7 @@ func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
 
 func TestAdminAddDestinationValidatesEnv(t *testing.T) {
 	h, store := newTestAdmin(t)
-	bad := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"AT_JAM_IDENTITY_TOKEN":"{token}"}}`
+	bad := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"JAM_IDENTITY_TOKEN":"{token}"}}`
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", bad))
 	if rec.Code != http.StatusBadRequest {

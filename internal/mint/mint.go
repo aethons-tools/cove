@@ -76,7 +76,7 @@ func githubSpec(r runner.Runner, globals map[string]usersecret.Source, name stri
 		if err != nil {
 			return secret.Spec{}, fmt.Errorf("github minter app-key: %w", err)
 		}
-		env = map[string]string{"AT_MINT_GITHUB_APP_KEY": content}
+		env = map[string]string{"JAM_MINT_GITHUB_APP_KEY": content}
 	}
 	return secret.Spec{Name: name, Command: argv, Env: env}, nil
 }
@@ -102,7 +102,7 @@ func anthropicSpec(r runner.Runner, globals map[string]usersecret.Source, name s
 	if err != nil {
 		return secret.Spec{}, fmt.Errorf("anthropic minter client-secret: %w", err)
 	}
-	return secret.Spec{Name: name, Command: argv, Env: map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": val}}, nil
+	return secret.Spec{Name: name, Command: argv, Env: map[string]string{"JAM_MINT_AUTH0_CLIENT_SECRET": val}}, nil
 }
 
 // resolveSource resolves a minter's secret field to a literal string. A value is
@@ -119,7 +119,7 @@ func resolveSource(r runner.Runner, globals map[string]usersecret.Source, src us
 		return *src.Value, nil
 	case "command":
 		// nil env: this resolves the profile's own static secret (e.g. a manager
-		// lookup), not a per-run credential — no COVE_RUN_* is passed.
+		// lookup), not a per-run credential — no JAM_RUN_* is passed.
 		out, err := r.OutputEnv(nil, src.Command[0], src.Command[1:]...)
 		if err != nil {
 			return "", fmt.Errorf("resolver command failed: %w", err)

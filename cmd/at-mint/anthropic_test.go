@@ -117,7 +117,7 @@ func anthropicClient(expiresIn int) *http.Client {
 
 func TestDoAnthropicFailsClosedWhenTokenExpiresBeforeRunEnds(t *testing.T) {
 	var out, errb bytes.Buffer
-	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh", "COVE_RUN_TIMEOUT": "90m0s"})
+	env := envFunc(map[string]string{"JAM_MINT_AUTH0_CLIENT_SECRET": "shh", "JAM_RUN_TIMEOUT": "90m0s"})
 	code := doAnthropic(anthropicArgs(), env, anthropicClient(90), &out, &errb)
 	if code == 0 {
 		t.Fatalf("expected non-zero exit when the token TTL (90s) is below the run timeout (90m)")
@@ -132,7 +132,7 @@ func TestDoAnthropicFailsClosedWhenTokenExpiresBeforeRunEnds(t *testing.T) {
 
 func TestDoAnthropicAllowsTokenThatOutlastsRun(t *testing.T) {
 	var out, errb bytes.Buffer
-	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh", "COVE_RUN_TIMEOUT": "90m0s"})
+	env := envFunc(map[string]string{"JAM_MINT_AUTH0_CLIENT_SECRET": "shh", "JAM_RUN_TIMEOUT": "90m0s"})
 	code := doAnthropic(anthropicArgs(), env, anthropicClient(7200), &out, &errb)
 	if code != 0 {
 		t.Fatalf("expected exit 0 when TTL (7200s) exceeds the run timeout; stderr=%q", errb.String())
@@ -147,10 +147,10 @@ func TestDoAnthropicAllowsTokenThatOutlastsRun(t *testing.T) {
 
 func TestDoAnthropicSkipsTTLCheckWithoutRunTimeout(t *testing.T) {
 	var out, errb bytes.Buffer
-	env := envFunc(map[string]string{"AT_MINT_AUTH0_CLIENT_SECRET": "shh"}) // no COVE_RUN_TIMEOUT (e.g. chat/manual)
+	env := envFunc(map[string]string{"JAM_MINT_AUTH0_CLIENT_SECRET": "shh"}) // no JAM_RUN_TIMEOUT (e.g. chat/manual)
 	code := doAnthropic(anthropicArgs(), env, anthropicClient(90), &out, &errb)
 	if code != 0 {
-		t.Fatalf("without COVE_RUN_TIMEOUT the TTL check must not fire; exit=%d stderr=%q", code, errb.String())
+		t.Fatalf("without JAM_RUN_TIMEOUT the TTL check must not fire; exit=%d stderr=%q", code, errb.String())
 	}
 	if strings.TrimSpace(out.String()) != "sk-ant-oat01-xyz" {
 		t.Fatalf("token = %q", out.String())

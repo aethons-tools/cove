@@ -92,7 +92,7 @@ func TestGithubProfileCommandKeyGoesToEnv(t *testing.T) {
 	if strings.Contains(strings.Join(spec.Command, " "), "PEMCONTENT") {
 		t.Fatal("key content leaked into argv")
 	}
-	if spec.Env["AT_MINT_GITHUB_APP_KEY"] != "PEMCONTENT" {
+	if spec.Env["JAM_MINT_GITHUB_APP_KEY"] != "PEMCONTENT" {
 		t.Fatalf("env = %v", spec.Env)
 	}
 	if strings.Contains(strings.Join(spec.Command, " "), "--app-key-file") {
@@ -121,7 +121,7 @@ func TestAnthropicProfileFlagsAndSecretEnv(t *testing.T) {
 	if strings.Contains(got, "shh") {
 		t.Fatal("client secret leaked into argv")
 	}
-	if spec.Env["AT_MINT_AUTH0_CLIENT_SECRET"] != "shh" {
+	if spec.Env["JAM_MINT_AUTH0_CLIENT_SECRET"] != "shh" {
 		t.Fatalf("env = %v", spec.Env)
 	}
 }
@@ -147,7 +147,7 @@ func TestGlobalDelegationResolvesSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Env["AT_MINT_AUTH0_CLIENT_SECRET"] != "fromglobal" {
+	if spec.Env["JAM_MINT_AUTH0_CLIENT_SECRET"] != "fromglobal" {
 		t.Fatalf("global delegation failed: %v", spec.Env)
 	}
 }

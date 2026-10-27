@@ -1,4 +1,4 @@
-// Package covemaster is the in-cove client of Jam's Attach stream — the first
+// Package studioagent is the in-cove client of Jam's Attach stream — the first
 // limb of cove-master, the cove's primary process. It dials Jam's runtime
 // listener, authenticates with the cove's identity token + per-instance launch
 // secret, reports activity up and reacts to control down, reconnecting across
@@ -62,7 +62,7 @@ type GateResult struct {
 	Truncated bool
 }
 
-// WakeReason mirrors attachpb.WakeReason (covemaster never imports internal/jam).
+// WakeReason mirrors attachpb.WakeReason (studioagent never imports internal/jam).
 type WakeReason struct{ Kind, Alarm, Note, Detail string }
 
 type Control struct {

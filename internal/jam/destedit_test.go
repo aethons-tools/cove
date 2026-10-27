@@ -30,7 +30,7 @@ func TestValidateDestination(t *testing.T) {
 		"no route":     {Destination{Name: "x", Upstream: "https://x"}, "required"},
 		"no upstream":  {Destination{Name: "x", Route: "/x/"}, "required"},
 		"unknown cred": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", CredName: "ghost"}, `"ghost"`},
-		"reserved env": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"AT_JAM_X": "1"}}, "reserved"},
+		"reserved env": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"JAM_X": "1"}}, "reserved"},
 		"bad template": {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"A": "{nope}"}}, "placeholder"},
 		"long note":    {Destination{Name: "x", Route: "/x/", Upstream: "https://x", Note: strings.Repeat("n", MaxDestinationNote+1)}, "note"},
 	} {

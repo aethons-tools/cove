@@ -16,14 +16,14 @@ var deprecations sync.Map // old name → struct{}; warned already this process
 // Deprecated logs a WARN diagnostic to stderr that the name old is deprecated
 // in favour of new, pointing at RenameDoc. It fires at most once per old name
 // per process, so an alias hit in a loop (or by several commands) warns once.
-// The mode follows AT_LOG_MODE (auto-detect by default), like the binaries'
+// The mode follows JAM_LOG_MODE (auto-detect by default), like the binaries'
 // other diagnostics: human text on a TTY, a JSON record otherwise. It never
 // logs values — only the two names.
 func Deprecated(stderr io.Writer, old, new string) {
 	if _, warned := deprecations.LoadOrStore(old, struct{}{}); warned {
 		return
 	}
-	lg, err := New(Options{Mode: ModeFrom(os.Getenv("AT_LOG_MODE")), Stderr: stderr, Level: slog.LevelWarn})
+	lg, err := New(Options{Mode: ModeFrom(os.Getenv("JAM_LOG_MODE")), Stderr: stderr, Level: slog.LevelWarn})
 	if err != nil { // unreachable without a FilePath; never block on a warning
 		return
 	}

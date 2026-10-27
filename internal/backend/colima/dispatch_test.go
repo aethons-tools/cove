@@ -80,7 +80,7 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 }
 
 // TestRunEphemeralDocker: a docker:true dispatch runs the ephemeral worker under
-// Sysbox too — --runtime=sysbox-runc, -e COVE_DOCKER=1, and a -docker cache volume
+// Sysbox too — --runtime=sysbox-runc, -e JAM_DOCKER=1, and a -docker cache volume
 // named after the worker container — after asserting the runtime is present
 // (COV-117). docker:false is byte-for-byte the pre-COV-117 argv (asserted above).
 func TestRunEphemeralDocker(t *testing.T) {
@@ -90,7 +90,7 @@ func TestRunEphemeralDocker(t *testing.T) {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"--runtime=sysbox-runc", "-e COVE_DOCKER=1", "-v disp-1-docker:/var/lib/docker"} {
+	for _, want := range []string{"--runtime=sysbox-runc", "-e JAM_DOCKER=1", "-v disp-1-docker:/var/lib/docker"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("docker:true ephemeral run missing %q:\n%s", want, got)
 		}

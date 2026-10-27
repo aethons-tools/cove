@@ -63,7 +63,7 @@ func migrateConfigDir(stderr io.Writer) {
 	if fi, err := os.Stat(oldDir); err != nil || !fi.IsDir() {
 		return
 	}
-	lg, _ := logging.New(logging.Options{Mode: logging.ModeFrom(os.Getenv("AT_LOG_MODE")), Stderr: stderr, Level: slog.LevelInfo})
+	lg, _ := logging.New(logging.Options{Mode: logging.ModeFrom(os.Getenv("JAM_LOG_MODE")), Stderr: stderr, Level: slog.LevelInfo})
 	if err := copyDir(oldDir, newDir); err != nil {
 		_ = os.RemoveAll(newDir)
 		lg.Warn("could not copy the at-harbor config directory to at-jam; using defaults",
@@ -105,18 +105,11 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// adminTokenEnv is the operator token from the environment: AT_JAM_ADMIN_TOKEN,
-// else the deprecated AT_HARBOR_ADMIN_TOKEN (with a one-time warning). It is a
-// flag default only; the value is never logged.
-func adminTokenEnv(stderr io.Writer) string {
-	if v := os.Getenv("AT_JAM_ADMIN_TOKEN"); v != "" {
-		return v
-	}
-	if v := os.Getenv("AT_HARBOR_ADMIN_TOKEN"); v != "" {
-		logging.Deprecated(stderr, "AT_HARBOR_ADMIN_TOKEN", "AT_JAM_ADMIN_TOKEN")
-		return v
-	}
-	return ""
+// adminTokenEnv is the operator token from the environment
+// (JAM_ADMIN_TOKEN). It is a flag default only; the value is never logged.
+// The writer is unused since the pre-rename fallback (and its warning) went.
+func adminTokenEnv(_ io.Writer) string {
+	return os.Getenv("JAM_ADMIN_TOKEN")
 }
 
 // clientSettings is one app profile's endpoint defaults. Command flags override.
@@ -227,20 +220,16 @@ func clearTokenAt(path string) error {
 // Per-app token files are the scoping boundary — a token is never used under a
 // different app than it was minted for.
 //
-// If the value came from AT_JAM_ADMIN_TOKEN (or the deprecated
-// AT_HARBOR_ADMIN_TOKEN) rather than an explicit --token while a logged-in
+// If the value came from JAM_ADMIN_TOKEN rather than an explicit --token while a logged-in
 // session also exists for this app, it warns to stderr — a stale env var
 // silently shadowing `at-jam login` is otherwise a baffling footgun.
 func resolveToken(app, flagVal string, warn io.Writer) string {
 	if flagVal != "" {
-		for _, name := range []string{"AT_JAM_ADMIN_TOKEN", "AT_HARBOR_ADMIN_TOKEN"} {
-			if flagVal != os.Getenv(name) {
-				continue
-			}
+		const name = "JAM_ADMIN_TOKEN"
+		if flagVal == os.Getenv(name) {
 			if _, ok := loadToken(app); ok {
 				fmt.Fprintf(warn, "at-jam: note: %s is set and overrides your `at-jam login` session for --app %s; run `unset %s` to use the cached token\n", name, app, name)
 			}
-			break
 		}
 		return flagVal
 	}

@@ -135,13 +135,13 @@ func TestShutdownWithoutBuildsExits(t *testing.T) {
 }
 
 // shutdownChild runs serve's real handler in this test binary re-run as a
-// child (AT_JAM_SHUTDOWN_CHILD=mode): stop appends "stopped;" and die the
-// signal's name to the marker file (AT_JAM_SHUTDOWN_MARKER) before
+// child (JAM_SHUTDOWN_CHILD=mode): stop appends "stopped;" and die the
+// signal's name to the marker file (JAM_SHUTDOWN_MARKER) before
 // dieBySignal. Mode "term" sends itself SIGTERM; "ignored-int" ignores
 // SIGINT first (as a shell's background job does), then sends SIGINT and
 // SIGTERM. It never returns.
 func shutdownChild(mode string) {
-	marker := os.Getenv("AT_JAM_SHUTDOWN_MARKER")
+	marker := os.Getenv("JAM_SHUTDOWN_MARKER")
 	mark := func(s string) {
 		f, err := os.OpenFile(marker, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err == nil {
@@ -173,7 +173,7 @@ func runShutdownChild(t *testing.T, test, mode string) (syscall.Signal, string) 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+test+"$")
-	cmd.Env = append(os.Environ(), "AT_JAM_SHUTDOWN_CHILD="+mode, "AT_JAM_SHUTDOWN_MARKER="+marker)
+	cmd.Env = append(os.Environ(), "JAM_SHUTDOWN_CHILD="+mode, "JAM_SHUTDOWN_MARKER="+marker)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {
@@ -191,7 +191,7 @@ func runShutdownChild(t *testing.T, test, mode string) (syscall.Signal, string) 
 // ends the process killed by that signal (a shell's 143), as an unhandled
 // SIGTERM did, not by an exit code.
 func TestShutdownDiesByTheSignal(t *testing.T) {
-	if m := os.Getenv("AT_JAM_SHUTDOWN_CHILD"); m != "" {
+	if m := os.Getenv("JAM_SHUTDOWN_CHILD"); m != "" {
 		shutdownChild(m)
 	}
 	sig, marker := runShutdownChild(t, "TestShutdownDiesByTheSignal", "term")
@@ -203,7 +203,7 @@ func TestShutdownDiesByTheSignal(t *testing.T) {
 // A serve started with SIGINT ignored keeps ignoring it: SIGINT neither
 // stops it nor kills it, SIGTERM still does.
 func TestShutdownKeepsAnIgnoredSIGINT(t *testing.T) {
-	if m := os.Getenv("AT_JAM_SHUTDOWN_CHILD"); m != "" {
+	if m := os.Getenv("JAM_SHUTDOWN_CHILD"); m != "" {
 		shutdownChild(m)
 	}
 	sig, marker := runShutdownChild(t, "TestShutdownKeepsAnIgnoredSIGINT", "ignored-int")

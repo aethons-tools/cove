@@ -31,22 +31,22 @@ const (
 type StudioAgentOptions struct {
 	Target        sshargs.Target
 	JamHost       string // jam.host — connector base is https://<JamHost>
-	RuntimeAddr   string // AT_JAM_RUNTIME_ADDR (jam.host:443)
-	IdentityToken string // shared: AT_JAM_IDENTITY_TOKEN + the agent connector token
-	LaunchSecret  string // AT_JAM_LAUNCH_SECRET
-	WorkDir       string // AT_COVE_WORKDIR
-	Prompt        string // written to tmpfs; AT_COVE_AGENT_PROMPT_FILE points at it
-	Resident      bool   // AT_COVE_RESIDENT=1: a personal session's agent waits for a Wake after every turn
+	RuntimeAddr   string // JAM_RUNTIME_ADDR (jam.host:443)
+	IdentityToken string // shared: JAM_IDENTITY_TOKEN + the agent connector token
+	LaunchSecret  string // JAM_LAUNCH_SECRET
+	WorkDir       string // JAM_WORKDIR
+	Prompt        string // written to tmpfs; JAM_AGENT_PROMPT_FILE points at it
+	Resident      bool   // JAM_RESIDENT=1: a personal session's agent waits for a Wake after every turn
 	Subscription  bool   // legacy fallback (no Connector): render the subscription-pool contract (identity on ANTHROPIC_AUTH_TOKEN, no ANTHROPIC_API_KEY)
 	// Connector, when set, is the cove's client env/git from its role's
 	// destinations and replaces the legacy Anthropic+git render (and Subscription).
 	Connector *snippet.Connector
 	// Context is the compiled session context; staged as JSON to tmpfs and
-	// pointed at by AT_COVE_AGENT_CONTEXT_FILE. Nil = none (cove-master runs
+	// pointed at by JAM_AGENT_CONTEXT_FILE. Nil = none (cove-master runs
 	// claude without the context flags).
 	Context *sessionctx.Bundle
 	// SessionKind ("ephemeral" | "personal" | "standing") becomes
-	// AT_COVE_SESSION_KIND, which picks cove-master's resume prompt.
+	// JAM_SESSION_KIND, which picks cove-master's resume prompt.
 	SessionKind string
 }
 
@@ -80,35 +80,30 @@ func LaunchStudioAgent(r runner.Runner, o StudioAgentOptions) error {
 	default:
 		script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
 	}
-	// cove-master's own env (AT_JAM_IDENTITY_TOKEN already exported by Render).
-	fmt.Fprintf(&script, "export AT_JAM_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
-	fmt.Fprintf(&script, "export AT_JAM_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))
-	// The deprecated AT_HARBOR_* names, still read by cove-master in older
-	// images, for one release (docs/usage/jam/renamed-from-harbor.md). Each is
-	// exported from its new variable, so no value is written twice.
-	script.WriteString("export AT_HARBOR_RUNTIME_ADDR=\"$AT_JAM_RUNTIME_ADDR\"\n")
-	script.WriteString("export AT_HARBOR_LAUNCH_SECRET=\"$AT_JAM_LAUNCH_SECRET\"\n")
-	fmt.Fprintf(&script, "export AT_COVE_WORKDIR=%s\n", shellQuote(o.WorkDir))
-	fmt.Fprintf(&script, "export AT_COVE_AGENT_PROMPT_FILE=%s\n", shellQuote(studioAgentPromptVMPath))
+	// cove-master's own env (JAM_IDENTITY_TOKEN already exported by Render).
+	fmt.Fprintf(&script, "export JAM_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
+	fmt.Fprintf(&script, "export JAM_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))
+	fmt.Fprintf(&script, "export JAM_WORKDIR=%s\n", shellQuote(o.WorkDir))
+	fmt.Fprintf(&script, "export JAM_AGENT_PROMPT_FILE=%s\n", shellQuote(studioAgentPromptVMPath))
 	if o.Context != nil {
-		fmt.Fprintf(&script, "export AT_COVE_AGENT_CONTEXT_FILE=%s\n", shellQuote(studioAgentContextVMPath))
+		fmt.Fprintf(&script, "export JAM_AGENT_CONTEXT_FILE=%s\n", shellQuote(studioAgentContextVMPath))
 	}
 	// Per-turn connector refresh handoff (cove-master re-fetches GET /connector
 	// before every agent spawn): the Jam base, and the raise-time connector as
 	// token-free JSON — cove-master's fallback and the env keys it owns.
-	fmt.Fprintf(&script, "export AT_JAM_BASE_URL=%s\n", shellQuote("https://"+o.JamHost))
+	fmt.Fprintf(&script, "export JAM_BASE_URL=%s\n", shellQuote("https://"+o.JamHost))
 	if o.Connector != nil {
 		cj, err := json.Marshal(o.Connector)
 		if err != nil {
 			return fmt.Errorf("cove-master env: connector: %w", err)
 		}
-		fmt.Fprintf(&script, "export AT_JAM_CONNECTOR=%s\n", shellQuote(string(cj)))
+		fmt.Fprintf(&script, "export JAM_CONNECTOR=%s\n", shellQuote(string(cj)))
 	}
 	if o.Resident {
-		script.WriteString("export AT_COVE_RESIDENT=1\n")
+		script.WriteString("export JAM_RESIDENT=1\n")
 	}
 	if o.SessionKind != "" {
-		fmt.Fprintf(&script, "export AT_COVE_SESSION_KIND=%s\n", shellQuote(o.SessionKind))
+		fmt.Fprintf(&script, "export JAM_SESSION_KIND=%s\n", shellQuote(o.SessionKind))
 	}
 	if err := writeVM(r, o.Target, script.String(), studioAgentEnvVMPath); err != nil {
 		return fmt.Errorf("cove-master env: %w", err)

@@ -23,7 +23,7 @@ func addInspectFlags(fs *flag.FlagSet, stderr io.Writer) *inspectFlags {
 	f := &inspectFlags{
 		app:      fs.String("app", defaultApp, "settings/token profile"),
 		adminURL: fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)"),
-		token:    fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)"),
+		token:    fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)"),
 		json:     fs.Bool("json", false, "print the setup as JSON"),
 	}
 	fs.Var(&f.sections, "section", "only these sections (repeatable or comma-separated): "+strings.Join(jam.SetupSectionNames(), ", "))

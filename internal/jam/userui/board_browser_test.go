@@ -89,7 +89,7 @@ func TestBrowserWhiteboardEditor(t *testing.T) {
 	if n < 3 { // the rectangle, the ellipse and its label
 		t.Fatalf("editor shows %d elements after the agent's edit", n)
 	}
-	if path := os.Getenv("COVE_BOARD_SCREENSHOT"); path != "" {
+	if path := os.Getenv("JAM_BOARD_SCREENSHOT"); path != "" {
 		var png []byte
 		err := chromedp.Do(ctx, into(&png, chromedp.CaptureScreenshot()))
 		t.Logf("screenshot at %v: %v", time.Since(start), err)

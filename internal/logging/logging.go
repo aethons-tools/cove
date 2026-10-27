@@ -49,7 +49,7 @@ func LevelFrom(s string) slog.Level {
 }
 
 // EnvOr returns flag when it is non-empty, else os.Getenv(key) — the env fallback
-// for a global logging flag left at its zero value (AT_LOG_MODE, AT_LOG_LEVEL).
+// for a global logging flag left at its zero value (JAM_LOG_MODE, JAM_LOG_LEVEL).
 func EnvOr(flag, key string) string {
 	if flag != "" {
 		return flag

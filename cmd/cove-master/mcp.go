@@ -7,8 +7,7 @@
 // endpoint.
 //
 // Security notes (see AGENTS.md / the Jam messaging MCP plan):
-//   - The identity token is read from AT_JAM_IDENTITY_TOKEN (or its deprecated
-//     name AT_HARBOR_IDENTITY_TOKEN) only — never
+//   - The identity token is read from JAM_IDENTITY_TOKEN only — never
 //     accepted as a flag/argv, and never logged.
 //   - Requests to Jam go over TLS (https://<host>) through the default
 //     transport, which honors ProxyFromEnvironment (the squid CONNECT proxy)
@@ -232,7 +231,7 @@ type messagingClient struct {
 }
 
 // jamBaseURL derives the https base URL Jam's /squawks endpoint is
-// served from, given AT_JAM_RUNTIME_ADDR.
+// served from, given JAM_RUNTIME_ADDR.
 //
 // In production that variable is "host:443" (per cove-master's Attach dial
 // config) — the port is stripped since :443 is implied by https. Tests may
@@ -241,12 +240,12 @@ type messagingClient struct {
 // doesn't already carry one.
 func jamBaseURL(addr string) (string, error) {
 	if addr == "" {
-		return "", fmt.Errorf("AT_JAM_RUNTIME_ADDR is required")
+		return "", fmt.Errorf("JAM_RUNTIME_ADDR is required")
 	}
 	if strings.Contains(addr, "://") {
 		u, err := url.Parse(addr)
 		if err != nil {
-			return "", fmt.Errorf("invalid AT_JAM_RUNTIME_ADDR: %w", err)
+			return "", fmt.Errorf("invalid JAM_RUNTIME_ADDR: %w", err)
 		}
 		return strings.TrimSuffix(u.String(), "/"), nil
 	}
@@ -270,7 +269,7 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 	}
 	token := jamEnv(getenv, "IDENTITY_TOKEN")
 	if token == "" {
-		return nil, fmt.Errorf("AT_JAM_IDENTITY_TOKEN is required")
+		return nil, fmt.Errorf("JAM_IDENTITY_TOKEN is required")
 	}
 	return &messagingClient{
 		// nil Transport falls back to http.DefaultTransport: system TLS trust

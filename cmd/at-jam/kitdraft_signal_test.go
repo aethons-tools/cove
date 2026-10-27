@@ -13,7 +13,7 @@ import (
 // process by its default action, even with a request in flight. Run in a
 // child process: the second SIGINT must kill it.
 func TestFollowContextSecondSignalTerminates(t *testing.T) {
-	if os.Getenv("AT_JAM_SIGNAL_CHILD") == "1" {
+	if os.Getenv("JAM_SIGNAL_CHILD") == "1" {
 		ctx, stop := followContext()
 		defer stop()
 		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
@@ -24,7 +24,7 @@ func TestFollowContextSecondSignalTerminates(t *testing.T) {
 		os.Exit(0)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestFollowContextSecondSignalTerminates$")
-	cmd.Env = append(os.Environ(), "AT_JAM_SIGNAL_CHILD=1")
+	cmd.Env = append(os.Environ(), "JAM_SIGNAL_CHILD=1")
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) {

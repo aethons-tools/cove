@@ -24,10 +24,9 @@ import (
 
 const (
 	mdAuthorization = "authorization"
-	// mdLaunchSecret keeps its pre-rename name: it is the gRPC metadata key
-	// cove-master in already-built images sends (see
-	// docs/usage/jam/renamed-from-harbor.md).
-	mdLaunchSecret = "x-harbor-launch-secret"
+	// mdLaunchSecret is the gRPC metadata key a studio's agent sends its
+	// launch secret under.
+	mdLaunchSecret = "x-jam-launch-secret"
 	sendBuffer     = 8
 )
 

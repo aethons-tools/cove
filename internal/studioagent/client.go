@@ -230,9 +230,9 @@ func (c *Client) session(ctx context.Context, w Workload, doneCh <-chan struct{}
 	}
 	defer cc.Close()
 
-	// x-harbor-launch-secret keeps its pre-rename name: it is the wire key
-	// every Jam server reads (docs/usage/jam/renamed-from-harbor.md).
-	md := metadata.Pairs("authorization", "Bearer "+c.cfg.Token, "x-harbor-launch-secret", c.cfg.LaunchSecret)
+	// x-jam-launch-secret is the wire key the Jam server reads the launch
+	// secret from (attach.mdLaunchSecret).
+	md := metadata.Pairs("authorization", "Bearer "+c.cfg.Token, "x-jam-launch-secret", c.cfg.LaunchSecret)
 	stream, err := attachpb.NewRuntimeClient(cc).Attach(metadata.NewOutgoingContext(ctx, md))
 	if err != nil {
 		return classify(ctx, err, nil)

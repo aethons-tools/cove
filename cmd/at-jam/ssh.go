@@ -293,7 +293,7 @@ func addSSHFlags(fs *flag.FlagSet) *sshFlags {
 		app:         fs.String("app", defaultApp, "settings/token profile"),
 		adminURL:    fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)"),
 		participant: fs.Bool("participant", false, "use your participant login (at-jam login --participant; the /me routes)"),
-		operator:    fs.Bool("operator", false, "use the operator token (at-jam login, or AT_JAM_ADMIN_TOKEN; the /admin routes)"),
+		operator:    fs.Bool("operator", false, "use the operator token (at-jam login, or JAM_ADMIN_TOKEN; the /admin routes)"),
 	}
 }
 

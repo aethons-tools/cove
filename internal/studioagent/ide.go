@@ -293,10 +293,9 @@ func (i *IDE) reap(p *ideProc) {
 	close(p.done)
 }
 
-// secretEnvPrefixes name cove-master's own credentials (AT_JAM_IDENTITY_TOKEN,
-// AT_JAM_LAUNCH_SECRET, AT_HARBOR_* and the connector settings); an IDE
-// terminal must not inherit them.
-var secretEnvPrefixes = []string{"AT_JAM_", "AT_HARBOR_"}
+// secretEnvPrefixes name the agent's own credentials and settings (JAM_*);
+// an IDE terminal must not inherit them.
+var secretEnvPrefixes = []string{"JAM_"}
 
 // childEnv is env minus every variable named with a secretEnvPrefixes prefix.
 func childEnv(env []string) []string {

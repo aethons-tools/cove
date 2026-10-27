@@ -92,7 +92,7 @@ func addHostArgs(hosts []string) []string {
 // dockerArgs renders the docker run flags that activate docker-in-sandbox via the
 // Sysbox runtime when the kit opts in with docker:true (COV-117): the sandbox
 // container runs under --runtime=sysbox-runc (so a rootful dockerd can run inside
-// the unprivileged container), COVE_DOCKER=1 signals the entrypoint, and a
+// the unprivileged container), JAM_DOCKER=1 signals the entrypoint, and a
 // persistent named volume backs the inner /var/lib/docker cache. When docker is
 // false it yields no flags, so the run argv is byte-for-byte unchanged. It never
 // emits --privileged, a socket mount, --device, or --security-opt — that is the
@@ -103,7 +103,7 @@ func dockerArgs(docker bool, volume string) []string {
 	}
 	return []string{
 		"--runtime=sysbox-runc",
-		"-e", "COVE_DOCKER=1",
+		"-e", "JAM_DOCKER=1",
 		"-v", volume + ":/var/lib/docker",
 	}
 }

@@ -39,7 +39,7 @@ func (j *boardJam) env(t *testing.T) func(string) string {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	env := map[string]string{"AT_JAM_RUNTIME_ADDR": srv.URL, "AT_JAM_IDENTITY_TOKEN": "tok-A", "HOME": t.TempDir()}
+	env := map[string]string{"JAM_RUNTIME_ADDR": srv.URL, "JAM_IDENTITY_TOKEN": "tok-A", "HOME": t.TempDir()}
 	return func(k string) string { return env[k] }
 }
 

@@ -593,7 +593,7 @@ func (c serveConfig) poolDurations() (interval, margin time.Duration, err error)
 
 type launcherConfig struct {
 	// RuntimeAddr is the Jam Attach-gRPC address a raised cove's cove-master
-	// dials (AT_JAM_RUNTIME_ADDR), typically "<jam-host>:443".
+	// dials (JAM_RUNTIME_ADDR), typically "<jam-host>:443".
 	RuntimeAddr string `yaml:"runtime-addr"`
 	// JamHost is the broker hostname injected as the connector base and
 	// docker --add-host target, so a raised cove can reach Jam by name.

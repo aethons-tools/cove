@@ -57,7 +57,7 @@ func cmdContext(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("context "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
-	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)")
+	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	role := fs.String("role", "", "[project/]role whose context to manage")
 	project := fs.String("project", "", "project whose context (and resources) to manage")
 	jamWide := fs.Bool("jam", false, "manage the Jam-wide context")
