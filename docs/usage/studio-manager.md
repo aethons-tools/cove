@@ -24,7 +24,7 @@ An update replaces the binary, not the running process: restart `at-studio-manag
 
 The token file is reread at each connect, so after `at-jam manager rotate` ([verbs](jam/studio-managers.md)) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
 
-`at-studio-manager colima setup-docker|check-docker` are the same verbs as `at-jam colima ...`, owned by [docker-in-sandbox.md](docker-in-sandbox.md).
+`at-studio-manager colima setup-docker|check-docker` prepare the Colima VM for `colima.docker: true`; they are owned by [docker-in-sandbox.md](docker-in-sandbox.md).
 
 ## Config
 
@@ -32,7 +32,7 @@ Default path `<dir>/config.yml`, where `<dir>` is `$XDG_CONFIG_HOME/at-studio-ma
 The file is strict: unknown keys are rejected.
 
 ```yaml
-name: mac-studio-1            # required; the registered manager name; not "local"
+name: mac-studio-1            # required; the registered manager name
 jam-addr: jam.example.com:443 # required; host:port of Jam's cove-facing TLS listener
 server-name: ""               # TLS name override; default: the jam-addr host
 ca-file: ""                   # PEM added to the system roots
@@ -49,8 +49,10 @@ colima:
   known-hosts-dir: ""                # default <dir>/known_hosts.d
 ```
 
-`identity-file` and `known-hosts-dir` default to the manager's own `<dir>`, not `local`'s at-cove directory.
-The `colima` fields mean what the same fields of `runtime.launcher` mean for Jam ([serve.md](jam/serve.md)).
+`identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
+`runtime-addr` is what a studio dials (`AT_JAM_RUNTIME_ADDR`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
+`docker-context` picks which Colima instance studios run in: every docker call is pinned to it.
+It defaults to `colima`; `colima start --profile jam-b` creates `colima-jam-b`, so `docker-context: colima-jam-b` places this manager's studios, kit images and volumes in that VM.
 For a Jam in a container, `jam-addr` is the host's published 443 ([pointing managers at it](jam/container.md#pointing-studio-managers-at-it)).
 
 ## TLS
@@ -73,16 +75,16 @@ At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam 
 
 Containers carry `harbor.cove`, `harbor.cove.actor=<id>` and `harbor.cove.manager=<name>`.
 State volumes carry `harbor.cove.manager` too, and their `harbor.cove.jam` value is `<runtime-addr>#<name>`.
-These scope every list and sweep to one manager, so `local` and a manager (or two managers) can share one Colima daemon.
+These scope every list and sweep to one manager, so two managers can share one Colima daemon.
 A manager restart leaves its studios running and re-reports them from these labels on reconnect.
 
 ## Names and moving between managers
 
-A remote manager's containers are `atcove.<manager>.cove-<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`); `local` keeps `atcove-cove-<id>`.
-Local names start `atcove-` and a manager's `atcove.`, and a manager name holds no `.`, so no two managers' names (or `local`'s) can collide on a shared daemon.
-So a standing session that moves from `local` to a manager on a shared daemon starts fresh: no state carries over.
+A manager's containers are `atcove.<manager>.cove-<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`).
+A manager name holds no `.`, so no two managers' names can collide on a shared daemon.
+A standing session that moves to another manager starts fresh: no state carries over.
 
 ## Image builds
 
-Kit images are tagged with the kit digest and a fingerprint that includes the launcher's identity key.
-A manager whose `identity-file` differs from `local`'s therefore builds its own images, even on a shared daemon.
+Kit images are tagged with the kit digest and a fingerprint that includes the manager's identity key.
+Two managers with different `identity-file`s therefore build their own images, even on a shared daemon.

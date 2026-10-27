@@ -459,7 +459,8 @@ func instanceManager(inst Instance) string {
 type managerChecker interface{ ManagerErr(name string) error }
 
 // checkManager validates a named manager up front, whether or not an image is
-// read. Without a checker only LocalManager is known.
+// read. Without a checker (a bare image reader, as in tests) only the legacy
+// LocalManager name is accepted; the served Jam always has the Router.
 func (d SetupDeps) checkManager(manager string) error {
 	if manager == "" {
 		return nil

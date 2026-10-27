@@ -17,7 +17,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
@@ -137,12 +136,14 @@ type serveConfig struct {
 		} `yaml:"oidc"`
 	} `yaml:"operator-auth"`
 	Runtime struct {
-		Listen            string               `yaml:"listen"`
-		LeaseTTL          string               `yaml:"lease-ttl"`
-		ReconcileInterval string               `yaml:"reconcile-interval"`
-		Launcher          *launcherConfig      `yaml:"launcher"`
-		StudioManagers    bool                 `yaml:"studio-managers"` // accept remote Studio Manager connections
-		Requisitioner     *requisitionerConfig `yaml:"requisitioner"`
+		Listen            string `yaml:"listen"`
+		LeaseTTL          string `yaml:"lease-ttl"`
+		ReconcileInterval string `yaml:"reconcile-interval"`
+		// Launcher only detects the removed runtime.launcher block, which
+		// parseServeConfig refuses (errRuntimeLauncherRemoved).
+		Launcher       yaml.Node            `yaml:"launcher"`
+		StudioManagers bool                 `yaml:"studio-managers"` // accept remote Studio Manager connections
+		Requisitioner  *requisitionerConfig `yaml:"requisitioner"`
 		// DeprecatedDispatcher is runtime.requisitioner's pre-rename name,
 		// accepted for one release with a warning (both set is an error);
 		// parseServeConfig folds it into Requisitioner and clears it.
@@ -283,9 +284,6 @@ type discordConfig struct {
 	DeprecatedBotToken *credSpec `yaml:"bot-token"`
 }
 
-// launcherConfig configures the real Colima-backed jam.Launcher
-// (internal/jam/launcher). Present (non-nil) opts a `serve` process into
-// raising real managed coves; absent keeps the placeholder launcher.
 // poolConfig configures the subscription-OAuth account pool. TokenURL, ClientID,
 // and Scope are optional and default to the probed Claude Code constants
 // (see jam.Refresher).
@@ -593,61 +591,6 @@ func (c serveConfig) poolDurations() (interval, margin time.Duration, err error)
 	return interval, margin, nil
 }
 
-type launcherConfig struct {
-	// RuntimeAddr is the Jam Attach-gRPC address a raised cove's cove-master
-	// dials (AT_JAM_RUNTIME_ADDR), typically "<jam-host>:443".
-	RuntimeAddr string `yaml:"runtime-addr"`
-	// JamHost is the broker hostname injected as the connector base and
-	// docker --add-host target, so a raised cove can reach Jam by name.
-	JamHost string `yaml:"jam-host"`
-	// DeprecatedHarborHost is jam-host's pre-rename name, accepted for one
-	// release with a warning (both set is an error); parseServeConfig folds it
-	// into JamHost and clears it.
-	DeprecatedHarborHost string `yaml:"harbor-host"`
-	// IdentityFile/KnownHostsDir are the SSH identity Jam uses to reach a
-	// raised cove; serve generates the key on first use and bakes its public
-	// half into every studio image. Default to the at-cove config dir's
-	// id_ed25519 / known_hosts.d when empty (the directory keeps its old name
-	// until the jam rename).
-	IdentityFile  string   `yaml:"identity-file"`
-	KnownHostsDir string   `yaml:"known-hosts-dir"`
-	DNS           []string `yaml:"dns"`
-	Docker        bool     `yaml:"docker"`
-	// DockerContext is the docker context the launcher pins every docker call
-	// to, selecting the colima instance its studios run in: colima-<profile>
-	// for `colima start --profile <profile>`. Empty ⇒ colima (the default
-	// profile).
-	DockerContext string `yaml:"docker-context"`
-}
-
-// validateLauncher checks runtime.launcher when present (required fields:
-// runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
-// at-cove config dir's id_ed25519 / known_hosts.d. A no-op when runtime.launcher
-// is unset — the placeholder launcher stays in effect, unchanged from before
-// this block existed.
-func (c serveConfig) validateLauncher() error {
-	lc := c.Runtime.Launcher
-	if lc == nil {
-		return nil
-	}
-	if lc.RuntimeAddr == "" {
-		return fmt.Errorf("runtime.launcher.runtime-addr is required")
-	}
-	if lc.JamHost == "" {
-		return fmt.Errorf("runtime.launcher.jam-host is required")
-	}
-	if lc.DockerContext != "" && !colimacfg.ValidDockerContext(lc.DockerContext) {
-		return fmt.Errorf("runtime.launcher.docker-context %q is not a valid docker context name", lc.DockerContext)
-	}
-	if lc.IdentityFile == "" {
-		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")
-	}
-	if lc.KnownHostsDir == "" {
-		lc.KnownHostsDir = filepath.Join(atCoveConfigDir(), "known_hosts.d")
-	}
-	return nil
-}
-
 // requisitionerConfig enables the Requisitioner: Jam polls the tracker and
 // raises a managed cove per ready ticket, bounded by max-concurrent.
 type requisitionerConfig struct {
@@ -859,17 +802,6 @@ func (c serveConfig) validateDiscord() error {
 	return checkConnectionOrCred(c, "runtime.discord", d.Connection, "bot-token-cred", d.BotTokenCred)
 }
 
-// atCoveConfigDir is $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove — the
-// launcher's default home for its SSH identity and known_hosts, kept from the
-// deleted at-cove CLI so existing Jam hosts keep their key.
-func atCoveConfigDir() string {
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "at-cove")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "at-cove")
-}
-
 // operatorLoginConfig builds the public device-flow client config Jam
 // advertises at /admin/login-config, or nil when device login isn't configured
 // (no device-client-id). Scope defaults to "openid".
@@ -1055,6 +987,10 @@ func (c serveConfig) runtimeDurations() (ttl, reconcile time.Duration, err error
 	return ttl, reconcile, nil
 }
 
+// errRuntimeLauncherRemoved refuses a config that still has runtime.launcher:
+// Studio Managers run studios now, so the block has no meaning left.
+var errRuntimeLauncherRemoved = errors.New("runtime.launcher was removed: Jam no longer runs studios itself. Run at-studio-manager next to Colima (docs/usage/studio-manager.md) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/jam/studio-managers.md#retiring-the-in-process-launcher)")
+
 // parseServeConfig parses the serve config YAML, folding deprecated key
 // aliases into their new names (recorded in c.deprecated for serve to warn
 // about). A key set under both its old and new name is an error.
@@ -1063,12 +999,8 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 	if err := yaml.Unmarshal(data, &c); err != nil {
 		return serveConfig{}, err
 	}
-	if lc := c.Runtime.Launcher; lc != nil && lc.DeprecatedHarborHost != "" {
-		if lc.JamHost != "" {
-			return serveConfig{}, fmt.Errorf("runtime.launcher: both jam-host and harbor-host are set; harbor-host is the deprecated name for jam-host — keep only jam-host (see %s)", logging.RenameDoc)
-		}
-		lc.JamHost, lc.DeprecatedHarborHost = lc.DeprecatedHarborHost, ""
-		c.deprecated = append(c.deprecated, [2]string{"runtime.launcher.harbor-host", "runtime.launcher.jam-host"})
+	if !c.Runtime.Launcher.IsZero() {
+		return serveConfig{}, errRuntimeLauncherRemoved
 	}
 	if c.Runtime.DeprecatedDispatcher != nil {
 		if c.Runtime.Requisitioner != nil {
@@ -1198,8 +1130,7 @@ func (c serveConfig) credentialsFilePath() string {
 	return filepath.Join(atJamConfigDir(), "credentials.yml")
 }
 
-// atJamConfigDir mirrors atCoveConfigDir: $XDG_CONFIG_HOME/at-jam, else
-// ~/.config/at-jam.
+// atJamConfigDir is $XDG_CONFIG_HOME/at-jam, else ~/.config/at-jam.
 func atJamConfigDir() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "at-jam")

@@ -35,7 +35,7 @@ func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig
 		return cfg, fmt.Errorf("unknown serve config keys: %v", unknown)
 	}
 	for _, v := range []func() error{
-		cfg.validateAdminExposure, cfg.validateLauncher, cfg.validateRequisitioner,
+		cfg.validateAdminExposure, cfg.validateRequisitioner,
 		cfg.validateStorage, cfg.validateStorePostgres, cfg.validateDiscord,
 		cfg.validatePush, cfg.validateDisplayName, cfg.validateWake, cfg.validateMetrics,
 		cfg.validateSSH, cfg.validateKits, cfg.validateBlobs, cfg.validatePreviews,
@@ -60,7 +60,7 @@ func TestContainerConfigExampleValidates(t *testing.T) {
 	if !cfg.Runtime.StudioManagers {
 		t.Error("runtime.studio-managers should be true")
 	}
-	if cfg.Runtime.Launcher != nil {
+	if !cfg.Runtime.Launcher.IsZero() {
 		t.Error("runtime.launcher should be unset")
 	}
 	if cfg.DevIdentity != nil {

@@ -49,8 +49,8 @@ file). Jam then serves `/metrics` on the **broker listener** (the TLS port
 studios use), requiring `Authorization: Bearer <scrape token>`; studio identity
 tokens are refused. Series: `jam_up`, `jam_attention_condition{key,kind,severity,summary,fix}`
 (one per open condition), `jam_attention_open{severity}`, `jam_studios`, and —
-with `runtime.studio-managers` on — `jam_managers` (remote [Studio
-Managers](studio-managers.md) registered; `local` excluded) and
+with `runtime.studio-managers` on — `jam_managers` ([Studio
+Managers](studio-managers.md) registered) and
 `jam_managers_connected`.
 Unset ⇒ no `/metrics`.
 

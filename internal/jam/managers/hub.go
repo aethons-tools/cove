@@ -239,19 +239,15 @@ func (h *Hub) Revoke(name string, force bool) error {
 	return nil
 }
 
-// Statuses lists every manager in Router order; the local manager is always
-// connected. Studios counts non-Gone instances ("" counts as local).
+// Statuses lists every registered manager in Router order. Studios counts
+// non-Gone instances per recorded manager.
 func (h *Hub) Statuses() []jam.ManagerStatus {
 	counts := map[string]int{}
 	for _, inst := range h.cfg.Instances() {
 		if inst.Phase == jam.PhaseGone {
 			continue
 		}
-		m := inst.Manager
-		if m == "" {
-			m = fleet.LocalName
-		}
-		counts[m]++
+		counts[inst.Manager]++
 	}
 	names := h.cfg.Router.Names()
 	out := make([]jam.ManagerStatus, 0, len(names))
@@ -260,8 +256,6 @@ func (h *Hub) Statuses() []jam.ManagerStatus {
 	for _, name := range names {
 		var st jam.ManagerStatus
 		switch s := h.status[name]; {
-		case name == fleet.LocalName:
-			st = jam.ManagerStatus{Name: name, Local: true, Connected: true}
 		case s != nil:
 			st = *s
 			st.Strays = append([]jam.ManagedStudio(nil), s.Strays...)

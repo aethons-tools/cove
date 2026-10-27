@@ -1,35 +1,34 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — flipping the launcher's `docker` setting, installing Sysbox in the colima VM (`at-jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
-owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-jam colima setup-docker`/`check-docker` commands that automate it
-prereqs: ../OVERVIEW.md for the image + egress model; jam/serve.md#the-launcher-runtimelauncher for the launcher's docker setting
+read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — setting `colima.docker` on a Studio Manager, installing Sysbox in the colima VM (`at-studio-manager colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-studio-manager colima setup-docker`/`check-docker` commands that automate it
+prereqs: ../OVERVIEW.md for the image + egress model; studio-manager.md#config for the manager's `colima.docker` setting
 tier: leaf
 updated: 2026-10-26
 ---
 
 # Docker inside the sandbox
 
-Set the launcher's `docker: true` and its studios get a **working Docker for testing
+Set `colima.docker: true` in a Studio Manager's config and its studios get a **working Docker for testing
 workloads** — `docker build`, `docker compose up`, and **testcontainers** all run
 *inside* the sandbox — with the egress lock and the rest of the hardening intact.
 It runs on the **Sysbox** runtime, which requires a **one-time install in the
-colima VM** (below); the launcher's preflight fails fast and points you here if missing.
+colima VM** (below); the manager's preflight fails fast and points you here if missing.
 
 For *why* this design is safe (no `--privileged`, no host socket) and the full
 threat model, see the [Sysbox docker-in-sandbox design](../superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md).
 
 ## Enabling it
 
-The switch is the launcher's `docker` setting in the serve config
-([serve.md](jam/serve.md#the-launcher-runtimelauncher)):
+The switch is the `colima.docker` setting in the manager's config
+([studio-manager.md](studio-manager.md#config)):
 
 ```yaml
-runtime:
-  launcher:
-    docker: true
+colima:
+  docker: true
 ```
 
-When set, every studio the launcher raises runs so that:
+When set, every studio that manager raises runs so that:
 
 - the **studio container itself** runs under `--runtime=sysbox-runc`, which lets a
   normal **rootful `dockerd`** run inside an *unprivileged* container;
@@ -39,7 +38,7 @@ When set, every studio the launcher raises runs so that:
   `/var/lib/docker`, so pulled layers and build cache last the studio's life;
   teardown removes it ([standing-state.md](jam/standing-state.md)).
 
-A launcher without the setting is **byte-for-byte unchanged** — no Sysbox runtime, no
+A manager without the setting is **byte-for-byte unchanged** — no Sysbox runtime, no
 cache volume, no systemd.
 
 ## Prerequisite: install Sysbox in the colima VM (one-time)
@@ -51,25 +50,25 @@ separately, because **colima owns `/etc/docker/daemon.json` and regenerates it o
 every start** — a runtime entry written by the Sysbox `.deb` postinstall (or by
 hand) is wiped on the next boot, so register it through colima's own config.
 
-**The quick way — `at-jam colima setup-docker`.** On the colima host (a [manager host](studio-manager.md) runs the same verbs as `at-studio-manager colima ...`), run:
+**The quick way — `at-studio-manager colima setup-docker`.** On the colima host (the [manager host](studio-manager.md)), run:
 
 ```console
-$ at-jam colima setup-docker --dry-run   # show the change as a diff, write nothing
-$ at-jam colima setup-docker             # write it (backs up colima.yaml.bak first)
+$ at-studio-manager colima setup-docker --dry-run   # show the change as a diff, write nothing
+$ at-studio-manager colima setup-docker             # write it (backs up colima.yaml.bak first)
 $ colima restart                         # runs the hook — restarts every cove in the VM
-$ at-jam colima check-docker             # ok: sysbox-runc is registered
+$ at-studio-manager colima check-docker             # ok: sysbox-runc is registered
 ```
 
-It edits the default profile's config (behind the `colima` docker context the launcher
+It edits the default profile's config (behind the `colima` docker context the manager
 uses), found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
-hook it owns (marked `# managed by at-jam colima setup-docker`; re-running replaces
+hook it owns (marked `# managed by at-jam colima setup-docker`, the marker's pre-move text, kept so existing configs are still recognized; re-running replaces
 it, your other hooks are kept, and a hand-written Sysbox hook from the manual steps
 below is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
 change the file is untouched. `--sysbox-version` (default and minimum
 `0.7.1`) picks the release. A changing run keeps comments but normalizes
 formatting, and edits a symlinked config's target. It never restarts colima.
-`check-docker` runs the launcher's preflight probe (non-zero if the runtime is missing).
+`check-docker` runs the manager's preflight probe (non-zero if the runtime is missing).
 
 To do it by hand instead (or to see what the command writes):
 

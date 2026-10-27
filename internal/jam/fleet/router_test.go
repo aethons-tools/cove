@@ -24,10 +24,10 @@ func mustAdd(t *testing.T, r *Router, ms ...Manager) {
 
 func newRouter() *Router { return New(slog.New(slog.DiscardHandler)) }
 
-func TestRouterNamesRegistrationOrderLocalLast(t *testing.T) {
+func TestRouterNamesRegistrationOrder(t *testing.T) {
 	r := newRouter()
-	mustAdd(t, r, Local(newFake("x")), newFake("a"), newFake("b"))
-	if got := r.Names(); !slices.Equal(got, []string{"a", "b", "local"}) {
+	mustAdd(t, r, newFake("x"), newFake("a"), newFake("b"))
+	if got := r.Names(); !slices.Equal(got, []string{"x", "a", "b"}) {
 		t.Fatalf("Names = %v", got)
 	}
 	if !r.HasManager("a") || r.HasManager("zz") {
@@ -39,14 +39,29 @@ func TestRouterNamesRegistrationOrderLocalLast(t *testing.T) {
 	}
 }
 
-func TestRouterAddRefusesDuplicateAndReservedLocal(t *testing.T) {
+func TestRouterAddRefusesDuplicate(t *testing.T) {
 	r := newRouter()
 	mustAdd(t, r, newFake("a"))
 	if err := r.Add(newFake("a")); err == nil {
 		t.Fatal("duplicate accepted")
 	}
-	if err := r.Add(newFake("local")); err == nil {
-		t.Fatal("non-Local manager named local accepted")
+}
+
+// The router has no special name: a manager called local is an ordinary member
+// (the hub's ValidManagerName is what refuses the name).
+func TestRouterHasNoLocalSpecialCase(t *testing.T) {
+	r := newRouter()
+	mustAdd(t, r, newFake("m1"))
+	if err := r.Add(newFake("local")); err != nil {
+		t.Fatalf("Add(local) = %v", err)
+	}
+	if got := r.Names(); !slices.Equal(got, []string{"m1", "local"}) {
+		t.Fatalf("Names = %v", got)
+	}
+	r2 := newRouter()
+	mustAdd(t, r2, newFake("local"), newFake("m1"))
+	if got := r2.Names(); !slices.Equal(got, []string{"local", "m1"}) {
+		t.Fatalf("Names = %v, local must not sort last", got)
 	}
 }
 
@@ -64,8 +79,8 @@ func TestRouterRoutesByInstanceManager(t *testing.T) {
 
 func TestRouterLegacyInstanceRoutesToLocal(t *testing.T) {
 	r := newRouter()
-	x := newFake("x")
-	mustAdd(t, r, newFake("a"), Local(x))
+	x := newFake(LocalName)
+	mustAdd(t, r, newFake("a"), x)
 	inst := jam.Instance{ActorID: "old"}
 	if err := r.Teardown(context.Background(), inst); err != nil {
 		t.Fatal(err)
@@ -153,18 +168,18 @@ func TestRouterStateOwnersUnionAndPurgeOnlyOwner(t *testing.T) {
 	}
 }
 
-// Local purges by name: a reset reaches it even when its StateOwners (a label
-// filter on the current Jam identity) does not list the id.
-func TestRouterPurgeStateAlwaysReachesLocal(t *testing.T) {
+// An available manager is asked to purge only when it lists the actor.
+func TestPurgeStateAsksOnlyOwners(t *testing.T) {
 	r := newRouter()
-	loc, a := newFake("x"), newFake("a")
-	a.owners = []string{"other"}
-	mustAdd(t, r, Local(loc), a)
+	owner, other := newFake("m0"), newFake("m1")
+	owner.owners = []string{"w1"}
+	other.owners = []string{"someone-else"}
+	mustAdd(t, r, owner, other)
 	if err := r.PurgeState(context.Background(), "w1"); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(loc.get(&loc.purged), []string{"w1"}) || len(a.get(&a.purged)) != 0 {
-		t.Fatalf("local=%v a=%v, want local=[w1] a=[]", loc.get(&loc.purged), a.get(&a.purged))
+	if !slices.Equal(owner.get(&owner.purged), []string{"w1"}) || len(other.get(&other.purged)) != 0 {
+		t.Fatalf("owner=%v other=%v", owner.get(&owner.purged), other.get(&other.purged))
 	}
 }
 
@@ -172,23 +187,6 @@ func TestNewNilLoggerDiscards(t *testing.T) {
 	r := New(nil)
 	if err := r.Teardown(context.Background(), jam.Instance{ActorID: "i1", Manager: "gone"}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// stateOnly is a bare launcher that is a StateKeeper.
-type stateOnly struct{ jam.Launcher }
-
-func (stateOnly) PurgeState(context.Context, string) error { return nil }
-func (stateOnly) StateOwners(context.Context) ([]string, error) {
-	return []string{"loc"}, nil
-}
-
-func TestLocalExposesWrappedOptionalInterfaces(t *testing.T) {
-	r := newRouter()
-	mustAdd(t, r, Local(stateOnly{}))
-	got, err := r.StateOwners(context.Background())
-	if err != nil || !slices.Equal(got, []string{"loc"}) {
-		t.Fatalf("owners = %v, %v", got, err)
 	}
 }
 
@@ -272,39 +270,27 @@ func (d *draftFake) ImageFacts(context.Context, string) (jam.ImageFacts, error) 
 	return jam.ImageFacts{}, fmt.Errorf("facts from %s", d.name)
 }
 
-// localDraft is a launcher (wrapped by Local) that can build kit drafts.
-type localDraft struct {
-	jam.Launcher
-	built []string
-}
-
-func (l *localDraft) BuildKitDraft(_ context.Context, _ jam.KitDefinition, tag string, _ io.Writer) (string, error) {
-	l.built = append(l.built, tag)
-	return "id-local", nil
-}
-func (l *localDraft) HasKitDraftImage(string) (bool, error) { return true, nil }
-
 func TestDraftManagersOrderAndCapability(t *testing.T) {
 	r := newRouter()
 	m2 := &draftFake{fakeManager: newFake("m2")}
 	m2.avail.Store(false)
-	mustAdd(t, r, newFake("m1"), m2, Local(&localDraft{}))
-	if got := r.DraftManagers(); !slices.Equal(got, []string{"local"}) {
+	mustAdd(t, r, newFake("m1"), m2, &draftFake{fakeManager: newFake("m3")})
+	if got := r.DraftManagers(); !slices.Equal(got, []string{"m3"}) {
 		t.Fatalf("DraftManagers = %v", got)
 	}
-	if got := r.AvailableNames(); !slices.Equal(got, []string{"m1", "local"}) {
+	if got := r.AvailableNames(); !slices.Equal(got, []string{"m1", "m3"}) {
 		t.Fatalf("AvailableNames = %v", got)
 	}
 }
 
 func TestBuildKitDraftOnNamed(t *testing.T) {
 	r := newRouter()
-	ld := &localDraft{}
+	m3 := &draftFake{fakeManager: newFake("m3")}
 	m2 := &draftFake{fakeManager: newFake("m2")}
-	mustAdd(t, r, m2, Local(ld))
+	mustAdd(t, r, m2, m3)
 	id, err := r.BuildKitDraftOn(context.Background(), "m2", jam.KitDefinition{}, "t", nil)
-	if err != nil || id != "id-m2" || len(m2.built) != 1 || len(ld.built) != 0 {
-		t.Fatalf("id=%q err=%v m2=%v local=%v", id, err, m2.built, ld.built)
+	if err != nil || id != "id-m2" || len(m2.built) != 1 || len(m3.built) != 0 {
+		t.Fatalf("id=%q err=%v m2=%v m3=%v", id, err, m2.built, m3.built)
 	}
 	if ok, err := r.HasKitDraftImageOn("m2", "id-m2"); err != nil || !ok {
 		t.Fatalf("HasKitDraftImageOn = %v, %v", ok, err)

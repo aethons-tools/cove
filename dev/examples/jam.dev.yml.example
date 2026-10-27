@@ -105,6 +105,6 @@ operator-auth:
     device-scope: openid harbor:admin      # ensures the minted token carries the permission
 
 runtime:
-  launcher:
-    runtime-addr: jam.local.aethons.tools:443
-    jam-host: jam.local.aethons.tools
+  # Studios run on Studio Managers (at-studio-manager next to Colima) that
+  # connect to this Jam: see docs/usage/studio-manager.md.
+  studio-managers: true

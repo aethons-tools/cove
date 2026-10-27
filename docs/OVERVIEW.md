@@ -18,8 +18,8 @@ updated: 2026-10-27
 > studio kit now has `kit.yml` and `egress:`. Slice 4 of the
 > [jam-only design](superpowers/specs/2026-10-26-jam-only-design.md) rewrites it.
 
-This repo builds Jam and the **hardened Claude Code studios** it runs: Jam's
-launcher assembles each studio image (a kit base, the harness layer, then the
+This repo builds Jam and the **hardened Claude Code studios** it runs: a Studio
+Manager assembles each studio image (a kit base, the harness layer, then the
 sealed hardening layer), raises it in Colima, brokers its credentials, and
 starts `cove-master`, the in-studio agent supervisor.
 
@@ -33,7 +33,7 @@ Running an autonomous coding agent against your real machine is risky:
 it can exfiltrate secrets,
 reach arbitrary network destinations,
 or touch files it shouldn't.
-The launcher puts the agent inside a sandbox with three properties baked in:
+The Studio Manager puts the agent inside a sandbox with three properties baked in:
 
 1. **Egress is locked down** —
    the VM can only reach an allow-listed set of domains (Anthropic, GitHub, PyPI, …)
@@ -54,12 +54,12 @@ The launcher puts the agent inside a sandbox with three properties baked in:
    Agent docs and skills are not security-critical:
    they ship in the kit base (`cove-base-image`), so a kit can override them.
 
-The launcher reaches every studio over SSH (`internal/sshargs`) with a key it
+The Studio Manager reaches every studio over SSH (`internal/sshargs`) with a key it
 bakes into the image.
 
 ## How the build context is assembled
 
-Jam's launcher assembles each studio kit's context (`internal/assemble.AssembleContext`) when the kit's image is not yet built. The context
+A Studio Manager assembles each studio kit's context (`internal/assemble.AssembleContext`) when the kit's image is not yet built. The context
 is **the harness layer and the sealed layer** plus a few generated files — there
 is no kit overlay. The image is layered
 **`FROM ${BASE}` → harness → hardening**:
@@ -83,7 +83,7 @@ is no kit overlay. The image is layered
 2. **Generated** — the kit's egress list (baked into `allowed_domains.kit.txt` and the `egress_ceiling.txt` bound), the Jam host into `allowed_domains.infra.txt`, the kit's MCP servers, and the managed public key (see [Egress: four additive allow-lists and a ceiling](#egress-four-additive-allow-lists-and-a-ceiling)).
 
 The kit's **`image/`** is *not* overlaid here — it is the Docker **build context**
-for the kit's `image/Dockerfile`, which selects/builds the base the launcher hardens
+for the kit's `image/Dockerfile`, which selects/builds the base the manager hardens
 (see the base-image section below). The **overridable agent defaults** — the
 startup settings (`settings.json`, `.claude.json`) and the agent docs and skills
 (`CLAUDE.md` and its imports, `reference/`, `skills/`) — ship in `cove-base-image`,
@@ -98,7 +98,7 @@ sit above the kit base too, so a kit cannot override them either. The harness an
 plugins are part of the image's identity: the assembly identity hashes only
 the harness layer's payload (its scripts and the managed settings' policy) and
 its rendered baseline preferences, while the install itself (type,
-version, plugins) is in the studio kit's build-digest — not in the Jam launcher's assembly fingerprint, so a bump
+version, plugins) is in the studio kit's build-digest — not in the manager's assembly fingerprint, so a bump
 doesn't retag every studio image.
 The hardening layer ships inside the binary via Go `embed.FS`,
 so it cannot be misplaced or forgotten.
@@ -110,13 +110,13 @@ keeping overlay precedence pure.
 ### The base image and the provenance gate
 
 The assembled `Dockerfile` starts `FROM ${BASE}` (the harness stage; hardening then builds `FROM harness`) — a build arg the backend
-resolves when it builds the image (`ResolveKitBase*`, which the launcher calls before every kit build):
+resolves when it builds the image (`ResolveKitBase*`, which the manager calls before every kit build):
 
-1. a `Dockerfile` next to the studio kit's `kit.yml` (the launcher builds it; the built image is the base),
+1. a `Dockerfile` next to the studio kit's `kit.yml` (the manager builds it; the built image is the base),
 2. else the kit's `base:` — `kit:` a parent kit's image or `image:` a prebuilt ref (not with a `Dockerfile`; [kits.md](usage/jam/kits.md)),
 3. else the default: the newest **blessed** `cove-base-image`, pinned by digest.
 
-A **kit-chosen** base (1 or 2) must pass a **provenance gate**: the launcher reads the
+A **kit-chosen** base (1 or 2) must pass a **provenance gate**: the manager reads the
 resolved image's OCI rootfs `diff_ids` and asserts some blessed
 `cove-base-image`'s layers are their exact prefix — i.e. it was really built
 *FROM* a blessed base, unforgeably (matching the prefix means those bottom layers
@@ -171,7 +171,7 @@ the sealed base or the `nftables` lock:
 | file | source | when | scope |
 |---|---|---|---|
 | `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
-| `allowed_domains.infra.txt` | the Jam host (the launcher's `jam-host`) | baked at build | every studio; a role can't remove it |
+| `allowed_domains.infra.txt` | the Jam host (the manager's `colima.jam-host`) | baked at build | every studio; a role can't remove it |
 | `allowed_domains.kit.txt` | the **active policy list**: the studio kit's `egress:` by default | baked at build; replaced at raise for a Jam role with a policy | every studio |
 | `allowed_domains.session.txt` | baked **empty** (its per-session tier went with at-cove) | baked | — |
 
@@ -185,7 +185,7 @@ dangles.
 
 **A Jam role's egress replaces the policy list, within the ceiling, at raise.**
 When Jam raises a cove for a role with an egress policy
-([`at-jam egress set`](usage/jam/roster.md#role-egress)), the launcher runs the
+([`at-jam egress set`](usage/jam/roster.md#role-egress)), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and **before cove-master (and so the agent) starts**. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -230,12 +230,12 @@ the OS implementation streams stdio and propagates exit codes;
 a `Fake` records calls for tests.
 
 ```
-cmd/at-jam/                    at-jam: `serve` (broker + control plane + launcher + Requisitioner) and the admin-API client verbs
+cmd/at-jam/                    at-jam: `serve` (broker + control plane + Requisitioner) and the admin-API client verbs
 cmd/at-mint/                   host-side token minter (github / anthropic)
 cmd/at-studio-manager/        remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
 cmd/cove-master/               the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
-internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher raises studios
+internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher is the code a Studio Manager raises studios with
 internal/dispatcher/           the Requisitioner's poll → claim → raise loop
 internal/dispatch/{linear,githubissues}/  Jam's trackers (Linear GraphQL, GitHub Issues REST) behind internal/tracker.Tracker
 internal/dispatch/scheduler/   tracker vocabulary: Role, Issue, Comment, ClassifyLabels, AssembleBrief
@@ -243,13 +243,13 @@ internal/assemble/             the studio build context: harness stage + embedde
 internal/harnessinstall/       the harness layer: a model-spec's CLI install (exact version) + plugin seed
 internal/install/              the assembly identity (AtCoveIdentity) that keys studio image tags
 internal/covemasterbin/        the embedded linux cove-master binaries
-internal/backend/{,colima/}    the docker surfaces the launcher drives (run/dial/pause/remove, volumes, egress, SSH CA, kit builds) and their Colima implementation
+internal/backend/{,colima/}    the docker surfaces a Studio Manager drives (run/dial/pause/remove, volumes, egress, SSH CA, kit builds) and their Colima implementation
 internal/{baseimage,basedigest}/  base resolution + the blessed-prefix provenance gate
 internal/connect/              LaunchCoveMaster: stage cove-master's env/prompt into tmpfs over ssh and start it
 internal/kit/                  shared kit types: secret demands, MCP servers, tracker blocks
 internal/studio/               the StudioKit definition
 internal/discord/              Discord REST client for Jam's relay
-internal/keys/                 the launcher's SSH keypair (generated on first use)
+internal/keys/                 a Studio Manager's SSH keypair (generated on first use)
 internal/naming/               studio container and volume names
 internal/{usersecret,mint,secret}/  Jam's credentials file, mint: expansion, host-side resolution
 internal/sshargs/              pure argv builders for the ssh client

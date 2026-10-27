@@ -194,7 +194,7 @@ func TestDashboardManagersPanel(t *testing.T) {
 	store := newStore(t)
 	list := func() []jam.ManagerStatus {
 		return []jam.ManagerStatus{
-			{Name: "local", Local: true, Connected: true, Studios: 1},
+			{Name: "mac-0", Connected: true, Studios: 1},
 			{Name: "mac-1", Connected: true, Version: "v1.2.3", Studios: 2, Capacity: 4,
 				Strays: []jam.ManagedStudio{{ActorID: "stray-7"}}},
 		}

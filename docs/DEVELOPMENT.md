@@ -184,7 +184,7 @@ setting, not a change here.
 
 The utility set lives in one published, pinned, multi-arch image tree — the
 single source of truth shared by CI job containers and the studios
-Jam's launcher hardens, so their tooling can't drift. See
+a Studio Manager hardens, so their tooling can't drift. See
 [the design](superpowers/specs/2026-07-16-shared-base-image-design.md) for the
 full rationale.
 
@@ -192,7 +192,7 @@ full rationale.
   git/gh/sshd + the egress stack (nftables/squid) + the Docker engine & systemd
   (for the opt-in docker-in-sandbox capability, present-but-inert) + core utils.
   **Pure tools**: no language toolchains, chrome, or java — and **no
-  `cove-master`**: the launcher injects the version-locked `cove-master` into its
+  `cove-master`**: the Studio Manager injects the version-locked `cove-master` into its
   sealed hardening layer, so the base has no Go build and rebuilds only when `images/` changes (COV-44).
 - **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
