@@ -13,7 +13,7 @@ import (
 )
 
 // routedSupervisor is a jam.Supervisor over a MemStore with a guest role whose
-// launcher is a real Router holding only Local(loc).
+// launcher is a real Router holding only loc.
 func routedSupervisor(t *testing.T, loc *fakeManager) (*jam.Supervisor, jam.Store) {
 	t.Helper()
 	store := jam.NewMemStore()
@@ -21,30 +21,30 @@ func routedSupervisor(t *testing.T, loc *fakeManager) (*jam.Supervisor, jam.Stor
 		t.Fatal(err)
 	}
 	r := newRouter()
-	mustAdd(t, r, Local(loc))
+	mustAdd(t, r, loc)
 	clk := time.Unix(1000, 0).UTC()
 	sup := jam.NewSupervisor(store, r, "holder-A", time.Minute, 30*time.Second,
 		func() time.Time { return clk }, slog.New(slog.DiscardHandler))
 	return sup, store
 }
 
-func TestSupervisorOverRouterRecordsLocalManager(t *testing.T) {
-	loc := newFake("x")
+func TestSupervisorOverRouterRecordsManager(t *testing.T) {
+	loc := newFake("m0")
 	sup, store := routedSupervisor(t, loc)
 	inst, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := store.GetInstance("w1"); inst.Manager != LocalName || got.Manager != LocalName {
-		t.Fatalf("Manager = %q / stored %q, want %q", inst.Manager, got.Manager, LocalName)
+	if got, _ := store.GetInstance("w1"); inst.Manager != loc.Name() || got.Manager != loc.Name() {
+		t.Fatalf("Manager = %q / stored %q, want %q", inst.Manager, got.Manager, loc.Name())
 	}
-	if inst.Location != "x-loc" || !slices.Equal(loc.get(&loc.raised), []string{"guest"}) {
+	if inst.Location != "m0-loc" || !slices.Equal(loc.get(&loc.raised), []string{"guest"}) {
 		t.Fatalf("location %q raised %v", inst.Location, loc.get(&loc.raised))
 	}
 }
 
-func TestSupervisorOverRouterPreparesKitOnLocalThenRaises(t *testing.T) {
-	loc := newFake("x")
+func TestSupervisorOverRouterPreparesKitOnManagerThenRaises(t *testing.T) {
+	loc := newFake("m0")
 	loc.notReadyOnce.Store(true)
 	loc.prepareState = jam.KitReady
 	sup, store := routedSupervisor(t, loc)
@@ -60,13 +60,13 @@ func TestSupervisorOverRouterPreparesKitOnLocalThenRaises(t *testing.T) {
 	if got := loc.get(&loc.prepared); len(got) != 1 {
 		t.Fatalf("PrepareKit calls = %v, want one", got)
 	}
-	if inst.Manager != LocalName || len(loc.get(&loc.raised)) != 1 {
-		t.Fatalf("manager %q raised %v, want the retry on local", inst.Manager, loc.get(&loc.raised))
+	if inst.Manager != loc.Name() || len(loc.get(&loc.raised)) != 1 {
+		t.Fatalf("manager %q raised %v, want the retry on the manager", inst.Manager, loc.get(&loc.raised))
 	}
 }
 
-func TestSupervisorOverRouterPinsStandingSessionToLocal(t *testing.T) {
-	loc := newFake("x")
+func TestSupervisorOverRouterPinsStandingSessionToManager(t *testing.T) {
+	loc := newFake("m0")
 	sup, store := routedSupervisor(t, loc)
 	pid, ok := jam.ProjectIDOf(store, "default")
 	if !ok {
@@ -82,11 +82,11 @@ func TestSupervisorOverRouterPinsStandingSessionToLocal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst.Manager != LocalName {
-		t.Fatalf("manager = %q, want %q", inst.Manager, LocalName)
+	if inst.Manager != loc.Name() {
+		t.Fatalf("manager = %q, want %q", inst.Manager, loc.Name())
 	}
-	if got := store.StandingSessionManager(pid, "guest", "spider"); got != LocalName {
-		t.Fatalf("pin = %q, want %q", got, LocalName)
+	if got := store.StandingSessionManager(pid, "guest", "spider"); got != loc.Name() {
+		t.Fatalf("pin = %q, want %q", got, loc.Name())
 	}
 }
 
@@ -94,7 +94,7 @@ func TestSupervisorOverRouterPinsStandingSessionToLocal(t *testing.T) {
 // live instance on a manager the router no longer has. Reconcile must still
 // converge: tear down (no-op), revoke the identity, drop the record.
 func TestRaiseLandingAfterForcedRevokeConverges(t *testing.T) {
-	loc := newFake("x")
+	loc := newFake("m0")
 	sup, store := routedSupervisor(t, loc)
 	ctx := context.Background()
 	inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: "w1", Role: "guest"})
@@ -121,11 +121,11 @@ func TestRaiseLandingAfterForcedRevokeConverges(t *testing.T) {
 }
 
 func TestReconcileKeepsStudioOnDisconnectedManager(t *testing.T) {
-	loc := newFake("x")
+	loc := newFake("m0")
 	sup, store := routedSupervisor(t, loc)
 	// routedSupervisor's router is private; build one with a disconnected m1.
 	r := newRouter()
-	mustAdd(t, r, Local(loc))
+	mustAdd(t, r, loc)
 	m1 := newFake("m1")
 	m1.avail.Store(false) // registered but disconnected
 	mustAdd(t, r, m1)
@@ -157,7 +157,7 @@ func TestReconcileKeepsStudioOnDisconnectedManager(t *testing.T) {
 }
 
 func TestReconcileLeavesOtherHoldersLeaseOnMissingManager(t *testing.T) {
-	loc := newFake("x")
+	loc := newFake("m0")
 	sup, store := routedSupervisor(t, loc)
 	ctx := context.Background()
 	inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: "w1", Role: "guest"})

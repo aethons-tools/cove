@@ -45,6 +45,10 @@ type Router struct {
 	members []Manager     // registration order
 }
 
+// LocalName is the manager name legacy instances carry (Manager == "") and
+// that jam.ValidManagerName refuses. No manager is registered under it.
+const LocalName = jam.LocalManager
+
 // New returns an empty Router. A nil log discards.
 func New(log *slog.Logger) *Router {
 	if log == nil {
@@ -53,13 +57,10 @@ func New(log *slog.Logger) *Router {
 	return &Router{log: log, wake: make(chan struct{}), now: time.Now, poll: time.Second}
 }
 
-// Add registers m. It errors on a duplicate name, and on a non-Local manager
-// named LocalName. It wakes raises waiting for a manager.
+// Add registers m. It errors on a duplicate name. It wakes raises waiting for a
+// manager.
 func (r *Router) Add(m Manager) error {
 	name := m.Name()
-	if _, isLocal := m.(local); name == LocalName && !isLocal {
-		return fmt.Errorf("manager name %q is reserved", LocalName)
-	}
 	r.mu.Lock()
 	if slices.ContainsFunc(r.members, func(x Manager) bool { return x.Name() == name }) {
 		r.mu.Unlock()
@@ -93,26 +94,14 @@ func (r *Router) wakeChan() <-chan struct{} {
 	return r.wake
 }
 
-// ordered returns the members in candidate order: registration order, local last.
+// ordered returns the members in candidate order: registration order.
 func (r *Router) ordered() []Manager {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Manager, 0, len(r.members))
-	var loc Manager
-	for _, m := range r.members {
-		if m.Name() == LocalName {
-			loc = m
-			continue
-		}
-		out = append(out, m)
-	}
-	if loc != nil {
-		out = append(out, loc)
-	}
-	return out
+	return slices.Clone(r.members)
 }
 
-// Names lists the managers in candidate order: registration order, local last.
+// Names lists the managers in candidate order: registration order.
 func (r *Router) Names() []string {
 	ms := r.ordered()
 	names := make([]string, len(ms))
@@ -164,15 +153,6 @@ func (r *Router) routeAvail(inst jam.Instance) (Manager, error) {
 		return nil, fmt.Errorf("%w: %s", jam.ErrManagerUnavailable, name)
 	}
 	return m, nil
-}
-
-// optional returns m's underlying launcher when m wraps one (Local), else m,
-// for asserting the optional interfaces.
-func optional(m Manager) any {
-	if u, ok := m.(interface{ Unwrap() jam.Launcher }); ok {
-		return u.Unwrap()
-	}
-	return m
 }
 
 // Probe forwards to inst's manager. An unregistered manager is Dead (nothing
@@ -257,7 +237,7 @@ func (r *Router) ImageTag(ref jam.KitRef) string {
 func (r *Router) StateOwners(ctx context.Context) ([]string, error) {
 	seen := map[string]struct{}{}
 	for _, m := range r.available() {
-		sk, ok := optional(m).(jam.StateKeeper)
+		sk, ok := m.(jam.StateKeeper)
 		if !ok {
 			continue
 		}
@@ -277,22 +257,14 @@ func (r *Router) StateOwners(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// PurgeState purges actorID's state, returning the first error. Local is
-// always asked (its purge deletes by name, so it must not hinge on StateOwners,
-// whose label filter misses state left under an earlier Jam identity); any
-// other available manager is asked only when it lists actorID as an owner. No
-// owner is not an error.
+// PurgeState purges actorID's state, returning the first error. An available
+// manager is asked only when it lists actorID as an owner. No owner is not an
+// error.
 func (r *Router) PurgeState(ctx context.Context, actorID string) error {
 	var first error
 	for _, m := range r.available() {
-		sk, ok := optional(m).(jam.StateKeeper)
+		sk, ok := m.(jam.StateKeeper)
 		if !ok {
-			continue
-		}
-		if m.Name() == LocalName {
-			if err := sk.PurgeState(ctx, actorID); err != nil {
-				first = cmpErr(first, fmt.Errorf("manager %s: %w", m.Name(), err))
-			}
 			continue
 		}
 		ids, err := sk.StateOwners(ctx)
@@ -339,7 +311,7 @@ func (r *Router) ManagerErr(name string) error {
 func (r *Router) DraftManagers() []string {
 	var names []string
 	for _, m := range r.available() {
-		if _, ok := optional(m).(jam.KitDraftBuilder); ok {
+		if _, ok := m.(jam.KitDraftBuilder); ok {
 			names = append(names, m.Name())
 		}
 	}
@@ -366,7 +338,7 @@ var errNoDraftBuilder = errors.New("no manager can build kit drafts")
 func (r *Router) draftBuilderOn(name string) (jam.KitDraftBuilder, error) {
 	if name == "" {
 		for _, m := range r.available() {
-			if b, ok := optional(m).(jam.KitDraftBuilder); ok {
+			if b, ok := m.(jam.KitDraftBuilder); ok {
 				return b, nil
 			}
 		}
@@ -376,7 +348,7 @@ func (r *Router) draftBuilderOn(name string) (jam.KitDraftBuilder, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, ok := optional(m).(jam.KitDraftBuilder)
+	b, ok := m.(jam.KitDraftBuilder)
 	if !ok {
 		return nil, fmt.Errorf("%w: manager %s cannot build kit drafts", jam.ErrManagerUnavailable, name)
 	}
@@ -430,7 +402,7 @@ func (r *Router) ImageFacts(ctx context.Context, image string) (jam.ImageFacts, 
 func (r *Router) ImageFactsOn(ctx context.Context, manager, image string) (jam.ImageFacts, error) {
 	if manager == "" {
 		for _, m := range r.available() {
-			if rd, ok := optional(m).(jam.ImageFactsReader); ok {
+			if rd, ok := m.(jam.ImageFactsReader); ok {
 				return rd.ImageFacts(ctx, image)
 			}
 		}
@@ -440,7 +412,7 @@ func (r *Router) ImageFactsOn(ctx context.Context, manager, image string) (jam.I
 	if err != nil {
 		return jam.ImageFacts{}, err
 	}
-	rd, ok := optional(m).(jam.ImageFactsReader)
+	rd, ok := m.(jam.ImageFactsReader)
 	if !ok {
 		return jam.ImageFacts{}, fmt.Errorf("%w: manager %s cannot read image facts", jam.ErrManagerUnavailable, manager)
 	}

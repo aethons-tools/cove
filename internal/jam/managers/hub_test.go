@@ -588,11 +588,17 @@ func TestHubAddRefusesLocal(t *testing.T) {
 	}
 }
 
-func TestHubStatusesIncludeLocalAndStudioCounts(t *testing.T) {
+func TestHubStatusesHasNoLocal(t *testing.T) {
 	e := newHubEnv(t, nil, nil)
-	if err := e.router.Add(fleet.Local(&testLauncher{})); err != nil {
-		t.Fatal(err)
+	if got := e.hub.Statuses(); len(got) != 0 {
+		t.Fatalf("statuses = %+v, want none", got)
 	}
+}
+
+// Instances with no manager (or "local") are counted under the name local, but
+// only registered managers are listed.
+func TestHubStatusesCountsStudiosPerManager(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
 	e.add(t, "m1")
 	for _, in := range []jam.Instance{
 		{ActorID: "a", Manager: "", Phase: jam.PhaseLive},
@@ -606,14 +612,8 @@ func TestHubStatusesIncludeLocalAndStudioCounts(t *testing.T) {
 		}
 	}
 	sts := e.hub.Statuses()
-	if len(sts) != 2 || sts[0].Name != "m1" || sts[1].Name != fleet.LocalName {
+	if len(sts) != 1 || sts[0].Name != "m1" || sts[0].Studios != 1 || sts[0].Connected || sts[0].Local {
 		t.Fatalf("statuses = %+v", sts)
-	}
-	if sts[0].Studios != 1 || sts[0].Connected || sts[0].Local {
-		t.Fatalf("m1 = %+v", sts[0])
-	}
-	if sts[1].Studios != 2 || !sts[1].Connected || !sts[1].Local {
-		t.Fatalf("local = %+v", sts[1])
 	}
 }
 

@@ -121,7 +121,7 @@ func (r *Router) ImageTagOn(name string, ref jam.KitRef) string {
 	if !ok {
 		return ""
 	}
-	if t, ok := optional(m).(jam.ImageTagger); ok {
+	if t, ok := m.(jam.ImageTagger); ok {
 		return t.ImageTag(ref)
 	}
 	return ""
