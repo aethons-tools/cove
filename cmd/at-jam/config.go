@@ -17,6 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
@@ -619,9 +620,6 @@ type launcherConfig struct {
 	DockerContext string `yaml:"docker-context"`
 }
 
-// dockerContextRe is docker's own context-name rule.
-var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
-
 // validateLauncher checks runtime.launcher when present (required fields:
 // runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
 // at-cove config dir's id_ed25519 / known_hosts.d. A no-op when runtime.launcher
@@ -638,7 +636,7 @@ func (c serveConfig) validateLauncher() error {
 	if lc.JamHost == "" {
 		return fmt.Errorf("runtime.launcher.jam-host is required")
 	}
-	if lc.DockerContext != "" && !dockerContextRe.MatchString(lc.DockerContext) {
+	if lc.DockerContext != "" && !colimacfg.ValidDockerContext(lc.DockerContext) {
 		return fmt.Errorf("runtime.launcher.docker-context %q is not a valid docker context name", lc.DockerContext)
 	}
 	if lc.IdentityFile == "" {

@@ -3,7 +3,7 @@
 #
 # No network, no Docker, no live release. We put stub `gh` and `uname`
 # executables on PATH that serve a locally-built fixture "release" (fake
-# at-cove-tombstone/at-mint/at-jam binaries + a real checksums.txt), then drive install.sh
+# at-cove-tombstone/at-mint/at-jam/at-studio-manager binaries + a real checksums.txt), then drive install.sh
 # and assert on what it does. Pure helpers are unit-tested by sourcing
 # install.sh in lib mode (COVE_INSTALL_LIB=1), which suppresses main.
 #
@@ -51,15 +51,18 @@ STUB_BIN="$WORK/stubbin"    # stub gh/uname, first on PATH
 mkdir -p "$RELEASE_DIR" "$STUB_BIN"
 
 # build a fixture archive carrying fake at-cove (the tombstone) + at-mint +
-# at-jam for a given os/arch. Optional 3rd arg: a version (default
-# FIXTURE_VERSION); a 4th arg of "nojam" omits at-jam, like a release cut before
-# at-jam shipped, and "nocove" omits the at-cove tombstone.
+# at-jam + at-studio-manager for a given os/arch. Optional 3rd arg: a version
+# (default FIXTURE_VERSION); a 4th arg of "nojam" omits at-jam and
+# at-studio-manager, like a release cut before at-jam shipped, "nosm" omits
+# at-studio-manager, like a release cut before it shipped, and "nocove" omits
+# the at-cove tombstone.
 build_archive() {
   local os="$1" arch="$2" ver="${3:-$FIXTURE_VERSION}" variant="${4:-}"
   local stage="$WORK/stage-$ver-$os-$arch"
-  local bins=(at-cove at-mint at-jam)
+  local bins=(at-cove at-mint at-jam at-studio-manager)
   [ "$variant" = nojam ] && bins=(at-cove at-mint)
-  [ "$variant" = nocove ] && bins=(at-mint at-jam)
+  [ "$variant" = nosm ] && bins=(at-cove at-mint at-jam)
+  [ "$variant" = nocove ] && bins=(at-mint at-jam at-studio-manager)
   mkdir -p "$stage"
   for b in "${bins[@]}"; do
     cat >"$stage/$b" <<EOF
@@ -75,6 +78,8 @@ build_archive linux amd64
 build_archive darwin arm64
 PRE_JAM_VERSION="99-0101"
 build_archive linux amd64 "$PRE_JAM_VERSION" nojam
+PRE_SM_VERSION="122-0701"
+build_archive linux amd64 "$PRE_SM_VERSION" nosm
 NO_COVE_VERSION="124-0722"
 build_archive linux amd64 "$NO_COVE_VERSION" nocove
 
@@ -170,6 +175,7 @@ out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$FIXTURE_VERSION" BINDIR="$BIN
 if [ "$rc" = 0 ]; then ok "install exit 0"; else bad "install exit 0" "rc=$rc" "$out"; fi
 if [ -x "$BIN1/at-mint" ]; then ok "at-mint installed + executable"; else bad "at-mint installed + executable" "$out"; fi
 if [ -x "$BIN1/at-jam" ]; then ok "at-jam installed + executable"; else bad "at-jam installed + executable" "$out"; fi
+if [ -x "$BIN1/at-studio-manager" ]; then ok "at-studio-manager installed + executable"; else bad "at-studio-manager installed + executable" "$out"; fi
 if [ -e "$BIN1/at-cove" ]; then bad "at-cove tombstone NOT installed"; else ok "at-cove tombstone NOT installed"; fi
 if [ -e "$BIN1/at-task" ]; then bad "at-task NOT installed"; else ok "at-task NOT installed"; fi
 
@@ -178,6 +184,12 @@ BIN0="$WORK/bin0"
 out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$PRE_JAM_VERSION" BINDIR="$BIN0" run_install 2>&1)" && rc=0 || rc=$?
 if [ "$rc" = 0 ] && [ -x "$BIN0/at-mint" ]; then ok "pre-at-jam release installs"; else bad "pre-at-jam release installs" "rc=$rc" "$out"; fi
 if [ -e "$BIN0/at-jam" ]; then bad "pre-at-jam release installs no at-jam"; else ok "pre-at-jam release installs no at-jam"; fi
+
+echo "== e2e: a pre-at-studio-manager release still installs =="
+BIN7="$WORK/bin7"
+out="$(UNAME_S=Linux UNAME_M=x86_64 COVE_VERSION="$PRE_SM_VERSION" BINDIR="$BIN7" run_install 2>&1)" && rc=0 || rc=$?
+if [ "$rc" = 0 ] && [ -x "$BIN7/at-mint" ] && [ -x "$BIN7/at-jam" ]; then ok "pre-at-studio-manager release installs at-mint + at-jam"; else bad "pre-at-studio-manager release installs at-mint + at-jam" "rc=$rc" "$out"; fi
+if [ -e "$BIN7/at-studio-manager" ]; then bad "pre-at-studio-manager release skips at-studio-manager"; else ok "pre-at-studio-manager release skips at-studio-manager"; fi
 
 echo "== e2e: arch mapping picks darwin_arm64 asset =="
 : >"$PATTERN_LOG"
@@ -215,16 +227,17 @@ ca_case() { # ca_case <name> <want: ok|reject> <tombstone mode> <bins...>
   chmod "$mode" "$d/stage/at-cove"
   printf 'bin\n' >"$d/stage/at-mint"
   printf 'bin\n' >"$d/stage/at-jam"
+  printf 'bin\n' >"$d/stage/at-studio-manager"
   printf 'readme\n' >"$d/stage/README.md"
   tar -C "$d/stage" -czf "$d/dist/cove_1-0101_linux_amd64.tar.gz" "$@"
   if bash "$CHECK_SH" "$d/dist" >/dev/null 2>&1; then got=ok; else got=reject; fi
   assert_eq "check-archive $name -> $want" "$want" "$got"
 }
-ca_case good ok 0755 at-cove at-mint at-jam
-ca_case missing reject 0755 at-mint at-jam
-ca_case mode reject 0644 at-cove at-mint at-jam
-ca_case altered reject 0755 at-cove at-mint at-jam
-ca_case extra reject 0755 at-cove at-mint at-jam README.md
+ca_case good ok 0755 at-cove at-mint at-jam at-studio-manager
+ca_case missing reject 0755 at-mint at-jam at-studio-manager
+ca_case mode reject 0644 at-cove at-mint at-jam at-studio-manager
+ca_case altered reject 0755 at-cove at-mint at-jam at-studio-manager
+ca_case extra reject 0755 at-cove at-mint at-jam at-studio-manager README.md
 if bash "$CHECK_SH" "$WORK/no-such-dist" >/dev/null 2>&1; then bad "check-archive no archives -> reject"; else ok "check-archive no archives -> reject"; fi
 
 echo "== e2e: tampered checksum aborts, nothing installed =="

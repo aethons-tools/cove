@@ -15,7 +15,7 @@ import (
 // swap in a runner.Fake.
 var updateRunner runner.Runner = runner.OS{}
 
-// cmdUpdate updates the on-PATH cove binaries (at-jam and at-mint ship in one
+// cmdUpdate updates the on-PATH cove binaries (at-jam, at-mint and at-studio-manager ship in one
 // release archive) via the shared update.Do and the embedded install.sh.
 func cmdUpdate(getenv func(string) string) func([]string, cli.Globals, io.Writer, io.Writer) int {
 	return func(args []string, g cli.Globals, stdout, stderr io.Writer) int {

@@ -45,6 +45,7 @@ type Config struct {
 	Reconciler Reconciler            // nil: no reconcile
 	Instances  func() []jam.Instance // studio counts; nil = Store.ListInstances
 	Version    string
+	SSHUserCA  []byte // sent in Welcome: the OpenSSH user CA public key studios trust
 	Log        *slog.Logger
 	Now        func() time.Time
 
@@ -90,6 +91,8 @@ type Hub struct {
 	remotes map[string]*Remote
 	live    map[string]*conn // the current conn per name
 	status  map[string]*jam.ManagerStatus
+
+	afterAdmit func() // test seam: runs between admit and serve, widening that window
 }
 
 func NewHub(cfg Config) *Hub {
@@ -364,9 +367,12 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 	}
 	c := newConn(send)
 
-	remote, old, err := h.admit(name, hash, hello, c)
+	remote, old, err := h.admit(name, hash, hello, c, send)
 	if err != nil {
 		return err
+	}
+	if h.afterAdmit != nil {
+		h.afterAdmit()
 	}
 	// Outside every hub lock: closing waits out a log write in progress on
 	// the old conn, and a slow log sink must not stall the hub.
@@ -393,10 +399,10 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 
 // admit makes c name's current conn, unless a rotate or revoke since auth
 // invalidated the token. Holding regMu, no rotate or revoke can land between
-// that check, the inventory reconcile and the attach, so a refused stream
+// that check, the inventory reconcile, Welcome and the attach, so a refused stream
 // never marks studios Lost. It returns the Remote and the conn c replaced
 // (nil if none), which the caller closes.
-func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn) (*Remote, *conn, error) {
+func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn, send func(*managerpb.ManagerDown) error) (*Remote, *conn, error) {
 	h.regMu.Lock()
 	defer h.regMu.Unlock()
 	if cur, ok := h.cfg.Store.ManagerByTokenHash(hash); !ok || cur.Name != name {
@@ -410,6 +416,14 @@ func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn) (*Remote
 	var rc jam.ManagerReconcile
 	if h.cfg.Reconciler != nil {
 		rc = h.cfg.Reconciler.ReconcileManager(name, inv)
+	}
+
+	// regMu is held across this single Welcome send.
+	// Welcome goes out before the conn is attached: once attached the manager
+	// is routable, and a request frame must never precede Welcome (the client
+	// expects Welcome first). A send error attaches nothing.
+	if err := send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: &managerpb.Welcome{SshUserCa: h.cfg.SSHUserCA}}}); err != nil {
+		return nil, nil, err
 	}
 
 	now := h.cfg.Now()
@@ -429,12 +443,9 @@ func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn) (*Remote
 	return remote, remote.attach(c), nil
 }
 
-// serve sends Welcome and runs the stream until it ends, returning why.
+// serve runs the stream until it ends, returning why.
 func (h *Hub) serve(stream managerpb.StudioManager_ConnectServer, c *conn, name string, ups <-chan upMsg, send func(*managerpb.ManagerDown) error) error {
 	ctx := stream.Context()
-	if err := send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: &managerpb.Welcome{}}}); err != nil {
-		return err
-	}
 	h.cfg.Router.Kick()
 	h.log.Info("manager connected", "manager", name)
 

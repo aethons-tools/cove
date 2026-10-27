@@ -7,11 +7,15 @@ import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
 import type { Conversation, MessageRow, RailResponse } from "../api/types";
 
+// today is a time on the current day: the view labels it "Today".
+const today = (h: number, m: number): Date => {
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d;
+};
 const rail: RailResponse = { unreadTotal: 0, groups: [] };
-// Messages are from today (whatever today is), at 09:MM.
-const today = new Date();
 const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
-  from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9, seq % 60).toISOString(),
+  from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: today(9, seq % 60).toISOString(),
   mine: false, seq, system: false, sysText: "", card: "", ...over,
 });
 const conv = (over: Partial<Conversation> = {}): Conversation => ({

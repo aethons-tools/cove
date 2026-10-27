@@ -47,11 +47,18 @@ type Instance struct {
 // known), dialled over its published sshd, paused when idle, removed at
 // teardown. There is no build op here — KitImageBuilder builds the image.
 type DispatchOps interface {
-	RunEphemeral(image, digest, name, label string, dns, addHosts []string, docker bool, mounts ...Mount) (Instance, error) // fresh labeled --rm container; sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117); mounts attaches named volumes, which --rm never removes (COV-249)
+	RunEphemeral(image, digest, name string, labels []string, dns, addHosts []string, docker bool, mounts ...Mount) (Instance, error) // fresh --rm container carrying every label (one --label each, in order); sshd published; pins digest when set (COV-78); dns pins container resolvers (empty inherits Docker's default); addHosts maps names to the host gateway (COV-138); docker runs it under Sysbox with a -docker cache volume (COV-117); mounts attaches named volumes, which --rm never removes (COV-249)
 	Dial(container string) (Endpoint, func(), error)
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
 	Unpause(name string) error         // docker unpause; thaw it
+}
+
+// ContainerLister lists studio containers by label (docker ps, so paused ones
+// are included): name -> the value of key, filtered to those also carrying
+// every match label ("key=value").
+type ContainerLister interface {
+	ListContainers(key string, match ...string) (map[string]string, error)
 }
 
 // Mount is a named docker volume mounted into an ephemeral container at

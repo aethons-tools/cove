@@ -29,6 +29,23 @@ import (
 // See docs/usage/jam/renamed-from-harbor.md.
 const Label = "harbor.cove"
 
+// ActorLabel carries the actor id on every container the launcher raises, so
+// a manager can inventory its studios from docker alone.
+const ActorLabel = "harbor.cove.actor"
+
+// ManagerLabel names the remote manager that raised a container or created a
+// state volume; absent for the local manager.
+const ManagerLabel = "harbor.cove.manager"
+
+// raiseLabels are the labels a raise passes for actorID.
+func (l *Launcher) raiseLabels(actorID string) []string {
+	labels := []string{Label, ActorLabel + "=" + actorID}
+	if l.cfg.Manager != "" {
+		labels = append(labels, ManagerLabel+"="+l.cfg.Manager)
+	}
+	return labels
+}
+
 // Backend is the backend surface the launcher needs: the ephemeral run/dial/remove
 // ops, GetStatus for probing, and the managed-kit build+inventory. The Colima
 // backend value satisfies all three, so its build/inventory and its RunEphemeral
@@ -60,8 +77,13 @@ type Config struct {
 	Log   *slog.Logger // nil → discard
 	// SSHUserCA is Jam's SSH user-CA public key (one authorized_keys line),
 	// installed in every raised studio so its sshd accepts the short-lived
-	// certs Jam issues for human collaborators. Empty = SSH collaboration off.
+	// certs Jam issues for human collaborators. Empty = SSH collaboration off. The initial value; SetSSHUserCA changes it.
 	SSHUserCA []byte
+	// Manager names the remote Studio Manager this launcher serves. Empty is
+	// the in-process local manager. A name scopes the container labels, state
+	// volumes and inventory so managers can share one docker daemon; it also
+	// makes the JamID default RuntimeAddr#Manager.
+	Manager string
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
 	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
@@ -91,6 +113,9 @@ type Launcher struct {
 	inflight  map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
 	asm       string                 // assembly fingerprint, part of every image tag
 	sshCAWarn sync.Once              // warn once when the backend can't install the SSH CA
+	caMu      sync.Mutex             // guards ca/caSet
+	ca        []byte                 // SetSSHUserCA value, once caSet
+	caSet     bool
 }
 
 var (
@@ -107,6 +132,9 @@ func New(cfg Config) *Launcher {
 	}
 	if cfg.JamID == "" {
 		cfg.JamID = cfg.RuntimeAddr
+		if cfg.Manager != "" {
+			cfg.JamID += "#" + cfg.Manager
+		}
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
@@ -169,7 +197,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	if err != nil {
 		return "", fmt.Errorf("raise %s: %w", name, err)
 	}
-	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, Label, l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, mounts...); err != nil {
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, l.raiseLabels(spec.ActorID), l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, mounts...); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.
@@ -252,7 +280,11 @@ func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount
 	vols := stateVolumes(name)
 	for _, v := range vols {
 		// -v would auto-create the volume, but without the labels the sweep keys on.
-		if err := l.cfg.Ops.CreateVolume(v, StateLabel+"="+spec.ActorID, JamLabel+"="+l.cfg.JamID); err != nil {
+		labels := []string{StateLabel + "=" + spec.ActorID, JamLabel + "=" + l.cfg.JamID}
+		if l.cfg.Manager != "" {
+			labels = append(labels, ManagerLabel+"="+l.cfg.Manager)
+		}
+		if err := l.cfg.Ops.CreateVolume(v, labels...); err != nil {
 			return nil, fmt.Errorf("create state volume %s: %w", v, err)
 		}
 	}
@@ -275,7 +307,11 @@ func (l *Launcher) PurgeState(ctx context.Context, actorID string) error {
 // StateOwners lists the actor ids owning this Jam's StateLabel-ed volumes,
 // sorted.
 func (l *Launcher) StateOwners(ctx context.Context) ([]string, error) {
-	vols, err := l.cfg.Ops.ListVolumes(StateLabel, JamLabel+"="+l.cfg.JamID)
+	match := []string{JamLabel + "=" + l.cfg.JamID}
+	if l.cfg.Manager != "" {
+		match = append(match, ManagerLabel+"="+l.cfg.Manager)
+	}
+	vols, err := l.cfg.Ops.ListVolumes(StateLabel, match...)
 	if err != nil {
 		return nil, err
 	}
@@ -300,12 +336,30 @@ func (l *Launcher) applyRoleEgress(name string, spec jam.RaiseSpec) error {
 	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
 }
 
+// SetSSHUserCA replaces the SSH user-CA key later raises install (nil turns
+// SSH collaboration off). Safe concurrently with Raise.
+func (l *Launcher) SetSSHUserCA(pub []byte) {
+	l.caMu.Lock()
+	defer l.caMu.Unlock()
+	l.ca, l.caSet = slices.Clone(pub), true
+}
+
+func (l *Launcher) sshUserCA() []byte {
+	l.caMu.Lock()
+	defer l.caMu.Unlock()
+	if l.caSet {
+		return l.ca
+	}
+	return l.cfg.SSHUserCA
+}
+
 // installSSHUserCA installs Jam's SSH user-CA key in the raised studio, when
 // one is configured. Never fails the raise: without the CA the studio simply
 // has no human SSH (sshd's TrustedUserCAKeys file stays absent), so a backend
 // without the op warns once and a failed install warns for that studio.
 func (l *Launcher) installSSHUserCA(container, actorID string) {
-	if len(l.cfg.SSHUserCA) == 0 {
+	pub := l.sshUserCA()
+	if len(pub) == 0 {
 		return
 	}
 	ca, ok := l.cfg.Ops.(backend.SSHCA)
@@ -315,7 +369,7 @@ func (l *Launcher) installSSHUserCA(container, actorID string) {
 		})
 		return
 	}
-	if err := ca.InstallSSHUserCA(container, l.cfg.SSHUserCA); err != nil {
+	if err := ca.InstallSSHUserCA(container, pub); err != nil {
 		l.cfg.Log.Warn("SSH user CA install failed; SSH collaboration unavailable for this studio", "id", actorID, "error", err.Error())
 		return
 	}
@@ -355,6 +409,16 @@ func (l *Launcher) applyEgress(container, actorID, project, role string, p *jam.
 }
 
 func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
+	tail, err := l.TeardownCapture(ctx, inst)
+	if tail != "" {
+		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
+	}
+	return err
+}
+
+// TeardownCapture does what Teardown does but returns the cove-master log tail
+// (possibly "") instead of logging it, so a remote manager can ship it to Jam.
+func (l *Launcher) TeardownCapture(ctx context.Context, inst jam.Instance) (string, error) {
 	// An idled cove is docker-paused; SSH into a frozen container hangs (so the
 	// log capture below blocks and the whole teardown stalls). Unpause first —
 	// best-effort, and Pause/Unpause are idempotent so this is a harmless no-op
@@ -369,11 +433,9 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
-	if tail := l.captureAgentLog(inst.Location); tail != "" {
-		l.cfg.Log.Warn("cove agent log (tail, captured on teardown)", "id", inst.ActorID, "log", tail)
-	}
+	tail := l.captureAgentLog(inst.Location)
 	if err := l.cfg.Ops.RemoveContainer(inst.Location); err != nil {
-		return err
+		return tail, err
 	}
 	// The -docker cache is the studio's: it goes with the container, so the
 	// session's next studio starts with a clean Docker store. Best-effort.
@@ -382,7 +444,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 			l.cfg.Log.Warn("teardown: removing the studio's docker cache failed", "id", inst.ActorID, "error", err.Error())
 		}
 	}
-	return nil
+	return tail, nil
 }
 
 // captureAgentLog returns the last few KB of cove-master's log from the cove, or

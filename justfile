@@ -6,11 +6,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# build for the current host into dist/<os>-<arch>/{at-mint,at-jam} (host-sensitive)
+# build for the current host into dist/<os>-<arch>/{at-mint,at-jam,at-studio-manager} (host-sensitive)
 build:
     ./scripts/build.sh
 
-# cross-compile every supported target into dist/<os>-<arch>/{at-mint,at-jam}
+# cross-compile every supported target into dist/<os>-<arch>/{at-mint,at-jam,at-studio-manager}
 build-all:
     ./scripts/build.sh all
 
@@ -19,7 +19,7 @@ build-all:
 jam *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
 
-# install the host binaries (at-mint, at-jam) onto your PATH.
+# install the host binaries (at-mint, at-jam, at-studio-manager) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
 install: build
@@ -29,7 +29,7 @@ install: build
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
     plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    for b in at-mint at-jam; do
+    for b in at-mint at-jam at-studio-manager; do
       install -m 0755 "dist/$plat/$b" "$bin/$b"
       echo "installed dist/$plat/$b -> $bin/$b"
     done

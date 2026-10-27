@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -27,8 +28,9 @@ import (
 // fakeJam plays Jam: it records the Hello and auth, then hands the stream to fn.
 type fakeJam struct {
 	managerpb.UnimplementedStudioManagerServer
-	refuse error
-	fn     func(t *testing.T, s *session)
+	refuse  error
+	welcome *managerpb.Welcome // nil: empty
+	fn      func(t *testing.T, s *session)
 
 	t     *testing.T
 	hello chan *managerpb.Hello
@@ -85,7 +87,11 @@ func (f *fakeJam) Connect(srv managerpb.StudioManager_ConnectServer) error {
 		return f.refuse
 	}
 	s := &session{srv: srv, up: make(chan *managerpb.ManagerUp, 64), done: make(chan struct{})}
-	if err := srv.Send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: &managerpb.Welcome{}}}); err != nil {
+	w := f.welcome
+	if w == nil {
+		w = &managerpb.Welcome{}
+	}
+	if err := srv.Send(&managerpb.ManagerDown{Msg: &managerpb.ManagerDown_Welcome{Welcome: w}}); err != nil {
 		return err
 	}
 	go func() {
@@ -208,6 +214,35 @@ func TestRunSendsHelloWithInventoryAndOwners(t *testing.T) {
 	}
 	if a := <-fj.auth; len(a) != 1 || a[0] != "Bearer tok" {
 		t.Fatalf("auth = %v", a)
+	}
+}
+
+func TestRunCallsOnWelcomeBeforeServing(t *testing.T) {
+	var mu sync.Mutex
+	var ca []byte
+	seen := make(chan []byte, 1)
+	l := &fakeLauncher{raiseFn: func(context.Context, jam.RaiseSpec, jam.LaunchCreds) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen <- ca
+		return "loc", nil
+	}}
+	fj := &fakeJam{
+		welcome: &managerpb.Welcome{SshUserCa: []byte("ssh-ed25519 AAAA ca")},
+		fn: func(t *testing.T, s *session) {
+			// Do not wait for the reply: the test ends once the launcher has
+			// seen the CA, and a Fatal from this goroutine afterwards panics.
+			s.request(1, wire.OpRaise, wire.RaiseRequest{Spec: jam.RaiseSpec{ActorID: "a"}})
+			<-s.srv.Context().Done()
+		},
+	}
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: l, OnWelcome: func(w *managerpb.Welcome) {
+		mu.Lock()
+		ca = w.GetSshUserCa()
+		mu.Unlock()
+	}})
+	if got := string(<-seen); got != "ssh-ed25519 AAAA ca" {
+		t.Fatalf("CA seen by first request = %q", got)
 	}
 }
 
@@ -371,5 +406,103 @@ func TestRunOversizeRequestEndsRun(t *testing.T) {
 	defer mu.Unlock()
 	if raised != 0 {
 		t.Fatalf("raise dispatched %d times from a dropped request", raised)
+	}
+}
+
+type capturingLauncher struct{ fakeLauncher }
+
+func (capturingLauncher) TeardownCapture(context.Context, jam.Instance) (string, error) {
+	return "why it died", nil
+}
+
+func serveTeardown(t *testing.T, l jam.Launcher) wire.TeardownResult {
+	t.Helper()
+	got := make(chan *managerpb.Frame, 1)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		s.request(1, wire.OpTeardown, wire.InstanceRequest{Instance: jam.Instance{Location: "loc"}})
+		got <- s.next(t)
+		<-s.srv.Context().Done()
+	}}
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: l})
+	var r wire.TeardownResult
+	if err := decode(t, <-got, &r); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestServeTeardownReturnsAgentLog(t *testing.T) {
+	if r := serveTeardown(t, &capturingLauncher{}); r.AgentLog != "why it died" {
+		t.Fatalf("AgentLog = %q", r.AgentLog)
+	}
+}
+
+func TestServeTeardownPlainLauncher(t *testing.T) {
+	if r := serveTeardown(t, &fakeLauncher{}); r.AgentLog != "" {
+		t.Fatalf("AgentLog = %q, want empty", r.AgentLog)
+	}
+}
+
+type blockingKitLauncher struct {
+	fakeLauncher
+	started chan struct{}
+	release chan struct{}
+}
+
+func (l *blockingKitLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	close(l.started)
+	<-l.release // ignores ctx, like a real kit build
+	return jam.KitStatus{}, nil
+}
+
+// msgHandler is a slog.Handler that reports each record's message.
+type msgHandler struct{ msgs chan string }
+
+func (h msgHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h msgHandler) Handle(_ context.Context, r slog.Record) error {
+	select {
+	case h.msgs <- r.Message:
+	default:
+	}
+	return nil
+}
+func (h msgHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h msgHandler) WithGroup(string) slog.Handler      { return h }
+
+// A dropped stream ends Run at once, even while a request that ignores ctx
+// (a kit build) is still running; its late reply is dropped harmlessly.
+func TestRunReturnsWhileRequestStillRunning(t *testing.T) {
+	l := &blockingKitLauncher{started: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(l.release)
+		}
+	}()
+	fj := &fakeJam{fn: func(_ *testing.T, s *session) {
+		s.request(1, wire.OpPrepareKit, wire.KitRequest{})
+		<-l.started // then return: the stream ends
+	}}
+	msgs := make(chan string, 16)
+	out := runAsync(t, start(t, fj), Config{Name: "m", Launcher: l, Log: slog.New(msgHandler{msgs})})
+	select {
+	case err := <-out:
+		if err != nil {
+			t.Fatalf("Run = %v, want nil after the stream ended", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return while PrepareKit was blocked")
+	}
+	released = true
+	close(l.release)
+	for {
+		select {
+		case m := <-msgs:
+			if m == "manager: send result failed" {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("late reply was not attempted and dropped")
+		}
 	}
 }
