@@ -225,8 +225,61 @@ jobs:
   # AFTER publish-images so a freshly-published base digest is already the registry
   # head when gen-blessed (a goreleaser before-hook) snapshots the blessed list.
   # PRs build + validate only; main builds a snapshot and cuts the GH release.
+  # One-time re-cut of the blessed bases under the jam name (jam-only slice 3):
+  # copy every released cove-base-image from the blessed watermark onward into
+  # jam-studio-base with digests preserved, so the provenance gate and the
+  # blessed-list snapshot resolve under the new repo. Idempotent: skipped once
+  # the watermark digest resolves in jam-studio-base. It copies only images
+  # already published (never a PR's build), so it runs on PRs too — the PR's
+  # binaries leg needs it. Removable once the re-cut has run on main.
+  recut-bases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Copy the blessed bases into jam-studio-base
+        env:
+          OLD: ghcr.io/aethons-tools/cove-base-image
+          NEW: ghcr.io/aethons-tools/jam-studio-base
+        run: |
+          set -euo pipefail
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          crane=$(go env GOPATH)/bin/crane
+          wm=$(grep -v '^#' internal/basedigest/blessed/watermark.txt | grep sha256 | head -1)
+          if $crane manifest "$NEW@$wm" >/dev/null 2>&1; then
+            echo "watermark $wm already in $NEW: nothing to copy"; exit 0
+          fi
+          wmtag=""
+          for t in $($crane ls "$OLD"); do
+            case "$t" in *[!0-9-]*|*-*-*) continue;; esac
+            [ "$($crane digest "$OLD:$t")" = "$wm" ] && { wmtag=$t; break; }
+          done
+          [ -n "$wmtag" ] || { echo "no release tag of $OLD carries the watermark $wm"; exit 1; }
+          floor=${wmtag%%-*}
+          echo "watermark tag $wmtag (N=$floor)"
+          copied=0
+          for t in $($crane ls "$OLD" | sort -t- -k1,1n); do
+            case "$t" in latest) ;; *[!0-9-]*|*-*-*) continue;; *) [ "${t%%-*}" -ge "$floor" ] || continue;; esac
+            d=$($crane digest "$OLD:$t")
+            $crane copy "$OLD@$d" "$NEW:$t"
+            got=$($crane digest "$NEW:$t")
+            [ "$got" = "$d" ] || { echo "digest changed for $t: $got != $d"; exit 1; }
+            echo "copied $t -> $d"; copied=$((copied+1))
+          done
+          $crane manifest "$NEW@$wm" >/dev/null
+          echo "copied $copied tag(s); watermark present in $NEW"
+
   binaries:
-    needs: [changes, images, publish-images]
+    needs: [changes, images, publish-images, recut-bases]
     # Run when the binaries leg is selected and nothing upstream failed. On PRs and
     # go-only main pushes the image jobs are skipped (not failed), so still run.
     if: ${{ !cancelled() && !failure() && needs.changes.outputs.binaries == 'true' }}
